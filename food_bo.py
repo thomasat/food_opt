@@ -10,13 +10,16 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.utils.transforms import normalize, unnormalize
 from botorch.models.transforms.outcome import Standardize
 from torch.quasirandom import SobolEngine
-from botorch.acquisition import UpperConfidenceBound
+
+# Switched to qUpperConfidenceBound for Batch support
+from botorch.acquisition import qUpperConfidenceBound
 
 class FoodOptimizer:
     def __init__(self, project_name="experiment"):
         self.project_name = project_name
         self.filename = f"{project_name}.pkl"
         
+        # --- STATE ---
         self.variables = [] 
         self.objectives = [] 
         self.X_history = []  
@@ -24,41 +27,46 @@ class FoodOptimizer:
         
         if os.path.exists(self.filename):
             self.load()
+        else:
+            # FIX: Create the file immediately if it doesn't exist
+            self.save()
+
+    # --- DEFINITION METHODS ---
 
     def add_ingredient(self, name, min_val, max_val):
         for var in self.variables:
             if var['name'] == name:
-                print(f"Variable '{name}' already exists. Skipping.")
                 return
-
         self.variables.append({
             'name': name,
             'type': 'continuous',
             'bounds': (float(min_val), float(max_val))
         })
+        self.save() 
 
     def add_categorical(self, name, options):
         for var in self.variables:
             if var['name'] == name:
                 return
-
         self.variables.append({
             'name': name,
             'type': 'categorical',
             'options': options
         })
+        self.save() 
 
     def add_objective(self, name, weight, goal='max'):
         for obj in self.objectives:
             if obj['name'] == name:
                 return
-
         self.objectives.append({
             'name': name,
             'weight': float(weight),
             'goal': goal
         })
+        self.save() 
 
+    # --- INTERNAL HELPERS ---
     def _encode(self, recipe_dict):
         vector = []
         for var in self.variables:
@@ -98,18 +106,30 @@ class FoodOptimizer:
                     bounds_max.append(1.0)
         return torch.tensor([bounds_min, bounds_max], dtype=torch.double)
 
-    def ask(self, n_init_random=5):
+    # --- CORE LOOP (Updated for Batching) ---
+
+    def ask(self, n_suggestions=1, n_init_random=5):
+        """
+        Generates a batch of `n_suggestions` recipes.
+        Returns: List of dictionaries.
+        """
         bounds_tensor = self._get_bounds()
         dim = bounds_tensor.shape[1]
 
+        # 1. COLD START (Sobol)
         if len(self.X_history) < n_init_random:
-            print(f"DEBUG: Cold start ({len(self.X_history)+1}/{n_init_random})...")
+            print(f"DEBUG: Cold start (Sobol batch of {n_suggestions})...")
             sobol = SobolEngine(dimension=dim, scramble=True, seed=len(self.X_history))
-            cand_norm = sobol.draw(1).double()
-            candidate_vec = unnormalize(cand_norm, bounds_tensor).numpy().flatten()
-            return self._decode(candidate_vec)
+            cand_norm = sobol.draw(n_suggestions).double()
+            
+            results = []
+            for i in range(n_suggestions):
+                vec = unnormalize(cand_norm[i], bounds_tensor).numpy().flatten()
+                results.append(self._decode(vec))
+            return results
 
-        print("DEBUG: Optimization Step...")
+        # 2. OPTIMIZATION (GP + qUCB)
+        print(f"DEBUG: Optimization Step (Batch of {n_suggestions})...")
         train_X = torch.tensor(self.X_history, dtype=torch.double)
         train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
         
@@ -119,18 +139,23 @@ class FoodOptimizer:
         mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
         fit_gpytorch_mll(mll)
         
-        UCB = UpperConfidenceBound(model=gp, beta=2.0)
+        qUCB = qUpperConfidenceBound(model=gp, beta=2.0)
         
         candidate_norm, _ = optimize_acqf(
-            acq_function=UCB,
+            acq_function=qUCB,
             bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
-            q=1,
+            q=n_suggestions, 
             num_restarts=10,
             raw_samples=512,
+            sequential=True
         )
         
-        candidate_vec = unnormalize(candidate_norm, bounds_tensor).detach().numpy().flatten()
-        return self._decode(candidate_vec)
+        results = []
+        for i in range(n_suggestions):
+            vec = unnormalize(candidate_norm[i], bounds_tensor).detach().numpy().flatten()
+            results.append(self._decode(vec))
+            
+        return results
 
     def tell(self, recipe_dict, results_dict):
         total_score = 0.0
@@ -142,7 +167,7 @@ class FoodOptimizer:
             raw_val = results_dict.get(obj['name'])
             
             if raw_val is None:
-                raise ValueError(f"Missing data for objective '{obj['name']}'. Check spelling!")
+                raise ValueError(f"Missing data for objective '{obj['name']}'.")
                 
             if obj['goal'] == 'max':
                 total_score += obj['weight'] * float(raw_val)
@@ -154,9 +179,7 @@ class FoodOptimizer:
         self.X_history.append(x_vec)
         self.Y_history.append(total_score)
         
-        print(f"Recorded: {recipe_dict}")
-        print(f"   -> Weighted Score: {total_score:.4f}")
-        
+        print(f"Recorded -> Weighted Score: {total_score:.4f}")
         self.save()
 
     def save(self):
