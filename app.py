@@ -8,7 +8,7 @@ st.title("Bayesian Optimization for Food")
 
 # --- SIDEBAR: Project Name ---
 with st.sidebar:
-    project_name = st.text_input("Project Name", "Cookie_Project_v2")
+    project_name = st.text_input("Project Name", "Alt_Protein_Project")
     
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
