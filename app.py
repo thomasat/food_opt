@@ -3,18 +3,17 @@ import pandas as pd
 import pickle
 from food_bo import FoodOptimizer
 
-st.set_page_config(page_title="BO for Food", layout="wide")
-st.title("Bayesian Optimization for Food")
+st.set_page_config(page_title="Food Optimizer", layout="wide")
+st.title("Formulation Assistant")
 
 # --- SIDEBAR: Project Name ---
 with st.sidebar:
-    project_name = st.text_input("Project Name", "Alt_Protein_Project")
+    project_name = st.text_input("Project Name", "Cookie_Project_v4")
     
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
         st.success(f"Initialized {project_name}")
     
-    # Reset Button
     if st.button("⚠️ Hard Reset Project"):
         import os
         if os.path.exists(f"{project_name}.pkl"):
@@ -26,7 +25,7 @@ with st.sidebar:
 tab_setup, tab_optimize = st.tabs(["🛠️ 1. Setup & Config", "🚀 2. Optimization Loop"])
 
 # ==========================================
-# TAB 1: SETUP (Ingredients, Model, Constraints)
+# TAB 1: SETUP
 # ==========================================
 with tab_setup:
     col_a, col_b = st.columns(2)
@@ -44,13 +43,42 @@ with tab_setup:
                 st.success(f"Loaded {len(df)} ingredients!")
 
         st.divider()
-        st.subheader("B. Objectives")
-        obj_name = st.text_input("Objective Name", "Texture")
-        obj_weight = st.slider("Weight", 0.0, 1.0, 1.0)
-        obj_goal = st.selectbox("Goal", ["max", "min"])
-        if st.button("Add Objective"):
-            st.session_state.optimizer.add_objective(obj_name, obj_weight, obj_goal)
-            st.success(f"Added {obj_name}")
+        st.subheader("B. Objectives (Normalized)")
+        st.caption("Define the valid range for each metric to normalize scores (0-1).")
+        
+        with st.form("obj_form"):
+            col_name, col_w = st.columns([2, 1])
+            with col_name:
+                obj_name = st.text_input("Metric Name (e.g. Chewiness)")
+            with col_w:
+                obj_weight = st.slider("Weight", 0.0, 1.0, 0.1)
+            
+            # Goal and Ranges
+            col_g, col_min, col_max = st.columns(3)
+            with col_g:
+                obj_goal = st.selectbox("Goal", ["max", "min", "target"])
+            with col_min:
+                obj_min = st.number_input("Range Min", value=0.0)
+            with col_max:
+                obj_max = st.number_input("Range Max", value=10.0)
+            
+            obj_target = st.number_input("Target Value (If Goal=Target)", value=5.0)
+            
+            if st.form_submit_button("Add Objective"):
+                st.session_state.optimizer.add_objective(
+                    obj_name, 
+                    obj_weight, 
+                    obj_goal, 
+                    target=obj_target if obj_goal == 'target' else None,
+                    min_val=obj_min,
+                    max_val=obj_max
+                )
+                st.success(f"Added {obj_name}")
+        
+        # Display current config
+        if st.session_state.optimizer.objectives:
+            st.write("Active Objectives:")
+            st.dataframe(pd.DataFrame(st.session_state.optimizer.objectives))
 
     with col_b:
         st.subheader("C. Low-Fidelity Model (Optional)")
@@ -59,13 +87,12 @@ with tab_setup:
             try:
                 model = pickle.load(uploaded_pkl)
                 st.session_state.optimizer.load_screening_model(model)
-                st.success("Model loaded! It will screen initial suggestions.")
+                st.success("Model loaded!")
             except Exception as e:
                 st.error(f"Error loading pickle: {e}")
 
         st.divider()
         st.subheader("D. Constraints")
-        # Dynamic constraints based on CSV properties
         props = set()
         for p in st.session_state.optimizer.ingredient_properties.values():
             props.update(p.keys())
@@ -78,7 +105,7 @@ with tab_setup:
                 st.session_state.optimizer.add_constraint(c_metric, min_val=c_min)
                 st.success("Constraint Added")
         else:
-            st.write("No properties (Cost/Protein) found in CSV.")
+            st.write("No properties found in CSV.")
 
 # ==========================================
 # TAB 2: OPTIMIZATION LOOP
@@ -120,7 +147,8 @@ with tab_optimize:
                     for j, obj in enumerate(st.session_state.optimizer.objectives):
                         with cols[j]:
                             rec_scores[obj['name']] = st.number_input(
-                                f"{obj['name']}", key=f"r{i}o{j}"
+                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})", 
+                                key=f"r{i}o{j}"
                             )
                     batch_inputs[i] = rec_scores
                     st.divider()
@@ -136,10 +164,9 @@ with tab_optimize:
     st.divider()
     if st.session_state.optimizer.X_history:
         st.subheader("History")
-        # Decode history
         hist = []
         for i, x in enumerate(st.session_state.optimizer.X_history):
             r = st.session_state.optimizer._decode(x)
-            r['Score'] = st.session_state.optimizer.Y_history[i]
+            r['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
             hist.append(r)
-        st.dataframe(pd.DataFrame(hist).sort_values('Score', ascending=False))
+        st.dataframe(pd.DataFrame(hist).sort_values('Total_Utility_Score', ascending=False))
