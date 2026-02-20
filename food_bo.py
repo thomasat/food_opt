@@ -30,14 +30,17 @@ class FoodOptimizer:
         self.filename = f"{project_name}.pkl"
         
         # --- STATE ---
-        self.variables = [] 
-        self.objectives = [] 
-        self.ingredient_properties = {} 
-        self.constraints = [] 
-        self.screening_model = None 
-        
-        self.X_history = []  
-        self.Y_history = []  
+        self.variables = []
+        self.objectives = []
+        self.ingredient_properties = {}
+        self.constraints = []
+        self.quantity_constraints = []  # Direct ingredient quantity sum constraints
+        self.screening_model = None
+
+        self.X_history = []
+        self.Y_history = []
+        self.recipe_history = []   # Raw recipe dicts (for editing)
+        self.results_history = []  # Raw results dicts (for editing)
         
         if os.path.exists(self.filename):
             self.load()
@@ -53,30 +56,37 @@ class FoodOptimizer:
         self.variables.append({
             'name': name,
             'type': 'continuous',
-            'bounds': (float(min_val), float(max_val))
+            'bounds': (float(min_val), float(max_val)),
+            'category': 'ingredient'
         })
         self.save()
 
     def load_ingredients_from_csv(self, df):
         """Bulk load from CSV (Used for App)."""
-        self.variables = [] 
+        # Preserve existing process parameters
+        process_vars = [v for v in self.variables if v.get('category') == 'process']
+        self.variables = []
         self.ingredient_properties = {}
-        
+
         standard_cols = ['Name', 'Min', 'Max', 'Type']
         prop_cols = [c for c in df.columns if c not in standard_cols]
-        
+
         for _, row in df.iterrows():
             name = row['Name']
             self.variables.append({
                 'name': name,
                 'type': 'continuous',
-                'bounds': (float(row['Min']), float(row['Max']))
+                'bounds': (float(row['Min']), float(row['Max'])),
+                'category': 'ingredient'
             })
-            
+
             props = {}
             for col in prop_cols:
                 props[col.lower()] = float(row[col])
             self.ingredient_properties[name] = props
+
+        # Re-add process parameters
+        self.variables.extend(process_vars)
         self.save()
 
     def load_screening_model(self, model_obj):
@@ -100,6 +110,104 @@ class FoodOptimizer:
             'min': float(min_val) if min_val is not None else None,
             'max': float(max_val) if max_val is not None else None
         })
+        self.save()
+
+    def add_quantity_constraint(self, ingredients, min_val=None, max_val=None):
+        """Add a constraint on the sum of selected ingredient quantities.
+
+        Useful for synergistic effects (e.g., Sugar + Honey <= 50g)
+        or total mass constraints (sum of all ingredients).
+
+        Args:
+            ingredients: list of ingredient names whose quantities to sum
+            min_val: minimum allowed sum (or None for no lower bound)
+            max_val: maximum allowed sum (or None for no upper bound)
+        """
+        self.quantity_constraints.append({
+            'ingredients': list(ingredients),
+            'min': float(min_val) if min_val is not None else None,
+            'max': float(max_val) if max_val is not None else None
+        })
+        self.save()
+
+    def add_total_mass_constraint(self, min_val=None, max_val=None):
+        """Add a constraint on the total mass (sum of all ingredient quantities)."""
+        all_ingredients = [v['name'] for v in self.variables
+                          if v.get('category', 'ingredient') == 'ingredient']
+        self.add_quantity_constraint(all_ingredients, min_val, max_val)
+
+    def remove_quantity_constraint(self, index):
+        """Remove a quantity constraint by index."""
+        if 0 <= index < len(self.quantity_constraints):
+            self.quantity_constraints.pop(index)
+            self.save()
+
+    def add_process_parameter(self, name, min_val, max_val):
+        """Add a process parameter (e.g., baking temperature, mixing time)."""
+        for var in self.variables:
+            if var['name'] == name: return
+        self.variables.append({
+            'name': name,
+            'type': 'continuous',
+            'bounds': (float(min_val), float(max_val)),
+            'category': 'process'
+        })
+        self.save()
+
+    def remove_process_parameter(self, name):
+        """Remove a process parameter by name."""
+        self.variables = [v for v in self.variables if v['name'] != name or v.get('category') != 'process']
+        self.save()
+
+    def _compute_utility(self, results_dict):
+        """Compute utility score from raw results dict."""
+        total_utility = 0.0
+        for obj in self.objectives:
+            raw_val = results_dict.get(obj['name'])
+            if raw_val is None:
+                continue
+            val = float(raw_val)
+
+            min_v = obj.get('min_val', 0.0)
+            max_v = obj.get('max_val', 10.0)
+            rng = max_v - min_v
+            if rng == 0: rng = 1.0
+
+            norm_val = (val - min_v) / rng
+            norm_val = max(0.0, min(1.0, norm_val))
+
+            if obj['goal'] == 'max':
+                utility = norm_val
+            elif obj['goal'] == 'min':
+                utility = 1.0 - norm_val
+            elif obj['goal'] == 'target':
+                targ_val = obj.get('target', (max_v + min_v) / 2)
+                norm_targ = (targ_val - min_v) / rng
+                dist = norm_val - norm_targ
+                utility = 1.0 - (dist ** 2)
+
+            total_utility += obj['weight'] * utility
+        return total_utility
+
+    def edit_result(self, index, new_results_dict):
+        """Edit a previously saved result and recalculate utility."""
+        if index < 0 or index >= len(self.Y_history):
+            raise IndexError("Result index out of range")
+        if index < len(self.results_history):
+            self.results_history[index] = dict(new_results_dict)
+        self.Y_history[index] = self._compute_utility(new_results_dict)
+        self.save()
+
+    def delete_result(self, index):
+        """Delete a result by index."""
+        if index < 0 or index >= len(self.X_history):
+            raise IndexError("Result index out of range")
+        self.X_history.pop(index)
+        self.Y_history.pop(index)
+        if index < len(self.recipe_history):
+            self.recipe_history.pop(index)
+        if index < len(self.results_history):
+            self.results_history.pop(index)
         self.save()
 
     # --- INTERNAL HELPERS ---
@@ -135,9 +243,38 @@ class FoodOptimizer:
             if constr['max'] is not None:
                 rhs = -(constr['max'] - offset_lhs)
                 constraints_list.append((tensor_idx, -tensor_coeffs, rhs))
+
+        # Quantity constraints (direct sum of ingredient quantities)
+        for qc in getattr(self, 'quantity_constraints', []):
+            indices = []
+            coeffs = []
+            offset = 0.0
+
+            for ing_name in qc['ingredients']:
+                if ing_name in var_indices:
+                    idx = var_indices[ing_name]
+                    var_def = next(v for v in self.variables if v['name'] == ing_name)
+                    v_min, v_max = var_def['bounds']
+                    v_range = v_max - v_min
+                    indices.append(idx)
+                    coeffs.append(v_range)
+                    offset += v_min
+
+            if not indices: continue
+            tensor_idx = torch.tensor(indices, dtype=torch.long)
+            tensor_coeffs = torch.tensor(coeffs, dtype=torch.double)
+
+            if qc['min'] is not None:
+                rhs = qc['min'] - offset
+                constraints_list.append((tensor_idx, tensor_coeffs, rhs))
+            if qc['max'] is not None:
+                rhs = -(qc['max'] - offset)
+                constraints_list.append((tensor_idx, -tensor_coeffs, rhs))
+
         return constraints_list
 
     def _check_constraints(self, recipe_dict):
+        # Property-based constraints
         for constr in self.constraints:
             metric = constr['metric']
             total_val = 0.0
@@ -146,6 +283,13 @@ class FoodOptimizer:
                     total_val += recipe_dict[var_name] * props.get(metric, 0.0)
             if constr['min'] is not None and total_val < constr['min']: return False
             if constr['max'] is not None and total_val > constr['max']: return False
+
+        # Quantity constraints (direct sum of ingredient quantities)
+        for qc in getattr(self, 'quantity_constraints', []):
+            total_val = sum(recipe_dict.get(name, 0.0) for name in qc['ingredients'])
+            if qc['min'] is not None and total_val < qc['min']: return False
+            if qc['max'] is not None and total_val > qc['max']: return False
+
         return True
 
     def _encode(self, recipe_dict):
@@ -278,39 +422,18 @@ class FoodOptimizer:
         return results
 
     def tell(self, recipe_dict, results_dict):
-        total_utility = 0.0
         if not self.objectives: raise ValueError("No objectives defined!")
-
         for obj in self.objectives:
-            raw_val = results_dict.get(obj['name'])
-            if raw_val is None: raise ValueError(f"Missing data for {obj['name']}")
-            val = float(raw_val)
-            
-            # Normalize [0, 1]
-            min_v = obj.get('min_val', 0.0)
-            max_v = obj.get('max_val', 10.0)
-            rng = max_v - min_v
-            if rng == 0: rng = 1.0
-            
-            norm_val = (val - min_v) / rng
-            norm_val = max(0.0, min(1.0, norm_val))
-            
-            # Calculate Utility
-            if obj['goal'] == 'max': 
-                utility = norm_val
-            elif obj['goal'] == 'min': 
-                utility = 1.0 - norm_val
-            elif obj['goal'] == 'target':
-                targ_val = obj.get('target', (max_v+min_v)/2)
-                norm_targ = (targ_val - min_v) / rng
-                dist = norm_val - norm_targ
-                utility = 1.0 - (dist ** 2)
-            
-            total_utility += obj['weight'] * utility
-        
+            if results_dict.get(obj['name']) is None:
+                raise ValueError(f"Missing data for {obj['name']}")
+
+        total_utility = self._compute_utility(results_dict)
+
         x_vec = self._encode(recipe_dict)
         self.X_history.append(x_vec)
         self.Y_history.append(total_utility)
+        self.recipe_history.append(dict(recipe_dict))
+        self.results_history.append(dict(results_dict))
         self.save()
 
     def save(self):
@@ -323,5 +446,16 @@ class FoodOptimizer:
             with open(self.filename, 'rb') as f:
                 state = pickle.load(f)
                 self.__dict__.update(state)
-            self.screening_model = None 
+            self.screening_model = None
+            # Backward compatibility for older pickle files
+            if not hasattr(self, 'quantity_constraints'):
+                self.quantity_constraints = []
+            if not hasattr(self, 'recipe_history'):
+                self.recipe_history = []
+            if not hasattr(self, 'results_history'):
+                self.results_history = []
+            # Ensure all variables have a category
+            for var in self.variables:
+                if 'category' not in var:
+                    var['category'] = 'ingredient'
         except: print("Warning: Load failed.")
