@@ -41,6 +41,10 @@ with st.sidebar:
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
         st.success(f"Initialized: {project_name}")
+    elif not hasattr(st.session_state.optimizer, 'add_quantity_constraint'):
+        # Re-instantiate with current class to pick up new methods
+        st.session_state.optimizer = FoodOptimizer(st.session_state.optimizer.project_name)
+        st.success("Upgraded session to latest version.")
 
     # Show current project info
     opt = st.session_state.optimizer
