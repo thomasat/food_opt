@@ -41,6 +41,10 @@ with st.sidebar:
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
         st.success(f"Initialized: {project_name}")
+    elif not hasattr(st.session_state.optimizer, 'add_quantity_constraint'):
+        # Re-instantiate with current class to pick up new methods
+        st.session_state.optimizer = FoodOptimizer(st.session_state.optimizer.project_name)
+        st.success("Upgraded session to latest version.")
 
     # Show current project info
     opt = st.session_state.optimizer
@@ -389,8 +393,9 @@ with tab_optimize:
             r['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
 
             # Include raw results if available
-            if i < len(st.session_state.optimizer.results_history):
-                for key, val in st.session_state.optimizer.results_history[i].items():
+            res_hist = getattr(st.session_state.optimizer, 'results_history', [])
+            if i < len(res_hist):
+                for key, val in res_hist[i].items():
                     r[f"[Result] {key}"] = val
 
             hist.append(r)
