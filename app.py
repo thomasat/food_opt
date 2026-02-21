@@ -401,7 +401,7 @@ with tab_optimize:
             hist.append(r)
 
         hist_df = pd.DataFrame(hist).sort_values('Total_Utility_Score', ascending=False)
-        hist_df.insert(0, 'Exp #', hist_df['_index'] + 1)
+        hist_df.insert(0, 'Exp #', hist_df['_index'])
         st.dataframe(hist_df.drop(columns=['_index']), hide_index=True)
 
         # --- Edit Results ---
