@@ -19,6 +19,8 @@ from botorch.acquisition import qLogNoisyExpectedImprovement
 from botorch.sampling.normal import SobolQMCNormalSampler
 
 class FoodOptimizer:
+    CLASS_VERSION = 2  # bump when adding methods/attrs to force session refresh
+
     def __init__(self, project_name="experiment", robust=False):
         """
         robust (bool): 
