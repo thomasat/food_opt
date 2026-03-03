@@ -212,6 +212,21 @@ class FoodOptimizer:
             self.results_history.pop(index)
         self.save()
 
+    def rewind_to(self, index):
+        """Rewind history to keep only experiments 0..index (inclusive).
+
+        All experiments after *index* are discarded.  The caller is
+        responsible for archiving the current state beforehand if desired.
+        """
+        if index < 0 or index >= len(self.X_history):
+            raise IndexError("Experiment index out of range")
+        keep = index + 1
+        self.X_history = self.X_history[:keep]
+        self.Y_history = self.Y_history[:keep]
+        self.recipe_history = self.recipe_history[:keep]
+        self.results_history = self.results_history[:keep]
+        self.save()
+
     # --- INTERNAL HELPERS ---
     def _get_botorch_constraints(self):
         # ... (Constraint logic identical to previous versions) ...

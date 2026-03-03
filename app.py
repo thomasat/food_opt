@@ -457,3 +457,43 @@ with tab_optimize:
                 "Edit capability is available for experiments recorded from this version onward. "
                 "Older experiments (without stored raw results) cannot be edited."
             )
+
+        # --- Rewind ---
+        st.divider()
+        st.caption("Rewind to a past experiment:")
+        st.info(
+            "Rewind keeps experiments 0 through N and **discards all later ones**. "
+            "The current project is archived first so nothing is permanently lost."
+        )
+        rewind_idx = st.number_input(
+            "Keep experiments up to (0-based)",
+            min_value=0,
+            max_value=len(st.session_state.optimizer.X_history) - 1,
+            value=len(st.session_state.optimizer.X_history) - 1,
+            step=1,
+            key="rewind_idx",
+        )
+        n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
+        if n_discard > 0:
+            st.warning(
+                f"This will discard {n_discard} experiment(s) "
+                f"(#{rewind_idx + 1} through #{len(st.session_state.optimizer.X_history) - 1})."
+            )
+        if st.button("Rewind", disabled=(n_discard == 0), key="rewind_btn"):
+            # Archive current state before rewinding
+            pname = st.session_state.optimizer.project_name
+            fname = f"{pname}.pkl"
+            if os.path.exists(fname):
+                archive_name = f"{pname}_pre_rewind.pkl"
+                counter = 1
+                while os.path.exists(archive_name):
+                    archive_name = f"{pname}_pre_rewind_{counter}.pkl"
+                    counter += 1
+                import shutil
+                shutil.copy2(fname, archive_name)
+                st.info(f"Archived current state as {archive_name}")
+            st.session_state.optimizer.rewind_to(rewind_idx)
+            if "current_batch" in st.session_state:
+                del st.session_state.current_batch
+            st.success(f"Rewound to experiment #{rewind_idx}!")
+            st.rerun()
