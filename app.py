@@ -440,8 +440,23 @@ with tab_optimize:
                     with ec1:
                         if st.form_submit_button("Update Result"):
                             st.session_state.optimizer.edit_result(edit_idx, new_results)
+                            n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
+                            if n_after > 0:
+                                st.session_state._edit_warning_idx = edit_idx
+                                st.session_state._edit_warning_n = n_after
                             st.success(f"Updated experiment #{edit_idx}!")
                             st.rerun()
+
+                if st.session_state.get('_edit_warning_idx') is not None:
+                    warn_idx = st.session_state._edit_warning_idx
+                    warn_n = st.session_state._edit_warning_n
+                    st.warning(
+                        f"Experiments after #{warn_idx} ({warn_n} total) were based on "
+                        f"the pre-edit ratings and may no longer be valid. "
+                        f"Consider rewinding to #{warn_idx}."
+                    )
+                    del st.session_state._edit_warning_idx
+                    del st.session_state._edit_warning_n
 
                 if st.button(f"Delete Experiment #{edit_idx}", key="delete_btn"):
                     st.session_state.optimizer.delete_result(edit_idx)
