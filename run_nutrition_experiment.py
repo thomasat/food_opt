@@ -194,8 +194,8 @@ def llm_reduced_bo(
     k = len(selected_indices)
     fixed_indices = [i for i in range(d_full) if i not in selected_indices]
 
-    # Fixed values = midpoint of bounds for non-selected ingredients
-    x_fixed = (bounds_np[0] + bounds_np[1]) / 2.0
+    # Fixed values = minimum (don't include unused ingredients)
+    x_fixed = bounds_np[0].copy()
 
     # Sub-bounds for selected ingredients
     sub_bounds_np = np.stack([
