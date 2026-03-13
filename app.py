@@ -370,16 +370,16 @@ with tab_optimize:
 2. **Convert to utility** based on the optimization goal:
    - **Maximize**: `utility = normalized` (higher raw value = higher utility)
    - **Minimize**: `utility = 1 - normalized` (lower raw value = higher utility)
-   - **Target**: `utility = 1 - (normalized - normalized_target)^2`
-     (closer to target = higher utility, with quadratic penalty for deviation)
+   - **Target**: `utility = max(0, 1 - |normalized - normalized_target|)`
+     (closer to target = higher utility, with linear penalty for deviation)
 
 3. **Weighted sum**: `Total Utility = sum(weight_i * utility_i)` across all objectives
 
 **Example:** If you have Chewiness (goal=max, weight=0.6, range 0-10) and Sweetness
 (goal=target at 5, weight=0.4, range 0-10):
 - Chewiness score of 8 -> normalized = 0.8 -> utility = 0.8 -> weighted = 0.48
-- Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - (0.1)^2 = 0.99 -> weighted = 0.396
-- **Total Utility = 0.48 + 0.396 = 0.876**
+- Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - 0.1 = 0.9 -> weighted = 0.36
+- **Total Utility = 0.48 + 0.36 = 0.84**
         """)
 
     # --- History with Edit/Delete ---

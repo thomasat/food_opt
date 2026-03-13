@@ -150,7 +150,7 @@ For each objective:
   2. Apply goal:
      - Maximize:  utility = normalized
      - Minimize:  utility = 1 - normalized
-     - Target:    utility = 1 - (normalized - target)^2
+     - Target:    utility = max(0, 1 - |normalized - target|)
   3. Weight:     weighted = weight * utility
 
 Total Utility = sum of all weighted utilities
