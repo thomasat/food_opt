@@ -476,4 +476,9 @@ class FoodOptimizer:
             for var in self.variables:
                 if 'category' not in var:
                     var['category'] = 'ingredient'
+            # Recalculate utility scores from raw results to pick up formula changes
+            if self.results_history and self.objectives:
+                for i, results_dict in enumerate(self.results_history):
+                    if i < len(self.Y_history):
+                        self.Y_history[i] = self._compute_utility(results_dict)
         except: print("Warning: Load failed.")
