@@ -391,6 +391,7 @@ class FoodOptimizer:
 
         # 2. OPTIMIZATION (GP + qNEI)
         print(f"DEBUG: Optimization Step (Batch of {n_suggestions})...")
+        torch.manual_seed(len(self.X_history))
         train_X = torch.tensor(self.X_history, dtype=torch.double)
         train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
         train_X_norm = normalize(train_X, bounds_tensor)
