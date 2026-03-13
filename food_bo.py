@@ -185,8 +185,8 @@ class FoodOptimizer:
             elif obj['goal'] == 'target':
                 targ_val = obj.get('target', (max_v + min_v) / 2)
                 norm_targ = (targ_val - min_v) / rng
-                dist = norm_val - norm_targ
-                utility = 1.0 - (dist ** 2)
+                dist = abs(norm_val - norm_targ)
+                utility = max(0.0, 1.0 - dist)
 
             total_utility += obj['weight'] * utility
         return total_utility
