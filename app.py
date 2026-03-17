@@ -1,19 +1,24 @@
 import json
-import streamlit as st
-import pandas as pd
-import pickle
 import os
 import glob
+import shutil
+import pickle
+
+import streamlit as st
+import pandas as pd
+
 from food_bo import FoodOptimizer
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
 
-# --- SIDEBAR: Project Management ---
+# ================================================================== #
+#  Sidebar: Project Management
+# ================================================================== #
+
 with st.sidebar:
     st.subheader("Project Management")
 
-    # Scan for existing projects
     existing_pkls = sorted(glob.glob("*.pkl"))
     existing_projects = [os.path.splitext(f)[0] for f in existing_pkls]
 
@@ -24,41 +29,35 @@ with st.sidebar:
         selected = st.selectbox(
             "Existing Projects",
             ["(none)"] + existing_projects,
-            key="project_select"
+            key="project_select",
         )
         if selected != "(none)" and st.button("Load Selected Project"):
             project_name = selected
-            if "optimizer" in st.session_state:
-                del st.session_state.optimizer
-            if "current_batch" in st.session_state:
-                del st.session_state.current_batch
+            st.session_state.pop("optimizer", None)
+            st.session_state.pop("current_batch", None)
             st.session_state["_loaded_project"] = selected
             st.rerun()
 
-    # Restore loaded project name
     if "_loaded_project" in st.session_state:
         project_name = st.session_state["_loaded_project"]
 
+    # Initialize or upgrade optimizer
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
         st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
-        # Re-instantiate with current class to pick up new methods/attrs
         st.session_state.optimizer = FoodOptimizer(
             st.session_state.optimizer.project_name
         )
         st.success("Upgraded session to latest version.")
 
-    # Show current project info
     opt = st.session_state.optimizer
-    st.caption(f"Active: **{opt.project_name}** | "
-               f"{len(opt.X_history)} experiments")
+    st.caption(f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments")
 
-    # --- Backup: Download / Upload JSON ---
+    # --- Backup & Restore ---
     st.divider()
     st.subheader("Backup & Restore")
 
-    # Download
     project_json = json.dumps(opt.export_json(), indent=2)
     st.download_button(
         "Download Project Backup",
@@ -67,24 +66,24 @@ with st.sidebar:
         mime="application/json",
     )
 
-    # Upload / Restore
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
     if uploaded_json is not None:
         if st.button("Restore Project"):
             state = json.loads(uploaded_json.read())
-            # Keep current project name to avoid desync
             state['project_name'] = st.session_state.optimizer.project_name
             st.session_state.optimizer.import_json(state)
-            st.success(f"Restored {len(st.session_state.optimizer.X_history)} experiments "
-                        f"into {st.session_state.optimizer.project_name}")
+            st.success(
+                f"Restored {len(st.session_state.optimizer.X_history)} experiments "
+                f"into {st.session_state.optimizer.project_name}"
+            )
             st.rerun()
 
+    # --- Hard Reset ---
     st.divider()
 
     if st.button("Hard Reset Project"):
         fname = f"{project_name}.pkl"
         if os.path.exists(fname):
-            # Archive instead of deleting
             archive_name = f"{project_name}_archived.pkl"
             counter = 1
             while os.path.exists(archive_name):
@@ -92,24 +91,26 @@ with st.sidebar:
                 counter += 1
             os.rename(fname, archive_name)
             st.info(f"Archived as {archive_name}")
-        if "optimizer" in st.session_state:
-            del st.session_state.optimizer
-        if "_loaded_project" in st.session_state:
-            del st.session_state["_loaded_project"]
-        if "current_batch" in st.session_state:
-            del st.session_state.current_batch
+        st.session_state.pop("optimizer", None)
+        st.session_state.pop("_loaded_project", None)
+        st.session_state.pop("current_batch", None)
         st.rerun()
 
-# --- TABS ---
+
+# ================================================================== #
+#  Tab 1: Setup & Config
+# ================================================================== #
+
 tab_setup, tab_optimize = st.tabs(["1. Setup & Config", "2. Optimization Loop"])
 
-# ==========================================
-# TAB 1: SETUP
-# ==========================================
 with tab_setup:
     col_a, col_b = st.columns(2)
 
+    # -------------------------------------------------------------- #
+    #  Column A: Ingredients, Process Parameters, Objectives
+    # -------------------------------------------------------------- #
     with col_a:
+        # --- A1. Ingredients ---
         st.subheader("A. Ingredients (CSV)")
         st.info("Upload CSV with columns: Name, Min, Max. Optional: Cost, Protein, etc.")
 
@@ -124,14 +125,15 @@ with tab_setup:
                 except ValueError as e:
                     st.error(str(e))
 
-        # Show current ingredients
-        ingredients = [v for v in st.session_state.optimizer.variables
-                       if v.get('category', 'ingredient') == 'ingredient']
-        if ingredients:
+        ingredient_vars = [
+            v for v in st.session_state.optimizer.variables
+            if v.get('category', 'ingredient') == 'ingredient'
+        ]
+        if ingredient_vars:
             st.caption("Current ingredients:")
             ing_df = pd.DataFrame([
                 {"Name": v['name'], "Min": v['bounds'][0], "Max": v['bounds'][1]}
-                for v in ingredients
+                for v in ingredient_vars
             ])
             st.dataframe(ing_df, hide_index=True, height=150)
 
@@ -139,8 +141,10 @@ with tab_setup:
 
         # --- A2. Process Parameters ---
         st.subheader("A2. Process Parameters")
-        st.caption("Add processing variables (e.g., baking temperature, mixing time) "
-                   "that the optimizer will also explore.")
+        st.caption(
+            "Add processing variables (e.g., baking temperature, mixing time) "
+            "that the optimizer will also explore."
+        )
 
         with st.form("process_param_form"):
             pp_cols = st.columns(3)
@@ -155,9 +159,10 @@ with tab_setup:
                     st.session_state.optimizer.add_process_parameter(pp_name, pp_min, pp_max)
                     st.success(f"Added process parameter: {pp_name}")
 
-        # Show current process parameters
-        proc_vars = [v for v in st.session_state.optimizer.variables
-                     if v.get('category') == 'process']
+        proc_vars = [
+            v for v in st.session_state.optimizer.variables
+            if v.get('category') == 'process'
+        ]
         if proc_vars:
             st.caption("Current process parameters:")
             for i, pv in enumerate(proc_vars):
@@ -171,6 +176,7 @@ with tab_setup:
 
         st.divider()
 
+        # --- B. Objectives ---
         st.subheader("B. Objectives (Normalized)")
         st.caption("Define the valid range for each metric to normalize scores (0-1).")
 
@@ -198,12 +204,9 @@ with tab_setup:
                     st.error("Range Min must be less than Range Max.")
                 else:
                     st.session_state.optimizer.add_objective(
-                        obj_name.strip(),
-                        obj_weight,
-                        obj_goal,
+                        obj_name.strip(), obj_weight, obj_goal,
                         target=obj_target if obj_goal == 'target' else None,
-                        min_val=obj_min,
-                        max_val=obj_max
+                        min_val=obj_min, max_val=obj_max,
                     )
                     st.success(f"Added {obj_name}")
 
@@ -215,7 +218,11 @@ with tab_setup:
                     st.session_state.optimizer.remove_objective(obj['name'])
                     st.rerun()
 
+    # -------------------------------------------------------------- #
+    #  Column B: Screening Model, Constraints
+    # -------------------------------------------------------------- #
     with col_b:
+        # --- C. Low-Fidelity Model ---
         st.subheader("C. Low-Fidelity Model (Optional)")
         uploaded_pkl = st.file_uploader("Upload Model .pkl", type=["pkl"])
         if uploaded_pkl:
@@ -230,14 +237,17 @@ with tab_setup:
 
         # --- D. Property Constraints ---
         st.subheader("D. Property Constraints")
-        st.caption("Constraints on computed properties (e.g., total cost, total protein) "
-                   "based on ingredient properties from your CSV.")
-        props = set()
-        for p in st.session_state.optimizer.ingredient_properties.values():
-            props.update(p.keys())
+        st.caption(
+            "Constraints on computed properties (e.g., total cost, total protein) "
+            "based on ingredient properties from your CSV."
+        )
 
-        if props:
-            c_metric = st.selectbox("Constraint Metric", list(props))
+        available_props = set()
+        for p in st.session_state.optimizer.ingredient_properties.values():
+            available_props.update(p.keys())
+
+        if available_props:
+            c_metric = st.selectbox("Constraint Metric", sorted(available_props))
             c_min = st.number_input("Min Value", value=0.0, key="prop_c_min")
             c_max = st.number_input("Max Value", value=100.0, key="prop_c_max")
             if st.button("Add Property Constraint"):
@@ -264,24 +274,29 @@ with tab_setup:
             "or constraining total recipe mass."
         )
 
-        ingredients = [v['name'] for v in st.session_state.optimizer.variables
-                       if v.get('category', 'ingredient') == 'ingredient']
+        ingredient_names = [
+            v['name'] for v in st.session_state.optimizer.variables
+            if v.get('category', 'ingredient') == 'ingredient'
+        ]
 
-        if ingredients:
-            # Sum constraint on selected ingredients
+        if ingredient_names:
             with st.form("qty_constraint_form"):
                 selected_ings = st.multiselect(
                     "Select Ingredients for Sum Constraint",
-                    ingredients,
-                    help="Select 2+ ingredients to constrain their combined quantity"
+                    ingredient_names,
+                    help="Select 2+ ingredients to constrain their combined quantity",
                 )
                 qc_cols = st.columns(2)
                 with qc_cols[0]:
-                    qc_min = st.number_input("Min Sum", value=0.0, key="qc_min",
-                                             help="Leave at 0 for no lower bound")
+                    qc_min = st.number_input(
+                        "Min Sum", value=0.0, key="qc_min",
+                        help="Leave at 0 for no lower bound",
+                    )
                 with qc_cols[1]:
-                    qc_max = st.number_input("Max Sum", value=100.0, key="qc_max",
-                                             help="Upper limit for the sum")
+                    qc_max = st.number_input(
+                        "Max Sum", value=100.0, key="qc_max",
+                        help="Upper limit for the sum",
+                    )
                 qc_use_min = st.checkbox("Apply minimum bound", value=False, key="qc_use_min")
                 qc_use_max = st.checkbox("Apply maximum bound", value=True, key="qc_use_max")
 
@@ -290,7 +305,7 @@ with tab_setup:
                         st.session_state.optimizer.add_quantity_constraint(
                             selected_ings,
                             min_val=qc_min if qc_use_min else None,
-                            max_val=qc_max if qc_use_max else None
+                            max_val=qc_max if qc_use_max else None,
                         )
                         st.success(f"Added quantity constraint on: {', '.join(selected_ings)}")
                     else:
@@ -306,7 +321,7 @@ with tab_setup:
             with tm_cols[2]:
                 if st.button("Add Total Mass Constraint"):
                     st.session_state.optimizer.add_total_mass_constraint(
-                        min_val=tm_min, max_val=tm_max
+                        min_val=tm_min, max_val=tm_max,
                     )
                     st.success("Total mass constraint added!")
 
@@ -331,14 +346,18 @@ with tab_setup:
         else:
             st.write("Load ingredients first to add quantity constraints.")
 
-# ==========================================
-# TAB 2: OPTIMIZATION LOOP
-# ==========================================
-with tab_optimize:
-    col1, col2 = st.columns([1, 1.5])
 
-    # COLUMN 1: ASK
-    with col1:
+# ================================================================== #
+#  Tab 2: Optimization Loop
+# ================================================================== #
+
+with tab_optimize:
+    col_ask, col_tell = st.columns([1, 1.5])
+
+    # -------------------------------------------------------------- #
+    #  Ask: Generate Experiments
+    # -------------------------------------------------------------- #
+    with col_ask:
         st.subheader("Generate Experiments")
         batch_size = st.slider("Batch Size", 1, 10, 3)
 
@@ -358,42 +377,40 @@ with tab_optimize:
         if "current_batch" in st.session_state:
             st.info("Suggested Batch:")
 
-            # Separate ingredients and process parameters for display
-            proc_names = {v['name'] for v in st.session_state.optimizer.variables
-                          if v.get('category') == 'process'}
-            ing_names = [v['name'] for v in st.session_state.optimizer.variables
-                         if v.get('category', 'ingredient') == 'ingredient']
+            proc_names = {
+                v['name'] for v in st.session_state.optimizer.variables
+                if v.get('category') == 'process'
+            }
+            df_batch = pd.DataFrame(st.session_state.current_batch)
 
-            df_res = pd.DataFrame(st.session_state.current_batch)
-
-            # Show ingredients
-            ing_cols = [c for c in df_res.columns if c not in proc_names]
+            ing_cols = [c for c in df_batch.columns if c not in proc_names]
             if ing_cols:
                 st.caption("Ingredients:")
-                st.dataframe(df_res[ing_cols].style.format("{:.2f}"), hide_index=True)
+                st.dataframe(df_batch[ing_cols].style.format("{:.2f}"), hide_index=True)
 
-            # Show process parameters separately
-            proc_cols = [c for c in df_res.columns if c in proc_names]
+            proc_cols = [c for c in df_batch.columns if c in proc_names]
             if proc_cols:
                 st.caption("Process Parameters:")
-                st.dataframe(df_res[proc_cols].style.format("{:.2f}"), hide_index=True)
+                st.dataframe(df_batch[proc_cols].style.format("{:.2f}"), hide_index=True)
 
-    # COLUMN 2: TELL
-    with col2:
+    # -------------------------------------------------------------- #
+    #  Tell: Input Lab Results
+    # -------------------------------------------------------------- #
+    with col_tell:
         st.subheader("Input Lab Results")
 
         if "current_batch" in st.session_state and st.session_state.current_batch:
             with st.form("results_form"):
                 batch_inputs = {}
                 for i, recipe in enumerate(st.session_state.current_batch):
-                    st.markdown(f"**Recipe #{i+1}**")
+                    st.markdown(f"**Recipe #{i + 1}**")
                     cols = st.columns(len(st.session_state.optimizer.objectives))
                     rec_scores = {}
                     for j, obj in enumerate(st.session_state.optimizer.objectives):
                         with cols[j]:
                             rec_scores[obj['name']] = st.number_input(
                                 f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
-                                key=f"r{i}o{j}"
+                                key=f"r{i}o{j}",
                             )
                     batch_inputs[i] = rec_scores
                     st.divider()
@@ -407,7 +424,9 @@ with tab_optimize:
 
     st.divider()
 
-    # --- Bulk Import Historical Experiments ---
+    # -------------------------------------------------------------- #
+    #  Bulk Import Historical Experiments
+    # -------------------------------------------------------------- #
     with st.expander("Import Historical Experiments (CSV)"):
         st.markdown(
             "Upload a CSV to bulk-import past experiments. "
@@ -443,7 +462,9 @@ with tab_optimize:
 
     st.divider()
 
-    # --- Utility Score Explanation ---
+    # -------------------------------------------------------------- #
+    #  Utility Score Explanation
+    # -------------------------------------------------------------- #
     with st.expander("How is the Utility Score calculated?"):
         st.markdown("""
 **The Utility Score** is a weighted combination of all your objectives, computed as follows:
@@ -467,29 +488,29 @@ with tab_optimize:
 - **Total Utility = 0.48 + 0.36 = 0.84**
         """)
 
-    # --- History with Edit/Delete ---
+    # -------------------------------------------------------------- #
+    #  Experiment History (with Edit / Delete / Rewind)
+    # -------------------------------------------------------------- #
     if st.session_state.optimizer.X_history:
         st.subheader("Experiment History")
 
         hist = []
         for i, x in enumerate(st.session_state.optimizer.X_history):
-            r = st.session_state.optimizer._decode(x)
-            r['_index'] = i
-            r['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
+            row = st.session_state.optimizer._decode(x)
+            row['_index'] = i
+            row['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
 
-            # Include raw results if available
             res_hist = getattr(st.session_state.optimizer, 'results_history', [])
             if i < len(res_hist):
                 for key, val in res_hist[i].items():
-                    r[f"[Result] {key}"] = val
-
-            hist.append(r)
+                    row[f"[Result] {key}"] = val
+            hist.append(row)
 
         hist_df = pd.DataFrame(hist).sort_values('Total_Utility_Score', ascending=False)
         hist_df.insert(0, 'Exp #', hist_df['_index'])
         st.dataframe(hist_df.drop(columns=['_index']), hide_index=True)
 
-        # --- Edit Results ---
+        # --- Edit / Delete ---
         st.caption("Edit or delete a past result:")
         results_history = getattr(st.session_state.optimizer, 'results_history', [])
 
@@ -498,9 +519,7 @@ with tab_optimize:
                 "Experiment Index to Edit (0-based)",
                 min_value=0,
                 max_value=len(st.session_state.optimizer.X_history) - 1,
-                value=0,
-                step=1,
-                key="edit_idx"
+                value=0, step=1, key="edit_idx",
             )
 
             if edit_idx < len(results_history):
@@ -516,9 +535,8 @@ with tab_optimize:
                         with edit_cols[j]:
                             current_val = float(current_results.get(obj['name'], 0.0))
                             new_results[obj['name']] = st.number_input(
-                                f"{obj['name']}",
-                                value=current_val,
-                                key=f"edit_{edit_idx}_{j}"
+                                obj['name'], value=current_val,
+                                key=f"edit_{edit_idx}_{j}",
                             )
 
                     ec1, ec2 = st.columns(2)
@@ -570,8 +588,7 @@ with tab_optimize:
             min_value=0,
             max_value=len(st.session_state.optimizer.X_history) - 1,
             value=len(st.session_state.optimizer.X_history) - 1,
-            step=1,
-            key="rewind_idx",
+            step=1, key="rewind_idx",
         )
         n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
         if n_discard > 0:
@@ -580,7 +597,6 @@ with tab_optimize:
                 f"(#{rewind_idx + 1} through #{len(st.session_state.optimizer.X_history) - 1})."
             )
         if st.button("Rewind", disabled=(n_discard == 0), key="rewind_btn"):
-            # Archive current state before rewinding
             pname = st.session_state.optimizer.project_name
             fname = f"{pname}.pkl"
             if os.path.exists(fname):
@@ -589,11 +605,9 @@ with tab_optimize:
                 while os.path.exists(archive_name):
                     archive_name = f"{pname}_pre_rewind_{counter}.pkl"
                     counter += 1
-                import shutil
                 shutil.copy2(fname, archive_name)
                 st.info(f"Archived current state as {archive_name}")
             st.session_state.optimizer.rewind_to(rewind_idx)
-            if "current_batch" in st.session_state:
-                del st.session_state.current_batch
+            st.session_state.pop("current_batch", None)
             st.success(f"Rewound to experiment #{rewind_idx}!")
             st.rerun()
