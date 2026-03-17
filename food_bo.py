@@ -65,6 +65,11 @@ class FoodOptimizer:
 
     def load_ingredients_from_csv(self, df):
         """Bulk load from CSV (Used for App)."""
+        if self.X_history:
+            raise ValueError(
+                "Cannot reload ingredients after experiments have been recorded. "
+                "Use Hard Reset to start a new project, or restore from a backup."
+            )
         # Preserve existing process parameters
         process_vars = [v for v in self.variables if v.get('category') == 'process']
         self.variables = []
@@ -75,16 +80,24 @@ class FoodOptimizer:
 
         for _, row in df.iterrows():
             name = row['Name']
+            min_val, max_val = float(row['Min']), float(row['Max'])
+            if min_val >= max_val:
+                raise ValueError(f"Ingredient '{name}': Min ({min_val}) must be less than Max ({max_val})")
             self.variables.append({
                 'name': name,
                 'type': 'continuous',
-                'bounds': (float(row['Min']), float(row['Max'])),
+                'bounds': (min_val, max_val),
                 'category': 'ingredient'
             })
 
             props = {}
             for col in prop_cols:
-                props[col.lower()] = float(row[col])
+                try:
+                    val = float(row[col])
+                    if not pd.isna(val):
+                        props[col.lower()] = val
+                except (ValueError, TypeError):
+                    pass  # skip non-numeric property columns
             self.ingredient_properties[name] = props
 
         # Re-add process parameters
@@ -106,6 +119,16 @@ class FoodOptimizer:
         })
         self.save()
 
+    def remove_objective(self, name):
+        """Remove an objective by name."""
+        self.objectives = [obj for obj in self.objectives if obj['name'] != name]
+        # Recalculate utility scores with remaining objectives
+        if self.results_history:
+            for i, results_dict in enumerate(self.results_history):
+                if i < len(self.Y_history):
+                    self.Y_history[i] = self._compute_utility(results_dict)
+        self.save()
+
     def add_constraint(self, metric, min_val=None, max_val=None):
         self.constraints.append({
             'metric': metric,
@@ -113,6 +136,12 @@ class FoodOptimizer:
             'max': float(max_val) if max_val is not None else None
         })
         self.save()
+
+    def remove_constraint(self, index):
+        """Remove a property constraint by index."""
+        if 0 <= index < len(self.constraints):
+            self.constraints.pop(index)
+            self.save()
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None):
         """Add a constraint on the sum of selected ingredient quantities.
@@ -187,6 +216,8 @@ class FoodOptimizer:
                 norm_targ = (targ_val - min_v) / rng
                 dist = abs(norm_val - norm_targ)
                 utility = max(0.0, 1.0 - dist)
+            else:
+                utility = 0.0
 
             total_utility += obj['weight'] * utility
         return total_utility
@@ -387,6 +418,11 @@ class FoodOptimizer:
                 if self._check_constraints(candidates[idx]):
                     results.append(candidates[idx])
                 idx += 1
+            if not results:
+                raise ValueError(
+                    "No valid recipes found — constraints may be too restrictive. "
+                    "Try widening ingredient ranges or relaxing constraints."
+                )
             return results
 
         # 2. OPTIMIZATION (GP + qNEI)
