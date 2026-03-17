@@ -19,18 +19,20 @@ from botorch.acquisition import qLogNoisyExpectedImprovement
 from botorch.sampling.normal import SobolQMCNormalSampler
 
 class FoodOptimizer:
-    CLASS_VERSION = 2  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 3  # bump when adding methods/attrs to force session refresh
 
-    def __init__(self, project_name="experiment", robust=False):
+    def __init__(self, project_name="experiment", robust=False, sheets_backend=None):
         """
-        robust (bool): 
+        robust (bool):
           If False (Default), uses standard GP. Faster convergence on smooth problems (e.g. Synergy).
           If True, uses Input Warping. Slower start, but handles cliffs/traps (e.g. Phase Separation).
+        sheets_backend: optional SheetsBackend instance for Google Sheets persistence
         """
         self.project_name = project_name
         self.robust = robust
         self.filename = f"{project_name}.pkl"
-        
+        self.sheets_backend = sheets_backend
+
         # --- STATE ---
         self.variables = []
         self.objectives = []
@@ -43,9 +45,11 @@ class FoodOptimizer:
         self.Y_history = []
         self.recipe_history = []   # Raw recipe dicts (for editing)
         self.results_history = []  # Raw results dicts (for editing)
-        
+
         if os.path.exists(self.filename):
             self.load()
+        elif self.sheets_backend:
+            self._load_from_sheets()
         else:
             self.save()
 
@@ -457,14 +461,47 @@ class FoodOptimizer:
     def save(self):
         state = self.__dict__.copy()
         if 'screening_model' in state: del state['screening_model']
+        if 'sheets_backend' in state: del state['sheets_backend']
+        # Always save pickle as local cache
         with open(self.filename, 'wb') as f: pickle.dump(state, f)
+        # Also sync to Google Sheets if configured
+        if self.sheets_backend:
+            try:
+                self.sheets_backend.save(self.project_name, state)
+            except Exception as e:
+                print(f"Warning: Sheets sync failed: {e}")
+
+    def _load_from_sheets(self):
+        """Load state from Google Sheets (used when no local pickle exists)."""
+        if not self.sheets_backend:
+            return
+        state = self.sheets_backend.load(self.project_name)
+        if state is None:
+            self.save()
+            return
+        self.__dict__.update(state)
+        self.screening_model = None
+        # Rebuild X_history from recipe_history if missing (Sheets doesn't store encoded vectors)
+        if not self.X_history and self.recipe_history and self.variables:
+            self.X_history = [self._encode(r) for r in self.recipe_history]
+        # Recalculate utility scores from raw results
+        if self.results_history and self.objectives:
+            self.Y_history = [self._compute_utility(r) for r in self.results_history]
+        # Save local pickle cache
+        with open(self.filename, 'wb') as f:
+            save_state = self.__dict__.copy()
+            if 'screening_model' in save_state: del save_state['screening_model']
+            if 'sheets_backend' in save_state: del save_state['sheets_backend']
+            pickle.dump(save_state, f)
 
     def load(self):
         try:
+            sheets_ref = getattr(self, 'sheets_backend', None)
             with open(self.filename, 'rb') as f:
                 state = pickle.load(f)
                 self.__dict__.update(state)
             self.screening_model = None
+            self.sheets_backend = sheets_ref
             # Backward compatibility for older pickle files
             if not hasattr(self, 'quantity_constraints'):
                 self.quantity_constraints = []

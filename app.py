@@ -5,6 +5,17 @@ import os
 import glob
 from food_bo import FoodOptimizer
 
+# --- Google Sheets Backend (optional) ---
+sheets_backend = None
+try:
+    from sheets_backend import SheetsBackend
+    if "gcp_service_account" in st.secrets:
+        creds = dict(st.secrets["gcp_service_account"])
+        folder_id = st.secrets.get("sheets_folder_id", None)
+        sheets_backend = SheetsBackend(creds, folder_id=folder_id)
+except Exception:
+    pass  # Fall back to pickle-only mode
+
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
 
@@ -38,12 +49,19 @@ with st.sidebar:
     if "_loaded_project" in st.session_state:
         project_name = st.session_state["_loaded_project"]
 
+    if sheets_backend:
+        st.caption("Google Sheets: connected")
+    else:
+        st.caption("Storage: local only (configure Sheets in secrets for persistence)")
+
     if "optimizer" not in st.session_state:
-        st.session_state.optimizer = FoodOptimizer(project_name)
+        st.session_state.optimizer = FoodOptimizer(project_name, sheets_backend=sheets_backend)
         st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
         # Re-instantiate with current class to pick up new methods/attrs
-        st.session_state.optimizer = FoodOptimizer(st.session_state.optimizer.project_name)
+        st.session_state.optimizer = FoodOptimizer(
+            st.session_state.optimizer.project_name, sheets_backend=sheets_backend
+        )
         st.success("Upgraded session to latest version.")
 
     # Show current project info
@@ -355,6 +373,41 @@ with tab_optimize:
                     del st.session_state.current_batch
                     st.success("Saved!")
                     st.rerun()
+
+    st.divider()
+
+    # --- Bulk Import Historical Experiments ---
+    with st.expander("Import Historical Experiments (CSV)"):
+        st.markdown(
+            "Upload a CSV to bulk-import past experiments. "
+            "Columns must match your **ingredient names** and **objective names** exactly."
+        )
+        st.caption(
+            "Example: if you have ingredients `flour, sugar, butter` and objectives "
+            "`Chewiness, Flavor`, your CSV needs columns: "
+            "`flour, sugar, butter, Chewiness, Flavor`"
+        )
+
+        import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
+        if import_csv is not None:
+            import_df = pd.read_csv(import_csv)
+            st.dataframe(import_df, hide_index=True)
+
+            ing_names = [v['name'] for v in st.session_state.optimizer.variables]
+            obj_names = [o['name'] for o in st.session_state.optimizer.objectives]
+            missing = [c for c in ing_names + obj_names if c not in import_df.columns]
+
+            if missing:
+                st.error(f"Missing columns: {missing}")
+            elif st.button("Import All Rows", type="primary"):
+                imported = 0
+                for _, row in import_df.iterrows():
+                    recipe = {name: float(row[name]) for name in ing_names}
+                    results = {name: float(row[name]) for name in obj_names}
+                    st.session_state.optimizer.tell(recipe, results)
+                    imported += 1
+                st.success(f"Imported {imported} experiments!")
+                st.rerun()
 
     st.divider()
 
