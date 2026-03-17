@@ -72,9 +72,11 @@ with st.sidebar:
     if uploaded_json is not None:
         if st.button("Restore Project"):
             state = json.loads(uploaded_json.read())
+            # Keep current project name to avoid desync
+            state['project_name'] = st.session_state.optimizer.project_name
             st.session_state.optimizer.import_json(state)
-            st.success(f"Restored project: {state.get('project_name', '?')} "
-                        f"({len(st.session_state.optimizer.X_history)} experiments)")
+            st.success(f"Restored {len(st.session_state.optimizer.X_history)} experiments "
+                        f"into {st.session_state.optimizer.project_name}")
             st.rerun()
 
     st.divider()
@@ -116,8 +118,11 @@ with tab_setup:
             df = pd.read_csv(uploaded_csv)
             st.dataframe(df.head(), height=150)
             if st.button("Load Ingredients"):
-                st.session_state.optimizer.load_ingredients_from_csv(df)
-                st.success(f"Loaded {len(df)} ingredients!")
+                try:
+                    st.session_state.optimizer.load_ingredients_from_csv(df)
+                    st.success(f"Loaded {len(df)} ingredients!")
+                except ValueError as e:
+                    st.error(str(e))
 
         # Show current ingredients
         ingredients = [v for v in st.session_state.optimizer.variables
@@ -187,19 +192,28 @@ with tab_setup:
             obj_target = st.number_input("Target Value (If Goal=Target)", value=5.0)
 
             if st.form_submit_button("Add Objective"):
-                st.session_state.optimizer.add_objective(
-                    obj_name,
-                    obj_weight,
-                    obj_goal,
-                    target=obj_target if obj_goal == 'target' else None,
-                    min_val=obj_min,
-                    max_val=obj_max
-                )
-                st.success(f"Added {obj_name}")
+                if not obj_name.strip():
+                    st.error("Objective name cannot be empty.")
+                elif obj_min >= obj_max:
+                    st.error("Range Min must be less than Range Max.")
+                else:
+                    st.session_state.optimizer.add_objective(
+                        obj_name.strip(),
+                        obj_weight,
+                        obj_goal,
+                        target=obj_target if obj_goal == 'target' else None,
+                        min_val=obj_min,
+                        max_val=obj_max
+                    )
+                    st.success(f"Added {obj_name}")
 
         if st.session_state.optimizer.objectives:
             st.write("Active Objectives:")
             st.dataframe(pd.DataFrame(st.session_state.optimizer.objectives))
+            for i, obj in enumerate(st.session_state.optimizer.objectives):
+                if st.button(f"Remove {obj['name']}", key=f"rm_obj_{i}"):
+                    st.session_state.optimizer.remove_objective(obj['name'])
+                    st.rerun()
 
     with col_b:
         st.subheader("C. Low-Fidelity Model (Optional)")
@@ -235,6 +249,10 @@ with tab_setup:
         if st.session_state.optimizer.constraints:
             st.caption("Active property constraints:")
             st.dataframe(pd.DataFrame(st.session_state.optimizer.constraints))
+            for i, constr in enumerate(st.session_state.optimizer.constraints):
+                if st.button(f"Remove {constr['metric']}", key=f"rm_constr_{i}"):
+                    st.session_state.optimizer.remove_constraint(i)
+                    st.rerun()
 
         st.divider()
 
@@ -331,8 +349,11 @@ with tab_optimize:
                 st.error("Please define objectives in Setup tab first!")
             else:
                 with st.spinner("Optimizing..."):
-                    recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
-                    st.session_state.current_batch = recipes
+                    try:
+                        recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
+                        st.session_state.current_batch = recipes
+                    except ValueError as e:
+                        st.error(str(e))
 
         if "current_batch" in st.session_state:
             st.info("Suggested Batch:")
@@ -403,16 +424,17 @@ with tab_optimize:
             import_df = pd.read_csv(import_csv)
             st.dataframe(import_df, hide_index=True)
 
-            ing_names = [v['name'] for v in st.session_state.optimizer.variables]
+            var_names = [v['name'] for v in st.session_state.optimizer.variables]
             obj_names = [o['name'] for o in st.session_state.optimizer.objectives]
-            missing = [c for c in ing_names + obj_names if c not in import_df.columns]
+            required = var_names + obj_names
+            missing = [c for c in required if c not in import_df.columns]
 
             if missing:
                 st.error(f"Missing columns: {missing}")
             elif st.button("Import All Rows", type="primary"):
                 imported = 0
                 for _, row in import_df.iterrows():
-                    recipe = {name: float(row[name]) for name in ing_names}
+                    recipe = {name: float(row[name]) for name in var_names}
                     results = {name: float(row[name]) for name in obj_names}
                     st.session_state.optimizer.tell(recipe, results)
                     imported += 1
