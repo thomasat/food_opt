@@ -1,20 +1,10 @@
+import json
 import streamlit as st
 import pandas as pd
 import pickle
 import os
 import glob
 from food_bo import FoodOptimizer
-
-# --- Google Sheets Backend (optional) ---
-sheets_backend = None
-try:
-    from sheets_backend import SheetsBackend
-    if "gcp_service_account" in st.secrets:
-        creds = dict(st.secrets["gcp_service_account"])
-        folder_id = st.secrets.get("sheets_folder_id", None)
-        sheets_backend = SheetsBackend(creds, folder_id=folder_id)
-except Exception:
-    pass  # Fall back to pickle-only mode
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
@@ -49,18 +39,13 @@ with st.sidebar:
     if "_loaded_project" in st.session_state:
         project_name = st.session_state["_loaded_project"]
 
-    if sheets_backend:
-        st.caption("Google Sheets: connected")
-    else:
-        st.caption("Storage: local only (configure Sheets in secrets for persistence)")
-
     if "optimizer" not in st.session_state:
-        st.session_state.optimizer = FoodOptimizer(project_name, sheets_backend=sheets_backend)
+        st.session_state.optimizer = FoodOptimizer(project_name)
         st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
         # Re-instantiate with current class to pick up new methods/attrs
         st.session_state.optimizer = FoodOptimizer(
-            st.session_state.optimizer.project_name, sheets_backend=sheets_backend
+            st.session_state.optimizer.project_name
         )
         st.success("Upgraded session to latest version.")
 
@@ -68,6 +53,31 @@ with st.sidebar:
     opt = st.session_state.optimizer
     st.caption(f"Active: **{opt.project_name}** | "
                f"{len(opt.X_history)} experiments")
+
+    # --- Backup: Download / Upload JSON ---
+    st.divider()
+    st.subheader("Backup & Restore")
+
+    # Download
+    project_json = json.dumps(opt.export_json(), indent=2)
+    st.download_button(
+        "Download Project Backup",
+        data=project_json,
+        file_name=f"{opt.project_name}.json",
+        mime="application/json",
+    )
+
+    # Upload / Restore
+    uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
+    if uploaded_json is not None:
+        if st.button("Restore Project"):
+            state = json.loads(uploaded_json.read())
+            st.session_state.optimizer.import_json(state)
+            st.success(f"Restored project: {state.get('project_name', '?')} "
+                        f"({len(st.session_state.optimizer.X_history)} experiments)")
+            st.rerun()
+
+    st.divider()
 
     if st.button("Hard Reset Project"):
         fname = f"{project_name}.pkl"
