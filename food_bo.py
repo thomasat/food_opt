@@ -588,6 +588,8 @@ class FoodOptimizer:
             'constraints': self.constraints,
             'quantity_constraints': self.quantity_constraints,
             'robust': self.robust,
+            'X_history': self.X_history,
+            'Y_history': self.Y_history,
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
             'CLASS_VERSION': self.CLASS_VERSION,
@@ -612,11 +614,14 @@ class FoodOptimizer:
                 var['bounds'] = tuple(var['bounds'])
 
         # Rebuild encoded vectors and utility scores from raw data
-        self.X_history = []
-        self.Y_history = []
         if self.recipe_history and self.variables:
             self.X_history = [self._encode(r) for r in self.recipe_history]
+        else:
+            self.X_history = state.get('X_history', [])
+
         if self.results_history and self.objectives:
             self.Y_history = [self._compute_utility(r) for r in self.results_history]
+        else:
+            self.Y_history = state.get('Y_history', [])
 
         self.save()
