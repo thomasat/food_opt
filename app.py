@@ -24,6 +24,12 @@ with st.sidebar:
 
     project_name = st.text_input("Project Name", "Cookie_Project_v4")
 
+    if st.button("Create / Switch Project"):
+        st.session_state.pop("optimizer", None)
+        st.session_state.pop("current_batch", None)
+        st.session_state["_loaded_project"] = project_name
+        st.rerun()
+
     if existing_projects:
         st.caption("Or load an existing project:")
         selected = st.selectbox(
@@ -32,7 +38,6 @@ with st.sidebar:
             key="project_select",
         )
         if selected != "(none)" and st.button("Load Selected Project"):
-            project_name = selected
             st.session_state.pop("optimizer", None)
             st.session_state.pop("current_batch", None)
             st.session_state["_loaded_project"] = selected
