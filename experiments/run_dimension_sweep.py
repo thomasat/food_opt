@@ -9,9 +9,15 @@ Usage:
     python run_dimension_sweep.py [--budget 30] [--seeds 5]
 """
 
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+# Allow importing sibling module
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_nutrition_experiment import (
     make_nutrition_objective,
     random_search,
@@ -50,7 +56,8 @@ def run_sweep(
     target_fat: float = 8.0,
     target_sodium: float = 400.0,
 ):
-    df_full = pd.read_csv("ingredients_large.csv")
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    df_full = pd.read_csv(os.path.join(_root, "data", "ingredients_large.csv"))
     assert len(df_full) >= max(dims), f"CSV has {len(df_full)} rows, need {max(dims)}"
 
     results = {d: {} for d in dims}
@@ -71,7 +78,10 @@ def run_sweep(
     return results
 
 
-def plot_sweep(results, budget, save_path="dimension_sweep.png"):
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def plot_sweep(results, budget, save_path=os.path.join(_ROOT, "plots", "dimension_sweep.png")):
     dims = sorted(results.keys())
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))

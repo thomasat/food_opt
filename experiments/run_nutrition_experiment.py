@@ -17,6 +17,8 @@ Usage:
     python run_nutrition_experiment.py [--budget 30] [--seeds 5] [--plot]
 """
 
+import os
+
 import numpy as np
 import pandas as pd
 import torch
@@ -37,7 +39,10 @@ from torch.quasirandom import SobolEngine
 # 1. LOAD DATA
 # ---------------------------------------------------------------------------
 
-def load_ingredients(path: str = "ingredients.csv") -> pd.DataFrame:
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_ingredients(path: str = os.path.join(_ROOT, "data", "ingredients.csv")) -> pd.DataFrame:
     df = pd.read_csv(path)
     return df
 
@@ -336,7 +341,7 @@ def run_experiment(
 # 8. PLOTTING
 # ---------------------------------------------------------------------------
 
-def plot_convergence(all_traces: Dict, budget: int, save_path: str = "convergence.png"):
+def plot_convergence(all_traces: Dict, budget: int, save_path: str = os.path.join(_ROOT, "plots", "convergence.png")):
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
     colors = {"Random Search": "#999999", }
@@ -381,7 +386,7 @@ def plot_convergence(all_traces: Dict, budget: int, save_path: str = "convergenc
     plt.close()
 
 
-def plot_final_bar(all_traces: Dict, save_path: str = "final_comparison.png"):
+def plot_final_bar(all_traces: Dict, save_path: str = os.path.join(_ROOT, "plots", "final_comparison.png")):
     fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
     names = list(all_traces.keys())
