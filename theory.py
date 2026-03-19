@@ -34,9 +34,13 @@ This module provides:
 3. Comparison plots: theory vs. empirical
 """
 
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional
+
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def information_gain_se(d: int, T: int, lengthscale: float = 0.2) -> float:
@@ -127,7 +131,7 @@ def plot_theoretical_comparison(
     T: int = 30,
     epsilon: float = 0.1,
     L: float = 1.0,
-    save_path: str = "theory_regret.png",
+    save_path: str = os.path.join(_ROOT, "plots", "theory_regret.png"),
 ):
     """Plot theoretical regret bounds: full-dim vs. reduced vs. reduced+misalignment.
 
@@ -181,7 +185,7 @@ def plot_theoretical_comparison(
 def plot_dimension_scaling(
     dims: list = [3, 5, 10, 15, 20, 30, 50],
     T: int = 30,
-    save_path: str = "theory_scaling.png",
+    save_path: str = os.path.join(_ROOT, "plots", "theory_scaling.png"),
 ):
     """Show how regret scales with dimension at fixed budget T.
 

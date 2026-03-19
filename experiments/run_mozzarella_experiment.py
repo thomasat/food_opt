@@ -47,7 +47,10 @@ TARGET_FAT_NORM = 0.22      # 22g fat / 100g, normalized by 100
 TARGET_SODIUM_NORM = 0.50   # 500mg sodium / 100g, normalized by 1000
 
 
-def load_ingredients(path: str = "ingredients_dairy.csv") -> pd.DataFrame:
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_ingredients(path: str = os.path.join(_ROOT, "data", "ingredients_dairy.csv")) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
@@ -364,7 +367,7 @@ def run_experiment(budget: int = 30, n_seeds: int = 5, n_init: int = 5):
 # 9. PLOTTING
 # ---------------------------------------------------------------------------
 
-def plot_convergence(all_traces: Dict, budget: int, save_path: str = "mozzarella_convergence.png"):
+def plot_convergence(all_traces: Dict, budget: int, save_path: str = os.path.join(_ROOT, "plots", "mozzarella_convergence.png")):
     fig, ax = plt.subplots(1, 1, figsize=(9, 5.5))
     iters = np.arange(1, budget + 1)
 
@@ -398,7 +401,7 @@ def plot_convergence(all_traces: Dict, budget: int, save_path: str = "mozzarella
     plt.close()
 
 
-def plot_final_bar(all_traces: Dict, save_path: str = "mozzarella_final.png"):
+def plot_final_bar(all_traces: Dict, save_path: str = os.path.join(_ROOT, "plots", "mozzarella_final.png")):
     fig, ax = plt.subplots(1, 1, figsize=(7, 4.5))
     names = list(all_traces.keys())
     final_means = []
@@ -432,7 +435,7 @@ def plot_final_bar(all_traces: Dict, save_path: str = "mozzarella_final.png"):
 
 
 def plot_nutrition_space(df, selected, fat_norm, sodium_norm,
-                         save_path: str = "mozzarella_nutrition_space.png"):
+                         save_path: str = os.path.join(_ROOT, "plots", "mozzarella_nutrition_space.png")):
     """Plot ingredients in (fat, sodium) space with target and LLM selection highlighted."""
     fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
