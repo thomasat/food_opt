@@ -352,6 +352,27 @@ with tab_setup:
 # ================================================================== #
 
 with tab_optimize:
+    # -- Backup warning after new data is recorded --
+    if st.session_state.get("show_backup_warning"):
+        st.warning("**Your experiment data has changed. Download a backup now!**", icon="\u26a0\ufe0f")
+        opt = st.session_state.optimizer
+        backup_json = json.dumps(opt.export_json(), indent=2)
+        col_dl, col_dismiss = st.columns([1, 1])
+        with col_dl:
+            st.download_button(
+                "\u2b07 Download Backup Now",
+                data=backup_json,
+                file_name=f"{opt.project_name}_backup.json",
+                mime="application/json",
+                type="primary",
+                use_container_width=True,
+            )
+        with col_dismiss:
+            if st.button("Dismiss", use_container_width=True):
+                del st.session_state["show_backup_warning"]
+                st.rerun()
+        st.divider()
+
     col_ask, col_tell = st.columns([1, 1.5])
 
     # -------------------------------------------------------------- #
@@ -419,6 +440,7 @@ with tab_optimize:
                     for i, recipe in enumerate(st.session_state.current_batch):
                         st.session_state.optimizer.tell(recipe, batch_inputs[i])
                     del st.session_state.current_batch
+                    st.session_state.show_backup_warning = True
                     st.success("Saved!")
                     st.rerun()
 
@@ -457,6 +479,7 @@ with tab_optimize:
                     results = {name: float(row[name]) for name in obj_names}
                     st.session_state.optimizer.tell(recipe, results)
                     imported += 1
+                st.session_state.show_backup_warning = True
                 st.success(f"Imported {imported} experiments!")
                 st.rerun()
 
