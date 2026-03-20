@@ -16,8 +16,8 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Callable
 from scipy.linalg import subspace_angles
-from botorch.models import SingleTaskGP
-from botorch.fit import fit_gpytorch_mll
+from botorch.models import SingleTaskGP, SaasFullyBayesianSingleTaskGP
+from botorch.fit import fit_gpytorch_mll, fit_fully_bayesian_model_nuts
 from botorch.optim import optimize_acqf
 from botorch.acquisition import qLogNoisyExpectedImprovement
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -643,8 +643,384 @@ def bo_full_dimensional(
 
 
 # ---------------------------------------------------------------------------
-# 7. BENCHMARK RUNNER
+# 7. HIGH-DIMENSIONAL BO BASELINES
 # ---------------------------------------------------------------------------
+
+def bo_rembo(
+    problem: SyntheticFoodProblem,
+    budget: int = 25,
+    n_init: int = 5,
+    seed: int = 0,
+    target_dim: int = K_LATENT,
+) -> Dict:
+    """REMBO: Random EMbedding Bayesian Optimization.
+
+    Projects the high-dimensional space into a low-dimensional random subspace
+    and performs BO in that subspace. Unlike ALEBO (which learns the embedding),
+    REMBO uses a fixed random Gaussian projection matrix.
+
+    Reference: Wang et al., "Bayesian Optimization in a Billion Dimensions via
+    Random Embeddings", JAIR 2016.
+
+    Key idea: if f has low effective dimensionality d_e, then optimizing over a
+    random d_e-dimensional subspace recovers near-optimal performance with high
+    probability, provided d_e >= d_e_true.
+
+    Args:
+        problem: the synthetic food problem
+        budget: total evaluation budget
+        n_init: initial random points
+        seed: random seed
+        target_dim: dimensionality of the random embedding
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    d = problem.d
+    k = target_dim
+    bounds_np = problem.ingredient_bounds  # (2, d)
+    x_min = torch.tensor(bounds_np[0], dtype=torch.double)
+    x_max = torch.tensor(bounds_np[1], dtype=torch.double)
+
+    # Random Gaussian projection matrix (d x k): maps low-dim -> high-dim
+    rng = np.random.RandomState(seed)
+    A = torch.tensor(rng.randn(d, k) / np.sqrt(k), dtype=torch.double)
+
+    # Center point for the embedding
+    x_center = (x_min + x_max) / 2
+
+    # Determine bounds in the low-dimensional space by sampling
+    # REMBO uses a convex bounded region; we find bounds empirically
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    x_samples = sobol.draw(4096).double()
+    x_samples = x_min + x_samples * (x_max - x_min)
+    # Project to low-dim: z = A^T (x - x_center)
+    z_samples = ((x_samples - x_center) @ A)  # (4096, k)
+    z_min = z_samples.min(dim=0).values
+    z_max = z_samples.max(dim=0).values
+    z_bounds = torch.stack([z_min, z_max])
+
+    def z_to_x(z: torch.Tensor) -> np.ndarray:
+        """Map low-dim z back to high-dim x via the random projection, then clip."""
+        x = x_center + A @ z
+        x = torch.clamp(x, x_min, x_max)
+        return x.detach().numpy()
+
+    all_z = []
+    all_y = []
+    best_values = []
+
+    # Initial random samples in z-space
+    sobol_z = SobolEngine(dimension=k, scramble=True, seed=seed)
+    z_init = sobol_z.draw(n_init).double()
+    z_init = z_min + z_init * (z_max - z_min)
+
+    for i in range(n_init):
+        x = z_to_x(z_init[i])
+        y = problem.evaluate(x)
+        all_z.append(z_init[i].numpy())
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    # BO loop in low-dimensional space
+    for step in range(budget - n_init):
+        train_Z = torch.tensor(np.array(all_z), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_Z_norm = normalize(train_Z, z_bounds)
+
+        gp = SingleTaskGP(train_Z_norm, train_Y, outcome_transform=Standardize(m=1))
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        try:
+            fit_gpytorch_mll(mll)
+        except Exception:
+            pass
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_Z_norm, sampler=sampler,
+        )
+
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([torch.zeros(k), torch.ones(k)]).double(),
+            q=1,
+            num_restarts=10,
+            raw_samples=512,
+        )
+
+        z_new = unnormalize(candidate_norm.squeeze(0), z_bounds)
+        x_new = z_to_x(z_new)
+        y_new = problem.evaluate(x_new)
+
+        all_z.append(z_new.detach().numpy())
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+    return {
+        "best_values": best_values,
+        "all_y": all_y,
+        "final_best": max(all_y),
+    }
+
+
+def bo_turbo(
+    problem: SyntheticFoodProblem,
+    budget: int = 25,
+    n_init: int = 5,
+    seed: int = 0,
+    batch_size: int = 1,
+) -> Dict:
+    """TuRBO: Trust Region Bayesian Optimization.
+
+    Maintains a local trust region that expands on success and shrinks on
+    failure. Candidates are generated within the trust region centered at
+    the current best point. This avoids over-exploration in high dimensions.
+
+    Reference: Eriksson et al., "Scalable Global Optimization via Local
+    Bayesian Optimization", NeurIPS 2019.
+
+    Args:
+        problem: the synthetic food problem
+        budget: total evaluation budget
+        n_init: initial random points
+        seed: random seed
+        batch_size: candidates per BO step
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    d = problem.d
+    bounds_np = problem.ingredient_bounds
+    bounds = torch.tensor(bounds_np, dtype=torch.double)  # (2, d)
+    lb, ub = bounds[0], bounds[1]
+
+    # TuRBO hyperparameters (following the original paper)
+    length_init = 0.8  # initial trust region length (fraction of [0,1]^d)
+    length_min = 0.5 ** 7  # minimum length before restart
+    length_max = 1.6  # maximum length
+    success_tolerance = 3  # consecutive successes to expand
+    failure_tolerance = max(d, batch_size)  # consecutive failures to shrink
+
+    # State
+    length = length_init
+    n_successes = 0
+    n_failures = 0
+
+    all_x = []
+    all_y = []
+    best_values = []
+
+    # Initial Sobol samples
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    x_init_norm = sobol.draw(n_init).double()
+    x_init = unnormalize(x_init_norm, bounds)
+
+    for i in range(n_init):
+        x = x_init[i].numpy()
+        y = problem.evaluate(x)
+        all_x.append(x)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    best_y = max(all_y)
+
+    for step in range(budget - n_init):
+        train_X = torch.tensor(np.array(all_x), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_X_norm = normalize(train_X, bounds)
+
+        # Fit GP
+        gp = SingleTaskGP(train_X_norm, train_Y, outcome_transform=Standardize(m=1))
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        try:
+            fit_gpytorch_mll(mll)
+        except Exception:
+            pass
+
+        # Build trust region around the current best point (in [0,1]^d)
+        best_idx = int(np.argmax(all_y))
+        x_center_norm = train_X_norm[best_idx]
+
+        # Use lengthscales to shape the trust region (key TuRBO insight)
+        # SingleTaskGP may wrap kernel differently; handle both cases
+        covar = gp.covar_module
+        if hasattr(covar, 'base_kernel'):
+            lengthscales = covar.base_kernel.lengthscale.detach().squeeze()
+        else:
+            lengthscales = covar.lengthscale.detach().squeeze()
+        weights = lengthscales / lengthscales.mean()
+        weights = weights / torch.prod(weights).pow(1.0 / d)  # normalize product to 1
+
+        # Trust region bounds in [0,1]^d
+        tr_lb = torch.clamp(x_center_norm - weights * length / 2, 0.0, 1.0)
+        tr_ub = torch.clamp(x_center_norm + weights * length / 2, 0.0, 1.0)
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_X_norm, sampler=sampler,
+        )
+
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([tr_lb, tr_ub]).double(),
+            q=batch_size,
+            num_restarts=10,
+            raw_samples=512,
+        )
+
+        x_new = unnormalize(candidate_norm.squeeze(0), bounds).detach().numpy()
+        if x_new.ndim == 1:
+            y_new = problem.evaluate(x_new)
+        else:
+            y_new = float(max(problem.evaluate(x_new[i]) for i in range(len(x_new))))
+            x_new = x_new[np.argmax([problem.evaluate(x_new[i]) for i in range(len(x_new))])]
+
+        all_x.append(x_new)
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+        # Update trust region: expand on success, shrink on failure
+        if y_new > best_y:
+            n_successes += 1
+            n_failures = 0
+            best_y = y_new
+        else:
+            n_successes = 0
+            n_failures += 1
+
+        if n_successes >= success_tolerance:
+            length = min(2.0 * length, length_max)
+            n_successes = 0
+        elif n_failures >= failure_tolerance:
+            length = length / 2.0
+            n_failures = 0
+
+        # Restart if trust region is too small
+        if length < length_min:
+            length = length_init
+            n_successes = 0
+            n_failures = 0
+
+    return {
+        "best_values": best_values,
+        "all_y": all_y,
+        "final_best": max(all_y),
+    }
+
+
+def bo_saasbo(
+    problem: SyntheticFoodProblem,
+    budget: int = 25,
+    n_init: int = 5,
+    seed: int = 0,
+    warmup_steps: int = 256,
+    num_samples: int = 128,
+) -> Dict:
+    """SAASBO: Sparse Axis-Aligned Subspace Bayesian Optimization.
+
+    Uses a fully Bayesian GP with sparsity-inducing half-Cauchy priors on
+    inverse lengthscales. Irrelevant dimensions get very large lengthscales
+    (effectively ignored), discovering the active subspace implicitly.
+
+    Reference: Eriksson & Jankowiak, "High-Dimensional Bayesian Optimization
+    with Sparse Axis-Aligned Subspaces", UAI 2021.
+
+    Args:
+        problem: the synthetic food problem
+        budget: total evaluation budget
+        n_init: initial random points
+        seed: random seed
+        warmup_steps: NUTS warmup steps for fully Bayesian inference
+        num_samples: NUTS posterior samples
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    d = problem.d
+    bounds_np = problem.ingredient_bounds
+    bounds = torch.tensor(bounds_np, dtype=torch.double)
+
+    all_x = []
+    all_y = []
+    best_values = []
+
+    # Initial Sobol samples
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    x_init_norm = sobol.draw(n_init).double()
+    x_init = unnormalize(x_init_norm, bounds)
+
+    for i in range(n_init):
+        x = x_init[i].numpy()
+        y = problem.evaluate(x)
+        all_x.append(x)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    # BO loop with SAAS GP
+    for step in range(budget - n_init):
+        train_X = torch.tensor(np.array(all_x), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_X_norm = normalize(train_X, bounds)
+
+        # Fit fully Bayesian SAAS GP with NUTS
+        gp = SaasFullyBayesianSingleTaskGP(
+            train_X=train_X_norm,
+            train_Y=train_Y,
+        )
+        try:
+            fit_fully_bayesian_model_nuts(
+                gp,
+                warmup_steps=warmup_steps,
+                num_samples=num_samples,
+                disable_progbar=True,
+            )
+        except Exception:
+            # Fall back to standard GP if NUTS fails
+            gp = SingleTaskGP(
+                train_X_norm, train_Y, outcome_transform=Standardize(m=1)
+            )
+            mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+            try:
+                fit_gpytorch_mll(mll)
+            except Exception:
+                pass
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_X_norm, sampler=sampler,
+        )
+
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([torch.zeros(d), torch.ones(d)]).double(),
+            q=1,
+            num_restarts=10,
+            raw_samples=512,
+        )
+
+        x_new = unnormalize(candidate_norm.squeeze(0), bounds).detach().numpy()
+        y_new = problem.evaluate(x_new)
+
+        all_x.append(x_new)
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+    return {
+        "best_values": best_values,
+        "all_y": all_y,
+        "final_best": max(all_y),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 8. BENCHMARK RUNNER
+# ---------------------------------------------------------------------------
+
+ALL_METHODS = [
+    "oracle", "llm", "random_alebo", "expert", "full_dim",
+    "rembo", "turbo", "saasbo",
+]
+
 
 def run_benchmark(
     problem_name: str = "synergy",
@@ -652,6 +1028,7 @@ def run_benchmark(
     n_init: int = 5,
     n_seeds: int = 5,
     llm_subspace: Optional[np.ndarray] = None,
+    methods_to_run: Optional[List[str]] = None,
 ) -> Dict:
     """Run full benchmark comparison on a single problem.
 
@@ -661,6 +1038,9 @@ def run_benchmark(
         n_init: initial random evaluations
         n_seeds: number of random seeds for statistical significance
         llm_subspace: (k, d) matrix from LLM. If None, uses ground-truth as oracle.
+        methods_to_run: list of method names to run. If None, runs all methods.
+            Available: "oracle", "llm", "random_alebo", "expert", "full_dim",
+            "rembo", "turbo", "saasbo".
 
     Returns:
         dict of method_name -> {mean_trace, std_trace, mean_final, std_final, subspace_metrics}
@@ -684,7 +1064,6 @@ def run_benchmark(
     methods["llm"] = {"matrix": llm_subspace}
 
     # 3. Random subspace (ALEBO-style)
-    # Use multiple random seeds and average
     methods["random_alebo"] = {"matrix": None}  # generated per seed
 
     # 4. Expert-simulated
@@ -692,6 +1071,19 @@ def run_benchmark(
 
     # 5. Full-dimensional BO
     methods["full_dim"] = {"matrix": None}  # special case
+
+    # 6. REMBO
+    methods["rembo"] = {"matrix": None}  # random embedding per seed
+
+    # 7. TuRBO
+    methods["turbo"] = {"matrix": None}  # trust region, no subspace
+
+    # 8. SAASBO
+    methods["saasbo"] = {"matrix": None}  # fully Bayesian, no subspace
+
+    # Filter to requested methods
+    if methods_to_run is not None:
+        methods = {k_: v for k_, v in methods.items() if k_ in methods_to_run}
 
     results = {}
 
@@ -709,6 +1101,13 @@ def run_benchmark(
                 expert_idx = simulated_expert_selection(problem, n_select=k)
                 A_exp = expert_subspace(d, expert_idx)
                 result = bo_in_subspace(problem, A_exp, budget=budget, n_init=n_init, seed=seed)
+            elif method_name == "rembo":
+                result = bo_rembo(problem, budget=budget, n_init=n_init, seed=seed,
+                                  target_dim=k)
+            elif method_name == "turbo":
+                result = bo_turbo(problem, budget=budget, n_init=n_init, seed=seed)
+            elif method_name == "saasbo":
+                result = bo_saasbo(problem, budget=budget, n_init=n_init, seed=seed)
             else:
                 A = methods[method_name]["matrix"]
                 result = bo_in_subspace(problem, A, budget=budget, n_init=n_init, seed=seed)
@@ -720,13 +1119,16 @@ def run_benchmark(
         std_trace = traces.std(axis=0)
 
         # Subspace metrics
-        if method_name == "full_dim":
+        if method_name in ("full_dim", "turbo"):
             sub_metrics = {"note": "full-dimensional, no subspace"}
         elif method_name == "random_alebo":
-            # Average metrics over seeds
             sub_metrics = {"note": "averaged over random seeds"}
         elif method_name == "expert":
             sub_metrics = {"note": "simulated expert variable selection"}
+        elif method_name == "rembo":
+            sub_metrics = {"note": "random Gaussian embedding"}
+        elif method_name == "saasbo":
+            sub_metrics = {"note": "implicit sparsity via lengthscale priors"}
         else:
             A_m = methods[method_name]["matrix"]
             sub_metrics = subspace_alignment(A_true, A_m)
@@ -777,13 +1179,17 @@ if __name__ == "__main__":
     parser.add_argument("--budget", type=int, default=25)
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--n-init", type=int, default=5)
+    parser.add_argument("--methods", nargs="+", default=None, choices=ALL_METHODS,
+                        help="Methods to run (default: all). Example: --methods oracle turbo saasbo")
     args = parser.parse_args()
 
-    print(f"Running benchmark: {args.problem} (budget={args.budget}, seeds={args.seeds})")
+    methods_str = ", ".join(args.methods) if args.methods else "all"
+    print(f"Running benchmark: {args.problem} (budget={args.budget}, seeds={args.seeds}, methods={methods_str})")
     results = run_benchmark(
         problem_name=args.problem,
         budget=args.budget,
         n_init=args.n_init,
         n_seeds=args.seeds,
+        methods_to_run=args.methods,
     )
     print_results(results)
