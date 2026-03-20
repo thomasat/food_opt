@@ -28,8 +28,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple
-from botorch.models import SingleTaskGP
-from botorch.fit import fit_gpytorch_mll
+from botorch.models import SingleTaskGP, SaasFullyBayesianSingleTaskGP
+from botorch.fit import fit_gpytorch_mll, fit_fully_bayesian_model_nuts
 from botorch.optim import optimize_acqf
 from botorch.acquisition import qLogNoisyExpectedImprovement
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -252,6 +252,263 @@ def llm_reduced_bo(objective, d_full: int, selected_indices: List[int],
 
 
 # ---------------------------------------------------------------------------
+# 6b. REMBO (Random Embedding BO, d=28 -> k=5)
+# ---------------------------------------------------------------------------
+
+def rembo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
+             seed: int = 0, target_dim: int = 5) -> Dict:
+    """REMBO: project high-dim unconstrained space to low-dim via random Gaussian."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    k = target_dim
+    z_lo, z_hi = -3.0, 3.0
+    bounds_full = torch.tensor([[z_lo]*d, [z_hi]*d], dtype=torch.double)
+
+    # Random Gaussian projection matrix (d x k)
+    rng = np.random.RandomState(seed)
+    A = torch.tensor(rng.randn(d, k) / np.sqrt(k), dtype=torch.double)
+    x_center = torch.zeros(d, dtype=torch.double)  # center of unconstrained space
+
+    # Determine bounds in the low-dim space empirically
+    sobol_samples = SobolEngine(dimension=d, scramble=True, seed=seed)
+    x_samples = unnormalize(sobol_samples.draw(4096).double(), bounds_full)
+    z_samples = (x_samples - x_center) @ A
+    z_min = z_samples.min(dim=0).values
+    z_max = z_samples.max(dim=0).values
+    z_bounds = torch.stack([z_min, z_max])
+
+    def z_to_x(z: torch.Tensor) -> np.ndarray:
+        x_unconstrained = x_center + A @ z
+        x_unconstrained = torch.clamp(x_unconstrained,
+                                       bounds_full[0, 0], bounds_full[1, 0])
+        return _softmax(x_unconstrained.detach().numpy())
+
+    all_z = []
+    all_y = []
+    best_values = []
+
+    sobol_z = SobolEngine(dimension=k, scramble=True, seed=seed)
+    z_init = z_min + sobol_z.draw(n_init).double() * (z_max - z_min)
+
+    for i in range(n_init):
+        x = z_to_x(z_init[i])
+        y = objective(x)
+        all_z.append(z_init[i].numpy())
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    for step in range(budget - n_init):
+        train_Z = torch.tensor(np.array(all_z), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_Z_norm = normalize(train_Z, z_bounds)
+
+        gp = SingleTaskGP(train_Z_norm, train_Y, outcome_transform=Standardize(m=1))
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        try:
+            fit_gpytorch_mll(mll)
+        except Exception:
+            pass
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_Z_norm, sampler=sampler,
+        )
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([torch.zeros(k), torch.ones(k)]).double(),
+            q=1, num_restarts=10, raw_samples=512,
+        )
+        z_new = unnormalize(candidate_norm.squeeze(0), z_bounds)
+        x_new = z_to_x(z_new)
+        y_new = objective(x_new)
+        all_z.append(z_new.detach().numpy())
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
+
+
+# ---------------------------------------------------------------------------
+# 6c. TuRBO (Trust Region BO, d=28)
+# ---------------------------------------------------------------------------
+
+def turbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
+             seed: int = 0) -> Dict:
+    """TuRBO: BO with adaptive trust region in unconstrained space, softmax to simplex."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    z_lo, z_hi = -3.0, 3.0
+    bounds = torch.tensor([[z_lo]*d, [z_hi]*d], dtype=torch.double)
+
+    # TuRBO hyperparameters
+    length_init = 0.8
+    length_min = 0.5 ** 7
+    length_max = 1.6
+    success_tolerance = 3
+    failure_tolerance = max(d, 1)
+
+    length = length_init
+    n_successes = 0
+    n_failures = 0
+
+    all_z = []
+    all_y = []
+    best_values = []
+
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+
+    for i in range(n_init):
+        z = z_init[i].numpy()
+        x = _softmax(z)
+        y = objective(x)
+        all_z.append(z)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    best_y = max(all_y)
+
+    for step in range(budget - n_init):
+        train_Z = torch.tensor(np.array(all_z), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_Z_norm = normalize(train_Z, bounds)
+
+        gp = SingleTaskGP(train_Z_norm, train_Y, outcome_transform=Standardize(m=1))
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        try:
+            fit_gpytorch_mll(mll)
+        except Exception:
+            pass
+
+        # Trust region around current best
+        best_idx = int(np.argmax(all_y))
+        z_center_norm = train_Z_norm[best_idx]
+
+        covar = gp.covar_module
+        if hasattr(covar, 'base_kernel'):
+            lengthscales = covar.base_kernel.lengthscale.detach().squeeze()
+        else:
+            lengthscales = covar.lengthscale.detach().squeeze()
+        weights = lengthscales / lengthscales.mean()
+        weights = weights / torch.prod(weights).pow(1.0 / d)
+
+        tr_lb = torch.clamp(z_center_norm - weights * length / 2, 0.0, 1.0)
+        tr_ub = torch.clamp(z_center_norm + weights * length / 2, 0.0, 1.0)
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_Z_norm, sampler=sampler,
+        )
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([tr_lb, tr_ub]).double(),
+            q=1, num_restarts=10, raw_samples=512,
+        )
+        z_new = unnormalize(candidate_norm.squeeze(0), bounds).detach().numpy()
+        x_new = _softmax(z_new)
+        y_new = objective(x_new)
+        all_z.append(z_new)
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+        # Update trust region
+        if y_new > best_y:
+            n_successes += 1
+            n_failures = 0
+            best_y = y_new
+        else:
+            n_successes = 0
+            n_failures += 1
+
+        if n_successes >= success_tolerance:
+            length = min(2.0 * length, length_max)
+            n_successes = 0
+        elif n_failures >= failure_tolerance:
+            length = length / 2.0
+            n_failures = 0
+
+        if length < length_min:
+            length = length_init
+            n_successes = 0
+            n_failures = 0
+
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
+
+
+# ---------------------------------------------------------------------------
+# 6d. SAASBO (Sparse Axis-Aligned Subspace BO, d=28)
+# ---------------------------------------------------------------------------
+
+def saasbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
+              seed: int = 0, warmup_steps: int = 256,
+              num_samples: int = 128) -> Dict:
+    """SAASBO: fully Bayesian GP with sparsity priors, softmax to simplex."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    z_lo, z_hi = -3.0, 3.0
+    bounds = torch.tensor([[z_lo]*d, [z_hi]*d], dtype=torch.double)
+
+    all_z = []
+    all_y = []
+    best_values = []
+
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+
+    for i in range(n_init):
+        z = z_init[i].numpy()
+        x = _softmax(z)
+        y = objective(x)
+        all_z.append(z)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    for step in range(budget - n_init):
+        train_Z = torch.tensor(np.array(all_z), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_Z_norm = normalize(train_Z, bounds)
+
+        gp = SaasFullyBayesianSingleTaskGP(
+            train_X=train_Z_norm, train_Y=train_Y,
+        )
+        try:
+            fit_fully_bayesian_model_nuts(
+                gp, warmup_steps=warmup_steps, num_samples=num_samples,
+                disable_progbar=True,
+            )
+        except Exception:
+            gp = SingleTaskGP(
+                train_Z_norm, train_Y, outcome_transform=Standardize(m=1)
+            )
+            mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+            try:
+                fit_gpytorch_mll(mll)
+            except Exception:
+                pass
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_Z_norm, sampler=sampler,
+        )
+        candidate_norm, _ = optimize_acqf(
+            acq_function=acq,
+            bounds=torch.stack([torch.zeros(d), torch.ones(d)]).double(),
+            q=1, num_restarts=10, raw_samples=512,
+        )
+        z_new = unnormalize(candidate_norm.squeeze(0), bounds).detach().numpy()
+        x_new = _softmax(z_new)
+        y_new = objective(x_new)
+        all_z.append(z_new)
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
+
+
+# ---------------------------------------------------------------------------
 # 7. LLM INGREDIENT SELECTION
 # ---------------------------------------------------------------------------
 
@@ -341,6 +598,9 @@ def run_experiment(budget: int = 30, n_seeds: int = 5, n_init: int = 5):
     method_names = [
         f"LLM + BO (k={k})",
         f"Vanilla BO (d={d})",
+        f"REMBO (d={d}->k=5)",
+        f"TuRBO (d={d})",
+        f"SAASBO (d={d})",
         f"Random Search (d={d})",
     ]
     all_traces = {name: [] for name in method_names}
@@ -356,9 +616,22 @@ def run_experiment(budget: int = 30, n_seeds: int = 5, n_init: int = 5):
         res = vanilla_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
         all_traces[method_names[1]].append(res["best_values"])
 
+        # REMBO
+        res = rembo_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
+        all_traces[method_names[2]].append(res["best_values"])
+
+        # TuRBO
+        res = turbo_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
+        all_traces[method_names[3]].append(res["best_values"])
+
+        # SAASBO (reduced NUTS settings for tractability in d=28)
+        res = saasbo_bo(objective, d, budget=budget, n_init=n_init, seed=seed,
+                        warmup_steps=64, num_samples=32)
+        all_traces[method_names[4]].append(res["best_values"])
+
         # Random search
         res = random_search(objective, d, budget=budget, seed=seed)
-        all_traces[method_names[2]].append(res["best_values"])
+        all_traces[method_names[5]].append(res["best_values"])
 
     return all_traces, budget, df, selected, fat_norm, sodium_norm
 
@@ -382,6 +655,12 @@ def plot_convergence(all_traces: Dict, budget: int, save_path: str = os.path.joi
             color, ls, lw = "#2ecc71", "-", 2.5
         elif "Vanilla" in name:
             color, ls, lw = "#e74c3c", "-.", 2
+        elif "REMBO" in name:
+            color, ls, lw = "#3498db", "--", 2
+        elif "TuRBO" in name:
+            color, ls, lw = "#9b59b6", "-.", 2
+        elif "SAASBO" in name:
+            color, ls, lw = "#e67e22", ":", 2
         else:
             color, ls, lw = "#999999", "--", 1.5
 
@@ -418,6 +697,12 @@ def plot_final_bar(all_traces: Dict, save_path: str = os.path.join(_ROOT, "plots
             colors.append("#2ecc71")
         elif "Vanilla" in name:
             colors.append("#e74c3c")
+        elif "REMBO" in name:
+            colors.append("#3498db")
+        elif "TuRBO" in name:
+            colors.append("#9b59b6")
+        elif "SAASBO" in name:
+            colors.append("#e67e22")
         else:
             colors.append("#999999")
 
