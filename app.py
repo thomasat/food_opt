@@ -477,16 +477,20 @@ with tab_optimize:
 
             if missing:
                 st.error(f"Missing columns: {missing}")
-            elif st.button("Import All Rows", type="primary"):
-                imported = 0
-                for _, row in import_df.iterrows():
-                    recipe = {name: float(row[name]) for name in var_names}
-                    results = {name: float(row[name]) for name in obj_names}
-                    st.session_state.optimizer.tell(recipe, results)
-                    imported += 1
-                st.session_state.show_backup_warning = True
-                st.success(f"Imported {imported} experiments!")
-                st.rerun()
+            else:
+                nan_cols = [c for c in required if import_df[c].isna().any()]
+                if nan_cols:
+                    st.error(f"Columns with missing/NaN values: {nan_cols}")
+                elif st.button("Import All Rows", type="primary"):
+                    imported = 0
+                    for _, row in import_df.iterrows():
+                        recipe = {name: float(row[name]) for name in var_names}
+                        results = {name: float(row[name]) for name in obj_names}
+                        st.session_state.optimizer.tell(recipe, results)
+                        imported += 1
+                    st.session_state.show_backup_warning = True
+                    st.success(f"Imported {imported} experiments!")
+                    st.rerun()
 
     st.divider()
 
