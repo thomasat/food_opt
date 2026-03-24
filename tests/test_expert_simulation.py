@@ -97,11 +97,14 @@ class TestExpertUpdate:
 
 class TestIntegration:
     def test_oracle_short_run(self):
-        from experiments.run_expert_simulation import run_oracle_bo
-        r = run_oracle_bo(budget=6, n_init=3, seed=0, noise_std=0.0)
+        from experiments.run_expert_simulation import run_expert_bo, EXPERT_CONFIGS
+        r = run_expert_bo(budget=6, n_init=3, seed=0, noise_std=0.0,
+                          config=EXPERT_CONFIGS["oracle"])
         assert len(r["best_values"]) == 6
         assert r["best_values"] == sorted(r["best_values"])  # monotonically non-decreasing
         assert r["final_best"] == r["best_values"][-1]
+        # Oracle should select exactly 6 relevant vars on first iteration
+        assert r["n_relevant_selected"][0] == 6
 
     def test_expert_short_run(self):
         from experiments.run_expert_simulation import run_expert_bo, EXPERT_CONFIGS

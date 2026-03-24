@@ -110,7 +110,8 @@ class ExpertConfig:
 
 
 EXPERT_CONFIGS = {
-    "expert_good":   ExpertConfig("expert_good",   p=0.5,  q=0.005),
+    "oracle":        ExpertConfig("oracle",         p=1.0,  q=0.0),
+    "expert_good":   ExpertConfig("expert_good",    p=0.5,  q=0.005),
     "expert_medium": ExpertConfig("expert_medium",  p=0.2,  q=0.03),
     "expert_poor":   ExpertConfig("expert_poor",    p=0.05, q=0.08),
 }
@@ -211,37 +212,6 @@ def run_vanilla_bo(budget: int, n_init: int, seed: int,
 
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
-
-def run_oracle_bo(budget: int, n_init: int, seed: int,
-                  noise_std: float) -> Dict:
-    """BO on only the 6 true Hartmann6 dimensions."""
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    d = D_RELEVANT
-    all_x, all_y, best_values = [], [], []
-
-    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
-    x_init = sobol.draw(n_init).double()
-
-    for i in range(n_init):
-        x6 = x_init[i].numpy()
-        y = hartmann6(x6) + (np.random.normal(0, noise_std) if noise_std > 0 else 0)
-        all_x.append(x6)
-        all_y.append(y)
-        best_values.append(max(all_y))
-
-    for step in range(budget - n_init):
-        train_X = torch.tensor(np.array(all_x), dtype=torch.double)
-        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
-        cand = _fit_and_suggest(train_X, train_Y, d, seed + step)
-        x_new = cand.detach().numpy()
-        y_new = hartmann6(x_new) + (np.random.normal(0, noise_std) if noise_std > 0 else 0)
-        all_x.append(x_new)
-        all_y.append(y_new)
-        best_values.append(max(all_y))
-
-    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
 
 def run_rembo(budget: int, n_init: int, seed: int,
@@ -540,7 +510,7 @@ ALL_METHODS = [
 
 METHOD_STYLES = {
     "vanilla_bo":     {"color": "grey",      "ls": "--", "label": "Vanilla BO (d=100)"},
-    "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (d=6)"},
+    "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (p=1, q=0)"},
     "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
     "turbo":          {"color": "tab:cyan",  "ls": "-.", "label": "TuRBO (d=100)"},
     "saasbo":         {"color": "tab:purple","ls": "-.", "label": "SAASBO (d=100)"},
@@ -575,8 +545,6 @@ def run_simulation(
         for seed in range(n_seeds):
             if method == "vanilla_bo":
                 r = run_vanilla_bo(budget, n_init, seed, noise_std)
-            elif method == "oracle":
-                r = run_oracle_bo(budget, n_init, seed, noise_std)
             elif method == "rembo":
                 r = run_rembo(budget, n_init, seed, noise_std)
             elif method == "turbo":
@@ -587,8 +555,9 @@ def run_simulation(
                 r = run_expert_bo(budget, n_init, seed, noise_std,
                                   EXPERT_CONFIGS[method])
                 # Collect diagnostics from last seed for plotting
-                extra["active_set_sizes"] = r.get("active_set_sizes")
-                extra["n_relevant_selected"] = r.get("n_relevant_selected")
+                if method != "oracle":
+                    extra["active_set_sizes"] = r.get("active_set_sizes")
+                    extra["n_relevant_selected"] = r.get("n_relevant_selected")
             else:
                 raise ValueError(f"Unknown method: {method}")
 
