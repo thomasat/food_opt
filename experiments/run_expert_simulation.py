@@ -98,6 +98,56 @@ RELEVANT_SET = set(range(D_RELEVANT))        # {0,1,2,3,4,5}
 IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))  # {6,...,99}
 
 
+# ---------------------------------------------------------------------------
+# 1b. ACKLEY EMBEDDED IN 100-D
+# ---------------------------------------------------------------------------
+
+# Ackley on [0,1]^6 mapped to [-5, 5]^6, negated for maximisation.
+# Global max = 0.0, achieved at x = 0.5 (centre of unit hypercube).
+ACKLEY_GLOBAL_MAX = 0.0
+
+
+def _ackley6(x6: np.ndarray) -> float:
+    """Ackley on [0,1]^6 (mapped to [-5,5]^6), negated for maximisation."""
+    x = 10.0 * x6 - 5.0          # [0,1] -> [-5, 5]
+    d = 6
+    val = (-20.0 * np.exp(-0.2 * np.sqrt(np.sum(x ** 2) / d))
+           - np.exp(np.sum(np.cos(2.0 * np.pi * x)) / d)
+           + 20.0 + np.e)
+    return -float(val)            # negate: higher is better
+
+
+def evaluate_embedded_ackley(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate negated Ackley using only the first 6 of D_TOTAL variables."""
+    val = _ackley6(x_full[:D_RELEVANT])
+    if noise_std > 0:
+        val += np.random.normal(0, noise_std)
+    return val
+
+
+# ---------------------------------------------------------------------------
+# Active test function (switched via _set_test_function)
+# ---------------------------------------------------------------------------
+
+ACTIVE_FUNCTION: str = "hartmann6"
+GLOBAL_MAX: float = HARTMANN6_GLOBAL_MAX
+_eval_fn = evaluate_embedded          # callable used by all run_* methods
+
+
+def _set_test_function(name: str):
+    """Switch the active test function for all run_* methods."""
+    global ACTIVE_FUNCTION, GLOBAL_MAX, _eval_fn
+    if name == "hartmann6":
+        _eval_fn = evaluate_embedded
+        GLOBAL_MAX = HARTMANN6_GLOBAL_MAX
+    elif name == "ackley":
+        _eval_fn = evaluate_embedded_ackley
+        GLOBAL_MAX = ACKLEY_GLOBAL_MAX
+    else:
+        raise ValueError(f"Unknown test function: {name!r}. Choose 'hartmann6' or 'ackley'.")
+    ACTIVE_FUNCTION = name
+
+
 def _set_ambient_dim(d_total: int):
     """Reconfigure all module-level globals for a new ambient dimension."""
     global D_TOTAL, D_IRRELEVANT, BOUNDS_100, IRRELEVANT_SET
@@ -207,7 +257,7 @@ def run_vanilla_bo(budget: int, n_init: int, seed: int,
 
     for i in range(n_init):
         x = x_init[i].numpy()
-        y = evaluate_embedded(x, noise_std)
+        y = _eval_fn(x, noise_std)
         all_x.append(x)
         all_y.append(y)
         best_values.append(max(all_y))
@@ -217,13 +267,26 @@ def run_vanilla_bo(budget: int, n_init: int, seed: int,
         train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
         cand = _fit_and_suggest(train_X, train_Y, d, seed + step)
         x_new = cand.detach().numpy()
-        y_new = evaluate_embedded(x_new, noise_std)
+        y_new = _eval_fn(x_new, noise_std)
         all_x.append(x_new)
         all_y.append(y_new)
         best_values.append(max(all_y))
 
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
+
+
+def run_random_search(budget: int, n_init: int, seed: int,
+                      noise_std: float) -> Dict:
+    """Pure random search: sample uniformly at random, ignoring observations."""
+    rng = np.random.RandomState(seed)
+    all_y, best_values = [], []
+    for _ in range(budget):
+        x = rng.random(D_TOTAL)
+        y = _eval_fn(x, noise_std)
+        all_y.append(y)
+        best_values.append(max(all_y))
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
 
 def run_rembo(budget: int, n_init: int, seed: int,
@@ -258,7 +321,7 @@ def run_rembo(budget: int, n_init: int, seed: int,
 
     for i in range(n_init):
         x = z_to_x(z_init[i])
-        y = evaluate_embedded(x, noise_std)
+        y = _eval_fn(x, noise_std)
         all_z.append(z_init[i].numpy())
         all_y.append(y)
         best_values.append(max(all_y))
@@ -271,7 +334,7 @@ def run_rembo(budget: int, n_init: int, seed: int,
         cand_norm = _fit_and_suggest(train_Z_norm, train_Y, k, seed + step)
         z_new = unnormalize(cand_norm, z_bounds)
         x_new = z_to_x(z_new)
-        y_new = evaluate_embedded(x_new, noise_std)
+        y_new = _eval_fn(x_new, noise_std)
 
         all_z.append(z_new.detach().numpy())
         all_y.append(y_new)
@@ -304,7 +367,7 @@ def run_turbo(budget: int, n_init: int, seed: int,
 
     for i in range(n_init):
         x = x_init[i].numpy()
-        y = evaluate_embedded(x, noise_std)
+        y = _eval_fn(x, noise_std)
         all_x.append(x)
         all_y.append(y)
         best_values.append(max(all_y))
@@ -347,7 +410,7 @@ def run_turbo(budget: int, n_init: int, seed: int,
         )
 
         x_new = candidate.squeeze(0).detach().numpy()
-        y_new = evaluate_embedded(x_new, noise_std)
+        y_new = _eval_fn(x_new, noise_std)
         all_x.append(x_new)
         all_y.append(y_new)
         best_values.append(max(all_y))
@@ -388,7 +451,7 @@ def run_saasbo(budget: int, n_init: int, seed: int,
 
     for i in range(n_init):
         x = x_init[i].numpy()
-        y = evaluate_embedded(x, noise_std)
+        y = _eval_fn(x, noise_std)
         all_x.append(x)
         all_y.append(y)
         best_values.append(max(all_y))
@@ -421,7 +484,7 @@ def run_saasbo(budget: int, n_init: int, seed: int,
         )
 
         x_new = candidate.squeeze(0).detach().numpy()
-        y_new = evaluate_embedded(x_new, noise_std)
+        y_new = _eval_fn(x_new, noise_std)
         all_x.append(x_new)
         all_y.append(y_new)
         best_values.append(max(all_y))
@@ -463,7 +526,7 @@ def run_expert_bo(budget: int, n_init: int, seed: int,
         if d_active == 0:
             # Expert hasn't selected anything yet – sample randomly in full space
             x_full = rng.random(D_TOTAL)
-            y = evaluate_embedded(x_full, noise_std)
+            y = _eval_fn(x_full, noise_std)
             all_x_full.append(x_full)
             all_y.append(y)
             best_values.append(max(all_y))
@@ -497,7 +560,7 @@ def run_expert_bo(budget: int, n_init: int, seed: int,
         x_full = np.full(D_TOTAL, 0.5)
         x_full[active_list] = x_sub
 
-        y = evaluate_embedded(x_full, noise_std)
+        y = _eval_fn(x_full, noise_std)
         all_x_full.append(x_full)
         all_y.append(y)
         best_values.append(max(all_y))
@@ -516,11 +579,12 @@ def run_expert_bo(budget: int, n_init: int, seed: int,
 # ---------------------------------------------------------------------------
 
 ALL_METHODS = [
-    "vanilla_bo", "oracle", "rembo", "turbo", "saasbo",
+    "random_search", "vanilla_bo", "oracle", "rembo", "turbo", "saasbo",
     "expert_good", "expert_medium", "expert_poor",
 ]
 
 METHOD_STYLES = {
+    "random_search":  {"color": "tab:brown", "ls": ":",  "label": "Random Search"},
     "vanilla_bo":     {"color": "grey",      "ls": "--", "label": "Vanilla BO (d=100)"},
     "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (p=1, q=0)"},
     "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
@@ -555,7 +619,9 @@ def run_simulation(
         extra = {}
 
         for seed in range(n_seeds):
-            if method == "vanilla_bo":
+            if method == "random_search":
+                r = run_random_search(budget, n_init, seed, noise_std)
+            elif method == "vanilla_bo":
                 r = run_vanilla_bo(budget, n_init, seed, noise_std)
             elif method == "rembo":
                 r = run_rembo(budget, n_init, seed, noise_std)
@@ -603,11 +669,11 @@ def plot_convergence(results: Dict, budget: int, save_path: str = "plots/expert_
         ax.fill_between(iterations, mean - std, mean + std,
                          color=style["color"], alpha=0.12)
 
-    ax.axhline(HARTMANN6_GLOBAL_MAX, color="gold", ls=":", lw=1.5,
-               label=f"Global optimum ({HARTMANN6_GLOBAL_MAX:.4f})")
+    ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
+               label=f"Global optimum ({GLOBAL_MAX:.4f})")
     ax.set_xlabel("Evaluation", fontsize=13)
     ax.set_ylabel("Best Hartmann6 Value Found", fontsize=13)
-    ax.set_title(f"Expert-Guided BO vs Baselines — Hartmann6 in {D_TOTAL}-D", fontsize=14)
+    ax.set_title(f"Expert-Guided BO vs Baselines — {ACTIVE_FUNCTION.capitalize()} in {D_TOTAL}-D", fontsize=14)
     ax.legend(loc="lower right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -674,8 +740,8 @@ def plot_final_bar(results: Dict,
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
     ax.set_ylabel("Final Best Hartmann6 Value", fontsize=12)
     ax.set_title("Final Performance Comparison", fontsize=14)
-    ax.axhline(HARTMANN6_GLOBAL_MAX, color="gold", ls=":", lw=1.5,
-               label=f"Global optimum ({HARTMANN6_GLOBAL_MAX:.4f})")
+    ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
+               label=f"Global optimum ({GLOBAL_MAX:.4f})")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
@@ -687,7 +753,7 @@ def plot_final_bar(results: Dict,
 def print_results(results: Dict):
     """Pretty-print final results table."""
     print("\n" + "=" * 72)
-    print(f"EXPERT SIMULATION RESULTS — Hartmann6 in {D_TOTAL}-D")
+    print(f"EXPERT SIMULATION RESULTS — {ACTIVE_FUNCTION.capitalize()} in {D_TOTAL}-D")
     print("=" * 72)
     print(f"\n{'Method':<30} {'Final Best (mean ± std)':<25} {'Gap to opt'}")
     print("-" * 72)
@@ -698,7 +764,7 @@ def print_results(results: Dict):
         if method == "vanilla_bo":
             label = f"Vanilla BO (d={D_TOTAL})"
         perf = f"{data['mean_final']:.4f} ± {data['std_final']:.4f}"
-        gap = HARTMANN6_GLOBAL_MAX - data["mean_final"]
+        gap = GLOBAL_MAX - data["mean_final"]
         print(f"{label:<30} {perf:<25} {gap:+.4f}")
 
 
@@ -711,7 +777,7 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(
-        description="Expert-guided BO simulation on Hartmann6 (d=6 in N-D)")
+        description="Expert-guided BO simulation on Hartmann6 or Ackley (d=6 in N-D)")
     parser.add_argument("--budget", type=int, default=20,
                         help="Total evaluations per run (T)")
     parser.add_argument("--n-init", type=int, default=5,
@@ -722,17 +788,21 @@ if __name__ == "__main__":
                         help="Observation noise std (0 = noiseless)")
     parser.add_argument("--dim", type=int, default=100,
                         help="Total ambient dimension N (default: 100)")
+    parser.add_argument("--function", type=str, default="hartmann6",
+                        choices=["hartmann6", "ackley"],
+                        help="Test function (default: hartmann6)")
     parser.add_argument("--methods", nargs="+", default=None,
                         choices=ALL_METHODS,
                         help="Methods to run (default: all)")
     args = parser.parse_args()
 
-    # Reconfigure ambient dimension globals
+    # Reconfigure ambient dimension and test function globals
     _set_ambient_dim(args.dim)
+    _set_test_function(args.function)
 
     os.makedirs("plots", exist_ok=True)
 
-    print(f"Hartmann6 in {D_TOTAL}-D expert simulation")
+    print(f"{ACTIVE_FUNCTION.capitalize()} in {D_TOTAL}-D expert simulation")
     print(f"  budget={args.budget}, n_init={args.n_init}, "
           f"seeds={args.seeds}, noise={args.noise}")
     print()
