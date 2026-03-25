@@ -520,16 +520,18 @@ ALL_METHODS = [
     "expert_good", "expert_medium", "expert_poor",
 ]
 
-METHOD_STYLES = {
-    "vanilla_bo":     {"color": "grey",      "ls": "--", "label": "Vanilla BO (d=100)"},
-    "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (p=1, q=0)"},
-    "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
-    "turbo":          {"color": "tab:cyan",  "ls": "-.", "label": "TuRBO (d=100)"},
-    "saasbo":         {"color": "tab:purple","ls": "-.", "label": "SAASBO (d=100)"},
-    "expert_good":    {"color": "tab:green", "ls": "-",  "label": "Expert good (p=.3, q=.01)"},
-    "expert_medium":  {"color": "tab:orange","ls": "-",  "label": "Expert medium (p=.15, q=.03)"},
-    "expert_poor":    {"color": "tab:red",   "ls": "-",  "label": "Expert poor (p=.05, q=.06)"},
-}
+def _method_styles():
+    """Generate method styles with current D_TOTAL."""
+    return {
+        "vanilla_bo":     {"color": "grey",      "ls": "--", "label": f"Vanilla BO (d={D_TOTAL})"},
+        "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (p=1, q=0)"},
+        "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
+        "turbo":          {"color": "tab:cyan",  "ls": "-.", "label": f"TuRBO (d={D_TOTAL})"},
+        "saasbo":         {"color": "tab:purple","ls": "-.", "label": f"SAASBO (d={D_TOTAL})"},
+        "expert_good":    {"color": "tab:green", "ls": "-",  "label": "Expert good (p=.3, q=.01)"},
+        "expert_medium":  {"color": "tab:orange","ls": "-",  "label": "Expert medium (p=.15, q=.03)"},
+        "expert_poor":    {"color": "tab:red",   "ls": "-",  "label": "Expert poor (p=.05, q=.06)"},
+    }
 
 
 def run_simulation(
@@ -595,7 +597,7 @@ def plot_convergence(results: Dict, budget: int, save_path: str = "plots/expert_
     iterations = np.arange(1, budget + 1)
 
     for method, data in results.items():
-        style = METHOD_STYLES.get(method, {"color": "grey", "ls": "-", "label": method})
+        style = _method_styles().get(method, {"color": "grey", "ls": "-", "label": method})
         mean = np.array(data["mean_trace"])
         std = np.array(data["std_trace"])
         ax.plot(iterations, mean, color=style["color"], ls=style["ls"],
@@ -628,7 +630,7 @@ def plot_expert_diagnostics(results: Dict, budget: int,
 
     for method in expert_methods:
         data = results[method]
-        style = METHOD_STYLES.get(method, {"color": "grey", "ls": "-", "label": method})
+        style = _method_styles().get(method, {"color": "grey", "ls": "-", "label": method})
         if "active_set_sizes" in data and data["active_set_sizes"] is not None:
             axes[0].plot(iterations, data["active_set_sizes"],
                          color=style["color"], ls=style["ls"],
@@ -664,8 +666,8 @@ def plot_final_bar(results: Dict,
     methods = list(results.keys())
     means = [results[m]["mean_final"] for m in methods]
     stds = [results[m]["std_final"] for m in methods]
-    colors = [METHOD_STYLES.get(m, {}).get("color", "grey") for m in methods]
-    labels = [METHOD_STYLES.get(m, {}).get("label", m) for m in methods]
+    colors = [_method_styles().get(m, {}).get("color", "grey") for m in methods]
+    labels = [_method_styles().get(m, {}).get("label", m) for m in methods]
 
     fig, ax = plt.subplots(figsize=(10, 5))
     x = np.arange(len(methods))
@@ -693,10 +695,7 @@ def print_results(results: Dict):
     print("-" * 72)
 
     for method, data in sorted(results.items(), key=lambda x: -x[1]["mean_final"]):
-        label = METHOD_STYLES.get(method, {}).get("label", method)
-        # Dynamically show actual dim for vanilla_bo label
-        if method == "vanilla_bo":
-            label = f"Vanilla BO (d={D_TOTAL})"
+        label = _method_styles().get(method, {}).get("label", method)
         perf = f"{data['mean_final']:.4f} ± {data['std_final']:.4f}"
         gap = HARTMANN6_GLOBAL_MAX - data["mean_final"]
         print(f"{label:<30} {perf:<25} {gap:+.4f}")
