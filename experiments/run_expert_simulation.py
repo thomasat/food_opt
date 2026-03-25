@@ -1,10 +1,13 @@
 """
-Expert-Guided Variable Selection Simulation on Hartmann6.
+Expert-Guided Variable Selection Simulation.
+
+Supported test functions (embedded in high-D):
+- hartmann6: Hartmann6 (d=6 relevant), global max ≈ 3.3224
+- ackley10:  Negated Ackley (d=10 relevant), global max = 0.0
 
 Setup:
-- True function: Hartmann6 (d=6 relevant variables)
-- Embedded in N=100 dimensions (94 irrelevant variables)
-- The objective only depends on variables 0..5; variables 6..99 are inert.
+- True function uses d_relevant variables embedded in N ambient dimensions.
+- The objective only depends on the first d_relevant variables; the rest are inert.
 
 Expert model:
 - At each BO iteration, for each relevant variable NOT yet in the expert's
@@ -13,18 +16,16 @@ Expert model:
   probability q.
 - High p (good at finding relevant) and low q (avoids noise) = good expert.
 
-Comparisons (T=20 total evaluations, n_init=5 Sobol):
-1. vanilla_bo    – BO on all N=100 dimensions
-2. oracle        – BO on the 6 true dimensions only
-3. rembo         – Random Embedding BO (target_dim=6)
-4. turbo         – Trust Region BO on N=100
-5. saasbo        – Sparse Axis-Aligned Subspace BO on N=100
-6. expert_good   – p=0.3, q=0.01
-7. expert_medium – p=0.15, q=0.03
-8. expert_poor   – p=0.05, q=0.06
+Comparisons:
+1. random_search – Sobol quasi-random in all N dimensions
+2. vanilla_bo    – BO on all N dimensions
+3. oracle        – BO on the d_relevant true dimensions only
+4. expert_good   – p=0.3, q=0.01
+5. expert_medium – p=0.15, q=0.03
+6. expert_poor   – p=0.05, q=0.06
 
 Usage:
-    python experiments/run_expert_simulation.py [--seeds 10] [--budget 20]
+    python experiments/run_expert_simulation.py [--function ackley10] [--dim 100] [--budget 50]
 """
 
 import torch
@@ -43,14 +44,16 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from torch.quasirandom import SobolEngine
 
 # ---------------------------------------------------------------------------
-# 1. HARTMANN6 EMBEDDED IN 100-D
+# 1. TEST FUNCTIONS EMBEDDED IN HIGH-D
 # ---------------------------------------------------------------------------
 
-D_RELEVANT = 6     # true Hartmann6 dimensions
-D_TOTAL = 100       # total ambient dimensions (default; overridden by --dim)
+D_RELEVANT = 6     # true relevant dimensions (overridden by --function)
+D_TOTAL = 100       # total ambient dimensions (overridden by --dim)
 D_IRRELEVANT = D_TOTAL - D_RELEVANT
+GLOBAL_MAX = 3.3224  # global optimum value (overridden by --function)
+FUNCTION_NAME = "hartmann6"  # active function name
 
-# Standard Hartmann6 coefficients
+# --- Hartmann6 coefficients ---
 _HARTMANN6_ALPHA = np.array([1.0, 1.2, 3.0, 3.2])
 _HARTMANN6_A = np.array([
     [10, 3, 17, 3.5, 1.7, 8],
@@ -65,11 +68,8 @@ _HARTMANN6_P = 1e-4 * np.array([
     [4047, 8828, 8732, 5743, 1091, 381],
 ])
 
-# Global optimum of Hartmann6 ≈ 3.3224 (negated, so max ≈ 3.3224)
-HARTMANN6_GLOBAL_MAX = 3.3224
 
-
-def hartmann6(x6: np.ndarray) -> float:
+def _hartmann6_raw(x6: np.ndarray) -> float:
     """Standard Hartmann6 on [0,1]^6. Returns positive value (maximisation)."""
     outer = 0.0
     for i in range(4):
@@ -80,33 +80,66 @@ def hartmann6(x6: np.ndarray) -> float:
     return float(outer)
 
 
-def evaluate_embedded(x100: np.ndarray, noise_std: float = 0.0) -> float:
-    """Evaluate Hartmann6 using only the first 6 of 100 variables."""
-    val = hartmann6(x100[:D_RELEVANT])
+def _ackley_raw(x: np.ndarray) -> float:
+    """Negated Ackley on [0,1]^d mapped to [-5,5]^d.  Global max = 0 at x=0.5.
+
+    Standard Ackley has global min = 0 at origin. We map [0,1] -> [-5,5]
+    so origin corresponds to x=0.5, then negate for maximisation.
+    """
+    d = len(x)
+    z = (x - 0.5) * 10.0  # map [0,1] -> [-5,5]
+    sum_sq = np.sum(z ** 2)
+    sum_cos = np.sum(np.cos(2.0 * np.pi * z))
+    ackley_val = -20.0 * np.exp(-0.2 * np.sqrt(sum_sq / d)) - np.exp(sum_cos / d) + 20.0 + np.e
+    return -float(ackley_val)  # negate for maximisation
+
+
+def evaluate_embedded(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate active function using only the first D_RELEVANT variables."""
+    x_rel = x_full[:D_RELEVANT]
+    if FUNCTION_NAME == "hartmann6":
+        val = _hartmann6_raw(x_rel)
+    elif FUNCTION_NAME == "ackley10":
+        val = _ackley_raw(x_rel)
+    else:
+        raise ValueError(f"Unknown function: {FUNCTION_NAME}")
     if noise_std > 0:
         val += np.random.normal(0, noise_std)
     return val
 
 
-# All variables live in [0, 1]^100
+# All variables live in [0, 1]^D_TOTAL
 BOUNDS_100 = torch.stack([
     torch.zeros(D_TOTAL, dtype=torch.double),
     torch.ones(D_TOTAL, dtype=torch.double),
 ])
 
-RELEVANT_SET = set(range(D_RELEVANT))        # {0,1,2,3,4,5}
-IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))  # {6,...,99}
+RELEVANT_SET = set(range(D_RELEVANT))
+IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))
 
 
-def _set_ambient_dim(d_total: int):
-    """Reconfigure all module-level globals for a new ambient dimension."""
-    global D_TOTAL, D_IRRELEVANT, BOUNDS_100, IRRELEVANT_SET
+def _configure(function: str = "hartmann6", d_total: int = 100):
+    """Reconfigure all module-level globals for function and ambient dimension."""
+    global D_RELEVANT, D_TOTAL, D_IRRELEVANT, BOUNDS_100, IRRELEVANT_SET
+    global RELEVANT_SET, GLOBAL_MAX, FUNCTION_NAME
+
+    FUNCTION_NAME = function
+    if function == "hartmann6":
+        D_RELEVANT = 6
+        GLOBAL_MAX = 3.3224
+    elif function == "ackley10":
+        D_RELEVANT = 10
+        GLOBAL_MAX = 0.0  # negated Ackley optimum
+    else:
+        raise ValueError(f"Unknown function: {function}")
+
     D_TOTAL = d_total
     D_IRRELEVANT = D_TOTAL - D_RELEVANT
     BOUNDS_100 = torch.stack([
         torch.zeros(D_TOTAL, dtype=torch.double),
         torch.ones(D_TOTAL, dtype=torch.double),
     ])
+    RELEVANT_SET = set(range(D_RELEVANT))
     IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))
 
 
@@ -224,6 +257,24 @@ def run_vanilla_bo(budget: int, n_init: int, seed: int,
 
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
+
+def run_random_search(budget: int, n_init: int, seed: int,
+                      noise_std: float) -> Dict:
+    """Sobol quasi-random search on all D_TOTAL dimensions (no BO)."""
+    np.random.seed(seed)
+
+    d = D_TOTAL
+    all_y, best_values = [], []
+
+    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
+    x_all = sobol.draw(budget).double().numpy()
+
+    for i in range(budget):
+        y = evaluate_embedded(x_all[i], noise_std)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
 
 def run_rembo(budget: int, n_init: int, seed: int,
@@ -516,16 +567,17 @@ def run_expert_bo(budget: int, n_init: int, seed: int,
 # ---------------------------------------------------------------------------
 
 ALL_METHODS = [
-    "vanilla_bo", "oracle", "rembo", "turbo", "saasbo",
+    "random_search", "vanilla_bo", "oracle", "rembo", "turbo", "saasbo",
     "expert_good", "expert_medium", "expert_poor",
 ]
 
 def _method_styles():
     """Generate method styles with current D_TOTAL."""
     return {
+        "random_search":  {"color": "silver",    "ls": ":",  "label": f"Random search (d={D_TOTAL})"},
         "vanilla_bo":     {"color": "grey",      "ls": "--", "label": f"Vanilla BO (d={D_TOTAL})"},
-        "oracle":         {"color": "black",     "ls": "-",  "label": "Oracle (p=1, q=0)"},
-        "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
+        "oracle":         {"color": "black",     "ls": "-",  "label": f"Oracle (d={D_RELEVANT})"},
+        "rembo":          {"color": "tab:blue",  "ls": "-.", "label": f"REMBO (k={D_RELEVANT})"},
         "turbo":          {"color": "tab:cyan",  "ls": "-.", "label": f"TuRBO (d={D_TOTAL})"},
         "saasbo":         {"color": "tab:purple","ls": "-.", "label": f"SAASBO (d={D_TOTAL})"},
         "expert_good":    {"color": "tab:green", "ls": "-",  "label": "Expert good (p=.3, q=.01)"},
@@ -557,7 +609,9 @@ def run_simulation(
         extra = {}
 
         for seed in range(n_seeds):
-            if method == "vanilla_bo":
+            if method == "random_search":
+                r = run_random_search(budget, n_init, seed, noise_std)
+            elif method == "vanilla_bo":
                 r = run_vanilla_bo(budget, n_init, seed, noise_std)
             elif method == "rembo":
                 r = run_rembo(budget, n_init, seed, noise_std)
@@ -605,11 +659,11 @@ def plot_convergence(results: Dict, budget: int, save_path: str = "plots/expert_
         ax.fill_between(iterations, mean - std, mean + std,
                          color=style["color"], alpha=0.12)
 
-    ax.axhline(HARTMANN6_GLOBAL_MAX, color="gold", ls=":", lw=1.5,
-               label=f"Global optimum ({HARTMANN6_GLOBAL_MAX:.4f})")
+    ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
+               label=f"Global optimum ({GLOBAL_MAX:.4f})")
     ax.set_xlabel("Evaluation", fontsize=13)
-    ax.set_ylabel("Best Hartmann6 Value Found", fontsize=13)
-    ax.set_title(f"Expert-Guided BO vs Baselines — Hartmann6 in {D_TOTAL}-D", fontsize=14)
+    ax.set_ylabel("Best Value Found", fontsize=13)
+    ax.set_title(f"Expert-Guided BO vs Baselines — {FUNCTION_NAME} in {D_TOTAL}-D", fontsize=14)
     ax.legend(loc="lower right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -674,10 +728,10 @@ def plot_final_bar(results: Dict,
     ax.bar(x, means, yerr=stds, color=colors, alpha=0.8, capsize=4)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
-    ax.set_ylabel("Final Best Hartmann6 Value", fontsize=12)
+    ax.set_ylabel("Final Best Value", fontsize=12)
     ax.set_title("Final Performance Comparison", fontsize=14)
-    ax.axhline(HARTMANN6_GLOBAL_MAX, color="gold", ls=":", lw=1.5,
-               label=f"Global optimum ({HARTMANN6_GLOBAL_MAX:.4f})")
+    ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
+               label=f"Global optimum ({GLOBAL_MAX:.4f})")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
@@ -689,7 +743,7 @@ def plot_final_bar(results: Dict,
 def print_results(results: Dict):
     """Pretty-print final results table."""
     print("\n" + "=" * 72)
-    print(f"EXPERT SIMULATION RESULTS — Hartmann6 in {D_TOTAL}-D")
+    print(f"EXPERT SIMULATION RESULTS — {FUNCTION_NAME} in {D_TOTAL}-D")
     print("=" * 72)
     print(f"\n{'Method':<30} {'Final Best (mean ± std)':<25} {'Gap to opt'}")
     print("-" * 72)
@@ -697,7 +751,7 @@ def print_results(results: Dict):
     for method, data in sorted(results.items(), key=lambda x: -x[1]["mean_final"]):
         label = _method_styles().get(method, {}).get("label", method)
         perf = f"{data['mean_final']:.4f} ± {data['std_final']:.4f}"
-        gap = HARTMANN6_GLOBAL_MAX - data["mean_final"]
+        gap = GLOBAL_MAX - data["mean_final"]
         print(f"{label:<30} {perf:<25} {gap:+.4f}")
 
 
@@ -710,7 +764,10 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(
-        description="Expert-guided BO simulation on Hartmann6 (d=6 in N-D)")
+        description="Expert-guided BO simulation on synthetic test functions")
+    parser.add_argument("--function", type=str, default="hartmann6",
+                        choices=["hartmann6", "ackley10"],
+                        help="Test function (default: hartmann6)")
     parser.add_argument("--budget", type=int, default=20,
                         help="Total evaluations per run (T)")
     parser.add_argument("--n-init", type=int, default=5,
@@ -726,12 +783,12 @@ if __name__ == "__main__":
                         help="Methods to run (default: all)")
     args = parser.parse_args()
 
-    # Reconfigure ambient dimension globals
-    _set_ambient_dim(args.dim)
+    # Reconfigure globals for chosen function and ambient dimension
+    _configure(args.function, args.dim)
 
     os.makedirs("plots", exist_ok=True)
 
-    print(f"Hartmann6 in {D_TOTAL}-D expert simulation")
+    print(f"{FUNCTION_NAME} (d_rel={D_RELEVANT}) in {D_TOTAL}-D expert simulation")
     print(f"  budget={args.budget}, n_init={args.n_init}, "
           f"seeds={args.seeds}, noise={args.noise}")
     print()
