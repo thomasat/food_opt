@@ -47,7 +47,7 @@ from torch.quasirandom import SobolEngine
 # ---------------------------------------------------------------------------
 
 D_RELEVANT = 6     # true Hartmann6 dimensions
-D_TOTAL = 100       # total ambient dimensions
+D_TOTAL = 100       # total ambient dimensions (default; overridden by --dim)
 D_IRRELEVANT = D_TOTAL - D_RELEVANT
 
 # Standard Hartmann6 coefficients
@@ -96,6 +96,18 @@ BOUNDS_100 = torch.stack([
 
 RELEVANT_SET = set(range(D_RELEVANT))        # {0,1,2,3,4,5}
 IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))  # {6,...,99}
+
+
+def _set_ambient_dim(d_total: int):
+    """Reconfigure all module-level globals for a new ambient dimension."""
+    global D_TOTAL, D_IRRELEVANT, BOUNDS_100, IRRELEVANT_SET
+    D_TOTAL = d_total
+    D_IRRELEVANT = D_TOTAL - D_RELEVANT
+    BOUNDS_100 = torch.stack([
+        torch.zeros(D_TOTAL, dtype=torch.double),
+        torch.ones(D_TOTAL, dtype=torch.double),
+    ])
+    IRRELEVANT_SET = set(range(D_RELEVANT, D_TOTAL))
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +607,7 @@ def plot_convergence(results: Dict, budget: int, save_path: str = "plots/expert_
                label=f"Global optimum ({HARTMANN6_GLOBAL_MAX:.4f})")
     ax.set_xlabel("Evaluation", fontsize=13)
     ax.set_ylabel("Best Hartmann6 Value Found", fontsize=13)
-    ax.set_title("Expert-Guided BO vs Baselines — Hartmann6 in 100-D", fontsize=14)
+    ax.set_title(f"Expert-Guided BO vs Baselines — Hartmann6 in {D_TOTAL}-D", fontsize=14)
     ax.legend(loc="lower right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -675,13 +687,16 @@ def plot_final_bar(results: Dict,
 def print_results(results: Dict):
     """Pretty-print final results table."""
     print("\n" + "=" * 72)
-    print("EXPERT SIMULATION RESULTS — Hartmann6 in 100-D")
+    print(f"EXPERT SIMULATION RESULTS — Hartmann6 in {D_TOTAL}-D")
     print("=" * 72)
     print(f"\n{'Method':<30} {'Final Best (mean ± std)':<25} {'Gap to opt'}")
     print("-" * 72)
 
     for method, data in sorted(results.items(), key=lambda x: -x[1]["mean_final"]):
         label = METHOD_STYLES.get(method, {}).get("label", method)
+        # Dynamically show actual dim for vanilla_bo label
+        if method == "vanilla_bo":
+            label = f"Vanilla BO (d={D_TOTAL})"
         perf = f"{data['mean_final']:.4f} ± {data['std_final']:.4f}"
         gap = HARTMANN6_GLOBAL_MAX - data["mean_final"]
         print(f"{label:<30} {perf:<25} {gap:+.4f}")
@@ -696,7 +711,7 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(
-        description="Expert-guided BO simulation on Hartmann6 (d=6 in N=100)")
+        description="Expert-guided BO simulation on Hartmann6 (d=6 in N-D)")
     parser.add_argument("--budget", type=int, default=20,
                         help="Total evaluations per run (T)")
     parser.add_argument("--n-init", type=int, default=5,
@@ -705,14 +720,19 @@ if __name__ == "__main__":
                         help="Number of random seeds")
     parser.add_argument("--noise", type=float, default=0.0,
                         help="Observation noise std (0 = noiseless)")
+    parser.add_argument("--dim", type=int, default=100,
+                        help="Total ambient dimension N (default: 100)")
     parser.add_argument("--methods", nargs="+", default=None,
                         choices=ALL_METHODS,
                         help="Methods to run (default: all)")
     args = parser.parse_args()
 
+    # Reconfigure ambient dimension globals
+    _set_ambient_dim(args.dim)
+
     os.makedirs("plots", exist_ok=True)
 
-    print(f"Hartmann6 in 100-D expert simulation")
+    print(f"Hartmann6 in {D_TOTAL}-D expert simulation")
     print(f"  budget={args.budget}, n_init={args.n_init}, "
           f"seeds={args.seeds}, noise={args.noise}")
     print()
