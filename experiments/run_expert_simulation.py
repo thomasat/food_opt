@@ -154,15 +154,15 @@ def evaluate_embedded_rastrigin(x_full: np.ndarray, noise_std: float = 0.0) -> f
 # 1d. LEVY EMBEDDED IN 100-D
 # ---------------------------------------------------------------------------
 
-# Levy on [0,1]^6 mapped to [-10, 10]^6, negated for maximisation.
-# Global min = 0.0 at x_i = 1 for all i, i.e. x_unit = 0.55 in [0,1].
+# Levy on [0,1]^6 mapped to [-5, 5]^6, negated for maximisation.
+# Global min = 0.0 at x_i = 1 for all i, i.e. x_unit = 0.6 in [0,1].
 # Negated global max = 0.0.
 LEVY_GLOBAL_MAX = 0.0
 
 
 def _levy6(x6: np.ndarray) -> float:
-    """Levy on [0,1]^6 (mapped to [-10,10]^6), negated for maximisation."""
-    x = 20.0 * x6 - 10.0           # [0,1] -> [-10, 10]
+    """Levy on [0,1]^6 (mapped to [-5,5]^6), negated for maximisation."""
+    x = 10.0 * x6 - 5.0            # [0,1] -> [-5, 5]
     w = 1.0 + (x - 1.0) / 4.0
     term1 = np.sin(np.pi * w[0]) ** 2
     term2 = np.sum((w[:-1] - 1.0) ** 2 * (1.0 + 10.0 * np.sin(np.pi * w[:-1] + 1.0) ** 2))
