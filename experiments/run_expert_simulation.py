@@ -19,9 +19,11 @@ Comparisons (T=20 total evaluations, n_init=5 Sobol):
 3. rembo         – Random Embedding BO (target_dim=6)
 4. turbo         – Trust Region BO on N=100
 5. saasbo        – Sparse Axis-Aligned Subspace BO on N=100
-6. expert_good   – p=0.3, q=0.01
-7. expert_medium – p=0.15, q=0.03
-8. expert_poor   – p=0.05, q=0.06
+6. expert_outstanding – p=0.7, q=0.002
+7. expert_great       – p=0.5, q=0.005
+8. expert_good        – p=0.3, q=0.01
+9. expert_medium      – p=0.15, q=0.03
+10. expert_poor       – p=0.05, q=0.06
 
 Usage:
     python experiments/run_expert_simulation.py [--seeds 10] [--budget 20]
@@ -289,10 +291,12 @@ class ExpertConfig:
 
 
 EXPERT_CONFIGS = {
-    "oracle":        ExpertConfig("oracle",         p=1.0,  q=0.0),
-    "expert_good":   ExpertConfig("expert_good",    p=0.3,  q=0.01),
-    "expert_medium": ExpertConfig("expert_medium",  p=0.15, q=0.03),
-    "expert_poor":   ExpertConfig("expert_poor",    p=0.05, q=0.06),
+    "oracle":              ExpertConfig("oracle",              p=1.0,  q=0.0),
+    "expert_outstanding":  ExpertConfig("expert_outstanding",  p=0.7,  q=0.002),
+    "expert_great":        ExpertConfig("expert_great",        p=0.5,  q=0.005),
+    "expert_good":         ExpertConfig("expert_good",         p=0.3,  q=0.01),
+    "expert_medium":       ExpertConfig("expert_medium",       p=0.15, q=0.03),
+    "expert_poor":         ExpertConfig("expert_poor",         p=0.05, q=0.06),
 }
 
 
@@ -697,7 +701,7 @@ def run_expert_bo(budget: int, n_init: int, seed: int,
 
 ALL_METHODS = [
     "random_search", "vanilla_bo", "oracle", "rembo", "turbo", "saasbo",
-    "expert_good", "expert_medium", "expert_poor",
+    "expert_outstanding", "expert_great", "expert_good", "expert_medium", "expert_poor",
 ]
 
 METHOD_STYLES = {
@@ -707,9 +711,11 @@ METHOD_STYLES = {
     "rembo":          {"color": "tab:blue",  "ls": "-.", "label": "REMBO (k=6)"},
     "turbo":          {"color": "tab:cyan",  "ls": "-.", "label": "TuRBO (d=100)"},
     "saasbo":         {"color": "tab:purple","ls": "-.", "label": "SAASBO (d=100)"},
-    "expert_good":    {"color": "tab:green", "ls": "-",  "label": "Expert good (p=.3, q=.01)"},
-    "expert_medium":  {"color": "tab:orange","ls": "-",  "label": "Expert medium (p=.15, q=.03)"},
-    "expert_poor":    {"color": "tab:red",   "ls": "-",  "label": "Expert poor (p=.05, q=.06)"},
+    "expert_outstanding": {"color": "tab:olive", "ls": "-", "label": "Expert outstanding (p=.7, q=.002)"},
+    "expert_great":       {"color": "teal",      "ls": "-", "label": "Expert great (p=.5, q=.005)"},
+    "expert_good":        {"color": "tab:green",  "ls": "-", "label": "Expert good (p=.3, q=.01)"},
+    "expert_medium":      {"color": "tab:orange", "ls": "-", "label": "Expert medium (p=.15, q=.03)"},
+    "expert_poor":        {"color": "tab:red",    "ls": "-", "label": "Expert poor (p=.05, q=.06)"},
 }
 
 
