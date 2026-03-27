@@ -126,6 +126,31 @@ def evaluate_embedded_ackley(x_full: np.ndarray, noise_std: float = 0.0) -> floa
 
 
 # ---------------------------------------------------------------------------
+# 1c. RASTRIGIN EMBEDDED IN 100-D
+# ---------------------------------------------------------------------------
+
+# Rastrigin on [0,1]^6 mapped to [-5.12, 5.12]^6, negated for maximisation.
+# Global max = 0.0, achieved at x = 0.5 (centre of unit hypercube).
+RASTRIGIN_GLOBAL_MAX = 0.0
+
+
+def _rastrigin6(x6: np.ndarray) -> float:
+    """Rastrigin on [0,1]^6 (mapped to [-5.12,5.12]^6), negated for maximisation."""
+    x = 10.24 * x6 - 5.12          # [0,1] -> [-5.12, 5.12]
+    d = 6
+    val = 10.0 * d + np.sum(x ** 2 - 10.0 * np.cos(2.0 * np.pi * x))
+    return -float(val)              # negate: higher is better
+
+
+def evaluate_embedded_rastrigin(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate negated Rastrigin using only the first 6 of D_TOTAL variables."""
+    val = _rastrigin6(x_full[:D_RELEVANT])
+    if noise_std > 0:
+        val += np.random.normal(0, noise_std)
+    return val
+
+
+# ---------------------------------------------------------------------------
 # Active test function (switched via _set_test_function)
 # ---------------------------------------------------------------------------
 
@@ -143,8 +168,11 @@ def _set_test_function(name: str):
     elif name == "ackley":
         _eval_fn = evaluate_embedded_ackley
         GLOBAL_MAX = ACKLEY_GLOBAL_MAX
+    elif name == "rastrigin":
+        _eval_fn = evaluate_embedded_rastrigin
+        GLOBAL_MAX = RASTRIGIN_GLOBAL_MAX
     else:
-        raise ValueError(f"Unknown test function: {name!r}. Choose 'hartmann6' or 'ackley'.")
+        raise ValueError(f"Unknown test function: {name!r}. Choose 'hartmann6', 'ackley', or 'rastrigin'.")
     ACTIVE_FUNCTION = name
 
 
@@ -672,7 +700,7 @@ def plot_convergence(results: Dict, budget: int, save_path: str = "plots/expert_
     ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
                label=f"Global optimum ({GLOBAL_MAX:.4f})")
     ax.set_xlabel("Evaluation", fontsize=13)
-    ax.set_ylabel("Best Hartmann6 Value Found", fontsize=13)
+    ax.set_ylabel(f"Best {ACTIVE_FUNCTION.capitalize()} Value Found", fontsize=13)
     ax.set_title(f"Expert-Guided BO vs Baselines — {ACTIVE_FUNCTION.capitalize()} in {D_TOTAL}-D", fontsize=14)
     ax.legend(loc="lower right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
@@ -738,7 +766,7 @@ def plot_final_bar(results: Dict,
     ax.bar(x, means, yerr=stds, color=colors, alpha=0.8, capsize=4)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
-    ax.set_ylabel("Final Best Hartmann6 Value", fontsize=12)
+    ax.set_ylabel(f"Final Best {ACTIVE_FUNCTION.capitalize()} Value", fontsize=12)
     ax.set_title("Final Performance Comparison", fontsize=14)
     ax.axhline(GLOBAL_MAX, color="gold", ls=":", lw=1.5,
                label=f"Global optimum ({GLOBAL_MAX:.4f})")
@@ -777,7 +805,7 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(
-        description="Expert-guided BO simulation on Hartmann6 or Ackley (d=6 in N-D)")
+        description="Expert-guided BO simulation on Hartmann6, Ackley, or Rastrigin (d=6 in N-D)")
     parser.add_argument("--budget", type=int, default=20,
                         help="Total evaluations per run (T)")
     parser.add_argument("--n-init", type=int, default=5,
@@ -789,7 +817,7 @@ if __name__ == "__main__":
     parser.add_argument("--dim", type=int, default=100,
                         help="Total ambient dimension N (default: 100)")
     parser.add_argument("--function", type=str, default="hartmann6",
-                        choices=["hartmann6", "ackley"],
+                        choices=["hartmann6", "ackley", "rastrigin"],
                         help="Test function (default: hartmann6)")
     parser.add_argument("--methods", nargs="+", default=None,
                         choices=ALL_METHODS,
