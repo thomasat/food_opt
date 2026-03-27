@@ -36,6 +36,38 @@ class TestHartmann6:
 
 
 # ---------------------------------------------------------------------------
+# Rastrigin function tests
+# ---------------------------------------------------------------------------
+
+class TestRastrigin:
+    def test_global_optimum(self):
+        """Rastrigin global min is 0 at origin; negated global max = 0.0 at x=0.5."""
+        from experiments.run_expert_simulation import _rastrigin6, RASTRIGIN_GLOBAL_MAX
+        x_opt = np.full(6, 0.5)   # maps to origin in [-5.12, 5.12]
+        val = _rastrigin6(x_opt)
+        assert abs(val - RASTRIGIN_GLOBAL_MAX) < 1e-10
+
+    def test_domain_bounds(self):
+        """Function should return finite values in [0,1]^6."""
+        from experiments.run_expert_simulation import _rastrigin6
+        for _ in range(10):
+            x = np.random.rand(6)
+            val = _rastrigin6(x)
+            assert np.isfinite(val)
+            assert val <= 0  # negated Rastrigin is non-positive
+
+    def test_embedded_ignores_irrelevant(self):
+        """evaluate_embedded_rastrigin should give same value regardless of dims 6..99."""
+        from experiments.run_expert_simulation import evaluate_embedded_rastrigin, D_TOTAL
+        x_rel = np.random.rand(6)
+        x1 = np.zeros(D_TOTAL)
+        x1[:6] = x_rel
+        x2 = np.random.rand(D_TOTAL)
+        x2[:6] = x_rel
+        assert evaluate_embedded_rastrigin(x1) == evaluate_embedded_rastrigin(x2)
+
+
+# ---------------------------------------------------------------------------
 # Expert variable selection tests
 # ---------------------------------------------------------------------------
 
