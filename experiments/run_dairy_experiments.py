@@ -713,14 +713,22 @@ def run_all(
     if plot and len(categories) > 1:
         plot_summary_heatmap(all_results, plot_dir)
 
-    # Save raw results to JSON
-    serializable = {}
+    # Save raw results to JSON (merge with existing results if present)
+    results_path = os.path.join(results_dir, "dairy_experiments.json")
+    existing = {}
+    if os.path.exists(results_path):
+        try:
+            with open(results_path) as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    serializable = dict(existing)
     for cat, traces in all_results.items():
         serializable[cat] = {
             meth: [[float(v) for v in t] for t in tlist]
             for meth, tlist in traces.items()
         }
-    results_path = os.path.join(results_dir, "dairy_experiments.json")
     with open(results_path, "w") as f:
         json.dump(serializable, f, indent=2)
     print(f"\nRaw results saved to {results_path}")
