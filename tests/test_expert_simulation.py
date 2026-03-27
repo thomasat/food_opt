@@ -73,9 +73,9 @@ class TestRastrigin:
 
 class TestLevy:
     def test_global_optimum(self):
-        """Levy global min is 0 at x=1; in [0,1]^6 that maps to x_unit=0.55."""
+        """Levy global min is 0 at x=1; in [0,1]^6 that maps to x_unit=0.6."""
         from experiments.run_expert_simulation import _levy6, LEVY_GLOBAL_MAX
-        x_opt = np.full(6, 0.55)   # maps to x=1.0 in [-10, 10]
+        x_opt = np.full(6, 0.6)    # maps to x=1.0 in [-5, 5]
         val = _levy6(x_opt)
         assert abs(val - LEVY_GLOBAL_MAX) < 0.01
 
