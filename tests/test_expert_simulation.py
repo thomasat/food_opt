@@ -68,6 +68,102 @@ class TestRastrigin:
 
 
 # ---------------------------------------------------------------------------
+# Levy function tests
+# ---------------------------------------------------------------------------
+
+class TestLevy:
+    def test_global_optimum(self):
+        """Levy global min is 0 at x=1; in [0,1]^6 that maps to x_unit=0.55."""
+        from experiments.run_expert_simulation import _levy6, LEVY_GLOBAL_MAX
+        x_opt = np.full(6, 0.55)   # maps to x=1.0 in [-10, 10]
+        val = _levy6(x_opt)
+        assert abs(val - LEVY_GLOBAL_MAX) < 0.01
+
+    def test_domain_bounds(self):
+        """Function should return finite values in [0,1]^6."""
+        from experiments.run_expert_simulation import _levy6
+        for _ in range(10):
+            x = np.random.rand(6)
+            val = _levy6(x)
+            assert np.isfinite(val)
+            assert val <= 0  # negated Levy is non-positive
+
+    def test_embedded_ignores_irrelevant(self):
+        """evaluate_embedded_levy should give same value regardless of dims 6..99."""
+        from experiments.run_expert_simulation import evaluate_embedded_levy, D_TOTAL
+        x_rel = np.random.rand(6)
+        x1 = np.zeros(D_TOTAL)
+        x1[:6] = x_rel
+        x2 = np.random.rand(D_TOTAL)
+        x2[:6] = x_rel
+        assert evaluate_embedded_levy(x1) == evaluate_embedded_levy(x2)
+
+
+# ---------------------------------------------------------------------------
+# Rosenbrock function tests
+# ---------------------------------------------------------------------------
+
+class TestRosenbrock:
+    def test_global_optimum(self):
+        """Rosenbrock global min is 0 at x=1; in [0,1]^6 that maps to x_unit=0.4."""
+        from experiments.run_expert_simulation import _rosenbrock6, ROSENBROCK_GLOBAL_MAX
+        x_opt = np.full(6, 0.4)   # maps to x=1.0 in [-5, 10]
+        val = _rosenbrock6(x_opt)
+        assert abs(val - ROSENBROCK_GLOBAL_MAX) < 0.01
+
+    def test_domain_bounds(self):
+        """Function should return finite values in [0,1]^6."""
+        from experiments.run_expert_simulation import _rosenbrock6
+        for _ in range(10):
+            x = np.random.rand(6)
+            val = _rosenbrock6(x)
+            assert np.isfinite(val)
+            assert val <= 0  # negated Rosenbrock is non-positive
+
+    def test_embedded_ignores_irrelevant(self):
+        """evaluate_embedded_rosenbrock should give same value regardless of dims 6..99."""
+        from experiments.run_expert_simulation import evaluate_embedded_rosenbrock, D_TOTAL
+        x_rel = np.random.rand(6)
+        x1 = np.zeros(D_TOTAL)
+        x1[:6] = x_rel
+        x2 = np.random.rand(D_TOTAL)
+        x2[:6] = x_rel
+        assert evaluate_embedded_rosenbrock(x1) == evaluate_embedded_rosenbrock(x2)
+
+
+# ---------------------------------------------------------------------------
+# Styblinski-Tang function tests
+# ---------------------------------------------------------------------------
+
+class TestStyblinskiTang:
+    def test_global_optimum(self):
+        """Styblinski-Tang global min ≈ -39.16599*d at x≈-2.903534; negated max ≈ 234.996."""
+        from experiments.run_expert_simulation import _styblinski_tang6, STYBLINSKI_TANG_GLOBAL_MAX
+        # x_i = -2.903534 maps to x_unit = (-2.903534 + 5) / 10 = 0.2096466
+        x_opt = np.full(6, 0.2096466)
+        val = _styblinski_tang6(x_opt)
+        assert abs(val - STYBLINSKI_TANG_GLOBAL_MAX) < 0.1
+
+    def test_domain_bounds(self):
+        """Function should return finite values in [0,1]^6."""
+        from experiments.run_expert_simulation import _styblinski_tang6
+        for _ in range(10):
+            x = np.random.rand(6)
+            val = _styblinski_tang6(x)
+            assert np.isfinite(val)
+
+    def test_embedded_ignores_irrelevant(self):
+        """evaluate_embedded_styblinski_tang should give same value regardless of dims 6..99."""
+        from experiments.run_expert_simulation import evaluate_embedded_styblinski_tang, D_TOTAL
+        x_rel = np.random.rand(6)
+        x1 = np.zeros(D_TOTAL)
+        x1[:6] = x_rel
+        x2 = np.random.rand(D_TOTAL)
+        x2[:6] = x_rel
+        assert evaluate_embedded_styblinski_tang(x1) == evaluate_embedded_styblinski_tang(x2)
+
+
+# ---------------------------------------------------------------------------
 # Expert variable selection tests
 # ---------------------------------------------------------------------------
 

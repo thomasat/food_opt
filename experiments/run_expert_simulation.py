@@ -1,8 +1,8 @@
 """
-Expert-Guided Variable Selection Simulation on Hartmann6.
+Expert-Guided Variable Selection Simulation.
 
 Setup:
-- True function: Hartmann6 (d=6 relevant variables)
+- True function: Hartmann6, Ackley, Rastrigin, Levy, Rosenbrock, or Styblinski-Tang (d=6 relevant variables)
 - Embedded in N=100 dimensions (94 irrelevant variables)
 - The objective only depends on variables 0..5; variables 6..99 are inert.
 
@@ -151,6 +151,85 @@ def evaluate_embedded_rastrigin(x_full: np.ndarray, noise_std: float = 0.0) -> f
 
 
 # ---------------------------------------------------------------------------
+# 1d. LEVY EMBEDDED IN 100-D
+# ---------------------------------------------------------------------------
+
+# Levy on [0,1]^6 mapped to [-10, 10]^6, negated for maximisation.
+# Global min = 0.0 at x_i = 1 for all i, i.e. x_unit = 0.55 in [0,1].
+# Negated global max = 0.0.
+LEVY_GLOBAL_MAX = 0.0
+
+
+def _levy6(x6: np.ndarray) -> float:
+    """Levy on [0,1]^6 (mapped to [-10,10]^6), negated for maximisation."""
+    x = 20.0 * x6 - 10.0           # [0,1] -> [-10, 10]
+    w = 1.0 + (x - 1.0) / 4.0
+    term1 = np.sin(np.pi * w[0]) ** 2
+    term2 = np.sum((w[:-1] - 1.0) ** 2 * (1.0 + 10.0 * np.sin(np.pi * w[:-1] + 1.0) ** 2))
+    term3 = (w[-1] - 1.0) ** 2 * (1.0 + np.sin(2.0 * np.pi * w[-1]) ** 2)
+    val = term1 + term2 + term3
+    return -float(val)              # negate: higher is better
+
+
+def evaluate_embedded_levy(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate negated Levy using only the first 6 of D_TOTAL variables."""
+    val = _levy6(x_full[:D_RELEVANT])
+    if noise_std > 0:
+        val += np.random.normal(0, noise_std)
+    return val
+
+
+# ---------------------------------------------------------------------------
+# 1e. ROSENBROCK EMBEDDED IN 100-D
+# ---------------------------------------------------------------------------
+
+# Rosenbrock on [0,1]^6 mapped to [-5, 10]^6, negated for maximisation.
+# Global min = 0.0 at x_i = 1 for all i, i.e. x_unit = 0.4 in [0,1].
+# Negated global max = 0.0.
+ROSENBROCK_GLOBAL_MAX = 0.0
+
+
+def _rosenbrock6(x6: np.ndarray) -> float:
+    """Rosenbrock on [0,1]^6 (mapped to [-5,10]^6), negated for maximisation."""
+    x = 15.0 * x6 - 5.0            # [0,1] -> [-5, 10]
+    val = np.sum(100.0 * (x[1:] - x[:-1] ** 2) ** 2 + (1.0 - x[:-1]) ** 2)
+    return -float(val)              # negate: higher is better
+
+
+def evaluate_embedded_rosenbrock(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate negated Rosenbrock using only the first 6 of D_TOTAL variables."""
+    val = _rosenbrock6(x_full[:D_RELEVANT])
+    if noise_std > 0:
+        val += np.random.normal(0, noise_std)
+    return val
+
+
+# ---------------------------------------------------------------------------
+# 1f. STYBLINSKI-TANG EMBEDDED IN 100-D
+# ---------------------------------------------------------------------------
+
+# Styblinski-Tang on [0,1]^6 mapped to [-5, 5]^6, negated for maximisation.
+# Global min ≈ -39.16599 * d at x_i ≈ -2.903534 for all i.
+# Negated global max ≈ 39.16599 * 6 = 234.996.
+STYBLINSKI_TANG_GLOBAL_MAX = 39.16599 * 6
+
+
+def _styblinski_tang6(x6: np.ndarray) -> float:
+    """Styblinski-Tang on [0,1]^6 (mapped to [-5,5]^6), negated for maximisation."""
+    x = 10.0 * x6 - 5.0            # [0,1] -> [-5, 5]
+    val = 0.5 * np.sum(x ** 4 - 16.0 * x ** 2 + 5.0 * x)
+    return -float(val)              # negate: higher is better
+
+
+def evaluate_embedded_styblinski_tang(x_full: np.ndarray, noise_std: float = 0.0) -> float:
+    """Evaluate negated Styblinski-Tang using only the first 6 of D_TOTAL variables."""
+    val = _styblinski_tang6(x_full[:D_RELEVANT])
+    if noise_std > 0:
+        val += np.random.normal(0, noise_std)
+    return val
+
+
+# ---------------------------------------------------------------------------
 # Active test function (switched via _set_test_function)
 # ---------------------------------------------------------------------------
 
@@ -171,8 +250,18 @@ def _set_test_function(name: str):
     elif name == "rastrigin":
         _eval_fn = evaluate_embedded_rastrigin
         GLOBAL_MAX = RASTRIGIN_GLOBAL_MAX
+    elif name == "levy":
+        _eval_fn = evaluate_embedded_levy
+        GLOBAL_MAX = LEVY_GLOBAL_MAX
+    elif name == "rosenbrock":
+        _eval_fn = evaluate_embedded_rosenbrock
+        GLOBAL_MAX = ROSENBROCK_GLOBAL_MAX
+    elif name == "styblinski_tang":
+        _eval_fn = evaluate_embedded_styblinski_tang
+        GLOBAL_MAX = STYBLINSKI_TANG_GLOBAL_MAX
     else:
-        raise ValueError(f"Unknown test function: {name!r}. Choose 'hartmann6', 'ackley', or 'rastrigin'.")
+        raise ValueError(f"Unknown test function: {name!r}. Choose from: "
+                         "'hartmann6', 'ackley', 'rastrigin', 'levy', 'rosenbrock', 'styblinski_tang'.")
     ACTIVE_FUNCTION = name
 
 
@@ -805,7 +894,7 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(
-        description="Expert-guided BO simulation on Hartmann6, Ackley, or Rastrigin (d=6 in N-D)")
+        description="Expert-guided BO simulation on Hartmann6, Ackley, Rastrigin, Levy, Rosenbrock, or Styblinski-Tang (d=6 in N-D)")
     parser.add_argument("--budget", type=int, default=20,
                         help="Total evaluations per run (T)")
     parser.add_argument("--n-init", type=int, default=5,
@@ -817,7 +906,8 @@ if __name__ == "__main__":
     parser.add_argument("--dim", type=int, default=100,
                         help="Total ambient dimension N (default: 100)")
     parser.add_argument("--function", type=str, default="hartmann6",
-                        choices=["hartmann6", "ackley", "rastrigin"],
+                        choices=["hartmann6", "ackley", "rastrigin",
+                                 "levy", "rosenbrock", "styblinski_tang"],
                         help="Test function (default: hartmann6)")
     parser.add_argument("--methods", nargs="+", default=None,
                         choices=ALL_METHODS,
