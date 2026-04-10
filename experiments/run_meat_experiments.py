@@ -1,12 +1,12 @@
 """
-Expanded dairy-category optimization experiments.
+Expanded meat-category optimization experiments.
 
-Goal: for each dairy category, minimize weighted Euclidean distance in a
+Goal: for each meat category, minimize weighted Euclidean distance in a
 multi-nutrient space between a plant-based formulation and the reference
 animal-based product.
 
-This version matches the same nutrition dimensions used in the meat
-experiments:
+Unlike the dairy runner, which matches only fat and sodium, this script
+matches a broader nutrition profile:
   - energy
   - protein
   - fat
@@ -17,8 +17,7 @@ experiments:
   - sodium
 
 Ingredients come from data/usda_nutrition_data.csv and are restricted to
-rows marked in_dairy == "Y", which corresponds to the expanded dairy
-ingredient list from nectar_ingredients.csv enriched with USDA nutrition.
+rows marked in_meat == "Y".
 
 Methods compared:
   1. LLM + BO (k=5): LLM selects ingredients, then BO
@@ -29,8 +28,8 @@ Methods compared:
   6. REMBO
 
 Usage:
-    python run_dairy_experiments.py [--budget 30] [--seeds 5] [--no-plot]
-    python run_dairy_experiments.py --categories mozzarella cheddar --budget 20
+    python run_meat_experiments.py [--budget 30] [--seeds 5] [--no-plot]
+    python run_meat_experiments.py --categories bacon burgers --budget 20
 """
 
 import json
@@ -90,162 +89,214 @@ NUTRIENT_WEIGHTS = {
 }
 
 # Approximate animal-based reference profiles per 100 g.
-DAIRY_TARGETS: Dict[str, Dict[str, float]] = {
-    "barista milk": {
-        "energy_kcal_per_100g": 61.0,
-        "protein_g_per_100g": 3.1,
-        "fat_g_per_100g": 3.5,
-        "saturated_fat_g_per_100g": 2.2,
-        "carbs_g_per_100g": 4.8,
+MEAT_TARGETS: Dict[str, Dict[str, float]] = {
+    "bacon": {
+        "energy_kcal_per_100g": 541.0,
+        "protein_g_per_100g": 37.0,
+        "fat_g_per_100g": 42.0,
+        "saturated_fat_g_per_100g": 14.0,
+        "carbs_g_per_100g": 1.5,
         "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 5.0,
-        "sodium_mg_per_100g": 44.0,
+        "sugars_g_per_100g": 0.0,
+        "sodium_mg_per_100g": 1717.0,
     },
-    "butter": {
-        "energy_kcal_per_100g": 717.0,
-        "protein_g_per_100g": 0.9,
-        "fat_g_per_100g": 81.0,
-        "saturated_fat_g_per_100g": 51.0,
-        "carbs_g_per_100g": 0.1,
-        "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 0.1,
-        "sodium_mg_per_100g": 625.0,
-    },
-    "cheddar": {
-        "energy_kcal_per_100g": 403.0,
-        "protein_g_per_100g": 25.0,
-        "fat_g_per_100g": 33.0,
-        "saturated_fat_g_per_100g": 21.0,
-        "carbs_g_per_100g": 1.3,
+    "bratwurst": {
+        "energy_kcal_per_100g": 333.0,
+        "protein_g_per_100g": 12.0,
+        "fat_g_per_100g": 29.0,
+        "saturated_fat_g_per_100g": 10.0,
+        "carbs_g_per_100g": 2.0,
         "fiber_g_per_100g": 0.0,
         "sugars_g_per_100g": 0.5,
+        "sodium_mg_per_100g": 846.0,
+    },
+    "breaded chicken fillets": {
+        "energy_kcal_per_100g": 250.0,
+        "protein_g_per_100g": 18.0,
+        "fat_g_per_100g": 12.0,
+        "saturated_fat_g_per_100g": 2.5,
+        "carbs_g_per_100g": 15.0,
+        "fiber_g_per_100g": 1.0,
+        "sugars_g_per_100g": 1.0,
+        "sodium_mg_per_100g": 600.0,
+    },
+    "breakfast sausage patties": {
+        "energy_kcal_per_100g": 300.0,
+        "protein_g_per_100g": 13.0,
+        "fat_g_per_100g": 26.0,
+        "saturated_fat_g_per_100g": 8.0,
+        "carbs_g_per_100g": 2.0,
+        "fiber_g_per_100g": 0.0,
+        "sugars_g_per_100g": 1.0,
+        "sodium_mg_per_100g": 900.0,
+    },
+    "burgers": {
+        "energy_kcal_per_100g": 254.0,
+        "protein_g_per_100g": 17.0,
+        "fat_g_per_100g": 17.0,
+        "saturated_fat_g_per_100g": 7.0,
+        "carbs_g_per_100g": 9.0,
+        "fiber_g_per_100g": 0.0,
+        "sugars_g_per_100g": 0.0,
         "sodium_mg_per_100g": 620.0,
     },
-    "coffee creamer": {
-        "energy_kcal_per_100g": 120.0,
-        "protein_g_per_100g": 2.0,
-        "fat_g_per_100g": 10.0,
-        "saturated_fat_g_per_100g": 6.0,
-        "carbs_g_per_100g": 5.0,
-        "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 4.0,
-        "sodium_mg_per_100g": 50.0,
+    "chicken nuggets": {
+        "energy_kcal_per_100g": 296.0,
+        "protein_g_per_100g": 15.0,
+        "fat_g_per_100g": 18.0,
+        "saturated_fat_g_per_100g": 3.5,
+        "carbs_g_per_100g": 18.0,
+        "fiber_g_per_100g": 1.5,
+        "sugars_g_per_100g": 0.5,
+        "sodium_mg_per_100g": 540.0,
     },
-    "cream cheese": {
-        "energy_kcal_per_100g": 342.0,
-        "protein_g_per_100g": 6.2,
-        "fat_g_per_100g": 34.0,
-        "saturated_fat_g_per_100g": 19.0,
-        "carbs_g_per_100g": 4.1,
+    "deli slices - ham": {
+        "energy_kcal_per_100g": 110.0,
+        "protein_g_per_100g": 18.0,
+        "fat_g_per_100g": 4.0,
+        "saturated_fat_g_per_100g": 1.5,
+        "carbs_g_per_100g": 2.0,
         "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 3.2,
-        "sodium_mg_per_100g": 321.0,
+        "sugars_g_per_100g": 1.0,
+        "sodium_mg_per_100g": 1200.0,
     },
-    "ice cream": {
-        "energy_kcal_per_100g": 207.0,
-        "protein_g_per_100g": 3.5,
-        "fat_g_per_100g": 11.0,
-        "saturated_fat_g_per_100g": 7.0,
-        "carbs_g_per_100g": 24.0,
-        "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 21.0,
-        "sodium_mg_per_100g": 80.0,
-    },
-    "milk": {
-        "energy_kcal_per_100g": 61.0,
-        "protein_g_per_100g": 3.3,
-        "fat_g_per_100g": 3.3,
-        "saturated_fat_g_per_100g": 1.9,
-        "carbs_g_per_100g": 4.8,
-        "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 5.0,
-        "sodium_mg_per_100g": 44.0,
-    },
-    "mozzarella": {
-        "energy_kcal_per_100g": 280.0,
-        "protein_g_per_100g": 22.0,
-        "fat_g_per_100g": 22.0,
-        "saturated_fat_g_per_100g": 13.0,
+    "deli slices - turkey": {
+        "energy_kcal_per_100g": 104.0,
+        "protein_g_per_100g": 17.0,
+        "fat_g_per_100g": 2.0,
+        "saturated_fat_g_per_100g": 0.6,
         "carbs_g_per_100g": 3.0,
         "fiber_g_per_100g": 0.0,
         "sugars_g_per_100g": 1.0,
-        "sodium_mg_per_100g": 500.0,
+        "sodium_mg_per_100g": 950.0,
     },
-    "sour cream": {
-        "energy_kcal_per_100g": 198.0,
-        "protein_g_per_100g": 2.4,
-        "fat_g_per_100g": 20.0,
-        "saturated_fat_g_per_100g": 10.0,
-        "carbs_g_per_100g": 4.6,
+    "hot dogs": {
+        "energy_kcal_per_100g": 290.0,
+        "protein_g_per_100g": 11.0,
+        "fat_g_per_100g": 26.0,
+        "saturated_fat_g_per_100g": 9.0,
+        "carbs_g_per_100g": 3.0,
         "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 3.4,
-        "sodium_mg_per_100g": 38.0,
+        "sugars_g_per_100g": 0.5,
+        "sodium_mg_per_100g": 1090.0,
     },
-    "yogurt": {
-        "energy_kcal_per_100g": 61.0,
-        "protein_g_per_100g": 3.5,
-        "fat_g_per_100g": 3.3,
-        "saturated_fat_g_per_100g": 2.1,
-        "carbs_g_per_100g": 4.7,
+    "meatballs": {
+        "energy_kcal_per_100g": 286.0,
+        "protein_g_per_100g": 15.0,
+        "fat_g_per_100g": 21.0,
+        "saturated_fat_g_per_100g": 8.0,
+        "carbs_g_per_100g": 9.0,
+        "fiber_g_per_100g": 0.5,
+        "sugars_g_per_100g": 3.0,
+        "sodium_mg_per_100g": 780.0,
+    },
+    "pulled pork": {
+        "energy_kcal_per_100g": 250.0,
+        "protein_g_per_100g": 20.0,
+        "fat_g_per_100g": 17.0,
+        "saturated_fat_g_per_100g": 6.0,
+        "carbs_g_per_100g": 3.0,
         "fiber_g_per_100g": 0.0,
-        "sugars_g_per_100g": 4.7,
-        "sodium_mg_per_100g": 46.0,
+        "sugars_g_per_100g": 2.0,
+        "sodium_mg_per_100g": 700.0,
+    },
+    "steak fillets": {
+        "energy_kcal_per_100g": 220.0,
+        "protein_g_per_100g": 26.0,
+        "fat_g_per_100g": 12.0,
+        "saturated_fat_g_per_100g": 4.8,
+        "carbs_g_per_100g": 0.0,
+        "fiber_g_per_100g": 0.0,
+        "sugars_g_per_100g": 0.0,
+        "sodium_mg_per_100g": 60.0,
+    },
+    "unbreaded chicken fillet": {
+        "energy_kcal_per_100g": 165.0,
+        "protein_g_per_100g": 31.0,
+        "fat_g_per_100g": 3.6,
+        "saturated_fat_g_per_100g": 1.0,
+        "carbs_g_per_100g": 0.0,
+        "fiber_g_per_100g": 0.0,
+        "sugars_g_per_100g": 0.0,
+        "sodium_mg_per_100g": 74.0,
+    },
+    "unbreaded chicken strips & chunks": {
+        "energy_kcal_per_100g": 170.0,
+        "protein_g_per_100g": 26.0,
+        "fat_g_per_100g": 5.0,
+        "saturated_fat_g_per_100g": 1.2,
+        "carbs_g_per_100g": 2.0,
+        "fiber_g_per_100g": 0.0,
+        "sugars_g_per_100g": 0.0,
+        "sodium_mg_per_100g": 450.0,
     },
 }
 
-# GPT-5.4-authored ingredient selections for the expanded dairy ingredient set
-# (usda_nutrition_data.csv filtered to in_dairy == "Y").
+# GPT-5.4-authored ingredient selections, following the same pattern as the
+# dairy script: one fixed expert subset per category for up-front dimensionality
+# reduction before BO.
 #
-# Ingredient indices:
-#    1 allulose
-#    2 almond milk
-#    8 canola oil
-#    9 carrageenan
-#   10 cashew cream
-#   12 cashews
-#   18 cocoa butter
-#   19 coconut cream
-#   22 coconut oil
-#   32 corn syrup solids
-#   39 gellan gum
-#   46 inulin
-#   56 oat cream
-#   59 oat milk
-#   62 pea milk
-#   63 pea protein
-#   69 potato protein
-#   77 soy protein isolate
-#   80 soymilk
+# Ingredient indices (from usda_nutrition_data.csv filtered to in_meat == "Y"):
+#   16  canola oil
+#   21  coconut oil
+#   23  corn starch
+#   35  jackfruit
+#   40  liquid smoke
+#   43  methylcellulose
+#   46  mushroom mycelium
+#   50  mycoprotein
+#   55  onion
+#   61  pea protein
+#   65  potato protein
+#   82  soy protein isolate
+#   83  soy sauce
+#   93  tapioca starch
+#   94  textured vegetable protein
+#   102 wheat flour
+#   103 wheat gluten
+#   108 yeast extract
 LLM_SELECTIONS: Dict[str, List[int]] = {
-    # barista milk - milk-like fat with low sodium and emulsified steaming behavior
-    "barista milk": [59, 80, 2, 8, 39],
+    # bacon - high fat, high saturated fat, high sodium, smoky/savory
+    "bacon": [21, 82, 108, 40, 43],
 
-    # butter - very high fat / saturated fat with a modest sodium lever
-    "butter": [22, 18, 8, 77, 9],
+    # bratwurst - fatty sausage with sodium, structure, and protein
+    "bratwurst": [21, 82, 43, 108, 65],
 
-    # cheddar - high fat, high protein, elevated sodium
-    "cheddar": [22, 12, 77, 63, 9],
+    # breaded chicken fillets - lean protein core plus breading/binding
+    "breaded chicken fillets": [82, 103, 23, 43, 108],
 
-    # coffee creamer - creamy fat profile with some sweetness and low sodium
-    "coffee creamer": [56, 19, 80, 1, 39],
+    # breakfast sausage patties - fatty, salty, structured breakfast sausage
+    "breakfast sausage patties": [21, 82, 43, 108, 61],
 
-    # cream cheese - high fat, moderate protein, spreadable structure
-    "cream cheese": [22, 10, 77, 69, 9],
+    # burgers - protein/fiber base, fat lever, binder, savory lever
+    "burgers": [82, 94, 16, 43, 108],
 
-    # ice cream - fat plus strong sugar/carbohydrate levers
-    "ice cream": [19, 56, 1, 32, 39],
+    # chicken nuggets - protein + starch/breading + binder + savory
+    "chicken nuggets": [82, 103, 23, 43, 108],
 
-    # milk - low-fat, low-sodium beverage base
-    "milk": [59, 80, 2, 62, 39],
+    # deli ham - lean protein, sodium, binder, smoke/ham-like flavor
+    "deli slices - ham": [82, 65, 43, 83, 40],
 
-    # mozzarella - fat/protein balance with gel structure
-    "mozzarella": [22, 77, 63, 12, 9],
+    # deli turkey - leaner deli profile with sodium and sliceable structure
+    "deli slices - turkey": [82, 103, 43, 83, 40],
 
-    # sour cream - rich acidic cream profile with moderate structure
-    "sour cream": [19, 10, 22, 80, 39],
+    # hot dogs - fatty emulsified sausage with strong sodium lever
+    "hot dogs": [21, 82, 43, 108, 83],
 
-    # yogurt - cultured milk analogue with beverage/gel levers and fiber
-    "yogurt": [59, 80, 62, 46, 39],
+    # meatballs - protein base, carbs/binder, aromatics, savory
+    "meatballs": [82, 94, 102, 55, 108],
+
+    # pulled pork - fibrous base, smoke, savory sodium, binder
+    "pulled pork": [35, 82, 40, 108, 43],
+
+    # steak fillets - high protein, modest fat, umami/fibrous structure
+    "steak fillets": [103, 82, 16, 108, 50],
+
+    # unbreaded chicken fillet - lean protein structure with mild fat and binding
+    "unbreaded chicken fillet": [82, 103, 43, 16, 108],
+
+    # unbreaded chicken strips & chunks - lean protein with chunkable texture
+    "unbreaded chicken strips & chunks": [82, 103, 43, 108, 50],
 }
 
 
@@ -253,7 +304,7 @@ def load_ingredients(
     path: str = os.path.join(_ROOT, "data", "usda_nutrition_data.csv"),
 ) -> pd.DataFrame:
     df = pd.read_csv(path)
-    df = df[df["in_dairy"] == "Y"].copy()
+    df = df[df["in_meat"] == "Y"].copy()
 
     for col in NUTRIENT_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
@@ -268,7 +319,7 @@ def get_nutrition_matrix(df: pd.DataFrame) -> np.ndarray:
 
 
 def get_target_vector(category: str) -> np.ndarray:
-    return np.array([DAIRY_TARGETS[category][col] for col in NUTRIENT_COLUMNS], dtype=float)
+    return np.array([MEAT_TARGETS[category][col] for col in NUTRIENT_COLUMNS], dtype=float)
 
 
 def get_weight_vector() -> np.ndarray:
@@ -374,8 +425,8 @@ def vanilla_bo(objective, d: int, budget: int = 30, n_init: int = 5,
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
 
-def llm_reduced_bo(objective, d_full: int, selected_indices: List[int],
-                   budget: int = 30, n_init: int = 5, seed: int = 0) -> Dict:
+def reduced_bo(objective, d_full: int, selected_indices: List[int],
+               budget: int = 30, n_init: int = 5, seed: int = 0) -> Dict:
     torch.manual_seed(seed)
     np.random.seed(seed)
     k = len(selected_indices)
@@ -693,7 +744,7 @@ def run_single_category(
     print(f"\n{'=' * 72}")
     print(f"  {category.upper()}")
     target_str = ", ".join(
-        f"{NUTRIENT_LABELS[col]}={DAIRY_TARGETS[category][col]:.1f}"
+        f"{NUTRIENT_LABELS[col]}={MEAT_TARGETS[category][col]:.1f}"
         for col in NUTRIENT_COLUMNS
     )
     print(f"  target: {target_str}")
@@ -708,7 +759,7 @@ def run_single_category(
     for seed in range(n_seeds):
         print(f"  seed {seed + 1}/{n_seeds}", end="", flush=True)
 
-        res = llm_reduced_bo(objective, d, selected, budget=budget, n_init=n_init, seed=seed)
+        res = reduced_bo(objective, d, selected, budget=budget, n_init=n_init, seed=seed)
         all_traces[method_names[0]].append(res["best_values"])
 
         res = vanilla_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
@@ -781,7 +832,7 @@ def plot_category_convergence(
     ax.grid(True, alpha=0.3)
     ax.set_xlim(1, budget)
     plt.tight_layout()
-    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_convergence.png")
+    path = os.path.join(save_dir, f"meat_{category.replace(' ', '_').replace('&', 'and')}_convergence.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -809,7 +860,7 @@ def plot_category_bar(
     ax.set_title(f"Final Performance: {category.title()}", fontsize=13)
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
-    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_final.png")
+    path = os.path.join(save_dir, f"meat_{category.replace(' ', '_').replace('&', 'and')}_final.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -828,7 +879,7 @@ def plot_summary_heatmap(
             finals = [-t[-1] for t in all_results[cat][meth]]
             mat[i, j] = np.mean(finals)
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
     im = ax.imshow(mat, aspect="auto", cmap="RdYlGn_r")
     ax.set_xticks(range(len(method_names)))
     ax.set_xticklabels([m.replace(" ", "\n") for m in method_names], fontsize=9)
@@ -843,7 +894,7 @@ def plot_summary_heatmap(
     ax.set_title("Final Weighted Nutrition Distance by Category & Method", fontsize=13)
     fig.colorbar(im, ax=ax, shrink=0.8)
     plt.tight_layout()
-    path = os.path.join(save_dir, "dairy_summary_heatmap.png")
+    path = os.path.join(save_dir, "meat_summary_heatmap.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -861,7 +912,7 @@ def run_all(
     nutrition_matrix = get_nutrition_matrix(df)
 
     if categories is None:
-        categories = list(DAIRY_TARGETS.keys())
+        categories = list(MEAT_TARGETS.keys())
 
     print(f"Ingredients: {d}, Budget: {budget}, Seeds: {n_seeds}")
     print(f"Nutrients: {[NUTRIENT_LABELS[c] for c in NUTRIENT_COLUMNS]}")
@@ -889,15 +940,15 @@ def run_all(
             plot_category_convergence(cat, traces, budget, plot_dir)
             plot_category_bar(cat, traces, plot_dir)
 
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 92)
     print("RESULTS SUMMARY")
-    print("=" * 80)
+    print("=" * 92)
     method_names = list(all_results[categories[0]].keys())
-    header = f"{'Category':<18}" + "".join(f"{m:<26}" for m in method_names)
+    header = f"{'Category':<30}" + "".join(f"{m:<26}" for m in method_names)
     print(header)
     print("-" * len(header))
     for cat in categories:
-        row = f"{cat:<18}"
+        row = f"{cat:<30}"
         for meth in method_names:
             finals = [-t[-1] for t in all_results[cat][meth]]
             row += f"{np.mean(finals):.4f} +/- {np.std(finals):.4f}  "
@@ -906,7 +957,7 @@ def run_all(
     if plot and len(categories) > 1:
         plot_summary_heatmap(all_results, plot_dir)
 
-    results_path = os.path.join(results_dir, "dairy_experiments.json")
+    results_path = os.path.join(results_dir, "meat_experiments.json")
     existing = {}
     if os.path.exists(results_path):
         try:
@@ -921,6 +972,7 @@ def run_all(
             meth: [[float(v) for v in t] for t in tlist]
             for meth, tlist in traces.items()
         }
+
     with open(results_path, "w") as f:
         json.dump(serializable, f, indent=2)
     print(f"\nRaw results saved to {results_path}")
@@ -931,7 +983,7 @@ def run_all(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Expanded dairy optimization experiments")
+    parser = argparse.ArgumentParser(description="Expanded meat optimization experiments")
     parser.add_argument("--budget", type=int, default=30)
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--n-init", type=int, default=5)
@@ -940,8 +992,8 @@ if __name__ == "__main__":
         "--categories",
         nargs="+",
         default=None,
-        choices=list(DAIRY_TARGETS.keys()),
-        help="Run only selected categories (default: all configured dairy categories)",
+        choices=list(MEAT_TARGETS.keys()),
+        help="Run only selected categories (default: all configured meat categories)",
     )
     args = parser.parse_args()
 

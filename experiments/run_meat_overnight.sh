@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# run_dairy_overnight.sh
+# run_meat_overnight.sh
 #
-# Run all 10 dairy category experiments overnight with budget=50.
+# Run all meat category experiments overnight.
 # Logs stdout/stderr to a timestamped file and prints a summary on completion.
 #
 # Usage:
-#   nohup ./experiments/run_dairy_overnight.sh &
+#   nohup ./experiments/run_meat_overnight.sh &
 #   # or simply:
-#   ./experiments/run_dairy_overnight.sh
+#   ./experiments/run_meat_overnight.sh
 
 set -euo pipefail
 
@@ -17,27 +17,31 @@ LOG_DIR="${ROOT_DIR}/logs"
 mkdir -p "$LOG_DIR"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="${LOG_DIR}/dairy_overnight_${TIMESTAMP}.log"
+LOG_FILE="${LOG_DIR}/meat_overnight_${TIMESTAMP}.log"
 
 BUDGET=20
 SEEDS=5
 N_INIT=5
 
 CATEGORIES=(
-    "barista milk"
-    "butter"
-    "cheddar"
-    "coffee creamer"
-    "cream cheese"
-    "ice cream"
-    "milk"
-    "mozzarella"
-    "sour cream"
-    "yogurt"
+    "bacon"
+    "bratwurst"
+    "breaded chicken fillets"
+    "breakfast sausage patties"
+    "burgers"
+    "chicken nuggets"
+    "deli slices - ham"
+    "deli slices - turkey"
+    "hot dogs"
+    "meatballs"
+    "pulled pork"
+    "steak fillets"
+    "unbreaded chicken fillet"
+    "unbreaded chicken strips & chunks"
 )
 
 echo "============================================================"
-echo "  Dairy Experiments – Overnight Run"
+echo "  Meat Experiments – Overnight Run"
 echo "  Budget:     ${BUDGET}"
 echo "  Seeds:      ${SEEDS}"
 echo "  Categories: ${#CATEGORIES[@]}"
@@ -51,7 +55,7 @@ FAILED=()
 for cat in "${CATEGORIES[@]}"; do
     echo ""
     echo ">>> Starting: ${cat}  ($(date))"
-    if python "${SCRIPT_DIR}/run_dairy_experiments.py" \
+    if python "${SCRIPT_DIR}/run_meat_experiments.py" \
         --budget "$BUDGET" \
         --seeds "$SEEDS" \
         --n-init "$N_INIT" \
@@ -69,7 +73,7 @@ echo "============================================================"
 echo "  Overnight run complete: $(date)"
 echo "  Log: ${LOG_FILE}"
 if [ ${#FAILED[@]} -eq 0 ]; then
-    echo "  All 10 categories succeeded."
+    echo "  All ${#CATEGORIES[@]} categories succeeded."
 else
     echo "  FAILED categories (${#FAILED[@]}):"
     for f in "${FAILED[@]}"; do
