@@ -27,6 +27,7 @@ Methods compared:
   4. TuRBO
   5. SAASBO
   6. REMBO
+  7. SEBO (Liu et al. 2023): SAAS prior + L0-relaxed homotopy
 
 Usage:
     python run_dairy_experiments.py [--budget 30] [--seeds 5] [--no-plot]
@@ -35,6 +36,7 @@ Usage:
 
 import json
 import os
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 import matplotlib
@@ -43,7 +45,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from botorch.acquisition import qLogNoisyExpectedImprovement
+from botorch.acquisition import AcquisitionFunction, qLogNoisyExpectedImprovement
 from botorch.fit import fit_fully_bayesian_model_nuts, fit_gpytorch_mll
 from botorch.models import SaasFullyBayesianSingleTaskGP, SingleTaskGP
 from botorch.models.transforms.outcome import Standardize
@@ -315,6 +317,19 @@ def _softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
+def _simplex_initial_logits(dim: int, n_init: int, seed: int) -> np.ndarray:
+    """Simplex-native initialization mapped back to logits."""
+    rng = np.random.RandomState(seed)
+    log_floor = np.exp(-12.0)
+    simplex_points = [np.full(dim, 1.0 / dim)]
+    for _ in range(max(0, n_init - 1)):
+        simplex_points.append(rng.dirichlet(np.ones(dim)))
+    simplex = np.array(simplex_points[:n_init], dtype=float)
+    simplex = np.clip(simplex, log_floor, 1.0)
+    simplex = simplex / simplex.sum(axis=1, keepdims=True)
+    return np.log(simplex)
+
+
 def random_search(objective, d: int, budget: int = 30, seed: int = 0) -> Dict:
     rng = np.random.RandomState(seed)
     best_values, all_y = [], []
@@ -330,15 +345,14 @@ def vanilla_bo(objective, d: int, budget: int = 30, n_init: int = 5,
                seed: int = 0) -> Dict:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    z_lo, z_hi = -3.0, 3.0
+    z_lo, z_hi = -12.0, 0.0
     bounds = torch.tensor([[z_lo] * d, [z_hi] * d], dtype=torch.double)
 
     all_z, all_y, best_values = [], [], []
 
-    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
-    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+    z_init = _simplex_initial_logits(d, n_init, seed)
     for i in range(n_init):
-        z = z_init[i].numpy()
+        z = z_init[i]
         y = objective(_softmax(z))
         all_z.append(z)
         all_y.append(y)
@@ -379,7 +393,7 @@ def llm_reduced_bo(objective, d_full: int, selected_indices: List[int],
     torch.manual_seed(seed)
     np.random.seed(seed)
     k = len(selected_indices)
-    z_lo, z_hi = -3.0, 3.0
+    z_lo, z_hi = -12.0, 0.0
     bounds = torch.tensor([[z_lo] * k, [z_hi] * k], dtype=torch.double)
 
     def z_to_x(z):
@@ -391,10 +405,9 @@ def llm_reduced_bo(objective, d_full: int, selected_indices: List[int],
 
     all_z, all_y, best_values = [], [], []
 
-    sobol = SobolEngine(dimension=k, scramble=True, seed=seed)
-    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+    z_init = _simplex_initial_logits(k, n_init, seed)
     for i in range(n_init):
-        z = z_init[i].numpy()
+        z = z_init[i]
         y = objective(z_to_x(z))
         all_z.append(z)
         all_y.append(y)
@@ -428,6 +441,14 @@ def llm_reduced_bo(objective, d_full: int, selected_indices: List[int],
         best_values.append(max(all_y))
 
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
+
+
+def random_subset_bo(objective, d_full: int, k: int = 5,
+                     budget: int = 30, n_init: int = 5, seed: int = 0) -> Dict:
+    subset_rng = np.random.RandomState(seed + 10_000)
+    selected_indices = sorted(subset_rng.choice(d_full, size=k, replace=False).tolist())
+    return llm_reduced_bo(objective, d_full, selected_indices,
+                          budget=budget, n_init=n_init, seed=seed)
 
 
 def rembo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
@@ -498,7 +519,7 @@ def turbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
              seed: int = 0) -> Dict:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    z_lo, z_hi = -3.0, 3.0
+    z_lo, z_hi = -12.0, 0.0
     bounds = torch.tensor([[z_lo] * d, [z_hi] * d], dtype=torch.double)
 
     length_init, length_min, length_max = 0.8, 0.5 ** 7, 1.6
@@ -507,10 +528,9 @@ def turbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
 
     all_z, all_y, best_values = [], [], []
 
-    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
-    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+    z_init = _simplex_initial_logits(d, n_init, seed)
     for i in range(n_init):
-        z = z_init[i].numpy()
+        z = z_init[i]
         y = objective(_softmax(z))
         all_z.append(z)
         all_y.append(y)
@@ -587,15 +607,14 @@ def saasbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
               num_samples: int = 128) -> Dict:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    z_lo, z_hi = -3.0, 3.0
+    z_lo, z_hi = -12.0, 0.0
     bounds = torch.tensor([[z_lo] * d, [z_hi] * d], dtype=torch.double)
 
     all_z, all_y, best_values = [], [], []
 
-    sobol = SobolEngine(dimension=d, scramble=True, seed=seed)
-    z_init = unnormalize(sobol.draw(n_init).double(), bounds)
+    z_init = _simplex_initial_logits(d, n_init, seed)
     for i in range(n_init):
-        z = z_init[i].numpy()
+        z = z_init[i]
         y = objective(_softmax(z))
         all_z.append(z)
         all_y.append(y)
@@ -640,6 +659,109 @@ def saasbo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
     return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
 
 
+class _PenalizedAcq(AcquisitionFunction):
+    """Wraps a base acquisition with a subtractive penalty term.
+
+    forward(X) = base_acq(X) - lambda_t * penalty_func(X)
+    """
+
+    def __init__(self, base_acq, penalty_func, lambda_t: float):
+        super().__init__(model=base_acq.model)
+        self.base_acq = base_acq
+        self.penalty_func = penalty_func
+        self.lambda_t = float(lambda_t)
+
+    def forward(self, X):
+        return self.base_acq(X) - self.lambda_t * self.penalty_func(X)
+
+
+def sebo_bo(objective, d: int, budget: int = 30, n_init: int = 5,
+            seed: int = 0, lambda_max: float = 1.0, l0_a: float = 0.05,
+            warmup_steps: int = 64, num_samples: int = 32) -> Dict:
+    """SEBO: Sparsity-Exploiting BO (Liu et al. 2023).
+
+    Combines a SAAS-prior GP with a penalized acquisition function whose
+    smooth L0 approximation is applied to the resulting ingredient
+    fractions x = softmax(z). A homotopy continuation strategy linearly
+    grows the sparsity weight lambda from 0 to lambda_max over the BO
+    budget. Falls back to a SingleTaskGP if NUTS fitting fails.
+
+    Reference: Liu, Feng, Eriksson, Letham, Bakshy, "Sparse Bayesian
+    Optimization", AISTATS 2023 (https://arxiv.org/abs/2203.01900).
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    rng = np.random.RandomState(seed)
+    z_lo, z_hi = -12.0, 0.0
+    bounds = torch.tensor([[z_lo] * d, [z_hi] * d], dtype=torch.double)
+
+    all_z, all_y, best_values = [], [], []
+
+    z_init = _simplex_initial_logits(d, n_init, seed)
+    for i in range(n_init):
+        z = z_init[i]
+        y = objective(_softmax(z))
+        all_z.append(z)
+        all_y.append(y)
+        best_values.append(max(all_y))
+
+    a_squared = float(l0_a) ** 2
+
+    def sparsity_penalty(X: torch.Tensor) -> torch.Tensor:
+        # X normalized in [0, 1]^d; map back to logit space, then softmax.
+        z = X * (z_hi - z_lo) + z_lo
+        x = torch.softmax(z, dim=-1)
+        # Smooth L0 approximation: count ingredients with non-negligible mass.
+        active = 1.0 - torch.exp(-x.pow(2) / a_squared)
+        return active.sum(dim=(-1, -2))
+
+    n_bo_steps = budget - n_init
+    for step in range(n_bo_steps):
+        train_Z = torch.tensor(np.array(all_z), dtype=torch.double)
+        train_Y = torch.tensor(all_y, dtype=torch.double).unsqueeze(-1)
+        train_Z_norm = normalize(train_Z, bounds)
+
+        gp = SaasFullyBayesianSingleTaskGP(train_X=train_Z_norm, train_Y=train_Y)
+        try:
+            fit_fully_bayesian_model_nuts(
+                gp,
+                warmup_steps=warmup_steps,
+                num_samples=num_samples,
+                disable_progbar=True,
+            )
+        except Exception:
+            gp = SingleTaskGP(train_Z_norm, train_Y, outcome_transform=Standardize(m=1))
+            mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+            try:
+                fit_gpytorch_mll(mll)
+            except Exception:
+                pass
+
+        # Homotopy: lambda grows linearly from 0 to lambda_max.
+        progress = (step + 1) / max(1, n_bo_steps)
+        lambda_t = lambda_max * progress
+
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([256]))
+        base_acq = qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_Z_norm, sampler=sampler,
+        )
+        penalized_acq = _PenalizedAcq(base_acq, sparsity_penalty, lambda_t)
+        cand, _ = optimize_acqf(
+            acq_function=penalized_acq,
+            bounds=torch.stack([torch.zeros(d), torch.ones(d)]).double(),
+            q=1,
+            num_restarts=10,
+            raw_samples=512,
+        )
+        z_new = unnormalize(cand.squeeze(0), bounds).detach().numpy()
+        y_new = objective(_softmax(z_new))
+        all_z.append(z_new)
+        all_y.append(y_new)
+        best_values.append(max(all_y))
+
+    return {"best_values": best_values, "all_y": all_y, "final_best": max(all_y)}
+
+
 def summarize_profile(
     nutrition_matrix: np.ndarray,
     selected: List[int],
@@ -656,6 +778,9 @@ def summarize_profile(
     return profiles[best], float(dists[best])
 
 
+ALL_METHOD_KEYS = ["llm", "vanilla", "random", "turbo", "saasbo", "sebo", "rembo", "random_subset"]
+
+
 def run_single_category(
     category: str,
     df: pd.DataFrame,
@@ -663,7 +788,8 @@ def run_single_category(
     budget: int = 30,
     n_seeds: int = 5,
     n_init: int = 5,
-) -> Dict[str, list]:
+    methods: List[str] | None = None,
+) -> Dict[str, object]:
     target = get_target_vector(category)
     weights = get_weight_vector()
     scales = get_scale_vector(nutrition_matrix, target)
@@ -680,15 +806,24 @@ def run_single_category(
     )
     k = len(selected)
 
-    method_names = [
-        f"LLM + BO (k={k})",
-        f"Vanilla BO (d={d})",
-        f"Random Search (d={d})",
-        f"TuRBO (d={d})",
-        f"SAASBO (d={d})",
-        f"REMBO (d={d}->k=5)",
-    ]
+    method_registry = {
+        "llm":            (f"LLM + BO (k={k})",           lambda s: llm_reduced_bo(objective, d, selected, budget=budget, n_init=n_init, seed=s)),
+        "vanilla":        (f"Vanilla BO (d={d})",          lambda s: vanilla_bo(objective, d, budget=budget, n_init=n_init, seed=s)),
+        "random":         (f"Random Search (d={d})",       lambda s: random_search(objective, d, budget=budget, seed=s)),
+        "turbo":          (f"TuRBO (d={d})",               lambda s: turbo_bo(objective, d, budget=budget, n_init=n_init, seed=s)),
+        "saasbo":         (f"SAASBO (d={d})",              lambda s: saasbo_bo(objective, d, budget=budget, n_init=n_init, seed=s, warmup_steps=64, num_samples=32)),
+        "sebo":           (f"SEBO (d={d})",                lambda s: sebo_bo(objective, d, budget=budget, n_init=n_init, seed=s, warmup_steps=64, num_samples=32)),
+        "rembo":          (f"REMBO (d={d}->k=5)",          lambda s: rembo_bo(objective, d, budget=budget, n_init=n_init, seed=s)),
+        "random_subset":  (f"Random Subset + BO (k={k})",  lambda s: random_subset_bo(objective, d, k=k, budget=budget, n_init=n_init, seed=s)),
+    }
+
+    if methods is None:
+        methods = ALL_METHOD_KEYS
+    active = [(key, method_registry[key]) for key in methods]
+
+    method_names = [name for _, (name, _) in active]
     all_traces = {name: [] for name in method_names}
+    seed_records = []
 
     print(f"\n{'=' * 72}")
     print(f"  {category.upper()}")
@@ -707,44 +842,45 @@ def run_single_category(
 
     for seed in range(n_seeds):
         print(f"  seed {seed + 1}/{n_seeds}", end="", flush=True)
+        seed_record = {"seed": int(seed), "methods": {}}
 
-        res = llm_reduced_bo(objective, d, selected, budget=budget, n_init=n_init, seed=seed)
-        all_traces[method_names[0]].append(res["best_values"])
+        for _, (name, run_fn) in active:
+            res = run_fn(seed)
+            all_traces[name].append(res["best_values"])
+            seed_record["methods"][name] = {
+                "best_values": [float(v) for v in res["best_values"]],
+                "all_y": [float(v) for v in res["all_y"]],
+                "final_best": float(res["final_best"]),
+            }
 
-        res = vanilla_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
-        all_traces[method_names[1]].append(res["best_values"])
-
-        res = random_search(objective, d, budget=budget, seed=seed)
-        all_traces[method_names[2]].append(res["best_values"])
-
-        res = turbo_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
-        all_traces[method_names[3]].append(res["best_values"])
-
-        res = saasbo_bo(
-            objective,
-            d,
-            budget=budget,
-            n_init=n_init,
-            seed=seed,
-            warmup_steps=64,
-            num_samples=32,
-        )
-        all_traces[method_names[4]].append(res["best_values"])
-
-        res = rembo_bo(objective, d, budget=budget, n_init=n_init, seed=seed)
-        all_traces[method_names[5]].append(res["best_values"])
-
+        seed_records.append(seed_record)
         print(" done")
 
-    return all_traces
+    return {
+        "traces": all_traces,
+        "selected_indices": [int(i) for i in selected],
+        "selected_ingredients": [str(df["ingredient"].iloc[i]) for i in selected],
+        "target": {
+            NUTRIENT_LABELS[col]: float(DAIRY_TARGETS[category][col])
+            for col in NUTRIENT_COLUMNS
+        },
+        "approx_profile": {
+            NUTRIENT_LABELS[col]: float(approx_profile[j])
+            for j, col in enumerate(NUTRIENT_COLUMNS)
+        },
+        "approx_distance": float(approx_dist),
+        "seed_records": seed_records,
+    }
 
 
 _METHOD_STYLE = {
     "LLM": ("#2ecc71", "-", 2.5),
     "Vanilla": ("#e74c3c", "-.", 2.0),
+    "Random Subset": ("#d4ac0d", "--", 2.0),
     "Random": ("#999999", "--", 1.5),
     "TuRBO": ("#9b59b6", "-.", 2.0),
     "SAASBO": ("#e67e22", ":", 2.0),
+    "SEBO": ("#16a085", ":", 2.0),
     "REMBO": ("#3498db", "--", 2.0),
 }
 
@@ -761,6 +897,7 @@ def plot_category_convergence(
     all_traces: Dict[str, list],
     budget: int,
     save_dir: str,
+    run_tag: str | None = None,
 ):
     fig, ax = plt.subplots(1, 1, figsize=(9, 5.5))
     iters = np.arange(1, budget + 1)
@@ -777,11 +914,12 @@ def plot_category_convergence(
     ax.set_xlabel("Evaluation", fontsize=12)
     ax.set_ylabel("Weighted Nutrition Distance (lower = better)", fontsize=12)
     ax.set_title(f"Plant-Based {category.title()}: Multi-Nutrient Matching", fontsize=14)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(1, budget)
     plt.tight_layout()
-    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_convergence.png")
+    suffix = f"_{run_tag}" if run_tag else ""
+    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_convergence{suffix}.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -791,6 +929,7 @@ def plot_category_bar(
     category: str,
     all_traces: Dict[str, list],
     save_dir: str,
+    run_tag: str | None = None,
 ):
     fig, ax = plt.subplots(1, 1, figsize=(7, 4.5))
     names = list(all_traces.keys())
@@ -809,7 +948,8 @@ def plot_category_bar(
     ax.set_title(f"Final Performance: {category.title()}", fontsize=13)
     ax.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
-    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_final.png")
+    suffix = f"_{run_tag}" if run_tag else ""
+    path = os.path.join(save_dir, f"dairy_{category.replace(' ', '_')}_final{suffix}.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -818,6 +958,7 @@ def plot_category_bar(
 def plot_summary_heatmap(
     all_results: Dict[str, Dict[str, list]],
     save_dir: str,
+    run_tag: str | None = None,
 ):
     categories = list(all_results.keys())
     method_names = list(all_results[categories[0]].keys())
@@ -843,7 +984,8 @@ def plot_summary_heatmap(
     ax.set_title("Final Weighted Nutrition Distance by Category & Method", fontsize=13)
     fig.colorbar(im, ax=ax, shrink=0.8)
     plt.tight_layout()
-    path = os.path.join(save_dir, "dairy_summary_heatmap.png")
+    suffix = f"_{run_tag}" if run_tag else ""
+    path = os.path.join(save_dir, f"dairy_summary_heatmap{suffix}.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  saved {path}")
@@ -855,6 +997,7 @@ def run_all(
     n_seeds: int = 5,
     n_init: int = 5,
     plot: bool = True,
+    methods: List[str] | None = None,
 ):
     df = load_ingredients()
     d = len(df)
@@ -865,29 +1008,70 @@ def run_all(
 
     print(f"Ingredients: {d}, Budget: {budget}, Seeds: {n_seeds}")
     print(f"Nutrients: {[NUTRIENT_LABELS[c] for c in NUTRIENT_COLUMNS]}")
-    print(f"Categories: {categories}\n")
+    print(f"Categories: {categories}")
+    print(f"Methods: {methods or ALL_METHOD_KEYS}\n")
 
     plot_dir = os.path.join(_ROOT, "plots")
     os.makedirs(plot_dir, exist_ok=True)
     results_dir = os.path.join(_ROOT, "results")
     os.makedirs(results_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    summary_path = os.path.join(results_dir, f"dairy_experiments_{timestamp}.json")
+    raw_path = os.path.join(results_dir, f"dairy_experiments_raw_{timestamp}.json")
 
     all_results: Dict[str, Dict[str, list]] = {}
+    raw_results: Dict[str, Dict[str, object]] = {}
+    raw_payload = {
+        "config": {
+            "domain": "dairy",
+            "budget": int(budget),
+            "n_seeds": int(n_seeds),
+            "n_init": int(n_init),
+            "plot": bool(plot),
+            "categories": list(categories),
+            "methods": methods or ALL_METHOD_KEYS,
+            "n_ingredients": int(d),
+            "ingredient_names": [str(x) for x in df["ingredient"].tolist()],
+            "nutrients": [NUTRIENT_LABELS[c] for c in NUTRIENT_COLUMNS],
+            "weights": {
+                NUTRIENT_LABELS[col]: float(NUTRIENT_WEIGHTS[col])
+                for col in NUTRIENT_COLUMNS
+            },
+        },
+        "results": raw_results,
+    }
 
     for cat in categories:
-        traces = run_single_category(
+        category_result = run_single_category(
             cat,
             df,
             nutrition_matrix,
             budget=budget,
             n_seeds=n_seeds,
             n_init=n_init,
+            methods=methods,
         )
+        traces = category_result["traces"]
         all_results[cat] = traces
+        raw_results[cat] = category_result
+
+        summary_payload = {
+            done_cat: {
+                meth: [[float(v) for v in t] for t in tlist]
+                for meth, tlist in done_traces.items()
+            }
+            for done_cat, done_traces in all_results.items()
+        }
+        with open(summary_path, "w") as f:
+            json.dump(summary_payload, f, indent=2)
+        with open(raw_path, "w") as f:
+            json.dump(raw_payload, f, indent=2)
+        print(f"  checkpointed summary to {summary_path}")
+        print(f"  checkpointed raw data to {raw_path}")
 
         if plot:
-            plot_category_convergence(cat, traces, budget, plot_dir)
-            plot_category_bar(cat, traces, plot_dir)
+            plot_category_convergence(cat, traces, budget, plot_dir, run_tag=timestamp)
+            plot_category_bar(cat, traces, plot_dir, run_tag=timestamp)
 
     print("\n" + "=" * 80)
     print("RESULTS SUMMARY")
@@ -904,26 +1088,9 @@ def run_all(
         print(row)
 
     if plot and len(categories) > 1:
-        plot_summary_heatmap(all_results, plot_dir)
-
-    results_path = os.path.join(results_dir, "dairy_experiments.json")
-    existing = {}
-    if os.path.exists(results_path):
-        try:
-            with open(results_path) as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-
-    serializable = dict(existing)
-    for cat, traces in all_results.items():
-        serializable[cat] = {
-            meth: [[float(v) for v in t] for t in tlist]
-            for meth, tlist in traces.items()
-        }
-    with open(results_path, "w") as f:
-        json.dump(serializable, f, indent=2)
-    print(f"\nRaw results saved to {results_path}")
+        plot_summary_heatmap(all_results, plot_dir, run_tag=timestamp)
+    print(f"\nSummary results saved to {summary_path}")
+    print(f"Raw results saved to {raw_path}")
 
     return all_results
 
@@ -943,6 +1110,14 @@ if __name__ == "__main__":
         choices=list(DAIRY_TARGETS.keys()),
         help="Run only selected categories (default: all configured dairy categories)",
     )
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        default=None,
+        choices=ALL_METHOD_KEYS,
+        help="Run only selected methods (default: all). "
+             f"Choices: {', '.join(ALL_METHOD_KEYS)}",
+    )
     args = parser.parse_args()
 
     run_all(
@@ -951,4 +1126,5 @@ if __name__ == "__main__":
         n_seeds=args.seeds,
         n_init=args.n_init,
         plot=not args.no_plot,
+        methods=args.methods,
     )
