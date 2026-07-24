@@ -22,7 +22,7 @@ with st.sidebar:
     existing_pkls = sorted(glob.glob("*.pkl"))
     existing_projects = [os.path.splitext(f)[0] for f in existing_pkls]
 
-    project_name = st.text_input("Project Name", "Cookie_Project_v4")
+    project_name = st.text_input("Project Name", "my_project")
 
     if st.button("Create / Switch Project"):
         st.session_state.pop("optimizer", None)
@@ -351,6 +351,65 @@ with tab_setup:
         else:
             st.write("Load ingredients first to add quantity constraints.")
 
+        st.divider()
+        st.subheader("F. BO Hyperparameters (optional)")
+        st.caption(
+            "Standard = library defaults. 'Expert-selected' lets the expert fix the "
+            "GP kernel, lengthscale prior, noise handling and acquisition **once** at "
+            "the start (the GP still refits lengthscales/noise from data each "
+            "iteration). Set before the first recipe."
+        )
+        _opt = st.session_state.optimizer
+        _cur_cfg = getattr(_opt, "bo_config", None)
+        _mode = st.radio(
+            "BO hyperparameters",
+            ["Standard (default)", "Expert-selected"],
+            index=1 if _cur_cfg else 0,
+            key="bo_cfg_mode",
+            horizontal=True,
+        )
+        if _mode == "Standard (default)":
+            if _cur_cfg is not None and st.button("Apply: revert to defaults"):
+                _opt.set_bo_config(None)
+                st.success("Using default BO hyperparameters.")
+                st.rerun()
+        else:
+            with st.form("bo_config_form"):
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
+                    _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
+                with bc2:
+                    _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
+                    _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
+                st.caption(
+                    "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
+                    "sensory panel — keep `default` unless you have a specific reason."
+                )
+                if st.form_submit_button("Apply expert config"):
+                    _opt.set_bo_config({
+                        "kernel": _k, "lengthscale_prior": _lp,
+                        "noise": _ns, "acquisition": _aq,
+                    })
+                    st.success(f"BO config set: {_opt.bo_config}")
+                    st.rerun()
+            with st.expander("Or paste an expert config (JSON)"):
+                _txt = st.text_area(
+                    "Expert config JSON",
+                    value='{"kernel": "matern52", "lengthscale_prior": "default", '
+                          '"noise": "default", "acquisition": "qlognei"}',
+                    key="bo_cfg_json",
+                )
+                if st.button("Apply pasted config"):
+                    try:
+                        _opt.set_bo_config(json.loads(_txt))
+                        st.success(f"BO config set: {_opt.bo_config}")
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Invalid JSON: {_e}")
+        if _cur_cfg:
+            st.info(f"Active BO config: {_cur_cfg}")
+
 
 # ================================================================== #
 #  Tab 2: Optimization Loop
@@ -448,6 +507,82 @@ with tab_optimize:
                     st.session_state.show_backup_warning = True
                     st.success("Saved!")
                     st.rerun()
+
+    st.divider()
+
+    # -------------------------------------------------------------- #
+    #  Adaptive EGBO: revise the design space mid-run (arm 2)
+    # -------------------------------------------------------------- #
+    with st.expander("Adaptive EGBO: export trajectory & revise design space"):
+        _opt = st.session_state.optimizer
+
+        st.markdown(
+            "**1. Export the trajectory** to query the expert for ingredients to add. "
+            "Append your candidate pool (minus the active variables) before sending."
+        )
+        st.code(_opt.export_trajectory(), language="text")
+
+        st.markdown(
+            "**2. Add the expert's suggested variable(s)** to the design space. The "
+            "history re-encodes automatically."
+        )
+        _has_hist = bool(_opt.X_history)
+        # Radio outside the form so the fields react to the type choice.
+        add_type = st.radio(
+            "Type", ["Ingredient", "Process parameter"],
+            horizontal=True, key="adaptive_add_type",
+        )
+        with st.form("adaptive_add_form"):
+            new_name = st.text_input("Name", key="adaptive_new_name")
+            nc1, nc2, nc3 = st.columns(3)
+            with nc1:
+                new_min = st.number_input(
+                    "Min", value=0.0, key="adaptive_new_min",
+                    disabled=(add_type == "Ingredient" and _has_hist),
+                    help="Ingredients added mid-run have min 0 (absent in prior recipes).",
+                )
+            with nc2:
+                new_max = st.number_input("Max", value=10.0, key="adaptive_new_max")
+            with nc3:
+                new_base = st.number_input(
+                    "Baseline (process only)", value=0.0, key="adaptive_new_base",
+                    disabled=(add_type == "Ingredient"),
+                    help="The value used in ALL prior batches. Past experiments encode "
+                         "at this value; must lie within [Min, Max].",
+                )
+            if add_type == "Ingredient":
+                st.caption(
+                    "Ingredient: absent (0) in every past recipe; mid-run its min is 0 "
+                    "and BO decides how much to use."
+                )
+            else:
+                st.caption(
+                    "Process parameter: past batches ran at a fixed setting, so give the "
+                    "Baseline (that setting) — it must lie within [Min, Max]."
+                )
+            if st.form_submit_button("Add to design space"):
+                nm = new_name.strip()
+                if not nm:
+                    st.error("Enter a name.")
+                else:
+                    try:
+                        if add_type == "Ingredient":
+                            _opt.add_ingredient(nm, new_min, new_max)
+                        else:
+                            _opt.add_process_parameter(
+                                nm, new_min, new_max,
+                                baseline=(new_base if _has_hist else None),
+                            )
+                        st.session_state.pop("current_batch", None)  # stale under new dim
+                        st.session_state.show_backup_warning = True
+                        st.success(
+                            f"Added {add_type.lower()} '{nm}' "
+                            f"(bounds {_opt.variables[-1]['bounds']}). "
+                            f"History re-encoded — generate a new batch."
+                        )
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
 
     st.divider()
 

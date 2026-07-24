@@ -7,7 +7,11 @@ import pandas as pd
 import torch
 from torch.quasirandom import SobolEngine
 
-from botorch.acquisition import qLogNoisyExpectedImprovement
+from botorch.acquisition import (
+    qLogExpectedImprovement,
+    qLogNoisyExpectedImprovement,
+)
+from botorch.acquisition.monte_carlo import qUpperConfidenceBound
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Warp
@@ -15,11 +19,74 @@ from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.transforms import normalize, unnormalize
+from gpytorch.kernels import (
+    LinearKernel,
+    MaternKernel,
+    PolynomialKernel,
+    RBFKernel,
+    ScaleKernel,
+)
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.priors import GammaPrior
+
+
+# --------------------------------------------------------------------------- #
+#  Expert-selectable BO hyperparameters (optional "arm 3").
+#  bo_config == None  =>  library defaults, i.e. byte-identical to the standard
+#  non-adaptive arm. A validated dict swaps in the expert's chosen kernel /
+#  lengthscale prior / noise handling / acquisition. Chosen ONCE at project
+#  start (not per iteration): the GP's lengthscale/noise VALUES still refit from
+#  data each iteration via MLE; only the structural config is fixed a priori.
+# --------------------------------------------------------------------------- #
+_KERNELS = {"matern52", "matern32", "rbf", "linear", "poly2"}
+_LENGTHSCALE = {"default", "long", "short"}
+_NOISE = {"default", "low", "fixed_tiny"}
+_ACQ = {"qlognei", "qlogei", "qucb"}
+_LS_PRIORS = {"default": (3.0, 6.0), "long": (3.0, 1.0), "short": (3.0, 12.0)}
+DEFAULT_BO_CONFIG = {
+    "kernel": "matern52", "lengthscale_prior": "default",
+    "noise": "default", "acquisition": "qlognei",
+}
+
+
+def validate_bo_config(spec):
+    """Coerce a raw config dict to valid values. Returns None for an empty/None
+    spec (None => library defaults, identical to the standard arm)."""
+    if not spec:
+        return None
+
+    def pick(key, allowed, default):
+        v = str(spec.get(key, default)).strip().lower()
+        return v if v in allowed else default
+
+    return {
+        "kernel": pick("kernel", _KERNELS, "matern52"),
+        "lengthscale_prior": pick("lengthscale_prior", _LENGTHSCALE, "default"),
+        "noise": pick("noise", _NOISE, "default"),
+        "acquisition": pick("acquisition", _ACQ, "qlognei"),
+    }
+
+
+def _build_covar(cfg, dim):
+    kernel = cfg.get("kernel", "matern52")
+    if kernel in ("matern52", "matern32"):
+        nu = 2.5 if kernel == "matern52" else 1.5
+        conc, rate = _LS_PRIORS.get(cfg.get("lengthscale_prior", "default"), _LS_PRIORS["default"])
+        base = MaternKernel(nu=nu, ard_num_dims=dim, lengthscale_prior=GammaPrior(conc, rate))
+    elif kernel == "rbf":
+        conc, rate = _LS_PRIORS.get(cfg.get("lengthscale_prior", "default"), _LS_PRIORS["default"])
+        base = RBFKernel(ard_num_dims=dim, lengthscale_prior=GammaPrior(conc, rate))
+    elif kernel == "linear":
+        base = LinearKernel()
+    elif kernel == "poly2":
+        base = PolynomialKernel(power=2)
+    else:
+        base = MaternKernel(nu=2.5, ard_num_dims=dim)
+    return ScaleKernel(base)
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 3  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 4  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False):
         """Initialize or load a food optimization project.
@@ -39,6 +106,7 @@ class FoodOptimizer:
         self.constraints = []
         self.quantity_constraints = []
         self.screening_model = None
+        self.bo_config = None  # None => library defaults; dict => expert-chosen (arm 3)
 
         self.X_history = []
         self.Y_history = []
@@ -55,16 +123,28 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def add_ingredient(self, name, min_val, max_val):
-        """Add a single ingredient (used for benchmarking)."""
+        """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
+        ingredient is treated as absent (=0) in every prior recipe, and the
+        encoded history is rebuilt so the GP stays dimensionally consistent."""
         for var in self.variables:
             if var['name'] == name:
                 return
+        min_val, max_val = float(min_val), float(max_val)
+        if self.X_history:
+            if len(self.recipe_history) != len(self.X_history):
+                raise ValueError(
+                    "Cannot add a variable mid-run: some experiments were recorded "
+                    "without stored recipes. Start a fresh project or re-import history."
+                )
+            min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
         self.variables.append({
             'name': name,
             'type': 'continuous',
-            'bounds': (float(min_val), float(max_val)),
+            'bounds': (min_val, max_val),
             'category': 'ingredient',
         })
+        if self.X_history:
+            self._reencode_history()
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -113,17 +193,44 @@ class FoodOptimizer:
         self.variables.extend(process_vars)
         self.save()
 
-    def add_process_parameter(self, name, min_val, max_val):
-        """Add a process parameter (e.g. baking temperature, mixing time)."""
+    def add_process_parameter(self, name, min_val, max_val, baseline=None):
+        """Add a process parameter (e.g. baking temperature, mixing time).
+
+        Added mid-run it requires `baseline` — the value used in ALL prior
+        batches — because past experiments ran at a fixed setting, not at 0.
+        History then encodes at that baseline (its 'absent' value), and min is
+        NOT forced to 0 (unlike an ingredient). `baseline` must lie in [min, max].
+        """
         for var in self.variables:
             if var['name'] == name:
                 return
-        self.variables.append({
+        min_val, max_val = float(min_val), float(max_val)
+        var = {
             'name': name,
             'type': 'continuous',
-            'bounds': (float(min_val), float(max_val)),
+            'bounds': (min_val, max_val),
             'category': 'process',
-        })
+        }
+        if self.X_history:
+            if len(self.recipe_history) != len(self.X_history):
+                raise ValueError(
+                    "Cannot add a variable mid-run: some experiments were recorded "
+                    "without stored recipes. Start a fresh project or re-import history."
+                )
+            if baseline is None:
+                raise ValueError(
+                    "A process parameter added mid-run needs a baseline (the value "
+                    "used in all prior batches) so past experiments encode correctly."
+                )
+            baseline = float(baseline)
+            if not (min_val <= baseline <= max_val):
+                raise ValueError(
+                    f"baseline {baseline} must lie within [{min_val}, {max_val}]."
+                )
+            var['_absent_value'] = baseline
+        self.variables.append(var)
+        if self.X_history:
+            self._reencode_history()
         self.save()
 
     def remove_process_parameter(self, name):
@@ -287,13 +394,23 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def _encode(self, recipe_dict):
-        """Encode a recipe dict into a flat numeric vector."""
+        """Encode a recipe dict into a flat numeric vector.
+
+        Missing keys default to 0.0 / absent so that a variable added mid-run
+        (adaptive EGBO) re-encodes prior recipes correctly: the new variable was
+        at zero concentration in every past mixture, which is exactly EGBO's
+        'earlier observations remain valid' property.
+        """
         vector = []
         for var in self.variables:
             if var['type'] == 'continuous':
-                vector.append(recipe_dict[var['name']])
+                # Missing key => the variable's 'absent' value: 0 for an
+                # ingredient (not in the recipe), or a process parameter's
+                # baseline (prior batches ran at a fixed setting, not 0).
+                absent = var.get('_absent_value', 0.0)
+                vector.append(float(recipe_dict.get(var['name'], absent)))
             elif var['type'] == 'categorical':
-                chosen = recipe_dict[var['name']]
+                chosen = recipe_dict.get(var['name'], None)
                 for opt in var['options']:
                     vector.append(1.0 if opt == chosen else 0.0)
         return vector
@@ -485,21 +602,11 @@ class FoodOptimizer:
 
         input_tf = Warp(d=dim, indices=list(range(dim))) if self.robust else None
 
-        gp = SingleTaskGP(
-            train_X_norm,
-            train_Y,
-            outcome_transform=Standardize(m=1),
-            input_transform=input_tf,
-        )
+        gp = self._build_gp(train_X_norm, train_Y, dim, input_tf)
         mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
         fit_gpytorch_mll(mll)
 
-        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([512]))
-        acq_func = qLogNoisyExpectedImprovement(
-            model=gp,
-            X_baseline=train_X_norm,
-            sampler=sampler,
-        )
+        acq_func = self._build_acqf(gp, train_X_norm, train_Y)
 
         candidate_norm, _ = optimize_acqf(
             acq_function=acq_func,
@@ -531,6 +638,94 @@ class FoodOptimizer:
         self.save()
 
     # ------------------------------------------------------------------ #
+    #  Adaptivity + expert BO config (optional arms 2 & 3)
+    # ------------------------------------------------------------------ #
+
+    def _reencode_history(self):
+        """Rebuild X_history from recipe_history under the current variable set.
+        Call after any change to self.variables. recipe_history holds the raw
+        dicts, so this stays lossless for prior experiments."""
+        if self.recipe_history:
+            self.X_history = [self._encode(r) for r in self.recipe_history]
+
+    def set_bo_config(self, spec):
+        """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the
+        library defaults (arm 1). Chosen once at project start, not per iteration."""
+        self.bo_config = validate_bo_config(spec)
+        self.save()
+
+    def fork(self, new_project_name):
+        """Branch the current state into a new project, saved under a new name.
+        Used to split one run into adaptive vs non-adaptive at the first re-query:
+        both share an identical pre-fork history."""
+        import copy
+        clone = copy.deepcopy(self)
+        clone.screening_model = None
+        clone.project_name = new_project_name
+        clone.filename = f"{new_project_name}.pkl"
+        clone.save()
+        return clone
+
+    def export_trajectory(self):
+        """Human-readable optimization trajectory for an expert re-query (adaptive
+        arm). The app appends the 'available to add' pool (full CSV minus active)."""
+        if not self.Y_history:
+            return "No experiments recorded yet."
+        best_i = int(np.argmax(self.Y_history))
+        active = [v['name'] for v in self.variables]
+        lines = [f"Active variables ({len(active)}): {active}", ""]
+        for i, y in enumerate(self.Y_history):
+            rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
+            comp = ", ".join(f"{k}={rec[k]:.3g}" for k in active if rec.get(k))
+            res = self.results_history[i] if i < len(self.results_history) else {}
+            attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
+            mark = "*" if i == best_i else " "
+            lines.append(
+                f"{mark} iter {i + 1}: utility={y:.4f} | {comp} | attrs: {attrs}"
+            )
+        return "\n".join(lines)
+
+    def _build_gp(self, train_X_norm, train_Y, dim, input_tf):
+        """Build the GP. With bo_config == None this is byte-identical to the
+        original default GP; a config swaps in the expert's kernel/noise."""
+        cfg = getattr(self, 'bo_config', None)
+        if not cfg:
+            return SingleTaskGP(
+                train_X_norm, train_Y,
+                outcome_transform=Standardize(m=1), input_transform=input_tf,
+            )
+        kwargs = dict(
+            outcome_transform=Standardize(m=1), input_transform=input_tf,
+            covar_module=_build_covar(cfg, dim),
+        )
+        if cfg.get('noise') == 'fixed_tiny':
+            yvar = float(max(1e-8, 1e-6 * (train_Y.var().item() + 1e-12)))
+            return SingleTaskGP(
+                train_X_norm, train_Y,
+                train_Yvar=torch.full_like(train_Y, yvar), **kwargs,
+            )
+        gp = SingleTaskGP(train_X_norm, train_Y, **kwargs)
+        if cfg.get('noise') == 'low':
+            gp.likelihood.noise_covar.register_prior(
+                'noise_prior', GammaPrior(1.1, 50.0), 'raw_noise',
+            )
+        return gp
+
+    def _build_acqf(self, gp, train_X_norm, train_Y):
+        cfg = getattr(self, 'bo_config', None)
+        acq = (cfg or {}).get('acquisition', 'qlognei')
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([512]))
+        if acq == 'qlogei':
+            return qLogExpectedImprovement(
+                model=gp, best_f=float(train_Y.max().item()), sampler=sampler,
+            )
+        if acq == 'qucb':
+            return qUpperConfidenceBound(model=gp, beta=0.2, sampler=sampler)
+        return qLogNoisyExpectedImprovement(
+            model=gp, X_baseline=train_X_norm, sampler=sampler,
+        )
+
+    # ------------------------------------------------------------------ #
     #  Persistence: Save / Load / Export / Import
     # ------------------------------------------------------------------ #
 
@@ -554,6 +749,8 @@ class FoodOptimizer:
                 self.recipe_history = []
             if not hasattr(self, 'results_history'):
                 self.results_history = []
+            if not hasattr(self, 'bo_config'):
+                self.bo_config = None
             for var in self.variables:
                 if 'category' not in var:
                     var['category'] = 'ingredient'
@@ -592,6 +789,7 @@ class FoodOptimizer:
             'Y_history': self.Y_history,
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
+            'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
         return json.loads(json.dumps(state, default=_make_serializable))
@@ -606,6 +804,7 @@ class FoodOptimizer:
         self.constraints = state.get('constraints', [])
         self.quantity_constraints = state.get('quantity_constraints', [])
         self.robust = state.get('robust', False)
+        self.bo_config = validate_bo_config(state.get('bo_config', None))
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
 
