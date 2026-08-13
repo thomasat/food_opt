@@ -6,7 +6,8 @@ Mirror of the macOS approach, so this stays a mechanical add:
    `../launcher.sh`: preflight → first-run `uv` setup → localhost-only
    Streamlit → idle shutdown. Paths: environment under
    `%LOCALAPPDATA%\FoodOptimizer`, projects in
-   `%USERPROFILE%\Documents\FoodOptimizer`.
+   `%USERPROFILE%\FoodOptimizer` (home-folder root for parity with macOS,
+   where ~/Documents is privacy-gated).
 2. **uv:** bundle `uv-x86_64-pc-windows-msvc.zip`'s `uv.exe`, pinned +
    SHA256-verified like `../fetch_uv.sh`.
 3. **Lock:** Windows needs its own compiled lock

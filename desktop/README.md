@@ -117,7 +117,7 @@ Notes:
 4. Setup dialog appears, finishes; browser opens with the app.
 5. UI walkthrough: create a project, upload `data/ingredients.csv` and
    `data/experiments_example.csv`, request a suggestion batch, log a
-   result, confirm the `.pkl` appears in `~/Documents/FoodOptimizer/`.
+   result, confirm the `.pkl` appears in `~/FoodOptimizer/`.
 6. Close the browser tab, wait past the idle timeout (15 min), confirm
    the server exited (Activity Monitor). Relaunch: fast, project loads.
 7. Wi-Fi off on a set-up machine: works fully offline.

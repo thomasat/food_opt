@@ -3,3 +3,4 @@ __pycache__/
 *.pkl
 .pytest_cache/
 docs/
+.DS_Store

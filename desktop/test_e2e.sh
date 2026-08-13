@@ -87,7 +87,7 @@ echo "== Level 2: end-to-end (temp HOME) =="
 E2E_HOME="$(mktemp -d)"
 WORK="$(mktemp -d)"
 SUPPORT="$E2E_HOME/Library/Application Support/FoodOptimizer"
-DOCS="$E2E_HOME/Documents/FoodOptimizer"
+DOCS="$E2E_HOME/FoodOptimizer"
 PORT_FILE="$SUPPORT/server.port"
 MARKER="$SUPPORT/setup_complete"
 LAUNCHER_PID=""
@@ -137,7 +137,7 @@ assert "python under support"    dir_nonempty "$SUPPORT/python"
 assert "uv cache under support"  dir_nonempty "$SUPPORT/uv-cache"
 assert "marker written"          test -f "$MARKER"
 assert "nothing in ~/.local"     not_exists "$E2E_HOME/.local"
-assert "Documents dir created"   test -d "$DOCS"
+assert "data dir created in home" test -d "$DOCS"
 
 echo "-- test 2: localhost-only binding --"
 PORT="$(server_port)"
@@ -178,7 +178,7 @@ print("SMOKE_OK")
 PY
 )"
 if echo "$SMOKE_OUT" | grep -q SMOKE_OK; then ok "FoodOptimizer smoke test"; else fail "FoodOptimizer smoke test ($SMOKE_OUT)"; fi
-assert "pkl saved to Documents" test -f "$DOCS/E2E_Smoke.pkl"
+assert "pkl saved to data dir" test -f "$DOCS/E2E_Smoke.pkl"
 
 echo "-- test 7: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"

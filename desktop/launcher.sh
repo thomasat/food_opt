@@ -33,7 +33,10 @@ APP_BUNDLE="$(dirname "$CONTENTS_DIR")"
 UV_BIN="$MACOS_DIR/uv"
 
 SUPPORT_DIR="$HOME/Library/Application Support/FoodOptimizer"
-DATA_DIR="$HOME/Documents/FoodOptimizer"
+# Home-folder root, NOT ~/Documents: macOS privacy protection (TCC) gates
+# Documents/Desktop/Downloads behind a consent prompt and silently denies
+# unsigned apps, killing the server at startup (getcwd -> EPERM).
+DATA_DIR="$HOME/FoodOptimizer"
 VENV_DIR="$SUPPORT_DIR/venv"
 MARKER_FILE="$SUPPORT_DIR/setup_complete"
 LOG_FILE="$SUPPORT_DIR/launcher.log"
@@ -129,7 +132,7 @@ if [ -x "$VENV_DIR/bin/python" ] && [ -f "$MARKER_FILE" ] \
 fi
 
 if [ "$NEED_SETUP" = "1" ]; then
-  show_info "Setting up $APP_NAME (one time, about 2 to 4 minutes). This downloads the app's software components; none of your data is sent anywhere. When setup finishes, the app opens in your web browser. To open it again later, just open $APP_NAME from Applications, like any app."
+  show_info "Setting up $APP_NAME (one time, usually 1 to 5 minutes depending on your internet speed). This downloads the app's software components; none of your data is sent anywhere. When setup finishes, the app opens in your web browser. To open it again later, just open $APP_NAME from Applications, like any app."
   rm -f "$MARKER_FILE"
   NET_MSG="Setup needs an internet connection the first time you open $APP_NAME. Please connect to the internet and open the app again."
   say "installing Python $PYTHON_VERSION"
@@ -147,7 +150,7 @@ fi
 PORT=8501
 while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT + 1)); done
 
-cd "$DATA_DIR" || die "Could not open the FoodOptimizer folder inside your Documents folder."
+cd "$DATA_DIR" || die "Could not open the FoodOptimizer folder inside your home folder."
 
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
