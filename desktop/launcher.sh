@@ -111,7 +111,7 @@ if [ "$NEED_SETUP" = "1" ]; then
   rm -f "$MARKER_FILE"
   NET_MSG="Setup needs an internet connection the first time you open $APP_NAME. Please connect to the internet and open the app again."
   say "installing Python $PYTHON_VERSION"
-  "$UV_BIN" python install "$PYTHON_VERSION" || die "$NET_MSG"
+  "$UV_BIN" python install --no-bin "$PYTHON_VERSION" || die "$NET_MSG"
   say "creating environment"
   rm -rf "$VENV_DIR"
   "$UV_BIN" venv --python "$PYTHON_VERSION" "$VENV_DIR" || die "$NET_MSG"
