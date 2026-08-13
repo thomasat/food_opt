@@ -10,6 +10,7 @@ UV_BIN="$("$DESKTOP_DIR/fetch_uv.sh")"
 
 grep -v '^pytest' "$REPO_DIR/requirements.txt" | "$UV_BIN" pip compile - \
   --python-version 3.13 \
+  --generate-hashes \
   -o "$DESKTOP_DIR/requirements.lock.txt"
 
 echo "Wrote $DESKTOP_DIR/requirements.lock.txt"

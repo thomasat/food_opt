@@ -71,8 +71,10 @@ machines automatically.
    recipient would (browser/AirDrop), mount, drag to Applications,
    double-click. **It must open with no security warning of any kind.**
    Any warning = distribution blocked; fix signing/notarization.
-3. Double-click the app *inside* the dmg window on purpose: the
-   "copy to Applications first?" offer appears and works.
+3. Double-click the app *inside* the dmg window on purpose - using a
+   downloaded, quarantined dmg, so Gatekeeper runs it from a
+   translocated path: the "copy to Applications first?" offer appears
+   and works.
 4. Setup dialog appears, finishes; browser opens with the app.
 5. UI walkthrough: create a project, upload `data/ingredients.csv` and
    `data/experiments_example.csv`, request a suggestion batch, log a
@@ -84,3 +86,6 @@ machines automatically.
    dialog appears; succeeds after Wi-Fi is restored.
 9. Read "Start Here.txt" and every dialog as a skeptical nontechnical
    user: accurate, understandable, and every error has a next step.
+10. Upgrade path: with an older version already in /Applications,
+    install the new dmg over it and open - no "damaged app" warning,
+    and the new version runs.

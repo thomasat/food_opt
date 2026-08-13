@@ -68,9 +68,10 @@ die() {        # fatal: plain-language dialog pointing at the log, then exit 1
 
 # ---------- preflight: running from the disk image? ----------
 case "$APP_BUNDLE" in
-  /Volumes/*)
+  /Volumes/*|*/AppTranslocation/*)
     say "running from disk image at $APP_BUNDLE"
     if ask_ok "$APP_NAME should be copied to your Applications folder first - do that now?"; then
+      rm -rf "/Applications/$APP_NAME.app"
       if ditto "$APP_BUNDLE" "/Applications/$APP_NAME.app"; then
         open "/Applications/$APP_NAME.app"
         exit 0
@@ -97,6 +98,27 @@ if [ -f "$PORT_FILE" ]; then
   fi
   rm -f "$PORT_FILE"
 fi
+
+# ---------- one launch at a time ----------
+LOCK_DIR="$SUPPORT_DIR/launch.lock"
+OTHER_PID=""
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo $$ > "$LOCK_DIR/pid"
+    return 0
+  fi
+  OTHER_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+  if [ -n "${OTHER_PID:-}" ] && kill -0 "$OTHER_PID" 2>/dev/null; then
+    return 1
+  fi
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR" 2>/dev/null && echo $$ > "$LOCK_DIR/pid"
+}
+if ! acquire_lock; then
+  say "another launch is already in progress (pid ${OTHER_PID:-unknown}) - exiting"
+  exit 0
+fi
+trap 'rm -rf "$LOCK_DIR"' EXIT
 
 # ---------- first-run / upgrade setup ----------
 LOCK_HASH="$(shasum -a 256 "$LOCK_FILE" | awk '{print $1}')"
@@ -138,6 +160,7 @@ printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE"
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null
   rm -f "$PORT_FILE"
+  rm -rf "$LOCK_DIR"
 }
 trap 'say "signal received - shutting down"; cleanup; exit 0' TERM INT
 trap cleanup EXIT
@@ -152,6 +175,7 @@ until curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/_stcore/health" >/dev/nul
   WAITED=$((WAITED + 2))
 done
 say "server healthy on port $PORT (pid $SERVER_PID)"
+rm -rf "$LOCK_DIR"
 
 if [ "$HEADLESS" != "1" ]; then open "http://localhost:$PORT"; fi
 

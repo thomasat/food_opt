@@ -9,8 +9,6 @@ LEVEL1_ONLY=0
 [ "${1:-}" = "--level1-only" ] && LEVEL1_ONLY=1
 
 DESKTOP_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck disable=SC2034  # REPO_DIR is used by Level 2 (Task 8)
-REPO_DIR="$(dirname "$DESKTOP_DIR")"
 APP_NAME="Food Optimizer"
 DIST_APP="$DESKTOP_DIR/dist/$APP_NAME.app"
 TEST_VERSION="0.0.1"
@@ -40,6 +38,8 @@ else
   echo "  (shellcheck not installed - skipped)"
 fi
 assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
+assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
+assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
@@ -143,6 +143,7 @@ echo "-- test 2: localhost-only binding --"
 PORT="$(server_port)"
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -q '127.0.0.1'; then ok "bound to 127.0.0.1"; else fail "bound to 127.0.0.1"; fi
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -qE '\*:|0\.0\.0\.0'; then fail "not bound to all interfaces"; else ok "not bound to all interfaces"; fi
+assert "main page HTTP 200" curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"
 
 echo "-- test 3: single instance --"
 HOME="$E2E_HOME" FOODOPT_HEADLESS=1 \
