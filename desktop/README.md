@@ -56,6 +56,45 @@ When `requirements.txt` changes, regenerate the lock and commit it:
 The launcher detects the changed lock hash and re-runs setup on users'
 machines automatically.
 
+## Publishing a release (the download link you send people)
+
+Releases are published as **GitHub Releases** — each version gets a
+permanent download URL. Never commit dmg files to the repo.
+
+The full ritual for version X.Y.Z:
+
+```bash
+# 0. Only if requirements.txt changed since the last release:
+./desktop/update_lock.sh            # then commit the updated lock
+
+# 1. Build (set SIGN_IDENTITY + NOTARY_PROFILE first for real distributions)
+./desktop/build_dmg.sh X.Y.Z
+
+# 2. Verify
+./desktop/test_e2e.sh               # must end "0 failed"
+# ...plus the manual checklist below before sending to real recipients.
+
+# 3. Make sure the release is cut from main (merge + push first), then:
+gh release create vX.Y.Z "desktop/dist/FoodOptimizer-X.Y.Z.dmg" \
+  --title "Food Optimizer X.Y.Z" \
+  --notes "See 'Start Here.txt' inside the download for install steps."
+```
+
+The link to send people (also shown on the release page):
+
+```
+https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+```
+
+Notes:
+- The repo is public, so the link works for anyone — no GitHub account needed.
+- Unsigned builds are for internal testers only. Before a link goes to
+  real recipients, complete the signing setup above and rebuild — an
+  unsigned dmg triggers the exact security warnings this project exists
+  to avoid.
+- To replace a release's dmg (e.g. after signing):
+  `gh release upload vX.Y.Z <dmg> --clobber`
+
 ## System requirements (copy-paste for emails / download page)
 
 > Food Optimizer runs on Macs with an Apple chip (M1 or later — any Mac
