@@ -54,6 +54,9 @@ mkdir -p "$STAGING"
 ditto "$APP_DIR" "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 cp "$DESKTOP_DIR/start_here.txt" "$STAGING/Start Here.txt"
+mkdir -p "$STAGING/Example Data"
+cp "$REPO_DIR/data/ingredients.csv" "$STAGING/Example Data/example ingredients.csv"
+cp "$REPO_DIR/data/experiments_example.csv" "$STAGING/Example Data/example experiments.csv"
 
 if command -v create-dmg >/dev/null 2>&1; then
   create-dmg \

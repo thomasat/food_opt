@@ -134,7 +134,7 @@ if ! acquire_lock; then
   say "another launch is already in progress (pid ${OTHER_PID:-unknown}) - exiting"
   exit 0
 fi
-trap 'rm -rf "$LOCK_DIR"' EXIT
+trap 'if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$LOCK_DIR"; fi' EXIT
 
 # ---------- first-run / upgrade setup ----------
 LOCK_HASH="$(shasum -a 256 "$LOCK_FILE" | awk '{print $1}')"
@@ -160,7 +160,7 @@ if [ "$NEED_SETUP" = "1" ]; then
 fi
 
 # ---------- start the server ----------
-PORT=8501
+PORT="${FOODOPT_PORT_BASE:-8501}"   # override lets tests avoid real-user ports
 while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT + 1)); done
 
 cd "$DATA_DIR" || die "Could not open the FoodOptimizer folder inside your home folder."
@@ -186,14 +186,21 @@ fi
   --server.headless=true \
   --server.address=127.0.0.1 \
   --server.port="$PORT" \
-  --browser.gatherUsageStats=false &
+  --browser.gatherUsageStats=false \
+  --client.toolbarMode=minimal &
 SERVER_PID=$!
 printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE"
 
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null
-  rm -f "$PORT_FILE"
-  rm -rf "$LOCK_DIR"
+  # Remove shared files only if this instance still owns them: a launcher
+  # exiting late must never clobber a newer instance's port file or lock.
+  if [ "$(cat "$PORT_FILE" 2>/dev/null)" = "$PORT $SERVER_PID" ]; then
+    rm -f "$PORT_FILE"
+  fi
+  if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
+    rm -rf "$LOCK_DIR"
+  fi
 }
 trap 'say "signal received - shutting down"; cleanup; exit 0' TERM INT
 trap cleanup EXIT

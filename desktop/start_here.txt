@@ -17,6 +17,11 @@ HOW TO INSTALL
 3. The first time, the app sets itself up (usually 1 to 5 minutes). When it
    finishes, Food Optimizer opens on your screen, ready to use.
 
+TRYING IT OUT
+- Next to this file you'll find an "Example Data" folder with sample
+  spreadsheets. Upload "example ingredients.csv" in the app's Ingredients
+  section to see how everything works before using your own data.
+
 USING IT DAY TO DAY
 - To open the app again later, open Food Optimizer from Applications,
   like any app. It opens in its own window (or in your web browser).

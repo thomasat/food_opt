@@ -70,6 +70,8 @@ assert "dmg mounts" hdiutil attach -nobrowse -readonly "$DMG"
 assert "dmg has app"            test -d "$VOL/$APP_NAME.app"
 assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
+assert "dmg has example ingredients" test -f "$VOL/Example Data/example ingredients.csv"
+assert "dmg has example experiments" test -f "$VOL/Example Data/example experiments.csv"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   assert "codesign verifies" codesign --verify --deep --strict "$DIST_APP"
@@ -84,6 +86,9 @@ if [ "$LEVEL1_ONLY" = "1" ]; then
 fi
 
 echo "== Level 2: end-to-end (temp HOME) =="
+# Use a high port base so servers on real-user ports (8501+) — or stale
+# browser windows auto-reconnecting to them — can't interfere with the run.
+export FOODOPT_PORT_BASE=18501
 E2E_HOME="$(mktemp -d)"
 WORK="$(mktemp -d)"
 SUPPORT="$E2E_HOME/Library/Application Support/FoodOptimizer"
@@ -210,8 +215,13 @@ else
 fi
 if grep -q "installing components" "$WORK/run6.out"; then fail "warm relaunch skipped setup"; else ok "warm relaunch skipped setup"; fi
 assert "launch backed up existing projects" backup_exists
+
+echo "-- test 8b: late cleanup never clobbers another instance's port file --"
+printf '%s\n' "1 1" > "$PORT_FILE"
 kill "$LAUNCHER_PID" 2>/dev/null
-wait_for 30 not_exists "$PORT_FILE" || true
+sleep 3
+if [ "$(cat "$PORT_FILE" 2>/dev/null)" = "1 1" ]; then ok "foreign port file preserved"; else fail "foreign port file preserved"; fi
+rm -f "$PORT_FILE"
 LAUNCHER_PID=""
 
 echo "-- test 9: nothing was written into the bundle --"

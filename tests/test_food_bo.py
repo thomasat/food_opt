@@ -103,6 +103,27 @@ class TestVariables:
         assert "Water" in opt.ingredient_properties
         assert opt.ingredient_properties["Flour"]["fat"] == 1.0
 
+    def test_load_ingredients_csv_lowercase_columns(self, opt):
+        """User CSVs vary in header case; lowercase must work (the shipped
+        example file uses name/min/max)."""
+        df = pd.DataFrame({
+            "name": ["Water", "Flour"],
+            "min": [0, 0],
+            "max": [100, 50],
+            "fat_per_100g": [0.0, 1.8],
+        })
+        opt.load_ingredients_from_csv(df)
+        assert len(opt.variables) == 2
+        assert opt.variables[0]["name"] == "Water"
+        assert opt.ingredient_properties["Flour"]["fat_per_100g"] == 1.8
+
+    def test_load_ingredients_csv_missing_column_plain_error(self, opt):
+        """A missing required column must raise a plain-language ValueError
+        (which the app displays nicely), never a raw KeyError."""
+        df = pd.DataFrame({"Name": ["Water"], "Min": [0]})
+        with pytest.raises(ValueError, match="missing required column"):
+            opt.load_ingredients_from_csv(df)
+
     def test_load_csv_rejects_after_experiments(self, opt_configured):
         opt = opt_configured
         recipe = {"Water": 50, "Flour": 25, "Sugar": 10}

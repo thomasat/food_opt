@@ -159,6 +159,22 @@ class FoodOptimizer:
                 "Use Hard Reset to start a new project, or restore from a backup."
             )
 
+        # Accept any capitalization/whitespace for the required headers, and
+        # fail with a plain-language error (the app shows ValueError text to
+        # the user) instead of a KeyError when one is missing.
+        canonical = {'name': 'Name', 'min': 'Min', 'max': 'Max', 'type': 'Type'}
+        df = df.rename(columns={
+            c: canonical[c.strip().lower()]
+            for c in df.columns if c.strip().lower() in canonical
+        })
+        missing = [c for c in ('Name', 'Min', 'Max') if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"The ingredients file is missing required column(s): "
+                f"{', '.join(missing)}. Expected columns: Name, Min, Max "
+                f"(plus optional property columns like Cost or Protein)."
+            )
+
         process_vars = [v for v in self.variables if v.get('category') == 'process']
         self.variables = []
         self.ingredient_properties = {}
