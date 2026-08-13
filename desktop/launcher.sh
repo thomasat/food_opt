@@ -49,6 +49,7 @@ VENV_DIR="$SUPPORT_DIR/venv"
 MARKER_FILE="$SUPPORT_DIR/setup_complete"
 LOG_FILE="$SUPPORT_DIR/launcher.log"
 PORT_FILE="$SUPPORT_DIR/server.port"
+LOCK_DIR="$SUPPORT_DIR/launch.lock"   # held while a launch is in progress
 LOCK_FILE="$RESOURCES_DIR/requirements.lock.txt"
 
 export UV_PYTHON_INSTALL_DIR="$SUPPORT_DIR/python"
@@ -65,7 +66,10 @@ esac
 mkdir -p "$SUPPORT_DIR" "$DATA_DIR"
 # Keep project data and the app environment private on shared Macs.
 chmod 700 "$SUPPORT_DIR" "$DATA_DIR" 2>/dev/null || true
-if [ -f "$LOG_FILE" ]; then mv -f "$LOG_FILE" "$LOG_FILE.1"; fi
+# Rotate only when no launch is in progress: rotating a live launch's log
+# would shunt its output into launcher.log.1 mid-run (its tee keeps the old
+# file handle) and leave a nearly-empty log for Help > Show Log File.
+if [ -f "$LOG_FILE" ] && [ ! -d "$LOCK_DIR" ]; then mv -f "$LOG_FILE" "$LOG_FILE.1"; fi
 exec > >(tee -a "$LOG_FILE") 2>&1
 say "launcher started (bundle=$APP_BUNDLE)"
 
@@ -91,7 +95,6 @@ if [ -f "$PORT_FILE" ]; then
 fi
 
 # ---------- one launch at a time ----------
-LOCK_DIR="$SUPPORT_DIR/launch.lock"
 OTHER_PID=""
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then

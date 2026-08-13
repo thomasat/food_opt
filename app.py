@@ -67,13 +67,21 @@ with st.sidebar:
     st.divider()
     st.subheader("Backup & Restore")
 
-    project_json = json.dumps(opt.export_json(), indent=2)
-    st.download_button(
-        "Download Project Backup",
-        data=project_json,
-        file_name=f"{opt.project_name}.json",
-        mime="application/json",
-    )
+    if getattr(opt, "load_error", None):
+        # Never offer a "backup" of a project that failed to load — it would
+        # be an empty file wearing the project's name.
+        st.caption(
+            "Backup download is unavailable while the project file "
+            "cannot be read."
+        )
+    else:
+        project_json = json.dumps(opt.export_json(), indent=2)
+        st.download_button(
+            "Download Project Backup",
+            data=project_json,
+            file_name=f"{opt.project_name}.json",
+            mime="application/json",
+        )
 
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
     if uploaded_json is not None:
@@ -127,6 +135,19 @@ with st.sidebar:
                 st.session_state.confirm_reset = False
                 st.rerun()
 
+
+# A damaged project must never be silently overwritten: every edit below
+# calls save(), so pause the editing UI until the user restores a backup or
+# hard-resets (both stay available in the sidebar, as does switching project).
+if getattr(st.session_state.optimizer, "load_error", None):
+    st.error(st.session_state.optimizer.load_error)
+    st.info(
+        "To protect the original file, editing is paused. In the sidebar on "
+        "the left you can: restore a backup you downloaded earlier "
+        "(Restore from backup), or start this project over "
+        "(Hard Reset Project — the damaged file is archived, not deleted)."
+    )
+    st.stop()
 
 # ================================================================== #
 #  Tab 1: Setup & Config

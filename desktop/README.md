@@ -118,7 +118,9 @@ Notes:
 3. Double-click the app *inside* the dmg window on purpose - using a
    downloaded, quarantined dmg, so Gatekeeper runs it from a
    translocated path: the "copy to Applications first?" offer appears
-   and works.
+   and works — accepting it must quit this copy and automatically
+   reopen the app from /Applications (a detached helper does the
+   relaunch; watch that the window actually comes back).
 4. The app window opens immediately with the setup message, then loads
    the app when setup finishes. Dock shows the Food Optimizer icon and
    name (not a browser).

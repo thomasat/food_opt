@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var healthStrikes = 0
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
     var pollTicks = 0
+    var deferDeadline: Int?   // pollTicks limit after our launcher deferred to another launch
 
     let supportDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/FoodOptimizer")
@@ -207,7 +208,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "in the installer window, then open it from Applications.")
             return false
         }
-        NSWorkspace.shared.open(URL(fileURLWithPath: dest))
+        // Relaunch via a detached helper. Opening the copy directly from this
+        // still-running instance can make Launch Services just activate THIS
+        // instance (same bundle id) instead of launching the copy — the app
+        // would quit and never come back. The helper waits for this process
+        // to exit (bounded at ~10s), then opens the fresh copy.
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c",
+            "i=0; while /bin/kill -0 \(pid) 2>/dev/null && [ $i -lt 50 ]; do "
+            + "sleep 0.2; i=$((i+1)); done; /usr/bin/open \"\(dest)\""]
+        do { try helper.run() } catch {
+            NSWorkspace.shared.open(URL(fileURLWithPath: dest))
+        }
         NSApp.terminate(nil)
         return true
     }
@@ -261,7 +275,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Exit 0 is not a failure: it means another launcher instance is
         // bringing the server up (e.g. this one deferred to it). Keep polling
         // — the health check will load the UI as soon as the server answers.
-        if code == 0 { return }
+        // But never wait forever: if the launch we deferred to never produces
+        // a server (e.g. a stale launch lock that wrongly looks alive), fail
+        // with guidance instead of spinning indefinitely.
+        if code == 0 {
+            deferDeadline = pollTicks + 900   // ~15 minutes
+            return
+        }
         pollTimer?.invalidate()
         switch code {
         case 2:
@@ -308,6 +328,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "can take longer than usual. Leave this window open; "
                        + "the app will appear as soon as it's ready.",
                        spinner: true)
+        }
+        if let deadline = deferDeadline, pollTicks >= deadline {
+            pollTimer?.invalidate()
+            showStatus("Food Optimizer could not start",
+                       "Another copy of the app seemed to be starting, but it "
+                       + "never finished. Please quit (press Cmd-Q) and open "
+                       + "Food Optimizer again. If this keeps happening, use "
+                       + "Help › Email Support and attach the file from "
+                       + "Help › Show Log File.")
+            return
         }
         guard let port = readServerPort(),
               let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")

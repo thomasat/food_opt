@@ -871,4 +871,7 @@ class FoodOptimizer:
         else:
             self.Y_history = state.get('Y_history', [])
 
+        # A successful import means the in-memory state is valid again, so a
+        # restore-from-backup clears any earlier damaged-file error.
+        self.load_error = None
         self.save()

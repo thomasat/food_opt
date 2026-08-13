@@ -478,6 +478,24 @@ class TestPersistence:
         assert opt.load_error is not None
         assert isinstance(opt.load_error, str) and opt.load_error
 
+    def test_restore_backup_clears_load_error(self, tmp_path, monkeypatch):
+        """Restoring a backup into a damaged project clears load_error and
+        rewrites the file as valid JSON (the app's recovery path)."""
+        monkeypatch.chdir(tmp_path)
+        donor = FoodOptimizer(project_name="donor")
+        donor.add_ingredient("Water", 0, 100)
+        backup = donor.export_json()
+
+        (tmp_path / "broken.pkl").write_bytes(b"\x80\x04 not json not pickle \xff\xfe")
+        opt = FoodOptimizer(project_name="broken")
+        assert opt.load_error is not None
+
+        backup["project_name"] = "broken"  # what the app's restore flow does
+        opt.import_json(backup)
+        assert opt.load_error is None
+        assert opt.variables[0]["name"] == "Water"
+        json.loads((tmp_path / "broken.pkl").read_bytes().decode("utf-8"))
+
     def test_failed_save_preserves_existing_file(self, tmp_path, monkeypatch):
         """A crash mid-save must never corrupt the previously saved project."""
         monkeypatch.chdir(tmp_path)
