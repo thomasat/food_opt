@@ -24,8 +24,11 @@ die() {  # $1: log message; $2: exit code (default 1)
 
 # ---------- preflight: supported machine (before touching anything) ----------
 OS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
-if [ "$ARCH" != "arm64" ] || [ "${OS_MAJOR:-0}" -lt 13 ] 2>/dev/null; then
-  say "unsupported machine: arch=$ARCH macos=${OS_MAJOR:-unknown}"
+case "$OS_MAJOR" in
+  ''|*[!0-9]*) OS_MAJOR=0 ;;   # non-numeric => fail safe as unsupported
+esac
+if [ "$ARCH" != "arm64" ] || [ "$OS_MAJOR" -lt 13 ]; then
+  say "unsupported machine: arch=$ARCH macos=$OS_MAJOR"
   exit 2
 fi
 
@@ -59,17 +62,29 @@ esac
 
 # ---------- log (rotate once) ----------
 mkdir -p "$SUPPORT_DIR" "$DATA_DIR"
+# Keep project data and the app environment private on shared Macs.
+chmod 700 "$SUPPORT_DIR" "$DATA_DIR" 2>/dev/null || true
 if [ -f "$LOG_FILE" ]; then mv -f "$LOG_FILE" "$LOG_FILE.1"; fi
 exec > >(tee -a "$LOG_FILE") 2>&1
 say "launcher started (bundle=$APP_BUNDLE)"
 
-# ---------- single instance ----------
+# ---------- replace any orphaned server ----------
+# The wrapper spawns and owns exactly one launcher per launch. A server
+# recorded here therefore belongs to a PREVIOUS app instance that didn't
+# shut down cleanly (e.g. the wrapper was force-quit). Stop it and start
+# fresh, so this launch owns a server it can manage — never reuse a process
+# a live wrapper isn't tracking (that caused false "could not start" screens
+# and stale-version reuse after upgrades).
 if [ -f "$PORT_FILE" ]; then
-  read -r OLD_PORT OLD_PID < "$PORT_FILE" || true
-  if [ -n "${OLD_PID:-}" ] && kill -0 "$OLD_PID" 2>/dev/null \
-     && curl -fsS --max-time 3 "http://127.0.0.1:${OLD_PORT}/_stcore/health" >/dev/null 2>&1; then
-    say "already running on port $OLD_PORT - nothing to do"
-    exit 0
+  read -r _OLD_PORT OLD_PID < "$PORT_FILE" || true
+  if [ -n "${OLD_PID:-}" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    say "stopping orphaned server (pid $OLD_PID) from a previous session"
+    kill "$OLD_PID" 2>/dev/null
+    _waited=0
+    while kill -0 "$OLD_PID" 2>/dev/null && [ "$_waited" -lt 5 ]; do
+      sleep 1; _waited=$((_waited + 1))
+    done
+    kill -9 "$OLD_PID" 2>/dev/null
   fi
   rm -f "$PORT_FILE"
 fi
@@ -82,12 +97,23 @@ acquire_lock() {
     echo $$ > "$LOCK_DIR/pid"
     return 0
   fi
-  OTHER_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+  # Lock dir exists. The owner may be mid-write (mkdir then pid write are not
+  # one atomic step), so an empty pid is not proof of abandonment — retry
+  # briefly before considering it stealable.
+  OTHER_PID=""
+  _tries=0
+  while [ "$_tries" -lt 5 ]; do
+    OTHER_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+    [ -n "${OTHER_PID:-}" ] && break
+    sleep 1; _tries=$((_tries + 1))
+  done
   if [ -n "${OTHER_PID:-}" ] && kill -0 "$OTHER_PID" 2>/dev/null; then
     return 1
   fi
+  # Owner is dead, or never wrote a pid within the grace window — steal.
   rm -rf "$LOCK_DIR"
-  mkdir "$LOCK_DIR" 2>/dev/null && echo $$ > "$LOCK_DIR/pid"
+  mkdir "$LOCK_DIR" 2>/dev/null && echo $$ > "$LOCK_DIR/pid" && return 0
+  return 1
 }
 if ! acquire_lock; then
   say "another launch is already in progress (pid ${OTHER_PID:-unknown}) - exiting"
@@ -104,6 +130,18 @@ if [ -x "$VENV_DIR/bin/python" ] && [ -f "$MARKER_FILE" ] \
 fi
 
 if [ "$NEED_SETUP" = "1" ]; then
+  # A missing/empty lock hash means the bundled resource is missing — that is
+  # a broken install, not a network problem; don't send the user chasing Wi-Fi.
+  if [ -z "$LOCK_HASH" ] || [ ! -f "$LOCK_FILE" ]; then
+    die "setup resource missing (requirements.lock.txt) - the app may be damaged" 1
+  fi
+  # Setup needs ~5 GB; a full disk fails the same way as no internet, so check
+  # first and report the real cause (exit 4 -> disk-space page).
+  FREE_KB="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+  case "$FREE_KB" in ''|*[!0-9]*) FREE_KB=0 ;; esac
+  if [ "$FREE_KB" -gt 0 ] && [ "$FREE_KB" -lt 6291456 ]; then
+    die "not enough free disk space for setup (need about 5 GB)" 4
+  fi
   say "one-time setup starting (downloading software components)"
   rm -f "$MARKER_FILE"
   NET_MSG="setup failed - most likely no internet connection"
@@ -129,16 +167,23 @@ BACKUP_ROOT="$DATA_DIR/backups"
 KEEP_BACKUPS=10
 set -- ./*.pkl
 if [ -e "$1" ]; then
-  BACKUP_DIR="$BACKUP_ROOT/$(date '+%Y-%m-%d_%H%M%S')"
-  mkdir -p "$BACKUP_DIR"
-  cp ./*.pkl "$BACKUP_DIR/"
-  say "projects backed up to $BACKUP_DIR"
-  COUNT="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-  while [ "$COUNT" -gt "$KEEP_BACKUPS" ]; do
-    OLDEST="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
-    rm -rf "$OLDEST"
-    COUNT=$((COUNT - 1))
-  done
+  # Skip if nothing changed since the last backup, so repeatedly opening the
+  # app in one day doesn't churn through the retained snapshots with dupes.
+  CURR_SUM="$(cat ./*.pkl 2>/dev/null | shasum -a 256 | awk '{print $1}')"
+  LAST_SUM="$(cat "$BACKUP_ROOT/.last_sum" 2>/dev/null || true)"
+  if [ "$CURR_SUM" != "$LAST_SUM" ]; then
+    BACKUP_DIR="$BACKUP_ROOT/$(date '+%Y-%m-%d_%H%M%S')"
+    mkdir -p "$BACKUP_DIR"
+    cp ./*.pkl "$BACKUP_DIR/"
+    printf '%s' "$CURR_SUM" > "$BACKUP_ROOT/.last_sum"
+    say "projects backed up to $BACKUP_DIR"
+    COUNT="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+    while [ "$COUNT" -gt "$KEEP_BACKUPS" ]; do
+      OLDEST="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
+      rm -rf "$OLDEST"
+      COUNT=$((COUNT - 1))
+    done
+  fi
 fi
 
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
@@ -148,7 +193,8 @@ fi
   --browser.gatherUsageStats=false \
   --client.toolbarMode=minimal &
 SERVER_PID=$!
-printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE"
+# Atomic write so the wrapper never reads a half-written port line.
+printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE.tmp" && mv -f "$PORT_FILE.tmp" "$PORT_FILE"
 
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null

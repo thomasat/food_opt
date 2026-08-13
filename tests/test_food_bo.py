@@ -2,6 +2,7 @@
 
 import json
 import os
+import pickle
 import tempfile
 
 import numpy as np
@@ -436,10 +437,49 @@ class TestPersistence:
         assert len(opt2.variables) == 1
         assert opt2.variables[0]["name"] == "Water"
 
+    def test_save_writes_json_not_pickle(self, tmp_path, monkeypatch):
+        """Project files must be JSON (safe to open) — never executable pickle."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="fmt_test")
+        opt.add_ingredient("Water", 0, 100)
+        opt.save()
+        raw = (tmp_path / "fmt_test.pkl").read_bytes()
+        state = json.loads(raw.decode("utf-8"))   # must parse as JSON
+        assert state["project_name"] == "fmt_test"
+        assert state["variables"][0]["name"] == "Water"
+
+    def test_load_migrates_legacy_pickle(self, tmp_path, monkeypatch):
+        """Existing pickle project files still load, and are rewritten as JSON."""
+        monkeypatch.chdir(tmp_path)
+        legacy = {
+            "project_name": "legacy", "robust": False,
+            "variables": [{"name": "Water", "type": "continuous",
+                           "bounds": (0, 100), "category": "ingredient"}],
+            "objectives": [], "ingredient_properties": {}, "constraints": [],
+            "quantity_constraints": [], "bo_config": None,
+            "X_history": [], "Y_history": [], "recipe_history": [],
+            "results_history": [],
+        }
+        with open(tmp_path / "legacy.pkl", "wb") as f:
+            pickle.dump(legacy, f)
+
+        opt = FoodOptimizer(project_name="legacy")
+        assert opt.variables[0]["name"] == "Water"
+        assert not getattr(opt, "load_error", None)
+        # File is now JSON, not pickle
+        json.loads((tmp_path / "legacy.pkl").read_bytes().decode("utf-8"))
+
+    def test_load_corrupt_file_reports_error_not_silent_success(self, tmp_path, monkeypatch):
+        """A damaged file must surface an error, never load as a blank project
+        while claiming success."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "broken.pkl").write_bytes(b"\x80\x04 not json not pickle \xff\xfe")
+        opt = FoodOptimizer(project_name="broken")
+        assert opt.load_error is not None
+        assert isinstance(opt.load_error, str) and opt.load_error
+
     def test_failed_save_preserves_existing_file(self, tmp_path, monkeypatch):
         """A crash mid-save must never corrupt the previously saved project."""
-        import pickle
-
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(project_name="atomic_test")
         opt.add_ingredient("Water", 0, 100)
@@ -450,14 +490,22 @@ class TestPersistence:
             raise RuntimeError("simulated crash mid-write")
 
         with monkeypatch.context() as m:
-            m.setattr(pickle, "dump", boom)
+            m.setattr(os, "replace", boom)   # crash at the atomic swap
             with pytest.raises(RuntimeError):
                 opt.save()
 
         assert (tmp_path / "atomic_test.pkl").read_bytes() == good_bytes
-        # And the survivor must still load
         opt2 = FoodOptimizer(project_name="atomic_test")
         assert opt2.variables[0]["name"] == "Water"
+
+    def test_load_ingredients_nonnumeric_bounds_plain_error(self, tmp_path, monkeypatch):
+        """A text value in Min/Max must give a plain-language error, not a raw
+        'could not convert string to float' traceback."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="numtest")
+        df = pd.DataFrame({"name": ["Water"], "min": ["abc"], "max": [100]})
+        with pytest.raises(ValueError, match="must be numbers"):
+            opt.load_ingredients_from_csv(df)
 
     def test_export_import_json(self, opt_configured):
         recipe = {"Water": 50, "Flour": 25, "Sugar": 10}

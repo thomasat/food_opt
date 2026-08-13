@@ -21,6 +21,19 @@ if [ ! -x "$UV_BIN" ]; then
   mv "$CACHE_DIR/uv-aarch64-apple-darwin/uv" "$UV_BIN"
   rm -rf "$CACHE_DIR/uv-aarch64-apple-darwin" "$TARBALL"
   chmod 755 "$UV_BIN"
+  # Record the extracted binary's own hash so later runs can re-verify the
+  # cached copy without re-downloading (the pinned hash above is the tarball's).
+  shasum -a 256 "$UV_BIN" | awk '{print $1}' > "$UV_BIN.sha256"
+fi
+
+# Re-verify the cached binary every run: a corrupted/tampered cache entry
+# becomes a cache miss instead of being trusted forever.
+if [ -f "$UV_BIN.sha256" ]; then
+  if ! echo "$(cat "$UV_BIN.sha256")  $UV_BIN" | shasum -a 256 -c - >/dev/null 2>&1; then
+    echo "cached uv failed verification; removing it - re-run to re-download" >&2
+    rm -f "$UV_BIN" "$UV_BIN.sha256"
+    exit 1
+  fi
 fi
 
 echo "$UV_BIN"

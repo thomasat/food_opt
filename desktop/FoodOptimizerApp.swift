@@ -258,6 +258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func launcherEnded(code: Int32) {
         guard !loaded else { return }   // normal shutdown later is fine
+        // Exit 0 is not a failure: it means another launcher instance is
+        // bringing the server up (e.g. this one deferred to it). Keep polling
+        // — the health check will load the UI as soon as the server answers.
+        if code == 0 { return }
         pollTimer?.invalidate()
         switch code {
         case 2:
@@ -267,16 +271,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case 3:
             showStatus("Setup needs the internet, just this once",
                        "The first time it opens, Food Optimizer downloads its "
-                       + "software components. Please connect to the internet "
-                       + "(and check the Mac has about 5 GB of free space), "
+                       + "software components. Please connect to the internet, "
                        + "then quit (press Cmd-Q) and open Food Optimizer again. "
                        + "After that, no internet is needed.")
+        case 4:
+            showStatus("Not enough free space to set up",
+                       "Food Optimizer needs about 5 GB of free space the first "
+                       + "time it opens. Please free up some space, then quit "
+                       + "(press Cmd-Q) and open Food Optimizer again.")
         default:
             showStatus("The app could not start",
                        "Please quit and open Food Optimizer again. If this keeps "
                        + "happening, use Help › Email Support and attach the file "
                        + "from Help › Show Log File.")
         }
+    }
+
+    // A clean numeric port from the (possibly mid-write) port file.
+    func readServerPort() -> String? {
+        let portFile = supportDir.appendingPathComponent("server.port")
+        guard let contents = try? String(contentsOf: portFile, encoding: .utf8),
+              let token = contents.split(separator: " ").first.map(String.init),
+              !token.isEmpty,
+              token.allSatisfy({ $0.isNumber }) else { return nil }
+        return token
     }
 
     func poll() {
@@ -289,21 +307,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "the app will appear as soon as it's ready.",
                        spinner: true)
         }
-        let portFile = supportDir.appendingPathComponent("server.port")
-        guard let contents = try? String(contentsOf: portFile, encoding: .utf8),
-              let port = contents.split(separator: " ").first.map(String.init),
-              !port.isEmpty else { return }
-        let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")!
+        guard let port = readServerPort(),
+              let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")
+        else { return }
         URLSession.shared.dataTask(with: health) { [weak self] _, resp, _ in
             guard let self, !self.loaded,
                   let http = resp as? HTTPURLResponse, http.statusCode == 200
             else { return }
             DispatchQueue.main.async {
-                guard !self.loaded else { return }
+                guard !self.loaded, let ui = URL(string: "http://localhost:\(port)")
+                else { return }
                 self.loaded = true
                 self.pollTimer?.invalidate()
-                self.webView.load(URLRequest(url:
-                    URL(string: "http://localhost:\(port)")!))
+                self.webView.load(URLRequest(url: ui))
                 self.startHealthWatch(port: port)
             }
         }.resume()
@@ -311,7 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // After the app is up, notice if the server ever dies and say so kindly.
     func startHealthWatch(port: String) {
-        let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")!
+        guard let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")
+        else { return }
         watchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) {
             [weak self] _ in
             URLSession.shared.dataTask(with: health) { _, resp, _ in
@@ -338,8 +355,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ note: Notification) {
         guard let l = launcher, l.isRunning else { return }
-        l.terminate()      // SIGTERM -> launcher trap stops Streamlit
-        l.waitUntilExit()  // let its cleanup (server + port file) finish
+        l.terminate()   // SIGTERM -> launcher trap stops Streamlit and cleans up
+        // Wait for a clean shutdown, but never hang the app: if the launcher is
+        // stuck in a long setup step (bash defers its trap until the current
+        // command returns), force-kill after a short grace period so quitting
+        // is always prompt.
+        let deadline = Date().addingTimeInterval(3.0)
+        while l.isRunning && Date() < deadline {
+            usleep(100_000)   // 0.1s
+        }
+        if l.isRunning {
+            kill(l.processIdentifier, SIGKILL)
+        }
     }
 }
 
@@ -357,6 +384,58 @@ extension AppDelegate: WKUIDelegate {
             completionHandler(resp == .OK ? panel.urls : nil)
         }
     }
+
+    // Without these, WebKit silently drops JS alert/confirm/prompt — a click
+    // that should show a message would appear to do nothing.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Food Optimizer"
+        alert.informativeText = message
+        alert.beginSheetModal(for: window) { _ in completionHandler() }
+    }
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Food Optimizer"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { resp in
+            completionHandler(resp == .alertFirstButtonReturn)
+        }
+    }
+    func webView(_ webView: WKWebView,
+                 runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (String?) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Food Optimizer"
+        alert.informativeText = prompt
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { resp in
+            completionHandler(resp == .alertFirstButtonReturn ? field.stringValue : nil)
+        }
+    }
+
+    // target="_blank" / window.open() — open in the real browser rather than
+    // silently doing nothing. Returning nil means "no new WebView created".
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
+        return nil
+    }
 }
 
 // Download support (st.download_button) — saves into ~/Downloads.
@@ -364,6 +443,18 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // Keep the app window on our own local server. Any external http(s)
+        // link (docs, footer, an embedded link) opens in the user's real
+        // browser instead of hijacking the app with no way back.
+        if let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            let host = url.host ?? ""
+            if host != "127.0.0.1" && host != "localhost" {
+                decisionHandler(.cancel)
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
         decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
     }
     func webView(_ webView: WKWebView,

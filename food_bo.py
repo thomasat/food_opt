@@ -112,6 +112,7 @@ class FoodOptimizer:
         self.Y_history = []
         self.recipe_history = []
         self.results_history = []
+        self.load_error = None  # set to a plain-language string if load() fails
 
         if os.path.exists(self.filename):
             self.load()
@@ -184,7 +185,14 @@ class FoodOptimizer:
 
         for _, row in df.iterrows():
             name = row['Name']
-            min_val, max_val = float(row['Min']), float(row['Max'])
+            try:
+                min_val, max_val = float(row['Min']), float(row['Max'])
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Ingredient '{row['Name']}': Min and Max must be numbers. "
+                    f"Please check that column for text or blank cells and try "
+                    f"again."
+                )
             if min_val >= max_val:
                 raise ValueError(
                     f"Ingredient '{name}': Min ({min_val}) must be less than Max ({max_val})"
@@ -746,45 +754,63 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def save(self):
-        state = self.__dict__.copy()
-        state.pop('screening_model', None)
-        # Write-then-rename so a crash mid-write can't corrupt the project file
+        # Project files are stored as JSON (human-readable, and — unlike
+        # pickle — safe to open: loading one can never execute code).
+        # Write-then-rename so a crash mid-write can't corrupt the file.
+        data = json.dumps(self.export_json(), indent=2)
         tmp_filename = f"{self.filename}.tmp"
         try:
-            with open(tmp_filename, 'wb') as f:
-                pickle.dump(state, f)
+            with open(tmp_filename, 'w', encoding='utf-8') as f:
+                f.write(data)
             os.replace(tmp_filename, self.filename)
         finally:
             if os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
 
     def load(self):
+        """Load the project file. Sets self.load_error to a plain-language
+        message on failure instead of silently producing a blank project.
+        Returns True on success, False on failure."""
+        self.load_error = None
         try:
             with open(self.filename, 'rb') as f:
-                state = pickle.load(f)
-                self.__dict__.update(state)
-            self.screening_model = None
+                raw = f.read()
+        except OSError:
+            self.load_error = (
+                "This project file could not be opened. It may have been "
+                "moved or deleted."
+            )
+            return False
 
-            # Backward compatibility for older pickle files
-            if not hasattr(self, 'quantity_constraints'):
-                self.quantity_constraints = []
-            if not hasattr(self, 'recipe_history'):
-                self.recipe_history = []
-            if not hasattr(self, 'results_history'):
-                self.results_history = []
-            if not hasattr(self, 'bo_config'):
-                self.bo_config = None
-            for var in self.variables:
-                if 'category' not in var:
-                    var['category'] = 'ingredient'
+        try:
+            state = json.loads(raw.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            # Legacy project files were pickle; migrate them once to JSON.
+            try:
+                state = pickle.loads(raw)
+            except Exception:
+                self.load_error = (
+                    "This project file is damaged and could not be opened. "
+                    "If you have a backup, use Restore from backup; otherwise "
+                    "check the FoodOptimizer > backups folder in your home "
+                    "folder for a recent copy."
+                )
+                return False
 
-            # Recalculate utility scores to pick up formula changes
-            if self.results_history and self.objectives:
-                for i, results_dict in enumerate(self.results_history):
-                    if i < len(self.Y_history):
-                        self.Y_history[i] = self._compute_utility(results_dict)
+        try:
+            # import_json restores every field, rebuilds encoded history, and
+            # re-saves — so a migrated legacy pickle is rewritten as JSON here.
+            self.import_json(state)
         except Exception:
-            print("Warning: Load failed.")
+            self.load_error = (
+                "This project file is damaged and could not be opened. "
+                "If you have a backup, use Restore from backup; otherwise "
+                "check the FoodOptimizer > backups folder in your home "
+                "folder for a recent copy."
+            )
+            return False
+
+        return True
 
     def export_json(self):
         """Export full project state as a JSON-serializable dict."""

@@ -2,7 +2,6 @@ import json
 import os
 import glob
 import shutil
-import pickle
 
 import streamlit as st
 import pandas as pd
@@ -49,14 +48,19 @@ with st.sidebar:
     # Initialize or upgrade optimizer
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
-        st.success(f"Initialized: {project_name}")
+        if not getattr(st.session_state.optimizer, "load_error", None):
+            st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
         st.session_state.optimizer = FoodOptimizer(
             st.session_state.optimizer.project_name
         )
-        st.success("Upgraded session to latest version.")
+        if not getattr(st.session_state.optimizer, "load_error", None):
+            st.success("Upgraded session to latest version.")
 
     opt = st.session_state.optimizer
+    # A project that failed to load must never look like an empty success.
+    if getattr(opt, "load_error", None):
+        st.error(opt.load_error)
     st.caption(f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments")
 
     # --- Backup & Restore ---
@@ -260,14 +264,14 @@ with tab_setup:
     with col_b:
         # --- C. Low-Fidelity Model ---
         st.subheader("C. Low-Fidelity Model (Optional)")
-        uploaded_pkl = st.file_uploader("Upload Model .pkl", type=["pkl"])
-        if uploaded_pkl:
-            try:
-                model = pickle.load(uploaded_pkl)
-                st.session_state.optimizer.load_screening_model(model)
-                st.success("Model loaded!")
-            except Exception as e:
-                st.error(f"Error loading pickle: {e}")
+        # The old ".pkl model" upload is intentionally disabled: loading a
+        # pickle file runs whatever code is inside it, so accepting one from
+        # another person would be a security risk. This advanced screening
+        # feature can return in a safe format if a pilot user needs it.
+        st.caption(
+            "Advanced screening-model upload is turned off in this version. "
+            "Contact us if you need it."
+        )
 
         st.divider()
 
@@ -383,63 +387,63 @@ with tab_setup:
             st.write("Load ingredients first to add quantity constraints.")
 
         st.divider()
-        st.subheader("F. BO Hyperparameters (optional)")
-        st.caption(
-            "Standard = library defaults. 'Expert-selected' lets the expert fix the "
-            "GP kernel, lengthscale prior, noise handling and acquisition **once** at "
-            "the start (the GP still refits lengthscales/noise from data each "
-            "iteration). Set before the first recipe."
-        )
-        _opt = st.session_state.optimizer
-        _cur_cfg = getattr(_opt, "bo_config", None)
-        _mode = st.radio(
-            "BO hyperparameters",
-            ["Standard (default)", "Expert-selected"],
-            index=1 if _cur_cfg else 0,
-            key="bo_cfg_mode",
-            horizontal=True,
-        )
-        if _mode == "Standard (default)":
-            if _cur_cfg is not None and st.button("Apply: revert to defaults"):
-                _opt.set_bo_config(None)
-                st.success("Using default BO hyperparameters.")
-                st.rerun()
-        else:
-            with st.form("bo_config_form"):
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
-                    _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
-                with bc2:
-                    _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
-                    _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
-                st.caption(
-                    "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
-                    "sensory panel — keep `default` unless you have a specific reason."
-                )
-                if st.form_submit_button("Apply expert config"):
-                    _opt.set_bo_config({
-                        "kernel": _k, "lengthscale_prior": _lp,
-                        "noise": _ns, "acquisition": _aq,
-                    })
-                    st.success(f"BO config set: {_opt.bo_config}")
+        with st.expander("Advanced: model settings (most people can skip this)"):
+            st.caption(
+                "Leave this on Standard unless you know the statistics behind "
+                "the optimizer. Standard uses sensible defaults. 'Expert-selected' "
+                "lets a specialist fix the model's kernel, prior, noise handling "
+                "and acquisition once at the start."
+            )
+            _opt = st.session_state.optimizer
+            _cur_cfg = getattr(_opt, "bo_config", None)
+            _mode = st.radio(
+                "Model settings",
+                ["Standard (default)", "Expert-selected"],
+                index=1 if _cur_cfg else 0,
+                key="bo_cfg_mode",
+                horizontal=True,
+            )
+            if _mode == "Standard (default)":
+                if _cur_cfg is not None and st.button("Apply: revert to defaults"):
+                    _opt.set_bo_config(None)
+                    st.success("Using default model settings.")
                     st.rerun()
-            with st.expander("Or paste an expert config (JSON)"):
-                _txt = st.text_area(
-                    "Expert config JSON",
-                    value='{"kernel": "matern52", "lengthscale_prior": "default", '
-                          '"noise": "default", "acquisition": "qlognei"}',
-                    key="bo_cfg_json",
-                )
-                if st.button("Apply pasted config"):
-                    try:
-                        _opt.set_bo_config(json.loads(_txt))
-                        st.success(f"BO config set: {_opt.bo_config}")
+            else:
+                with st.form("bo_config_form"):
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
+                        _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
+                    with bc2:
+                        _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
+                        _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
+                    st.caption(
+                        "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
+                        "sensory panel — keep `default` unless you have a specific reason."
+                    )
+                    if st.form_submit_button("Apply expert config"):
+                        _opt.set_bo_config({
+                            "kernel": _k, "lengthscale_prior": _lp,
+                            "noise": _ns, "acquisition": _aq,
+                        })
+                        st.success(f"Model settings set: {_opt.bo_config}")
                         st.rerun()
-                    except Exception as _e:
-                        st.error(f"Invalid JSON: {_e}")
-        if _cur_cfg:
-            st.info(f"Active BO config: {_cur_cfg}")
+                if st.checkbox("Or paste an expert config as JSON", key="bo_cfg_paste"):
+                    _txt = st.text_area(
+                        "Expert config JSON",
+                        value='{"kernel": "matern52", "lengthscale_prior": "default", '
+                              '"noise": "default", "acquisition": "qlognei"}',
+                        key="bo_cfg_json",
+                    )
+                    if st.button("Apply pasted config"):
+                        try:
+                            _opt.set_bo_config(json.loads(_txt))
+                            st.success(f"Model settings set: {_opt.bo_config}")
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"Invalid JSON: {_e}")
+            if _cur_cfg:
+                st.info(f"Active model settings: {_cur_cfg}")
 
 
 # ================================================================== #
@@ -532,12 +536,16 @@ with tab_optimize:
                     st.divider()
 
                 if st.form_submit_button("Save Results"):
-                    for i, recipe in enumerate(st.session_state.current_batch):
-                        st.session_state.optimizer.tell(recipe, batch_inputs[i])
-                    del st.session_state.current_batch
-                    st.session_state.show_backup_warning = True
-                    st.success("Saved!")
-                    st.rerun()
+                    try:
+                        for i, recipe in enumerate(st.session_state.current_batch):
+                            st.session_state.optimizer.tell(recipe, batch_inputs[i])
+                    except (ValueError, TypeError) as e:
+                        st.error(f"Could not save these results: {e}")
+                    else:
+                        del st.session_state.current_batch
+                        st.session_state.show_backup_warning = True
+                        st.success("Saved!")
+                        st.rerun()
 
     st.divider()
 

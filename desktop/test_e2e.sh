@@ -122,6 +122,7 @@ wait_for() {  # wait_for <timeout_secs> command [args...]
   return 0
 }
 server_port()    { awk '{print $1}' "$PORT_FILE" 2>/dev/null; }
+pid_dead()       { ! kill -0 "$1" 2>/dev/null; }
 backup_exists()  { ls "$DOCS"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
 server_healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$(server_port)/_stcore/health" 2>/dev/null | grep -q ok; }
 launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
@@ -142,7 +143,7 @@ assert "arch preflight message" grep -q "unsupported machine" "$WORK/arch.out"
 assert "arch preflight created nothing" not_exists "$SUPPORT"
 
 echo "-- test 1: fresh first launch (downloads ~2GB, be patient) --"
-launch 30 "$WORK/run1.out"
+launch 600 "$WORK/run1.out"
 if wait_for 900 server_healthy; then ok "server healthy after fresh setup"; else fail "server healthy after fresh setup"; fi
 assert "venv created"            test -x "$SUPPORT/venv/bin/python"
 assert "python under support"    dir_nonempty "$SUPPORT/python"
@@ -157,22 +158,17 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -q '127.0.0.1'; then ok "bound to 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -qE '\*:|0\.0\.0\.0'; then fail "not bound to all interfaces"; else ok "not bound to all interfaces"; fi
 assert "main page HTTP 200" curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"
 
-echo "-- test 3: single instance --"
-HOME="$E2E_HOME" \
-  "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run2.out" 2>&1
-assert "second launch reuses server" grep -q "already running on port $PORT" "$WORK/run2.out"
+echo "-- test 3: a second launch replaces the running server (no duplicates) --"
+OLD_PID="$(awk '{print $2}' "$PORT_FILE" 2>/dev/null)"
+launch 30 "$WORK/run2.out"          # kills the orphan, owns a fresh server
+if wait_for 30 pid_dead "$OLD_PID"; then ok "previous server stopped"; else fail "previous server stopped"; fi
+if wait_for 60 server_healthy; then ok "replacement server healthy"; else fail "replacement server healthy"; fi
 LISTENERS=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -c LISTEN)
 if [ "$LISTENERS" = "1" ]; then ok "exactly one listener"; else fail "exactly one listener (got $LISTENERS)"; fi
 
-echo "-- test 4: running-from-dmg detection --"
-HOME="$E2E_HOME" \
-  "$VOL/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run3.out" 2>&1
-assert "dmg location detected" grep -q "running from disk image" "$WORK/run3.out"
-hdiutil detach "$VOL" >/dev/null 2>&1 || true
-
 echo "-- test 5: idle shutdown --"
 if wait_for 120 not_exists "$PORT_FILE"; then ok "idle shutdown removed port file"; else fail "idle shutdown removed port file"; fi
-assert "run1 logged idle shutdown" grep -q "no window connected" "$WORK/run1.out"
+assert "idle shutdown logged" grep -q "no window connected" "$WORK/run2.out"
 LAUNCHER_PID=""
 
 echo "-- test 6: core logic in the packaged environment --"
@@ -191,6 +187,8 @@ PY
 )"
 if echo "$SMOKE_OUT" | grep -q SMOKE_OK; then ok "FoodOptimizer smoke test"; else fail "FoodOptimizer smoke test ($SMOKE_OUT)"; fi
 assert "pkl saved to data dir" test -f "$DOCS/E2E_Smoke.pkl"
+# Project files must be JSON (safe to open), not executable pickle.
+assert "project file is JSON" "$SUPPORT/venv/bin/python" -c "import json,sys; json.load(open(sys.argv[1]))" "$DOCS/E2E_Smoke.pkl"
 
 echo "-- test 7: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"
@@ -236,6 +234,15 @@ if diff -r "$WORK/$APP_NAME.app" "$DIST_APP" >/dev/null 2>&1; then
 else
   fail "bundle byte-identical after all runs"
 fi
+
+echo "-- test 10: running-from-dmg detection --"
+HOME="$E2E_HOME" "$VOL/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run_dmg.out" 2>&1 &
+DMG_PID=$!
+if wait_for 15 grep -q "running from disk image" "$WORK/run_dmg.out"; then ok "dmg location detected"; else fail "dmg location detected"; fi
+kill "$DMG_PID" 2>/dev/null
+DMG_SRV="$(awk '{print $2}' "$PORT_FILE" 2>/dev/null)"
+[ -n "${DMG_SRV:-}" ] && kill "$DMG_SRV" 2>/dev/null
+hdiutil detach "$VOL" >/dev/null 2>&1 || true
 
 echo "== DONE: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ] || exit 1
