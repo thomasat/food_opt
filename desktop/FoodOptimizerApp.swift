@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var watchTimer: Timer?
     var loaded = false
     var healthStrikes = 0
+    var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
     let supportDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/FoodOptimizer")
@@ -341,25 +342,45 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse,
                  didBecome download: WKDownload) { download.delegate = self }
 
+    // Ask where to save (a user-chosen location is always writable — macOS
+    // privacy protection silently blocks unsigned apps from writing straight
+    // into ~/Downloads), then reveal the saved file in Finder so it is
+    // obvious that something happened and where it went.
     func download(_ download: WKDownload,
                   decideDestinationUsing response: URLResponse,
                   suggestedFilename: String,
                   completionHandler: @escaping (URL?) -> Void) {
-        let downloads = FileManager.default.urls(
-            for: .downloadsDirectory, in: .userDomainMask)[0]
-        var dest = downloads.appendingPathComponent(suggestedFilename)
-        var n = 2
-        while FileManager.default.fileExists(atPath: dest.path) {
-            let base = (suggestedFilename as NSString).deletingPathExtension
-            let ext = (suggestedFilename as NSString).pathExtension
-            let name = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
-            dest = downloads.appendingPathComponent(name)
-            n += 1
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedFilename
+        panel.directoryURL = FileManager.default.urls(
+            for: .downloadsDirectory, in: .userDomainMask).first
+        panel.beginSheetModal(for: window) { resp in
+            guard resp == .OK, let url = panel.url else {
+                completionHandler(nil)   // user chose Cancel
+                return
+            }
+            try? FileManager.default.removeItem(at: url)  // panel confirmed overwrite
+            self.downloadDestinations[ObjectIdentifier(download)] = url
+            completionHandler(url)
         }
-        completionHandler(dest)
     }
+
     func downloadDidFinish(_ download: WKDownload) {
         NSSound(named: "Glass")?.play()
+        if let dest = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) {
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error,
+                  resumeData: Data?) {
+        downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
+        let alert = NSAlert()
+        alert.messageText = "The file could not be saved"
+        alert.informativeText =
+            "Something interrupted the save. Please try again and pick a "
+            + "different folder — your FoodOptimizer folder always works."
+        alert.beginSheetModal(for: window)
     }
 }
 
