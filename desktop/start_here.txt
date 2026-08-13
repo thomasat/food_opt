@@ -26,8 +26,8 @@ USING IT DAY TO DAY
 - To open the app again later, open Food Optimizer from Applications,
   like any app. It opens in its own window.
 - To quit, close the window — that's it.
-- When you are done, just close the browser tab. The app shuts itself
-  down on its own about 15 minutes later.
+- Your projects folder is one click away: File menu > Open Projects
+  Folder. Need bigger text? View menu > Bigger Text.
 
 YOUR DATA STAYS ON YOUR COMPUTER
 - Everything the app does happens on your Mac. Your recipes,
@@ -35,14 +35,16 @@ YOUR DATA STAYS ON YOUR COMPUTER
 - Your project files are saved in a folder called FoodOptimizer in your
   home folder (in Finder: click the Go menu, then Home). You can see,
   copy, or delete them at any time.
-- The app runs at an address called "localhost" — that means your own
-  computer, not a website. Nothing you do in it goes over the internet.
+- The app's window talks only to your own Mac, never to a website.
+  Nothing you do in it goes over the internet.
 - The one-time setup downloads the app's software components. It sends
   nothing of yours anywhere — not then, not ever. No statistics,
   no tracking.
 
 NEED HELP?
-Email sohum.patnaik@fsi.org and describe what you saw. If you can,
+Use the Help menu inside the app: "Email Support" starts an email to
+us, and "Show Log File" finds the technical details file to attach.
+Or email sohum.patnaik@fsi.org directly. If the app will not open,
 attach the app's log file: in Finder, click the Go menu, choose
 "Go to Folder...", paste the line below, press Return, and attach
 the file that opens:

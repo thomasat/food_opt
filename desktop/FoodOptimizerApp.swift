@@ -1,9 +1,9 @@
 // Food Optimizer — native window wrapper.
 // Compiled by build_dmg.sh into Contents/MacOS/FoodOptimizer (the bundle
-// executable). Runs launcher.sh (headless) for environment setup and the
-// Streamlit server, shows a friendly status page meanwhile, then hosts the
-// UI in a WKWebView. Quitting (Cmd-Q or closing the window) terminates the
-// launcher, which shuts the server down.
+// executable). Runs launcher.sh for environment setup and the Streamlit
+// server, shows a status page meanwhile, then hosts the UI in a WKWebView.
+// Quitting (Cmd-Q or closing the window) terminates the launcher, which
+// shuts the server down.
 import Cocoa
 import WebKit
 
@@ -12,15 +12,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var webView: WKWebView!
     var launcher: Process?
     var pollTimer: Timer?
+    var watchTimer: Timer?
     var loaded = false
+    var healthStrikes = 0
 
     let supportDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/FoodOptimizer")
+    let dataDir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("FoodOptimizer")
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        buildMenus()
+
         webView = WKWebView(frame: .zero)
         webView.uiDelegate = self
         webView.navigationDelegate = self
+        webView.pageZoom = CGFloat(UserDefaults.standard.double(forKey: "pageZoom"))
+        if webView.pageZoom <= 0.25 { webView.pageZoom = 1.0 }
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
@@ -28,29 +36,173 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered, defer: false)
         window.title = "Food Optimizer"
         window.minSize = NSSize(width: 700, height: 500)
-        window.center()
+        window.setFrameAutosaveName("FoodOptimizerMain")
         window.contentView = webView
         window.delegate = self
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
+        if offerMoveToApplications() { return }   // relaunching from /Applications
+
         showStatus("Starting Food Optimizer…",
                    "The very first time, setup usually takes 1 to 5 minutes "
                    + "depending on your internet speed. None of your data is "
-                   + "sent anywhere.")
+                   + "sent anywhere.", spinner: true)
         startLauncher()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
             [weak self] _ in self?.poll()
         }
     }
 
-    func showStatus(_ title: String, _ body: String) {
+    // ---------- menus ----------
+
+    func buildMenus() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(
+            title: "About Food Optimizer",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(
+            title: "Quit Food Optimizer",
+            action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+
+        let fileItem = NSMenuItem(); main.addItem(fileItem)
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(
+            title: "Open Projects Folder",
+            action: #selector(openProjectsFolder), keyEquivalent: "o"))
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(
+            title: "Close Window",
+            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        fileItem.submenu = fileMenu
+
+        let editItem = NSMenuItem(); main.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Undo",
+            action: Selector(("undo:")), keyEquivalent: "z"))
+        editMenu.addItem(NSMenuItem(title: "Redo",
+            action: Selector(("redo:")), keyEquivalent: "Z"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(NSMenuItem(title: "Cut",
+            action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy",
+            action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste",
+            action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All",
+            action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editItem.submenu = editMenu
+
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(NSMenuItem(title: "Bigger Text",
+            action: #selector(zoomIn), keyEquivalent: "+"))
+        viewMenu.addItem(NSMenuItem(title: "Smaller Text",
+            action: #selector(zoomOut), keyEquivalent: "-"))
+        viewMenu.addItem(NSMenuItem(title: "Actual Size",
+            action: #selector(zoomReset), keyEquivalent: "0"))
+        viewItem.submenu = viewMenu
+
+        let windowItem = NSMenuItem(); main.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(NSMenuItem(title: "Minimize",
+            action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
+
+        let helpItem = NSMenuItem(); main.addItem(helpItem)
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(NSMenuItem(title: "Email Support",
+            action: #selector(emailSupport), keyEquivalent: ""))
+        helpMenu.addItem(NSMenuItem(title: "Show Log File",
+            action: #selector(showLogFile), keyEquivalent: ""))
+        helpItem.submenu = helpMenu
+        NSApp.helpMenu = helpMenu
+
+        NSApp.mainMenu = main
+    }
+
+    @objc func openProjectsFolder() {
+        try? FileManager.default.createDirectory(
+            at: dataDir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dataDir)
+    }
+    @objc func emailSupport() {
+        let url = URL(string:
+            "mailto:sohum.patnaik@fsi.org?subject=Food%20Optimizer%20help")!
+        NSWorkspace.shared.open(url)
+    }
+    @objc func showLogFile() {
+        NSWorkspace.shared.activateFileViewerSelecting(
+            [supportDir.appendingPathComponent("launcher.log")])
+    }
+    @objc func zoomIn()    { setZoom(webView.pageZoom + 0.1) }
+    @objc func zoomOut()   { setZoom(webView.pageZoom - 0.1) }
+    @objc func zoomReset() { setZoom(1.0) }
+    func setZoom(_ z: CGFloat) {
+        let clamped = min(max(z, 0.5), 2.5)
+        webView.pageZoom = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: "pageZoom")
+    }
+
+    // ---------- first-run placement ----------
+
+    // If running from the mounted dmg (or Gatekeeper's translocated copy of
+    // it), offer to copy to /Applications so the app doesn't "vanish" when
+    // the disk image is ejected. Returns true when relaunching from the copy.
+    func offerMoveToApplications() -> Bool {
+        let path = Bundle.main.bundlePath
+        guard path.hasPrefix("/Volumes/") || path.contains("/AppTranslocation/")
+        else { return false }
+        let alert = NSAlert()
+        alert.messageText = "Copy Food Optimizer to your Applications folder?"
+        alert.informativeText =
+            "The app is running from the downloaded disk image. Copying it to "
+            + "Applications keeps it on your Mac so you can open it anytime."
+        alert.addButton(withTitle: "Copy to Applications")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+        let dest = "/Applications/Food Optimizer.app"
+        try? FileManager.default.removeItem(atPath: dest)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        p.arguments = [path, dest]
+        do { try p.run() } catch { return false }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            showStatus("The copy did not work",
+                       "Please drag Food Optimizer onto the Applications folder "
+                       + "in the installer window, then open it from Applications.")
+            return false
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: dest))
+        NSApp.terminate(nil)
+        return true
+    }
+
+    // ---------- status pages ----------
+
+    func showStatus(_ title: String, _ body: String, spinner: Bool = false) {
+        let spinnerHTML = spinner ? """
+            <div style="margin:24px auto;width:28px;height:28px;border:3px solid #cdd6ce;
+                        border-top-color:#2E6E4E;border-radius:50%;
+                        animation:spin 1s linear infinite"></div>
+            <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+            """ : ""
         let html = """
         <html><head><meta charset="utf-8"></head>
         <body style="font-family:-apple-system,sans-serif;background:#f7f6f2;color:#2d3a2e;
                      display:flex;align-items:center;justify-content:center;height:96vh;margin:0">
-          <div style="text-align:center;max-width:440px">
+          <div style="text-align:center;max-width:460px">
             <h1 style="font-weight:600">\(title)</h1>
+            \(spinnerHTML)
             <p style="font-size:15px;line-height:1.5;color:#556">\(body)</p>
           </div>
         </body></html>
@@ -58,13 +210,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         webView.loadHTMLString(html, baseURL: nil)
     }
 
+    // ---------- launcher lifecycle ----------
+
     func startLauncher() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath:
             Bundle.main.bundlePath + "/Contents/MacOS/launcher.sh")
-        var env = ProcessInfo.processInfo.environment
-        env["FOODOPT_HEADLESS"] = "1"   // window replaces dialogs and browser
-        p.environment = env
         // Detach stdio: the launcher logs to its own file, and piping through
         // this app would SIGPIPE the launcher's shutdown when we exit first.
         p.standardOutput = FileHandle.nullDevice
@@ -83,15 +234,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func launcherEnded(code: Int32) {
         guard !loaded else { return }   // normal shutdown later is fine
         pollTimer?.invalidate()
-        if code == 2 {
+        switch code {
+        case 2:
             showStatus("This Mac is not supported",
                        "Food Optimizer needs a Mac with an Apple chip (2020 or "
                        + "newer) running macOS 13 or later. Please contact us for help.")
-        } else {
+        case 3:
+            showStatus("Setup needs the internet, just this once",
+                       "The first time it opens, Food Optimizer downloads its "
+                       + "software components. Please connect to the internet, "
+                       + "then quit (press Cmd-Q) and open Food Optimizer again. "
+                       + "After that, no internet is needed.")
+        default:
             showStatus("The app could not start",
                        "Please quit and open Food Optimizer again. If this keeps "
-                       + "happening, contact us and attach the file at: Library › "
-                       + "Application Support › FoodOptimizer › launcher.log")
+                       + "happening, use Help › Email Support and attach the file "
+                       + "from Help › Show Log File.")
         }
     }
 
@@ -111,8 +269,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.pollTimer?.invalidate()
                 self.webView.load(URLRequest(url:
                     URL(string: "http://localhost:\(port)")!))
+                self.startHealthWatch(port: port)
             }
         }.resume()
+    }
+
+    // After the app is up, notice if the server ever dies and say so kindly.
+    func startHealthWatch(port: String) {
+        let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")!
+        watchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) {
+            [weak self] _ in
+            URLSession.shared.dataTask(with: health) { _, resp, _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                        self.healthStrikes = 0
+                    } else {
+                        self.healthStrikes += 1
+                        if self.healthStrikes >= 3 {
+                            self.watchTimer?.invalidate()
+                            self.showStatus("Food Optimizer stopped unexpectedly",
+                                "Your projects are saved. Please quit (press Cmd-Q) "
+                                + "and open Food Optimizer again. If this keeps "
+                                + "happening, use Help › Email Support.")
+                        }
+                    }
+                }
+            }.resume()
+        }
     }
 
     // Closing the window quits the app; quitting stops the server.

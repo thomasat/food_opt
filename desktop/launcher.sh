@@ -1,27 +1,31 @@
 #!/bin/bash
-# Food Optimizer — desktop launcher.
-# Runs as "Food Optimizer.app/Contents/MacOS/launcher.sh".
+# Food Optimizer — headless server manager.
+# Run by the FoodOptimizer wrapper binary (Contents/MacOS/FoodOptimizer),
+# which owns all user-facing UI. This script only manages the environment
+# and the Streamlit server; it never shows dialogs or opens a browser.
 # First run: provisions a per-user Python + dependencies using the bundled uv.
-# Every run: starts the Streamlit app on localhost only and opens the browser.
+# Every run: backs up projects, then serves the app on localhost only.
+#
+# Exit codes the wrapper maps to friendly pages:
+#   2 = unsupported machine   3 = setup failed (usually no internet)
 set -u
 
 PYTHON_VERSION="3.13.7"   # the single place the Python version is pinned
-APP_NAME="Food Optimizer"
 
-HEADLESS="${FOODOPT_HEADLESS:-0}"
 IDLE_TIMEOUT="${FOODOPT_IDLE_TIMEOUT_SECS:-900}"
 ARCH="${FOODOPT_TEST_ARCH:-$(uname -m)}"
 
 say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
+die() {  # $1: log message; $2: exit code (default 1)
+  say "FATAL: $1"
+  exit "${2:-1}"
+}
+
 # ---------- preflight: supported machine (before touching anything) ----------
-UNSUPPORTED_MSG="This app needs a Mac with an Apple chip (2020 or newer) running macOS 13 or later. Please contact us for help."
 OS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
 if [ "$ARCH" != "arm64" ] || [ "${OS_MAJOR:-0}" -lt 13 ] 2>/dev/null; then
   say "unsupported machine: arch=$ARCH macos=${OS_MAJOR:-unknown}"
-  if [ "$HEADLESS" != "1" ]; then
-    osascript -e "display dialog \"$UNSUPPORTED_MSG\" with title \"$APP_NAME\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
-  fi
   exit 2
 fi
 
@@ -47,69 +51,24 @@ export UV_PYTHON_INSTALL_DIR="$SUPPORT_DIR/python"
 export UV_CACHE_DIR="$SUPPORT_DIR/uv-cache"
 export PYTHONDONTWRITEBYTECODE=1
 
-# ---------- dialog helpers (plain language only; no double quotes in messages) ----------
-show_info() {  # non-blocking information dialog
-  say "[dialog] $1"
-  if [ "$HEADLESS" != "1" ]; then
-    osascript -e "display dialog \"$1\" with title \"$APP_NAME\" buttons {\"OK\"} default button 1" >/dev/null 2>&1 &
-  fi
-}
-
-ask_ok() {     # blocking OK / Not Now question; returns 0 on OK
-  say "[ask] $1"
-  if [ "$HEADLESS" = "1" ]; then return 1; fi
-  osascript -e "display dialog \"$1\" with title \"$APP_NAME\" buttons {\"Not Now\", \"OK\"} default button \"OK\" cancel button \"Not Now\"" >/dev/null 2>&1
-}
-
-die() {        # fatal: plain-language dialog pointing at the log, then exit 1
-  say "FATAL: $1"
-  if [ "$HEADLESS" != "1" ]; then
-    osascript -e "display dialog \"$1\n\nTechnical details were saved to:\n$LOG_FILE\" with title \"$APP_NAME\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
-  fi
-  exit 1
-}
-
-open_ui() {    # $1: port. Chromium app-mode window (no address bar) when available,
-               # so the app feels native; falls back to the default browser.
-  UI_URL="http://localhost:$1"
-  for CANDIDATE in "Google Chrome" "Microsoft Edge" "Brave Browser"; do
-    if [ -d "/Applications/$CANDIDATE.app" ]; then
-      say "opening app window via $CANDIDATE"
-      if open -na "$CANDIDATE" --args --app="$UI_URL"; then return 0; fi
-    fi
-  done
-  say "opening default browser"
-  open "$UI_URL"
-}
-
-# ---------- preflight: running from the disk image? ----------
+# The wrapper offers to copy the app to /Applications in this case; noted
+# here for the log (and for tests).
 case "$APP_BUNDLE" in
-  /Volumes/*|*/AppTranslocation/*)
-    say "running from disk image at $APP_BUNDLE"
-    if ask_ok "$APP_NAME should be copied to your Applications folder first - do that now?"; then
-      rm -rf "/Applications/$APP_NAME.app"
-      if ditto "$APP_BUNDLE" "/Applications/$APP_NAME.app"; then
-        open "/Applications/$APP_NAME.app"
-        exit 0
-      fi
-      show_info "The copy did not work. Please drag $APP_NAME onto the Applications folder, then open it from there."
-    fi
-    ;;
+  /Volumes/*|*/AppTranslocation/*) say "running from disk image at $APP_BUNDLE" ;;
 esac
 
 # ---------- log (rotate once) ----------
 mkdir -p "$SUPPORT_DIR" "$DATA_DIR"
 if [ -f "$LOG_FILE" ]; then mv -f "$LOG_FILE" "$LOG_FILE.1"; fi
 exec > >(tee -a "$LOG_FILE") 2>&1
-say "launcher started (headless=$HEADLESS bundle=$APP_BUNDLE)"
+say "launcher started (bundle=$APP_BUNDLE)"
 
 # ---------- single instance ----------
 if [ -f "$PORT_FILE" ]; then
   read -r OLD_PORT OLD_PID < "$PORT_FILE" || true
   if [ -n "${OLD_PID:-}" ] && kill -0 "$OLD_PID" 2>/dev/null \
      && curl -fsS --max-time 3 "http://127.0.0.1:${OLD_PORT}/_stcore/health" >/dev/null 2>&1; then
-    say "already running on port $OLD_PORT - reopening browser"
-    if [ "$HEADLESS" != "1" ]; then open_ui "$OLD_PORT"; fi
+    say "already running on port $OLD_PORT - nothing to do"
     exit 0
   fi
   rm -f "$PORT_FILE"
@@ -145,16 +104,16 @@ if [ -x "$VENV_DIR/bin/python" ] && [ -f "$MARKER_FILE" ] \
 fi
 
 if [ "$NEED_SETUP" = "1" ]; then
-  show_info "Setting up $APP_NAME (one time, usually 1 to 5 minutes depending on your internet speed). This downloads the app's software components; none of your data is sent anywhere. When setup finishes, the app opens on your screen. To open it again later, just open $APP_NAME from Applications, like any app."
+  say "one-time setup starting (downloading software components)"
   rm -f "$MARKER_FILE"
-  NET_MSG="Setup needs an internet connection the first time you open $APP_NAME. Please connect to the internet and open the app again."
+  NET_MSG="setup failed - most likely no internet connection"
   say "installing Python $PYTHON_VERSION"
-  "$UV_BIN" python install --no-bin "$PYTHON_VERSION" || die "$NET_MSG"
+  "$UV_BIN" python install --no-bin "$PYTHON_VERSION" || die "$NET_MSG" 3
   say "creating environment"
   rm -rf "$VENV_DIR"
-  "$UV_BIN" venv --python "$PYTHON_VERSION" "$VENV_DIR" || die "$NET_MSG"
+  "$UV_BIN" venv --python "$PYTHON_VERSION" "$VENV_DIR" || die "$NET_MSG" 3
   say "installing components"
-  "$UV_BIN" pip sync --python "$VENV_DIR/bin/python" "$LOCK_FILE" || die "$NET_MSG"
+  "$UV_BIN" pip sync --python "$VENV_DIR/bin/python" "$LOCK_FILE" || die "$NET_MSG" 3
   { echo "$LOCK_HASH"; echo "python=$PYTHON_VERSION"; } > "$MARKER_FILE"
   say "setup complete"
 fi
@@ -163,7 +122,7 @@ fi
 PORT="${FOODOPT_PORT_BASE:-8501}"   # override lets tests avoid real-user ports
 while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT + 1)); done
 
-cd "$DATA_DIR" || die "Could not open the FoodOptimizer folder inside your home folder."
+cd "$DATA_DIR" || die "could not enter data dir $DATA_DIR"
 
 # ---------- safety backups: snapshot all projects on every launch ----------
 BACKUP_ROOT="$DATA_DIR/backups"
@@ -208,20 +167,19 @@ trap 'cleanup; say "signal received - shut down"; exit 0' TERM INT
 trap cleanup EXIT
 
 # ---------- wait until healthy ----------
-START_MSG="The app could not start. Please open $APP_NAME again; if this keeps happening, contact us."
 WAITED=0
 until curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/_stcore/health" >/dev/null 2>&1; do
-  kill -0 "$SERVER_PID" 2>/dev/null || die "$START_MSG"
-  if [ "$WAITED" -ge 180 ]; then die "$START_MSG"; fi
+  kill -0 "$SERVER_PID" 2>/dev/null || die "server exited before becoming healthy"
+  if [ "$WAITED" -ge 180 ]; then die "server did not become healthy within 180s"; fi
   sleep 2
   WAITED=$((WAITED + 2))
 done
 say "server healthy on port $PORT (pid $SERVER_PID)"
 rm -rf "$LOCK_DIR"
 
-if [ "$HEADLESS" != "1" ]; then open_ui "$PORT"; fi
-
-# ---------- idle watchdog: exit after IDLE_TIMEOUT with no browser connected ----------
+# ---------- idle watchdog: exit after IDLE_TIMEOUT with no window connected ----------
+# The wrapper normally quits us directly; this reaps the server if the
+# wrapper ever dies without cleaning up.
 IDLE=0
 while kill -0 "$SERVER_PID" 2>/dev/null; do
   sleep 5
@@ -230,7 +188,7 @@ while kill -0 "$SERVER_PID" 2>/dev/null; do
   else
     IDLE=$((IDLE + 5))
     if [ "$IDLE" -ge "$IDLE_TIMEOUT" ]; then
-      say "no browser connected for ${IDLE}s - shutting down"
+      say "no window connected for ${IDLE}s - shutting down"
       break
     fi
   fi

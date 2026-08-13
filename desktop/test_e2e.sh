@@ -125,7 +125,7 @@ server_port()    { awk '{print $1}' "$PORT_FILE" 2>/dev/null; }
 backup_exists()  { ls "$DOCS"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
 server_healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$(server_port)/_stcore/health" 2>/dev/null | grep -q ok; }
 launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
-  HOME="$E2E_HOME" FOODOPT_HEADLESS=1 FOODOPT_IDLE_TIMEOUT_SECS="$1" \
+  HOME="$E2E_HOME" FOODOPT_IDLE_TIMEOUT_SECS="$1" \
     "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$2" 2>&1 &
   LAUNCHER_PID=$!
 }
@@ -134,7 +134,7 @@ launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
 ditto "$VOL/$APP_NAME.app" "$WORK/$APP_NAME.app"
 
 echo "-- test 0: unsupported-machine preflight touches nothing --"
-HOME="$E2E_HOME" FOODOPT_HEADLESS=1 FOODOPT_TEST_ARCH=x86_64 \
+HOME="$E2E_HOME" FOODOPT_TEST_ARCH=x86_64 \
   "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/arch.out" 2>&1
 RC=$?
 if [ "$RC" = "2" ]; then ok "arch preflight exit code 2"; else fail "arch preflight exit code 2 (got $RC)"; fi
@@ -158,21 +158,21 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -qE '\*:|0\.0\.0\.0'; then fail "n
 assert "main page HTTP 200" curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"
 
 echo "-- test 3: single instance --"
-HOME="$E2E_HOME" FOODOPT_HEADLESS=1 \
+HOME="$E2E_HOME" \
   "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run2.out" 2>&1
 assert "second launch reuses server" grep -q "already running on port $PORT" "$WORK/run2.out"
 LISTENERS=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -c LISTEN)
 if [ "$LISTENERS" = "1" ]; then ok "exactly one listener"; else fail "exactly one listener (got $LISTENERS)"; fi
 
 echo "-- test 4: running-from-dmg detection --"
-HOME="$E2E_HOME" FOODOPT_HEADLESS=1 \
+HOME="$E2E_HOME" \
   "$VOL/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run3.out" 2>&1
 assert "dmg location detected" grep -q "running from disk image" "$WORK/run3.out"
 hdiutil detach "$VOL" >/dev/null 2>&1 || true
 
 echo "-- test 5: idle shutdown --"
 if wait_for 120 not_exists "$PORT_FILE"; then ok "idle shutdown removed port file"; else fail "idle shutdown removed port file"; fi
-assert "run1 logged idle shutdown" grep -q "no browser connected" "$WORK/run1.out"
+assert "run1 logged idle shutdown" grep -q "no window connected" "$WORK/run1.out"
 LAUNCHER_PID=""
 
 echo "-- test 6: core logic in the packaged environment --"
