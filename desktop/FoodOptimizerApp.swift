@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var loaded = false
     var healthStrikes = 0
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
+    var pollTicks = 0
 
     let supportDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/FoodOptimizer")
@@ -135,13 +136,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSWorkspace.shared.open(dataDir)
     }
     @objc func emailSupport() {
+        let address = "sohum.patnaik@fsi.org"
         let url = URL(string:
-            "mailto:sohum.patnaik@fsi.org?subject=Food%20Optimizer%20help")!
-        NSWorkspace.shared.open(url)
+            "mailto:\(address)?subject=Food%20Optimizer%20help")!
+        if NSWorkspace.shared.open(url) { return }
+        // No email app configured — show the address instead of doing nothing.
+        let alert = NSAlert()
+        alert.messageText = "Email us at \(address)"
+        alert.informativeText =
+            "No email app is set up on this Mac, so we couldn't start a "
+            + "message for you. Copy the address and use your usual email "
+            + "instead."
+        alert.addButton(withTitle: "Copy Address")
+        alert.addButton(withTitle: "OK")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(address, forType: .string)
+        }
     }
     @objc func showLogFile() {
-        NSWorkspace.shared.activateFileViewerSelecting(
-            [supportDir.appendingPathComponent("launcher.log")])
+        let log = supportDir.appendingPathComponent("launcher.log")
+        if FileManager.default.fileExists(atPath: log.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([log])
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "There's no log file yet"
+            alert.informativeText =
+                "The log is created when the app starts up. Quit and open "
+                + "Food Optimizer again, then try this menu item once more."
+            alert.runModal()
+        }
     }
     @objc func zoomIn()    { setZoom(webView.pageZoom + 0.1) }
     @objc func zoomOut()   { setZoom(webView.pageZoom - 0.1) }
@@ -243,7 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case 3:
             showStatus("Setup needs the internet, just this once",
                        "The first time it opens, Food Optimizer downloads its "
-                       + "software components. Please connect to the internet, "
+                       + "software components. Please connect to the internet "
+                       + "(and check the Mac has about 5 GB of free space), "
                        + "then quit (press Cmd-Q) and open Food Optimizer again. "
                        + "After that, no internet is needed.")
         default:
@@ -255,6 +280,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func poll() {
+        // Keep the setup message honest on slow connections.
+        pollTicks += 1
+        if pollTicks == 360 {   // ~6 minutes in
+            showStatus("Still setting up…",
+                       "The downloads are taking a while — slow connections "
+                       + "can take longer than usual. Leave this window open; "
+                       + "the app will appear as soon as it's ready.",
+                       spinner: true)
+        }
         let portFile = supportDir.appendingPathComponent("server.port")
         guard let contents = try? String(contentsOf: portFile, encoding: .utf8),
               let port = contents.split(separator: " ").first.map(String.init),
@@ -337,6 +371,24 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
     }
+    // A blank window is never acceptable: if the page itself fails to load
+    // after the server was healthy, say so kindly.
+    func webView(_ webView: WKWebView,
+                 didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) { handleLoadFailure(error) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
+                 withError error: Error) { handleLoadFailure(error) }
+    func handleLoadFailure(_ error: Error) {
+        let code = (error as NSError).code
+        // Cancellations are normal (e.g. a navigation became a download).
+        guard code != NSURLErrorCancelled, loaded else { return }
+        watchTimer?.invalidate()
+        showStatus("Food Optimizer stopped unexpectedly",
+                   "Your projects are saved. Please quit (press Cmd-Q) and "
+                   + "open Food Optimizer again. If this keeps happening, "
+                   + "use Help › Email Support.")
+    }
+
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction,
                  didBecome download: WKDownload) { download.delegate = self }
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse,

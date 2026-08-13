@@ -74,32 +74,54 @@ with st.sidebar:
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
     if uploaded_json is not None:
         if st.button("Restore Project"):
-            state = json.loads(uploaded_json.read())
-            state['project_name'] = st.session_state.optimizer.project_name
-            st.session_state.optimizer.import_json(state)
-            st.success(
-                f"Restored {len(st.session_state.optimizer.X_history)} experiments "
-                f"into {st.session_state.optimizer.project_name}"
-            )
-            st.rerun()
+            try:
+                state = json.loads(uploaded_json.read())
+                state['project_name'] = st.session_state.optimizer.project_name
+                st.session_state.optimizer.import_json(state)
+            except Exception:
+                st.error(
+                    "This backup file couldn't be read. Make sure it's a "
+                    "backup downloaded from Food Optimizer (a .json file) "
+                    "and try again."
+                )
+            else:
+                st.success(
+                    f"Restored {len(st.session_state.optimizer.X_history)} experiments "
+                    f"into {st.session_state.optimizer.project_name}"
+                )
+                st.rerun()
 
     # --- Hard Reset ---
     st.divider()
 
     if st.button("Hard Reset Project"):
-        fname = f"{project_name}.pkl"
-        if os.path.exists(fname):
-            archive_name = f"{project_name}_archived.pkl"
-            counter = 1
-            while os.path.exists(archive_name):
-                archive_name = f"{project_name}_archived_{counter}.pkl"
-                counter += 1
-            os.rename(fname, archive_name)
-            st.info(f"Archived as {archive_name}")
-        st.session_state.pop("optimizer", None)
-        st.session_state.pop("_loaded_project", None)
-        st.session_state.pop("current_batch", None)
-        st.rerun()
+        st.session_state.confirm_reset = True
+    if st.session_state.get("confirm_reset"):
+        st.warning(
+            "This clears the current project so you can start over. "
+            "Your existing data is kept in an archive file, not deleted."
+        )
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("Yes, reset", type="primary", use_container_width=True):
+                st.session_state.confirm_reset = False
+                fname = f"{project_name}.pkl"
+                if os.path.exists(fname):
+                    archive_name = f"{project_name}_archived.pkl"
+                    counter = 1
+                    while os.path.exists(archive_name):
+                        archive_name = f"{project_name}_archived_{counter}.pkl"
+                        counter += 1
+                    os.rename(fname, archive_name)
+                    st.info(f"Your previous data was archived as {archive_name}")
+                st.session_state.pop("optimizer", None)
+                st.session_state.pop("_loaded_project", None)
+                st.session_state.pop("current_batch", None)
+                st.rerun()
+        with col_no:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.confirm_reset = False
+                st.rerun()
 
 
 # ================================================================== #
@@ -120,8 +142,17 @@ with tab_setup:
         st.info("Upload CSV with columns: Name, Min, Max. Optional: Cost, Protein, etc.")
 
         uploaded_csv = st.file_uploader("Upload Ingredients CSV", type=["csv"])
+        df = None
         if uploaded_csv:
-            df = pd.read_csv(uploaded_csv)
+            try:
+                df = pd.read_csv(uploaded_csv)
+            except Exception:
+                st.error(
+                    "This file couldn't be read as a CSV. If it came from "
+                    "Excel, use File > Save As and pick CSV format, then "
+                    "try again."
+                )
+        if df is not None:
             st.dataframe(df.head(), height=150)
             if st.button("Load Ingredients"):
                 try:
@@ -601,8 +632,17 @@ with tab_optimize:
         )
 
         import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
+        import_df = None
         if import_csv is not None:
-            import_df = pd.read_csv(import_csv)
+            try:
+                import_df = pd.read_csv(import_csv)
+            except Exception:
+                st.error(
+                    "This file couldn't be read as a CSV. If it came from "
+                    "Excel, use File > Save As and pick CSV format, then "
+                    "try again."
+                )
+        if import_df is not None:
             st.dataframe(import_df, hide_index=True)
 
             var_names = [v['name'] for v in st.session_state.optimizer.variables]
@@ -618,14 +658,26 @@ with tab_optimize:
                     st.error(f"Columns with missing/NaN values: {nan_cols}")
                 elif st.button("Import All Rows", type="primary"):
                     imported = 0
-                    for _, row in import_df.iterrows():
-                        recipe = {name: float(row[name]) for name in var_names}
-                        results = {name: float(row[name]) for name in obj_names}
-                        st.session_state.optimizer.tell(recipe, results)
-                        imported += 1
-                    st.session_state.show_backup_warning = True
-                    st.success(f"Imported {imported} experiments!")
-                    st.rerun()
+                    import_error = None
+                    try:
+                        for _, row in import_df.iterrows():
+                            recipe = {name: float(row[name]) for name in var_names}
+                            results = {name: float(row[name]) for name in obj_names}
+                            st.session_state.optimizer.tell(recipe, results)
+                            imported += 1
+                    except (ValueError, TypeError) as e:
+                        import_error = e
+                    if import_error is not None:
+                        st.error(
+                            f"Stopped at row {imported + 1}: {import_error} "
+                            f"The {imported} row(s) before it were imported "
+                            f"and saved."
+                        )
+                    if imported:
+                        st.session_state.show_backup_warning = True
+                    if import_error is None and imported:
+                        st.success(f"Imported {imported} experiments!")
+                        st.rerun()
 
     st.divider()
 
