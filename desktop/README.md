@@ -13,6 +13,10 @@ Output: `desktop/dist/FoodOptimizer-0.1.0.dmg`. Unsigned builds print a
 loud warning and are for internal testing only — never send one to a
 recipient.
 
+The build compiles the native window wrapper (`FoodOptimizerApp.swift`)
+with `swiftc`, so the build machine needs the Xcode Command Line Tools
+(`xcode-select --install`). Recipients need nothing extra.
+
 ## Test
 
 ```bash
@@ -114,17 +118,21 @@ Notes:
    downloaded, quarantined dmg, so Gatekeeper runs it from a
    translocated path: the "copy to Applications first?" offer appears
    and works.
-4. Setup dialog appears, finishes; browser opens with the app.
-5. UI walkthrough: create a project, upload `data/ingredients.csv` and
-   `data/experiments_example.csv`, request a suggestion batch, log a
-   result, confirm the `.pkl` appears in `~/FoodOptimizer/`.
-6. Close the browser tab, wait past the idle timeout (15 min), confirm
-   the server exited (Activity Monitor). Relaunch: fast, project loads.
-7. Wi-Fi off on a set-up machine: works fully offline.
-8. Wi-Fi off on a fresh machine: plain-language "needs internet once"
-   dialog appears; succeeds after Wi-Fi is restored.
-9. Read "Start Here.txt" and every dialog as a skeptical nontechnical
-   user: accurate, understandable, and every error has a next step.
-10. Upgrade path: with an older version already in /Applications,
+4. The app window opens immediately with the setup message, then loads
+   the app when setup finishes. Dock shows the Food Optimizer icon and
+   name (not a browser).
+5. In-window plumbing: upload a CSV (file picker opens), download a
+   backup (lands in ~/Downloads), Cmd-Q and window-close both stop the
+   app completely (check Activity Monitor: no streamlit left).
+6. UI walkthrough: create a project, upload the dmg's "Example Data"
+   CSVs, request a suggestion batch, log a result, confirm the `.pkl`
+   appears in `~/FoodOptimizer/`.
+7. Quit, relaunch: fast start, project still listed and loads.
+8. Wi-Fi off on a set-up machine: works fully offline.
+9. Wi-Fi off on a fresh machine: plain-language "needs internet once"
+   message appears; succeeds after Wi-Fi is restored.
+10. Read "Start Here.txt" and every message as a skeptical nontechnical
+    user: accurate, understandable, and every error has a next step.
+11. Upgrade path: with an older version already in /Applications,
     install the new dmg over it and open - no "damaged app" warning,
     and the new version runs.

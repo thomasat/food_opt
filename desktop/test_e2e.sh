@@ -53,6 +53,12 @@ if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; els
 
 assert "launcher executable"  test -x "$DIST_APP/Contents/MacOS/launcher.sh"
 assert "uv executable"        test -x "$DIST_APP/Contents/MacOS/uv"
+assert "native wrapper executable" test -x "$DIST_APP/Contents/MacOS/FoodOptimizer"
+if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit executable arm64"; then
+  ok "native wrapper is arm64 Mach-O"
+else
+  fail "native wrapper is arm64 Mach-O"
+fi
 for f in app.py food_bo.py theory.py requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done

@@ -202,7 +202,9 @@ cleanup() {
     rm -rf "$LOCK_DIR"
   fi
 }
-trap 'say "signal received - shutting down"; cleanup; exit 0' TERM INT
+# cleanup FIRST: if our stdout pipe is already broken, say() dies on
+# SIGPIPE and must not abort the cleanup.
+trap 'cleanup; say "signal received - shut down"; exit 0' TERM INT
 trap cleanup EXIT
 
 # ---------- wait until healthy ----------

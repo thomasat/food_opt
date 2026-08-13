@@ -24,6 +24,14 @@ cp "$DESKTOP_DIR/launcher.sh" "$APP_DIR/Contents/MacOS/launcher.sh"
 cp "$UV_BIN" "$APP_DIR/Contents/MacOS/uv"
 chmod 755 "$APP_DIR/Contents/MacOS/launcher.sh" "$APP_DIR/Contents/MacOS/uv"
 
+# Native window wrapper (the bundle executable). Requires Xcode Command
+# Line Tools on the build machine; recipients need nothing extra.
+echo "compiling native window wrapper..."
+xcrun swiftc -O -target arm64-apple-macos13.0 \
+  "$DESKTOP_DIR/FoodOptimizerApp.swift" \
+  -o "$APP_DIR/Contents/MacOS/FoodOptimizer"
+chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
+
 for f in app.py food_bo.py theory.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
@@ -38,6 +46,7 @@ plutil -replace CFBundleVersion -string "$VERSION" "$APP_DIR/Contents/Info.plist
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   echo "signing with: $SIGN_IDENTITY"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/uv"
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/FoodOptimizer"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
   codesign --verify --strict "$APP_DIR"
 else

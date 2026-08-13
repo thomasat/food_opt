@@ -24,7 +24,8 @@ TRYING IT OUT
 
 USING IT DAY TO DAY
 - To open the app again later, open Food Optimizer from Applications,
-  like any app. It opens in its own window (or in your web browser).
+  like any app. It opens in its own window.
+- To quit, close the window — that's it.
 - When you are done, just close the browser tab. The app shuts itself
   down on its own about 15 minutes later.
 
