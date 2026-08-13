@@ -26,14 +26,13 @@ if [ ! -x "$UV_BIN" ]; then
   shasum -a 256 "$UV_BIN" | awk '{print $1}' > "$UV_BIN.sha256"
 fi
 
-# Re-verify the cached binary every run: a corrupted/tampered cache entry
-# becomes a cache miss instead of being trusted forever.
-if [ -f "$UV_BIN.sha256" ]; then
-  if ! echo "$(cat "$UV_BIN.sha256")  $UV_BIN" | shasum -a 256 -c - >/dev/null 2>&1; then
-    echo "cached uv failed verification; removing it - re-run to re-download" >&2
-    rm -f "$UV_BIN" "$UV_BIN.sha256"
-    exit 1
-  fi
+# Re-verify the cached binary every run: a corrupted/tampered cache entry —
+# or one missing its recorded hash — becomes a cache miss instead of being
+# trusted forever.
+if ! echo "$(cat "$UV_BIN.sha256" 2>/dev/null)  $UV_BIN" | shasum -a 256 -c - >/dev/null 2>&1; then
+  echo "cached uv failed verification; removing it - re-run to re-download" >&2
+  rm -f "$UV_BIN" "$UV_BIN.sha256"
+  exit 1
 fi
 
 echo "$UV_BIN"

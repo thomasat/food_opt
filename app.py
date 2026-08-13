@@ -493,6 +493,15 @@ with tab_optimize:
                         st.session_state.current_batch = recipes
                     except ValueError as e:
                         st.error(str(e))
+                    except Exception:
+                        # A raw traceback is a dead end for a nontechnical user.
+                        st.error(
+                            "The optimizer hit an unexpected problem while "
+                            "generating recipes. Try again (a smaller batch "
+                            "often helps); if this keeps happening, relax any "
+                            "recently added constraints or use Help > Email "
+                            "Support."
+                        )
 
         if "current_batch" in st.session_state:
             st.info("Suggested Batch:")

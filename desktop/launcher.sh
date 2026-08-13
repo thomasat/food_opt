@@ -159,7 +159,14 @@ fi
 
 # ---------- start the server ----------
 PORT="${FOODOPT_PORT_BASE:-8501}"   # override lets tests avoid real-user ports
-while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT + 1)); done
+# lsof only sees this user's processes, so on a shared Mac another account's
+# listener would be invisible and Streamlit would fail to bind on every
+# launch. The connect probe sees everyone's listeners.
+port_in_use() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+while port_in_use "$PORT"; do PORT=$((PORT + 1)); done
 
 cd "$DATA_DIR" || die "could not enter data dir $DATA_DIR"
 

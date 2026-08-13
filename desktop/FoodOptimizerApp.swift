@@ -273,7 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        "The first time it opens, Food Optimizer downloads its "
                        + "software components. Please connect to the internet, "
                        + "then quit (press Cmd-Q) and open Food Optimizer again. "
-                       + "After that, no internet is needed.")
+                       + "After that, no internet is needed. If you are connected "
+                       + "but this message keeps coming back (some office networks "
+                       + "block downloads), use Help › Email Support.")
         case 4:
             showStatus("Not enough free space to set up",
                        "Food Optimizer needs about 5 GB of free space the first "
@@ -469,6 +471,12 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
                  withError error: Error) { handleLoadFailure(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
                  withError error: Error) { handleLoadFailure(error) }
+    // If WebKit's content process dies (memory pressure, renderer crash),
+    // the view goes blank white with no error callback. Reload immediately —
+    // the server is still running, so this recovers invisibly.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
+    }
     func handleLoadFailure(_ error: Error) {
         let code = (error as NSError).code
         // Cancellations are normal (e.g. a navigation became a download).
