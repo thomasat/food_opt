@@ -69,6 +69,19 @@ die() {        # fatal: plain-language dialog pointing at the log, then exit 1
   exit 1
 }
 
+open_ui() {    # $1: port. Chromium app-mode window (no address bar) when available,
+               # so the app feels native; falls back to the default browser.
+  UI_URL="http://localhost:$1"
+  for CANDIDATE in "Google Chrome" "Microsoft Edge" "Brave Browser"; do
+    if [ -d "/Applications/$CANDIDATE.app" ]; then
+      say "opening app window via $CANDIDATE"
+      if open -na "$CANDIDATE" --args --app="$UI_URL"; then return 0; fi
+    fi
+  done
+  say "opening default browser"
+  open "$UI_URL"
+}
+
 # ---------- preflight: running from the disk image? ----------
 case "$APP_BUNDLE" in
   /Volumes/*|*/AppTranslocation/*)
@@ -96,7 +109,7 @@ if [ -f "$PORT_FILE" ]; then
   if [ -n "${OLD_PID:-}" ] && kill -0 "$OLD_PID" 2>/dev/null \
      && curl -fsS --max-time 3 "http://127.0.0.1:${OLD_PORT}/_stcore/health" >/dev/null 2>&1; then
     say "already running on port $OLD_PORT - reopening browser"
-    if [ "$HEADLESS" != "1" ]; then open "http://localhost:$OLD_PORT"; fi
+    if [ "$HEADLESS" != "1" ]; then open_ui "$OLD_PORT"; fi
     exit 0
   fi
   rm -f "$PORT_FILE"
@@ -132,7 +145,7 @@ if [ -x "$VENV_DIR/bin/python" ] && [ -f "$MARKER_FILE" ] \
 fi
 
 if [ "$NEED_SETUP" = "1" ]; then
-  show_info "Setting up $APP_NAME (one time, usually 1 to 5 minutes depending on your internet speed). This downloads the app's software components; none of your data is sent anywhere. When setup finishes, the app opens in your web browser. To open it again later, just open $APP_NAME from Applications, like any app."
+  show_info "Setting up $APP_NAME (one time, usually 1 to 5 minutes depending on your internet speed). This downloads the app's software components; none of your data is sent anywhere. When setup finishes, the app opens on your screen. To open it again later, just open $APP_NAME from Applications, like any app."
   rm -f "$MARKER_FILE"
   NET_MSG="Setup needs an internet connection the first time you open $APP_NAME. Please connect to the internet and open the app again."
   say "installing Python $PYTHON_VERSION"
@@ -151,6 +164,23 @@ PORT=8501
 while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT + 1)); done
 
 cd "$DATA_DIR" || die "Could not open the FoodOptimizer folder inside your home folder."
+
+# ---------- safety backups: snapshot all projects on every launch ----------
+BACKUP_ROOT="$DATA_DIR/backups"
+KEEP_BACKUPS=10
+set -- ./*.pkl
+if [ -e "$1" ]; then
+  BACKUP_DIR="$BACKUP_ROOT/$(date '+%Y-%m-%d_%H%M%S')"
+  mkdir -p "$BACKUP_DIR"
+  cp ./*.pkl "$BACKUP_DIR/"
+  say "projects backed up to $BACKUP_DIR"
+  COUNT="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+  while [ "$COUNT" -gt "$KEEP_BACKUPS" ]; do
+    OLDEST="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
+    rm -rf "$OLDEST"
+    COUNT=$((COUNT - 1))
+  done
+fi
 
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
@@ -180,7 +210,7 @@ done
 say "server healthy on port $PORT (pid $SERVER_PID)"
 rm -rf "$LOCK_DIR"
 
-if [ "$HEADLESS" != "1" ]; then open "http://localhost:$PORT"; fi
+if [ "$HEADLESS" != "1" ]; then open_ui "$PORT"; fi
 
 # ---------- idle watchdog: exit after IDLE_TIMEOUT with no browser connected ----------
 IDLE=0

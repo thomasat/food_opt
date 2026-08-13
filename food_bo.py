@@ -732,8 +732,15 @@ class FoodOptimizer:
     def save(self):
         state = self.__dict__.copy()
         state.pop('screening_model', None)
-        with open(self.filename, 'wb') as f:
-            pickle.dump(state, f)
+        # Write-then-rename so a crash mid-write can't corrupt the project file
+        tmp_filename = f"{self.filename}.tmp"
+        try:
+            with open(tmp_filename, 'wb') as f:
+                pickle.dump(state, f)
+            os.replace(tmp_filename, self.filename)
+        finally:
+            if os.path.exists(tmp_filename):
+                os.remove(tmp_filename)
 
     def load(self):
         try:

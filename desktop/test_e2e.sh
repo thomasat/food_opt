@@ -111,6 +111,7 @@ wait_for() {  # wait_for <timeout_secs> command [args...]
   return 0
 }
 server_port()    { awk '{print $1}' "$PORT_FILE" 2>/dev/null; }
+backup_exists()  { ls "$DOCS"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
 server_healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$(server_port)/_stcore/health" 2>/dev/null | grep -q ok; }
 launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
   HOME="$E2E_HOME" FOODOPT_HEADLESS=1 FOODOPT_IDLE_TIMEOUT_SECS="$1" \
@@ -208,6 +209,7 @@ else
   fail "warm relaunch healthy"
 fi
 if grep -q "installing components" "$WORK/run6.out"; then fail "warm relaunch skipped setup"; else ok "warm relaunch skipped setup"; fi
+assert "launch backed up existing projects" backup_exists
 kill "$LAUNCHER_PID" 2>/dev/null
 wait_for 30 not_exists "$PORT_FILE" || true
 LAUNCHER_PID=""

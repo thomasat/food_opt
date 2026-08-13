@@ -415,6 +415,29 @@ class TestPersistence:
         assert len(opt2.variables) == 1
         assert opt2.variables[0]["name"] == "Water"
 
+    def test_failed_save_preserves_existing_file(self, tmp_path, monkeypatch):
+        """A crash mid-save must never corrupt the previously saved project."""
+        import pickle
+
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="atomic_test")
+        opt.add_ingredient("Water", 0, 100)
+        opt.save()
+        good_bytes = (tmp_path / "atomic_test.pkl").read_bytes()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("simulated crash mid-write")
+
+        with monkeypatch.context() as m:
+            m.setattr(pickle, "dump", boom)
+            with pytest.raises(RuntimeError):
+                opt.save()
+
+        assert (tmp_path / "atomic_test.pkl").read_bytes() == good_bytes
+        # And the survivor must still load
+        opt2 = FoodOptimizer(project_name="atomic_test")
+        assert opt2.variables[0]["name"] == "Water"
+
     def test_export_import_json(self, opt_configured):
         recipe = {"Water": 50, "Flour": 25, "Sugar": 10}
         opt_configured.tell(recipe, {"Taste": 7.0})
