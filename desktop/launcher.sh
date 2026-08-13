@@ -8,6 +8,7 @@
 #
 # Exit codes the wrapper maps to friendly pages:
 #   2 = unsupported machine   3 = setup failed (usually no internet)
+#   4 = not enough free disk space for setup
 set -u
 
 PYTHON_VERSION="3.13.7"   # the single place the Python version is pinned

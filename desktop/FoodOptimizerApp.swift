@@ -438,7 +438,7 @@ extension AppDelegate: WKUIDelegate {
     }
 }
 
-// Download support (st.download_button) — saves into ~/Downloads.
+// Download support (st.download_button) — asks where to save via NSSavePanel.
 extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,

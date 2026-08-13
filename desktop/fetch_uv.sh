@@ -3,8 +3,8 @@
 # its SHA256, and prints the binary's absolute path on stdout. Idempotent.
 set -euo pipefail
 
-UV_VERSION="0.12.3"          # e.g. 0.8.4
-UV_SHA256="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"        # sha256 of uv-aarch64-apple-darwin.tar.gz
+UV_VERSION="0.12.3"
+UV_SHA256="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"   # sha256 of uv-aarch64-apple-darwin.tar.gz
 
 DESKTOP_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACHE_DIR="$DESKTOP_DIR/.cache"

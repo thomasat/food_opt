@@ -474,7 +474,6 @@ class FoodOptimizer:
 
     def _get_botorch_constraints(self):
         """Build BoTorch inequality constraints from property + quantity constraints."""
-        bounds_tensor = self._get_bounds()
         constraints_list = []
         var_indices = {
             var['name']: i
@@ -616,7 +615,7 @@ class FoodOptimizer:
         return results
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
-        """Generate recipes using GP + qNoisyExpectedImprovement."""
+        """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
         print(f"DEBUG: Optimization step (batch of {n_suggestions})...")
         torch.manual_seed(len(self.X_history))
 

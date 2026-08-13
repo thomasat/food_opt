@@ -6,8 +6,8 @@ WHAT YOUR COMPUTER NEEDS
   "About This Mac", and look at the "Chip" line.
 - macOS 13 Ventura or newer.
 - About 5 GB of free disk space.
-- An internet connection the FIRST time you open the app (setup takes
-  usually 1 to 5 minutes, depending on your internet speed). After that, no
+- An internet connection the FIRST time you open the app (setup usually
+  takes 1 to 5 minutes, depending on your internet speed). After that, no
   internet is needed.
 
 HOW TO INSTALL

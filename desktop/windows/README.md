@@ -11,8 +11,8 @@ mostly mechanical — the thinking is done on the macOS side.
    instant window with setup status page + spinner, poll `server.port`
    then health endpoint, load the app, native menus/shortcuts, save
    dialog + reveal-in-Explorer for downloads, file-picker uploads,
-   friendly pages for exit code 2 (unsupported) / 3 (needs internet or
-   disk space) / server death, quit terminates the launcher and awaits
+   friendly pages for exit code 2 (unsupported) / 3 (needs internet) /
+   4 (not enough disk space) / server death, quit terminates the launcher and awaits
    its cleanup. Cannot be Python: it must run before the venv exists.
 2. **Launcher:** `launcher.ps1` — line-by-line port of `../launcher.sh`
    (same exit codes, port file, marker/lock/backup logic, idle watchdog).

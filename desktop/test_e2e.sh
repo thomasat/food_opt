@@ -98,7 +98,7 @@ export FOODOPT_PORT_BASE=18501
 E2E_HOME="$(mktemp -d)"
 WORK="$(mktemp -d)"
 SUPPORT="$E2E_HOME/Library/Application Support/FoodOptimizer"
-DOCS="$E2E_HOME/FoodOptimizer"
+DATA="$E2E_HOME/FoodOptimizer"
 PORT_FILE="$SUPPORT/server.port"
 MARKER="$SUPPORT/setup_complete"
 LAUNCHER_PID=""
@@ -123,7 +123,7 @@ wait_for() {  # wait_for <timeout_secs> command [args...]
 }
 server_port()    { awk '{print $1}' "$PORT_FILE" 2>/dev/null; }
 pid_dead()       { ! kill -0 "$1" 2>/dev/null; }
-backup_exists()  { ls "$DOCS"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
+backup_exists()  { ls "$DATA"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
 server_healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$(server_port)/_stcore/health" 2>/dev/null | grep -q ok; }
 launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
   HOME="$E2E_HOME" FOODOPT_IDLE_TIMEOUT_SECS="$1" \
@@ -150,7 +150,7 @@ assert "python under support"    dir_nonempty "$SUPPORT/python"
 assert "uv cache under support"  dir_nonempty "$SUPPORT/uv-cache"
 assert "marker written"          test -f "$MARKER"
 assert "nothing in ~/.local"     not_exists "$E2E_HOME/.local"
-assert "data dir created in home" test -d "$DOCS"
+assert "data dir created in home" test -d "$DATA"
 
 echo "-- test 2: localhost-only binding --"
 PORT="$(server_port)"
@@ -166,13 +166,13 @@ if wait_for 60 server_healthy; then ok "replacement server healthy"; else fail "
 LISTENERS=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN | grep -c LISTEN)
 if [ "$LISTENERS" = "1" ]; then ok "exactly one listener"; else fail "exactly one listener (got $LISTENERS)"; fi
 
-echo "-- test 5: idle shutdown --"
+echo "-- test 4: idle shutdown --"
 if wait_for 120 not_exists "$PORT_FILE"; then ok "idle shutdown removed port file"; else fail "idle shutdown removed port file"; fi
 assert "idle shutdown logged" grep -q "no window connected" "$WORK/run2.out"
 LAUNCHER_PID=""
 
-echo "-- test 6: core logic in the packaged environment --"
-SMOKE_OUT="$(cd "$DOCS" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
+echo "-- test 5: core logic in the packaged environment --"
+SMOKE_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
   PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
   "$SUPPORT/venv/bin/python" - <<'PY'
 from food_bo import FoodOptimizer
@@ -186,11 +186,11 @@ print("SMOKE_OK")
 PY
 )"
 if echo "$SMOKE_OUT" | grep -q SMOKE_OK; then ok "FoodOptimizer smoke test"; else fail "FoodOptimizer smoke test ($SMOKE_OUT)"; fi
-assert "pkl saved to data dir" test -f "$DOCS/E2E_Smoke.pkl"
+assert "pkl saved to data dir" test -f "$DATA/E2E_Smoke.pkl"
 # Project files must be JSON (safe to open), not executable pickle.
-assert "project file is JSON" "$SUPPORT/venv/bin/python" -c "import json,sys; json.load(open(sys.argv[1]))" "$DOCS/E2E_Smoke.pkl"
+assert "project file is JSON" "$SUPPORT/venv/bin/python" -c "import json,sys; json.load(open(sys.argv[1]))" "$DATA/E2E_Smoke.pkl"
 
-echo "-- test 7: upgrade path (stale marker hash) --"
+echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"
 launch 600 "$WORK/run4.out"
 if wait_for 300 server_healthy; then ok "relaunch after stale marker"; else fail "relaunch after stale marker"; fi
@@ -201,7 +201,7 @@ kill "$LAUNCHER_PID" 2>/dev/null
 if wait_for 30 not_exists "$PORT_FILE"; then ok "TERM cleans up port file"; else fail "TERM cleans up port file"; fi
 LAUNCHER_PID=""
 
-echo "-- test 8: interrupted-setup recovery + warm relaunch under 30s --"
+echo "-- test 7: interrupted-setup recovery + warm relaunch under 30s --"
 rm -f "$MARKER"
 launch 600 "$WORK/run5.out"
 if wait_for 300 server_healthy; then ok "recovery relaunch healthy"; else fail "recovery relaunch healthy"; fi
@@ -220,7 +220,7 @@ fi
 if grep -q "installing components" "$WORK/run6.out"; then fail "warm relaunch skipped setup"; else ok "warm relaunch skipped setup"; fi
 assert "launch backed up existing projects" backup_exists
 
-echo "-- test 8b: late cleanup never clobbers another instance's port file --"
+echo "-- test 7b: late cleanup never clobbers another instance's port file --"
 printf '%s\n' "1 1" > "$PORT_FILE"
 kill "$LAUNCHER_PID" 2>/dev/null
 sleep 3
@@ -228,14 +228,14 @@ if [ "$(cat "$PORT_FILE" 2>/dev/null)" = "1 1" ]; then ok "foreign port file pre
 rm -f "$PORT_FILE"
 LAUNCHER_PID=""
 
-echo "-- test 9: nothing was written into the bundle --"
+echo "-- test 8: nothing was written into the bundle --"
 if diff -r "$WORK/$APP_NAME.app" "$DIST_APP" >/dev/null 2>&1; then
   ok "bundle byte-identical after all runs"
 else
   fail "bundle byte-identical after all runs"
 fi
 
-echo "-- test 10: running-from-dmg detection --"
+echo "-- test 9: running-from-dmg detection --"
 HOME="$E2E_HOME" "$VOL/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run_dmg.out" 2>&1 &
 DMG_PID=$!
 if wait_for 15 grep -q "running from disk image" "$WORK/run_dmg.out"; then ok "dmg location detected"; else fail "dmg location detected"; fi
