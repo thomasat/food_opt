@@ -1,0 +1,42 @@
+FOOD OPTIMIZER — START HERE
+
+WHAT YOUR COMPUTER NEEDS
+- A Mac with an Apple chip (M1 or later — any Mac from late 2020 onward).
+  Not sure? Click the Apple menu (top left of your screen), choose
+  "About This Mac", and look at the "Chip" line.
+- macOS 13 Ventura or newer.
+- About 5 GB of free disk space.
+- An internet connection the FIRST time you open the app (setup takes
+  about 2 to 4 minutes — longer on a slow connection). After that, no
+  internet is needed.
+
+HOW TO INSTALL
+1. Drag the Food Optimizer icon onto the Applications folder icon
+   next to it.
+2. Open your Applications folder and double-click Food Optimizer.
+3. The first time, the app sets itself up (2 to 4 minutes). When it
+   finishes, Food Optimizer opens in your web browser, ready to use.
+
+USING IT DAY TO DAY
+- To open the app again later, open Food Optimizer from Applications,
+  like any app. It always opens in your web browser.
+- When you are done, just close the browser tab. The app shuts itself
+  down on its own about 15 minutes later.
+
+YOUR DATA STAYS ON YOUR COMPUTER
+- Everything the app does happens on your Mac. Your recipes,
+  experiments, and results never leave your computer.
+- Your project files are saved in Documents > FoodOptimizer, where you
+  can see, copy, or delete them at any time.
+- The address in your browser starts with "localhost" — that means
+  your own computer, not a website.
+- The one-time setup downloads the app's software components. It sends
+  nothing of yours anywhere — not then, not ever. No statistics,
+  no tracking.
+
+NEED HELP?
+Email sohum.patnaik@fsi.org and describe what you saw. If you can,
+attach the app's log file: in Finder, click the Go menu, choose
+"Go to Folder...", paste the line below, press Return, and attach
+the file that opens:
+  ~/Library/Application Support/FoodOptimizer/launcher.log
