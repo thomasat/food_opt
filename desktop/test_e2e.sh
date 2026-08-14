@@ -94,6 +94,7 @@ if [ "$LEVEL1_ONLY" = "1" ]; then
   hdiutil detach "$VOL" >/dev/null 2>&1 || true
   echo "== DONE (level 1 only): $PASS passed, $FAIL failed =="
   [ "$FAIL" -eq 0 ] || exit 1
+  rm -f "$DMG"   # test-version dmg; on success dist/ keeps only release dmgs
   exit 0
 fi
 
@@ -252,3 +253,4 @@ hdiutil detach "$VOL" >/dev/null 2>&1 || true
 
 echo "== DONE: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ] || exit 1
+rm -f "$DMG"   # test-version dmg; on success dist/ keeps only release dmgs
