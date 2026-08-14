@@ -603,3 +603,175 @@ class TestFullJourney:
         assert len(reloaded.X_history) == 4
         assert all(len(x) == 4 for x in reloaded.X_history)
         assert reloaded.X_history[0][3] == 180.0
+
+
+# ------------------------------------------------------------------ #
+#  Non-monotone active set (adaptive EGBO pruning)
+# ------------------------------------------------------------------ #
+
+
+class TestActiveSet:
+    def test_no_pruning_is_a_noop(self, opt_configured):
+        """The monotone path must be untouched when nothing is pruned."""
+        assert opt_configured._get_fixed_features() == {}
+        assert len(opt_configured.active_variables()) == 3
+        assert opt_configured.inactive_variables() == []
+
+    def test_deactivate_pins_the_column(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        assert opt_configured._get_fixed_features() == {1: 0.0}
+        assert [v["name"] for v in opt_configured.inactive_variables()] == ["Flour"]
+
+    def test_deactivate_with_explicit_value_normalizes(self, opt_configured):
+        opt_configured.deactivate_variable("Flour", value=12.5)  # bounds (0, 50)
+        assert opt_configured._get_fixed_features() == {1: 0.25}
+
+    def test_deactivate_rejects_out_of_bounds_pin(self, opt_configured):
+        with pytest.raises(ValueError, match="must lie within"):
+            opt_configured.deactivate_variable("Sugar", value=99.0)
+
+    def test_deactivate_is_idempotent(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        opt_configured.deactivate_variable("Flour")
+        assert len(opt_configured.inactive_variables()) == 1
+
+    def test_deactivate_blocks_last_active_variable(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        opt_configured.deactivate_variable("Sugar")
+        with pytest.raises(ValueError, match="last active variable"):
+            opt_configured.deactivate_variable("Water")
+
+    def test_reactivate_restores_the_dimension(self, opt_configured):
+        opt_configured.deactivate_variable("Flour", value=10.0)
+        opt_configured.reactivate_variable("Flour")
+        assert opt_configured._get_fixed_features() == {}
+        assert "_frozen_at" not in opt_configured._var_by_name("Flour")
+
+    def test_pruning_preserves_history_and_width(self, opt_configured):
+        """Pruning restricts the search domain, it must not touch observations."""
+        opt_configured.tell(
+            {"Water": 50.0, "Flour": 20.0, "Sugar": 5.0}, {"Taste": 7.0}
+        )
+        before_x = [row[:] for row in opt_configured.X_history]
+        before_y = list(opt_configured.Y_history)
+
+        opt_configured.deactivate_variable("Flour")
+
+        assert opt_configured.X_history == before_x
+        assert opt_configured.Y_history == before_y
+        assert len(opt_configured.X_history[0]) == 3
+
+    def test_ask_respects_pins_in_cold_start(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        batch = opt_configured.ask(n_suggestions=3, n_init_random=5)
+        assert all(r["Flour"] == 0.0 for r in batch)
+        assert any(r["Water"] > 0.0 for r in batch)
+
+    def test_ask_respects_pins_after_gp_fit(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        for _ in range(6):
+            rec = opt_configured.ask(n_suggestions=1, n_init_random=5)[0]
+            opt_configured.tell(rec, {"Taste": 5.0 + rec["Water"] / 100.0})
+        batch = opt_configured.ask(n_suggestions=2, n_init_random=5)
+        assert all(r["Flour"] == 0.0 for r in batch)
+
+    def test_ask_guards_empty_active_set(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        opt_configured.deactivate_variable("Sugar")
+        opt_configured._var_by_name("Water")["active"] = False
+        with pytest.raises(ValueError, match="Every variable is inactive"):
+            opt_configured.ask(n_suggestions=1)
+
+    def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
+        opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
+        with pytest.raises(ValueError, match="unsatisfiable"):
+            opt_configured.deactivate_variable("Flour")
+        opt_configured.deactivate_variable("Sugar")  # unrelated, still fine
+        assert [v["name"] for v in opt_configured.inactive_variables()] == ["Sugar"]
+
+    def test_deactivate_detects_stranded_property_constraint(self, opt, monkeypatch):
+        opt.load_ingredients_from_csv(pd.DataFrame([
+            {"Name": "a", "Min": 0, "Max": 10, "Protein": 1.0},
+            {"Name": "b", "Min": 0, "Max": 10, "Protein": 1.0},
+        ]))
+        opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
+        opt.add_constraint("protein", min_val=15.0)
+        with pytest.raises(ValueError, match="unsatisfiable"):
+            opt.deactivate_variable("a")
+
+    def test_pruned_state_survives_pkl_reload(self, opt_configured, monkeypatch):
+        opt_configured.deactivate_variable("Flour", value=2.5)
+        reloaded = FoodOptimizer(project_name="test_project")
+        assert [v["name"] for v in reloaded.inactive_variables()] == ["Flour"]
+        assert reloaded._frozen_value(reloaded._var_by_name("Flour")) == 2.5
+
+    def test_pruned_state_survives_json_roundtrip(self, opt_configured):
+        opt_configured.deactivate_variable("Flour", value=12.5)
+        state = opt_configured.export_json()
+        clone = FoodOptimizer(project_name="clone_project")
+        clone.import_json(state)
+        assert [v["name"] for v in clone.inactive_variables()] == ["Flour"]
+        assert clone._get_fixed_features() == {1: 0.25}
+
+    def test_legacy_variables_default_to_active(self, opt_configured):
+        """Projects saved before pruning existed must load as fully active."""
+        for var in opt_configured.variables:
+            var.pop("active", None)
+        opt_configured.save()
+        reloaded = FoodOptimizer(project_name="test_project")
+        assert len(reloaded.active_variables()) == 3
+        assert reloaded._get_fixed_features() == {}
+
+    def test_export_trajectory_reports_pruned_and_past_usage(self, opt_configured):
+        opt_configured.tell(
+            {"Water": 50.0, "Flour": 20.0, "Sugar": 5.0}, {"Taste": 7.0}
+        )
+        opt_configured.deactivate_variable("Flour")
+        text = opt_configured.export_trajectory()
+        assert "Pruned / inactive" in text
+        assert "Flour=20" in text, "a pruned variable's past usage must stay visible"
+
+
+class TestRemoveIngredient:
+    def test_refuses_ingredient_used_at_nonzero(self, opt_configured):
+        opt_configured.tell(
+            {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
+        )
+        with pytest.raises(ValueError, match="nonzero amount"):
+            opt_configured.remove_ingredient("Flour")
+
+    def test_allows_never_used_ingredient(self, opt_configured):
+        opt_configured.tell(
+            {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
+        )
+        opt_configured.remove_ingredient("Sugar")
+        assert [v["name"] for v in opt_configured.variables] == ["Water", "Flour"]
+        assert len(opt_configured.X_history[0]) == 2
+
+    def test_force_deletes_and_drops_the_column(self, opt_configured):
+        opt_configured.tell(
+            {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
+        )
+        opt_configured.remove_ingredient("Flour", force=True)
+        assert [v["name"] for v in opt_configured.variables] == ["Water", "Sugar"]
+        assert len(opt_configured.X_history[0]) == 2
+        assert "Flour" not in opt_configured.recipe_history[0]
+
+    def test_prunes_quantity_constraints(self, opt_configured):
+        opt_configured.add_quantity_constraint(["Water", "Flour"], max_val=120.0)
+        opt_configured.add_quantity_constraint(["Flour"], max_val=40.0)
+        opt_configured.remove_ingredient("Flour")
+        assert [
+            qc["ingredients"] for qc in opt_configured.quantity_constraints
+        ] == [["Water"]]
+
+    def test_rejects_process_parameter(self, opt_configured):
+        opt_configured.add_process_parameter("Temp", 100, 200)
+        with pytest.raises(ValueError, match="process parameter"):
+            opt_configured.remove_ingredient("Temp")
+
+    def test_blocks_removing_last_active_variable(self, opt_configured):
+        opt_configured.deactivate_variable("Flour")
+        opt_configured.deactivate_variable("Sugar")
+        with pytest.raises(ValueError, match="last active variable"):
+            opt_configured.remove_ingredient("Water")

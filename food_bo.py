@@ -86,7 +86,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 4  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 5  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False):
         """Initialize or load a food optimization project.
@@ -143,6 +143,7 @@ class FoodOptimizer:
             'type': 'continuous',
             'bounds': (min_val, max_val),
             'category': 'ingredient',
+            'active': True,
         })
         if self.X_history:
             self._reencode_history()
@@ -202,6 +203,7 @@ class FoodOptimizer:
                 'type': 'continuous',
                 'bounds': (min_val, max_val),
                 'category': 'ingredient',
+                'active': True,
             })
 
             props = {}
@@ -234,6 +236,7 @@ class FoodOptimizer:
             'type': 'continuous',
             'bounds': (min_val, max_val),
             'category': 'process',
+            'active': True,
         }
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
@@ -561,7 +564,17 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def ask(self, n_suggestions=1, n_init_random=5):
-        """Suggest the next batch of recipes to try."""
+        """Suggest the next batch of recipes to try.
+
+        Inactive variables (see deactivate_variable) are held at their frozen
+        value: the search runs over the active set only, while the surrogate
+        still sees every past observation.
+        """
+        if not self.active_variables():
+            raise ValueError(
+                "Every variable is inactive — reactivate at least one before "
+                "generating recipes."
+            )
         bounds_tensor = self._get_bounds()
         dim = bounds_tensor.shape[1]
 
@@ -577,6 +590,10 @@ class FoodOptimizer:
         print(f"DEBUG: Cold start (Sobol batch of {n_suggestions})...")
         sobol = SobolEngine(dimension=dim, scramble=True, seed=len(self.X_history))
         pool_norm = sobol.draw(2048).double()
+
+        # Pin inactive variables so the Sobol design also lives in X_S.
+        for col, z in self._get_fixed_features().items():
+            pool_norm[:, col] = z
 
         candidates = [
             self._decode(unnormalize(pool_norm[i], bounds_tensor).numpy().flatten())
@@ -631,6 +648,10 @@ class FoodOptimizer:
 
         acq_func = self._build_acqf(gp, train_X_norm, train_Y)
 
+        # fixed_features drops the inactive columns from the optimization outright
+        # (and folds them into the linear constraints), so the candidate is the true
+        # argmax over the restricted domain X_S rather than a full-space argmax with
+        # coordinates zeroed after the fact.
         candidate_norm, _ = optimize_acqf(
             acq_function=acq_func,
             bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
@@ -639,6 +660,7 @@ class FoodOptimizer:
             raw_samples=1024,
             sequential=True,
             inequality_constraints=self._get_botorch_constraints(),
+            fixed_features=self._get_fixed_features() or None,
         )
 
         return [
@@ -671,6 +693,222 @@ class FoodOptimizer:
         if self.recipe_history:
             self.X_history = [self._encode(r) for r in self.recipe_history]
 
+    # ------------------------------------------------------------------ #
+    #  Non-monotone active set: deactivate / reactivate / remove
+    #
+    #  Standard EGBO grows the active set monotonically (S_1 <= S_2 <= ...),
+    #  which means expert false positives accumulate and never leave: the
+    #  expected active-set size tends to the full ambient dimension as the
+    #  number of expert rounds grows, so adaptive EGBO degenerates towards
+    #  vanilla BO. Allowing the expert to prune gives the active set a bounded
+    #  steady state instead.
+    #
+    #  Pruning is implemented as *deactivation*, not deletion:
+    #    - the variable keeps its column in the encoded history, so every past
+    #      observation stays in the GP (a recorded experiment is still a valid
+    #      observation of f — it is only outside the current search domain);
+    #    - the acquisition function is maximized over the active set only;
+    #    - reactivation is free, which is what a non-monotone active set needs.
+    # ------------------------------------------------------------------ #
+
+    def active_variables(self):
+        """Variables in the current active set S_r."""
+        return [v for v in self.variables if v.get('active', True)]
+
+    def inactive_variables(self):
+        """Variables pruned from S_r but still carried in the history/GP."""
+        return [v for v in self.variables if not v.get('active', True)]
+
+    def _var_by_name(self, name):
+        for var in self.variables:
+            if var['name'] == name:
+                return var
+        raise ValueError(f"No variable named {name!r}.")
+
+    def _frozen_value(self, var):
+        """The value an inactive variable is held at during search."""
+        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+        for key in ('_frozen_at', '_absent_value'):
+            if key in var:
+                return float(var[key])
+        if var.get('category') == 'process':
+            return lo  # a process parameter has no meaningful 'off' state
+        return min(max(0.0, lo), hi)
+
+    def _achievable_range(self, coeff_of, pinned):
+        """Range of sum_i coeff_i * x_i attainable when `pinned` variables are held
+        fixed and the rest range over their bounds. Handles negative coefficients."""
+        lo = hi = 0.0
+        for var in self.variables:
+            if var['type'] != 'continuous':
+                continue
+            coeff = coeff_of(var['name'])
+            if coeff == 0:
+                continue
+            if var['name'] in pinned:
+                lo += coeff * pinned[var['name']]
+                hi += coeff * pinned[var['name']]
+            else:
+                a = coeff * float(var['bounds'][0])
+                b = coeff * float(var['bounds'][1])
+                lo += min(a, b)
+                hi += max(a, b)
+        return lo, hi
+
+    def _assert_constraints_satisfiable(self, pinned):
+        """Raise if holding `pinned` ({name: value}) fixed makes any constraint
+        unsatisfiable. Pinning an ingredient to 0 can strand a lower bound that
+        the ingredient was carrying, which would otherwise surface later as an
+        opaque acquisition-optimization failure."""
+        for constr in self.constraints:
+            metric = constr['metric']
+            lo, hi = self._achievable_range(
+                lambda n: self.ingredient_properties.get(n, {}).get(metric, 0.0),
+                pinned,
+            )
+            if constr['min'] is not None and hi < constr['min']:
+                raise ValueError(
+                    f"Constraint '{metric} >= {constr['min']}' becomes unsatisfiable: "
+                    f"the remaining active variables reach at most {hi:.4g}. "
+                    f"Relax the constraint before pruning."
+                )
+            if constr['max'] is not None and lo > constr['max']:
+                raise ValueError(
+                    f"Constraint '{metric} <= {constr['max']}' becomes unsatisfiable: "
+                    f"the pinned values already total {lo:.4g}."
+                )
+
+        for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
+            names = set(qc['ingredients'])
+            label = " + ".join(qc['ingredients'])
+            lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0, pinned)
+            if qc['min'] is not None and hi < qc['min']:
+                raise ValueError(
+                    f"Quantity constraint [{i}] '{label} >= {qc['min']}' becomes "
+                    f"unsatisfiable: the remaining active ingredients reach at most "
+                    f"{hi:.4g}. Relax the constraint before pruning."
+                )
+            if qc['max'] is not None and lo > qc['max']:
+                raise ValueError(
+                    f"Quantity constraint [{i}] '{label} <= {qc['max']}' becomes "
+                    f"unsatisfiable: the pinned values already total {lo:.4g}."
+                )
+
+    def _get_fixed_features(self):
+        """{column: normalized_value} for the inactive columns, in the [0,1]^d frame
+        that `ask` hands to optimize_acqf. Returns {} when everything is active, so
+        the standard monotone behavior is byte-identical."""
+        fixed = {}
+        col = 0
+        for var in self.variables:
+            if var['type'] == 'continuous':
+                if not var.get('active', True):
+                    lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+                    span = hi - lo
+                    z = 0.0 if span <= 0 else (self._frozen_value(var) - lo) / span
+                    fixed[col] = float(min(max(z, 0.0), 1.0))
+                col += 1
+            elif var['type'] == 'categorical':
+                n_opts = len(var['options'])
+                if not var.get('active', True):
+                    for j in range(n_opts):
+                        fixed[col + j] = 0.0
+                col += n_opts
+        return fixed
+
+    def deactivate_variable(self, name, value=None):
+        """Prune `name` from the active set, pinning it at `value` (default: 0 for
+        an ingredient, the lower bound or stored baseline for a process parameter).
+
+        Nothing is destroyed: past experiments keep contributing to the GP, and
+        reactivate_variable puts the variable back. Raises if pruning would make a
+        constraint unsatisfiable or would empty the active set.
+        """
+        var = self._var_by_name(name)
+        if not var.get('active', True):
+            return
+        if len(self.active_variables()) <= 1:
+            raise ValueError(
+                "Cannot deactivate the last active variable — BO needs at least one "
+                "free dimension to search over."
+            )
+        frozen = self._frozen_value(var) if value is None else float(value)
+        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+        if not (lo <= frozen <= hi):
+            raise ValueError(
+                f"Frozen value {frozen} for '{name}' must lie within [{lo}, {hi}]."
+            )
+
+        pinned = {v['name']: self._frozen_value(v) for v in self.inactive_variables()}
+        pinned[name] = frozen
+        self._assert_constraints_satisfiable(pinned)
+
+        var['active'] = False
+        var['_frozen_at'] = frozen
+        self.save()
+
+    def reactivate_variable(self, name):
+        """Return a pruned variable to the active set (S_r is non-monotone, so a
+        variable removed in one round may be re-added in a later one)."""
+        var = self._var_by_name(name)
+        if var.get('active', True):
+            return
+        var['active'] = True
+        var.pop('_frozen_at', None)
+        self.save()
+
+    def remove_ingredient(self, name, force=False):
+        """Permanently delete an ingredient and drop its column from the history.
+
+        Refuses by default if the ingredient was ever used at a nonzero amount,
+        because dropping its column silently rewrites those experiments into
+        recipes that were never run. Prefer deactivate_variable, which keeps the
+        data. force=True deletes anyway and discards that information.
+        """
+        var = self._var_by_name(name)
+        if var.get('category', 'ingredient') != 'ingredient':
+            raise ValueError(
+                f"'{name}' is a process parameter — use remove_process_parameter."
+            )
+        if self.X_history and len(self.recipe_history) != len(self.X_history):
+            raise ValueError(
+                "Cannot remove a variable: some experiments were recorded without "
+                "stored recipes, so the history cannot be re-encoded. Deactivate it "
+                "instead, or start a fresh project."
+            )
+
+        used = [
+            i for i, r in enumerate(self.recipe_history)
+            if float(r.get(name, 0.0)) != 0.0
+        ]
+        if used and not force:
+            shown = ", ".join(f"#{i}" for i in used[:5])
+            more = f" (+{len(used) - 5} more)" if len(used) > 5 else ""
+            raise ValueError(
+                f"'{name}' was used at a nonzero amount in experiment(s) {shown}{more}. "
+                f"Deleting it would discard that information. Deactivate it instead to "
+                f"stop searching over it while keeping the data, or pass force=True."
+            )
+
+        remaining = [v for v in self.variables if v['name'] != name]
+        if not any(v.get('active', True) for v in remaining):
+            raise ValueError("Cannot remove the last active variable.")
+
+        self.variables = remaining
+        self.ingredient_properties.pop(name, None)
+        for recipe in self.recipe_history:
+            recipe.pop(name, None)
+
+        kept = []
+        for qc in getattr(self, 'quantity_constraints', []):
+            qc['ingredients'] = [n for n in qc['ingredients'] if n != name]
+            if qc['ingredients']:
+                kept.append(qc)
+        self.quantity_constraints = kept
+
+        self._reencode_history()
+        self.save()
+
     def set_bo_config(self, spec):
         """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the
         library defaults (arm 1). Chosen once at project start, not per iteration."""
@@ -695,11 +933,21 @@ class FoodOptimizer:
         if not self.Y_history:
             return "No experiments recorded yet."
         best_i = int(np.argmax(self.Y_history))
-        active = [v['name'] for v in self.variables]
-        lines = [f"Active variables ({len(active)}): {active}", ""]
+        active = [v['name'] for v in self.active_variables()]
+        inactive = [
+            f"{v['name']} (pinned at {self._frozen_value(v):.3g})"
+            for v in self.inactive_variables()
+        ]
+        all_names = [v['name'] for v in self.variables]
+        lines = [f"Active variables ({len(active)}): {active}"]
+        if inactive:
+            lines.append(f"Pruned / inactive ({len(inactive)}): {inactive}")
+        lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
-            comp = ", ".join(f"{k}={rec[k]:.3g}" for k in active if rec.get(k))
+            # Show every variable that was actually used, including since-pruned
+            # ones, so the expert can see what a pruned variable contributed.
+            comp = ", ".join(f"{k}={rec[k]:.3g}" for k in all_names if rec.get(k))
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
@@ -859,6 +1107,8 @@ class FoodOptimizer:
         for var in self.variables:
             if 'bounds' in var and isinstance(var['bounds'], list):
                 var['bounds'] = tuple(var['bounds'])
+            var.setdefault('category', 'ingredient')
+            var.setdefault('active', True)
 
         # Rebuild encoded vectors and utility scores from raw data
         if self.recipe_history and self.variables:

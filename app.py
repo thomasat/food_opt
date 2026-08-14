@@ -61,7 +61,13 @@ with st.sidebar:
     # A project that failed to load must never look like an empty success.
     if getattr(opt, "load_error", None):
         st.error(opt.load_error)
-    st.caption(f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments")
+    _n_act = len(opt.active_variables())
+    _n_all = len(opt.variables)
+    _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
+    st.caption(
+        f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
+        f"| {_n_act} active vars{_pruned}"
+    )
 
     # --- Backup & Restore ---
     st.divider()
@@ -193,7 +199,12 @@ with tab_setup:
         if ingredient_vars:
             st.caption("Current ingredients:")
             ing_df = pd.DataFrame([
-                {"Name": v['name'], "Min": v['bounds'][0], "Max": v['bounds'][1]}
+                {
+                    "Name": v['name'],
+                    "Min": v['bounds'][0],
+                    "Max": v['bounds'][1],
+                    "Status": "active" if v.get('active', True) else "pruned",
+                }
                 for v in ingredient_vars
             ])
             st.dataframe(ing_df, hide_index=True, height=150)
@@ -245,7 +256,10 @@ with tab_setup:
             for i, pv in enumerate(proc_vars):
                 pc1, pc2 = st.columns([3, 1])
                 with pc1:
-                    st.text(f"{pv['name']}: [{pv['bounds'][0]}, {pv['bounds'][1]}]")
+                    _tag = "" if pv.get('active', True) else "  (pruned)"
+                    st.text(
+                        f"{pv['name']}: [{pv['bounds'][0]}, {pv['bounds'][1]}]{_tag}"
+                    )
                 with pc2:
                     if st.button("Remove", key=f"rm_pp_{i}"):
                         st.session_state.optimizer.remove_process_parameter(pv['name'])
@@ -601,9 +615,18 @@ with tab_optimize:
     with st.expander("Adaptive EGBO: export trajectory & revise design space"):
         _opt = st.session_state.optimizer
 
+        _act = _opt.active_variables()
+        _inact = _opt.inactive_variables()
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            st.metric("Active variables |S|", len(_act))
+        with ac2:
+            st.metric("Pruned (still in GP)", len(_inact))
+
         st.markdown(
-            "**1. Export the trajectory** to query the expert for ingredients to add. "
-            "Append your candidate pool (minus the active variables) before sending."
+            "**1. Export the trajectory** to query the expert for ingredients to add "
+            "or remove. Append your candidate pool (minus the active variables) "
+            "before sending."
         )
         st.code(_opt.export_trajectory(), language="text")
 
@@ -668,6 +691,92 @@ with tab_optimize:
                         st.rerun()
                     except ValueError as e:
                         st.error(str(e))
+
+        st.divider()
+        st.markdown(
+            "**3. Prune the design space.** Deactivating a variable removes it from "
+            "the active set without deleting anything: past experiments stay in the "
+            "GP, and only the acquisition search is restricted (the variable is held "
+            "at its pinned value). Fully reversible — this is what lets the active "
+            "set shrink as well as grow, so expert false positives don't accumulate."
+        )
+
+        if len(_act) > 1:
+            _off = st.multiselect(
+                "Deactivate (prune from the active set)",
+                [v['name'] for v in _act],
+                key="egbo_deactivate",
+                help="Ingredients pin at 0; process parameters pin at their baseline "
+                     "or lower bound.",
+            )
+            if st.button("Deactivate selected", disabled=not _off):
+                try:
+                    for nm in _off:
+                        _opt.deactivate_variable(nm)
+                    st.session_state.pop("current_batch", None)
+                    st.session_state.show_backup_warning = True
+                    st.success(f"Pruned: {', '.join(_off)} — generate a new batch.")
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+        else:
+            st.caption("At least 2 active variables are needed before pruning.")
+
+        if _inact:
+            st.caption("Currently pruned — pinned during search, still in the GP:")
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Name": v['name'],
+                        "Type": v.get('category', 'ingredient'),
+                        "Pinned at": _opt._frozen_value(v),
+                    }
+                    for v in _inact
+                ]),
+                hide_index=True,
+            )
+            _on = st.multiselect(
+                "Reactivate (return to the active set)",
+                [v['name'] for v in _inact],
+                key="egbo_reactivate",
+            )
+            if st.button("Reactivate selected", disabled=not _on):
+                for nm in _on:
+                    _opt.reactivate_variable(nm)
+                st.session_state.pop("current_batch", None)
+                st.session_state.show_backup_warning = True
+                st.success(f"Reactivated: {', '.join(_on)} — generate a new batch.")
+                st.rerun()
+
+        # Checkbox rather than an expander: Streamlit forbids nested expanders.
+        if st.checkbox("Show permanent deletion (rarely needed)", key="egbo_show_del"):
+            st.caption(
+                "Deletion drops the ingredient's column from the encoded history. "
+                "It is refused if the ingredient was ever used at a nonzero amount, "
+                "since that would rewrite past experiments into recipes nobody ran. "
+                "Deactivation above is almost always what you want."
+            )
+            _ing_names = [
+                v['name'] for v in _opt.variables
+                if v.get('category', 'ingredient') == 'ingredient'
+            ]
+            if _ing_names:
+                _del = st.selectbox("Ingredient", _ing_names, key="egbo_del_pick")
+                _force = st.checkbox(
+                    "Force delete even if it was used (discards that information)",
+                    key="egbo_del_force",
+                )
+                if st.button("Delete permanently", key="egbo_del_btn"):
+                    try:
+                        _opt.remove_ingredient(_del, force=_force)
+                        st.session_state.pop("current_batch", None)
+                        st.session_state.show_backup_warning = True
+                        st.success(f"Deleted '{_del}'.")
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+            else:
+                st.caption("No ingredients loaded.")
 
     st.divider()
 
