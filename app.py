@@ -208,17 +208,33 @@ with tab_setup:
         )
 
         with st.form("process_param_form"):
-            pp_cols = st.columns(3)
+            pp_cols = st.columns(4)
             with pp_cols[0]:
-                pp_name = st.text_input("Parameter Name", placeholder="e.g. Baking_Temp")
+                pp_name = st.text_input(
+                    "Parameter Name", placeholder="e.g. Baking_Temp", key="pp_name")
             with pp_cols[1]:
                 pp_min = st.number_input("Min Value", value=0.0, key="pp_min")
             with pp_cols[2]:
                 pp_max = st.number_input("Max Value", value=100.0, key="pp_max")
+            with pp_cols[3]:
+                pp_base = st.number_input(
+                    "Baseline", value=0.0, key="pp_base",
+                    help="Only needed once you have experiments: the value this "
+                         "parameter had in ALL past batches (past experiments "
+                         "encode at this value; must be between Min and Max).",
+                )
             if st.form_submit_button("Add Process Parameter"):
                 if pp_name:
-                    st.session_state.optimizer.add_process_parameter(pp_name, pp_min, pp_max)
-                    st.success(f"Added process parameter: {pp_name}")
+                    try:
+                        st.session_state.optimizer.add_process_parameter(
+                            pp_name, pp_min, pp_max,
+                            baseline=(pp_base if st.session_state.optimizer.X_history
+                                      else None),
+                        )
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success(f"Added process parameter: {pp_name}")
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables

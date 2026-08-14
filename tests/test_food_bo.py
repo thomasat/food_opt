@@ -554,3 +554,52 @@ class TestPersistence:
         opt_configured.import_json(exported)
         # After import, bounds should be tuples again
         assert isinstance(opt_configured.variables[0]["bounds"], tuple)
+
+
+# ------------------------------------------------------------------ #
+#  Full journey
+# ------------------------------------------------------------------ #
+
+
+class TestFullJourney:
+    def test_full_process_with_midrun_process_parameter(self, tmp_path, monkeypatch):
+        """The full user journey: CSV ingredients -> objective -> recorded
+        experiments -> process parameter added mid-run (needs a baseline) ->
+        new suggestions include it -> everything survives a reload."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("journey")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Water", "Flour", "Sugar"],
+            "Min": [10, 5, 0], "Max": [80, 50, 30],
+            "Cost": [0.0, 0.5, 0.8],
+        }))
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        for amounts, taste in [((40, 30, 10), 6.0), ((50, 20, 15), 7.0),
+                               ((60, 10, 5), 5.5)]:
+            recipe = dict(zip(["Water", "Flour", "Sugar"], amounts))
+            opt.tell(recipe, {"Taste": taste})
+
+        # Mid-run with no baseline must be a clear ValueError (the app shows
+        # its text), never a crash — and must not half-add the variable.
+        with pytest.raises(ValueError, match="baseline"):
+            opt.add_process_parameter("Oven_Temp", 150, 220)
+        assert all(v["name"] != "Oven_Temp" for v in opt.variables)
+
+        # A baseline outside [min, max] is also a clear error.
+        with pytest.raises(ValueError, match="must lie within"):
+            opt.add_process_parameter("Oven_Temp", 150, 220, baseline=100)
+
+        opt.add_process_parameter("Oven_Temp", 150, 220, baseline=180)
+        # History re-encoded: every past experiment ran at the baseline.
+        assert all(len(x) == 4 for x in opt.X_history)
+        assert all(x[3] == 180.0 for x in opt.X_history)
+
+        batch = opt.ask(n_suggestions=1)
+        assert 150 <= batch[0]["Oven_Temp"] <= 220
+        opt.tell(batch[0], {"Taste": 8.0})
+
+        reloaded = FoodOptimizer("journey")
+        assert reloaded.load_error is None
+        assert len(reloaded.X_history) == 4
+        assert all(len(x) == 4 for x in reloaded.X_history)
+        assert reloaded.X_history[0][3] == 180.0

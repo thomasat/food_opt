@@ -189,10 +189,57 @@ opt.add_ingredient("sugar", 0.0, 50.0)
 opt.add_objective("taste", 1.0, goal="max")
 batch = opt.ask(n_suggestions=1)
 opt.tell(batch[0], {"taste": 7.5})
+# Full process continues: a parameter added mid-run needs a baseline (clear
+# error without one), history re-encodes, and everything survives a reload.
+try:
+    opt.add_process_parameter("oven_temp", 150.0, 220.0)
+    raise SystemExit("expected ValueError without baseline")
+except ValueError:
+    pass
+opt.add_process_parameter("oven_temp", 150.0, 220.0, baseline=180.0)
+batch2 = opt.ask(n_suggestions=1)
+assert 150.0 <= batch2[0]["oven_temp"] <= 220.0
+opt.tell(batch2[0], {"taste": 8.0})
+opt2 = FoodOptimizer("E2E_Smoke")
+assert opt2.load_error is None and len(opt2.X_history) == 2
+assert all(len(x) == 3 for x in opt2.X_history)
+assert opt2.X_history[0][2] == 180.0  # first experiment encoded at baseline
 print("SMOKE_OK")
 PY
 )"
 if echo "$SMOKE_OUT" | grep -q SMOKE_OK; then ok "FoodOptimizer smoke test"; else fail "FoodOptimizer smoke test ($SMOKE_OUT)"; fi
+
+echo "-- test 5b: bundled UI surfaces errors as messages, not tracebacks --"
+UI_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
+  APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
+  "$SUPPORT/venv/bin/python" - <<'PY'
+import os
+from streamlit.testing.v1 import AppTest
+from food_bo import FoodOptimizer
+
+opt = FoodOptimizer("UI_Check")
+opt.add_ingredient("water", 0.0, 100.0)
+opt.add_objective("taste", 1.0, goal="max")
+opt.tell({"water": 50.0}, {"taste": 7.0})
+
+at = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+at.session_state["_loaded_project"] = "UI_Check"
+at.run()
+assert not at.exception, at.exception
+at.text_input(key="pp_name").set_value("oven_temp")
+at.number_input(key="pp_min").set_value(150.0)
+at.number_input(key="pp_max").set_value(220.0)
+at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
+next(b for b in at.button if b.label == "Add Process Parameter").click()
+at.run()
+assert not at.exception, at.exception   # a traceback here is the bug
+assert any("must lie within" in str(e.value) for e in at.error)
+print("UI_OK")
+PY
+)"
+if echo "$UI_OUT" | grep -q UI_OK; then ok "bundled UI error handling"; else fail "bundled UI error handling ($UI_OUT)"; fi
 assert "pkl saved to data dir" test -f "$DATA/E2E_Smoke.pkl"
 # Project files must be JSON (safe to open), not executable pickle.
 assert "project file is JSON" "$SUPPORT/venv/bin/python" -c "import json,sys; json.load(open(sys.argv[1]))" "$DATA/E2E_Smoke.pkl"
