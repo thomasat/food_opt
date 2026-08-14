@@ -43,9 +43,11 @@ assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=fals
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
-for pkg in streamlit botorch gpytorch torch pandas numpy matplotlib tornado; do
+for pkg in streamlit botorch gpytorch torch pandas numpy tornado; do
   assert "lock pins $pkg" grep -qi "^$pkg==" "$LOCK"
 done
+# The macOS lock must never inherit the Linux-only +cpu wheel variant.
+if grep -q '+cpu' "$LOCK"; then fail "lock is macOS-resolvable (no +cpu)"; else ok "lock is macOS-resolvable (no +cpu)"; fi
 if grep -qi '^pytest==' "$LOCK"; then fail "lock excludes pytest"; else ok "lock excludes pytest"; fi
 
 echo "== Level 1: build =="
@@ -59,7 +61,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py theory.py requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"

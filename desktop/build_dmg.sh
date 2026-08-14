@@ -32,7 +32,9 @@ xcrun swiftc -O -target arm64-apple-macos13.0 \
   -o "$APP_DIR/Contents/MacOS/FoodOptimizer"
 chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
-for f in app.py food_bo.py theory.py; do
+# theory.py is deliberately not bundled: nothing in the app imports it, and
+# it needs matplotlib, which left requirements.txt with the deploy cleanup.
+for f in app.py food_bo.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
