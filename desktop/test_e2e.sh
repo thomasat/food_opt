@@ -72,7 +72,13 @@ if [ "$SIZE" -lt 62914560 ]; then ok "dmg under 60MB ($SIZE bytes)"; else fail "
 
 echo "== Level 1: dmg contents =="
 hdiutil detach "$VOL" >/dev/null 2>&1 || true
-assert "dmg mounts" hdiutil attach -nobrowse -readonly "$DMG"
+ATTACH_OUT="$(hdiutil attach -nobrowse -readonly "$DMG" 2>/dev/null)"
+if [ -n "$ATTACH_OUT" ]; then ok "dmg mounts"; else fail "dmg mounts"; fi
+# Use the ACTUAL mount point from hdiutil's output: if another Food Optimizer
+# volume is already mounted (e.g. someone testing the shipped dmg), ours lands
+# at "Food Optimizer 1" and assuming the name would silently run every later
+# check against the wrong, stale bundle.
+VOL="$(printf '%s\n' "$ATTACH_OUT" | grep -o '/Volumes/.*' | tail -1 | sed 's/[[:space:]]*$//')"
 assert "dmg has app"            test -d "$VOL/$APP_NAME.app"
 assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
