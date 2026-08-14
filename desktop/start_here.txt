@@ -42,10 +42,10 @@ YOUR DATA STAYS ON YOUR COMPUTER
   no tracking.
 
 NEED HELP?
-Use the Help menu inside the app: "Email Support" starts an email to
-us, and "Show Log File" finds the technical details file to attach.
-Or email sohum.patnaik@fsi.org directly. If the app will not open,
-attach the app's log file: in Finder, click the Go menu, choose
+Please reach out to the Food Intelligence Lab. When you do, attaching
+the app's technical details file helps us help you: inside the app,
+the Help menu's "Show Log File" finds it for you. If the app will not
+open, find it in Finder instead: click the Go menu, choose
 "Go to Folder...", paste the line below, press Return, and attach
 the file that opens:
   ~/Library/Application Support/FoodOptimizer/launcher.log

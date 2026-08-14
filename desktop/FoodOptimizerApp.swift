@@ -121,8 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let helpItem = NSMenuItem(); main.addItem(helpItem)
         let helpMenu = NSMenu(title: "Help")
-        helpMenu.addItem(NSMenuItem(title: "Email Support",
-            action: #selector(emailSupport), keyEquivalent: ""))
+        helpMenu.addItem(NSMenuItem(title: "Get Help",
+            action: #selector(getHelp), keyEquivalent: ""))
         helpMenu.addItem(NSMenuItem(title: "Show Log File",
             action: #selector(showLogFile), keyEquivalent: ""))
         helpItem.submenu = helpMenu
@@ -136,24 +136,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             at: dataDir, withIntermediateDirectories: true)
         NSWorkspace.shared.open(dataDir)
     }
-    @objc func emailSupport() {
-        let address = "sohum.patnaik@fsi.org"
-        let url = URL(string:
-            "mailto:\(address)?subject=Food%20Optimizer%20help")!
-        if NSWorkspace.shared.open(url) { return }
-        // No email app configured — show the address instead of doing nothing.
+    @objc func getHelp() {
         let alert = NSAlert()
-        alert.messageText = "Email us at \(address)"
+        alert.messageText = "Need help? Reach out to the Food Intelligence Lab"
         alert.informativeText =
-            "No email app is set up on this Mac, so we couldn't start a "
-            + "message for you. Copy the address and use your usual email "
-            + "instead."
-        alert.addButton(withTitle: "Copy Address")
-        alert.addButton(withTitle: "OK")
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(address, forType: .string)
-        }
+            "Describe what happened and, if you can, attach the app's log "
+            + "file to your message — Help › Show Log File finds it for you."
+        alert.runModal()
     }
     @objc func showLogFile() {
         let log = supportDir.appendingPathComponent("launcher.log")
@@ -295,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "then quit (press Cmd-Q) and open Food Optimizer again. "
                        + "After that, no internet is needed. If you are connected "
                        + "but this message keeps coming back (some office networks "
-                       + "block downloads), use Help › Email Support.")
+                       + "block downloads), reach out to the Food Intelligence Lab.")
         case 4:
             showStatus("Not enough free space to set up",
                        "Food Optimizer needs about 5 GB of free space the first "
@@ -304,8 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         default:
             showStatus("The app could not start",
                        "Please quit and open Food Optimizer again. If this keeps "
-                       + "happening, use Help › Email Support and attach the file "
-                       + "from Help › Show Log File.")
+                       + "happening, reach out to the Food Intelligence Lab and "
+                       + "attach the file from Help › Show Log File.")
         }
     }
 
@@ -334,9 +323,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             showStatus("Food Optimizer could not start",
                        "Another copy of the app seemed to be starting, but it "
                        + "never finished. Please quit (press Cmd-Q) and open "
-                       + "Food Optimizer again. If this keeps happening, use "
-                       + "Help › Email Support and attach the file from "
-                       + "Help › Show Log File.")
+                       + "Food Optimizer again. If this keeps happening, reach "
+                       + "out to the Food Intelligence Lab and attach the file "
+                       + "from Help › Show Log File.")
             return
         }
         guard let port = readServerPort(),
@@ -375,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                             self.showStatus("Food Optimizer stopped unexpectedly",
                                 "Your projects are saved. Please quit (press Cmd-Q) "
                                 + "and open Food Optimizer again. If this keeps "
-                                + "happening, use Help › Email Support.")
+                                + "happening, reach out to the Food Intelligence Lab.")
                         }
                     }
                 }
@@ -515,7 +504,7 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
         showStatus("Food Optimizer stopped unexpectedly",
                    "Your projects are saved. Please quit (press Cmd-Q) and "
                    + "open Food Optimizer again. If this keeps happening, "
-                   + "use Help › Email Support.")
+                   + "reach out to the Food Intelligence Lab.")
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction,
