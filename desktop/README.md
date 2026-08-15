@@ -108,6 +108,27 @@ Notes:
 > works fully offline.
 > Your data never leaves your computer.
 
+## Testing an unsigned build on another Mac
+
+A browser download stamps the dmg with macOS's quarantine flag, and an
+unsigned build fails that inspection: the app shows **"Food Optimizer is
+damaged and can't be opened"**, and even `Start Here.txt` on the mounted
+image can show a bogus **"you don't have permission"** error (sandboxed
+apps refuse documents on quarantined volumes). The file is fine — this is
+Gatekeeper rejecting the missing signature.
+
+Internal testers only — remove the flag before mounting:
+
+```bash
+xattr -d com.apple.quarantine ~/Downloads/FoodOptimizer-X.Y.Z.dmg
+```
+
+(No output = success. If the app was already copied to /Applications from
+a quarantined mount, delete it and drag it again from the cleaned image.)
+
+Real recipients must never need this: signing + notarization removes the
+warnings entirely, and the checklist below gates distribution on that.
+
 ## Manual checklist before every distribution
 
 1. `./desktop/test_e2e.sh` passes.
