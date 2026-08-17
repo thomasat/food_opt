@@ -2,7 +2,6 @@ import json
 import os
 import glob
 import shutil
-import pickle
 
 import streamlit as st
 import pandas as pd
@@ -49,14 +48,19 @@ with st.sidebar:
     # Initialize or upgrade optimizer
     if "optimizer" not in st.session_state:
         st.session_state.optimizer = FoodOptimizer(project_name)
-        st.success(f"Initialized: {project_name}")
+        if not getattr(st.session_state.optimizer, "load_error", None):
+            st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
         st.session_state.optimizer = FoodOptimizer(
             st.session_state.optimizer.project_name
         )
-        st.success("Upgraded session to latest version.")
+        if not getattr(st.session_state.optimizer, "load_error", None):
+            st.success("Upgraded session to latest version.")
 
     opt = st.session_state.optimizer
+    # A project that failed to load must never look like an empty success.
+    if getattr(opt, "load_error", None):
+        st.error(opt.load_error)
     _n_act = len(opt.active_variables())
     _n_all = len(opt.variables)
     _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
@@ -69,44 +73,87 @@ with st.sidebar:
     st.divider()
     st.subheader("Backup & Restore")
 
-    project_json = json.dumps(opt.export_json(), indent=2)
-    st.download_button(
-        "Download Project Backup",
-        data=project_json,
-        file_name=f"{opt.project_name}.json",
-        mime="application/json",
-    )
+    if getattr(opt, "load_error", None):
+        # Never offer a "backup" of a project that failed to load — it would
+        # be an empty file wearing the project's name.
+        st.caption(
+            "Backup download is unavailable while the project file "
+            "cannot be read."
+        )
+    else:
+        project_json = json.dumps(opt.export_json(), indent=2)
+        st.download_button(
+            "Download Project Backup",
+            data=project_json,
+            file_name=f"{opt.project_name}.json",
+            mime="application/json",
+        )
 
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
     if uploaded_json is not None:
         if st.button("Restore Project"):
-            state = json.loads(uploaded_json.read())
-            state['project_name'] = st.session_state.optimizer.project_name
-            st.session_state.optimizer.import_json(state)
-            st.success(
-                f"Restored {len(st.session_state.optimizer.X_history)} experiments "
-                f"into {st.session_state.optimizer.project_name}"
-            )
-            st.rerun()
+            try:
+                state = json.loads(uploaded_json.read())
+                state['project_name'] = st.session_state.optimizer.project_name
+                st.session_state.optimizer.import_json(state)
+            except Exception:
+                st.error(
+                    "This backup file couldn't be read. Make sure it's a "
+                    "backup downloaded from Food Optimizer (a .json file) "
+                    "and try again."
+                )
+            else:
+                st.success(
+                    f"Restored {len(st.session_state.optimizer.X_history)} experiments "
+                    f"into {st.session_state.optimizer.project_name}"
+                )
+                st.rerun()
 
     # --- Hard Reset ---
     st.divider()
 
     if st.button("Hard Reset Project"):
-        fname = f"{project_name}.pkl"
-        if os.path.exists(fname):
-            archive_name = f"{project_name}_archived.pkl"
-            counter = 1
-            while os.path.exists(archive_name):
-                archive_name = f"{project_name}_archived_{counter}.pkl"
-                counter += 1
-            os.rename(fname, archive_name)
-            st.info(f"Archived as {archive_name}")
-        st.session_state.pop("optimizer", None)
-        st.session_state.pop("_loaded_project", None)
-        st.session_state.pop("current_batch", None)
-        st.rerun()
+        st.session_state.confirm_reset = True
+    if st.session_state.get("confirm_reset"):
+        st.warning(
+            "This clears the current project so you can start over. "
+            "Your existing data is kept in an archive file, not deleted."
+        )
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("Yes, reset", type="primary", use_container_width=True):
+                st.session_state.confirm_reset = False
+                fname = f"{project_name}.pkl"
+                if os.path.exists(fname):
+                    archive_name = f"{project_name}_archived.pkl"
+                    counter = 1
+                    while os.path.exists(archive_name):
+                        archive_name = f"{project_name}_archived_{counter}.pkl"
+                        counter += 1
+                    os.rename(fname, archive_name)
+                    st.info(f"Your previous data was archived as {archive_name}")
+                st.session_state.pop("optimizer", None)
+                st.session_state.pop("_loaded_project", None)
+                st.session_state.pop("current_batch", None)
+                st.rerun()
+        with col_no:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.confirm_reset = False
+                st.rerun()
 
+
+# A damaged project must never be silently overwritten: every edit below
+# calls save(), so pause the editing UI until the user restores a backup or
+# hard-resets (both stay available in the sidebar, as does switching project).
+if getattr(st.session_state.optimizer, "load_error", None):
+    st.error(st.session_state.optimizer.load_error)
+    st.info(
+        "To protect the original file, editing is paused. In the sidebar on "
+        "the left you can: restore a backup you downloaded earlier "
+        "(Restore from backup), or start this project over "
+        "(Hard Reset Project — the damaged file is archived, not deleted)."
+    )
+    st.stop()
 
 # ================================================================== #
 #  Tab 1: Setup & Config
@@ -126,8 +173,17 @@ with tab_setup:
         st.info("Upload CSV with columns: Name, Min, Max. Optional: Cost, Protein, etc.")
 
         uploaded_csv = st.file_uploader("Upload Ingredients CSV", type=["csv"])
+        df = None
         if uploaded_csv:
-            df = pd.read_csv(uploaded_csv)
+            try:
+                df = pd.read_csv(uploaded_csv)
+            except Exception:
+                st.error(
+                    "This file couldn't be read as a CSV. If it came from "
+                    "Excel, use File > Save As and pick CSV format, then "
+                    "try again."
+                )
+        if df is not None:
             st.dataframe(df.head(), height=150)
             if st.button("Load Ingredients"):
                 try:
@@ -163,17 +219,33 @@ with tab_setup:
         )
 
         with st.form("process_param_form"):
-            pp_cols = st.columns(3)
+            pp_cols = st.columns(4)
             with pp_cols[0]:
-                pp_name = st.text_input("Parameter Name", placeholder="e.g. Baking_Temp")
+                pp_name = st.text_input(
+                    "Parameter Name", placeholder="e.g. Baking_Temp", key="pp_name")
             with pp_cols[1]:
                 pp_min = st.number_input("Min Value", value=0.0, key="pp_min")
             with pp_cols[2]:
                 pp_max = st.number_input("Max Value", value=100.0, key="pp_max")
+            with pp_cols[3]:
+                pp_base = st.number_input(
+                    "Baseline", value=0.0, key="pp_base",
+                    help="Only needed once you have experiments: the value this "
+                         "parameter had in ALL past batches (past experiments "
+                         "encode at this value; must be between Min and Max).",
+                )
             if st.form_submit_button("Add Process Parameter"):
                 if pp_name:
-                    st.session_state.optimizer.add_process_parameter(pp_name, pp_min, pp_max)
-                    st.success(f"Added process parameter: {pp_name}")
+                    try:
+                        st.session_state.optimizer.add_process_parameter(
+                            pp_name, pp_min, pp_max,
+                            baseline=(pp_base if st.session_state.optimizer.X_history
+                                      else None),
+                        )
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success(f"Added process parameter: {pp_name}")
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables
@@ -243,14 +315,14 @@ with tab_setup:
     with col_b:
         # --- C. Low-Fidelity Model ---
         st.subheader("C. Low-Fidelity Model (Optional)")
-        uploaded_pkl = st.file_uploader("Upload Model .pkl", type=["pkl"])
-        if uploaded_pkl:
-            try:
-                model = pickle.load(uploaded_pkl)
-                st.session_state.optimizer.load_screening_model(model)
-                st.success("Model loaded!")
-            except Exception as e:
-                st.error(f"Error loading pickle: {e}")
+        # The old ".pkl model" upload is intentionally disabled: loading a
+        # pickle file runs whatever code is inside it, so accepting one from
+        # another person would be a security risk. This advanced screening
+        # feature can return in a safe format if a pilot user needs it.
+        st.caption(
+            "Advanced screening-model upload is turned off in this version. "
+            "Contact us if you need it."
+        )
 
         st.divider()
 
@@ -366,63 +438,63 @@ with tab_setup:
             st.write("Load ingredients first to add quantity constraints.")
 
         st.divider()
-        st.subheader("F. BO Hyperparameters (optional)")
-        st.caption(
-            "Standard = library defaults. 'Expert-selected' lets the expert fix the "
-            "GP kernel, lengthscale prior, noise handling and acquisition **once** at "
-            "the start (the GP still refits lengthscales/noise from data each "
-            "iteration). Set before the first recipe."
-        )
-        _opt = st.session_state.optimizer
-        _cur_cfg = getattr(_opt, "bo_config", None)
-        _mode = st.radio(
-            "BO hyperparameters",
-            ["Standard (default)", "Expert-selected"],
-            index=1 if _cur_cfg else 0,
-            key="bo_cfg_mode",
-            horizontal=True,
-        )
-        if _mode == "Standard (default)":
-            if _cur_cfg is not None and st.button("Apply: revert to defaults"):
-                _opt.set_bo_config(None)
-                st.success("Using default BO hyperparameters.")
-                st.rerun()
-        else:
-            with st.form("bo_config_form"):
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
-                    _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
-                with bc2:
-                    _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
-                    _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
-                st.caption(
-                    "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
-                    "sensory panel — keep `default` unless you have a specific reason."
-                )
-                if st.form_submit_button("Apply expert config"):
-                    _opt.set_bo_config({
-                        "kernel": _k, "lengthscale_prior": _lp,
-                        "noise": _ns, "acquisition": _aq,
-                    })
-                    st.success(f"BO config set: {_opt.bo_config}")
+        with st.expander("Advanced: model settings (most people can skip this)"):
+            st.caption(
+                "Leave this on Standard unless you know the statistics behind "
+                "the optimizer. Standard uses sensible defaults. 'Expert-selected' "
+                "lets a specialist fix the model's kernel, prior, noise handling "
+                "and acquisition once at the start."
+            )
+            _opt = st.session_state.optimizer
+            _cur_cfg = getattr(_opt, "bo_config", None)
+            _mode = st.radio(
+                "Model settings",
+                ["Standard (default)", "Expert-selected"],
+                index=1 if _cur_cfg else 0,
+                key="bo_cfg_mode",
+                horizontal=True,
+            )
+            if _mode == "Standard (default)":
+                if _cur_cfg is not None and st.button("Apply: revert to defaults"):
+                    _opt.set_bo_config(None)
+                    st.success("Using default model settings.")
                     st.rerun()
-            with st.expander("Or paste an expert config (JSON)"):
-                _txt = st.text_area(
-                    "Expert config JSON",
-                    value='{"kernel": "matern52", "lengthscale_prior": "default", '
-                          '"noise": "default", "acquisition": "qlognei"}',
-                    key="bo_cfg_json",
-                )
-                if st.button("Apply pasted config"):
-                    try:
-                        _opt.set_bo_config(json.loads(_txt))
-                        st.success(f"BO config set: {_opt.bo_config}")
+            else:
+                with st.form("bo_config_form"):
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
+                        _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
+                    with bc2:
+                        _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
+                        _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
+                    st.caption(
+                        "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
+                        "sensory panel — keep `default` unless you have a specific reason."
+                    )
+                    if st.form_submit_button("Apply expert config"):
+                        _opt.set_bo_config({
+                            "kernel": _k, "lengthscale_prior": _lp,
+                            "noise": _ns, "acquisition": _aq,
+                        })
+                        st.success(f"Model settings set: {_opt.bo_config}")
                         st.rerun()
-                    except Exception as _e:
-                        st.error(f"Invalid JSON: {_e}")
-        if _cur_cfg:
-            st.info(f"Active BO config: {_cur_cfg}")
+                if st.checkbox("Or paste an expert config as JSON", key="bo_cfg_paste"):
+                    _txt = st.text_area(
+                        "Expert config JSON",
+                        value='{"kernel": "matern52", "lengthscale_prior": "default", '
+                              '"noise": "default", "acquisition": "qlognei"}',
+                        key="bo_cfg_json",
+                    )
+                    if st.button("Apply pasted config"):
+                        try:
+                            _opt.set_bo_config(json.loads(_txt))
+                            st.success(f"Model settings set: {_opt.bo_config}")
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"Invalid JSON: {_e}")
+            if _cur_cfg:
+                st.info(f"Active model settings: {_cur_cfg}")
 
 
 # ================================================================== #
@@ -472,6 +544,15 @@ with tab_optimize:
                         st.session_state.current_batch = recipes
                     except ValueError as e:
                         st.error(str(e))
+                    except Exception:
+                        # A raw traceback is a dead end for a nontechnical user.
+                        st.error(
+                            "The optimizer hit an unexpected problem while "
+                            "generating recipes. Try again (a smaller batch "
+                            "often helps); if this keeps happening, relax any "
+                            "recently added constraints or use Help > Email "
+                            "Support."
+                        )
 
         if "current_batch" in st.session_state:
             st.info("Suggested Batch:")
@@ -515,12 +596,16 @@ with tab_optimize:
                     st.divider()
 
                 if st.form_submit_button("Save Results"):
-                    for i, recipe in enumerate(st.session_state.current_batch):
-                        st.session_state.optimizer.tell(recipe, batch_inputs[i])
-                    del st.session_state.current_batch
-                    st.session_state.show_backup_warning = True
-                    st.success("Saved!")
-                    st.rerun()
+                    try:
+                        for i, recipe in enumerate(st.session_state.current_batch):
+                            st.session_state.optimizer.tell(recipe, batch_inputs[i])
+                    except (ValueError, TypeError) as e:
+                        st.error(f"Could not save these results: {e}")
+                    else:
+                        del st.session_state.current_batch
+                        st.session_state.show_backup_warning = True
+                        st.success("Saved!")
+                        st.rerun()
 
     st.divider()
 
@@ -710,8 +795,17 @@ with tab_optimize:
         )
 
         import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
+        import_df = None
         if import_csv is not None:
-            import_df = pd.read_csv(import_csv)
+            try:
+                import_df = pd.read_csv(import_csv)
+            except Exception:
+                st.error(
+                    "This file couldn't be read as a CSV. If it came from "
+                    "Excel, use File > Save As and pick CSV format, then "
+                    "try again."
+                )
+        if import_df is not None:
             st.dataframe(import_df, hide_index=True)
 
             var_names = [v['name'] for v in st.session_state.optimizer.variables]
@@ -727,14 +821,26 @@ with tab_optimize:
                     st.error(f"Columns with missing/NaN values: {nan_cols}")
                 elif st.button("Import All Rows", type="primary"):
                     imported = 0
-                    for _, row in import_df.iterrows():
-                        recipe = {name: float(row[name]) for name in var_names}
-                        results = {name: float(row[name]) for name in obj_names}
-                        st.session_state.optimizer.tell(recipe, results)
-                        imported += 1
-                    st.session_state.show_backup_warning = True
-                    st.success(f"Imported {imported} experiments!")
-                    st.rerun()
+                    import_error = None
+                    try:
+                        for _, row in import_df.iterrows():
+                            recipe = {name: float(row[name]) for name in var_names}
+                            results = {name: float(row[name]) for name in obj_names}
+                            st.session_state.optimizer.tell(recipe, results)
+                            imported += 1
+                    except (ValueError, TypeError) as e:
+                        import_error = e
+                    if import_error is not None:
+                        st.error(
+                            f"Stopped at row {imported + 1}: {import_error} "
+                            f"The {imported} row(s) before it were imported "
+                            f"and saved."
+                        )
+                    if imported:
+                        st.session_state.show_backup_warning = True
+                    if import_error is None and imported:
+                        st.success(f"Imported {imported} experiments!")
+                        st.rerun()
 
     st.divider()
 

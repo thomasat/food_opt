@@ -2,6 +2,7 @@
 
 import json
 import os
+import pickle
 import tempfile
 
 import numpy as np
@@ -102,6 +103,27 @@ class TestVariables:
         assert len(opt.variables) == 3
         assert "Water" in opt.ingredient_properties
         assert opt.ingredient_properties["Flour"]["fat"] == 1.0
+
+    def test_load_ingredients_csv_lowercase_columns(self, opt):
+        """User CSVs vary in header case; lowercase must work (the shipped
+        example file uses name/min/max)."""
+        df = pd.DataFrame({
+            "name": ["Water", "Flour"],
+            "min": [0, 0],
+            "max": [100, 50],
+            "fat_per_100g": [0.0, 1.8],
+        })
+        opt.load_ingredients_from_csv(df)
+        assert len(opt.variables) == 2
+        assert opt.variables[0]["name"] == "Water"
+        assert opt.ingredient_properties["Flour"]["fat_per_100g"] == 1.8
+
+    def test_load_ingredients_csv_missing_column_plain_error(self, opt):
+        """A missing required column must raise a plain-language ValueError
+        (which the app displays nicely), never a raw KeyError."""
+        df = pd.DataFrame({"Name": ["Water"], "Min": [0]})
+        with pytest.raises(ValueError, match="missing required column"):
+            opt.load_ingredients_from_csv(df)
 
     def test_load_csv_rejects_after_experiments(self, opt_configured):
         opt = opt_configured
@@ -415,6 +437,94 @@ class TestPersistence:
         assert len(opt2.variables) == 1
         assert opt2.variables[0]["name"] == "Water"
 
+    def test_save_writes_json_not_pickle(self, tmp_path, monkeypatch):
+        """Project files must be JSON (safe to open) — never executable pickle."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="fmt_test")
+        opt.add_ingredient("Water", 0, 100)
+        opt.save()
+        raw = (tmp_path / "fmt_test.pkl").read_bytes()
+        state = json.loads(raw.decode("utf-8"))   # must parse as JSON
+        assert state["project_name"] == "fmt_test"
+        assert state["variables"][0]["name"] == "Water"
+
+    def test_load_migrates_legacy_pickle(self, tmp_path, monkeypatch):
+        """Existing pickle project files still load, and are rewritten as JSON."""
+        monkeypatch.chdir(tmp_path)
+        legacy = {
+            "project_name": "legacy", "robust": False,
+            "variables": [{"name": "Water", "type": "continuous",
+                           "bounds": (0, 100), "category": "ingredient"}],
+            "objectives": [], "ingredient_properties": {}, "constraints": [],
+            "quantity_constraints": [], "bo_config": None,
+            "X_history": [], "Y_history": [], "recipe_history": [],
+            "results_history": [],
+        }
+        with open(tmp_path / "legacy.pkl", "wb") as f:
+            pickle.dump(legacy, f)
+
+        opt = FoodOptimizer(project_name="legacy")
+        assert opt.variables[0]["name"] == "Water"
+        assert not getattr(opt, "load_error", None)
+        # File is now JSON, not pickle
+        json.loads((tmp_path / "legacy.pkl").read_bytes().decode("utf-8"))
+
+    def test_load_corrupt_file_reports_error_not_silent_success(self, tmp_path, monkeypatch):
+        """A damaged file must surface an error, never load as a blank project
+        while claiming success."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "broken.pkl").write_bytes(b"\x80\x04 not json not pickle \xff\xfe")
+        opt = FoodOptimizer(project_name="broken")
+        assert opt.load_error is not None
+        assert isinstance(opt.load_error, str) and opt.load_error
+
+    def test_restore_backup_clears_load_error(self, tmp_path, monkeypatch):
+        """Restoring a backup into a damaged project clears load_error and
+        rewrites the file as valid JSON (the app's recovery path)."""
+        monkeypatch.chdir(tmp_path)
+        donor = FoodOptimizer(project_name="donor")
+        donor.add_ingredient("Water", 0, 100)
+        backup = donor.export_json()
+
+        (tmp_path / "broken.pkl").write_bytes(b"\x80\x04 not json not pickle \xff\xfe")
+        opt = FoodOptimizer(project_name="broken")
+        assert opt.load_error is not None
+
+        backup["project_name"] = "broken"  # what the app's restore flow does
+        opt.import_json(backup)
+        assert opt.load_error is None
+        assert opt.variables[0]["name"] == "Water"
+        json.loads((tmp_path / "broken.pkl").read_bytes().decode("utf-8"))
+
+    def test_failed_save_preserves_existing_file(self, tmp_path, monkeypatch):
+        """A crash mid-save must never corrupt the previously saved project."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="atomic_test")
+        opt.add_ingredient("Water", 0, 100)
+        opt.save()
+        good_bytes = (tmp_path / "atomic_test.pkl").read_bytes()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("simulated crash mid-write")
+
+        with monkeypatch.context() as m:
+            m.setattr(os, "replace", boom)   # crash at the atomic swap
+            with pytest.raises(RuntimeError):
+                opt.save()
+
+        assert (tmp_path / "atomic_test.pkl").read_bytes() == good_bytes
+        opt2 = FoodOptimizer(project_name="atomic_test")
+        assert opt2.variables[0]["name"] == "Water"
+
+    def test_load_ingredients_nonnumeric_bounds_plain_error(self, tmp_path, monkeypatch):
+        """A text value in Min/Max must give a plain-language error, not a raw
+        'could not convert string to float' traceback."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(project_name="numtest")
+        df = pd.DataFrame({"name": ["Water"], "min": ["abc"], "max": [100]})
+        with pytest.raises(ValueError, match="must be numbers"):
+            opt.load_ingredients_from_csv(df)
+
     def test_export_import_json(self, opt_configured):
         recipe = {"Water": 50, "Flour": 25, "Sugar": 10}
         opt_configured.tell(recipe, {"Taste": 7.0})
@@ -444,6 +554,55 @@ class TestPersistence:
         opt_configured.import_json(exported)
         # After import, bounds should be tuples again
         assert isinstance(opt_configured.variables[0]["bounds"], tuple)
+
+
+# ------------------------------------------------------------------ #
+#  Full journey
+# ------------------------------------------------------------------ #
+
+
+class TestFullJourney:
+    def test_full_process_with_midrun_process_parameter(self, tmp_path, monkeypatch):
+        """The full user journey: CSV ingredients -> objective -> recorded
+        experiments -> process parameter added mid-run (needs a baseline) ->
+        new suggestions include it -> everything survives a reload."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("journey")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Water", "Flour", "Sugar"],
+            "Min": [10, 5, 0], "Max": [80, 50, 30],
+            "Cost": [0.0, 0.5, 0.8],
+        }))
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        for amounts, taste in [((40, 30, 10), 6.0), ((50, 20, 15), 7.0),
+                               ((60, 10, 5), 5.5)]:
+            recipe = dict(zip(["Water", "Flour", "Sugar"], amounts))
+            opt.tell(recipe, {"Taste": taste})
+
+        # Mid-run with no baseline must be a clear ValueError (the app shows
+        # its text), never a crash — and must not half-add the variable.
+        with pytest.raises(ValueError, match="baseline"):
+            opt.add_process_parameter("Oven_Temp", 150, 220)
+        assert all(v["name"] != "Oven_Temp" for v in opt.variables)
+
+        # A baseline outside [min, max] is also a clear error.
+        with pytest.raises(ValueError, match="must lie within"):
+            opt.add_process_parameter("Oven_Temp", 150, 220, baseline=100)
+
+        opt.add_process_parameter("Oven_Temp", 150, 220, baseline=180)
+        # History re-encoded: every past experiment ran at the baseline.
+        assert all(len(x) == 4 for x in opt.X_history)
+        assert all(x[3] == 180.0 for x in opt.X_history)
+
+        batch = opt.ask(n_suggestions=1)
+        assert 150 <= batch[0]["Oven_Temp"] <= 220
+        opt.tell(batch[0], {"Taste": 8.0})
+
+        reloaded = FoodOptimizer("journey")
+        assert reloaded.load_error is None
+        assert len(reloaded.X_history) == 4
+        assert all(len(x) == 4 for x in reloaded.X_history)
+        assert reloaded.X_history[0][3] == 180.0
 
 
 # ------------------------------------------------------------------ #
