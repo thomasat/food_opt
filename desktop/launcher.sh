@@ -34,11 +34,12 @@ if [ "$ARCH" != "arm64" ] || [ "$OS_MAJOR" -lt 13 ]; then
 fi
 
 # ---------- paths ----------
-MACOS_DIR="$(cd "$(dirname "$0")" && pwd)"     # .../Contents/MacOS
-CONTENTS_DIR="$(dirname "$MACOS_DIR")"
-RESOURCES_DIR="$CONTENTS_DIR/Resources"
+# This script lives in Contents/Resources (scripts in Contents/MacOS break
+# code signing: codesign demands a signature on everything in MacOS).
+RESOURCES_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONTENTS_DIR="$(dirname "$RESOURCES_DIR")"
 APP_BUNDLE="$(dirname "$CONTENTS_DIR")"
-UV_BIN="$MACOS_DIR/uv"
+UV_BIN="$CONTENTS_DIR/MacOS/uv"
 
 SUPPORT_DIR="$HOME/Library/Application Support/FoodOptimizer"
 # Home-folder root, NOT ~/Documents: macOS privacy protection (TCC) gates

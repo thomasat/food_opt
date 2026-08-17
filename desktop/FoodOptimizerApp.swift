@@ -243,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func startLauncher() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath:
-            Bundle.main.bundlePath + "/Contents/MacOS/launcher.sh")
+            Bundle.main.bundlePath + "/Contents/Resources/launcher.sh")
         // Detach stdio: the launcher logs to its own file, and piping through
         // this app would SIGPIPE the launcher's shutdown when we exit first.
         p.standardOutput = FileHandle.nullDevice

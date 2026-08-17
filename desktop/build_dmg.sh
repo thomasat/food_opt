@@ -20,9 +20,12 @@ UV_BIN="$("$DESKTOP_DIR/fetch_uv.sh")"
 rm -rf "$APP_DIR" "$DMG_PATH"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
-cp "$DESKTOP_DIR/launcher.sh" "$APP_DIR/Contents/MacOS/launcher.sh"
+# launcher.sh lives in Resources, NOT MacOS: codesign treats everything in
+# Contents/MacOS as code that must carry its own signature, which shell
+# scripts can't do robustly — in Resources the bundle signature seals it.
+cp "$DESKTOP_DIR/launcher.sh" "$APP_DIR/Contents/Resources/launcher.sh"
 cp "$UV_BIN" "$APP_DIR/Contents/MacOS/uv"
-chmod 755 "$APP_DIR/Contents/MacOS/launcher.sh" "$APP_DIR/Contents/MacOS/uv"
+chmod 755 "$APP_DIR/Contents/Resources/launcher.sh" "$APP_DIR/Contents/MacOS/uv"
 
 # Native window wrapper (the bundle executable). Requires Xcode Command
 # Line Tools on the build machine; recipients need nothing extra.

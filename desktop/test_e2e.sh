@@ -53,7 +53,13 @@ if grep -qi '^pytest==' "$LOCK"; then fail "lock excludes pytest"; else ok "lock
 echo "== Level 1: build =="
 if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
 
-assert "launcher executable"  test -x "$DIST_APP/Contents/MacOS/launcher.sh"
+assert "launcher executable"  test -x "$DIST_APP/Contents/Resources/launcher.sh"
+# Scripts in Contents/MacOS break codesign (unsigned nested code); guard it.
+if find "$DIST_APP/Contents/MacOS" -name '*.sh' | grep -q .; then
+  fail "no scripts in Contents/MacOS"
+else
+  ok "no scripts in Contents/MacOS"
+fi
 assert "uv executable"        test -x "$DIST_APP/Contents/MacOS/uv"
 assert "native wrapper executable" test -x "$DIST_APP/Contents/MacOS/FoodOptimizer"
 if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit executable arm64"; then
@@ -89,7 +95,11 @@ assert "dmg has example experiments" test -f "$VOL/Example Data/example experime
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   assert "codesign verifies" codesign --verify --deep --strict "$DIST_APP"
-  assert "spctl accepts app" spctl -a -vv "$VOL/$APP_NAME.app"
+  # Gatekeeper acceptance additionally requires notarization, so only
+  # assert it when this build was actually notarized.
+  if [ -n "${NOTARY_PROFILE:-}" ]; then
+    assert "spctl accepts app" spctl -a -vv "$VOL/$APP_NAME.app"
+  fi
 fi
 
 if [ "$LEVEL1_ONLY" = "1" ]; then
@@ -136,7 +146,7 @@ backup_exists()  { ls "$DATA"/backups/*/E2E_Smoke.pkl >/dev/null 2>&1; }
 server_healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$(server_port)/_stcore/health" 2>/dev/null | grep -q ok; }
 launch() {  # launch <idle_timeout> <logfile>  — starts launcher in background
   HOME="$E2E_HOME" FOODOPT_IDLE_TIMEOUT_SECS="$1" \
-    "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$2" 2>&1 &
+    "$WORK/$APP_NAME.app/Contents/Resources/launcher.sh" > "$2" 2>&1 &
   LAUNCHER_PID=$!
 }
 
@@ -145,7 +155,7 @@ ditto "$VOL/$APP_NAME.app" "$WORK/$APP_NAME.app"
 
 echo "-- test 0: unsupported-machine preflight touches nothing --"
 HOME="$E2E_HOME" FOODOPT_TEST_ARCH=x86_64 \
-  "$WORK/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/arch.out" 2>&1
+  "$WORK/$APP_NAME.app/Contents/Resources/launcher.sh" > "$WORK/arch.out" 2>&1
 RC=$?
 if [ "$RC" = "2" ]; then ok "arch preflight exit code 2"; else fail "arch preflight exit code 2 (got $RC)"; fi
 assert "arch preflight message" grep -q "unsupported machine" "$WORK/arch.out"
@@ -292,7 +302,7 @@ else
 fi
 
 echo "-- test 9: running-from-dmg detection --"
-HOME="$E2E_HOME" "$VOL/$APP_NAME.app/Contents/MacOS/launcher.sh" > "$WORK/run_dmg.out" 2>&1 &
+HOME="$E2E_HOME" "$VOL/$APP_NAME.app/Contents/Resources/launcher.sh" > "$WORK/run_dmg.out" 2>&1 &
 DMG_PID=$!
 if wait_for 15 grep -q "running from disk image" "$WORK/run_dmg.out"; then ok "dmg location detected"; else fail "dmg location detected"; fi
 kill "$DMG_PID" 2>/dev/null
