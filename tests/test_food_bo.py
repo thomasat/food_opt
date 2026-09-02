@@ -492,6 +492,9 @@ class TestPersistence:
 
         backup["project_name"] = "broken"  # what the app's restore flow does
         opt.import_json(backup)
+        # import_json no longer autosaves (spec 2026-09-02): callers persist
+        # explicitly, as the app's restore handler now does.
+        opt.save()
         assert opt.load_error is None
         assert opt.variables[0]["name"] == "Water"
         json.loads((tmp_path / "broken.pkl").read_bytes().decode("utf-8"))

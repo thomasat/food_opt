@@ -29,6 +29,8 @@ from gpytorch.kernels import (
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
 
+from storage import LocalStorage, StorageError
+
 
 # --------------------------------------------------------------------------- #
 #  Expert-selectable BO hyperparameters (optional "arm 3").
@@ -88,17 +90,21 @@ def _build_covar(cfg, dim):
 class FoodOptimizer:
     CLASS_VERSION = 5  # bump when adding methods/attrs to force session refresh
 
-    def __init__(self, project_name="experiment", robust=False):
+    def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
 
         Args:
             project_name: Name used for the .pkl save file.
             robust: If True, uses Input Warping for cliffs/traps.
                     If False (default), uses standard GP for smooth problems.
+            storage: Persistence backend. Defaults to LocalStorage() (the
+                     desktop app's on-disk .pkl files); a cloud backend can
+                     be injected instead.
         """
         self.project_name = project_name
         self.robust = robust
-        self.filename = f"{project_name}.pkl"
+        self.filename = f"{project_name}.pkl"   # informational; kept for compat
+        self.storage = storage if storage is not None else LocalStorage()
 
         self.variables = []
         self.objectives = []
@@ -113,11 +119,19 @@ class FoodOptimizer:
         self.recipe_history = []
         self.results_history = []
         self.load_error = None  # set to a plain-language string if load() fails
+        self.save_error = None  # set when a cloud save fails; cleared on success
 
-        if os.path.exists(self.filename):
-            self.load()
+        try:
+            exists = self.storage.exists(project_name)
+        except StorageError as e:
+            # Backend down: must NOT save (would overwrite a real project
+            # with a blank one). Surface as a load error instead.
+            self.load_error = str(e)
         else:
-            self.save()
+            if exists:
+                self.load()
+            elif self.storage.persist_empty_on_init:
+                self.save()
 
     # ------------------------------------------------------------------ #
     #  Setup: Ingredients & Process Parameters
@@ -919,11 +933,11 @@ class FoodOptimizer:
         """Branch the current state into a new project, saved under a new name.
         Used to split one run into adaptive vs non-adaptive at the first re-query:
         both share an identical pre-fork history."""
-        import copy
-        clone = copy.deepcopy(self)
+        clone = FoodOptimizer(new_project_name, storage=self.storage)
+        state = self.export_json()
+        state['project_name'] = new_project_name
+        clone.import_json(state)
         clone.screening_model = None
-        clone.project_name = new_project_name
-        clone.filename = f"{new_project_name}.pkl"
         clone.save()
         return clone
 
@@ -1001,52 +1015,33 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def save(self):
-        # Project files are stored as JSON (human-readable, and — unlike
-        # pickle — safe to open: loading one can never execute code).
-        # Write-then-rename so a crash mid-write can't corrupt the file.
-        data = json.dumps(self.export_json(), indent=2)
-        tmp_filename = f"{self.filename}.tmp"
+        # Delegates to the storage backend. StorageError (a cloud backend
+        # failure) is swallowed into save_error so the user's in-memory work
+        # survives; the app shows it as a banner. Local I/O errors propagate.
         try:
-            with open(tmp_filename, 'w', encoding='utf-8') as f:
-                f.write(data)
-            os.replace(tmp_filename, self.filename)
-        finally:
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
+            self.storage.save(self.project_name, self.export_json())
+        except StorageError as e:
+            self.save_error = str(e)
+        else:
+            self.save_error = None
 
     def load(self):
-        """Load the project file. Sets self.load_error to a plain-language
-        message on failure instead of silently producing a blank project.
-        Returns True on success, False on failure."""
+        """Load the project via the storage backend. Sets self.load_error to a
+        plain-language message on failure instead of silently producing a
+        blank project. Returns True on success, False on failure."""
         self.load_error = None
         try:
-            with open(self.filename, 'rb') as f:
-                raw = f.read()
-        except OSError:
+            state = self.storage.load(self.project_name)
+        except StorageError as e:
+            self.load_error = str(e)
+            return False
+        if state is None:
             self.load_error = (
-                "This project file could not be opened. It may have been "
-                "moved or deleted."
+                "This project could not be found. It may have been renamed "
+                "or archived."
             )
             return False
-
         try:
-            state = json.loads(raw.decode('utf-8'))
-        except (ValueError, UnicodeDecodeError):
-            # Legacy project files were pickle; migrate them once to JSON.
-            try:
-                state = pickle.loads(raw)
-            except Exception:
-                self.load_error = (
-                    "This project file is damaged and could not be opened. "
-                    "If you have a backup, use Restore from backup; otherwise "
-                    "check the FoodOptimizer > backups folder in your home "
-                    "folder for a recent copy."
-                )
-                return False
-
-        try:
-            # import_json restores every field, rebuilds encoded history, and
-            # re-saves — so a migrated legacy pickle is rewritten as JSON here.
             self.import_json(state)
         except Exception:
             self.load_error = (
@@ -1056,7 +1051,10 @@ class FoodOptimizer:
                 "folder for a recent copy."
             )
             return False
-
+        # Historical behavior for local files: every load re-saves, which
+        # migrates legacy pickles to JSON. Cloud loads are read-only.
+        if self.storage.persist_after_load:
+            self.save()
         return True
 
     def export_json(self):
@@ -1124,4 +1122,3 @@ class FoodOptimizer:
         # A successful import means the in-memory state is valid again, so a
         # restore-from-backup clears any earlier damaged-file error.
         self.load_error = None
-        self.save()
