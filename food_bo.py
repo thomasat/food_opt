@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -118,6 +119,7 @@ class FoodOptimizer:
         self.Y_history = []
         self.recipe_history = []
         self.results_history = []
+        self.timestamps_history = []  # UTC ISO per tell(); parallel to results_history
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
 
@@ -417,6 +419,8 @@ class FoodOptimizer:
             self.recipe_history.pop(index)
         if index < len(self.results_history):
             self.results_history.pop(index)
+        if index < len(self.timestamps_history):
+            self.timestamps_history.pop(index)
         self.save()
 
     def rewind_to(self, index):
@@ -428,6 +432,7 @@ class FoodOptimizer:
         self.Y_history = self.Y_history[:keep]
         self.recipe_history = self.recipe_history[:keep]
         self.results_history = self.results_history[:keep]
+        self.timestamps_history = self.timestamps_history[:keep]
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -694,6 +699,7 @@ class FoodOptimizer:
         self.Y_history.append(self._compute_utility(results_dict))
         self.recipe_history.append(dict(recipe_dict))
         self.results_history.append(dict(results_dict))
+        self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -1083,6 +1089,7 @@ class FoodOptimizer:
             'Y_history': self.Y_history,
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
+            'timestamps_history': self.timestamps_history,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
@@ -1101,6 +1108,9 @@ class FoodOptimizer:
         self.bo_config = validate_bo_config(state.get('bo_config', None))
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
+        self.timestamps_history = state.get('timestamps_history', [])
+        while len(self.timestamps_history) < len(self.results_history):
+            self.timestamps_history.append(None)  # pre-feature files/backups
 
         for var in self.variables:
             if 'bounds' in var and isinstance(var['bounds'], list):

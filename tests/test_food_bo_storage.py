@@ -85,3 +85,39 @@ def test_fork_uses_storage_not_deepcopy():
     assert clone.project_name == "branch"
     assert opt.storage.exists("branch")
     assert clone.variables[0]["name"] == "Water"
+
+
+def _tiny_project(storage=None):
+    opt = FoodOptimizer("t", storage=storage)
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, "max", min_val=0, max_val=10)
+    return opt
+
+
+def test_tell_records_utc_timestamp():
+    opt = _tiny_project()
+    opt.tell({"Water": 10.0}, {"Taste": 5.0})
+    assert len(opt.timestamps_history) == 1
+    assert opt.timestamps_history[0].endswith("+00:00")  # UTC ISO
+
+
+def test_timestamps_survive_roundtrip_and_old_files_pad_none():
+    opt = _tiny_project()
+    opt.tell({"Water": 10.0}, {"Taste": 5.0})
+    state = opt.export_json()
+    assert len(state["timestamps_history"]) == 1
+
+    del state["timestamps_history"]        # simulate a pre-feature backup
+    opt2 = FoodOptimizer("t2")
+    opt2.import_json(state)
+    assert opt2.timestamps_history == [None]
+
+
+def test_delete_and_rewind_keep_lists_parallel():
+    opt = _tiny_project()
+    for v in (1.0, 2.0, 3.0):
+        opt.tell({"Water": v}, {"Taste": v})
+    opt.delete_result(1)
+    assert len(opt.timestamps_history) == len(opt.results_history) == 2
+    opt.rewind_to(0)
+    assert len(opt.timestamps_history) == len(opt.results_history) == 1
