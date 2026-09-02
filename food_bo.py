@@ -89,7 +89,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 5  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 6  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
@@ -120,6 +120,7 @@ class FoodOptimizer:
         self.recipe_history = []
         self.results_history = []
         self.timestamps_history = []  # UTC ISO per tell(); parallel to results_history
+        self.pending_batch = None  # suggested-but-unrated recipes (survives sessions)
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
 
@@ -163,6 +164,7 @@ class FoodOptimizer:
         })
         if self.X_history:
             self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -233,6 +235,7 @@ class FoodOptimizer:
             self.ingredient_properties[name] = props
 
         self.variables.extend(process_vars)
+        self.pending_batch = None
         self.save()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None):
@@ -274,6 +277,7 @@ class FoodOptimizer:
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def remove_process_parameter(self, name):
@@ -282,6 +286,7 @@ class FoodOptimizer:
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
         ]
+        self.pending_batch = None
         self.save()
 
     def load_screening_model(self, model_obj):
@@ -302,6 +307,7 @@ class FoodOptimizer:
             'min_val': float(min_val) if min_val is not None else 0.0,
             'max_val': float(max_val) if max_val is not None else 10.0,
         })
+        self.pending_batch = None
         self.save()
 
     def remove_objective(self, name):
@@ -311,6 +317,7 @@ class FoodOptimizer:
             for i, results_dict in enumerate(self.results_history):
                 if i < len(self.Y_history):
                     self.Y_history[i] = self._compute_utility(results_dict)
+        self.pending_batch = None
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -433,6 +440,7 @@ class FoodOptimizer:
         self.recipe_history = self.recipe_history[:keep]
         self.results_history = self.results_history[:keep]
         self.timestamps_history = self.timestamps_history[:keep]
+        self.pending_batch = None
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -702,6 +710,12 @@ class FoodOptimizer:
         self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
         self.save()
 
+    def set_pending_batch(self, batch_or_none):
+        """Persist (or clear) the suggested-but-not-yet-rated batch so a user
+        who closes the tab mid-experiment finds their recipes on return."""
+        self.pending_batch = batch_or_none
+        self.save()
+
     # ------------------------------------------------------------------ #
     #  Adaptivity + expert BO config (optional arms 2 & 3)
     # ------------------------------------------------------------------ #
@@ -865,6 +879,7 @@ class FoodOptimizer:
 
         var['active'] = False
         var['_frozen_at'] = frozen
+        self.pending_batch = None
         self.save()
 
     def reactivate_variable(self, name):
@@ -875,6 +890,7 @@ class FoodOptimizer:
             return
         var['active'] = True
         var.pop('_frozen_at', None)
+        self.pending_batch = None
         self.save()
 
     def remove_ingredient(self, name, force=False):
@@ -927,6 +943,7 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def set_bo_config(self, spec):
@@ -1090,6 +1107,7 @@ class FoodOptimizer:
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
             'timestamps_history': self.timestamps_history,
+            'pending_batch': self.pending_batch,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
@@ -1109,6 +1127,7 @@ class FoodOptimizer:
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
         self.timestamps_history = state.get('timestamps_history', [])
+        self.pending_batch = state.get('pending_batch', None)
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 

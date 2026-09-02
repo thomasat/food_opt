@@ -121,3 +121,54 @@ def test_delete_and_rewind_keep_lists_parallel():
     assert len(opt.timestamps_history) == len(opt.results_history) == 2
     opt.rewind_to(0)
     assert len(opt.timestamps_history) == len(opt.results_history) == 1
+
+
+def test_pending_batch_roundtrip_and_default():
+    opt = _tiny_project()
+    opt.set_pending_batch([{"Water": 3.0}])
+    opt2 = FoodOptimizer("t")               # loads from disk
+    assert opt2.pending_batch == [{"Water": 3.0}]
+
+    state = opt.export_json()
+    del state["pending_batch"]              # pre-feature backup
+    opt3 = FoodOptimizer("t3")
+    opt3.import_json(state)
+    assert opt3.pending_batch is None
+
+
+def test_design_space_mutations_clear_pending_batch():
+    opt = _tiny_project()
+
+    opt.set_pending_batch([{"Water": 3.0}])
+    opt.add_ingredient("Sugar", 0, 50)
+    assert opt.pending_batch is None
+
+    opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0}])
+    opt.add_objective("Crunch", 0.5, "max", min_val=0, max_val=10)
+    assert opt.pending_batch is None
+
+    opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0}])
+    opt.add_process_parameter("Temp", 100, 200)
+    assert opt.pending_batch is None
+
+    opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0, "Temp": 150.0}])
+    opt.deactivate_variable("Sugar")
+    assert opt.pending_batch is None
+
+
+def test_tell_and_edits_do_not_clear_pending_batch():
+    opt = _tiny_project()
+    opt.set_pending_batch([{"Water": 3.0}, {"Water": 6.0}])
+    opt.tell({"Water": 3.0}, {"Taste": 5.0})
+    assert opt.pending_batch is not None    # mid-batch: app clears at the end
+    opt.edit_result(0, {"Taste": 6.0})
+    assert opt.pending_batch is not None
+
+
+def test_rewind_clears_pending_batch():
+    opt = _tiny_project()
+    opt.tell({"Water": 3.0}, {"Taste": 5.0})
+    opt.tell({"Water": 6.0}, {"Taste": 6.0})
+    opt.set_pending_batch([{"Water": 9.0}])
+    opt.rewind_to(0)
+    assert opt.pending_batch is None
