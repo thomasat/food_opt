@@ -427,6 +427,25 @@ class FoodOptimizer:
             rows.append(row)
         return pd.DataFrame(rows)
 
+    def batch_frame(self, batch):
+        """A suggested batch as a DataFrame with a leading 1-based Recipe column."""
+        df = pd.DataFrame(batch)
+        df.insert(0, "Recipe", range(1, len(df) + 1))
+        return df
+
+    def history_csv(self):
+        """History as CSV whose variable and objective columns match what
+        'Import Historical Experiments' expects, so exports re-import cleanly."""
+        rows = []
+        for i, recipe in enumerate(self.recipe_history):
+            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
+            row = {"Experiment": i + 1, "Date": ts[:10] if isinstance(ts, str) else "",
+                   "Overall Score": float(self.Y_history[i])}
+            row.update(recipe)
+            row.update(self.results_history[i] if i < len(self.results_history) else {})
+            rows.append(row)
+        return pd.DataFrame(rows).to_csv(index=False)
+
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
     # ------------------------------------------------------------------ #

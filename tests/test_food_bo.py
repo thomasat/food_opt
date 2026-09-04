@@ -278,6 +278,27 @@ def test_history_frame_renames_variable_colliding_with_fixed_column(tmp_path, mo
     assert df["Date (ingredient)"].iloc[0] == 5.0
 
 
+def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    df = opt.batch_frame([{"Water": 10.0, "Temp": 180.0}, {"Water": 20.0, "Temp": 190.0}])
+    assert list(df["Recipe"]) == [1, 2]
+    assert list(df.columns) == ["Recipe", "Water", "Temp"]
+
+
+def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csv")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    import io
+    df = pd.read_csv(io.StringIO(opt.history_csv()))
+    for col in ["Experiment", "Date", "Overall Score", "Water", "Taste"]:
+        assert col in df.columns
+    assert df["Taste"].iloc[0] == 3.0
+
+
 # ------------------------------------------------------------------ #
 #  Constraints
 # ------------------------------------------------------------------ #

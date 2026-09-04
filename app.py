@@ -767,23 +767,18 @@ with tab_optimize:
                     )
 
         if "current_batch" in st.session_state:
-            st.info("Suggested Batch:")
-
-            proc_names = {
-                v['name'] for v in st.session_state.optimizer.variables
-                if v.get('category') == 'process'
-            }
-            df_batch = pd.DataFrame(st.session_state.current_batch)
-
-            ing_cols = [c for c in df_batch.columns if c not in proc_names]
-            if ing_cols:
-                st.caption("Ingredients:")
-                st.dataframe(df_batch[ing_cols].style.format("{:.2f}"), hide_index=True)
-
-            proc_cols = [c for c in df_batch.columns if c in proc_names]
-            if proc_cols:
-                st.caption("Process Parameters:")
-                st.dataframe(df_batch[proc_cols].style.format("{:.2f}"), hide_index=True)
+            _opt = st.session_state.optimizer
+            df_batch = _opt.batch_frame(st.session_state.current_batch)
+            st.markdown("**Your next recipes to make**")
+            st.dataframe(df_batch.style.format({c: "{:.2f}" for c in df_batch.columns if c != "Recipe"}),
+                         hide_index=True)
+            st.download_button(
+                "Download batch sheet (CSV)", data=df_batch.to_csv(index=False),
+                file_name=f"{_opt.project_name}_batch.csv", mime="text/csv",
+            )
+            with st.expander("Printable recipe cards"):
+                for i, recipe in enumerate(st.session_state.current_batch):
+                    st.markdown(f"**Recipe {i + 1}** — " + " · ".join(f"{k} {v:.2f}" for k, v in recipe.items()))
 
     # -------------------------------------------------------------- #
     #  Tell: Input Lab Results
@@ -1155,6 +1150,11 @@ with tab_optimize:
         )
         st.caption(f"Highlighted: experiment {_best_exp}, the best so far. "
                    f"Overall Score is out of {_opt.utility_ceiling():g}.")
+
+        st.download_button(
+            "Download history (CSV)", data=_opt.history_csv(),
+            file_name=f"{_opt.project_name}_history.csv", mime="text/csv",
+        )
 
         # --- Edit / Delete ---
         st.caption("Edit or delete a past result:")
