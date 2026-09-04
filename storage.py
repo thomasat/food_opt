@@ -70,6 +70,7 @@ class LocalStorage:
         return os.path.exists(self._path(name))
 
     def load(self, name):
+        seen = self.__dict__.setdefault("_seen", {})
         try:
             with open(self._path(name), 'rb') as f:
                 raw = f.read()
@@ -80,7 +81,7 @@ class LocalStorage:
                 "This project file could not be opened. It may have been "
                 "moved or deleted."
             )
-        self._seen[name] = self._stamp(name)
+        seen[name] = self._stamp(name)
         try:
             return json.loads(raw.decode('utf-8'))
         except (ValueError, UnicodeDecodeError):
@@ -93,11 +94,13 @@ class LocalStorage:
                 "backup, use Restore from backup; otherwise check the "
                 "FoodOptimizer > backups folder in your home folder for a "
                 "recent copy. An early-version file can be converted by opening "
-                "it once in Food Optimizer 0.1."
+                "it in the version of Food Optimizer that created it and "
+                "downloading a backup."
             )
 
     def save(self, name, state):
-        known = self._seen.get(name)
+        seen = self.__dict__.setdefault("_seen", {})
+        known = seen.get(name)
         current = self._stamp(name)
         if known is not None and current is not None and current != known:
             raise StorageError(self._CONFLICT)
@@ -114,9 +117,10 @@ class LocalStorage:
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
-        self._seen[name] = self._stamp(name)
+        seen[name] = self._stamp(name)
 
     def archive(self, name, label, copy=False):
+        seen = self.__dict__.setdefault("_seen", {})
         path = self._path(name)
         if not os.path.exists(path):
             return None
@@ -129,5 +133,5 @@ class LocalStorage:
             shutil.copy2(path, self._path(archive_name))
         else:
             os.rename(path, self._path(archive_name))
-            self._seen.pop(name, None)
+            seen.pop(name, None)
         return archive_name
