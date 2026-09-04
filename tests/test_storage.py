@@ -115,6 +115,21 @@ def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 3
 
 
+def test_is_stale_true_after_another_instance_saves_then_false_after_reload(tmp_path, monkeypatch):
+    """is_stale must report a conflict without mutating state (unlike save()),
+    so a caller can check before committing to an action such as Restore."""
+    monkeypatch.chdir(tmp_path)
+    a, b = LocalStorage(), LocalStorage()
+    a.save("p", {"v": 1})
+    b.load("p")
+    assert not b.is_stale("p")
+    time.sleep(0.01)  # coarse-mtime filesystems
+    a.save("p", {"v": 2})
+    assert b.is_stale("p")
+    b.load("p")
+    assert not b.is_stale("p")
+
+
 def test_list_projects_hides_archives(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     s = LocalStorage()

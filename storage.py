@@ -119,6 +119,13 @@ class LocalStorage:
                 os.remove(tmp)
         seen[name] = self._stamp(name)
 
+    def is_stale(self, name):
+        """True when the file changed on disk since this instance last read or wrote it."""
+        seen = self.__dict__.setdefault("_seen", {})
+        known = seen.get(name)
+        current = self._stamp(name)
+        return known is not None and current is not None and current != known
+
     def archive(self, name, label, copy=False):
         seen = self.__dict__.setdefault("_seen", {})
         path = self._path(name)
