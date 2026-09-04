@@ -14,6 +14,10 @@ st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Food Optimizer")
 render_flash()
 
+# Defined early (before any st.stop(), including the welcome-panel one below)
+# so the end-of-script save-error check always finds a defined name.
+_save_banner_shown = False
+
 # ================================================================== #
 #  Sidebar: Project Management
 # ================================================================== #
@@ -205,27 +209,35 @@ with st.sidebar:
                 rc1, rc2 = st.columns(2)
                 with rc1:
                     if st.button("Yes, replace", type="primary", use_container_width=True):
-                        try:
-                            STORAGE.archive(opt.project_name, "pre_restore", copy=True)
-                            state = dict(candidate)
-                            state['project_name'] = opt.project_name
-                            new_opt = FoodOptimizer(opt.project_name, storage=opt.storage)
-                            new_opt.import_json(state)
-                            new_opt.save()
-                        except storage_backend.StorageError as e:
-                            st.error(str(e))
-                        except Exception:
-                            st.error("This backup could not be applied. Your current project was not changed.")
-                            st.session_state.pop("_restore_candidate", None)
+                        # Constructing FoodOptimizer below would re-stamp the
+                        # shared _seen entry from the current file, so a stale
+                        # check must happen first, against what THIS session
+                        # loaded — otherwise the coming save can't detect that
+                        # another window changed the file in the meantime.
+                        if getattr(opt.storage, "is_stale", lambda n: False)(opt.project_name):
+                            st.error(storage_backend.LocalStorage._CONFLICT)
                         else:
-                            if new_opt.save_error:
-                                st.error(new_opt.save_error)
-                            else:
-                                st.session_state.optimizer = new_opt
+                            try:
+                                STORAGE.archive(opt.project_name, "pre_restore", copy=True)
+                                state = dict(candidate)
+                                state['project_name'] = opt.project_name
+                                new_opt = FoodOptimizer(opt.project_name, storage=opt.storage)
+                                new_opt.import_json(state)
+                                new_opt.save()
+                            except storage_backend.StorageError as e:
+                                st.error(str(e))
+                            except Exception:
+                                st.error("This backup could not be applied. Your current project was not changed.")
                                 st.session_state.pop("_restore_candidate", None)
-                                st.session_state.pop("current_batch", None)
-                                flash("success", f"Restored {len(new_opt.X_history)} experiments into {new_opt.project_name}.")
-                                st.rerun()
+                            else:
+                                if new_opt.save_error:
+                                    st.error(new_opt.save_error)
+                                else:
+                                    st.session_state.optimizer = new_opt
+                                    st.session_state.pop("_restore_candidate", None)
+                                    st.session_state.pop("current_batch", None)
+                                    flash("success", f"Restored {len(new_opt.X_history)} experiments into {new_opt.project_name}.")
+                                    st.rerun()
                 with rc2:
                     if st.button("Cancel", use_container_width=True, key="restore_cancel"):
                         st.session_state.pop("_restore_candidate", None)
@@ -301,8 +313,10 @@ if getattr(st.session_state.optimizer, "load_error", None):
     )
     st.stop()
 
+_save_banner_shown = False
 if getattr(st.session_state.optimizer, "save_error", None):
     _opt = st.session_state.optimizer
+    _save_banner_shown = True
     st.error(_opt.save_error)
     st.warning("**Your last change was not saved.** Download a backup now, then click Reload project.")
     b1, b2 = st.columns(2)
@@ -828,7 +842,7 @@ with tab_optimize:
             st.dataframe(df_batch.style.format({c: "{:.2f}" for c in df_batch.columns if c != "Recipe"}),
                          hide_index=True)
             st.download_button(
-                "Download batch sheet (CSV)", data=df_batch.to_csv(index=False),
+                "Download batch sheet (CSV)", data=_opt.batch_csv(st.session_state.current_batch),
                 file_name=f"{_opt.project_name}_batch.csv", mime="text/csv",
             )
             with st.expander("Printable recipe cards"):
@@ -1390,3 +1404,9 @@ Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect reci
                         st.error(str(e))
             else:
                 st.caption("No ingredients loaded.")
+
+# A save that failed during this run must be visible now, not after the next
+# click: form submits do not rerun, and the banner above already rendered.
+_opt_end = st.session_state.get("optimizer")
+if _opt_end is not None and getattr(_opt_end, "save_error", None) and not _save_banner_shown:
+    st.rerun()

@@ -564,3 +564,59 @@ def test_edit_form_guarded_when_no_objectives_remain(project_with_history):
                for i in at.info), [i.value for i in at.info]
     assert any(b.label == "Delete experiment 1" for b in at.button), [b.label for b in at.button]
     assert any(b.label == "Rewind" for b in at.button), [b.label for b in at.button]
+
+
+def test_conflicting_form_save_shows_banner_immediately(project_with_history, tmp_path):
+    """A form submit does not rerun on its own, so when the save it triggers
+    is refused (another window changed the file first), the conflict banner
+    must appear on THIS run, not wait for the user's next click."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+
+    # Another window edits and saves the project after this session loaded it.
+    other = FoodOptimizer("my_project")
+    other.add_objective("Crunch", 1.0)
+    time.sleep(0.01)  # coarse-mtime filesystems
+
+    obj_name_input = next(t for t in at.text_input if t.label.startswith("Measurement name"))
+    obj_name_input.set_value("Zing")
+    _submit_button(at, "Add or update objective").click()
+    at.run()
+
+    assert not at.exception
+    assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
+    assert not any("Added Zing" in s.value for s in at.success), [s.value for s in at.success]
+    reloaded = FoodOptimizer("my_project")
+    assert [o["name"] for o in reloaded.objectives] == ["Taste", "Crunch"]
+
+
+def test_restore_warns_when_another_window_edited_project(project_with_history, tmp_path):
+    """Restore's 'Yes, replace' constructs a fresh FoodOptimizer against the
+    current file, which would re-stamp the shared conflict tracker and hide a
+    concurrent edit. The stale check must run against what THIS session
+    loaded, before that reconstruction, and must leave the restore candidate
+    in place so the user can Reload and retry."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+
+    # Another window edits and saves the project after this session loaded it.
+    other = FoodOptimizer("my_project")
+    other.add_objective("Crunch", 1.0)
+    time.sleep(0.01)  # coarse-mtime filesystems
+
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Flour", 0, 100)
+    donor.add_objective("Sweetness", 1.0)
+    donor.tell({"Flour": 10.0}, {"Sweetness": 5.0})
+
+    at.session_state["_restore_candidate"] = donor.export_json()
+    at.run()
+    _submit_button(at, "Yes, replace").click()
+    at.run()
+
+    assert not at.exception
+    assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
+    reloaded = FoodOptimizer("my_project")
+    assert len(reloaded.X_history) == 1   # original single experiment untouched
+    assert [o["name"] for o in reloaded.objectives] == ["Taste", "Crunch"]
