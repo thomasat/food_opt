@@ -11,7 +11,15 @@ import glob
 import json
 import os
 import pickle
+import re
 import shutil
+
+
+ARCHIVE_SUFFIX_RE = re.compile(r"_(archived|pre_rewind|pre_restore|pre_delete)(_\d+)?$")
+
+
+def is_archive_name(name):
+    return ARCHIVE_SUFFIX_RE.search(name) is not None
 
 
 class StorageError(Exception):
@@ -23,7 +31,7 @@ class StorageError(Exception):
 
 
 class LocalStorage:
-    persist_empty_on_init = True   # historical behavior: file created on init
+    persist_empty_on_init = False  # nothing on disk until the user creates or edits
     persist_after_load = True      # historical behavior: every load re-saves,
                                    # which is what migrates legacy pickles
 
@@ -45,7 +53,18 @@ class LocalStorage:
             return None
 
     def list_projects(self):
-        return sorted(os.path.splitext(f)[0] for f in glob.glob("*.pkl"))
+        names = sorted(os.path.splitext(f)[0] for f in glob.glob("*.pkl"))
+        return [n for n in names if not is_archive_name(n)]
+
+    def list_archives(self):
+        names = sorted(os.path.splitext(f)[0] for f in glob.glob("*.pkl"))
+        return [n for n in names if is_archive_name(n)]
+
+    def most_recent_project(self):
+        projects = self.list_projects()
+        if not projects:
+            return None
+        return max(projects, key=lambda n: os.stat(self._path(n)).st_mtime_ns)
 
     def exists(self, name):
         return os.path.exists(self._path(name))

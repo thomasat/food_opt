@@ -18,8 +18,32 @@ render_flash()
 #  Sidebar: Project Management
 # ================================================================== #
 
+import re as _re
+_NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
+
+
+def _reset_project_session():
+    for k in ("optimizer", "current_batch", "show_backup_warning", "_batch_id",
+              "_last_saved", "_restore_candidate", "edit_idx", "rewind_idx",
+              "edit_no", "rewind_no", "hist_order"):
+        st.session_state.pop(k, None)
+    for k in [k for k in st.session_state if k.endswith("__pending")]:
+        st.session_state.pop(k, None)
+
+
+def _open_project(name, create=False):
+    _reset_project_session()
+    st.session_state["_loaded_project"] = name
+    if create:
+        FoodOptimizer(name, storage=STORAGE).save()
+        flash("success", f"Created {name}.")
+    else:
+        flash("success", f"Opened {name}.")
+    st.rerun()
+
+
 with st.sidebar:
-    st.subheader("Project Management")
+    st.subheader("Projects")
 
     try:
         existing_projects = STORAGE.list_projects()
@@ -27,167 +51,185 @@ with st.sidebar:
         st.error(str(e))
         existing_projects = []
 
-    project_name = st.text_input("Project Name", "my_project")
+    # Returning users land where they left off; new users get the welcome panel.
+    # Never auto-open on a shared host (Streamlit Community Cloud mounts the
+    # repo at /mount/src): every visitor there shares one disk, so "most
+    # recent" would be someone else's project. Same marker cloud-storage uses.
+    _shared_host = os.path.isdir("/mount/src")
+    if ("_loaded_project" not in st.session_state and existing_projects
+            and not _shared_host):
+        _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
+        st.session_state["_loaded_project"] = _recent or existing_projects[0]
 
-    if st.button("Create / Switch Project"):
-        st.session_state.pop("optimizer", None)
-        st.session_state.pop("current_batch", None)
-        st.session_state["_loaded_project"] = project_name
-        st.rerun()
+    with st.form("new_project_form", clear_on_submit=True):
+        new_name = st.text_input("New project name", key="new_project_name",
+                                 placeholder="e.g. Oat cookie v2")
+        if st.form_submit_button("Create project"):
+            name = new_name.strip()
+            if not _NAME_RE.fullmatch(name):
+                st.error("Use 1 to 64 letters, numbers, spaces, hyphens, underscores or "
+                         "periods, starting with a letter or number.")
+            elif name in existing_projects:
+                st.error(f"A project named {name} already exists. Open it below.")
+            else:
+                _open_project(name, create=True)
 
     if existing_projects:
-        st.caption("Or load an existing project:")
+        _active = st.session_state.get("_loaded_project")
         selected = st.selectbox(
-            "Existing Projects",
-            ["(none)"] + existing_projects,
+            "Open project", existing_projects,
+            index=existing_projects.index(_active) if _active in existing_projects else 0,
             key="project_select",
         )
-        if selected != "(none)" and st.button("Load Selected Project"):
-            st.session_state.pop("optimizer", None)
-            st.session_state.pop("current_batch", None)
-            st.session_state["_loaded_project"] = selected
-            st.rerun()
+        if st.button("Open"):
+            _open_project(selected)
 
-    if "_loaded_project" in st.session_state:
-        project_name = st.session_state["_loaded_project"]
-
-    # Initialize or upgrade optimizer
-    if "optimizer" not in st.session_state:
-        st.session_state.optimizer = FoodOptimizer(project_name, storage=STORAGE)
-        if not getattr(st.session_state.optimizer, "load_error", None):
-            st.success(f"Initialized: {project_name}")
-    elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
-        st.session_state.optimizer = FoodOptimizer(
-            st.session_state.optimizer.project_name, storage=STORAGE
-        )
-        if not getattr(st.session_state.optimizer, "load_error", None):
-            st.success("Upgraded session to latest version.")
-
-    opt = st.session_state.optimizer
-
-    # Restore a persisted suggestion batch (only if this session has none: the
-    # CLASS_VERSION upgrade path must not clobber a live batch).
-    if ("current_batch" not in st.session_state
-            and not getattr(opt, "load_error", None)
-            and getattr(opt, "pending_batch", None)):
-        _var_names = {v['name'] for v in opt.variables}
-        try:
-            _batch_ok = bool(opt.objectives) and all(
-                set(r) == _var_names for r in opt.pending_batch
-            )
-        except (TypeError, AttributeError):
-            _batch_ok = False   # malformed backup rows; treat as a mismatch
-        if _batch_ok:
-            st.session_state.current_batch = opt.pending_batch
-        else:
-            opt.set_pending_batch(None)
-            st.info(
-                "A previously suggested batch was discarded because the "
-                "design space changed since it was generated."
-            )
-    # A project that failed to load must never look like an empty success.
-    if getattr(opt, "load_error", None):
-        st.error(opt.load_error)
-    _n_act = len(opt.active_variables())
-    _n_all = len(opt.variables)
-    _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
-    st.caption(
-        f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
-        f"| {_n_act} active vars{_pruned}"
-    )
-
-    # --- Backup & Restore ---
-    st.divider()
-    st.subheader("Backup & Restore")
-
-    if getattr(opt, "load_error", None):
-        # Never offer a "backup" of a project that failed to load — it would
-        # be an empty file wearing the project's name.
-        st.caption(
-            "Backup download is unavailable while the project file "
-            "cannot be read."
-        )
+    project_name = st.session_state.get("_loaded_project")
+    if project_name is None:
+        opt = None
     else:
-        project_json = json.dumps(opt.export_json(), indent=2)
-        st.download_button(
-            "Download Project Backup",
-            data=project_json,
-            file_name=f"{opt.project_name}.json",
-            mime="application/json",
+        if "optimizer" not in st.session_state:
+            st.session_state.optimizer = FoodOptimizer(project_name, storage=STORAGE)
+        elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
+            st.session_state.optimizer = FoodOptimizer(
+                st.session_state.optimizer.project_name, storage=STORAGE
+            )
+        opt = st.session_state.optimizer
+
+    if opt is not None:
+        # Restore a persisted suggestion batch (only if this session has none: the
+        # CLASS_VERSION upgrade path must not clobber a live batch).
+        if ("current_batch" not in st.session_state
+                and not getattr(opt, "load_error", None)
+                and getattr(opt, "pending_batch", None)):
+            _var_names = {v['name'] for v in opt.variables}
+            try:
+                _batch_ok = bool(opt.objectives) and all(
+                    set(r) == _var_names for r in opt.pending_batch
+                )
+            except (TypeError, AttributeError):
+                _batch_ok = False   # malformed backup rows; treat as a mismatch
+            if _batch_ok:
+                st.session_state.current_batch = opt.pending_batch
+            else:
+                opt.set_pending_batch(None)
+                st.info(
+                    "A previously suggested batch was discarded because the "
+                    "design space changed since it was generated."
+                )
+        # A project that failed to load must never look like an empty success.
+        if getattr(opt, "load_error", None):
+            st.error(opt.load_error)
+        _n_act = len(opt.active_variables())
+        _n_all = len(opt.variables)
+        _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
+        st.caption(
+            f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
+            f"| {_n_act} active vars{_pruned}"
         )
 
-    uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
-    if uploaded_json is not None and st.button("Check this backup"):
-        try:
-            st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
-        except ValueError:
-            st.session_state.pop("_restore_candidate", None)
-            st.error(
-                "This backup file couldn't be read. Make sure it's a backup "
-                "downloaded from Food Optimizer (a .json file) and try again."
+        # --- Backup & Restore ---
+        st.divider()
+        st.subheader("Backup & Restore")
+
+        if getattr(opt, "load_error", None):
+            # Never offer a "backup" of a project that failed to load — it would
+            # be an empty file wearing the project's name.
+            st.caption(
+                "Backup download is unavailable while the project file "
+                "cannot be read."
+            )
+        else:
+            project_json = json.dumps(opt.export_json(), indent=2)
+            st.download_button(
+                "Download Project Backup",
+                data=project_json,
+                file_name=f"{opt.project_name}.json",
+                mime="application/json",
             )
 
-    candidate = st.session_state.get("_restore_candidate")
-    if candidate is not None:
-        try:
-            summary = FoodOptimizer.validate_state(candidate)
-        except ValueError as e:
-            st.error(str(e))
-            st.session_state.pop("_restore_candidate", None)
-        else:
-            st.warning(
-                f"This backup contains project **{summary['name']}** with "
-                f"{summary['experiments']} experiments and {summary['ingredients']} "
-                f"ingredients. Replace **{opt.project_name}** "
-                f"({len(opt.X_history)} experiments)? The current project is "
-                "archived first."
-            )
-            rc1, rc2 = st.columns(2)
-            with rc1:
-                if st.button("Yes, replace", type="primary", use_container_width=True):
-                    try:
-                        STORAGE.archive(opt.project_name, "pre_restore", copy=True)
-                        state = dict(candidate)
-                        state['project_name'] = opt.project_name
-                        opt.import_json(state)
-                        opt.save()
-                    except storage_backend.StorageError as e:
-                        st.error(str(e))
-                    else:
-                        if opt.save_error:
-                            st.error(opt.save_error)
+        uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
+        if uploaded_json is not None and st.button("Check this backup"):
+            try:
+                st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
+            except ValueError:
+                st.session_state.pop("_restore_candidate", None)
+                st.error(
+                    "This backup file couldn't be read. Make sure it's a backup "
+                    "downloaded from Food Optimizer (a .json file) and try again."
+                )
+
+        candidate = st.session_state.get("_restore_candidate")
+        if candidate is not None:
+            try:
+                summary = FoodOptimizer.validate_state(candidate)
+            except ValueError as e:
+                st.error(str(e))
+                st.session_state.pop("_restore_candidate", None)
+            else:
+                st.warning(
+                    f"This backup contains project **{summary['name']}** with "
+                    f"{summary['experiments']} experiments and {summary['ingredients']} "
+                    f"ingredients. Replace **{opt.project_name}** "
+                    f"({len(opt.X_history)} experiments)? The current project is "
+                    "archived first."
+                )
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    if st.button("Yes, replace", type="primary", use_container_width=True):
+                        try:
+                            STORAGE.archive(opt.project_name, "pre_restore", copy=True)
+                            state = dict(candidate)
+                            state['project_name'] = opt.project_name
+                            opt.import_json(state)
+                            opt.save()
+                        except storage_backend.StorageError as e:
+                            st.error(str(e))
                         else:
-                            st.session_state.pop("_restore_candidate", None)
-                            st.session_state.pop("current_batch", None)
-                            flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
-                            st.rerun()
-            with rc2:
-                if st.button("Cancel", use_container_width=True, key="restore_cancel"):
-                    st.session_state.pop("_restore_candidate", None)
-                    st.rerun()
+                            if opt.save_error:
+                                st.error(opt.save_error)
+                            else:
+                                st.session_state.pop("_restore_candidate", None)
+                                st.session_state.pop("current_batch", None)
+                                flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
+                                st.rerun()
+                with rc2:
+                    if st.button("Cancel", use_container_width=True, key="restore_cancel"):
+                        st.session_state.pop("_restore_candidate", None)
+                        st.rerun()
 
-    # --- Hard Reset ---
-    st.divider()
+        # --- Hard Reset ---
+        st.divider()
 
-    if confirm_action(
-        "hard_reset", "Hard Reset Project",
-        f"Start **{opt.project_name}** over? Its {len(opt.X_history)} experiment(s) "
-        "and setup are moved to an archive copy, not deleted.",
-        confirm_label="Yes, reset",
-    ):
-        _target = opt.project_name
-        try:
-            archived = STORAGE.archive(_target, "archived", copy=False)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-        else:
-            if archived:
-                flash("info", f"Your previous data was kept as an archive named {archived}.")
-            st.session_state.pop("optimizer", None)
-            st.session_state.pop("current_batch", None)
-            st.session_state.pop("show_backup_warning", None)
-            st.session_state["_loaded_project"] = _target
-            st.rerun()
+        if confirm_action(
+            "hard_reset", "Hard Reset Project",
+            f"Start **{opt.project_name}** over? Its {len(opt.X_history)} experiment(s) "
+            "and setup are moved to an archive copy, not deleted.",
+            confirm_label="Yes, reset",
+        ):
+            _target = opt.project_name
+            try:
+                archived = STORAGE.archive(_target, "archived", copy=False)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if archived:
+                    flash("info", f"Your previous data was kept as an archive named {archived}.")
+                st.session_state.pop("optimizer", None)
+                st.session_state.pop("current_batch", None)
+                st.session_state.pop("show_backup_warning", None)
+                st.session_state["_loaded_project"] = _target
+                st.rerun()
+
+
+if opt is None:
+    st.markdown("## Create your first project")
+    st.markdown(
+        "1. **Name a project** in the sidebar and click Create project.\n"
+        "2. **Add ingredients** and say what you will measure.\n"
+        "3. **Generate recipes**, make them, and enter the results."
+    )
+    st.stop()
 
 
 # A damaged project must never be silently overwritten: every edit below

@@ -43,6 +43,7 @@ def opt_configured(opt_with_ingredients):
 
 class TestInit:
     def test_creates_pkl_file(self, opt):
+        opt.add_ingredient("Water", 0, 100)
         assert os.path.exists(opt.filename)
 
     def test_default_state(self, opt):

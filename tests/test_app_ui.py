@@ -149,6 +149,9 @@ def test_restore_requires_confirmation_and_archives_current(project_with_history
     donor_state = other.export_json()
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"  # pin: "donor" now exists on
+    # disk with a later mtime, which would otherwise become the auto-loaded
+    # "most recent" project (Task 8) and defeat this restore-flow test.
     at.session_state["_restore_candidate"] = donor_state
     at.run()
     assert any("3 experiments" in w.value for w in at.warning), [w.value for w in at.warning]
@@ -199,3 +202,57 @@ def test_skipped_recipe_is_left_out(project_with_pending_batch):
     assert len(opt.X_history) == 2
     assert opt.pending_batch is None
     assert any("Saved 1 result" in s.value for s in at.success), [s.value for s in at.success]
+
+
+def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert list(tmp_path.glob("*.pkl")) == []
+    assert any("Create your first project" in m.value for m in at.markdown), \
+        [m.value for m in at.markdown]
+
+
+def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="new_project_name").set_value("bad/name")
+    _submit_button(at, "Create project").click()
+    at.run()
+    assert any("letters, numbers" in e.value for e in at.error)
+    assert list(tmp_path.glob("*.pkl")) == []
+
+
+def test_create_project_writes_file_and_opens_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="new_project_name").set_value("Oat cookie v2")
+    _submit_button(at, "Create project").click()
+    at.run()
+    assert (tmp_path / "Oat cookie v2.pkl").exists()
+    assert any("Created Oat cookie v2" in s.value for s in at.success)
+
+
+def test_returning_user_lands_in_most_recent_project(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any("my_project" in c.value and "1 experiments" in c.value for c in at.caption)
+
+
+def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_path):
+    other = FoodOptimizer("second")
+    other.add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Hard Reset Project").click()   # arm the confirmation
+    at.run()
+    assert any(b.label == "Yes, reset" for b in at.button)
+    at.selectbox(key="project_select").set_value("second")
+    _submit_button(at, "Open").click()
+    at.run()
+    assert not at.exception
+    assert not any(b.label == "Yes, reset" for b in at.button), [b.label for b in at.button]
+    assert any("second" in c.value for c in at.caption)

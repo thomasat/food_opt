@@ -35,10 +35,10 @@ def in_tmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
-def test_default_storage_is_local_and_saves_on_init():
+def test_default_storage_is_local_and_does_not_save_on_init():
     opt = FoodOptimizer("p")
     assert isinstance(opt.storage, LocalStorage)
-    assert opt.storage.exists("p")          # historical save-on-init kept
+    assert not opt.storage.exists("p")      # no phantom file until an edit is made
 
 
 def test_no_ghost_row_when_backend_opts_out():

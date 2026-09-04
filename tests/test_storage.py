@@ -16,7 +16,7 @@ def local(tmp_path, monkeypatch):
 
 class TestLocalStorage:
     def test_flags(self, local):
-        assert local.persist_empty_on_init is True
+        assert local.persist_empty_on_init is False
         assert local.persist_after_load is True
 
     def test_save_load_roundtrip(self, local):
@@ -47,10 +47,11 @@ class TestLocalStorage:
             local.save("p", {"v": 2})
         assert local.load("p") == {"v": 1}  # old content survives
 
-    def test_list_includes_archives(self, local):
+    def test_list_projects_excludes_archives_but_list_archives_has_them(self, local):
         local.save("a", {})
         local.save("a_archived", {})
-        assert local.list_projects() == ["a", "a_archived"]
+        assert local.list_projects() == ["a"]
+        assert local.list_archives() == ["a_archived"]
 
     def test_exists(self, local):
         assert not local.exists("x")
@@ -111,3 +112,30 @@ def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
     b.load("p")              # user reloads
     b.save("p", {"v": 3})    # now allowed
     assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 3
+
+
+def test_list_projects_hides_archives(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    for name in ["Cookie", "Cookie_archived", "Cookie_archived_2", "Cookie_pre_rewind",
+                 "Cookie_pre_restore_1", "Cookie_pre_delete", "Bread"]:
+        s.save(name, {"v": 1})
+    assert s.list_projects() == ["Bread", "Cookie"]
+    assert "Cookie_archived_2" in s.list_archives()
+
+
+def test_most_recent_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("Old", {"v": 1})
+    time.sleep(0.01)
+    s.save("New", {"v": 1})
+    assert s.most_recent_project() == "New"
+    assert LocalStorage().most_recent_project() == "New"  # fresh instance, reads disk
+
+
+def test_no_file_written_on_init(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from food_bo import FoodOptimizer
+    FoodOptimizer("ghost")
+    assert not (tmp_path / "ghost.pkl").exists()
