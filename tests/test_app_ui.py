@@ -106,7 +106,7 @@ def test_hard_reset_targets_active_project_not_typed_name(project_with_history, 
     redirect Hard Reset at that other project (audit: confirmed critical bug)."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input[0].set_value("other")   # the sidebar "Project Name" box (renamed in Task 8)
+    at.sidebar.text_input[0].set_value("other")   # the sidebar "Project Name" box (only text input in sidebar)
     _submit_button(at, "Hard Reset Project").click()
     at.run()
     _submit_button(at, "Yes, reset").click()
