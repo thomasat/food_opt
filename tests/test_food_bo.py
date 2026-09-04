@@ -222,6 +222,11 @@ class TestObjectiveValidation:
         opt.add_objective("Cost", 0.4, goal="min")
         assert opt.utility_ceiling() == pytest.approx(1.0)
 
+    def test_objective_name_collides_with_ingredient(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="already the name of an ingredient"):
+            opt.add_objective("water", 1.0)
+
 
 def test_best_index_and_running_max(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -297,6 +302,21 @@ def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     for col in ["Experiment", "Date", "Overall Score", "Water", "Taste"]:
         assert col in df.columns
     assert df["Taste"].iloc[0] == 3.0
+
+
+def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csv_midrun")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    opt.tell({"Water": 20.0}, {"Taste": 5.0})
+    opt.add_ingredient("Honey", 0, 30)
+    import io
+    df = pd.read_csv(io.StringIO(opt.history_csv()))
+    assert "Honey" in df.columns
+    assert len(df) == 2
+    assert df["Honey"].notna().all()
 
 
 # ------------------------------------------------------------------ #
@@ -956,6 +976,12 @@ class TestSetupValidation:
         opt.add_ingredient("Water", 0, 100)
         with pytest.raises(ValueError, match="already exists as an ingredient"):
             opt.add_process_parameter("water", 0, 10)
+
+    def test_ingredient_name_collides_with_measurement(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        with pytest.raises(ValueError, match="already the name of a measurement"):
+            opt.add_ingredient("Taste", 0, 10)
 
     def test_csv_rejects_duplicate_and_blank_names(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

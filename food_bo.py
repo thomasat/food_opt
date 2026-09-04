@@ -157,6 +157,10 @@ class FoodOptimizer:
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
             )
+        if any(name.lower() == obj['name'].lower() for obj in self.objectives):
+            raise ValueError(
+                f"{name} is already the name of a measurement. Choose another name."
+            )
         if float(min_val) >= float(max_val):
             raise ValueError("Min must be less than Max.")
         for v in self.variables:
@@ -350,6 +354,16 @@ class FoodOptimizer:
         name = str(name).strip()
         if not name:
             raise ValueError("Objective name cannot be empty.")
+        if any(name.lower() == v['name'].lower() for v in self.variables):
+            raise ValueError(
+                f"{name} is already the name of an ingredient or process "
+                f"parameter. Choose another name for the measurement."
+            )
+        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+            raise ValueError(
+                f"{name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name."
+            )
         weight = float(weight)
         if weight <= 0:
             raise ValueError("Weight must be greater than 0.")
@@ -435,13 +449,19 @@ class FoodOptimizer:
 
     def history_csv(self):
         """History as CSV whose variable and objective columns match what
-        'Import Historical Experiments' expects, so exports re-import cleanly."""
+        'Import Historical Experiments' expects, so exports re-import cleanly.
+
+        Variable columns come from the re-encoded/decoded history (as
+        history_frame() does), not raw recipe_history: a variable added
+        mid-run is backfilled to 0 in X_history for earlier rows, while
+        recipe_history is never backfilled and would leave those rows with
+        a missing key (NaN on export, and a rejected re-import)."""
         rows = []
-        for i, recipe in enumerate(self.recipe_history):
+        for i, x in enumerate(self.X_history):
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             row = {"Experiment": i + 1, "Date": ts[:10] if isinstance(ts, str) else "",
                    "Overall Score": float(self.Y_history[i])}
-            row.update(recipe)
+            row.update(self._decode(x))
             row.update(self.results_history[i] if i < len(self.results_history) else {})
             rows.append(row)
         return pd.DataFrame(rows).to_csv(index=False)
