@@ -31,8 +31,9 @@ class StorageError(Exception):
 
 class LocalStorage:
     persist_empty_on_init = False  # nothing on disk until the user creates or edits
-    persist_after_load = True      # historical behavior: every load re-saves,
-                                   # which is what migrates legacy pickles
+    persist_after_load = True      # re-save after load only when the file is behind the
+                                   # current CLASS_VERSION (see FoodOptimizer.load); an
+                                   # up-to-date file is left untouched
 
     _CONFLICT = (
         "This project was changed in another window or tab. Click Reload "
