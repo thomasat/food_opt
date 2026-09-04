@@ -336,47 +336,71 @@ with tab_setup:
         st.divider()
 
         # --- B. Objectives ---
-        st.subheader("B. Objectives (Normalized)")
-        st.caption("Define the valid range for each metric to normalize scores (0-1).")
+        st.subheader("Objectives — what you'll measure")
+        st.caption(
+            "For each measurement, say whether higher or lower is better and the "
+            "range of values you expect. Results are scored on that range."
+        )
 
+        _goal_labels = {"max": "Higher is better", "min": "Lower is better", "target": "Hit a target"}
         with st.form("obj_form"):
             col_name, col_w = st.columns([2, 1])
             with col_name:
-                obj_name = st.text_input("Metric Name (e.g. Chewiness)")
+                obj_name = st.text_input("Measurement name (e.g. Chewiness)")
             with col_w:
-                obj_weight = st.slider("Weight", 0.0, 1.0, 0.1)
+                obj_weight = st.slider(
+                    "Weight", 0.1, 1.0, 1.0, step=0.1,
+                    help="How much this matters relative to your other objectives. "
+                         "Weights are relative and do not need to add up to 1.",
+                )
 
             col_g, col_min, col_max = st.columns(3)
             with col_g:
-                obj_goal = st.selectbox("Goal", ["max", "min", "target"])
+                obj_goal = st.selectbox(
+                    "Goal", list(_goal_labels), format_func=_goal_labels.get,
+                    help="Whether you want this measurement as high as possible, as low as possible, or at a specific value.",
+                )
             with col_min:
-                obj_min = st.number_input("Range Min", value=0.0)
+                obj_min = st.number_input("Range Min", value=0.0,
+                                          help="The lowest value you would realistically measure.")
             with col_max:
-                obj_max = st.number_input("Range Max", value=10.0)
+                obj_max = st.number_input("Range Max", value=10.0,
+                                          help="The highest value you would realistically measure.")
 
-            obj_target = st.number_input("Target Value (If Goal=Target)", value=5.0)
+            obj_target = st.number_input("Target value (only used for 'Hit a target')", value=5.0)
 
-            if st.form_submit_button("Add Objective"):
-                if not obj_name.strip():
-                    st.error("Objective name cannot be empty.")
-                elif obj_min >= obj_max:
-                    st.error("Range Min must be less than Range Max.")
-                else:
-                    st.session_state.optimizer.add_objective(
-                        obj_name.strip(), obj_weight, obj_goal,
+            if st.form_submit_button("Add or update objective"):
+                try:
+                    replaced = st.session_state.optimizer.add_objective(
+                        obj_name, obj_weight, obj_goal,
                         target=obj_target if obj_goal == 'target' else None,
                         min_val=obj_min, max_val=obj_max,
                     )
+                except ValueError as e:
+                    st.error(str(e))
+                else:
                     st.session_state.pop("current_batch", None)  # stale under new design space
-                    st.success(f"Added {obj_name}")
+                    st.success(f"{'Updated' if replaced else 'Added'} {obj_name.strip()}.")
 
         if st.session_state.optimizer.objectives:
-            st.write("Active Objectives:")
-            st.dataframe(pd.DataFrame(st.session_state.optimizer.objectives))
+            _ceiling = st.session_state.optimizer.utility_ceiling()
+            st.caption(
+                f"Weights add up to {_ceiling:g}, so a perfect recipe scores {_ceiling:g}. "
+                "Weights are relative: only their ratios matter."
+            )
+            _rows = [{
+                "Measurement": o['name'],
+                "Goal": _goal_labels.get(o['goal'], o['goal']),
+                "Weight": o['weight'],
+                "Range": f"{o['min_val']:g} – {o['max_val']:g}",
+                "Target": "" if o.get('target') is None else f"{o['target']:g}",
+            } for o in st.session_state.optimizer.objectives]
+            st.dataframe(pd.DataFrame(_rows), hide_index=True)
             for i, obj in enumerate(st.session_state.optimizer.objectives):
                 if st.button(f"Remove {obj['name']}", key=f"rm_obj_{i}"):
                     st.session_state.optimizer.remove_objective(obj['name'])
-                    st.session_state.pop("current_batch", None)  # stale under new design space
+                    st.session_state.pop("current_batch", None)
+                    flash("success", f"Removed {obj['name']}. Stored scores were recalculated.")
                     st.rerun()
 
     # -------------------------------------------------------------- #

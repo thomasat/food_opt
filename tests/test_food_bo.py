@@ -184,6 +184,44 @@ class TestObjectives:
         assert len(opt.objectives) == 0
 
 
+class TestObjectiveValidation:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("obj_val")
+        opt.add_ingredient("Water", 0, 100)
+        return opt
+
+    def test_readding_objective_recomputes_history(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.tell({"Water": 5.0}, {"Taste": 5.0})
+        assert opt.Y_history[0] == pytest.approx(0.5)
+        replaced = opt.add_objective("Taste", 0.5, goal="max", min_val=0, max_val=10)
+        assert replaced is True
+        assert opt.Y_history[0] == pytest.approx(0.25)
+
+    def test_weight_must_be_positive(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="greater than 0"):
+            opt.add_objective("Taste", 0.0)
+
+    def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="within the range"):
+            opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
+
+    def test_blank_name_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="cannot be empty"):
+            opt.add_objective("   ", 1.0)
+
+    def test_utility_ceiling_is_weight_sum(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 0.6)
+        opt.add_objective("Cost", 0.4, goal="min")
+        assert opt.utility_ceiling() == pytest.approx(1.0)
+
+
 # ------------------------------------------------------------------ #
 #  Constraints
 # ------------------------------------------------------------------ #

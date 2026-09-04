@@ -298,27 +298,55 @@ class FoodOptimizer:
 
     def add_objective(self, name, weight, goal='max', target=None,
                       min_val=None, max_val=None):
+        """Add or replace an objective. Returns True if an objective of the
+        same name was replaced. Stored scores are recomputed either way so the
+        history and the model never disagree with the current weights."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("Objective name cannot be empty.")
+        weight = float(weight)
+        if weight <= 0:
+            raise ValueError("Weight must be greater than 0.")
+        min_val = float(min_val) if min_val is not None else 0.0
+        max_val = float(max_val) if max_val is not None else 10.0
+        if min_val >= max_val:
+            raise ValueError("Range Min must be less than Range Max.")
+        if goal == 'target':
+            if target is None:
+                raise ValueError("Enter a target value for a 'Hit a target' objective.")
+            target = float(target)
+            if not (min_val <= target <= max_val):
+                raise ValueError(
+                    f"Target {target:g} must lie within the range {min_val:g} to {max_val:g}."
+                )
+        else:
+            target = None
+        replaced = any(obj['name'] == name for obj in self.objectives)
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self.objectives.append({
-            'name': name,
-            'weight': float(weight),
-            'goal': goal,
-            'target': float(target) if target is not None else None,
-            'min_val': float(min_val) if min_val is not None else 0.0,
-            'max_val': float(max_val) if max_val is not None else 10.0,
+            'name': name, 'weight': weight, 'goal': goal,
+            'target': target, 'min_val': min_val, 'max_val': max_val,
         })
         self.pending_batch = None
+        self._recompute_utilities()
         self.save()
+        return replaced
 
     def remove_objective(self, name):
         """Remove an objective and recalculate stored utility scores."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
-        if self.results_history:
-            for i, results_dict in enumerate(self.results_history):
-                if i < len(self.Y_history):
-                    self.Y_history[i] = self._compute_utility(results_dict)
         self.pending_batch = None
+        self._recompute_utilities()
         self.save()
+
+    def _recompute_utilities(self):
+        for i, results_dict in enumerate(self.results_history):
+            if i < len(self.Y_history):
+                self.Y_history[i] = self._compute_utility(results_dict)
+
+    def utility_ceiling(self):
+        """The Overall Score a perfect recipe would get: the sum of weights."""
+        return float(sum(obj['weight'] for obj in self.objectives))
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
