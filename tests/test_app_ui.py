@@ -8,6 +8,7 @@ and shows the user a raw traceback.
 import os
 import time
 
+import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -235,6 +236,21 @@ def test_no_backup_nag_after_successful_save(project_with_pending_batch):
     at.run()
     assert not any("Download a backup now" in w.value for w in at.warning)
     assert any(c.value.startswith("Saved ") for c in at.caption), [c.value for c in at.caption]
+
+
+def test_upload_results_for_batch(project_with_pending_batch):
+    """Prime the parsed sheet the way the uploader handler does (AppTest cannot
+    drive st.file_uploader). Recipe 2 is absent, so it must stay pending."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_results_upload"] = pd.DataFrame({"Recipe": [1], "Taste": [8.0]})
+    at.run()
+    _submit_button(at, "Save uploaded results").click()
+    at.run()
+    assert not at.exception
+    opt = FoodOptimizer("my_project")
+    assert len(opt.X_history) == 2
+    assert opt.pending_batch == [{"Water": 20.0}]
+    assert any("Results saved" in s.value for s in at.success), [s.value for s in at.success]
 
 
 def test_save_failure_shows_one_banner_with_backup_and_reload(project_with_history):

@@ -880,6 +880,53 @@ with tab_optimize:
                             del st.session_state.current_batch
                             st.rerun()
 
+            with st.expander("Or upload results from a CSV"):
+                st.caption(
+                    "Download the batch sheet on the left, fill in one column per "
+                    "measurement, and upload it here. Rows are matched by Recipe number; "
+                    "recipes you leave out stay on the bench."
+                )
+                up = st.file_uploader("Results sheet", type=["csv"], key=f"b{batch_id}_results_csv")
+                if up is not None and st.button("Check this sheet", key=f"b{batch_id}_check"):
+                    try:
+                        st.session_state["_results_upload"] = pd.read_csv(up)
+                    except Exception:
+                        st.session_state.pop("_results_upload", None)
+                        st.error("This file couldn't be read as a CSV. If it came from Excel, use File > Save As and pick CSV format.")
+                _sheet = st.session_state.get("_results_upload")
+                if _sheet is not None:
+                    _opt = st.session_state.optimizer
+                    try:
+                        parsed = _opt.parse_batch_results(_sheet, batch)
+                    except ValueError as e:
+                        st.error(str(e))
+                        st.session_state.pop("_results_upload", None)
+                    else:
+                        st.info(f"Found results for {len(parsed)} of {len(batch)} recipes: "
+                                + ", ".join(f"Recipe {i + 1}" for i, _ in parsed) + ".")
+                        if st.button("Save uploaded results", type="primary", key=f"b{batch_id}_save_upload"):
+                            try:
+                                for i, results in parsed:
+                                    _opt.tell(batch[i], results)
+                            except (ValueError, TypeError) as e:
+                                st.error(f"Could not save these results: {e}")
+                            else:
+                                done = {i for i, _ in parsed}
+                                n = len(_opt.Y_history)
+                                st.session_state["_last_saved"] = [
+                                    {"recipe": i + 1, "score": float(_opt.Y_history[n - len(parsed) + k])}
+                                    for k, (i, _) in enumerate(parsed)
+                                ]
+                                remaining = [r for i, r in enumerate(batch) if i not in done]
+                                _opt.set_pending_batch(remaining or None)
+                                if remaining:
+                                    st.session_state.current_batch = remaining
+                                else:
+                                    del st.session_state.current_batch
+                                st.session_state.pop("_results_upload", None)
+                                st.session_state["_batch_id"] = batch_id + 1
+                                st.rerun()
+
     st.divider()
 
     # -------------------------------------------------------------- #

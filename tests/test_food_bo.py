@@ -291,6 +291,49 @@ def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
     assert list(df.columns) == ["Recipe", "Water", "Temp"]
 
 
+class TestParseBatchResults:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("pbr")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Hardness", 1.0, goal="target", target=12, min_val=0, max_val=30)
+        opt.add_objective("L*", 1.0, goal="max", min_val=0, max_val=100)
+        return opt
+
+    def test_parses_matching_rows_case_insensitively(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}, {"Water": 20.0}, {"Water": 30.0}]
+        df = pd.DataFrame({"recipe": [1, 3], " hardness ": [11.0, 14.0], "l*": [70.0, 65.0]})
+        parsed = opt.parse_batch_results(df, batch)
+        assert parsed == [(0, {"Hardness": 11.0, "L*": 70.0}), (2, {"Hardness": 14.0, "L*": 65.0})]
+
+    def test_missing_recipe_column(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Hardness": [1.0], "L*": [2.0]})
+        with pytest.raises(ValueError, match="needs a Recipe column"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
+    def test_missing_measurement_column(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Recipe": [1], "Hardness": [1.0]})
+        with pytest.raises(ValueError, match="Missing columns: L\\*"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
+    def test_blank_cell_and_unknown_recipe(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}]
+        with pytest.raises(ValueError, match="Recipe 1 Hardness is blank"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [None], "L*": [5.0]}), batch)
+        with pytest.raises(ValueError, match="Recipe 7 is not in this batch"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [7], "Hardness": [1.0], "L*": [5.0]}), batch)
+
+    def test_out_of_range_value(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Recipe 1 L\\* is 140.*0 to 100"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [1.0], "L*": [140.0]}),
+                                    [{"Water": 10.0}])
+
+
 def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("csv")

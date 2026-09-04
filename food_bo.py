@@ -448,6 +448,53 @@ class FoodOptimizer:
         df.insert(0, "Recipe", range(1, len(df) + 1))
         return df
 
+    def parse_batch_results(self, df, batch):
+        """Match an uploaded results sheet to the pending batch.
+
+        Expects a Recipe column (1-based, as in the downloaded batch sheet) and
+        one column per objective; header matching ignores case and whitespace.
+        Returns [(batch_index, {objective: value}), ...] for the recipes
+        present. Raises ValueError with a message the lab can act on."""
+        norm = {str(c).strip().lower(): c for c in df.columns}
+        if "recipe" not in norm:
+            raise ValueError("The sheet needs a Recipe column (1, 2, 3…) like the downloaded batch sheet.")
+        col_for = {}
+        missing = []
+        for obj in self.objectives:
+            key = obj['name'].strip().lower()
+            if key in norm:
+                col_for[obj['name']] = norm[key]
+            else:
+                missing.append(obj['name'])
+        if missing:
+            raise ValueError("Missing columns: " + ", ".join(missing))
+        parsed = []
+        for _, row in df.iterrows():
+            raw_no = row[norm["recipe"]]
+            try:
+                recipe_no = int(raw_no)
+            except (TypeError, ValueError):
+                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
+            if not (1 <= recipe_no <= len(batch)):
+                raise ValueError(f"Recipe {recipe_no} is not in this batch (it has {len(batch)} recipes).")
+            results = {}
+            for obj in self.objectives:
+                val = row[col_for[obj['name']]]
+                if val is None or (isinstance(val, float) and np.isnan(val)) or str(val).strip() == "":
+                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is blank.")
+                try:
+                    val = float(val)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is not a number.")
+                if not (obj['min_val'] <= val <= obj['max_val']):
+                    raise ValueError(
+                        f"Recipe {recipe_no} {obj['name']} is {val:g}, outside the range "
+                        f"{obj['min_val']:g} to {obj['max_val']:g}."
+                    )
+                results[obj['name']] = val
+            parsed.append((recipe_no - 1, results))
+        return parsed
+
     def history_csv(self):
         """History as CSV whose variable and objective columns match what
         'Import Historical Experiments' expects, so exports re-import cleanly.
