@@ -32,10 +32,15 @@ def _reset_project_session():
 
 
 def _open_project(name, create=False):
+    if create:
+        new_opt = FoodOptimizer(name, storage=STORAGE)
+        new_opt.save()
+        if new_opt.save_error:
+            st.error(new_opt.save_error)
+            return
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     if create:
-        FoodOptimizer(name, storage=STORAGE).save()
         flash("success", f"Created {name}.")
     else:
         flash("success", f"Opened {name}.")
@@ -71,6 +76,9 @@ with st.sidebar:
                          "periods, starting with a letter or number.")
             elif name in existing_projects:
                 st.error(f"A project named {name} already exists. Open it below.")
+            elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
+                st.error("That name is already used by a project or an archive. "
+                         "Choose another.")
             else:
                 _open_project(name, create=True)
 
@@ -81,7 +89,7 @@ with st.sidebar:
             index=existing_projects.index(_active) if _active in existing_projects else 0,
             key="project_select",
         )
-        if st.button("Open"):
+        if st.button("Open") and selected != _active:
             _open_project(selected)
 
     project_name = st.session_state.get("_loaded_project")
@@ -215,9 +223,7 @@ with st.sidebar:
             else:
                 if archived:
                     flash("info", f"Your previous data was kept as an archive named {archived}.")
-                st.session_state.pop("optimizer", None)
-                st.session_state.pop("current_batch", None)
-                st.session_state.pop("show_backup_warning", None)
+                _reset_project_session()
                 st.session_state["_loaded_project"] = _target
                 st.rerun()
 

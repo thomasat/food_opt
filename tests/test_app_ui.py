@@ -6,6 +6,7 @@ and shows the user a raw traceback.
 """
 
 import os
+import time
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -237,15 +238,23 @@ def test_create_project_writes_file_and_opens_it(tmp_path, monkeypatch):
 
 
 def test_returning_user_lands_in_most_recent_project(project_with_history):
+    older = FoodOptimizer("older")
+    older.add_ingredient("Sugar", 0, 50)
+    time.sleep(0.01)
+    project_with_history.save()   # touch my_project so it is newest on disk
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any("my_project" in c.value and "1 experiments" in c.value for c in at.caption)
+    assert not any("older" in c.value for c in at.caption)
 
 
 def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_path):
     other = FoodOptimizer("second")
     other.add_ingredient("Flour", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"  # pin: "second" now exists on
+    # disk with a later mtime, which would otherwise become the auto-loaded "most
+    # recent" project (Task 8) before this test ever switches to it on purpose.
     at.run()
     _submit_button(at, "Hard Reset Project").click()   # arm the confirmation
     at.run()
