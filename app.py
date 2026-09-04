@@ -6,7 +6,7 @@ import pandas as pd
 
 import storage as storage_backend
 from food_bo import FoodOptimizer
-from ui_helpers import flash, render_flash
+from ui_helpers import confirm_action, flash, render_flash
 
 STORAGE = storage_backend.LocalStorage()
 
@@ -169,34 +169,25 @@ with st.sidebar:
     # --- Hard Reset ---
     st.divider()
 
-    if st.button("Hard Reset Project"):
-        st.session_state.confirm_reset = True
-    if st.session_state.get("confirm_reset"):
+    if confirm_action(
+        "hard_reset", "Hard Reset Project",
+        f"Start **{opt.project_name}** over? Its {len(opt.X_history)} experiment(s) "
+        "and setup are moved to an archive copy, not deleted.",
+        confirm_label="Yes, reset",
+    ):
         _target = opt.project_name
-        st.warning(
-            f"Start **{_target}** over? Its {len(opt.X_history)} experiment(s) "
-            "and setup are moved to an archive copy, not deleted."
-        )
-        col_yes, col_no = st.columns(2)
-        with col_yes:
-            if st.button("Yes, reset", type="primary", use_container_width=True):
-                st.session_state.confirm_reset = False
-                try:
-                    archived = STORAGE.archive(_target, "archived", copy=False)
-                except storage_backend.StorageError as e:
-                    st.error(str(e))
-                else:
-                    if archived:
-                        flash("info", f"Your previous data was kept as an archive named {archived}.")
-                    st.session_state.pop("optimizer", None)
-                    st.session_state.pop("current_batch", None)
-                    st.session_state.pop("show_backup_warning", None)
-                    st.session_state["_loaded_project"] = _target
-                    st.rerun()
-        with col_no:
-            if st.button("Cancel", use_container_width=True):
-                st.session_state.confirm_reset = False
-                st.rerun()
+        try:
+            archived = STORAGE.archive(_target, "archived", copy=False)
+        except storage_backend.StorageError as e:
+            st.error(str(e))
+        else:
+            if archived:
+                flash("info", f"Your previous data was kept as an archive named {archived}.")
+            st.session_state.pop("optimizer", None)
+            st.session_state.pop("current_batch", None)
+            st.session_state.pop("show_backup_warning", None)
+            st.session_state["_loaded_project"] = _target
+            st.rerun()
 
 
 # A damaged project must never be silently overwritten: every edit below
@@ -397,10 +388,19 @@ with tab_setup:
             } for o in st.session_state.optimizer.objectives]
             st.dataframe(pd.DataFrame(_rows), hide_index=True)
             for i, obj in enumerate(st.session_state.optimizer.objectives):
-                if st.button(f"Remove {obj['name']}", key=f"rm_obj_{i}"):
+                _has_history = bool(st.session_state.optimizer.X_history)
+                if _has_history:
+                    _go = confirm_action(
+                        f"rm_obj_{i}", f"Remove {obj['name']}",
+                        f"Remove {obj['name']}? Every stored Overall Score is recalculated without it.",
+                        confirm_label="Yes, remove",
+                    )
+                else:
+                    _go = st.button(f"Remove {obj['name']}", key=f"rm_obj_{i}")
+                if _go:
                     st.session_state.optimizer.remove_objective(obj['name'])
                     st.session_state.pop("current_batch", None)
-                    flash("success", f"Removed {obj['name']}. Stored scores were recalculated.")
+                    flash("success", f"Removed {obj['name']}.")
                     st.rerun()
 
     # -------------------------------------------------------------- #
@@ -901,14 +901,20 @@ with tab_optimize:
                     "Force delete even if it was used (discards that information)",
                     key="egbo_del_force",
                 )
-                if st.button("Delete permanently", key="egbo_del_btn"):
+                if confirm_action(
+                    "egbo_del", "Delete permanently",
+                    f"Delete {_del} from this project for good? Past experiments are kept but "
+                    "re-encoded without it. A copy of the project is archived first.",
+                    confirm_label="Yes, delete",
+                ):
                     try:
+                        STORAGE.archive(_opt.project_name, "pre_delete", copy=True)
                         _opt.remove_ingredient(_del, force=_force)
                         st.session_state.pop("current_batch", None)
                         st.session_state.show_backup_warning = True
                         flash("success", f"Deleted '{_del}'.")
                         st.rerun()
-                    except ValueError as e:
+                    except (ValueError, storage_backend.StorageError) as e:
                         st.error(str(e))
             else:
                 st.caption("No ingredients loaded.")
@@ -1078,10 +1084,22 @@ with tab_optimize:
                     del st.session_state._edit_warning_idx
                     del st.session_state._edit_warning_n
 
-                if st.button(f"Delete Experiment #{edit_idx}", key="delete_btn"):
-                    st.session_state.optimizer.delete_result(edit_idx)
-                    flash("success", f"Deleted experiment {edit_idx + 1}.")
-                    st.rerun()
+                _row = st.session_state.optimizer.recipe_history[edit_idx] if edit_idx < len(st.session_state.optimizer.recipe_history) else {}
+                _desc = " · ".join(f"{k} {v:.2f}" for k, v in _row.items())
+                if confirm_action(
+                    "delete_exp",
+                    f"Delete experiment {edit_idx + 1}",
+                    f"Delete experiment {edit_idx + 1} ({_desc})? A copy of the project is archived first.",
+                    confirm_label="Yes, delete",
+                ):
+                    try:
+                        STORAGE.archive(st.session_state.optimizer.project_name, "pre_delete", copy=True)
+                    except storage_backend.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.optimizer.delete_result(edit_idx)
+                        flash("success", f"Deleted experiment {edit_idx + 1}.")
+                        st.rerun()
             else:
                 st.warning(
                     f"Experiment #{edit_idx} was recorded before edit tracking was enabled. "
@@ -1113,7 +1131,12 @@ with tab_optimize:
                 f"This will discard {n_discard} experiment(s) "
                 f"(#{rewind_idx + 1} through #{len(st.session_state.optimizer.X_history) - 1})."
             )
-        if st.button("Rewind", disabled=(n_discard == 0), key="rewind_btn"):
+        if confirm_action(
+            "rewind", "Rewind",
+            f"Discard {n_discard} experiment(s) and keep 1 through {rewind_idx + 1}? "
+            "A copy of the project is archived first.",
+            confirm_label="Yes, rewind", disabled=(n_discard == 0),
+        ):
             pname = st.session_state.optimizer.project_name
             try:
                 archived = STORAGE.archive(pname, "pre_rewind", copy=True)

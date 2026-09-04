@@ -94,11 +94,29 @@ def test_delete_experiment_confirmation_is_visible_after_rerun(project_with_hist
     """The success message must survive the st.rerun() that follows a delete."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete Experiment #0").click()   # label becomes 1-based in Task 7
+    _submit_button(at, "Delete experiment 1").click()
+    at.run()
+    _submit_button(at, "Yes, delete").click()
     at.run()
     assert not at.exception
     assert any("Deleted experiment" in s.value for s in at.success), \
         [s.value for s in at.success]
+
+
+def test_delete_experiment_confirms_and_archives(project_with_history, tmp_path):
+    """Deleting an experiment must require confirmation and archive a copy first."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Delete experiment 1").click()
+    at.run()
+    assert len(FoodOptimizer("my_project").X_history) == 1   # not yet
+    assert any("Delete experiment 1" in w.value for w in at.warning)
+    _submit_button(at, "Yes, delete").click()
+    at.run()
+    assert not at.exception
+    assert len(FoodOptimizer("my_project").X_history) == 0
+    assert (tmp_path / "my_project_pre_delete.pkl").exists()
+    assert any("Deleted experiment 1" in s.value for s in at.success)
 
 
 def test_hard_reset_targets_active_project_not_typed_name(project_with_history, tmp_path):

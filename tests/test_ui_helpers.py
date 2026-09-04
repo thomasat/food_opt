@@ -27,3 +27,41 @@ def test_flash_is_shown_only_once():
     at.run()
     at.run()
     assert [s.value for s in at.success] == []
+
+
+CONFIRM_SCRIPT = """
+import streamlit as st
+from ui_helpers import confirm_action
+st.session_state.setdefault("done", 0)
+if confirm_action("del", "Delete thing", "Really delete?", confirm_label="Yes, delete"):
+    st.session_state["done"] += 1
+st.write(f"done={st.session_state['done']}")
+"""
+
+
+def _btn(at, label):
+    return next(b for b in at.button if b.label == label)
+
+
+def test_confirm_action_needs_two_clicks():
+    at = AppTest.from_string(CONFIRM_SCRIPT)
+    at.run()
+    _btn(at, "Delete thing").click()
+    at.run()
+    assert any("Really delete?" in w.value for w in at.warning)
+    assert at.session_state["done"] == 0
+    _btn(at, "Yes, delete").click()
+    at.run()
+    assert at.session_state["done"] == 1
+    assert not any("Really delete?" in w.value for w in at.warning)
+
+
+def test_confirm_action_cancel():
+    at = AppTest.from_string(CONFIRM_SCRIPT)
+    at.run()
+    _btn(at, "Delete thing").click()
+    at.run()
+    _btn(at, "Cancel").click()
+    at.run()
+    assert at.session_state["done"] == 0
+    assert not any("Really delete?" in w.value for w in at.warning)
