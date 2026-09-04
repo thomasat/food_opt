@@ -286,3 +286,20 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     assert not at.exception
     assert not any(b.label == "Yes, reset" for b in at.button), [b.label for b in at.button]
     assert any("second" in c.value for c in at.caption)
+
+
+def test_generate_is_disabled_with_reason_when_no_objectives(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("noobj")
+    opt.add_ingredient("Water", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    gen = next(b for b in at.button if b.label.startswith("Generate"))
+    assert gen.disabled
+    assert any("Add at least one objective" in c.value for c in at.caption), [c.value for c in at.caption]
+
+
+def test_exploration_phase_notice(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any("Exploration phase" in i.value for i in at.info), [i.value for i in at.info]

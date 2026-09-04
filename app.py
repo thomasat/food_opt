@@ -47,6 +47,22 @@ def _open_project(name, create=False):
     st.rerun()
 
 
+def _readiness(opt):
+    """(ready: bool, reason: str, parts: list[str]) for the status strip."""
+    n_ing = sum(1 for v in opt.variables if v.get('category', 'ingredient') == 'ingredient')
+    n_obj = len(opt.objectives)
+    parts = [
+        f"Ingredients: {n_ing} {'✓' if n_ing else '✗ required'}",
+        f"Objectives: {n_obj} {'✓' if n_obj else '✗ required'}",
+        f"Constraints: {len(opt.constraints) + len(opt.quantity_constraints)} (optional)",
+    ]
+    if not n_ing:
+        return False, "Add at least one ingredient in the Set up tab.", parts
+    if not n_obj:
+        return False, "Add at least one objective in the Set up tab.", parts
+    return True, "", parts
+
+
 with st.sidebar:
     st.subheader("Projects")
 
@@ -264,6 +280,11 @@ if getattr(st.session_state.optimizer, "save_error", None):
 # ================================================================== #
 
 tab_setup, tab_optimize = st.tabs(["1. Setup & Config", "2. Optimization Loop"])
+
+_ready, _reason, _parts = _readiness(st.session_state.optimizer)
+for _tab in (tab_setup, tab_optimize):
+    with _tab:
+        st.caption(" · ".join(_parts))
 
 with tab_setup:
     col_a, col_b = st.columns(2)
@@ -714,32 +735,36 @@ with tab_optimize:
     #  Ask: Generate Experiments
     # -------------------------------------------------------------- #
     with col_ask:
-        st.subheader("Generate Experiments")
-        batch_size = st.slider("Batch Size", 1, 10, 3)
-
-        if st.button(f"Generate {batch_size} Recipes", type="primary"):
-            if not st.session_state.optimizer.variables:
-                st.error("Please load ingredients in Setup tab first!")
-            elif not st.session_state.optimizer.objectives:
-                st.error("Please define objectives in Setup tab first!")
-            else:
-                with st.spinner("Optimizing..."):
-                    try:
-                        recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
-                        st.session_state.current_batch = recipes
-                        st.session_state["_batch_id"] = st.session_state.get("_batch_id", 0) + 1
-                        st.session_state.optimizer.set_pending_batch(recipes)
-                    except ValueError as e:
-                        st.error(str(e))
-                    except Exception:
-                        # A raw traceback is a dead end for a nontechnical user.
-                        st.error(
-                            "The optimizer hit an unexpected problem while "
-                            "generating recipes. Try again (a smaller batch "
-                            "often helps); if this keeps happening, relax any "
-                            "recently added constraints or use Help > Email "
-                            "Support."
-                        )
+        st.subheader("Generate Recipes")
+        _n_hist = len(st.session_state.optimizer.X_history)
+        if _n_hist < 5:   # matches ask(n_init_random=5)
+            st.info(f"Exploration phase: {_n_hist} of 5 baseline experiments done. The first "
+                    "recipes are spread across your ranges to map the space; the optimizer "
+                    "starts learning from your results after that.")
+        else:
+            st.caption(f"Optimizing — the model has learned from {_n_hist} experiments.")
+        batch_size = st.slider("How many recipes to try this round", 1, 10, 3,
+                               help="Recipes you can realistically make before entering results.")
+        if not _ready:
+            st.caption(_reason)
+        if st.button(f"Generate {batch_size} recipes", type="primary", disabled=not _ready):
+            with st.spinner("Choosing the next recipes to try…"):
+                try:
+                    recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
+                    st.session_state.current_batch = recipes
+                    st.session_state["_batch_id"] = st.session_state.get("_batch_id", 0) + 1
+                    st.session_state.optimizer.set_pending_batch(recipes)
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception:
+                    # A raw traceback is a dead end for a nontechnical user.
+                    st.error(
+                        "The optimizer hit an unexpected problem while "
+                        "generating recipes. Try again (a smaller batch "
+                        "often helps); if this keeps happening, relax any "
+                        "recently added constraints or use Help > Email "
+                        "Support."
+                    )
 
         if "current_batch" in st.session_state:
             st.info("Suggested Batch:")
