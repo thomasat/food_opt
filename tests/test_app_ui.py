@@ -325,3 +325,13 @@ def test_exploration_phase_notice(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any("Exploration phase" in i.value for i in at.info), [i.value for i in at.info]
+
+
+def test_tab_and_section_labels_are_plain(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = [t.label for t in at.tabs]
+    assert labels == ["1. Set up your project", "2. Run experiments"], labels
+    headers = [h.value for h in at.subheader]
+    assert not any(h.startswith(("A.", "A2.", "B.", "C.", "D.", "E.")) for h in headers), headers
+    assert not any("EGBO" in x for x in headers + [e.label for e in at.expander]), headers

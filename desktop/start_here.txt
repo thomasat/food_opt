@@ -16,11 +16,15 @@ HOW TO INSTALL
 2. Open your Applications folder and double-click Food Optimizer.
 3. The first time, the app sets itself up (usually 1 to 5 minutes). When it
    finishes, Food Optimizer opens on your screen, ready to use.
+   If your Mac asks whether you are sure you want to open it, click Open.
 
 TRYING IT OUT
 - Next to this file you'll find an "Example Data" folder with sample
   spreadsheets. Upload "example ingredients.csv" in the app's Ingredients
   section to see how everything works before using your own data.
+- "example experiments.csv" in that same folder holds sample past results.
+  Upload it under Run experiments > Import Historical Experiments to see
+  a project that already has data in it.
 
 USING IT DAY TO DAY
 - To open the app again later, open Food Optimizer from Applications,
@@ -42,7 +46,8 @@ YOUR DATA STAYS ON YOUR COMPUTER
   no tracking.
 
 NEED HELP?
-Please reach out to the Food Intelligence Lab. When you do, attaching
+Please reach out to the Food Intelligence Lab at
+https://github.com/thomasat/food_opt/issues. When you do, attaching
 the app's technical details file helps us help you: inside the app,
 the Help menu's "Show Log File" finds it for you. If the app will not
 open, find it in Finder instead: click the Go menu, choose

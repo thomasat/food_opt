@@ -498,12 +498,12 @@ class TestAskTell:
         assert len(opt_configured.results_history) == 1
 
     def test_tell_no_objectives_raises(self, opt_with_ingredients):
-        with pytest.raises(ValueError, match="No objectives"):
+        with pytest.raises(ValueError, match="Add at least one objective"):
             opt_with_ingredients.tell({"Water": 50, "Flour": 25, "Sugar": 10},
                                       {"Taste": 7.0})
 
     def test_tell_missing_result_raises(self, opt_configured):
-        with pytest.raises(ValueError, match="Missing data"):
+        with pytest.raises(ValueError, match="Enter a value for"):
             opt_configured.tell({"Water": 50, "Flour": 25, "Sugar": 10}, {})
 
     def test_warm_start_after_enough_experiments(self, opt_configured):
@@ -776,7 +776,7 @@ class TestActiveSet:
     def test_deactivate_blocks_last_active_variable(self, opt_configured):
         opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")
-        with pytest.raises(ValueError, match="last active variable"):
+        with pytest.raises(ValueError, match="must stay in play"):
             opt_configured.deactivate_variable("Water")
 
     def test_reactivate_restores_the_dimension(self, opt_configured):
@@ -822,7 +822,7 @@ class TestActiveSet:
 
     def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        with pytest.raises(ValueError, match="unsatisfiable"):
+        with pytest.raises(ValueError, match="impossible to meet"):
             opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")  # unrelated, still fine
         assert [v["name"] for v in opt_configured.inactive_variables()] == ["Sugar"]
@@ -834,7 +834,7 @@ class TestActiveSet:
         ]))
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
-        with pytest.raises(ValueError, match="unsatisfiable"):
+        with pytest.raises(ValueError, match="impossible to meet"):
             opt.deactivate_variable("a")
 
     def test_pruned_state_survives_pkl_reload(self, opt_configured, monkeypatch):
@@ -866,7 +866,7 @@ class TestActiveSet:
         )
         opt_configured.deactivate_variable("Flour")
         text = opt_configured.export_trajectory()
-        assert "Pruned / inactive" in text
+        assert "Paused" in text
         assert "Flour=20" in text, "a pruned variable's past usage must stay visible"
 
 
@@ -1004,3 +1004,17 @@ class TestSetupValidation:
         opt.add_quantity_constraint(["Honey", "Sugar"], max_val=40)
         assert len(opt.quantity_constraints) == 1
         assert opt.quantity_constraints[0]['max'] == 40.0
+
+
+def test_no_code_in_user_facing_errors(tmp_path, monkeypatch):
+    """Backend errors reach the UI verbatim, so they must read as plain language."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("copy")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    with pytest.raises(ValueError) as e:
+        opt.remove_ingredient("Water")
+    msg = str(e.value)
+    for banned in ("force=True", "BO ", "GP", "pinned", "encode", "dimension"):
+        assert banned not in msg, msg

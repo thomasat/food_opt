@@ -856,10 +856,10 @@ class FoodOptimizer:
     def tell(self, recipe_dict, results_dict):
         """Record an experiment's recipe and results."""
         if not self.objectives:
-            raise ValueError("No objectives defined!")
+            raise ValueError("Add at least one objective before saving results.")
         for obj in self.objectives:
             if results_dict.get(obj['name']) is None:
-                raise ValueError(f"Missing data for {obj['name']}")
+                raise ValueError(f"Enter a value for {obj['name']}.")
 
         self.X_history.append(self._encode(recipe_dict))
         self.Y_history.append(self._compute_utility(results_dict))
@@ -960,14 +960,15 @@ class FoodOptimizer:
             )
             if constr['min'] is not None and hi < constr['min']:
                 raise ValueError(
-                    f"Constraint '{metric} >= {constr['min']}' becomes unsatisfiable: "
-                    f"the remaining active variables reach at most {hi:.4g}. "
-                    f"Relax the constraint before pruning."
+                    f"Pausing these would make the limit on {metric} impossible "
+                    f"to meet: the remaining active ingredients can only reach "
+                    f"{hi:.4g} at most. Loosen the limit first."
                 )
             if constr['max'] is not None and lo > constr['max']:
                 raise ValueError(
-                    f"Constraint '{metric} <= {constr['max']}' becomes unsatisfiable: "
-                    f"the pinned values already total {lo:.4g}."
+                    f"Pausing these would make the limit on {metric} impossible "
+                    f"to meet: the paused items alone add up to {lo:.4g}. "
+                    f"Loosen the limit first."
                 )
 
         for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
@@ -976,14 +977,15 @@ class FoodOptimizer:
             lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0, pinned)
             if qc['min'] is not None and hi < qc['min']:
                 raise ValueError(
-                    f"Quantity constraint [{i}] '{label} >= {qc['min']}' becomes "
-                    f"unsatisfiable: the remaining active ingredients reach at most "
-                    f"{hi:.4g}. Relax the constraint before pruning."
+                    f"Pausing these would make the limit on {label} impossible "
+                    f"to meet: the remaining active ingredients can only reach "
+                    f"{hi:.4g} at most. Loosen the limit first."
                 )
             if qc['max'] is not None and lo > qc['max']:
                 raise ValueError(
-                    f"Quantity constraint [{i}] '{label} <= {qc['max']}' becomes "
-                    f"unsatisfiable: the pinned values already total {lo:.4g}."
+                    f"Pausing these would make the limit on {label} impossible "
+                    f"to meet: the paused items alone add up to {lo:.4g}. "
+                    f"Loosen the limit first."
                 )
 
     def _get_fixed_features(self):
@@ -1021,8 +1023,7 @@ class FoodOptimizer:
             return
         if len(self.active_variables()) <= 1:
             raise ValueError(
-                "Cannot deactivate the last active variable — BO needs at least one "
-                "free dimension to search over."
+                "At least one ingredient or process setting must stay in play."
             )
         frozen = self._frozen_value(var) if value is None else float(value)
         lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
@@ -1062,12 +1063,13 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
-                f"'{name}' is a process parameter — use remove_process_parameter."
+                f"'{name}' is a process parameter. Use Remove next to the "
+                f"process parameter instead."
             )
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
                 "Cannot remove a variable: some experiments were recorded without "
-                "stored recipes, so the history cannot be re-encoded. Deactivate it "
+                "stored recipes, so the history cannot be rebuilt. Pause it "
                 "instead, or start a fresh project."
             )
 
@@ -1080,8 +1082,9 @@ class FoodOptimizer:
             more = f" (+{len(used) - 5} more)" if len(used) > 5 else ""
             raise ValueError(
                 f"'{name}' was used at a nonzero amount in experiment(s) {shown}{more}. "
-                f"Deleting it would discard that information. Deactivate it instead to "
-                f"stop searching over it while keeping the data, or pass force=True."
+                f"Deleting it would discard that information. Pause it instead to "
+                f"stop searching over it while keeping the data. Tick 'Force delete' "
+                f"above if you really want to discard it."
             )
 
         remaining = [v for v in self.variables if v['name'] != name]
@@ -1130,18 +1133,18 @@ class FoodOptimizer:
         best_i = int(np.argmax(self.Y_history))
         active = [v['name'] for v in self.active_variables()]
         inactive = [
-            f"{v['name']} (pinned at {self._frozen_value(v):.3g})"
+            f"{v['name']} (fixed at {self._frozen_value(v):.3g})"
             for v in self.inactive_variables()
         ]
         all_names = [v['name'] for v in self.variables]
-        lines = [f"Active variables ({len(active)}): {active}"]
+        lines = [f"In play ({len(active)}): {active}"]
         if inactive:
-            lines.append(f"Pruned / inactive ({len(inactive)}): {inactive}")
+            lines.append(f"Paused ({len(inactive)}): {inactive}")
         lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
-            # Show every variable that was actually used, including since-pruned
-            # ones, so the expert can see what a pruned variable contributed.
+            # Show every variable that was actually used, including since-paused
+            # ones, so the expert can see what a paused variable contributed.
             comp = ", ".join(f"{k}={rec[k]:.3g}" for k in all_names if rec.get(k))
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())

@@ -290,7 +290,7 @@ if getattr(st.session_state.optimizer, "save_error", None):
 #  Tab 1: Setup & Config
 # ================================================================== #
 
-tab_setup, tab_optimize = st.tabs(["1. Setup & Config", "2. Optimization Loop"])
+tab_setup, tab_optimize = st.tabs(["1. Set up your project", "2. Run experiments"])
 
 _ready, _reason, _parts = _readiness(st.session_state.optimizer)
 for _tab in (tab_setup, tab_optimize):
@@ -305,8 +305,13 @@ with tab_setup:
     # -------------------------------------------------------------- #
     with col_a:
         # --- A1. Ingredients ---
-        st.subheader("A. Ingredients (CSV)")
-        st.info("Upload CSV with columns: Name, Min, Max. Optional: Cost, Protein, etc.")
+        st.subheader("Ingredients")
+        st.info(
+            "Upload a CSV with columns Name, Min, Max. Min and Max are the "
+            "smallest and largest amount of each ingredient allowed in a "
+            "recipe, in the units you use (e.g. grams). Optional extra "
+            "columns like Cost or Protein become properties you can limit."
+        )
 
         uploaded_csv = st.file_uploader("Upload Ingredients CSV", type=["csv"])
         df = None
@@ -325,7 +330,7 @@ with tab_setup:
                 try:
                     st.session_state.optimizer.load_ingredients_from_csv(df)
                     st.session_state.pop("current_batch", None)  # stale under new design space
-                    st.success(f"Loaded {len(df)} ingredients!")
+                    st.success(f"Loaded {len(df)} ingredients.")
                 except ValueError as e:
                     st.error(str(e))
 
@@ -349,7 +354,7 @@ with tab_setup:
         st.divider()
 
         # --- A2. Process Parameters ---
-        st.subheader("A2. Process Parameters")
+        st.subheader("Process parameters (optional)")
         st.caption(
             "Add processing variables (e.g., baking temperature, mixing time) "
             "that the optimizer will also explore."
@@ -486,21 +491,8 @@ with tab_setup:
     #  Column B: Screening Model, Constraints
     # -------------------------------------------------------------- #
     with col_b:
-        # --- C. Low-Fidelity Model ---
-        st.subheader("C. Low-Fidelity Model (Optional)")
-        # The old ".pkl model" upload is intentionally disabled: loading a
-        # pickle file runs whatever code is inside it, so accepting one from
-        # another person would be a security risk. This advanced screening
-        # feature can return in a safe format if a pilot user needs it.
-        st.caption(
-            "Advanced screening-model upload is turned off in this version. "
-            "Contact us if you need it."
-        )
-
-        st.divider()
-
         # --- D. Property Constraints ---
-        st.subheader("D. Property Constraints")
+        st.subheader("Limits on ingredient properties (optional)")
         st.caption(
             "Constraints on computed properties (e.g., total cost, total protein) "
             "based on ingredient properties from your CSV."
@@ -520,7 +512,7 @@ with tab_setup:
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    st.success("Property constraint added!")
+                    st.success("Property constraint added.")
         else:
             st.write("No properties found in CSV.")
 
@@ -535,7 +527,7 @@ with tab_setup:
         st.divider()
 
         # --- E. Ingredient Quantity Constraints ---
-        st.subheader("E. Ingredient Quantity Constraints")
+        st.subheader("Limits on ingredient amounts (optional)")
         st.caption(
             "Set upper/lower limits on the **sum of ingredient quantities**. "
             "Useful for synergistic effects (e.g., Sugar + Honey <= 50g) "
@@ -599,7 +591,7 @@ with tab_setup:
                     except ValueError as e:
                         st.error(str(e))
                     else:
-                        st.success("Total mass constraint added!")
+                        st.success("Total mass constraint added.")
 
             # Show active quantity constraints
             qc_list = getattr(st.session_state.optimizer, 'quantity_constraints', [])
@@ -624,6 +616,7 @@ with tab_setup:
 
         st.divider()
         with st.expander("Advanced: model settings (most people can skip this)"):
+            st.caption("A pre-screening model is not available in this version.")
             st.caption(
                 "Leave this on Standard unless you know the statistics behind "
                 "the optimizer. Standard uses sensible defaults. 'Expert-selected' "
@@ -749,11 +742,10 @@ with tab_optimize:
                 except Exception:
                     # A raw traceback is a dead end for a nontechnical user.
                     st.error(
-                        "The optimizer hit an unexpected problem while "
-                        "generating recipes. Try again (a smaller batch "
-                        "often helps); if this keeps happening, relax any "
-                        "recently added constraints or use Help > Email "
-                        "Support."
+                        "The app hit an unexpected problem while choosing "
+                        "recipes. Try again with fewer recipes. If it keeps "
+                        "happening, loosen any limits you added recently, "
+                        "or open Help › Get Help."
                     )
 
         if "current_batch" in st.session_state:
@@ -845,27 +837,27 @@ with tab_optimize:
     # -------------------------------------------------------------- #
     #  Adaptive EGBO: revise the design space mid-run (arm 2)
     # -------------------------------------------------------------- #
-    with st.expander("Adaptive EGBO: export trajectory & revise design space"):
+    with st.expander("Change the ingredient list mid-project (add, pause, or remove)"):
         _opt = st.session_state.optimizer
 
         _act = _opt.active_variables()
         _inact = _opt.inactive_variables()
         ac1, ac2 = st.columns(2)
         with ac1:
-            st.metric("Active variables |S|", len(_act))
+            st.metric("In play", len(_act))
         with ac2:
-            st.metric("Pruned (still in GP)", len(_inact))
+            st.metric("Paused (data kept)", len(_inact))
 
         st.markdown(
-            "**1. Export the trajectory** to query the expert for ingredients to add "
-            "or remove. Append your candidate pool (minus the active variables) "
-            "before sending."
+            "**1. Share your progress with an expert.** Copy the summary "
+            "below and send it along with the other ingredients you could "
+            "add."
         )
         st.code(_opt.export_trajectory(), language="text")
 
         st.markdown(
-            "**2. Add the expert's suggested variable(s)** to the design space. The "
-            "history re-encodes automatically."
+            "**2. Add an ingredient or process setting.** Your past "
+            "experiments are updated automatically."
         )
         _has_hist = bool(_opt.X_history)
         # Radio outside the form so the fields react to the type choice.
@@ -894,14 +886,14 @@ with tab_optimize:
             if add_type == "Ingredient":
                 st.caption(
                     "Ingredient: absent (0) in every past recipe; mid-run its min is 0 "
-                    "and BO decides how much to use."
+                    "and the optimizer decides how much to use."
                 )
             else:
                 st.caption(
                     "Process parameter: past batches ran at a fixed setting, so give the "
                     "Baseline (that setting) — it must lie within [Min, Max]."
                 )
-            if st.form_submit_button("Add to design space"):
+            if st.form_submit_button("Add"):
                 nm = new_name.strip()
                 if not nm:
                     st.error("Enter a name.")
@@ -919,7 +911,7 @@ with tab_optimize:
                             "success",
                             f"Added {add_type.lower()} '{nm}' "
                             f"(bounds {_opt.variables[-1]['bounds']}). "
-                            f"History re-encoded — generate a new batch."
+                            f"Generate a new batch."
                         )
                         st.rerun()
                     except ValueError as e:
@@ -927,65 +919,63 @@ with tab_optimize:
 
         st.divider()
         st.markdown(
-            "**3. Prune the design space.** Deactivating a variable removes it from "
-            "the active set without deleting anything: past experiments stay in the "
-            "GP, and only the acquisition search is restricted (the variable is held "
-            "at its pinned value). Fully reversible — this is what lets the active "
-            "set shrink as well as grow, so expert false positives don't accumulate."
+            "**3. Pause an ingredient.** Paused ingredients are fixed at 0 "
+            "(process settings at their baseline) while new recipes are "
+            "chosen. Nothing is deleted and you can resume it any time."
         )
 
         if len(_act) > 1:
             _off = st.multiselect(
-                "Deactivate (prune from the active set)",
+                "Pause",
                 [v['name'] for v in _act],
                 key="egbo_deactivate",
-                help="Ingredients pin at 0; process parameters pin at their baseline "
-                     "or lower bound.",
+                help="Paused ingredients are fixed at 0; paused process "
+                     "parameters are fixed at their baseline or lower bound.",
             )
-            if st.button("Deactivate selected", disabled=not _off):
+            if st.button("Pause selected", disabled=not _off):
                 try:
                     for nm in _off:
                         _opt.deactivate_variable(nm)
                     st.session_state.pop("current_batch", None)
-                    flash("success", f"Pruned: {', '.join(_off)} — generate a new batch.")
+                    flash("success", f"Paused: {', '.join(_off)}. Generate a new batch.")
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
         else:
-            st.caption("At least 2 active variables are needed before pruning.")
+            st.caption("At least 2 items must be in play before one can be paused.")
 
         if _inact:
-            st.caption("Currently pruned — pinned during search, still in the GP:")
+            st.caption("Paused — fixed while new recipes are chosen:")
             st.dataframe(
                 pd.DataFrame([
                     {
                         "Name": v['name'],
                         "Type": v.get('category', 'ingredient'),
-                        "Pinned at": _opt._frozen_value(v),
+                        "Fixed at": _opt._frozen_value(v),
                     }
                     for v in _inact
                 ]),
                 hide_index=True,
             )
             _on = st.multiselect(
-                "Reactivate (return to the active set)",
+                "Resume",
                 [v['name'] for v in _inact],
                 key="egbo_reactivate",
             )
-            if st.button("Reactivate selected", disabled=not _on):
+            if st.button("Resume selected", disabled=not _on):
                 for nm in _on:
                     _opt.reactivate_variable(nm)
                 st.session_state.pop("current_batch", None)
-                flash("success", f"Reactivated: {', '.join(_on)} — generate a new batch.")
+                flash("success", f"Resumed: {', '.join(_on)}. Generate a new batch.")
                 st.rerun()
 
         # Checkbox rather than an expander: Streamlit forbids nested expanders.
         if st.checkbox("Show permanent deletion (rarely needed)", key="egbo_show_del"):
             st.caption(
-                "Deletion drops the ingredient's column from the encoded history. "
+                "Deletion drops the ingredient's column from the stored history. "
                 "It is refused if the ingredient was ever used at a nonzero amount, "
                 "since that would rewrite past experiments into recipes nobody ran. "
-                "Deactivation above is almost always what you want."
+                "Pausing above is almost always what you want."
             )
             _ing_names = [
                 v['name'] for v in _opt.variables
@@ -1050,11 +1040,11 @@ with tab_optimize:
             missing = [c for c in required if c not in import_df.columns]
 
             if missing:
-                st.error(f"Missing columns: {missing}")
+                st.error(f"Missing columns: {', '.join(missing)}")
             else:
                 nan_cols = [c for c in required if import_df[c].isna().any()]
                 if nan_cols:
-                    st.error(f"Columns with missing/NaN values: {nan_cols}")
+                    st.error(f"These columns have blank cells: {', '.join(nan_cols)}")
                 elif st.button("Import All Rows", type="primary"):
                     imported = 0
                     import_error = None
