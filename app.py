@@ -835,6 +835,246 @@ with tab_optimize:
     st.divider()
 
     # -------------------------------------------------------------- #
+    #  Experiment History (with Edit / Delete / Rewind)
+    # -------------------------------------------------------------- #
+    if st.session_state.optimizer.X_history:
+        st.subheader("Experiment History")
+        _opt = st.session_state.optimizer
+        _order = st.radio("Order", ["Most recent first", "Best first"], horizontal=True,
+                          key="hist_order", label_visibility="collapsed")
+        hist_df = _opt.history_frame()
+        if _order == "Best first":
+            hist_df = hist_df.sort_values("Overall Score", ascending=False)
+        else:
+            hist_df = hist_df.sort_values("Experiment", ascending=False)
+        _best_exp = (_opt.best_index() or 0) + 1
+        _num_cols = [
+            c for c in hist_df.columns
+            if c not in ("Experiment", "Date") and pd.api.types.is_numeric_dtype(hist_df[c])
+        ]
+        _fmt = {c: "{:.2f}" for c in _num_cols if c != "Overall Score"}
+        if "Overall Score" in hist_df.columns:
+            _fmt["Overall Score"] = "{:.3f}"
+        st.dataframe(
+            hist_df.style
+                .format(_fmt, na_rep="")
+                .apply(lambda r: ["background-color: rgba(46,110,78,.18)" if r["Experiment"] == _best_exp else "" for _ in r], axis=1),
+            hide_index=True,
+        )
+        st.caption(f"Highlighted: experiment {_best_exp}, the best so far. "
+                   f"Overall Score is out of {_opt.utility_ceiling():g}.")
+
+        st.download_button(
+            "Download history (CSV)", data=_opt.history_csv(),
+            file_name=f"{_opt.project_name}_history.csv", mime="text/csv",
+        )
+
+        # --- Edit / Delete ---
+        st.caption("Edit or delete a past result:")
+        results_history = getattr(st.session_state.optimizer, 'results_history', [])
+
+        if results_history:
+            edit_no = st.number_input(
+                "Experiment number to edit", min_value=1,
+                max_value=len(st.session_state.optimizer.X_history), value=1, step=1, key="edit_no",
+            )
+            edit_idx = int(edit_no) - 1
+
+            if edit_idx < len(results_history):
+                current_results = results_history[edit_idx]
+                st.caption(f"Current results for experiment {edit_idx + 1}:")
+                st.json(current_results)
+
+                with st.form("edit_form"):
+                    st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
+                    new_results = {}
+                    edit_cols = st.columns(len(st.session_state.optimizer.objectives))
+                    for j, obj in enumerate(st.session_state.optimizer.objectives):
+                        with edit_cols[j]:
+                            current_val = float(current_results.get(obj['name'], 0.0))
+                            new_results[obj['name']] = st.number_input(
+                                obj['name'], value=current_val,
+                                key=f"edit_{edit_idx}_{j}",
+                            )
+
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        if st.form_submit_button("Update Result"):
+                            st.session_state.optimizer.edit_result(edit_idx, new_results)
+                            n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
+                            if n_after > 0:
+                                st.session_state._edit_warning_idx = edit_idx
+                                st.session_state._edit_warning_n = n_after
+                            flash("success", f"Updated experiment {edit_idx + 1}.")
+                            st.rerun()
+
+                if st.session_state.get('_edit_warning_idx') is not None:
+                    warn_idx = st.session_state._edit_warning_idx
+                    warn_n = st.session_state._edit_warning_n
+                    st.warning(
+                        f"Experiments after {warn_idx + 1} ({warn_n} total) were based on "
+                        f"the pre-edit ratings and may no longer be valid. "
+                        f"Consider rewinding to {warn_idx + 1}."
+                    )
+                    del st.session_state._edit_warning_idx
+                    del st.session_state._edit_warning_n
+
+                _row = st.session_state.optimizer.recipe_history[edit_idx] if edit_idx < len(st.session_state.optimizer.recipe_history) else {}
+                _desc = " · ".join(f"{k} {v:.2f}" for k, v in _row.items())
+                if confirm_action(
+                    "delete_exp",
+                    f"Delete experiment {edit_idx + 1}",
+                    f"Delete experiment {edit_idx + 1} ({_desc})? A copy of the project is archived first.",
+                    confirm_label="Yes, delete",
+                ):
+                    try:
+                        STORAGE.archive(st.session_state.optimizer.project_name, "pre_delete", copy=True)
+                    except storage_backend.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.optimizer.delete_result(edit_idx)
+                        flash("success", f"Deleted experiment {edit_idx + 1}.")
+                        st.rerun()
+            else:
+                st.warning(
+                    f"Experiment {edit_idx + 1} was recorded before edit tracking was enabled. "
+                    "Only newer experiments can be edited."
+                )
+        else:
+            st.info(
+                "Edit capability is available for experiments recorded from this version onward. "
+                "Older experiments (without stored raw results) cannot be edited."
+            )
+
+        # --- Rewind ---
+        st.divider()
+        st.caption("Rewind to a past experiment:")
+        st.info("Rewind keeps experiments 1 through N and **discards all later ones**. "
+                "The current project is archived first, so nothing is permanently lost.")
+        rewind_no = st.number_input(
+            "Keep experiments up to", min_value=1,
+            max_value=len(st.session_state.optimizer.X_history),
+            value=len(st.session_state.optimizer.X_history), step=1, key="rewind_no",
+        )
+        rewind_idx = int(rewind_no) - 1
+        n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
+        if n_discard > 0:
+            st.warning(f"This will discard {n_discard} experiment(s) "
+                       f"({rewind_idx + 2} through {len(st.session_state.optimizer.X_history)}).")
+        if confirm_action(
+            "rewind", "Rewind",
+            f"Discard {n_discard} experiment(s) and keep 1 through {rewind_idx + 1}? "
+            "A copy of the project is archived first.",
+            confirm_label="Yes, rewind", disabled=(n_discard == 0),
+        ):
+            pname = st.session_state.optimizer.project_name
+            try:
+                archived = STORAGE.archive(pname, "pre_rewind", copy=True)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if archived:
+                    flash("info", f"Archived current state as {archived}")
+                st.session_state.optimizer.rewind_to(rewind_idx)
+                st.session_state.pop("current_batch", None)
+                flash("success", f"Rewound to experiment {rewind_idx + 1}.")
+                st.rerun()
+
+    st.divider()
+
+    # -------------------------------------------------------------- #
+    #  Overall Score Explanation
+    # -------------------------------------------------------------- #
+    with st.expander("How is the Overall Score calculated?"):
+        st.markdown(f"""
+**The Overall Score** is a weighted combination of all your objectives, computed as follows:
+
+1. **Normalize** each raw metric value to [0, 1] using the range you defined:
+   - `normalized = (value - range_min) / (range_max - range_min)`
+   - Values outside the range are clamped to [0, 1]
+
+2. **Convert to utility** based on the optimization goal:
+   - **Maximize**: `utility = normalized` (higher raw value = higher utility)
+   - **Minimize**: `utility = 1 - normalized` (lower raw value = higher utility)
+   - **Target**: `utility = max(0, 1 - |normalized - normalized_target|)`
+     (closer to target = higher utility, with linear penalty for deviation)
+
+3. **Weighted sum**: `Total Utility = sum(weight_i * utility_i)` across all objectives
+
+Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect recipe scores {_opt.utility_ceiling():g}.
+
+**Example:** If you have Chewiness (goal=max, weight=0.6, range 0-10) and Sweetness
+(goal=target at 5, weight=0.4, range 0-10):
+- Chewiness score of 8 -> normalized = 0.8 -> utility = 0.8 -> weighted = 0.48
+- Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - 0.1 = 0.9 -> weighted = 0.36
+- **Total Utility = 0.48 + 0.36 = 0.84**
+        """)
+
+    st.divider()
+
+    # -------------------------------------------------------------- #
+    #  Bulk Import Historical Experiments
+    # -------------------------------------------------------------- #
+    with st.expander("Import Historical Experiments (CSV)"):
+        st.markdown(
+            "Upload a CSV to bulk-import past experiments. "
+            "Columns must match your **ingredient names** and **objective names** exactly."
+        )
+        st.caption(
+            "Example: if you have ingredients `flour, sugar, butter` and objectives "
+            "`Chewiness, Flavor`, your CSV needs columns: "
+            "`flour, sugar, butter, Chewiness, Flavor`"
+        )
+
+        import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
+        import_df = None
+        if import_csv is not None:
+            try:
+                import_df = pd.read_csv(import_csv)
+            except Exception:
+                st.error(
+                    "This file couldn't be read as a CSV. If it came from "
+                    "Excel, use File > Save As and pick CSV format, then "
+                    "try again."
+                )
+        if import_df is not None:
+            st.dataframe(import_df, hide_index=True)
+
+            var_names = [v['name'] for v in st.session_state.optimizer.variables]
+            obj_names = [o['name'] for o in st.session_state.optimizer.objectives]
+            required = var_names + obj_names
+            missing = [c for c in required if c not in import_df.columns]
+
+            if missing:
+                st.error(f"Missing columns: {', '.join(missing)}")
+            else:
+                nan_cols = [c for c in required if import_df[c].isna().any()]
+                if nan_cols:
+                    st.error(f"These columns have blank cells: {', '.join(nan_cols)}")
+                elif st.button("Import All Rows", type="primary"):
+                    imported = 0
+                    import_error = None
+                    try:
+                        for _, row in import_df.iterrows():
+                            recipe = {name: float(row[name]) for name in var_names}
+                            results = {name: float(row[name]) for name in obj_names}
+                            st.session_state.optimizer.tell(recipe, results)
+                            imported += 1
+                    except (ValueError, TypeError) as e:
+                        import_error = e
+                    if import_error is not None:
+                        st.error(
+                            f"Stopped at row {imported + 1}: {import_error} "
+                            f"The {imported} row(s) before it were imported "
+                            f"and saved."
+                        )
+                    if import_error is None and imported:
+                        flash("success", f"Imported {imported} experiments.")
+                        st.rerun()
+
+    st.divider()
+
+    # -------------------------------------------------------------- #
     #  Adaptive EGBO: revise the design space mid-run (arm 2)
     # -------------------------------------------------------------- #
     with st.expander("Change the ingredient list mid-project (add, pause, or remove)"):
@@ -1003,239 +1243,3 @@ with tab_optimize:
                         st.error(str(e))
             else:
                 st.caption("No ingredients loaded.")
-
-    st.divider()
-
-    # -------------------------------------------------------------- #
-    #  Bulk Import Historical Experiments
-    # -------------------------------------------------------------- #
-    with st.expander("Import Historical Experiments (CSV)"):
-        st.markdown(
-            "Upload a CSV to bulk-import past experiments. "
-            "Columns must match your **ingredient names** and **objective names** exactly."
-        )
-        st.caption(
-            "Example: if you have ingredients `flour, sugar, butter` and objectives "
-            "`Chewiness, Flavor`, your CSV needs columns: "
-            "`flour, sugar, butter, Chewiness, Flavor`"
-        )
-
-        import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
-        import_df = None
-        if import_csv is not None:
-            try:
-                import_df = pd.read_csv(import_csv)
-            except Exception:
-                st.error(
-                    "This file couldn't be read as a CSV. If it came from "
-                    "Excel, use File > Save As and pick CSV format, then "
-                    "try again."
-                )
-        if import_df is not None:
-            st.dataframe(import_df, hide_index=True)
-
-            var_names = [v['name'] for v in st.session_state.optimizer.variables]
-            obj_names = [o['name'] for o in st.session_state.optimizer.objectives]
-            required = var_names + obj_names
-            missing = [c for c in required if c not in import_df.columns]
-
-            if missing:
-                st.error(f"Missing columns: {', '.join(missing)}")
-            else:
-                nan_cols = [c for c in required if import_df[c].isna().any()]
-                if nan_cols:
-                    st.error(f"These columns have blank cells: {', '.join(nan_cols)}")
-                elif st.button("Import All Rows", type="primary"):
-                    imported = 0
-                    import_error = None
-                    try:
-                        for _, row in import_df.iterrows():
-                            recipe = {name: float(row[name]) for name in var_names}
-                            results = {name: float(row[name]) for name in obj_names}
-                            st.session_state.optimizer.tell(recipe, results)
-                            imported += 1
-                    except (ValueError, TypeError) as e:
-                        import_error = e
-                    if import_error is not None:
-                        st.error(
-                            f"Stopped at row {imported + 1}: {import_error} "
-                            f"The {imported} row(s) before it were imported "
-                            f"and saved."
-                        )
-                    if import_error is None and imported:
-                        flash("success", f"Imported {imported} experiments.")
-                        st.rerun()
-
-    st.divider()
-
-    # -------------------------------------------------------------- #
-    #  Utility Score Explanation
-    # -------------------------------------------------------------- #
-    with st.expander("How is the Utility Score calculated?"):
-        st.markdown("""
-**The Utility Score** is a weighted combination of all your objectives, computed as follows:
-
-1. **Normalize** each raw metric value to [0, 1] using the range you defined:
-   - `normalized = (value - range_min) / (range_max - range_min)`
-   - Values outside the range are clamped to [0, 1]
-
-2. **Convert to utility** based on the optimization goal:
-   - **Maximize**: `utility = normalized` (higher raw value = higher utility)
-   - **Minimize**: `utility = 1 - normalized` (lower raw value = higher utility)
-   - **Target**: `utility = max(0, 1 - |normalized - normalized_target|)`
-     (closer to target = higher utility, with linear penalty for deviation)
-
-3. **Weighted sum**: `Total Utility = sum(weight_i * utility_i)` across all objectives
-
-**Example:** If you have Chewiness (goal=max, weight=0.6, range 0-10) and Sweetness
-(goal=target at 5, weight=0.4, range 0-10):
-- Chewiness score of 8 -> normalized = 0.8 -> utility = 0.8 -> weighted = 0.48
-- Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - 0.1 = 0.9 -> weighted = 0.36
-- **Total Utility = 0.48 + 0.36 = 0.84**
-        """)
-
-    # -------------------------------------------------------------- #
-    #  Experiment History (with Edit / Delete / Rewind)
-    # -------------------------------------------------------------- #
-    if st.session_state.optimizer.X_history:
-        st.subheader("Experiment History")
-        _opt = st.session_state.optimizer
-        _order = st.radio("Order", ["Most recent first", "Best first"], horizontal=True,
-                          key="hist_order", label_visibility="collapsed")
-        hist_df = _opt.history_frame()
-        if _order == "Best first":
-            hist_df = hist_df.sort_values("Overall Score", ascending=False)
-        else:
-            hist_df = hist_df.sort_values("Experiment", ascending=False)
-        _best_exp = (_opt.best_index() or 0) + 1
-        _num_cols = [
-            c for c in hist_df.columns
-            if c not in ("Experiment", "Date") and pd.api.types.is_numeric_dtype(hist_df[c])
-        ]
-        _fmt = {c: "{:.2f}" for c in _num_cols if c != "Overall Score"}
-        if "Overall Score" in hist_df.columns:
-            _fmt["Overall Score"] = "{:.3f}"
-        st.dataframe(
-            hist_df.style
-                .format(_fmt, na_rep="")
-                .apply(lambda r: ["background-color: rgba(46,110,78,.18)" if r["Experiment"] == _best_exp else "" for _ in r], axis=1),
-            hide_index=True,
-        )
-        st.caption(f"Highlighted: experiment {_best_exp}, the best so far. "
-                   f"Overall Score is out of {_opt.utility_ceiling():g}.")
-
-        st.download_button(
-            "Download history (CSV)", data=_opt.history_csv(),
-            file_name=f"{_opt.project_name}_history.csv", mime="text/csv",
-        )
-
-        # --- Edit / Delete ---
-        st.caption("Edit or delete a past result:")
-        results_history = getattr(st.session_state.optimizer, 'results_history', [])
-
-        if results_history:
-            edit_no = st.number_input(
-                "Experiment number to edit", min_value=1,
-                max_value=len(st.session_state.optimizer.X_history), value=1, step=1, key="edit_no",
-            )
-            edit_idx = int(edit_no) - 1
-
-            if edit_idx < len(results_history):
-                current_results = results_history[edit_idx]
-                st.caption(f"Current results for experiment {edit_idx + 1}:")
-                st.json(current_results)
-
-                with st.form("edit_form"):
-                    st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
-                    new_results = {}
-                    edit_cols = st.columns(len(st.session_state.optimizer.objectives))
-                    for j, obj in enumerate(st.session_state.optimizer.objectives):
-                        with edit_cols[j]:
-                            current_val = float(current_results.get(obj['name'], 0.0))
-                            new_results[obj['name']] = st.number_input(
-                                obj['name'], value=current_val,
-                                key=f"edit_{edit_idx}_{j}",
-                            )
-
-                    ec1, ec2 = st.columns(2)
-                    with ec1:
-                        if st.form_submit_button("Update Result"):
-                            st.session_state.optimizer.edit_result(edit_idx, new_results)
-                            n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
-                            if n_after > 0:
-                                st.session_state._edit_warning_idx = edit_idx
-                                st.session_state._edit_warning_n = n_after
-                            flash("success", f"Updated experiment {edit_idx + 1}.")
-                            st.rerun()
-
-                if st.session_state.get('_edit_warning_idx') is not None:
-                    warn_idx = st.session_state._edit_warning_idx
-                    warn_n = st.session_state._edit_warning_n
-                    st.warning(
-                        f"Experiments after {warn_idx + 1} ({warn_n} total) were based on "
-                        f"the pre-edit ratings and may no longer be valid. "
-                        f"Consider rewinding to {warn_idx + 1}."
-                    )
-                    del st.session_state._edit_warning_idx
-                    del st.session_state._edit_warning_n
-
-                _row = st.session_state.optimizer.recipe_history[edit_idx] if edit_idx < len(st.session_state.optimizer.recipe_history) else {}
-                _desc = " · ".join(f"{k} {v:.2f}" for k, v in _row.items())
-                if confirm_action(
-                    "delete_exp",
-                    f"Delete experiment {edit_idx + 1}",
-                    f"Delete experiment {edit_idx + 1} ({_desc})? A copy of the project is archived first.",
-                    confirm_label="Yes, delete",
-                ):
-                    try:
-                        STORAGE.archive(st.session_state.optimizer.project_name, "pre_delete", copy=True)
-                    except storage_backend.StorageError as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state.optimizer.delete_result(edit_idx)
-                        flash("success", f"Deleted experiment {edit_idx + 1}.")
-                        st.rerun()
-            else:
-                st.warning(
-                    f"Experiment {edit_idx + 1} was recorded before edit tracking was enabled. "
-                    "Only newer experiments can be edited."
-                )
-        else:
-            st.info(
-                "Edit capability is available for experiments recorded from this version onward. "
-                "Older experiments (without stored raw results) cannot be edited."
-            )
-
-        # --- Rewind ---
-        st.divider()
-        st.caption("Rewind to a past experiment:")
-        st.info("Rewind keeps experiments 1 through N and **discards all later ones**. "
-                "The current project is archived first, so nothing is permanently lost.")
-        rewind_no = st.number_input(
-            "Keep experiments up to", min_value=1,
-            max_value=len(st.session_state.optimizer.X_history),
-            value=len(st.session_state.optimizer.X_history), step=1, key="rewind_no",
-        )
-        rewind_idx = int(rewind_no) - 1
-        n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
-        if n_discard > 0:
-            st.warning(f"This will discard {n_discard} experiment(s) "
-                       f"({rewind_idx + 2} through {len(st.session_state.optimizer.X_history)}).")
-        if confirm_action(
-            "rewind", "Rewind",
-            f"Discard {n_discard} experiment(s) and keep 1 through {rewind_idx + 1}? "
-            "A copy of the project is archived first.",
-            confirm_label="Yes, rewind", disabled=(n_discard == 0),
-        ):
-            pname = st.session_state.optimizer.project_name
-            try:
-                archived = STORAGE.archive(pname, "pre_rewind", copy=True)
-            except storage_backend.StorageError as e:
-                st.error(str(e))
-            else:
-                if archived:
-                    flash("info", f"Archived current state as {archived}")
-                st.session_state.optimizer.rewind_to(rewind_idx)
-                st.session_state.pop("current_batch", None)
-                flash("success", f"Rewound to experiment {rewind_idx + 1}.")
-                st.rerun()

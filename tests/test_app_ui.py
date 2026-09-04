@@ -335,3 +335,56 @@ def test_tab_and_section_labels_are_plain(project_with_history):
     headers = [h.value for h in at.subheader]
     assert not any(h.startswith(("A.", "A2.", "B.", "C.", "D.", "E.")) for h in headers), headers
     assert not any("EGBO" in x for x in headers + [e.label for e in at.expander]), headers
+
+
+def _render_order(at):
+    """Flat list of (type, label-or-value) in render order, walking nested blocks.
+
+    AppTest exposes a block's nested children as a dict (index -> element) in
+    Streamlit 1.55.0, not a list — confirmed via `dir(at.main)` (has
+    "children") and `at.main.children` (a dict). We iterate `.values()`.
+
+    A handful of Element subclasses raise from their `.value` property
+    instead of just not having one — e.g. UnknownElement (used for
+    st.line_chart) raises KeyError when its widget id has no session_state
+    entry yet, and Dataframe's `.value` is a DataFrame whose truthiness is
+    ambiguous. We don't care about those values for this test, so we prefer
+    `.label` (present on Expander, Button, etc.) and only fall back to a
+    try/except'd `.value` otherwise, never testing its truthiness.
+    """
+    out = []
+
+    def walk(node):
+        children = getattr(node, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for child in children:
+            label = getattr(child, "label", None)
+            if label is not None:
+                v = label
+            else:
+                try:
+                    v = child.value
+                except Exception:
+                    v = ""
+            out.append((type(child).__name__, v))
+            walk(child)
+
+    walk(at.main)
+    return out
+
+
+def test_history_appears_before_advanced_expanders(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    kinds = _render_order(at)
+
+    def pos(pred):
+        return next(i for i, k in enumerate(kinds) if pred(k))
+
+    # Some element values are DataFrames (st.dataframe) whose truthiness/
+    # equality is ambiguous, so only compare when the value is a string.
+    history = pos(lambda k: isinstance(k[1], str) and k[1] == "Experiment History")
+    adaptive = pos(lambda k: isinstance(k[1], str) and "Change the ingredient list" in k[1])
+    imp = pos(lambda k: isinstance(k[1], str) and "Import Historical" in k[1])
+    assert history < imp < adaptive, kinds
