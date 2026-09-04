@@ -150,3 +150,34 @@ def test_restore_rejects_empty_json(project_with_history):
     assert any("not a Food Optimizer backup" in e.value for e in at.error), \
         [e.value for e in at.error]
     assert len(FoodOptimizer("my_project").X_history) == 1
+
+
+@pytest.fixture
+def project_with_pending_batch(project_with_history):
+    project_with_history.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}])
+    return project_with_history
+
+
+def test_blank_result_is_refused_not_saved_as_zero(project_with_pending_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="b0_r0o0").set_value(7.0)   # Recipe 1 only
+    _submit_button(at, "Save Results").click()
+    at.run()
+    assert not at.exception
+    assert any("Recipe 2" in e.value for e in at.error), [e.value for e in at.error]
+    assert len(FoodOptimizer("my_project").X_history) == 1   # nothing saved
+
+
+def test_skipped_recipe_is_left_out(project_with_pending_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="b0_r0o0").set_value(7.0)
+    at.checkbox(key="b0_skip1").check()
+    _submit_button(at, "Save Results").click()
+    at.run()
+    assert not at.exception
+    opt = FoodOptimizer("my_project")
+    assert len(opt.X_history) == 2
+    assert opt.pending_batch is None
+    assert any("Saved 1 result" in s.value for s in at.success), [s.value for s in at.success]

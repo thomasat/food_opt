@@ -612,6 +612,7 @@ with tab_optimize:
                     try:
                         recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
                         st.session_state.current_batch = recipes
+                        st.session_state["_batch_id"] = st.session_state.get("_batch_id", 0) + 1
                         st.session_state.optimizer.set_pending_batch(recipes)
                     except ValueError as e:
                         st.error(str(e))
@@ -648,36 +649,73 @@ with tab_optimize:
     #  Tell: Input Lab Results
     # -------------------------------------------------------------- #
     with col_tell:
-        st.subheader("Input Lab Results")
+        st.subheader("Enter Lab Results")
 
-        if "current_batch" in st.session_state and st.session_state.current_batch:
+        batch = st.session_state.get("current_batch")
+        if not batch:
+            st.caption("Generate recipes on the left. A results form for each one appears here.")
+        else:
+            objs = st.session_state.optimizer.objectives
+            batch_id = st.session_state.get("_batch_id", 0)
             with st.form("results_form"):
-                batch_inputs = {}
-                for i, recipe in enumerate(st.session_state.current_batch):
-                    st.markdown(f"**Recipe #{i + 1}**")
-                    cols = st.columns(len(st.session_state.optimizer.objectives))
+                batch_inputs, skipped = {}, set()
+                for i, recipe in enumerate(batch):
+                    st.markdown(f"**Recipe {i + 1}**")
+                    st.caption(" · ".join(f"{k} {v:.2f}" for k, v in recipe.items()))
+                    if st.checkbox("Not made or failed — leave this recipe out",
+                                   key=f"b{batch_id}_skip{i}"):
+                        skipped.add(i)
+                    # Wrap at four measurements per row so a pilot with TPA,
+                    # colorimeter and shear readings (10+ objectives) stays legible.
+                    _per_row = 4
                     rec_scores = {}
-                    for j, obj in enumerate(st.session_state.optimizer.objectives):
-                        with cols[j]:
+                    for j, obj in enumerate(objs):
+                        if j % _per_row == 0:
+                            cols = st.columns(min(_per_row, len(objs) - j))
+                        with cols[j % _per_row]:
                             rec_scores[obj['name']] = st.number_input(
-                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
-                                key=f"r{i}o{j}",
+                                f"{obj['name']} ({obj['min_val']:g}–{obj['max_val']:g})",
+                                min_value=float(obj['min_val']),
+                                max_value=float(obj['max_val']),
+                                value=None,
+                                placeholder="enter measurement",
+                                key=f"b{batch_id}_r{i}o{j}",
                             )
                     batch_inputs[i] = rec_scores
                     st.divider()
 
                 if st.form_submit_button("Save Results"):
-                    try:
-                        for i, recipe in enumerate(st.session_state.current_batch):
-                            st.session_state.optimizer.tell(recipe, batch_inputs[i])
-                    except (ValueError, TypeError) as e:
-                        st.error(f"Could not save these results: {e}")
+                    missing = [
+                        f"Recipe {i + 1} {name}"
+                        for i, scores in batch_inputs.items() if i not in skipped
+                        for name, v in scores.items() if v is None
+                    ]
+                    kept = [(i, r) for i, r in enumerate(batch) if i not in skipped]
+                    if missing:
+                        st.error(
+                            "Enter a value for: " + ", ".join(missing) + ". "
+                            "Tick 'Not made or failed' to leave a recipe out."
+                        )
+                    elif not kept:
+                        st.error("Every recipe is marked as left out, so there is nothing to save.")
                     else:
-                        st.session_state.optimizer.set_pending_batch(None)
-                        del st.session_state.current_batch
-                        st.session_state.show_backup_warning = True
-                        flash("success", "Results saved.")
-                        st.rerun()
+                        opt_ = st.session_state.optimizer
+                        try:
+                            for i, recipe in kept:
+                                opt_.tell(recipe, batch_inputs[i])
+                        except (ValueError, TypeError) as e:
+                            st.error(f"Could not save these results: {e}")
+                        else:
+                            n = len(opt_.Y_history)
+                            st.session_state["_last_saved"] = [
+                                {"recipe": i + 1, "score": float(opt_.Y_history[n - len(kept) + k])}
+                                for k, (i, _) in enumerate(kept)
+                            ]
+                            opt_.set_pending_batch(None)
+                            del st.session_state.current_batch
+                            st.session_state.show_backup_warning = True
+                            flash("success", f"Saved {len(kept)} result(s).")
+                            st.rerun()
 
     st.divider()
 
