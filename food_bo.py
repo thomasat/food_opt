@@ -140,14 +140,34 @@ class FoodOptimizer:
     #  Setup: Ingredients & Process Parameters
     # ------------------------------------------------------------------ #
 
+    def _check_new_variable(self, name, min_val, max_val, category):
+        """Shared validation for add_ingredient / add_process_parameter.
+        Returns the stripped name. Same-name same-category is allowed (the
+        caller updates bounds); a clash with the other category is an error."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("Name cannot be empty.")
+        if float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        for v in self.variables:
+            if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
+                other = v.get('category', 'ingredient')
+                other_label = "an ingredient" if other == 'ingredient' else "a process parameter"
+                raise ValueError(f"{v['name']} already exists as {other_label}.")
+        return name
+
     def add_ingredient(self, name, min_val, max_val):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
         ingredient is treated as absent (=0) in every prior recipe, and the
         encoded history is rebuilt so the GP stays dimensionally consistent."""
+        name = self._check_new_variable(name, min_val, max_val, 'ingredient')
+        min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                var['bounds'] = (min_val, max_val)
+                self.pending_batch = None
+                self.save()
                 return
-        min_val, max_val = float(min_val), float(max_val)
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
@@ -202,8 +222,15 @@ class FoodOptimizer:
         standard_cols = {'Name', 'Min', 'Max', 'Type'}
         prop_cols = [c for c in df.columns if c not in standard_cols]
 
-        for _, row in df.iterrows():
-            name = row['Name']
+        seen_names = set()
+        for i, (_, row) in enumerate(df.iterrows()):
+            raw_name = row.get('Name')
+            name = "" if raw_name is None or (isinstance(raw_name, float) and np.isnan(raw_name)) else str(raw_name).strip()
+            if not name:
+                raise ValueError(f"Row {i + 2}: the Name cell is blank.")
+            if name.lower() in seen_names:
+                raise ValueError(f"Row {i + 2}: duplicate ingredient name {name}.")
+            seen_names.add(name.lower())
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
@@ -246,10 +273,14 @@ class FoodOptimizer:
         History then encodes at that baseline (its 'absent' value), and min is
         NOT forced to 0 (unlike an ingredient). `baseline` must lie in [min, max].
         """
+        name = self._check_new_variable(name, min_val, max_val, 'process')
+        min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                var['bounds'] = (min_val, max_val)
+                self.pending_batch = None
+                self.save()
                 return
-        min_val, max_val = float(min_val), float(max_val)
         var = {
             'name': name,
             'type': 'continuous',
@@ -353,7 +384,11 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def add_constraint(self, metric, min_val=None, max_val=None):
-        """Add a property-based constraint (e.g. total fat, total sodium)."""
+        """Add a property-based constraint (e.g. total fat, total sodium).
+        Replaces any existing constraint on the same metric."""
+        if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        self.constraints = [c for c in self.constraints if c['metric'] != metric]
         self.constraints.append({
             'metric': metric,
             'min': float(min_val) if min_val is not None else None,
@@ -369,12 +404,19 @@ class FoodOptimizer:
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None):
         """Add a constraint on the sum of selected ingredient quantities.
+        Replaces any existing constraint on the same set of ingredients.
 
         Args:
             ingredients: List of ingredient names whose quantities to sum.
             min_val: Minimum allowed sum (or None for no lower bound).
             max_val: Maximum allowed sum (or None for no upper bound).
         """
+        if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        ingredient_set = set(ingredients)
+        self.quantity_constraints = [
+            qc for qc in self.quantity_constraints if set(qc['ingredients']) != ingredient_set
+        ]
         self.quantity_constraints.append({
             'ingredients': list(ingredients),
             'min': float(min_val) if min_val is not None else None,

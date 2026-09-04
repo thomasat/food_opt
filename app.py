@@ -340,18 +340,17 @@ with tab_setup:
                          "encode at this value; must be between Min and Max).",
                 )
             if st.form_submit_button("Add Process Parameter"):
-                if pp_name:
-                    try:
-                        st.session_state.optimizer.add_process_parameter(
-                            pp_name, pp_min, pp_max,
-                            baseline=(pp_base if st.session_state.optimizer.X_history
-                                      else None),
-                        )
-                    except ValueError as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state.pop("current_batch", None)  # stale under new design space
-                        st.success(f"Added process parameter: {pp_name}")
+                try:
+                    st.session_state.optimizer.add_process_parameter(
+                        pp_name, pp_min, pp_max,
+                        baseline=(pp_base if st.session_state.optimizer.X_history
+                                  else None),
+                    )
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.session_state.pop("current_batch", None)  # stale under new design space
+                    st.success(f"Added process parameter: {pp_name}")
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables
@@ -484,8 +483,12 @@ with tab_setup:
             c_min = st.number_input("Min Value", value=0.0, key="prop_c_min")
             c_max = st.number_input("Max Value", value=100.0, key="prop_c_max")
             if st.button("Add Property Constraint"):
-                st.session_state.optimizer.add_constraint(c_metric, min_val=c_min, max_val=c_max)
-                st.success("Property constraint added!")
+                try:
+                    st.session_state.optimizer.add_constraint(c_metric, min_val=c_min, max_val=c_max)
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.success("Property constraint added!")
         else:
             st.write("No properties found in CSV.")
 
@@ -517,7 +520,7 @@ with tab_setup:
                 selected_ings = st.multiselect(
                     "Select Ingredients for Sum Constraint",
                     ingredient_names,
-                    help="Select 2+ ingredients to constrain their combined quantity",
+                    help="Select the ingredients whose combined amount you want to limit.",
                 )
                 qc_cols = st.columns(2)
                 with qc_cols[0]:
@@ -535,12 +538,16 @@ with tab_setup:
 
                 if st.form_submit_button("Add Quantity Constraint"):
                     if len(selected_ings) >= 1:
-                        st.session_state.optimizer.add_quantity_constraint(
-                            selected_ings,
-                            min_val=qc_min if qc_use_min else None,
-                            max_val=qc_max if qc_use_max else None,
-                        )
-                        st.success(f"Added quantity constraint on: {', '.join(selected_ings)}")
+                        try:
+                            st.session_state.optimizer.add_quantity_constraint(
+                                selected_ings,
+                                min_val=qc_min if qc_use_min else None,
+                                max_val=qc_max if qc_use_max else None,
+                            )
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            st.success(f"Added quantity constraint on: {', '.join(selected_ings)}")
                     else:
                         st.error("Select at least 1 ingredient.")
 
@@ -553,10 +560,14 @@ with tab_setup:
                 tm_max = st.number_input("Total Mass Max", value=100.0, key="tm_max")
             with tm_cols[2]:
                 if st.button("Add Total Mass Constraint"):
-                    st.session_state.optimizer.add_total_mass_constraint(
-                        min_val=tm_min, max_val=tm_max,
-                    )
-                    st.success("Total mass constraint added!")
+                    try:
+                        st.session_state.optimizer.add_total_mass_constraint(
+                            min_val=tm_min, max_val=tm_max,
+                        )
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Total mass constraint added!")
 
             # Show active quantity constraints
             qc_list = getattr(st.session_state.optimizer, 'quantity_constraints', [])

@@ -851,3 +851,54 @@ class TestValidateState:
         summary = FoodOptimizer.validate_state(opt.export_json())
         assert summary == {"name": "src", "experiments": 1, "ingredients": 1,
                            "version": FoodOptimizer.CLASS_VERSION}
+
+
+# ------------------------------------------------------------------ #
+#  Setup-form validation
+# ------------------------------------------------------------------ #
+
+
+class TestSetupValidation:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        return FoodOptimizer("setup_val")
+
+    def test_blank_process_parameter_name(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="cannot be empty"):
+            opt.add_process_parameter("   ", 0, 10)
+
+    def test_inverted_bounds(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_process_parameter("Temp", 200, 100)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_ingredient("Water", 5, 5)
+
+    def test_cross_category_name_collision(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Water", 0, 100)
+        with pytest.raises(ValueError, match="already exists as an ingredient"):
+            opt.add_process_parameter("water", 0, 10)
+
+    def test_csv_rejects_duplicate_and_blank_names(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Name": ["Sugar", " Sugar", None], "Min": [0, 0, 0], "Max": [10, 10, 10]})
+        with pytest.raises(ValueError, match="Row 3.*duplicate"):
+            opt.load_ingredients_from_csv(df)
+
+    def test_constraint_inverted_bounds(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Sugar", 0, 100)
+        opt.add_ingredient("Honey", 0, 100)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
+
+    def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Sugar", 0, 100)
+        opt.add_ingredient("Honey", 0, 100)
+        opt.add_quantity_constraint(["Sugar", "Honey"], max_val=50)
+        opt.add_quantity_constraint(["Honey", "Sugar"], max_val=40)
+        assert len(opt.quantity_constraints) == 1
+        assert opt.quantity_constraints[0]['max'] == 40.0
