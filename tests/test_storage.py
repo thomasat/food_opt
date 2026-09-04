@@ -27,9 +27,10 @@ class TestLocalStorage:
     def test_load_missing_returns_none(self, local):
         assert local.load("nope") is None
 
-    def test_load_legacy_pickle(self, local, tmp_path):
+    def test_load_refuses_legacy_pickle_with_hint(self, local, tmp_path):
         (tmp_path / "old.pkl").write_bytes(pickle.dumps({"legacy": True}))
-        assert local.load("old") == {"legacy": True}
+        with pytest.raises(StorageError, match="early version"):
+            local.load("old")
 
     def test_load_damaged_raises_storage_error(self, local, tmp_path):
         (tmp_path / "bad.pkl").write_bytes(b"\x80\x04 not json not pickle \xff")

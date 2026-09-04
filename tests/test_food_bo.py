@@ -649,26 +649,15 @@ class TestPersistence:
         assert state["project_name"] == "fmt_test"
         assert state["variables"][0]["name"] == "Water"
 
-    def test_load_migrates_legacy_pickle(self, tmp_path, monkeypatch):
-        """Existing pickle project files still load, and are rewritten as JSON."""
+    def test_load_refuses_legacy_pickle(self, tmp_path, monkeypatch):
+        """Pickle project files are no longer executed; the user gets a hint."""
         monkeypatch.chdir(tmp_path)
-        legacy = {
-            "project_name": "legacy", "robust": False,
-            "variables": [{"name": "Water", "type": "continuous",
-                           "bounds": (0, 100), "category": "ingredient"}],
-            "objectives": [], "ingredient_properties": {}, "constraints": [],
-            "quantity_constraints": [], "bo_config": None,
-            "X_history": [], "Y_history": [], "recipe_history": [],
-            "results_history": [],
-        }
-        with open(tmp_path / "legacy.pkl", "wb") as f:
+        legacy = {"project_name": "old", "variables": [], "objectives": []}
+        with open("old.pkl", "wb") as f:
             pickle.dump(legacy, f)
-
-        opt = FoodOptimizer(project_name="legacy")
-        assert opt.variables[0]["name"] == "Water"
-        assert not getattr(opt, "load_error", None)
-        # File is now JSON, not pickle
-        json.loads((tmp_path / "legacy.pkl").read_bytes().decode("utf-8"))
+        opt = FoodOptimizer("old")
+        assert opt.load_error and "early version" in opt.load_error
+        assert not (tmp_path / "old.pkl.tmp").exists()
 
     def test_load_corrupt_file_reports_error_not_silent_success(self, tmp_path, monkeypatch):
         """A damaged file must surface an error, never load as a blank project

@@ -10,7 +10,6 @@ This module must not import streamlit, and imports supabase only lazily.
 import glob
 import json
 import os
-import pickle
 import re
 import shutil
 
@@ -84,15 +83,17 @@ class LocalStorage:
         try:
             return json.loads(raw.decode('utf-8'))
         except (ValueError, UnicodeDecodeError):
-            try:
-                return pickle.loads(raw)  # legacy project files were pickle
-            except Exception:
-                raise StorageError(
-                    "This project file is damaged and could not be opened. "
-                    "If you have a backup, use Restore from backup; otherwise "
-                    "check the FoodOptimizer > backups folder in your home "
-                    "folder for a recent copy."
-                )
+            # No sniffing: a damaged file and a legacy pickle both start with
+            # arbitrary bytes (the existing "damaged" tests use a pickle
+            # header on purpose), so one message covers both cases.
+            raise StorageError(
+                "This project file is damaged, or was saved by an early version "
+                "of Food Optimizer, and could not be opened. If you have a "
+                "backup, use Restore from backup; otherwise check the "
+                "FoodOptimizer > backups folder in your home folder for a "
+                "recent copy. An early-version file can be converted by opening "
+                "it once in Food Optimizer 0.1."
+            )
 
     def save(self, name, state):
         known = self._seen.get(name)

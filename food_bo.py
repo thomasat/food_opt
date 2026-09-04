@@ -1,6 +1,5 @@
 import json
 import os
-import pickle
 from datetime import datetime, timezone
 
 import numpy as np
