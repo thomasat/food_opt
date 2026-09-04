@@ -68,3 +68,23 @@ def test_midrun_process_param_with_valid_baseline_succeeds(project_with_history)
     reloaded = FoodOptimizer("my_project")
     assert any(v["name"] == "Oven_Temp" for v in reloaded.variables)
     assert reloaded.X_history[0][1] == 180.0
+
+
+def test_pending_batch_is_restored_in_a_new_session(project_with_history):
+    """The recipes on the bench must survive closing the window."""
+    project_with_history.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert "current_batch" in at.session_state
+    assert len(at.session_state["current_batch"]) == 2
+    assert any(b.label == "Save Results" for b in at.button), [b.label for b in at.button]
+
+
+def test_stale_pending_batch_is_discarded_when_design_space_changes(project_with_history):
+    project_with_history.set_pending_batch([{"Water": 10.0, "Ghost": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert "current_batch" not in at.session_state
+    assert any("design space changed" in i.value for i in at.info), [i.value for i in at.info]

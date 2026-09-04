@@ -1,12 +1,13 @@
 import json
 import os
-import glob
-import shutil
 
 import streamlit as st
 import pandas as pd
 
+import storage as storage_backend
 from food_bo import FoodOptimizer
+
+STORAGE = storage_backend.LocalStorage()
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
@@ -18,8 +19,11 @@ st.title("Formulation Assistant")
 with st.sidebar:
     st.subheader("Project Management")
 
-    existing_pkls = sorted(glob.glob("*.pkl"))
-    existing_projects = [os.path.splitext(f)[0] for f in existing_pkls]
+    try:
+        existing_projects = STORAGE.list_projects()
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        existing_projects = []
 
     project_name = st.text_input("Project Name", "my_project")
 
@@ -47,17 +51,38 @@ with st.sidebar:
 
     # Initialize or upgrade optimizer
     if "optimizer" not in st.session_state:
-        st.session_state.optimizer = FoodOptimizer(project_name)
+        st.session_state.optimizer = FoodOptimizer(project_name, storage=STORAGE)
         if not getattr(st.session_state.optimizer, "load_error", None):
             st.success(f"Initialized: {project_name}")
     elif getattr(st.session_state.optimizer, 'CLASS_VERSION', 0) < FoodOptimizer.CLASS_VERSION:
         st.session_state.optimizer = FoodOptimizer(
-            st.session_state.optimizer.project_name
+            st.session_state.optimizer.project_name, storage=STORAGE
         )
         if not getattr(st.session_state.optimizer, "load_error", None):
             st.success("Upgraded session to latest version.")
 
     opt = st.session_state.optimizer
+
+    # Restore a persisted suggestion batch (only if this session has none: the
+    # CLASS_VERSION upgrade path must not clobber a live batch).
+    if ("current_batch" not in st.session_state
+            and not getattr(opt, "load_error", None)
+            and getattr(opt, "pending_batch", None)):
+        _var_names = {v['name'] for v in opt.variables}
+        try:
+            _batch_ok = bool(opt.objectives) and all(
+                set(r) == _var_names for r in opt.pending_batch
+            )
+        except (TypeError, AttributeError):
+            _batch_ok = False   # malformed backup rows; treat as a mismatch
+        if _batch_ok:
+            st.session_state.current_batch = opt.pending_batch
+        else:
+            opt.set_pending_batch(None)
+            st.info(
+                "A previously suggested batch was discarded because the "
+                "design space changed since it was generated."
+            )
     # A project that failed to load must never look like an empty success.
     if getattr(opt, "load_error", None):
         st.error(opt.load_error)
@@ -96,6 +121,8 @@ with st.sidebar:
                 state = json.loads(uploaded_json.read())
                 state['project_name'] = st.session_state.optimizer.project_name
                 st.session_state.optimizer.import_json(state)
+                st.session_state.optimizer.save()
+                st.session_state.pop("current_batch", None)
             except Exception:
                 st.error(
                     "This backup file couldn't be read. Make sure it's a "
@@ -123,19 +150,17 @@ with st.sidebar:
         with col_yes:
             if st.button("Yes, reset", type="primary", use_container_width=True):
                 st.session_state.confirm_reset = False
-                fname = f"{project_name}.pkl"
-                if os.path.exists(fname):
-                    archive_name = f"{project_name}_archived.pkl"
-                    counter = 1
-                    while os.path.exists(archive_name):
-                        archive_name = f"{project_name}_archived_{counter}.pkl"
-                        counter += 1
-                    os.rename(fname, archive_name)
-                    st.info(f"Your previous data was archived as {archive_name}")
-                st.session_state.pop("optimizer", None)
-                st.session_state.pop("_loaded_project", None)
-                st.session_state.pop("current_batch", None)
-                st.rerun()
+                try:
+                    archived = STORAGE.archive(project_name, "archived", copy=False)
+                except storage_backend.StorageError as e:
+                    st.error(str(e))
+                else:
+                    if archived:
+                        st.info(f"Your previous data was archived as {archived}")
+                    st.session_state.pop("optimizer", None)
+                    st.session_state.pop("_loaded_project", None)
+                    st.session_state.pop("current_batch", None)
+                    st.rerun()
         with col_no:
             if st.button("Cancel", use_container_width=True):
                 st.session_state.confirm_reset = False
@@ -154,6 +179,9 @@ if getattr(st.session_state.optimizer, "load_error", None):
         "(Hard Reset Project — the damaged file is archived, not deleted)."
     )
     st.stop()
+
+if getattr(st.session_state.optimizer, "save_error", None):
+    st.error(st.session_state.optimizer.save_error)
 
 # ================================================================== #
 #  Tab 1: Setup & Config
@@ -188,6 +216,7 @@ with tab_setup:
             if st.button("Load Ingredients"):
                 try:
                     st.session_state.optimizer.load_ingredients_from_csv(df)
+                    st.session_state.pop("current_batch", None)  # stale under new design space
                     st.success(f"Loaded {len(df)} ingredients!")
                 except ValueError as e:
                     st.error(str(e))
@@ -245,6 +274,7 @@ with tab_setup:
                     except ValueError as e:
                         st.error(str(e))
                     else:
+                        st.session_state.pop("current_batch", None)  # stale under new design space
                         st.success(f"Added process parameter: {pp_name}")
 
         proc_vars = [
@@ -263,6 +293,7 @@ with tab_setup:
                 with pc2:
                     if st.button("Remove", key=f"rm_pp_{i}"):
                         st.session_state.optimizer.remove_process_parameter(pv['name'])
+                        st.session_state.pop("current_batch", None)  # stale under new design space
                         st.rerun()
 
         st.divider()
@@ -299,6 +330,7 @@ with tab_setup:
                         target=obj_target if obj_goal == 'target' else None,
                         min_val=obj_min, max_val=obj_max,
                     )
+                    st.session_state.pop("current_batch", None)  # stale under new design space
                     st.success(f"Added {obj_name}")
 
         if st.session_state.optimizer.objectives:
@@ -307,6 +339,7 @@ with tab_setup:
             for i, obj in enumerate(st.session_state.optimizer.objectives):
                 if st.button(f"Remove {obj['name']}", key=f"rm_obj_{i}"):
                     st.session_state.optimizer.remove_objective(obj['name'])
+                    st.session_state.pop("current_batch", None)  # stale under new design space
                     st.rerun()
 
     # -------------------------------------------------------------- #
@@ -542,6 +575,7 @@ with tab_optimize:
                     try:
                         recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
                         st.session_state.current_batch = recipes
+                        st.session_state.optimizer.set_pending_batch(recipes)
                     except ValueError as e:
                         st.error(str(e))
                     except Exception:
@@ -602,6 +636,7 @@ with tab_optimize:
                     except (ValueError, TypeError) as e:
                         st.error(f"Could not save these results: {e}")
                     else:
+                        st.session_state.optimizer.set_pending_batch(None)
                         del st.session_state.current_batch
                         st.session_state.show_backup_warning = True
                         st.success("Saved!")
@@ -980,16 +1015,14 @@ with tab_optimize:
             )
         if st.button("Rewind", disabled=(n_discard == 0), key="rewind_btn"):
             pname = st.session_state.optimizer.project_name
-            fname = f"{pname}.pkl"
-            if os.path.exists(fname):
-                archive_name = f"{pname}_pre_rewind.pkl"
-                counter = 1
-                while os.path.exists(archive_name):
-                    archive_name = f"{pname}_pre_rewind_{counter}.pkl"
-                    counter += 1
-                shutil.copy2(fname, archive_name)
-                st.info(f"Archived current state as {archive_name}")
-            st.session_state.optimizer.rewind_to(rewind_idx)
-            st.session_state.pop("current_batch", None)
-            st.success(f"Rewound to experiment #{rewind_idx}!")
-            st.rerun()
+            try:
+                archived = STORAGE.archive(pname, "pre_rewind", copy=True)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if archived:
+                    st.info(f"Archived current state as {archived}")
+                st.session_state.optimizer.rewind_to(rewind_idx)
+                st.session_state.pop("current_batch", None)
+                st.success(f"Rewound to experiment #{rewind_idx}!")
+                st.rerun()
