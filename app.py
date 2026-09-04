@@ -260,10 +260,17 @@ if opt is None:
     with wc1:
         if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample cookie project", type="primary"):
             _name = "Sample cookie"
-            _sample = FoodOptimizer(_name, storage=STORAGE)
-            _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-            _sample.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
-            _open_project(_name)
+            if STORAGE.exists(_name):
+                _open_project(_name)          # already created earlier; just open it
+            else:
+                try:
+                    _sample = FoodOptimizer(_name, storage=STORAGE)
+                    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+                    _sample.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+                except ValueError as e:
+                    st.error(f"The sample project could not be created: {e}")
+                else:
+                    _open_project(_name)
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             with open(_SAMPLE_CSV, "rb") as f:
@@ -366,14 +373,23 @@ with tab_setup:
             ])
             st.dataframe(ing_df, hide_index=True, height=150)
 
+        _has_hist = bool(st.session_state.optimizer.X_history)
         with st.form("add_ing_form", clear_on_submit=True):
             ic1, ic2, ic3 = st.columns([2, 1, 1])
             with ic1:
                 ing_name = st.text_input("Ingredient name", key="ing_name")
             with ic2:
-                ing_min = st.number_input("Min", value=0.0, key="ing_min")
+                ing_min = st.number_input(
+                    "Min", value=0.0, key="ing_min", disabled=_has_hist,
+                )
             with ic3:
                 ing_max = st.number_input("Max", value=100.0, key="ing_max")
+            if _has_hist:
+                st.caption(
+                    "Because experiments already exist, a new ingredient starts "
+                    "at 0 in every past recipe, so its Min is fixed at 0. You "
+                    "can raise it later once the model has data for it."
+                )
             if st.form_submit_button("Add ingredient"):
                 try:
                     st.session_state.optimizer.add_ingredient(ing_name, ing_min, ing_max)

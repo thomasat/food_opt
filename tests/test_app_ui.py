@@ -411,3 +411,46 @@ def test_manual_add_ingredient_in_setup(project_with_history):
     _submit_button(at, "Add ingredient").click()
     at.run()
     assert any(v["name"] == "Honey" for v in FoodOptimizer("my_project").variables)
+
+
+def test_manual_add_ingredient_shows_mid_run_min_notice(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="ing_min").disabled is True
+    assert any("fixed at 0" in c.value for c in at.caption), [c.value for c in at.caption]
+
+
+def test_sample_project_button_reopens_existing_without_recreating(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # Pre-create "Sample cookie" with an experiment, simulating a shared host
+    # where a previous visitor already ran the sample project.
+    pre = FoodOptimizer("Sample cookie")
+    pre.add_ingredient("Water", 0, 100)
+    pre.add_objective("Taste", 1.0, goal="max")
+    pre.tell({"Water": 50.0}, {"Taste": 7.0})
+
+    # app.py never auto-opens the most-recently-used project on a shared host
+    # (os.path.isdir("/mount/src")); force that guard so the welcome panel
+    # renders here even though "Sample cookie" already exists on disk, which
+    # is exactly the scenario where clicking the sample button again must
+    # reopen the existing project instead of re-creating it.
+    real_isdir = os.path.isdir
+    monkeypatch.setattr(
+        os.path, "isdir",
+        lambda p: True if p == "/mount/src" else real_isdir(p),
+    )
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert any("Create your first project" in m.value for m in at.markdown)
+
+    _submit_button(at, "Try the sample cookie project").click()
+    at.run()
+    assert not at.exception
+
+    reloaded = FoodOptimizer("Sample cookie")
+    assert len(reloaded.X_history) == 1
+    assert any("Sample cookie" in c.value and "1 experiments" in c.value
+                for c in at.caption), [c.value for c in at.caption]
