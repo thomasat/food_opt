@@ -27,8 +27,22 @@ class LocalStorage:
     persist_after_load = True      # historical behavior: every load re-saves,
                                    # which is what migrates legacy pickles
 
+    _CONFLICT = (
+        "This project was changed in another window or tab. Click Reload "
+        "project before continuing — changes made here were NOT saved."
+    )
+
+    def __init__(self):
+        self._seen = {}  # project name -> st_mtime_ns when we last read or wrote it
+
     def _path(self, name):
         return f"{name}.pkl"
+
+    def _stamp(self, name):
+        try:
+            return os.stat(self._path(name)).st_mtime_ns
+        except FileNotFoundError:
+            return None
 
     def list_projects(self):
         return sorted(os.path.splitext(f)[0] for f in glob.glob("*.pkl"))
@@ -47,6 +61,7 @@ class LocalStorage:
                 "This project file could not be opened. It may have been "
                 "moved or deleted."
             )
+        self._seen[name] = self._stamp(name)
         try:
             return json.loads(raw.decode('utf-8'))
         except (ValueError, UnicodeDecodeError):
@@ -61,6 +76,10 @@ class LocalStorage:
                 )
 
     def save(self, name, state):
+        known = self._seen.get(name)
+        current = self._stamp(name)
+        if known is not None and current is not None and current != known:
+            raise StorageError(self._CONFLICT)
         # Write-then-rename so a crash mid-write can't corrupt the file.
         # Local I/O errors propagate raw (never StorageError): tests assert
         # the RuntimeError path, and a local disk failure should be loud.
@@ -74,6 +93,7 @@ class LocalStorage:
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
+        self._seen[name] = self._stamp(name)
 
     def archive(self, name, label, copy=False):
         path = self._path(name)
@@ -88,4 +108,5 @@ class LocalStorage:
             shutil.copy2(path, self._path(archive_name))
         else:
             os.rename(path, self._path(archive_name))
+            self._seen.pop(name, None)
         return archive_name

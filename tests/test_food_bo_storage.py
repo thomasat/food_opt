@@ -10,6 +10,7 @@ class FlakyStorage(LocalStorage):
     persist_after_load = False
 
     def __init__(self):
+        super().__init__()
         self.fail_saves = False
         self.fail_loads = False
 

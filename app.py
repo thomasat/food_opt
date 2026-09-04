@@ -187,6 +187,11 @@ if getattr(st.session_state.optimizer, "load_error", None):
 
 if getattr(st.session_state.optimizer, "save_error", None):
     st.error(st.session_state.optimizer.save_error)
+    if st.button("Reload project", key="reload_after_save_error"):
+        st.session_state.pop("optimizer", None)
+        st.session_state.pop("current_batch", None)
+        flash("info", "Project reloaded from the latest saved copy.")
+        st.rerun()
 
 # ================================================================== #
 #  Tab 1: Setup & Config

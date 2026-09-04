@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import time
 
 import pytest
 
@@ -76,3 +77,37 @@ class TestLocalStorage:
 
     def test_archive_missing_is_noop(self, local):
         assert local.archive("ghost", "archived") is None
+
+
+def test_local_storage_refuses_to_overwrite_a_newer_file(tmp_path, monkeypatch):
+    """Two windows on one project: the stale one must get a conflict error,
+    not silently clobber the other's work."""
+    monkeypatch.chdir(tmp_path)
+    window_a, window_b = LocalStorage(), LocalStorage()
+    window_a.save("p", {"v": 1})
+    window_b.load("p")
+    time.sleep(0.01)  # coarse-mtime filesystems
+    window_a.save("p", {"v": 2})
+    with pytest.raises(StorageError, match="another window"):
+        window_b.save("p", {"v": 3})
+    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+
+
+def test_local_storage_save_after_own_save_is_fine(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("p", {"v": 1})
+    s.save("p", {"v": 2})
+    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+
+
+def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    a, b = LocalStorage(), LocalStorage()
+    a.save("p", {"v": 1})
+    b.load("p")
+    time.sleep(0.01)
+    a.save("p", {"v": 2})
+    b.load("p")              # user reloads
+    b.save("p", {"v": 3})    # now allowed
+    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 3
