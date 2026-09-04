@@ -1106,42 +1106,44 @@ with tab_optimize:
     # -------------------------------------------------------------- #
     if st.session_state.optimizer.X_history:
         st.subheader("Experiment History")
-
-        hist = []
-        for i, x in enumerate(st.session_state.optimizer.X_history):
-            row = st.session_state.optimizer._decode(x)
-            row['_index'] = i
-            row['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
-
-            res_hist = getattr(st.session_state.optimizer, 'results_history', [])
-            if i < len(res_hist):
-                for key, val in res_hist[i].items():
-                    row[f"[Result] {key}"] = val
-            hist.append(row)
-
-        hist_df = pd.DataFrame(hist).sort_values('Total_Utility_Score', ascending=False)
-        hist_df.insert(0, 'Exp #', hist_df['_index'])
-        st.dataframe(hist_df.drop(columns=['_index']), hide_index=True)
+        _opt = st.session_state.optimizer
+        _order = st.radio("Order", ["Most recent first", "Best first"], horizontal=True,
+                          key="hist_order", label_visibility="collapsed")
+        hist_df = _opt.history_frame()
+        if _order == "Best first":
+            hist_df = hist_df.sort_values("Overall Score", ascending=False)
+        else:
+            hist_df = hist_df.sort_values("Experiment", ascending=False)
+        _best_exp = (_opt.best_index() or 0) + 1
+        _num_cols = [c for c in hist_df.columns if c not in ("Experiment", "Date")]
+        st.dataframe(
+            hist_df.style
+                .format({c: "{:.2f}" for c in _num_cols})
+                .format({"Overall Score": "{:.3f}"})
+                .apply(lambda r: ["background-color: rgba(46,110,78,.18)" if r["Experiment"] == _best_exp else "" for _ in r], axis=1),
+            hide_index=True,
+        )
+        st.caption(f"Highlighted: experiment {_best_exp}, the best so far. "
+                   f"Overall Score is out of {_opt.utility_ceiling():g}.")
 
         # --- Edit / Delete ---
         st.caption("Edit or delete a past result:")
         results_history = getattr(st.session_state.optimizer, 'results_history', [])
 
         if results_history:
-            edit_idx = st.number_input(
-                "Experiment Index to Edit (0-based)",
-                min_value=0,
-                max_value=len(st.session_state.optimizer.X_history) - 1,
-                value=0, step=1, key="edit_idx",
+            edit_no = st.number_input(
+                "Experiment number to edit", min_value=1,
+                max_value=len(st.session_state.optimizer.X_history), value=1, step=1, key="edit_no",
             )
+            edit_idx = int(edit_no) - 1
 
             if edit_idx < len(results_history):
                 current_results = results_history[edit_idx]
-                st.caption(f"Current results for experiment #{edit_idx}:")
+                st.caption(f"Current results for experiment {edit_idx + 1}:")
                 st.json(current_results)
 
                 with st.form("edit_form"):
-                    st.markdown(f"**Edit results for experiment #{edit_idx}:**")
+                    st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
                     new_results = {}
                     edit_cols = st.columns(len(st.session_state.optimizer.objectives))
                     for j, obj in enumerate(st.session_state.optimizer.objectives):
@@ -1167,9 +1169,9 @@ with tab_optimize:
                     warn_idx = st.session_state._edit_warning_idx
                     warn_n = st.session_state._edit_warning_n
                     st.warning(
-                        f"Experiments after #{warn_idx} ({warn_n} total) were based on "
+                        f"Experiments after {warn_idx + 1} ({warn_n} total) were based on "
                         f"the pre-edit ratings and may no longer be valid. "
-                        f"Consider rewinding to #{warn_idx}."
+                        f"Consider rewinding to {warn_idx + 1}."
                     )
                     del st.session_state._edit_warning_idx
                     del st.session_state._edit_warning_n
@@ -1192,7 +1194,7 @@ with tab_optimize:
                         st.rerun()
             else:
                 st.warning(
-                    f"Experiment #{edit_idx} was recorded before edit tracking was enabled. "
+                    f"Experiment {edit_idx + 1} was recorded before edit tracking was enabled. "
                     "Only newer experiments can be edited."
                 )
         else:
@@ -1204,23 +1206,18 @@ with tab_optimize:
         # --- Rewind ---
         st.divider()
         st.caption("Rewind to a past experiment:")
-        st.info(
-            "Rewind keeps experiments 0 through N and **discards all later ones**. "
-            "The current project is archived first so nothing is permanently lost."
+        st.info("Rewind keeps experiments 1 through N and **discards all later ones**. "
+                "The current project is archived first, so nothing is permanently lost.")
+        rewind_no = st.number_input(
+            "Keep experiments up to", min_value=1,
+            max_value=len(st.session_state.optimizer.X_history),
+            value=len(st.session_state.optimizer.X_history), step=1, key="rewind_no",
         )
-        rewind_idx = st.number_input(
-            "Keep experiments up to (0-based)",
-            min_value=0,
-            max_value=len(st.session_state.optimizer.X_history) - 1,
-            value=len(st.session_state.optimizer.X_history) - 1,
-            step=1, key="rewind_idx",
-        )
+        rewind_idx = int(rewind_no) - 1
         n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
         if n_discard > 0:
-            st.warning(
-                f"This will discard {n_discard} experiment(s) "
-                f"(#{rewind_idx + 1} through #{len(st.session_state.optimizer.X_history) - 1})."
-            )
+            st.warning(f"This will discard {n_discard} experiment(s) "
+                       f"({rewind_idx + 2} through {len(st.session_state.optimizer.X_history)}).")
         if confirm_action(
             "rewind", "Rewind",
             f"Discard {n_discard} experiment(s) and keep 1 through {rewind_idx + 1}? "

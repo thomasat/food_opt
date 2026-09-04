@@ -120,6 +120,13 @@ def test_delete_experiment_confirms_and_archives(project_with_history, tmp_path)
     assert any("Deleted experiment 1" in s.value for s in at.success)
 
 
+def test_history_is_1_based(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any("Experiment number to edit" == n.label for n in at.number_input)
+    assert not any("0-based" in n.label for n in at.number_input)
+
+
 def test_hard_reset_targets_active_project_not_typed_name(project_with_history, tmp_path):
     """Typing another name in the sidebar without clicking Create must not
     redirect Hard Reset at that other project (audit: confirmed critical bug)."""

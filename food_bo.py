@@ -393,6 +393,21 @@ class FoodOptimizer:
             out.append(cur)
         return out
 
+    def history_frame(self):
+        """Chronological history for display and CSV export (1-based numbering)."""
+        rows = []
+        for i, x in enumerate(self.X_history):
+            row = {"Experiment": i + 1}
+            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
+            row["Date"] = ts[:10] if isinstance(ts, str) else ""
+            row["Overall Score"] = float(self.Y_history[i])
+            results = self.results_history[i] if i < len(self.results_history) else {}
+            for obj in self.objectives:
+                row[f"{obj['name']} (result)"] = results.get(obj['name'])
+            row.update(self._decode(x))
+            rows.append(row)
+        return pd.DataFrame(rows)
+
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
     # ------------------------------------------------------------------ #

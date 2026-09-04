@@ -235,6 +235,20 @@ def test_best_index_and_running_max(tmp_path, monkeypatch):
     assert opt.best_so_far() == pytest.approx([0.3, 0.8, 0.8])
 
 
+def test_history_frame_is_1_based_and_chronological(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("hist")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    opt.tell({"Water": 20.0}, {"Taste": 8.0})
+    df = opt.history_frame()
+    assert list(df["Experiment"]) == [1, 2]
+    assert list(df.columns[:3]) == ["Experiment", "Date", "Overall Score"]
+    assert "Taste (result)" in df.columns and "Water" in df.columns
+    assert df["Date"].iloc[0] and len(df["Date"].iloc[0]) == 10
+
+
 # ------------------------------------------------------------------ #
 #  Constraints
 # ------------------------------------------------------------------ #
