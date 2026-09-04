@@ -271,12 +271,20 @@ if getattr(st.session_state.optimizer, "load_error", None):
     st.stop()
 
 if getattr(st.session_state.optimizer, "save_error", None):
-    st.error(st.session_state.optimizer.save_error)
-    if st.button("Reload project", key="reload_after_save_error"):
-        st.session_state.pop("optimizer", None)
-        st.session_state.pop("current_batch", None)
-        flash("info", "Project reloaded from the latest saved copy.")
-        st.rerun()
+    _opt = st.session_state.optimizer
+    st.error(_opt.save_error)
+    st.warning("**Your last change was not saved.** Download a backup now, then click Reload project.")
+    b1, b2 = st.columns(2)
+    with b1:
+        st.download_button("Download backup", data=json.dumps(_opt.export_json(), indent=2),
+                           file_name=f"{_opt.project_name}_backup.json", mime="application/json",
+                           type="primary", use_container_width=True, key="download_after_save_error")
+    with b2:
+        if st.button("Reload project", key="reload_after_save_error", use_container_width=True):
+            st.session_state.pop("optimizer", None)
+            st.session_state.pop("current_batch", None)
+            flash("info", "Project reloaded from the latest saved copy.")
+            st.rerun()
 
 # ================================================================== #
 #  Tab 1: Setup & Config
@@ -679,14 +687,7 @@ with tab_setup:
 # ================================================================== #
 
 with tab_optimize:
-    # -- Warning when last save failed --
     _opt = st.session_state.optimizer
-    if getattr(_opt, "save_error", None):
-        st.warning("**Your last change was not saved.** Download a backup now, then use Reload project.")
-        st.download_button("Download backup", data=json.dumps(_opt.export_json(), indent=2),
-                           file_name=f"{_opt.project_name}_backup.json", mime="application/json",
-                           type="primary")
-        st.divider()
     if _opt.X_history:
         _best_i = _opt.best_index()
         _ceiling = _opt.utility_ceiling()

@@ -237,6 +237,17 @@ def test_no_backup_nag_after_successful_save(project_with_pending_batch):
     assert any(c.value.startswith("Saved ") for c in at.caption), [c.value for c in at.caption]
 
 
+def test_save_failure_shows_one_banner_with_backup_and_reload(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["optimizer"].save_error = "The server could not be reached — your last change was NOT saved."
+    at.run()
+    assert not at.exception
+    assert sum(1 for w in at.warning if "not saved" in w.value) == 1, [w.value for w in at.warning]
+    labels = [b.label for b in at.button]
+    assert "Reload project" in labels, labels
+
+
 def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
