@@ -88,3 +88,14 @@ def test_stale_pending_batch_is_discarded_when_design_space_changes(project_with
     assert not at.exception
     assert "current_batch" not in at.session_state
     assert any("design space changed" in i.value for i in at.info), [i.value for i in at.info]
+
+
+def test_delete_experiment_confirmation_is_visible_after_rerun(project_with_history):
+    """The success message must survive the st.rerun() that follows a delete."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Delete Experiment #0").click()   # label becomes 1-based in Task 7
+    at.run()
+    assert not at.exception
+    assert any("Deleted experiment" in s.value for s in at.success), \
+        [s.value for s in at.success]

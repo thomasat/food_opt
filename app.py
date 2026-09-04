@@ -6,11 +6,13 @@ import pandas as pd
 
 import storage as storage_backend
 from food_bo import FoodOptimizer
+from ui_helpers import flash, render_flash
 
 STORAGE = storage_backend.LocalStorage()
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
-st.title("Formulation Assistant")
+st.title("Food Optimizer")
+render_flash()
 
 # ================================================================== #
 #  Sidebar: Project Management
@@ -130,7 +132,8 @@ with st.sidebar:
                     "and try again."
                 )
             else:
-                st.success(
+                flash(
+                    "success",
                     f"Restored {len(st.session_state.optimizer.X_history)} experiments "
                     f"into {st.session_state.optimizer.project_name}"
                 )
@@ -156,7 +159,7 @@ with st.sidebar:
                     st.error(str(e))
                 else:
                     if archived:
-                        st.info(f"Your previous data was archived as {archived}")
+                        flash("info", f"Your previous data was archived as {archived}")
                     st.session_state.pop("optimizer", None)
                     st.session_state.pop("_loaded_project", None)
                     st.session_state.pop("current_batch", None)
@@ -490,7 +493,7 @@ with tab_setup:
             if _mode == "Standard (default)":
                 if _cur_cfg is not None and st.button("Apply: revert to defaults"):
                     _opt.set_bo_config(None)
-                    st.success("Using default model settings.")
+                    flash("success", "Using default model settings.")
                     st.rerun()
             else:
                 with st.form("bo_config_form"):
@@ -510,7 +513,7 @@ with tab_setup:
                             "kernel": _k, "lengthscale_prior": _lp,
                             "noise": _ns, "acquisition": _aq,
                         })
-                        st.success(f"Model settings set: {_opt.bo_config}")
+                        flash("success", "Model settings updated.")
                         st.rerun()
                 if st.checkbox("Or paste an expert config as JSON", key="bo_cfg_paste"):
                     _txt = st.text_area(
@@ -522,7 +525,7 @@ with tab_setup:
                     if st.button("Apply pasted config"):
                         try:
                             _opt.set_bo_config(json.loads(_txt))
-                            st.success(f"Model settings set: {_opt.bo_config}")
+                            flash("success", "Model settings updated.")
                             st.rerun()
                         except Exception as _e:
                             st.error(f"Invalid JSON: {_e}")
@@ -639,7 +642,7 @@ with tab_optimize:
                         st.session_state.optimizer.set_pending_batch(None)
                         del st.session_state.current_batch
                         st.session_state.show_backup_warning = True
-                        st.success("Saved!")
+                        flash("success", "Results saved.")
                         st.rerun()
 
     st.divider()
@@ -718,7 +721,8 @@ with tab_optimize:
                             )
                         st.session_state.pop("current_batch", None)  # stale under new dim
                         st.session_state.show_backup_warning = True
-                        st.success(
+                        flash(
+                            "success",
                             f"Added {add_type.lower()} '{nm}' "
                             f"(bounds {_opt.variables[-1]['bounds']}). "
                             f"History re-encoded — generate a new batch."
@@ -750,7 +754,7 @@ with tab_optimize:
                         _opt.deactivate_variable(nm)
                     st.session_state.pop("current_batch", None)
                     st.session_state.show_backup_warning = True
-                    st.success(f"Pruned: {', '.join(_off)} — generate a new batch.")
+                    flash("success", f"Pruned: {', '.join(_off)} — generate a new batch.")
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
@@ -780,7 +784,7 @@ with tab_optimize:
                     _opt.reactivate_variable(nm)
                 st.session_state.pop("current_batch", None)
                 st.session_state.show_backup_warning = True
-                st.success(f"Reactivated: {', '.join(_on)} — generate a new batch.")
+                flash("success", f"Reactivated: {', '.join(_on)} — generate a new batch.")
                 st.rerun()
 
         # Checkbox rather than an expander: Streamlit forbids nested expanders.
@@ -806,7 +810,7 @@ with tab_optimize:
                         _opt.remove_ingredient(_del, force=_force)
                         st.session_state.pop("current_batch", None)
                         st.session_state.show_backup_warning = True
-                        st.success(f"Deleted '{_del}'.")
+                        flash("success", f"Deleted '{_del}'.")
                         st.rerun()
                     except ValueError as e:
                         st.error(str(e))
@@ -874,7 +878,7 @@ with tab_optimize:
                     if imported:
                         st.session_state.show_backup_warning = True
                     if import_error is None and imported:
-                        st.success(f"Imported {imported} experiments!")
+                        flash("success", f"Imported {imported} experiments.")
                         st.rerun()
 
     st.divider()
@@ -964,7 +968,7 @@ with tab_optimize:
                             if n_after > 0:
                                 st.session_state._edit_warning_idx = edit_idx
                                 st.session_state._edit_warning_n = n_after
-                            st.success(f"Updated experiment #{edit_idx}!")
+                            flash("success", f"Updated experiment {edit_idx + 1}.")
                             st.rerun()
 
                 if st.session_state.get('_edit_warning_idx') is not None:
@@ -980,7 +984,7 @@ with tab_optimize:
 
                 if st.button(f"Delete Experiment #{edit_idx}", key="delete_btn"):
                     st.session_state.optimizer.delete_result(edit_idx)
-                    st.success(f"Deleted experiment #{edit_idx}!")
+                    flash("success", f"Deleted experiment {edit_idx + 1}.")
                     st.rerun()
             else:
                 st.warning(
@@ -1021,8 +1025,8 @@ with tab_optimize:
                 st.error(str(e))
             else:
                 if archived:
-                    st.info(f"Archived current state as {archived}")
+                    flash("info", f"Archived current state as {archived}")
                 st.session_state.optimizer.rewind_to(rewind_idx)
                 st.session_state.pop("current_batch", None)
-                st.success(f"Rewound to experiment #{rewind_idx}!")
+                flash("success", f"Rewound to experiment {rewind_idx + 1}.")
                 st.rerun()
