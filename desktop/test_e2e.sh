@@ -247,7 +247,7 @@ at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
 next(b for b in at.button if b.label == "Add Process Parameter").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
-assert any("must lie within" in str(e.value) for e in at.error)
+assert any("must be between" in str(e.value) for e in at.error)
 print("UI_OK")
 PY
 )"
