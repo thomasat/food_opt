@@ -226,6 +226,17 @@ def test_results_card_and_best_panel_after_save(project_with_pending_batch):
     assert any(m.label == "Best Overall Score" for m in at.metric)
 
 
+def test_no_backup_nag_after_successful_save(project_with_pending_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="b0_r0o0").set_value(7.0)
+    at.number_input(key="b0_r1o0").set_value(6.0)
+    _submit_button(at, "Save Results").click()
+    at.run()
+    assert not any("Download a backup now" in w.value for w in at.warning)
+    assert any(c.value.startswith("Saved ") for c in at.caption), [c.value for c in at.caption]
+
+
 def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)

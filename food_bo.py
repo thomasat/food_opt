@@ -128,6 +128,7 @@ class FoodOptimizer:
         self.pending_batch = None  # suggested-but-unrated recipes (survives sessions)
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
+        self.last_saved_at = None  # records successful save time; timezone-aware datetime or None
 
         try:
             exists = self.storage.exists(project_name)
@@ -1204,6 +1205,7 @@ class FoodOptimizer:
             self.save_error = str(e)
         else:
             self.save_error = None
+            self.last_saved_at = datetime.now().astimezone()
 
     def load(self):
         """Load the project via the storage backend. Sets self.load_error to a

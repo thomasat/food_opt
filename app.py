@@ -23,7 +23,7 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 
 
 def _reset_project_session():
-    for k in ("optimizer", "current_batch", "show_backup_warning", "_batch_id",
+    for k in ("optimizer", "current_batch", "_batch_id",
               "_last_saved", "_restore_candidate", "edit_idx", "rewind_idx",
               "edit_no", "rewind_no", "hist_order"):
         st.session_state.pop(k, None)
@@ -151,6 +151,9 @@ with st.sidebar:
             f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
             f"| {_n_act} active vars{_pruned}"
         )
+        _saved = getattr(opt, "last_saved_at", None)
+        if _saved is not None:
+            st.caption(f"Saved {_saved:%H:%M} to this computer. Download a backup from Backup & Restore any time.")
 
         # --- Backup & Restore ---
         st.divider()
@@ -676,28 +679,14 @@ with tab_setup:
 # ================================================================== #
 
 with tab_optimize:
-    # -- Backup warning after new data is recorded --
-    if st.session_state.get("show_backup_warning"):
-        st.warning("**Your experiment data has changed. Download a backup now!**", icon="\u26a0\ufe0f")
-        opt = st.session_state.optimizer
-        backup_json = json.dumps(opt.export_json(), indent=2)
-        col_dl, col_dismiss = st.columns([1, 1])
-        with col_dl:
-            st.download_button(
-                "\u2b07 Download Backup Now",
-                data=backup_json,
-                file_name=f"{opt.project_name}_backup.json",
-                mime="application/json",
-                type="primary",
-                use_container_width=True,
-            )
-        with col_dismiss:
-            if st.button("Dismiss", use_container_width=True):
-                del st.session_state["show_backup_warning"]
-                st.rerun()
-        st.divider()
-
+    # -- Warning when last save failed --
     _opt = st.session_state.optimizer
+    if getattr(_opt, "save_error", None):
+        st.warning("**Your last change was not saved.** Download a backup now, then use Reload project.")
+        st.download_button("Download backup", data=json.dumps(_opt.export_json(), indent=2),
+                           file_name=f"{_opt.project_name}_backup.json", mime="application/json",
+                           type="primary")
+        st.divider()
     if _opt.X_history:
         _best_i = _opt.best_index()
         _ceiling = _opt.utility_ceiling()
@@ -848,7 +837,6 @@ with tab_optimize:
                             ]
                             opt_.set_pending_batch(None)
                             del st.session_state.current_batch
-                            st.session_state.show_backup_warning = True
                             st.rerun()
 
     st.divider()
@@ -926,7 +914,6 @@ with tab_optimize:
                                 baseline=(new_base if _has_hist else None),
                             )
                         st.session_state.pop("current_batch", None)  # stale under new dim
-                        st.session_state.show_backup_warning = True
                         flash(
                             "success",
                             f"Added {add_type.lower()} '{nm}' "
@@ -959,7 +946,6 @@ with tab_optimize:
                     for nm in _off:
                         _opt.deactivate_variable(nm)
                     st.session_state.pop("current_batch", None)
-                    st.session_state.show_backup_warning = True
                     flash("success", f"Pruned: {', '.join(_off)} — generate a new batch.")
                     st.rerun()
                 except ValueError as e:
@@ -989,7 +975,6 @@ with tab_optimize:
                 for nm in _on:
                     _opt.reactivate_variable(nm)
                 st.session_state.pop("current_batch", None)
-                st.session_state.show_backup_warning = True
                 flash("success", f"Reactivated: {', '.join(_on)} — generate a new batch.")
                 st.rerun()
 
@@ -1021,7 +1006,6 @@ with tab_optimize:
                         STORAGE.archive(_opt.project_name, "pre_delete", copy=True)
                         _opt.remove_ingredient(_del, force=_force)
                         st.session_state.pop("current_batch", None)
-                        st.session_state.show_backup_warning = True
                         flash("success", f"Deleted '{_del}'.")
                         st.rerun()
                     except (ValueError, storage_backend.StorageError) as e:
@@ -1087,8 +1071,6 @@ with tab_optimize:
                             f"The {imported} row(s) before it were imported "
                             f"and saved."
                         )
-                    if imported:
-                        st.session_state.show_backup_warning = True
                     if import_error is None and imported:
                         flash("success", f"Imported {imported} experiments.")
                         st.rerun()
