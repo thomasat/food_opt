@@ -33,6 +33,11 @@ from gpytorch.priors import GammaPrior
 from storage import LocalStorage, StorageError
 
 
+# Column names history_frame() (and any future export) reserves for itself;
+# a variable with one of these names would silently overwrite that column.
+RESERVED_VARIABLE_NAMES = {"Experiment", "Date", "Overall Score", "Recipe"}
+
+
 # --------------------------------------------------------------------------- #
 #  Expert-selectable BO hyperparameters (optional "arm 3").
 #  bo_config == None  =>  library defaults, i.e. byte-identical to the standard
@@ -147,6 +152,11 @@ class FoodOptimizer:
         name = str(name).strip()
         if not name:
             raise ValueError("Name cannot be empty.")
+        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+            raise ValueError(
+                f"{name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name, for example {name}s."
+            )
         if float(min_val) >= float(max_val):
             raise ValueError("Min must be less than Max.")
         for v in self.variables:
@@ -230,6 +240,11 @@ class FoodOptimizer:
                 raise ValueError(f"Row {i + 2}: the Name cell is blank.")
             if name.lower() in seen_names:
                 raise ValueError(f"Row {i + 2}: duplicate ingredient name {name}.")
+            if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+                raise ValueError(
+                    f"Row {i + 2}: {name} is a column name Food Optimizer uses "
+                    f"for its own tables. Choose another name, for example {name}s."
+                )
             seen_names.add(name.lower())
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
@@ -404,7 +419,11 @@ class FoodOptimizer:
             results = self.results_history[i] if i < len(self.results_history) else {}
             for obj in self.objectives:
                 row[f"{obj['name']} (result)"] = results.get(obj['name'])
-            row.update(self._decode(x))
+            decoded = {
+                (f"{k} (ingredient)" if k in ("Experiment", "Date", "Overall Score") else k): v
+                for k, v in self._decode(x).items()
+            }
+            row.update(decoded)
             rows.append(row)
         return pd.DataFrame(rows)
 

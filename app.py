@@ -1115,11 +1115,16 @@ with tab_optimize:
         else:
             hist_df = hist_df.sort_values("Experiment", ascending=False)
         _best_exp = (_opt.best_index() or 0) + 1
-        _num_cols = [c for c in hist_df.columns if c not in ("Experiment", "Date")]
+        _num_cols = [
+            c for c in hist_df.columns
+            if c not in ("Experiment", "Date") and pd.api.types.is_numeric_dtype(hist_df[c])
+        ]
+        _fmt = {c: "{:.2f}" for c in _num_cols if c != "Overall Score"}
+        if "Overall Score" in hist_df.columns:
+            _fmt["Overall Score"] = "{:.3f}"
         st.dataframe(
             hist_df.style
-                .format({c: "{:.2f}" for c in _num_cols})
-                .format({"Overall Score": "{:.3f}"})
+                .format(_fmt, na_rep="")
                 .apply(lambda r: ["background-color: rgba(46,110,78,.18)" if r["Experiment"] == _best_exp else "" for _ in r], axis=1),
             hide_index=True,
         )

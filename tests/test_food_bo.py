@@ -249,6 +249,35 @@ def test_history_frame_is_1_based_and_chronological(tmp_path, monkeypatch):
     assert df["Date"].iloc[0] and len(df["Date"].iloc[0]) == 10
 
 
+def test_reserved_column_name_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("reserved")
+    with pytest.raises(ValueError, match="column name Food Optimizer uses"):
+        opt.add_ingredient("Date", 0, 10)
+
+
+def test_history_frame_renames_variable_colliding_with_fixed_column(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("hist_collision")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    # Bypass add_ingredient's validation to mirror a project that already has
+    # a variable literally named "Date" (e.g. imported from an old file).
+    opt.variables.append({
+        'name': 'Date',
+        'type': 'continuous',
+        'bounds': (0.0, 10.0),
+        'category': 'ingredient',
+        'active': True,
+    })
+    opt.tell({"Water": 10.0, "Date": 5.0}, {"Taste": 3.0})
+    df = opt.history_frame()
+    assert "Date" in df.columns
+    assert isinstance(df["Date"].iloc[0], str)
+    assert "Date (ingredient)" in df.columns
+    assert df["Date (ingredient)"].iloc[0] == 5.0
+
+
 # ------------------------------------------------------------------ #
 #  Constraints
 # ------------------------------------------------------------------ #
