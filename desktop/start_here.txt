@@ -47,7 +47,9 @@ YOUR DATA STAYS ON YOUR COMPUTER
 
 NEED HELP?
 Please reach out to the Food Intelligence Lab at
-https://github.com/thomasat/food_opt/issues. When you do, attaching
+https://github.com/thomasat/food_opt/issues. When you write in, describe
+the problem in words. Do not attach project files, backups, or recipes,
+because issues on that page are public. When you do, attaching
 the app's technical details file helps us help you: inside the app,
 the Help menu's "Show Log File" finds it for you. If the app will not
 open, find it in Finder instead: click the Go menu, choose
