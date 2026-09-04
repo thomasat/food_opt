@@ -29,16 +29,20 @@ def render_flash():
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
     """Two-step confirmation for an irreversible action.
 
-    Renders `button_label`. After it is clicked, shows `warning` with a
-    primary confirm button and a Cancel button. Returns True only on the run
-    in which the user clicks the confirm button; the caller then performs the
-    action, flashes a message, and reruns. `key` must be unique per call site.
+    Renders `button_label`. After it is clicked, shows `warning` above a
+    primary confirm button and a Cancel button (a placeholder reserves the
+    warning's position above the button row, and is filled only on runs
+    where the user has not just confirmed, so the confirming run's element
+    tree carries no warning). Returns True only on the run in which the user
+    clicks the confirm button; the caller then performs the action, flashes
+    a message, and reruns. `key` must be unique per call site.
     """
     pending_key = f"{key}__pending"
     if st.button(button_label, key=f"{key}__btn", disabled=disabled):
         st.session_state[pending_key] = True
     if not st.session_state.get(pending_key):
         return False
+    slot = st.empty()                      # reserves the position above the buttons
     c1, c2 = st.columns(2)
     with c1:
         confirmed = st.button(confirm_label, key=f"{key}__yes", type="primary",
@@ -50,5 +54,5 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
     if confirmed:
         st.session_state[pending_key] = False
         return True
-    st.warning(warning)
+    slot.warning(warning)                  # only on runs where the user has not confirmed
     return False

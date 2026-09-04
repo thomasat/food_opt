@@ -50,6 +50,16 @@ def test_confirm_action_needs_two_clicks():
     at.run()
     assert any("Really delete?" in w.value for w in at.warning)
     assert at.session_state["done"] == 0
+    # The warning must sit above the confirm/cancel buttons, not below them:
+    # walk main's ordered children and check the Warning element's position
+    # precedes the Block (the st.columns row) holding the Yes/Cancel buttons.
+    children = list(at.main.children.values())
+    warning_idx = next(i for i, c in enumerate(children) if type(c).__name__ == "Warning")
+    buttons_block_idx = next(
+        i for i, c in enumerate(children)
+        if type(c).__name__ == "Block" and any(b.label == "Yes, delete" for b in c.get("button"))
+    )
+    assert warning_idx < buttons_block_idx
     _btn(at, "Yes, delete").click()
     at.run()
     assert at.session_state["done"] == 1
