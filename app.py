@@ -145,24 +145,26 @@ with st.sidebar:
     if st.button("Hard Reset Project"):
         st.session_state.confirm_reset = True
     if st.session_state.get("confirm_reset"):
+        _target = opt.project_name
         st.warning(
-            "This clears the current project so you can start over. "
-            "Your existing data is kept in an archive file, not deleted."
+            f"Start **{_target}** over? Its {len(opt.X_history)} experiment(s) "
+            "and setup are moved to an archive copy, not deleted."
         )
         col_yes, col_no = st.columns(2)
         with col_yes:
             if st.button("Yes, reset", type="primary", use_container_width=True):
                 st.session_state.confirm_reset = False
                 try:
-                    archived = STORAGE.archive(project_name, "archived", copy=False)
+                    archived = STORAGE.archive(_target, "archived", copy=False)
                 except storage_backend.StorageError as e:
                     st.error(str(e))
                 else:
                     if archived:
-                        flash("info", f"Your previous data was archived as {archived}")
+                        flash("info", f"Your previous data was kept as an archive named {archived}.")
                     st.session_state.pop("optimizer", None)
-                    st.session_state.pop("_loaded_project", None)
                     st.session_state.pop("current_batch", None)
+                    st.session_state.pop("show_backup_warning", None)
+                    st.session_state["_loaded_project"] = _target
                     st.rerun()
         with col_no:
             if st.button("Cancel", use_container_width=True):

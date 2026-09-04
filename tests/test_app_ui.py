@@ -99,3 +99,21 @@ def test_delete_experiment_confirmation_is_visible_after_rerun(project_with_hist
     assert not at.exception
     assert any("Deleted experiment" in s.value for s in at.success), \
         [s.value for s in at.success]
+
+
+def test_hard_reset_targets_active_project_not_typed_name(project_with_history, tmp_path):
+    """Typing another name in the sidebar without clicking Create must not
+    redirect Hard Reset at that other project (audit: confirmed critical bug)."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input[0].set_value("other")   # the sidebar "Project Name" box (renamed in Task 8)
+    _submit_button(at, "Hard Reset Project").click()
+    at.run()
+    _submit_button(at, "Yes, reset").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "my_project_archived.pkl").exists()
+    assert not (tmp_path / "other.pkl").exists()
+    assert not (tmp_path / "other_archived.pkl").exists()
+    assert any("my_project" in c.value and "0 experiments" in c.value for c in at.caption), \
+        [c.value for c in at.caption]
