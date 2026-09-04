@@ -804,7 +804,7 @@ class TestFullJourney:
         assert all(v["name"] != "Oven_Temp" for v in opt.variables)
 
         # A baseline outside [min, max] is also a clear error.
-        with pytest.raises(ValueError, match="must lie within"):
+        with pytest.raises(ValueError, match="must be between"):
             opt.add_process_parameter("Oven_Temp", 150, 220, baseline=100)
 
         opt.add_process_parameter("Oven_Temp", 150, 220, baseline=180)

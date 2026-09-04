@@ -320,7 +320,7 @@ class FoodOptimizer:
             baseline = float(baseline)
             if not (min_val <= baseline <= max_val):
                 raise ValueError(
-                    f"baseline {baseline} must lie within [{min_val}, {max_val}]."
+                    f"Baseline {baseline:g} must be between {min_val:g} and {max_val:g}."
                 )
             var['_absent_value'] = baseline
         self.variables.append(var)
@@ -1198,9 +1198,9 @@ class FoodOptimizer:
             for v in self.inactive_variables()
         ]
         all_names = [v['name'] for v in self.variables]
-        lines = [f"In play ({len(active)}): {active}"]
+        lines = [f"In play ({len(active)}): {', '.join(active)}"]
         if inactive:
-            lines.append(f"Paused ({len(inactive)}): {inactive}")
+            lines.append(f"Paused ({len(inactive)}): {', '.join(inactive)}")
         lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
@@ -1211,7 +1211,7 @@ class FoodOptimizer:
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
             lines.append(
-                f"{mark} iter {i + 1}: utility={y:.4f} | {comp} | attrs: {attrs}"
+                f"{mark} Experiment {i + 1}: score {y:.3f} | {comp} | results: {attrs}"
             )
         return "\n".join(lines)
 

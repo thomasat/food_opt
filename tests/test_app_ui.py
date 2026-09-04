@@ -48,7 +48,7 @@ def test_midrun_process_param_error_is_shown_not_raised(project_with_history):
     at.run()
 
     assert not at.exception
-    assert any("must lie within" in str(e.value) for e in at.error), \
+    assert any("must be between" in str(e.value) for e in at.error), \
         [str(e.value) for e in at.error]
 
 

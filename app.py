@@ -151,10 +151,11 @@ with st.sidebar:
             st.error(opt.load_error)
         _n_act = len(opt.active_variables())
         _n_all = len(opt.variables)
-        _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
+        n_paused = _n_all - _n_act
+        _paused_suffix = f" · {n_paused} paused" if n_paused > 0 else ""
         st.caption(
             f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
-            f"| {_n_act} active vars{_pruned}"
+            f"| {_n_act} ingredients and settings in play{_paused_suffix}"
         )
         _saved = getattr(opt, "last_saved_at", None)
         if _saved is not None:
@@ -427,7 +428,7 @@ with tab_setup:
         # --- A2. Process Parameters ---
         st.subheader("Process parameters (optional)")
         st.caption(
-            "Add processing variables (e.g., baking temperature, mixing time) "
+            "Add process settings (e.g. baking temperature, mixing time) "
             "that the optimizer will also explore."
         )
 
@@ -440,25 +441,35 @@ with tab_setup:
                 pp_min = st.number_input("Min Value", value=0.0, key="pp_min")
             with pp_cols[2]:
                 pp_max = st.number_input("Max Value", value=100.0, key="pp_max")
+            _pp_mid_run = bool(st.session_state.optimizer.X_history)
             with pp_cols[3]:
-                pp_base = st.number_input(
-                    "Baseline", value=0.0, key="pp_base",
-                    help="Only needed once you have experiments: the value this "
-                         "parameter had in ALL past batches (past experiments "
-                         "encode at this value; must be between Min and Max).",
-                )
-            if st.form_submit_button("Add Process Parameter"):
-                try:
-                    st.session_state.optimizer.add_process_parameter(
-                        pp_name, pp_min, pp_max,
-                        baseline=(pp_base if st.session_state.optimizer.X_history
-                                  else None),
+                if _pp_mid_run:
+                    pp_base = st.number_input(
+                        "Baseline", value=None, placeholder="required", key="pp_base",
+                        help="The setting you used in every past batch, so those "
+                             "results still count.",
                     )
-                except ValueError as e:
-                    st.error(str(e))
                 else:
-                    st.session_state.pop("current_batch", None)  # stale under new design space
-                    st.success(f"Added process parameter: {pp_name}")
+                    pp_base = st.number_input(
+                        "Baseline", value=0.0, key="pp_base",
+                        help="Only needed once you have experiments: the value this "
+                             "parameter had in ALL past batches (past experiments "
+                             "encode at this value; must be between Min and Max).",
+                    )
+            if st.form_submit_button("Add Process Parameter"):
+                if _pp_mid_run and pp_base is None:
+                    st.error("Enter the baseline: the setting you used in all your past batches.")
+                else:
+                    try:
+                        st.session_state.optimizer.add_process_parameter(
+                            pp_name, pp_min, pp_max,
+                            baseline=(pp_base if _pp_mid_run else None),
+                        )
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.pop("current_batch", None)  # stale under new design space
+                        st.success(f"Added process parameter: {pp_name}")
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables
@@ -470,8 +481,11 @@ with tab_setup:
                 pc1, pc2 = st.columns([3, 1])
                 with pc1:
                     _tag = "" if pv.get('active', True) else "  (pruned)"
+                    lo, hi = pv['bounds']
+                    _base = pv.get('_absent_value')
+                    _base_txt = "" if _base is None else f", baseline {_base:g}"
                     st.text(
-                        f"{pv['name']}: [{pv['bounds'][0]}, {pv['bounds'][1]}]{_tag}"
+                        f"{pv['name']}: {lo:g} to {hi:g}{_base_txt}{_tag}"
                     )
                 with pc2:
                     if st.session_state.optimizer.X_history:
@@ -684,7 +698,10 @@ with tab_setup:
             if qc_list:
                 st.caption("Active quantity constraints:")
                 for i, qc in enumerate(qc_list):
-                    label = " + ".join(qc['ingredients'])
+                    if set(qc['ingredients']) == set(ingredient_names):
+                        label = "Total mass (all ingredients)"
+                    else:
+                        label = " + ".join(qc['ingredients'])
                     bounds = []
                     if qc['min'] is not None:
                         bounds.append(f"at least {qc['min']:g}")
@@ -1017,8 +1034,10 @@ with tab_optimize:
 
             if edit_idx < len(results_history):
                 current_results = results_history[edit_idx]
-                st.caption(f"Current results for experiment {edit_idx + 1}:")
-                st.json(current_results)
+                st.caption(
+                    f"Current results for experiment {edit_idx + 1}: "
+                    + " · ".join(f"{k} {v:g}" for k, v in current_results.items())
+                )
 
                 if not st.session_state.optimizer.objectives:
                     st.info("Add a measurement in the Set up tab before editing past results.")
