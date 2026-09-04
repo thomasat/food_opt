@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime, timezone
 
 import numpy as np
@@ -336,6 +335,7 @@ class FoodOptimizer:
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
         ]
+        self._reencode_history()
         self.pending_batch = None
         self.save()
 
@@ -1296,7 +1296,10 @@ class FoodOptimizer:
         # rewritten: rewriting on every open would bump the mtime and make
         # other open windows see a false conflict. Legacy pickle files are no
         # longer readable (LocalStorage.load refuses them).
-        if self.storage.persist_after_load and state.get('CLASS_VERSION', 0) < self.CLASS_VERSION:
+        _ver = state.get('CLASS_VERSION', 0)
+        if not isinstance(_ver, int):
+            _ver = 0
+        if self.storage.persist_after_load and _ver < self.CLASS_VERSION:
             self.save()
         return True
 
@@ -1352,6 +1355,14 @@ class FoodOptimizer:
         for key, typ in required.items():
             if not isinstance(state[key], typ):
                 raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        for key in ('variables', 'objectives'):
+            for item in state[key]:
+                if not isinstance(item, dict) or not isinstance(item.get('name'), str):
+                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        for key in ('recipe_history', 'results_history'):
+            for item in state[key]:
+                if not isinstance(item, dict):
+                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
         version = state.get('CLASS_VERSION')
         if not isinstance(version, int):
             raise ValueError(bad)

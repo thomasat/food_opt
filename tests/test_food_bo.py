@@ -88,6 +88,19 @@ class TestVariables:
         opt.remove_process_parameter("Temperature")
         assert len(opt.variables) == 0
 
+    def test_remove_process_parameter_reencodes_history(self, opt):
+        """Removing a process parameter must re-encode X_history to the new
+        dimension (mirrors remove_ingredient), otherwise a later ask() fails
+        with a tensor size mismatch."""
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_process_parameter("Temp", 100, 250, baseline=150)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0, "Temp": 150.0}, {"Taste": 7.0})
+        opt.tell({"Water": 60.0, "Temp": 150.0}, {"Taste": 6.0})
+        opt.remove_process_parameter("Temp")
+        assert all(len(x) == len(opt.variables) for x in opt.X_history)
+        assert opt.pending_batch is None
+
     def test_remove_process_does_not_remove_ingredient(self, opt):
         opt.add_ingredient("Water", 0, 100)
         opt.remove_process_parameter("Water")
@@ -985,6 +998,14 @@ class TestValidateState:
         state["variables"] = "garbage"
         with pytest.raises(ValueError, match="wrong shape"):
             FoodOptimizer.validate_state(state)
+
+    def test_wrong_element_shape_is_rejected(self):
+        with pytest.raises(ValueError, match="wrong shape"):
+            FoodOptimizer.validate_state({
+                "variables": ["Water"], "objectives": [],
+                "recipe_history": [], "results_history": [],
+                "CLASS_VERSION": 6,
+            })
 
     def test_newer_version_is_rejected(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
