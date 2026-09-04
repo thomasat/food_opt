@@ -379,6 +379,20 @@ class FoodOptimizer:
         """The Overall Score a perfect recipe would get: the sum of weights."""
         return float(sum(obj['weight'] for obj in self.objectives))
 
+    def best_index(self):
+        """0-based index of the highest-scoring experiment, or None."""
+        if not self.Y_history:
+            return None
+        return int(max(range(len(self.Y_history)), key=lambda i: self.Y_history[i]))
+
+    def best_so_far(self):
+        """Running maximum of the Overall Score, one value per experiment."""
+        out, cur = [], float('-inf')
+        for y in self.Y_history:
+            cur = max(cur, float(y))
+            out.append(cur)
+        return out
+
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
     # ------------------------------------------------------------------ #

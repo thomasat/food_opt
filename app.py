@@ -676,6 +676,38 @@ with tab_optimize:
                 st.rerun()
         st.divider()
 
+    _opt = st.session_state.optimizer
+    if _opt.X_history:
+        _best_i = _opt.best_index()
+        _ceiling = _opt.utility_ceiling()
+        sc1, sc2 = st.columns([1, 2])
+        with sc1:
+            st.metric("Best Overall Score", f"{_opt.Y_history[_best_i]:.3f}",
+                      help=f"A perfect recipe would score {_ceiling:g} (the sum of your objective weights).")
+            st.caption(f"Experiment {_best_i + 1} · out of a possible {_ceiling:g}")
+            _best_recipe = _opt.recipe_history[_best_i] if _best_i < len(_opt.recipe_history) else {}
+            st.markdown("\n".join(f"- {k}: {v:.2f}" for k, v in _best_recipe.items()))
+        with sc2:
+            _chart = pd.DataFrame({
+                "Experiment": range(1, len(_opt.Y_history) + 1),
+                "Overall Score": [float(y) for y in _opt.Y_history],
+                "Best so far": _opt.best_so_far(),
+            }).set_index("Experiment")
+            st.line_chart(_chart, height=220)
+            st.caption("Each experiment's Overall Score, and the best score reached so far. "
+                       "A flattening line means the optimizer is converging.")
+
+    _last = st.session_state.pop("_last_saved", None)
+    if _last:
+        _prev_best = max([float(y) for y in _opt.Y_history[:-len(_last)]] or [float('-inf')])
+        _lines = []
+        for item in _last:
+            tag = " — **new best**" if item["score"] > _prev_best else ""
+            _prev_best = max(_prev_best, item["score"])
+            _lines.append(f"- Recipe {item['recipe']}: Overall Score {item['score']:.3f}{tag}")
+        st.success("Results saved.\n" + "\n".join(_lines))
+    st.divider()
+
     col_ask, col_tell = st.columns([1, 1.5])
 
     # -------------------------------------------------------------- #
@@ -797,7 +829,6 @@ with tab_optimize:
                             opt_.set_pending_batch(None)
                             del st.session_state.current_batch
                             st.session_state.show_backup_warning = True
-                            flash("success", f"Saved {len(kept)} result(s).")
                             st.rerun()
 
     st.divider()

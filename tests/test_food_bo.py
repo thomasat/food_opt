@@ -223,6 +223,18 @@ class TestObjectiveValidation:
         assert opt.utility_ceiling() == pytest.approx(1.0)
 
 
+def test_best_index_and_running_max(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("best")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    assert opt.best_index() is None
+    for water, taste in [(10.0, 3.0), (20.0, 8.0), (30.0, 5.0)]:
+        opt.tell({"Water": water}, {"Taste": taste})
+    assert opt.best_index() == 1
+    assert opt.best_so_far() == pytest.approx([0.3, 0.8, 0.8])
+
+
 # ------------------------------------------------------------------ #
 #  Constraints
 # ------------------------------------------------------------------ #

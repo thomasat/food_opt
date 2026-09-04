@@ -202,7 +202,21 @@ def test_skipped_recipe_is_left_out(project_with_pending_batch):
     opt = FoodOptimizer("my_project")
     assert len(opt.X_history) == 2
     assert opt.pending_batch is None
-    assert any("Saved 1 result" in s.value for s in at.success), [s.value for s in at.success]
+    assert any("Results saved" in s.value for s in at.success), [s.value for s in at.success]
+
+
+def test_results_card_and_best_panel_after_save(project_with_pending_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="b0_r0o0").set_value(9.0)
+    at.number_input(key="b0_r1o0").set_value(2.0)
+    _submit_button(at, "Save Results").click()
+    at.run()
+    assert not at.exception
+    texts = [s.value for s in at.success] + [m.value for m in at.markdown] + [c.value for c in at.caption]
+    assert any("Recipe 1" in t and "0.900" in t for t in texts), texts
+    assert any("new best" in t.lower() for t in texts), texts
+    assert any(m.label == "Best Overall Score" for m in at.metric)
 
 
 def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
