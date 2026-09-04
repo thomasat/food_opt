@@ -72,6 +72,26 @@ def test_midrun_process_param_with_valid_baseline_succeeds(project_with_history)
     assert reloaded.X_history[0][1] == 180.0
 
 
+def test_remove_process_parameter_confirms_and_archives(project_with_history, tmp_path):
+    """Removing a process parameter mid-run must require confirmation and
+    archive a copy first, then re-encode history (not just drop the column)."""
+    project_with_history.add_process_parameter("Oven_Temp", 150, 220, baseline=180)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    _submit_button(at, "Remove").click()
+    at.run()
+    assert not (tmp_path / "my_project_pre_delete.pkl").exists()   # not yet
+    _submit_button(at, "Yes, remove").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "my_project_pre_delete.pkl").exists()
+    reloaded = FoodOptimizer("my_project")
+    assert not any(v["name"] == "Oven_Temp" for v in reloaded.variables)
+    assert all(len(x) == len(reloaded.variables) for x in reloaded.X_history)
+    assert any("Removed Oven_Temp" in s.value for s in at.success)
+
+
 def test_pending_batch_is_restored_in_a_new_session(project_with_history):
     """The recipes on the bench must survive closing the window."""
     project_with_history.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}])
@@ -128,6 +148,31 @@ def test_history_is_1_based(project_with_history):
     assert not any("0-based" in n.label for n in at.number_input)
 
 
+def test_edit_form_keeps_old_value_and_refuses_blank_with_no_history(project_with_history):
+    """A blank measurement in the edit form keeps the experiment's existing
+    value; a measurement the experiment never had is refused, not saved as 0."""
+    project_with_history.add_objective("Crunch", 1.0, goal="max", min_val=0, max_val=10)
+    project_with_history.tell({"Water": 60.0}, {"Taste": 8.0, "Crunch": 5.0})
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="edit_no").set_value(1)   # experiment 1, recorded before Crunch existed
+    at.run()
+    _submit_button(at, "Update Result").click()
+    at.run()
+    assert not at.exception
+    assert any("Crunch" in e.value for e in at.error), [e.value for e in at.error]
+    assert FoodOptimizer("my_project").results_history[0] == {"Taste": 7.0}
+
+    at.number_input(key="edit_0_1").set_value(4.0)  # fill Crunch, leave Taste blank
+    at.run()
+    _submit_button(at, "Update Result").click()
+    at.run()
+    assert not at.exception
+    assert any("Updated experiment 1" in s.value for s in at.success)
+    assert FoodOptimizer("my_project").results_history[0] == {"Taste": 7.0, "Crunch": 4.0}
+
+
 def test_hard_reset_targets_active_project_not_typed_name(project_with_history, tmp_path):
     """Typing another name in the sidebar without clicking Create must not
     redirect Hard Reset at that other project (audit: confirmed critical bug)."""
@@ -171,6 +216,22 @@ def test_restore_requires_confirmation_and_archives_current(project_with_history
     assert (tmp_path / "my_project_pre_restore.pkl").exists()
     assert len(FoodOptimizer("my_project").X_history) == 3
     assert any("Restored 3 experiments" in s.value for s in at.success)
+
+
+def test_restore_rejects_wrong_shaped_variables(project_with_history):
+    """validate_state must catch a backup whose 'variables' list is the right
+    type but contains elements of the wrong shape, before anything is
+    applied to the live optimizer."""
+    candidate = project_with_history.export_json()
+    candidate["variables"] = [{"nope": 1}]
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.session_state["_restore_candidate"] = candidate
+    at.run()
+    assert not at.exception
+    assert any("wrong shape" in e.value for e in at.error), [e.value for e in at.error]
+    assert len(FoodOptimizer("my_project").X_history) == 1
+    assert at.session_state["optimizer"].variables[0]["name"] == "Water"
 
 
 def test_restore_rejects_empty_json(project_with_history):
@@ -425,10 +486,10 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Try the sample cookie project").click()
+    _submit_button(at, "Try the sample project").click()
     at.run()
     assert not at.exception
-    opt = FoodOptimizer("Sample cookie")
+    opt = FoodOptimizer("Sample project")
     assert len(opt.variables) >= 3
     assert opt.objectives and opt.objectives[0]["name"] == "Taste"
 
@@ -454,16 +515,16 @@ def test_manual_add_ingredient_shows_mid_run_min_notice(project_with_history):
 
 def test_sample_project_button_reopens_existing_without_recreating(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    # Pre-create "Sample cookie" with an experiment, simulating a shared host
+    # Pre-create "Sample project" with an experiment, simulating a shared host
     # where a previous visitor already ran the sample project.
-    pre = FoodOptimizer("Sample cookie")
+    pre = FoodOptimizer("Sample project")
     pre.add_ingredient("Water", 0, 100)
     pre.add_objective("Taste", 1.0, goal="max")
     pre.tell({"Water": 50.0}, {"Taste": 7.0})
 
     # app.py never auto-opens the most-recently-used project on a shared host
     # (os.path.isdir("/mount/src")); force that guard so the welcome panel
-    # renders here even though "Sample cookie" already exists on disk, which
+    # renders here even though "Sample project" already exists on disk, which
     # is exactly the scenario where clicking the sample button again must
     # reopen the existing project instead of re-creating it.
     real_isdir = os.path.isdir
@@ -477,11 +538,29 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     assert not at.exception
     assert any("Create your first project" in m.value for m in at.markdown)
 
-    _submit_button(at, "Try the sample cookie project").click()
+    _submit_button(at, "Try the sample project").click()
     at.run()
     assert not at.exception
 
-    reloaded = FoodOptimizer("Sample cookie")
+    reloaded = FoodOptimizer("Sample project")
     assert len(reloaded.X_history) == 1
-    assert any("Sample cookie" in c.value and "1 experiments" in c.value
+    assert any("Sample project" in c.value and "1 experiments" in c.value
                 for c in at.caption), [c.value for c in at.caption]
+
+
+def test_edit_form_guarded_when_no_objectives_remain(project_with_history):
+    """Removing the last objective on a project with history must not crash
+    st.columns(0) in the edit-results form; Delete Experiment and Rewind
+    must still render."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    _submit_button(at, "Remove Taste").click()
+    at.run()
+    _submit_button(at, "Yes, remove").click()
+    at.run()
+    assert not at.exception
+    assert any("Add a measurement in the Set up tab before editing past results" in i.value
+               for i in at.info), [i.value for i in at.info]
+    assert any(b.label == "Delete experiment 1" for b in at.button), [b.label for b in at.button]
+    assert any(b.label == "Rewind" for b in at.button), [b.label for b in at.button]

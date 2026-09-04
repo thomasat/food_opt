@@ -25,7 +25,8 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 def _reset_project_session():
     for k in ("optimizer", "current_batch", "_batch_id",
               "_last_saved", "_restore_candidate", "edit_idx", "rewind_idx",
-              "edit_no", "rewind_no", "hist_order", "_results_upload"):
+              "edit_no", "rewind_no", "hist_order", "_results_upload",
+              "_edit_warning_idx", "_edit_warning_n"):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if k.endswith("__pending")]:
         st.session_state.pop(k, None)
@@ -208,17 +209,22 @@ with st.sidebar:
                             STORAGE.archive(opt.project_name, "pre_restore", copy=True)
                             state = dict(candidate)
                             state['project_name'] = opt.project_name
-                            opt.import_json(state)
-                            opt.save()
+                            new_opt = FoodOptimizer(opt.project_name, storage=opt.storage)
+                            new_opt.import_json(state)
+                            new_opt.save()
                         except storage_backend.StorageError as e:
                             st.error(str(e))
+                        except Exception:
+                            st.error("This backup could not be applied. Your current project was not changed.")
+                            st.session_state.pop("_restore_candidate", None)
                         else:
-                            if opt.save_error:
-                                st.error(opt.save_error)
+                            if new_opt.save_error:
+                                st.error(new_opt.save_error)
                             else:
+                                st.session_state.optimizer = new_opt
                                 st.session_state.pop("_restore_candidate", None)
                                 st.session_state.pop("current_batch", None)
-                                flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
+                                flash("success", f"Restored {len(new_opt.X_history)} experiments into {new_opt.project_name}.")
                                 st.rerun()
                 with rc2:
                     if st.button("Cancel", use_container_width=True, key="restore_cancel"):
@@ -258,8 +264,8 @@ if opt is None:
     )
     wc1, wc2 = st.columns(2)
     with wc1:
-        if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample cookie project", type="primary"):
-            _name = "Sample cookie"
+        if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample project", type="primary"):
+            _name = "Sample project"
             if STORAGE.exists(_name):
                 _open_project(_name)          # already created earlier; just open it
             else:
@@ -270,7 +276,10 @@ if opt is None:
                 except ValueError as e:
                     st.error(f"The sample project could not be created: {e}")
                 else:
-                    _open_project(_name)
+                    if _sample.save_error:
+                        st.error(_sample.save_error)
+                    else:
+                        _open_project(_name)
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             with open(_SAMPLE_CSV, "rb") as f:
@@ -451,10 +460,25 @@ with tab_setup:
                         f"{pv['name']}: [{pv['bounds'][0]}, {pv['bounds'][1]}]{_tag}"
                     )
                 with pc2:
-                    if st.button("Remove", key=f"rm_pp_{i}"):
-                        st.session_state.optimizer.remove_process_parameter(pv['name'])
-                        st.session_state.pop("current_batch", None)  # stale under new design space
-                        st.rerun()
+                    if st.session_state.optimizer.X_history:
+                        _go_pp = confirm_action(
+                            f"rm_pp_{i}", "Remove",
+                            f"Remove {pv['name']}? Past experiments are kept and "
+                            f"re-encoded without it. A copy of the project is archived first.",
+                            confirm_label="Yes, remove",
+                        )
+                    else:
+                        _go_pp = st.button("Remove", key=f"rm_pp_{i}")
+                    if _go_pp:
+                        try:
+                            STORAGE.archive(st.session_state.optimizer.project_name, "pre_delete", copy=True)
+                        except storage_backend.StorageError as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state.optimizer.remove_process_parameter(pv['name'])
+                            st.session_state.pop("current_batch", None)  # stale under new design space
+                            flash("success", f"Removed {pv['name']}.")
+                            st.rerun()
 
         st.divider()
 
@@ -649,12 +673,12 @@ with tab_setup:
                     label = " + ".join(qc['ingredients'])
                     bounds = []
                     if qc['min'] is not None:
-                        bounds.append(f"min={qc['min']}")
+                        bounds.append(f"at least {qc['min']:g}")
                     if qc['max'] is not None:
-                        bounds.append(f"max={qc['max']}")
+                        bounds.append(f"at most {qc['max']:g}")
                     qc_c1, qc_c2 = st.columns([4, 1])
                     with qc_c1:
-                        st.text(f"[{i}] {label}: {', '.join(bounds)}")
+                        st.text(f"{i + 1}. {label}: {' and '.join(bounds)}")
                     with qc_c2:
                         if st.button("Remove", key=f"rm_qc_{i}"):
                             st.session_state.optimizer.remove_quantity_constraint(i)
@@ -720,7 +744,7 @@ with tab_setup:
                         except Exception as _e:
                             st.error(f"Invalid JSON: {_e}")
             if _cur_cfg:
-                st.info(f"Active model settings: {_cur_cfg}")
+                st.info("Active model settings: " + ", ".join(f"{k}: {v}" for k, v in _cur_cfg.items()))
 
 
 # ================================================================== #
@@ -982,28 +1006,55 @@ with tab_optimize:
                 st.caption(f"Current results for experiment {edit_idx + 1}:")
                 st.json(current_results)
 
-                with st.form("edit_form"):
-                    st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
-                    new_results = {}
-                    edit_cols = st.columns(len(st.session_state.optimizer.objectives))
-                    for j, obj in enumerate(st.session_state.optimizer.objectives):
-                        with edit_cols[j]:
-                            current_val = float(current_results.get(obj['name'], 0.0))
-                            new_results[obj['name']] = st.number_input(
-                                obj['name'], value=current_val,
-                                key=f"edit_{edit_idx}_{j}",
-                            )
+                if not st.session_state.optimizer.objectives:
+                    st.info("Add a measurement in the Set up tab before editing past results.")
+                else:
+                    with st.form("edit_form"):
+                        st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
+                        new_results = {}
+                        _edit_objs = st.session_state.optimizer.objectives
+                        _per_row = 4
+                        for j, obj in enumerate(_edit_objs):
+                            if j % _per_row == 0:
+                                edit_cols = st.columns(min(_per_row, len(_edit_objs) - j))
+                            with edit_cols[j % _per_row]:
+                                _has_val = obj['name'] in current_results
+                                current_val = float(current_results[obj['name']]) if _has_val else None
+                                new_results[obj['name']] = st.number_input(
+                                    f"{obj['name']} ({obj['min_val']:g}–{obj['max_val']:g})",
+                                    min_value=float(obj['min_val']),
+                                    max_value=float(obj['max_val']),
+                                    value=current_val,
+                                    placeholder="enter measurement",
+                                    key=f"edit_{edit_idx}_{j}",
+                                )
 
-                    ec1, ec2 = st.columns(2)
-                    with ec1:
-                        if st.form_submit_button("Update Result"):
-                            st.session_state.optimizer.edit_result(edit_idx, new_results)
-                            n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
-                            if n_after > 0:
-                                st.session_state._edit_warning_idx = edit_idx
-                                st.session_state._edit_warning_n = n_after
-                            flash("success", f"Updated experiment {edit_idx + 1}.")
-                            st.rerun()
+                        ec1, ec2 = st.columns(2)
+                        with ec1:
+                            if st.form_submit_button("Update Result"):
+                                blank_missing = [
+                                    obj['name'] for obj in _edit_objs
+                                    if new_results[obj['name']] is None and obj['name'] not in current_results
+                                ]
+                                if blank_missing:
+                                    st.error(
+                                        "Enter a value for "
+                                        + ", ".join(blank_missing)
+                                        + " or leave it blank only for measurements this experiment never had."
+                                    )
+                                else:
+                                    final_results = dict(current_results)
+                                    for obj in _edit_objs:
+                                        v = new_results[obj['name']]
+                                        if v is not None:
+                                            final_results[obj['name']] = v
+                                    st.session_state.optimizer.edit_result(edit_idx, final_results)
+                                    n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
+                                    if n_after > 0:
+                                        st.session_state._edit_warning_idx = edit_idx
+                                        st.session_state._edit_warning_n = n_after
+                                    flash("success", f"Updated experiment {edit_idx + 1}.")
+                                    st.rerun()
 
                 if st.session_state.get('_edit_warning_idx') is not None:
                     warn_idx = st.session_state._edit_warning_idx
@@ -1096,7 +1147,7 @@ with tab_optimize:
    - **Target**: `utility = max(0, 1 - |normalized - normalized_target|)`
      (closer to target = higher utility, with linear penalty for deviation)
 
-3. **Weighted sum**: `Total Utility = sum(weight_i * utility_i)` across all objectives
+3. **Weighted sum**: `Overall Score = sum(weight_i * utility_i)` across all objectives
 
 Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect recipe scores {_opt.utility_ceiling():g}.
 
@@ -1104,7 +1155,7 @@ Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect reci
 (goal=target at 5, weight=0.4, range 0-10):
 - Chewiness score of 8 -> normalized = 0.8 -> utility = 0.8 -> weighted = 0.48
 - Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - 0.1 = 0.9 -> weighted = 0.36
-- **Total Utility = 0.48 + 0.36 = 0.84**
+- **Overall Score = 0.48 + 0.36 = 0.84**
         """)
 
     st.divider()
@@ -1246,8 +1297,7 @@ Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect reci
                         st.session_state.pop("current_batch", None)  # stale under new dim
                         flash(
                             "success",
-                            f"Added {add_type.lower()} '{nm}' "
-                            f"(bounds {_opt.variables[-1]['bounds']}). "
+                            f"Added {add_type.lower()} {nm} ({new_min:g} to {new_max:g}). "
                             f"Generate a new batch."
                         )
                         st.rerun()
