@@ -247,6 +247,8 @@ with st.sidebar:
                 st.rerun()
 
 
+_SAMPLE_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ingredients.csv")
+
 if opt is None:
     st.markdown("## Create your first project")
     st.markdown(
@@ -254,6 +256,19 @@ if opt is None:
         "2. **Add ingredients** and say what you will measure.\n"
         "3. **Generate recipes**, make them, and enter the results."
     )
+    wc1, wc2 = st.columns(2)
+    with wc1:
+        if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample cookie project", type="primary"):
+            _name = "Sample cookie"
+            _sample = FoodOptimizer(_name, storage=STORAGE)
+            _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+            _sample.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+            _open_project(_name)
+    with wc2:
+        if os.path.exists(_SAMPLE_CSV):
+            with open(_SAMPLE_CSV, "rb") as f:
+                st.download_button("Download ingredient CSV template", data=f.read(),
+                                   file_name="ingredients_template.csv", mime="text/csv")
     st.stop()
 
 
@@ -350,6 +365,23 @@ with tab_setup:
                 for v in ingredient_vars
             ])
             st.dataframe(ing_df, hide_index=True, height=150)
+
+        with st.form("add_ing_form", clear_on_submit=True):
+            ic1, ic2, ic3 = st.columns([2, 1, 1])
+            with ic1:
+                ing_name = st.text_input("Ingredient name", key="ing_name")
+            with ic2:
+                ing_min = st.number_input("Min", value=0.0, key="ing_min")
+            with ic3:
+                ing_max = st.number_input("Max", value=100.0, key="ing_max")
+            if st.form_submit_button("Add ingredient"):
+                try:
+                    st.session_state.optimizer.add_ingredient(ing_name, ing_min, ing_max)
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.session_state.pop("current_batch", None)
+                    st.success(f"Added {ing_name.strip()}.")
 
         st.divider()
 

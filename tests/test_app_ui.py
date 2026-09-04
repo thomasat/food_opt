@@ -388,3 +388,26 @@ def test_history_appears_before_advanced_expanders(project_with_history):
     adaptive = pos(lambda k: isinstance(k[1], str) and "Change the ingredient list" in k[1])
     imp = pos(lambda k: isinstance(k[1], str) and "Import Historical" in k[1])
     assert history < imp < adaptive, kinds
+
+
+def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Try the sample cookie project").click()
+    at.run()
+    assert not at.exception
+    opt = FoodOptimizer("Sample cookie")
+    assert len(opt.variables) >= 3
+    assert opt.objectives and opt.objectives[0]["name"] == "Taste"
+
+
+def test_manual_add_ingredient_in_setup(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="ing_name").set_value("Honey")
+    at.number_input(key="ing_min").set_value(0.0)
+    at.number_input(key="ing_max").set_value(30.0)
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert any(v["name"] == "Honey" for v in FoodOptimizer("my_project").variables)
