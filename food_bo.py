@@ -447,6 +447,12 @@ class FoodOptimizer:
         df.insert(0, "Recipe", range(1, len(df) + 1))
         return df
 
+    def batch_csv(self, batch):
+        """The suggested batch as CSV text, rounded to 2 decimals to match the
+        table shown on screen (the integer Recipe column is unaffected)."""
+        df = self.batch_frame(batch)
+        return df.round(2).to_csv(index=False)
+
     def parse_batch_results(self, df, batch):
         """Match an uploaded results sheet to the pending batch.
 

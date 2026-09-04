@@ -1,5 +1,6 @@
 """Tests for the FoodOptimizer core engine."""
 
+import io
 import json
 import os
 import pickle
@@ -302,6 +303,17 @@ def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
     df = opt.batch_frame([{"Water": 10.0, "Temp": 180.0}, {"Water": 20.0, "Temp": 190.0}])
     assert list(df["Recipe"]) == [1, 2]
     assert list(df.columns) == ["Recipe", "Water", "Temp"]
+
+
+def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
+    """The downloaded sheet must match the two-decimal table shown on screen,
+    not the raw float precision the optimizer suggests."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    csv_text = opt.batch_csv([{"Water": 11.877679824829102}])
+    df = pd.read_csv(io.StringIO(csv_text))
+    assert df["Water"].iloc[0] == 11.88
+    assert list(df["Recipe"]) == [1]
 
 
 class TestParseBatchResults:
