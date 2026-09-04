@@ -1074,9 +1074,12 @@ class FoodOptimizer:
                 "folder for a recent copy."
             )
             return False
-        # Historical behavior for local files: every load re-saves, which
-        # migrates legacy pickles to JSON. Cloud loads are read-only.
-        if self.storage.persist_after_load:
+        # Historical behavior for local files: re-save migrates a legacy
+        # pickle or an older-CLASS_VERSION JSON file to the current format;
+        # it's a no-op for an already-current file, so a plain read-only open
+        # doesn't rewrite the file and invalidate another session's conflict
+        # stamp. Cloud loads are read-only.
+        if self.storage.persist_after_load and state.get('CLASS_VERSION', 0) < self.CLASS_VERSION:
             self.save()
         return True
 

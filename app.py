@@ -147,23 +147,20 @@ with st.sidebar:
                 if st.button("Yes, replace", type="primary", use_container_width=True):
                     try:
                         STORAGE.archive(opt.project_name, "pre_restore", copy=True)
-                        # The archive above just captured whatever is on disk,
-                        # and the user explicitly confirmed this overwrite, so
-                        # resync the storage backend's conflict tracking here
-                        # (same pattern as storage.py's own reload-clears-
-                        # conflict behavior) rather than let an incidental
-                        # read elsewhere block this save as a false conflict.
-                        opt.storage.load(opt.project_name)
-                        candidate['project_name'] = opt.project_name
-                        opt.import_json(candidate)
+                        state = dict(candidate)
+                        state['project_name'] = opt.project_name
+                        opt.import_json(state)
                         opt.save()
                     except storage_backend.StorageError as e:
                         st.error(str(e))
                     else:
-                        st.session_state.pop("_restore_candidate", None)
-                        st.session_state.pop("current_batch", None)
-                        flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
-                        st.rerun()
+                        if opt.save_error:
+                            st.error(opt.save_error)
+                        else:
+                            st.session_state.pop("_restore_candidate", None)
+                            st.session_state.pop("current_batch", None)
+                            flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
+                            st.rerun()
             with rc2:
                 if st.button("Cancel", use_container_width=True, key="restore_cancel"):
                     st.session_state.pop("_restore_candidate", None)
