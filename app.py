@@ -25,7 +25,7 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 def _reset_project_session():
     for k in ("optimizer", "current_batch", "_batch_id",
               "_last_saved", "_restore_candidate", "edit_idx", "rewind_idx",
-              "edit_no", "rewind_no", "hist_order"):
+              "edit_no", "rewind_no", "hist_order", "_results_upload"):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if k.endswith("__pending")]:
         st.session_state.pop(k, None)
@@ -784,6 +784,7 @@ with tab_optimize:
                     recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
                     st.session_state.current_batch = recipes
                     st.session_state["_batch_id"] = st.session_state.get("_batch_id", 0) + 1
+                    st.session_state.pop("_results_upload", None)
                     st.session_state.optimizer.set_pending_batch(recipes)
                 except ValueError as e:
                     st.error(str(e))
@@ -878,6 +879,7 @@ with tab_optimize:
                             ]
                             opt_.set_pending_batch(None)
                             del st.session_state.current_batch
+                            st.session_state.pop("_results_upload", None)
                             st.rerun()
 
             with st.expander("Or upload results from a CSV"):

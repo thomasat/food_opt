@@ -253,6 +253,21 @@ def test_upload_results_for_batch(project_with_pending_batch):
     assert any("Results saved" in s.value for s in at.success), [s.value for s in at.success]
 
 
+def test_stale_results_upload_is_cleared_on_hard_reset(project_with_pending_batch, tmp_path):
+    """A parsed sheet primed for one project/batch must not leak into the next
+    project via a Hard Reset (session state is otherwise long-lived)."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_results_upload"] = pd.DataFrame({"Recipe": [1], "Taste": [8.0]})
+    at.run()
+    assert "_results_upload" in at.session_state
+    _submit_button(at, "Hard Reset Project").click()
+    at.run()
+    _submit_button(at, "Yes, reset").click()
+    at.run()
+    assert not at.exception
+    assert "_results_upload" not in at.session_state
+
+
 def test_save_failure_shows_one_banner_with_backup_and_reload(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

@@ -333,6 +333,29 @@ class TestParseBatchResults:
             opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [1.0], "L*": [140.0]}),
                                     [{"Water": 10.0}])
 
+    def test_duplicate_recipe_row_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}, {"Water": 20.0}]
+        df = pd.DataFrame({"Recipe": [1, 1], "Hardness": [11.0, 12.0], "L*": [70.0, 71.0]})
+        with pytest.raises(ValueError, match="appears more than once"):
+            opt.parse_batch_results(df, batch)
+
+    def test_non_integer_recipe_number(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}]
+        with pytest.raises(ValueError, match="is not a whole number"):
+            opt.parse_batch_results(
+                pd.DataFrame({"Recipe": ["abc"], "Hardness": [1.0], "L*": [5.0]}), batch)
+        with pytest.raises(ValueError, match="is not a whole number"):
+            opt.parse_batch_results(
+                pd.DataFrame({"Recipe": [1.5], "Hardness": [1.0], "L*": [5.0]}), batch)
+
+    def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Recipe": [], "Hardness": [], "L*": []})
+        with pytest.raises(ValueError, match="no result rows"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
 
 def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

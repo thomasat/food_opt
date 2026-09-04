@@ -468,15 +468,24 @@ class FoodOptimizer:
                 missing.append(obj['name'])
         if missing:
             raise ValueError("Missing columns: " + ", ".join(missing))
+        if len(df) == 0:
+            raise ValueError("The sheet has no result rows.")
         parsed = []
+        seen = set()
         for _, row in df.iterrows():
             raw_no = row[norm["recipe"]]
             try:
-                recipe_no = int(raw_no)
+                recipe_f = float(raw_no)
             except (TypeError, ValueError):
                 raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
+            if not recipe_f.is_integer():
+                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
+            recipe_no = int(recipe_f)
             if not (1 <= recipe_no <= len(batch)):
                 raise ValueError(f"Recipe {recipe_no} is not in this batch (it has {len(batch)} recipes).")
+            if recipe_no in seen:
+                raise ValueError(f"Recipe {recipe_no} appears more than once in the sheet.")
+            seen.add(recipe_no)
             results = {}
             for obj in self.objectives:
                 val = row[col_for[obj['name']]]
