@@ -117,27 +117,57 @@ with st.sidebar:
         )
 
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
-    if uploaded_json is not None:
-        if st.button("Restore Project"):
-            try:
-                state = json.loads(uploaded_json.read())
-                state['project_name'] = st.session_state.optimizer.project_name
-                st.session_state.optimizer.import_json(state)
-                st.session_state.optimizer.save()
-                st.session_state.pop("current_batch", None)
-            except Exception:
-                st.error(
-                    "This backup file couldn't be read. Make sure it's a "
-                    "backup downloaded from Food Optimizer (a .json file) "
-                    "and try again."
-                )
-            else:
-                flash(
-                    "success",
-                    f"Restored {len(st.session_state.optimizer.X_history)} experiments "
-                    f"into {st.session_state.optimizer.project_name}"
-                )
-                st.rerun()
+    if uploaded_json is not None and st.button("Check this backup"):
+        try:
+            st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
+        except ValueError:
+            st.session_state.pop("_restore_candidate", None)
+            st.error(
+                "This backup file couldn't be read. Make sure it's a backup "
+                "downloaded from Food Optimizer (a .json file) and try again."
+            )
+
+    candidate = st.session_state.get("_restore_candidate")
+    if candidate is not None:
+        try:
+            summary = FoodOptimizer.validate_state(candidate)
+        except ValueError as e:
+            st.error(str(e))
+            st.session_state.pop("_restore_candidate", None)
+        else:
+            st.warning(
+                f"This backup contains project **{summary['name']}** with "
+                f"{summary['experiments']} experiments and {summary['ingredients']} "
+                f"ingredients. Replace **{opt.project_name}** "
+                f"({len(opt.X_history)} experiments)? The current project is "
+                "archived first."
+            )
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                if st.button("Yes, replace", type="primary", use_container_width=True):
+                    try:
+                        STORAGE.archive(opt.project_name, "pre_restore", copy=True)
+                        # The archive above just captured whatever is on disk,
+                        # and the user explicitly confirmed this overwrite, so
+                        # resync the storage backend's conflict tracking here
+                        # (same pattern as storage.py's own reload-clears-
+                        # conflict behavior) rather than let an incidental
+                        # read elsewhere block this save as a false conflict.
+                        opt.storage.load(opt.project_name)
+                        candidate['project_name'] = opt.project_name
+                        opt.import_json(candidate)
+                        opt.save()
+                    except storage_backend.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.pop("_restore_candidate", None)
+                        st.session_state.pop("current_batch", None)
+                        flash("success", f"Restored {len(opt.X_history)} experiments into {opt.project_name}.")
+                        st.rerun()
+            with rc2:
+                if st.button("Cancel", use_container_width=True, key="restore_cancel"):
+                    st.session_state.pop("_restore_candidate", None)
+                    st.rerun()
 
     # --- Hard Reset ---
     st.divider()

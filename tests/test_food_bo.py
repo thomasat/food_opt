@@ -778,3 +778,37 @@ class TestRemoveIngredient:
         opt_configured.deactivate_variable("Sugar")
         with pytest.raises(ValueError, match="last active variable"):
             opt_configured.remove_ingredient("Water")
+
+
+class TestValidateState:
+    def test_empty_dict_is_rejected(self):
+        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+            FoodOptimizer.validate_state({})
+
+    def test_non_dict_is_rejected(self):
+        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+            FoodOptimizer.validate_state([1, 2, 3])
+
+    def test_wrong_shape_is_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        state = FoodOptimizer("tmp_validate").export_json()
+        state["variables"] = "garbage"
+        with pytest.raises(ValueError, match="wrong shape"):
+            FoodOptimizer.validate_state(state)
+
+    def test_newer_version_is_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        state = FoodOptimizer("tmp_validate").export_json()
+        state["CLASS_VERSION"] = FoodOptimizer.CLASS_VERSION + 1
+        with pytest.raises(ValueError, match="newer version"):
+            FoodOptimizer.validate_state(state)
+
+    def test_summary_of_valid_backup(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("src")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        summary = FoodOptimizer.validate_state(opt.export_json())
+        assert summary == {"name": "src", "experiments": 1, "ingredients": 1,
+                           "version": FoodOptimizer.CLASS_VERSION}

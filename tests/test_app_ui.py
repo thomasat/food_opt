@@ -117,3 +117,36 @@ def test_hard_reset_targets_active_project_not_typed_name(project_with_history, 
     assert not (tmp_path / "other_archived.pkl").exists()
     assert any("my_project" in c.value and "0 experiments" in c.value for c in at.caption), \
         [c.value for c in at.caption]
+
+
+def test_restore_requires_confirmation_and_archives_current(project_with_history, tmp_path):
+    """Restore must preview, confirm, and archive the current project first.
+    We can't drive st.file_uploader in AppTest, so we prime the parsed state
+    the way the uploader handler does."""
+    other = FoodOptimizer("donor")
+    other.add_ingredient("Flour", 0, 100)
+    other.add_objective("Crunch", 1.0, goal="max")
+    for i in range(3):
+        other.tell({"Flour": 10.0 * i}, {"Crunch": 5.0})
+    donor_state = other.export_json()
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_restore_candidate"] = donor_state
+    at.run()
+    assert any("3 experiments" in w.value for w in at.warning), [w.value for w in at.warning]
+    assert len(FoodOptimizer("my_project").X_history) == 1   # nothing changed yet
+    _submit_button(at, "Yes, replace").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "my_project_pre_restore.pkl").exists()
+    assert len(FoodOptimizer("my_project").X_history) == 3
+    assert any("Restored 3 experiments" in s.value for s in at.success)
+
+
+def test_restore_rejects_empty_json(project_with_history):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_restore_candidate"] = {}
+    at.run()
+    assert any("not a Food Optimizer backup" in e.value for e in at.error), \
+        [e.value for e in at.error]
+    assert len(FoodOptimizer("my_project").X_history) == 1

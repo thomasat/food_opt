@@ -1113,6 +1113,46 @@ class FoodOptimizer:
         }
         return json.loads(json.dumps(state, default=_make_serializable))
 
+    @staticmethod
+    def validate_state(state):
+        """Check a backup dict before importing it. Returns a summary dict
+        (name, experiments, ingredients, version) or raises ValueError with a
+        message suitable for the UI. import_json assigns attributes one by
+        one, so validating first is what keeps a bad file from leaving the
+        optimizer half-mutated."""
+        bad = "This file is not a Food Optimizer backup."
+        if not isinstance(state, dict):
+            raise ValueError(bad)
+        required = {
+            'variables': list, 'objectives': list,
+            'recipe_history': list, 'results_history': list,
+        }
+        if not all(k in state for k in required):
+            raise ValueError(bad)
+        for key, typ in required.items():
+            if not isinstance(state[key], typ):
+                raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        version = state.get('CLASS_VERSION')
+        if not isinstance(version, int):
+            raise ValueError(bad)
+        if version > FoodOptimizer.CLASS_VERSION:
+            raise ValueError(
+                "This backup was made with a newer version of Food Optimizer. "
+                "Update the app, then try again."
+            )
+        if len(state['recipe_history']) != len(state['results_history']):
+            raise ValueError("This backup is inconsistent: recipes and results differ in count.")
+        ingredients = sum(
+            1 for v in state['variables']
+            if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'
+        )
+        return {
+            'name': state.get('project_name', '(unnamed)'),
+            'experiments': len(state['recipe_history']),
+            'ingredients': ingredients,
+            'version': version,
+        }
+
     def import_json(self, state):
         """Restore project state from a JSON dict (as produced by export_json)."""
         self.project_name = state.get('project_name', self.project_name)
