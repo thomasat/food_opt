@@ -161,9 +161,14 @@ if [ "$RC" = "2" ]; then ok "arch preflight exit code 2"; else fail "arch prefli
 assert "arch preflight message" grep -q "unsupported machine" "$WORK/arch.out"
 assert "arch preflight created nothing" not_exists "$SUPPORT"
 
-echo "-- test 1: fresh first launch (downloads ~2GB, be patient) --"
+echo "-- test 1: fresh first launch (downloads ~1GB, be patient) --"
 launch 600 "$WORK/run1.out"
+# The wrapper's progress bar reads this file; it must appear while setup runs
+# and be gone once the app is about to be shown.
+for _ in $(seq 1 15); do [ -f "$SUPPORT/status.txt" ] && break; sleep 1; done
+if [ -f "$SUPPORT/status.txt" ]; then ok "status.txt written during setup"; else fail "status.txt was not written during setup"; fi
 if wait_for 900 server_healthy; then ok "server healthy after fresh setup"; else fail "server healthy after fresh setup"; fi
+if wait_for 30 not_exists "$SUPPORT/status.txt"; then ok "status.txt removed once healthy"; else fail "status.txt still present after server healthy"; fi
 assert "venv created"            test -x "$SUPPORT/venv/bin/python"
 assert "python under support"    dir_nonempty "$SUPPORT/python"
 assert "uv cache under support"  dir_nonempty "$SUPPORT/uv-cache"
