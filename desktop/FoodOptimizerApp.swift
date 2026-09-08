@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var showingStepPage = false   // the page on screen has a #step element
     var showingBar = false        // ...and a #bar element
     var retryToken = 0            // cancels a pending retry when Try again is clicked again
+    var pendingOldLauncher: Process?   // the launcher a retry is waiting on; a second click must keep waiting on it
     var setupIsUpgrade = false    // the marker existed when this launch began
     // Bumped per launch so a terminated launcher's handler can be ignored.
     var launchGeneration = 0
@@ -385,7 +386,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Detach the handler BEFORE terminating: a launcher killed mid-setup
         // exits by signal, and its handler would otherwise report that as a
         // failure of the launch we are about to start.
-        let old = launcher
+        // A second click during the wait must keep waiting on the same old
+        // process instead of seeing `launcher == nil` and starting at once.
+        let old = launcher ?? pendingOldLauncher
+        pendingOldLauncher = old
         if let l = old, l.isRunning {
             l.terminationHandler = nil
             l.terminate()
@@ -410,6 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             return
         }
+        pendingOldLauncher = nil
         startLauncher()
         pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
