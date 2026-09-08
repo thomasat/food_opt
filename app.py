@@ -1168,27 +1168,15 @@ with tab_optimize:
     # -------------------------------------------------------------- #
     with st.expander("How is the Overall Score calculated?"):
         st.markdown(f"""
-**The Overall Score** is a weighted combination of all your objectives, computed as follows:
+Each measurement is turned into a score between 0 and 1 using the range you set: the low end of the range scores 0, the high end scores 1, and values outside the range count as the nearest end.
 
-1. **Normalize** each raw metric value to [0, 1] using the range you defined:
-   - `normalized = (value - range_min) / (range_max - range_min)`
-   - Values outside the range are clamped to [0, 1]
+- **Higher is better:** a higher measurement gives a higher score.
+- **Lower is better:** a lower measurement gives a higher score.
+- **Hit a target:** the score is 1 at the target and falls off evenly on either side.
 
-2. **Convert to utility** based on the optimization goal:
-   - **Maximize**: `utility = normalized` (higher raw value = higher utility)
-   - **Minimize**: `utility = 1 - normalized` (lower raw value = higher utility)
-   - **Target**: `utility = max(0, 1 - |normalized - normalized_target|)`
-     (closer to target = higher utility, with linear penalty for deviation)
+Each score is multiplied by its measurement's weight and the results are added up. Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect recipe scores {_opt.utility_ceiling():g}.
 
-3. **Weighted sum**: `Overall Score = sum(weight_i * utility_i)` across all objectives
-
-Your objectives' weights add up to {_opt.utility_ceiling():g}, so a perfect recipe scores {_opt.utility_ceiling():g}.
-
-**Example:** If you have Chewiness (goal=max, weight=0.6, range 0-10) and Sweetness
-(goal=target at 5, weight=0.4, range 0-10):
-- Chewiness score of 8 -> normalized = 0.8 -> utility = 0.8 -> weighted = 0.48
-- Sweetness score of 6 -> normalized = 0.6, target_norm = 0.5 -> utility = 1 - 0.1 = 0.9 -> weighted = 0.36
-- **Overall Score = 0.48 + 0.36 = 0.84**
+**Example:** Chewiness (higher is better, weight 0.6, range 0 to 10) measured at 8 scores 0.8, weighted 0.48. Sweetness (target 5, weight 0.4, range 0 to 10) measured at 6 is 0.1 of the range away from the target, so it scores 0.9, weighted 0.36. Overall Score 0.84.
         """)
 
     st.divider()
