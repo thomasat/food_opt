@@ -24,7 +24,7 @@ with `swiftc`, so the build machine needs the Xcode Command Line Tools
 ./desktop/test_e2e.sh --level1-only # fast static + build checks
 ```
 
-Level 2 downloads ~2 GB of dependencies into a throwaway temp HOME
+Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
 (deleted afterward); it never touches your real environment.
 
 ## Signing + notarization (required before distributing)
@@ -103,9 +103,9 @@ Notes:
 
 > Food Optimizer runs on Macs with an Apple chip (M1 or later — any Mac
 > from late 2020 onward) on macOS 13 Ventura or newer, and needs about
-> 5 GB of free disk space. The first launch needs an internet connection
-> for a one-time setup that usually takes 1 to 5 minutes; after that it
-> works fully offline.
+> 6 GB of free disk space. The first launch needs an internet connection
+> for a one-time setup that downloads about 1 GB and usually takes 5 to
+> 15 minutes; after that it works fully offline.
 > Your data never leaves your computer.
 
 ## Testing an unsigned build on another Mac
