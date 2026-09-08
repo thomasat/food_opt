@@ -1094,6 +1094,34 @@ class TestSetupValidation:
         assert opt.quantity_constraints[0]['max'] == 40.0
 
 
+def test_sample_ingredients_csv_has_readable_names(tmp_path, monkeypatch):
+    """The shipped sample CSV (also the disk-image example data and the CSV
+    template download) must use plain, human-readable ingredient names, since
+    they appear verbatim in every table, recipe card, and batch sheet."""
+    monkeypatch.chdir(tmp_path)
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    csv_path = os.path.join(repo_root, "data", "ingredients.csv")
+    df = pd.read_csv(csv_path)
+
+    opt = FoodOptimizer(project_name="sample_check")
+    opt.load_ingredients_from_csv(df)
+
+    names = [v["name"] for v in opt.variables]
+    assert len(names) == 20
+    for name in names:
+        assert "_" not in name, name
+
+    # Importing the shipped experiments example must succeed for the
+    # ingredient columns, the same check app.py runs before accepting an
+    # import (var_names + obj_names present as columns). The example file's
+    # objectives (Taste, Texture, Juiciness) need not exist in this bare
+    # project, so only the ingredient columns are asserted here.
+    example_path = os.path.join(repo_root, "data", "experiments_example.csv")
+    import_df = pd.read_csv(example_path)
+    for name in names:
+        assert name in import_df.columns, name
+
+
 def test_no_code_in_user_facing_errors(tmp_path, monkeypatch):
     """Backend errors reach the UI verbatim, so they must read as plain language."""
     monkeypatch.chdir(tmp_path)
