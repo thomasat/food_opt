@@ -793,7 +793,10 @@ with tab_optimize:
                       help=f"A perfect recipe would score {_ceiling:g} (the sum of your objective weights).")
             st.caption(f"Experiment {_best_i + 1} · out of a possible {_ceiling:g}")
             _best_recipe = _opt.recipe_history[_best_i] if _best_i < len(_opt.recipe_history) else {}
-            st.markdown("\n".join(f"- {k}: {v:.2f}" for k, v in _best_recipe.items()))
+            st.table(pd.DataFrame(_opt.recipe_lines(_best_recipe),
+                                  columns=["Ingredient or setting", "Amount"])
+                      .set_index("Ingredient or setting")
+                      .style.format({"Amount": "{:.2f}"}))
         with sc2:
             _chart = pd.DataFrame({
                 "Experiment": range(1, len(_opt.Y_history) + 1),
@@ -864,7 +867,14 @@ with tab_optimize:
             )
             with st.expander("Printable recipe cards"):
                 for i, recipe in enumerate(st.session_state.current_batch):
-                    st.markdown(f"**Recipe {i + 1}** — " + " · ".join(f"{k} {v:.2f}" for k, v in recipe.items()))
+                    st.markdown(f"**Recipe {i + 1}**")
+                    st.table(pd.DataFrame(_opt.recipe_lines(recipe),
+                                          columns=["Ingredient or setting", "Amount"])
+                              .set_index("Ingredient or setting")
+                              .style.format({"Amount": "{:.2f}"}))
+                    _zero_names = [k for k, v in recipe.items() if float(v) == 0.0]
+                    if _zero_names:
+                        st.caption(f"Not used: {', '.join(_zero_names)}")
 
     # -------------------------------------------------------------- #
     #  Tell: Input Lab Results
@@ -882,7 +892,17 @@ with tab_optimize:
                 batch_inputs, skipped = {}, set()
                 for i, recipe in enumerate(batch):
                     st.markdown(f"**Recipe {i + 1}**")
-                    st.caption(" · ".join(f"{k} {v:.2f}" for k, v in recipe.items()))
+                    _lines = _opt.recipe_lines(recipe, limit=5)
+                    _n_more = len(_opt.recipe_lines(recipe)) - len(_lines)
+                    _caption = ", ".join(f"{k} {v:.2f}" for k, v in _lines)
+                    if _n_more > 0:
+                        _caption += f" and {_n_more} more"
+                    st.caption(_caption)
+                    with st.expander("Show full recipe"):
+                        st.table(pd.DataFrame(_opt.recipe_lines(recipe),
+                                              columns=["Ingredient or setting", "Amount"])
+                                  .set_index("Ingredient or setting")
+                                  .style.format({"Amount": "{:.2f}"}))
                     if st.checkbox("Not made or failed — leave this recipe out",
                                    key=f"b{batch_id}_skip{i}"):
                         skipped.add(i)

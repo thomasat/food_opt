@@ -305,6 +305,14 @@ def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
     assert list(df.columns) == ["Recipe", "Water", "Temp"]
 
 
+def test_recipe_lines_sorts_largest_first_and_omits_zeros(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    recipe = {"Water": 1.0, "Salt": 0.0, "Sugar": 5.0}
+    assert opt.recipe_lines(recipe) == [("Sugar", 5.0), ("Water", 1.0)]
+    assert opt.recipe_lines(recipe, limit=1) == [("Sugar", 5.0)]
+
+
 def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
     """The downloaded sheet must match the two-decimal table shown on screen,
     not the raw float precision the optimizer suggests."""

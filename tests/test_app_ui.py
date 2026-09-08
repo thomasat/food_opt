@@ -249,6 +249,16 @@ def project_with_pending_batch(project_with_history):
     return project_with_history
 
 
+def test_recipe_amounts_render_as_tables_not_long_lines(project_with_pending_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.caption]
+    assert any("Water 10.00" in c for c in captions), captions
+    assert not any(" · " in c and "Water" in c for c in captions), captions
+    assert len(at.table) >= 1
+
+
 def test_blank_result_is_refused_not_saved_as_zero(project_with_pending_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

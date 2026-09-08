@@ -447,6 +447,14 @@ class FoodOptimizer:
         df.insert(0, "Recipe", range(1, len(df) + 1))
         return df
 
+    def recipe_lines(self, recipe, limit=None):
+        """Ingredient/setting amounts for display: largest first, zero amounts
+        omitted, as (name, amount) pairs. `limit` keeps the first N (the rest are
+        summarised by the caller)."""
+        items = sorted(((k, float(v)) for k, v in recipe.items() if float(v) != 0.0),
+                       key=lambda kv: kv[1], reverse=True)
+        return items if limit is None else items[:limit]
+
     def batch_csv(self, batch):
         """The suggested batch as CSV text, rounded to 2 decimals to match the
         table shown on screen (the integer Recipe column is unaffected)."""
