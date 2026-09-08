@@ -40,6 +40,7 @@ fi
 assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
+assert "launcher hides developer toolbar" grep -q -- '--client.toolbarMode=viewer' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
@@ -74,7 +75,7 @@ assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
 # The bundle deliberately ships Resources/data/ingredients.csv (sample project +
 # template); anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'ingredients.csv' 2>/dev/null)"
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")
