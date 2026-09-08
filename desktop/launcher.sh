@@ -266,7 +266,7 @@ status "Starting the app|"
   --server.address=127.0.0.1 \
   --server.port="$PORT" \
   --browser.gatherUsageStats=false \
-  --client.toolbarMode=viewer &
+  --client.toolbarMode=minimal &
 SERVER_PID=$!
 # Atomic write so the wrapper never reads a half-written port line.
 printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE.tmp" && mv -f "$PORT_FILE.tmp" "$PORT_FILE"

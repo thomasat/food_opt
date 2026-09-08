@@ -40,7 +40,7 @@ fi
 assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
-assert "launcher hides developer toolbar" grep -q -- '--client.toolbarMode=viewer' "$DESKTOP_DIR/launcher.sh"
+assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
