@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastStatusLine: String?   // raw "<text>|<percent>" last read from status.txt
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
+    var showingStepPage = false   // the page on screen has a #step element
+    var setupIsUpgrade = false    // the marker existed when this launch began
+    // Bumped per launch so a terminated launcher's handler can be ignored.
+    var launchGeneration = 0
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
         as? String ?? ""
@@ -32,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // Runtime files the launcher and this wrapper share.
     func supportPath(_ name: String) -> String {
-        NSHomeDirectory() + "/Library/Application Support/FoodOptimizer/" + name
+        supportDir.appendingPathComponent(name).path
     }
     // No marker => the launcher is about to do the long one-time setup.
     var isFirstRun: Bool {
@@ -240,16 +244,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // The page shown while the launcher works. The first run gets the long
     // explanation and a progress bar; a warm start is over in seconds.
     func showInitialStatus() {
+        // An upgrade still has the marker at this point (the launcher deletes
+        // it only after announcing itself), so remember which job this is and
+        // let the first status line switch a warm page over to the setup page.
+        setupIsUpgrade = !isFirstRun
         if isFirstRun {
-            showStatus("Setting up Food Optimizer",
-                       "The first time it opens, Food Optimizer downloads its "
-                       + "software components, about 1 GB. This usually takes "
-                       + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
-                       + "this window open.",
-                       spinner: true, step: "Preparing…", progress: 0)
+            showSetupStatus(step: "Preparing…", progress: 0)
         } else {
             showStatus("Opening Food Optimizer…", "", spinner: true)
         }
+    }
+
+    // The page for a job with steps: explanation, step line and progress bar.
+    func showSetupStatus(step: String, progress: Int?) {
+        let title = setupIsUpgrade ? "Updating Food Optimizer"
+                                   : "Setting up Food Optimizer"
+        let body = setupIsUpgrade
+            ? "Food Optimizer is downloading updated software components. "
+              + "This usually takes a few minutes, longer on slow office "
+              + "Wi-Fi. Leave this window open."
+            : "The first time it opens, Food Optimizer downloads its "
+              + "software components, about 1 GB. This usually takes "
+              + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
+              + "this window open."
+        showStatus(title, body, spinner: true, step: step, progress: progress ?? 0)
     }
 
     func showStatus(_ title: String, _ body: String, spinner: Bool = false,
@@ -267,9 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                 margin:0 0 14px">\($0)</p>
             """
         } ?? ""
-        // A bar only where there is a real percentage to show: the one-time
-        // setup. poll() widens #bar as the launcher reports progress.
-        let barHTML = (step != nil && isFirstRun) ? """
+        // A bar only where there is a percentage to show. poll() widens #bar
+        // as the launcher reports progress.
+        let barHTML = (progress != nil) ? """
             <div id="barwrap" style="max-width:320px;height:6px;margin:0 auto 20px;
                                      background:#e2e6e1;border-radius:3px;overflow:hidden">
               <div id="bar" style="width:\(max(0, min(progress ?? 0, 100)))%;height:100%;
@@ -293,16 +311,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             <p style="font-size:15px;line-height:1.5;color:#556">\(body)</p>
             \(retryHTML)
             <p style="margin-top:36px;font-size:12px;color:#9aa39b">
-              Food Optimizer \(appVersion)</p>
+              \(appVersion.isEmpty ? "Food Optimizer" : "Food Optimizer " + appVersion)</p>
           </div>
         </body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
+        showingStepPage = (step != nil)
+        // Forget the last line we pushed: the DOM is new, so the next tick
+        // must re-apply the current step even if the launcher has not moved on.
+        lastStatusLine = nil
     }
 
     // ---------- launcher lifecycle ----------
 
     func startLauncher() {
+        launchGeneration += 1
+        let generation = launchGeneration
         let p = Process()
         p.executableURL = URL(fileURLWithPath:
             Bundle.main.bundlePath + "/Contents/Resources/launcher.sh")
@@ -311,7 +335,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         p.terminationHandler = { [weak self] proc in
-            DispatchQueue.main.async { self?.launcherEnded(code: proc.terminationStatus) }
+            DispatchQueue.main.async {
+                // A launcher we deliberately replaced must never paint an
+                // error over the launch that succeeded it.
+                guard let self, generation == self.launchGeneration else { return }
+                self.launcherEnded(code: proc.terminationStatus)
+            }
         }
         do { try p.run() } catch {
             showStatus("The app could not start",
@@ -333,7 +362,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         healthStrikes = 0
         watchTimer?.invalidate()
         watchTimer = nil
-        if let l = launcher, l.isRunning { l.terminate() }
+        // Detach the handler BEFORE terminating: a launcher killed mid-setup
+        // exits by signal, and its handler would otherwise report that as a
+        // failure of the launch we are about to start.
+        if let l = launcher, l.isRunning {
+            l.terminationHandler = nil
+            l.terminate()
+        }
         launcher = nil
         showInitialStatus()
         startLauncher()
@@ -416,13 +451,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         guard !text.isEmpty else { return }
         lastStepText = text
+        if let pct = Int(percent) { lastProgress = max(0, min(pct, 100)) }
+        // A launch that looked warm turned out to have work to do (an upgrade
+        // keeps the marker until the launcher speaks): swap in the setup page
+        // so there is somewhere for the step line and the bar to live.
+        guard showingStepPage else {
+            showSetupStatus(step: text, progress: lastProgress)
+            return
+        }
         var js = "var s=document.getElementById('step');"
             + "if(s){s.textContent=\(jsString(text))}"
-        if let pct = Int(percent) {
-            let clamped = max(0, min(pct, 100))
-            lastProgress = clamped
+        if let pct = lastProgress {
             js += ";var b=document.getElementById('bar');"
-                + "if(b){b.style.width='\(clamped)%'}"
+                + "if(b){b.style.width='\(pct)%'}"
         }
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
