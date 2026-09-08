@@ -1142,3 +1142,9 @@ def test_no_code_in_user_facing_errors(tmp_path, monkeypatch):
     msg = str(e.value)
     for banned in ("force=True", "BO ", "GP", "pinned", "encode", "dimension"):
         assert banned not in msg, msg
+
+
+def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("rl_nan")
+    assert opt.recipe_lines({"Water": 5.0, "Salt": float("nan"), "Sugar": "2", "Oil": None}) == [("Water", 5.0), ("Sugar", 2.0)]

@@ -1121,7 +1121,10 @@ with tab_optimize:
                     del st.session_state._edit_warning_n
 
                 _row = st.session_state.optimizer.recipe_history[edit_idx] if edit_idx < len(st.session_state.optimizer.recipe_history) else {}
-                _desc = " · ".join(f"{k} {v:.2f}" for k, v in _row.items())
+                _top = st.session_state.optimizer.recipe_lines(_row, limit=3)
+                _desc = ", ".join(f"{k} {v:.2f}" for k, v in _top)
+                if len(_row) > len(_top):
+                    _desc += f" and {len(_row) - len(_top)} more"
                 if confirm_action(
                     "delete_exp",
                     f"Delete experiment {edit_idx + 1}",

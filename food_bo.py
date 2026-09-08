@@ -451,8 +451,16 @@ class FoodOptimizer:
         """Ingredient/setting amounts for display: largest first, zero amounts
         omitted, as (name, amount) pairs. `limit` keeps the first N (the rest are
         summarised by the caller)."""
-        items = sorted(((k, float(v)) for k, v in recipe.items() if float(v) != 0.0),
-                       key=lambda kv: kv[1], reverse=True)
+        pairs = []
+        for k, v in recipe.items():
+            try:
+                amount = float(v)
+            except (TypeError, ValueError):
+                continue
+            if amount != amount or amount == 0.0:   # NaN or exactly zero: not shown
+                continue
+            pairs.append((k, amount))
+        items = sorted(pairs, key=lambda kv: kv[1], reverse=True)
         return items if limit is None else items[:limit]
 
     def batch_csv(self, batch):
