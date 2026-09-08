@@ -22,9 +22,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
     var showingStepPage = false   // the page on screen has a #step element
+    var showingBar = false        // ...and a #bar element
+    var retryToken = 0            // cancels a pending retry when Try again is clicked again
     var setupIsUpgrade = false    // the marker existed when this launch began
     // Bumped per launch so a terminated launcher's handler can be ignored.
     var launchGeneration = 0
+
+    // Lines the launcher publishes while it is doing setup work. "Starting the
+    // app" is deliberately absent: it arrives on EVERY launch, warm ones
+    // included, and must never turn an ordinary opening page into a setup page.
+    let setupStepPrefixes = ["Downloading Python", "Creating environment",
+                             "Updating components", "Installing components",
+                             "Finishing setup"]
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
         as? String ?? ""
@@ -267,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               + "software components, about 1 GB. This usually takes "
               + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
               + "this window open."
-        showStatus(title, body, spinner: true, step: step, progress: progress ?? 0)
+        showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 
     func showStatus(_ title: String, _ body: String, spinner: Bool = false,
@@ -317,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         """
         webView.loadHTMLString(html, baseURL: nil)
         showingStepPage = (step != nil)
+        showingBar = (progress != nil)
         // Forget the last line we pushed: the DOM is new, so the next tick
         // must re-apply the current step even if the launcher has not moved on.
         lastStatusLine = nil
@@ -362,15 +372,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         healthStrikes = 0
         watchTimer?.invalidate()
         watchTimer = nil
+        // Stay stopped until the replacement is actually running: a leftover
+        // port file from the launcher we are killing would otherwise look
+        // like a healthy server for a tick or two.
+        pollTimer?.invalidate()
+        pollTimer = nil
+        // A failed setup leaves its last line behind — the launcher clears
+        // status.txt only once the NEXT launch owns the lock — so drop it
+        // here, or the restarted poll paints that stale percentage first.
+        try? FileManager.default.removeItem(atPath: supportPath("status.txt"))
+        try? FileManager.default.removeItem(atPath: supportPath("status.txt.tmp"))
         // Detach the handler BEFORE terminating: a launcher killed mid-setup
         // exits by signal, and its handler would otherwise report that as a
         // failure of the launch we are about to start.
-        if let l = launcher, l.isRunning {
+        let old = launcher
+        if let l = old, l.isRunning {
             l.terminationHandler = nil
             l.terminate()
         }
         launcher = nil
-        showInitialStatus()
+        showInitialStatus()   // instant feedback: the click must feel like one
+        retryToken += 1
+        startWhenOldLauncherExits(old, token: retryToken,
+                                  deadline: Date().addingTimeInterval(5.0))
+    }
+
+    // The launcher we just terminated can hold launch.lock for up to a second
+    // (bash runs its trap only after the current `sleep` returns). Starting on
+    // top of it makes the new launcher take the "another launch in progress"
+    // exit-0 path, and the window then waits in silence for the deferral
+    // deadline. So wait for the old process to actually go.
+    func startWhenOldLauncherExits(_ old: Process?, token: Int, deadline: Date) {
+        guard token == retryToken else { return }   // a newer click supersedes us
+        if let l = old, l.isRunning, Date() < deadline {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.startWhenOldLauncherExits(old, token: token, deadline: deadline)
+            }
+            return
+        }
         startLauncher()
         pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
@@ -451,12 +490,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         guard !text.isEmpty else { return }
         lastStepText = text
-        if let pct = Int(percent) { lastProgress = max(0, min(pct, 100)) }
+        var pct: Int? = nil
+        if let n = Int(percent) {
+            pct = max(0, min(n, 100))
+            lastProgress = pct
+        }
         // A launch that looked warm turned out to have work to do (an upgrade
         // keeps the marker until the launcher speaks): swap in the setup page
-        // so there is somewhere for the step line and the bar to live.
+        // so there is somewhere for the step line and the bar to live. Only a
+        // real setup line earns that swap — a warm launch also publishes
+        // "Starting the app", and it must keep the plain opening page.
         guard showingStepPage else {
-            showSetupStatus(step: text, progress: lastProgress)
+            let isSetupLine = pct != nil
+                || setupStepPrefixes.contains { text.hasPrefix($0) }
+            guard isSetupLine else { return }
+            showSetupStatus(step: text, progress: pct)
+            return
+        }
+        // The first percent of a setup that began with unnumbered lines: the
+        // page has no #bar to widen yet, so render it once with one.
+        if pct != nil && !showingBar {
+            showSetupStatus(step: text, progress: pct)
             return
         }
         var js = "var s=document.getElementById('step');"
