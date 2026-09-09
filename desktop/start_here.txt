@@ -21,7 +21,7 @@ HOW TO INSTALL
    If your Mac asks whether you are sure you want to open it, click Open.
 
 TRYING IT OUT
-- The app comes with a sample project: a plant-based burger with twenty
+- The app comes with a sample project: a plant-based burger with eight
   ingredients and two panel scores. On the first screen, click
   "Try the sample project" to explore before setting up your own.
 - Starting from a spreadsheet instead? The same screen offers a CSV

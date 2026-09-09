@@ -41,7 +41,7 @@ for f in app.py food_bo.py storage.py ui_helpers.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 mkdir -p "$APP_DIR/Contents/Resources/data"
-cp "$REPO_DIR/data/ingredients.csv" "$APP_DIR/Contents/Resources/data/ingredients.csv"
+cp "$REPO_DIR/data/sample_ingredients.csv" "$APP_DIR/Contents/Resources/data/sample_ingredients.csv"
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
 cp "$DESKTOP_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 

@@ -1119,6 +1119,16 @@ def test_sample_ingredients_csv_has_readable_names(tmp_path, monkeypatch):
     for name in names:
         assert "_" not in name, name
 
+    # The shipped sample (sample project + CSV template) is a subset of the
+    # same list, short enough to read at a glance.
+    sample = pd.read_csv(os.path.join(repo_root, "data", "sample_ingredients.csv"))
+    sample_opt = FoodOptimizer(project_name="sample_small")
+    sample_opt.load_ingredients_from_csv(sample)
+    sample_names = [v["name"] for v in sample_opt.variables]
+    assert len(sample_names) == 8
+    assert set(sample_names) <= set(names)
+    assert list(sample.columns) == list(df.columns)
+
     # The repo's experiments example (used by experiments/, not shipped in
     # the disk image) must still import for the ingredient columns, the same
     # check app.py runs before accepting an import. Its objectives need not

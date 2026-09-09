@@ -613,7 +613,9 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
-    assert len(opt.variables) == 20
+    # Eight ingredients: enough for a real recipe, few enough to read at a
+    # glance in the results form and the recipe cards.
+    assert len(opt.variables) == 8
     # The sample is the plant-based burger brief: two panel scores, both
     # higher-is-better, firmness weighted more than juiciness.
     assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]

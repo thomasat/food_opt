@@ -10,7 +10,14 @@ from ui_helpers import confirm_action, flash, render_flash
 
 STORAGE = storage_backend.LocalStorage()
 
-_SAMPLE_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ingredients.csv")
+_SAMPLE_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
+
+
+def _table_height(n_rows, max_rows=12):
+    """Pixel height that shows up to max_rows rows of a st.dataframe without
+    an inner scrollbar (35 px per row plus the header). Streamlit's default
+    of a few visible rows made lists of ingredients hard to read."""
+    return 38 + 35 * max(1, min(n_rows, max_rows)) + 2
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Food Optimizer")
@@ -148,7 +155,7 @@ with st.sidebar:
     if existing_projects and os.path.exists(_SAMPLE_CSV):
         if st.button(
             "Try the sample project", key="sample_project_sidebar",
-            help="Opens a ready-made plant-based burger project with twenty "
+            help="Opens a ready-made plant-based burger project with eight "
                  "ingredients and two panel scores, Juiciness and Firmness, "
                  "so you can explore before setting up your own.",
         ):
@@ -437,7 +444,7 @@ with tab_setup:
                     "try again."
                 )
         if df is not None:
-            st.dataframe(df.head(), height=150)
+            st.dataframe(df, hide_index=True, height=_table_height(len(df)))
             if st.button("Load Ingredients", type="primary"):
                 try:
                     st.session_state.optimizer.load_ingredients_from_csv(df)
@@ -461,7 +468,7 @@ with tab_setup:
                 }
                 for v in ingredient_vars
             ])
-            st.dataframe(ing_df, hide_index=True, height=150)
+            st.dataframe(ing_df, hide_index=True, height=_table_height(len(ing_df), max_rows=20))
 
         _has_hist = bool(st.session_state.optimizer.X_history)
         with st.form("add_ing_form", clear_on_submit=True):
