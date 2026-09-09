@@ -1,5 +1,6 @@
 """Tests for the FoodOptimizer core engine."""
 
+import io
 import json
 import os
 import pickle
@@ -43,6 +44,7 @@ def opt_configured(opt_with_ingredients):
 
 class TestInit:
     def test_creates_pkl_file(self, opt):
+        opt.add_ingredient("Water", 0, 100)
         assert os.path.exists(opt.filename)
 
     def test_default_state(self, opt):
@@ -86,6 +88,19 @@ class TestVariables:
         opt.add_process_parameter("Temperature", 100, 250)
         opt.remove_process_parameter("Temperature")
         assert len(opt.variables) == 0
+
+    def test_remove_process_parameter_reencodes_history(self, opt):
+        """Removing a process parameter must re-encode X_history to the new
+        dimension (mirrors remove_ingredient), otherwise a later ask() fails
+        with a tensor size mismatch."""
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_process_parameter("Temp", 100, 250, baseline=150)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0, "Temp": 150.0}, {"Taste": 7.0})
+        opt.tell({"Water": 60.0, "Temp": 150.0}, {"Taste": 6.0})
+        opt.remove_process_parameter("Temp")
+        assert all(len(x) == len(opt.variables) for x in opt.X_history)
+        assert opt.pending_batch is None
 
     def test_remove_process_does_not_remove_ingredient(self, opt):
         opt.add_ingredient("Water", 0, 100)
@@ -182,6 +197,225 @@ class TestObjectives:
         opt.add_objective("Taste", weight=1.0, goal="max")
         opt.remove_objective("Taste")
         assert len(opt.objectives) == 0
+
+
+class TestObjectiveValidation:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("obj_val")
+        opt.add_ingredient("Water", 0, 100)
+        return opt
+
+    def test_readding_objective_recomputes_history(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.tell({"Water": 5.0}, {"Taste": 5.0})
+        assert opt.Y_history[0] == pytest.approx(0.5)
+        replaced = opt.add_objective("Taste", 0.5, goal="max", min_val=0, max_val=10)
+        assert replaced is True
+        assert opt.Y_history[0] == pytest.approx(0.25)
+
+    def test_weight_must_be_positive(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="greater than 0"):
+            opt.add_objective("Taste", 0.0)
+
+    def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="within the range"):
+            opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
+
+    def test_blank_name_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="cannot be empty"):
+            opt.add_objective("   ", 1.0)
+
+    def test_utility_ceiling_is_weight_sum(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 0.6)
+        opt.add_objective("Cost", 0.4, goal="min")
+        assert opt.utility_ceiling() == pytest.approx(1.0)
+
+    def test_objective_name_collides_with_ingredient(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="already the name of an ingredient"):
+            opt.add_objective("water", 1.0)
+
+
+def test_best_index_and_running_max(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("best")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    assert opt.best_index() is None
+    for water, taste in [(10.0, 3.0), (20.0, 8.0), (30.0, 5.0)]:
+        opt.tell({"Water": water}, {"Taste": taste})
+    assert opt.best_index() == 1
+    assert opt.best_so_far() == pytest.approx([0.3, 0.8, 0.8])
+
+
+def test_history_frame_is_1_based_and_chronological(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("hist")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    opt.tell({"Water": 20.0}, {"Taste": 8.0})
+    df = opt.history_frame()
+    assert list(df["Experiment"]) == [1, 2]
+    assert list(df.columns[:3]) == ["Experiment", "Date", "Overall Score"]
+    assert "Taste (result)" in df.columns and "Water" in df.columns
+    assert df["Date"].iloc[0] and len(df["Date"].iloc[0]) == 10
+
+
+def test_reserved_column_name_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("reserved")
+    with pytest.raises(ValueError, match="column name Food Optimizer uses"):
+        opt.add_ingredient("Date", 0, 10)
+
+
+def test_history_frame_renames_variable_colliding_with_fixed_column(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("hist_collision")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    # Bypass add_ingredient's validation to mirror a project that already has
+    # a variable literally named "Date" (e.g. imported from an old file).
+    opt.variables.append({
+        'name': 'Date',
+        'type': 'continuous',
+        'bounds': (0.0, 10.0),
+        'category': 'ingredient',
+        'active': True,
+    })
+    opt.tell({"Water": 10.0, "Date": 5.0}, {"Taste": 3.0})
+    df = opt.history_frame()
+    assert "Date" in df.columns
+    assert isinstance(df["Date"].iloc[0], str)
+    assert "Date (ingredient)" in df.columns
+    assert df["Date (ingredient)"].iloc[0] == 5.0
+
+
+def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    df = opt.batch_frame([{"Water": 10.0, "Temp": 180.0}, {"Water": 20.0, "Temp": 190.0}])
+    assert list(df["Recipe"]) == [1, 2]
+    assert list(df.columns) == ["Recipe", "Water", "Temp"]
+
+
+def test_recipe_lines_sorts_largest_first_and_omits_zeros(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    recipe = {"Water": 1.0, "Salt": 0.0, "Sugar": 5.0}
+    assert opt.recipe_lines(recipe) == [("Sugar", 5.0), ("Water", 1.0)]
+    assert opt.recipe_lines(recipe, limit=1) == [("Sugar", 5.0)]
+
+
+def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
+    """The downloaded sheet must match the two-decimal table shown on screen,
+    not the raw float precision the optimizer suggests."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bf")
+    csv_text = opt.batch_csv([{"Water": 11.877679824829102}])
+    df = pd.read_csv(io.StringIO(csv_text))
+    assert df["Water"].iloc[0] == 11.88
+    assert list(df["Recipe"]) == [1]
+
+
+class TestParseBatchResults:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("pbr")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Hardness", 1.0, goal="target", target=12, min_val=0, max_val=30)
+        opt.add_objective("L*", 1.0, goal="max", min_val=0, max_val=100)
+        return opt
+
+    def test_parses_matching_rows_case_insensitively(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}, {"Water": 20.0}, {"Water": 30.0}]
+        df = pd.DataFrame({"recipe": [1, 3], " hardness ": [11.0, 14.0], "l*": [70.0, 65.0]})
+        parsed = opt.parse_batch_results(df, batch)
+        assert parsed == [(0, {"Hardness": 11.0, "L*": 70.0}), (2, {"Hardness": 14.0, "L*": 65.0})]
+
+    def test_missing_recipe_column(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Hardness": [1.0], "L*": [2.0]})
+        with pytest.raises(ValueError, match="needs a Recipe column"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
+    def test_missing_measurement_column(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Recipe": [1], "Hardness": [1.0]})
+        with pytest.raises(ValueError, match="Missing columns: L\\*"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
+    def test_blank_cell_and_unknown_recipe(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}]
+        with pytest.raises(ValueError, match="Recipe 1 Hardness is blank"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [None], "L*": [5.0]}), batch)
+        with pytest.raises(ValueError, match="Recipe 7 is not in this batch"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [7], "Hardness": [1.0], "L*": [5.0]}), batch)
+
+    def test_out_of_range_value(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Recipe 1 L\\* is 140.*0 to 100"):
+            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [1.0], "L*": [140.0]}),
+                                    [{"Water": 10.0}])
+
+    def test_duplicate_recipe_row_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}, {"Water": 20.0}]
+        df = pd.DataFrame({"Recipe": [1, 1], "Hardness": [11.0, 12.0], "L*": [70.0, 71.0]})
+        with pytest.raises(ValueError, match="appears more than once"):
+            opt.parse_batch_results(df, batch)
+
+    def test_non_integer_recipe_number(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{"Water": 10.0}]
+        with pytest.raises(ValueError, match="is not a whole number"):
+            opt.parse_batch_results(
+                pd.DataFrame({"Recipe": ["abc"], "Hardness": [1.0], "L*": [5.0]}), batch)
+        with pytest.raises(ValueError, match="is not a whole number"):
+            opt.parse_batch_results(
+                pd.DataFrame({"Recipe": [1.5], "Hardness": [1.0], "L*": [5.0]}), batch)
+
+    def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Recipe": [], "Hardness": [], "L*": []})
+        with pytest.raises(ValueError, match="no result rows"):
+            opt.parse_batch_results(df, [{"Water": 10.0}])
+
+
+def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csv")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    import io
+    df = pd.read_csv(io.StringIO(opt.history_csv()))
+    for col in ["Experiment", "Date", "Overall Score", "Water", "Taste"]:
+        assert col in df.columns
+    assert df["Taste"].iloc[0] == 3.0
+
+
+def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csv_midrun")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0}, {"Taste": 3.0})
+    opt.tell({"Water": 20.0}, {"Taste": 5.0})
+    opt.add_ingredient("Honey", 0, 30)
+    import io
+    df = pd.read_csv(io.StringIO(opt.history_csv()))
+    assert "Honey" in df.columns
+    assert len(df) == 2
+    assert df["Honey"].notna().all()
 
 
 # ------------------------------------------------------------------ #
@@ -363,12 +597,12 @@ class TestAskTell:
         assert len(opt_configured.results_history) == 1
 
     def test_tell_no_objectives_raises(self, opt_with_ingredients):
-        with pytest.raises(ValueError, match="No objectives"):
+        with pytest.raises(ValueError, match="Add at least one objective"):
             opt_with_ingredients.tell({"Water": 50, "Flour": 25, "Sugar": 10},
                                       {"Taste": 7.0})
 
     def test_tell_missing_result_raises(self, opt_configured):
-        with pytest.raises(ValueError, match="Missing data"):
+        with pytest.raises(ValueError, match="Enter a value for"):
             opt_configured.tell({"Water": 50, "Flour": 25, "Sugar": 10}, {})
 
     def test_warm_start_after_enough_experiments(self, opt_configured):
@@ -448,26 +682,15 @@ class TestPersistence:
         assert state["project_name"] == "fmt_test"
         assert state["variables"][0]["name"] == "Water"
 
-    def test_load_migrates_legacy_pickle(self, tmp_path, monkeypatch):
-        """Existing pickle project files still load, and are rewritten as JSON."""
+    def test_load_refuses_legacy_pickle(self, tmp_path, monkeypatch):
+        """Pickle project files are no longer executed; the user gets a hint."""
         monkeypatch.chdir(tmp_path)
-        legacy = {
-            "project_name": "legacy", "robust": False,
-            "variables": [{"name": "Water", "type": "continuous",
-                           "bounds": (0, 100), "category": "ingredient"}],
-            "objectives": [], "ingredient_properties": {}, "constraints": [],
-            "quantity_constraints": [], "bo_config": None,
-            "X_history": [], "Y_history": [], "recipe_history": [],
-            "results_history": [],
-        }
-        with open(tmp_path / "legacy.pkl", "wb") as f:
+        legacy = {"project_name": "old", "variables": [], "objectives": []}
+        with open("old.pkl", "wb") as f:
             pickle.dump(legacy, f)
-
-        opt = FoodOptimizer(project_name="legacy")
-        assert opt.variables[0]["name"] == "Water"
-        assert not getattr(opt, "load_error", None)
-        # File is now JSON, not pickle
-        json.loads((tmp_path / "legacy.pkl").read_bytes().decode("utf-8"))
+        opt = FoodOptimizer("old")
+        assert opt.load_error and "early version" in opt.load_error
+        assert not (tmp_path / "old.pkl.tmp").exists()
 
     def test_load_corrupt_file_reports_error_not_silent_success(self, tmp_path, monkeypatch):
         """A damaged file must surface an error, never load as a blank project
@@ -492,6 +715,9 @@ class TestPersistence:
 
         backup["project_name"] = "broken"  # what the app's restore flow does
         opt.import_json(backup)
+        # import_json no longer autosaves (spec 2026-09-02): callers persist
+        # explicitly, as the app's restore handler now does.
+        opt.save()
         assert opt.load_error is None
         assert opt.variables[0]["name"] == "Water"
         json.loads((tmp_path / "broken.pkl").read_bytes().decode("utf-8"))
@@ -586,7 +812,7 @@ class TestFullJourney:
         assert all(v["name"] != "Oven_Temp" for v in opt.variables)
 
         # A baseline outside [min, max] is also a clear error.
-        with pytest.raises(ValueError, match="must lie within"):
+        with pytest.raises(ValueError, match="must be between"):
             opt.add_process_parameter("Oven_Temp", 150, 220, baseline=100)
 
         opt.add_process_parameter("Oven_Temp", 150, 220, baseline=180)
@@ -638,7 +864,7 @@ class TestActiveSet:
     def test_deactivate_blocks_last_active_variable(self, opt_configured):
         opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")
-        with pytest.raises(ValueError, match="last active variable"):
+        with pytest.raises(ValueError, match="must stay in play"):
             opt_configured.deactivate_variable("Water")
 
     def test_reactivate_restores_the_dimension(self, opt_configured):
@@ -684,7 +910,7 @@ class TestActiveSet:
 
     def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        with pytest.raises(ValueError, match="unsatisfiable"):
+        with pytest.raises(ValueError, match="impossible to meet"):
             opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")  # unrelated, still fine
         assert [v["name"] for v in opt_configured.inactive_variables()] == ["Sugar"]
@@ -696,7 +922,7 @@ class TestActiveSet:
         ]))
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
-        with pytest.raises(ValueError, match="unsatisfiable"):
+        with pytest.raises(ValueError, match="impossible to meet"):
             opt.deactivate_variable("a")
 
     def test_pruned_state_survives_pkl_reload(self, opt_configured, monkeypatch):
@@ -728,7 +954,7 @@ class TestActiveSet:
         )
         opt_configured.deactivate_variable("Flour")
         text = opt_configured.export_trajectory()
-        assert "Pruned / inactive" in text
+        assert "Paused" in text
         assert "Flour=20" in text, "a pruned variable's past usage must stay visible"
 
 
@@ -775,3 +1001,150 @@ class TestRemoveIngredient:
         opt_configured.deactivate_variable("Sugar")
         with pytest.raises(ValueError, match="last active variable"):
             opt_configured.remove_ingredient("Water")
+
+
+class TestValidateState:
+    def test_empty_dict_is_rejected(self):
+        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+            FoodOptimizer.validate_state({})
+
+    def test_non_dict_is_rejected(self):
+        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+            FoodOptimizer.validate_state([1, 2, 3])
+
+    def test_wrong_shape_is_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        state = FoodOptimizer("tmp_validate").export_json()
+        state["variables"] = "garbage"
+        with pytest.raises(ValueError, match="wrong shape"):
+            FoodOptimizer.validate_state(state)
+
+    def test_wrong_element_shape_is_rejected(self):
+        with pytest.raises(ValueError, match="wrong shape"):
+            FoodOptimizer.validate_state({
+                "variables": ["Water"], "objectives": [],
+                "recipe_history": [], "results_history": [],
+                "CLASS_VERSION": 6,
+            })
+
+    def test_newer_version_is_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        state = FoodOptimizer("tmp_validate").export_json()
+        state["CLASS_VERSION"] = FoodOptimizer.CLASS_VERSION + 1
+        with pytest.raises(ValueError, match="newer version"):
+            FoodOptimizer.validate_state(state)
+
+    def test_summary_of_valid_backup(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("src")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        summary = FoodOptimizer.validate_state(opt.export_json())
+        assert summary == {"name": "src", "experiments": 1, "ingredients": 1,
+                           "version": FoodOptimizer.CLASS_VERSION}
+
+
+# ------------------------------------------------------------------ #
+#  Setup-form validation
+# ------------------------------------------------------------------ #
+
+
+class TestSetupValidation:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        return FoodOptimizer("setup_val")
+
+    def test_blank_process_parameter_name(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="cannot be empty"):
+            opt.add_process_parameter("   ", 0, 10)
+
+    def test_inverted_bounds(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_process_parameter("Temp", 200, 100)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_ingredient("Water", 5, 5)
+
+    def test_cross_category_name_collision(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Water", 0, 100)
+        with pytest.raises(ValueError, match="already exists as an ingredient"):
+            opt.add_process_parameter("water", 0, 10)
+
+    def test_ingredient_name_collides_with_measurement(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        with pytest.raises(ValueError, match="already the name of a measurement"):
+            opt.add_ingredient("Taste", 0, 10)
+
+    def test_csv_rejects_duplicate_and_blank_names(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Name": ["Sugar", " Sugar", None], "Min": [0, 0, 0], "Max": [10, 10, 10]})
+        with pytest.raises(ValueError, match="Row 3.*duplicate"):
+            opt.load_ingredients_from_csv(df)
+
+    def test_constraint_inverted_bounds(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Sugar", 0, 100)
+        opt.add_ingredient("Honey", 0, 100)
+        with pytest.raises(ValueError, match="Min must be less than Max"):
+            opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
+
+    def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Sugar", 0, 100)
+        opt.add_ingredient("Honey", 0, 100)
+        opt.add_quantity_constraint(["Sugar", "Honey"], max_val=50)
+        opt.add_quantity_constraint(["Honey", "Sugar"], max_val=40)
+        assert len(opt.quantity_constraints) == 1
+        assert opt.quantity_constraints[0]['max'] == 40.0
+
+
+def test_sample_ingredients_csv_has_readable_names(tmp_path, monkeypatch):
+    """The shipped sample CSV (also the disk-image example data and the CSV
+    template download) must use plain, human-readable ingredient names, since
+    they appear verbatim in every table, recipe card, and batch sheet."""
+    monkeypatch.chdir(tmp_path)
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    csv_path = os.path.join(repo_root, "data", "ingredients.csv")
+    df = pd.read_csv(csv_path)
+
+    opt = FoodOptimizer(project_name="sample_check")
+    opt.load_ingredients_from_csv(df)
+
+    names = [v["name"] for v in opt.variables]
+    assert len(names) == 20
+    for name in names:
+        assert "_" not in name, name
+
+    # Importing the shipped experiments example must succeed for the
+    # ingredient columns, the same check app.py runs before accepting an
+    # import (var_names + obj_names present as columns). The example file's
+    # objectives (Taste, Texture, Juiciness) need not exist in this bare
+    # project, so only the ingredient columns are asserted here.
+    example_path = os.path.join(repo_root, "data", "experiments_example.csv")
+    import_df = pd.read_csv(example_path)
+    for name in names:
+        assert name in import_df.columns, name
+
+
+def test_no_code_in_user_facing_errors(tmp_path, monkeypatch):
+    """Backend errors reach the UI verbatim, so they must read as plain language."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("copy")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    with pytest.raises(ValueError) as e:
+        opt.remove_ingredient("Water")
+    msg = str(e.value)
+    for banned in ("force=True", "BO ", "GP", "pinned", "encode", "dimension"):
+        assert banned not in msg, msg
+
+
+def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("rl_nan")
+    assert opt.recipe_lines({"Water": 5.0, "Salt": float("nan"), "Sugar": "2", "Oil": None}) == [("Water", 5.0), ("Sugar", 2.0)]

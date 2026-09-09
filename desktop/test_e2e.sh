@@ -40,6 +40,7 @@ fi
 assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
+assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
@@ -67,12 +68,14 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py data/ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'data' -o -name 'results' -o -name 'plots' \) 2>/dev/null)"
+# The bundle deliberately ships Resources/data/ingredients.csv (sample project +
+# template); anything else under a data dir is stray.
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")
@@ -161,9 +164,14 @@ if [ "$RC" = "2" ]; then ok "arch preflight exit code 2"; else fail "arch prefli
 assert "arch preflight message" grep -q "unsupported machine" "$WORK/arch.out"
 assert "arch preflight created nothing" not_exists "$SUPPORT"
 
-echo "-- test 1: fresh first launch (downloads ~2GB, be patient) --"
+echo "-- test 1: fresh first launch (downloads ~1GB, be patient) --"
 launch 600 "$WORK/run1.out"
+# The wrapper's progress bar reads this file; it must appear while setup runs
+# and be gone once the app is about to be shown.
+for _ in $(seq 1 15); do [ -f "$SUPPORT/status.txt" ] && break; sleep 1; done
+if [ -f "$SUPPORT/status.txt" ]; then ok "status.txt written during setup"; else fail "status.txt was not written during setup"; fi
 if wait_for 900 server_healthy; then ok "server healthy after fresh setup"; else fail "server healthy after fresh setup"; fi
+if wait_for 30 not_exists "$SUPPORT/status.txt"; then ok "status.txt removed once healthy"; else fail "status.txt still present after server healthy"; fi
 assert "venv created"            test -x "$SUPPORT/venv/bin/python"
 assert "python under support"    dir_nonempty "$SUPPORT/python"
 assert "uv cache under support"  dir_nonempty "$SUPPORT/uv-cache"
@@ -247,7 +255,7 @@ at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
 next(b for b in at.button if b.label == "Add Process Parameter").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
-assert any("must lie within" in str(e.value) for e in at.error)
+assert any("must be between" in str(e.value) for e in at.error)
 print("UI_OK")
 PY
 )"

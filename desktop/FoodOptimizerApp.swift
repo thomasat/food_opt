@@ -18,11 +18,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
     var pollTicks = 0
     var deferDeadline: Int?   // pollTicks limit after our launcher deferred to another launch
+    var lastStatusLine: String?   // raw "<text>|<percent>" last read from status.txt
+    var lastStepText: String?     // its text half, so a re-render keeps the step
+    var lastProgress: Int?        // its percent half, so a re-render keeps the bar
+    var showingStepPage = false   // the page on screen has a #step element
+    var showingBar = false        // ...and a #bar element
+    var retryToken = 0            // cancels a pending retry when Try again is clicked again
+    var pendingOldLauncher: Process?   // the launcher a retry is waiting on; a second click must keep waiting on it
+    var setupIsUpgrade = false    // the marker existed when this launch began
+    // Bumped per launch so a terminated launcher's handler can be ignored.
+    var launchGeneration = 0
+
+    // Lines the launcher publishes while it is doing setup work. "Starting the
+    // app" is deliberately absent: it arrives on EVERY launch, warm ones
+    // included, and must never turn an ordinary opening page into a setup page.
+    let setupStepPrefixes = ["Downloading Python", "Creating environment",
+                             "Updating components", "Installing components",
+                             "Finishing setup"]
+
+    let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
+        as? String ?? ""
 
     let supportDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/FoodOptimizer")
     let dataDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("FoodOptimizer")
+
+    // Runtime files the launcher and this wrapper share.
+    func supportPath(_ name: String) -> String {
+        supportDir.appendingPathComponent(name).path
+    }
+    // No marker => the launcher is about to do the long one-time setup.
+    var isFirstRun: Bool {
+        !FileManager.default.fileExists(atPath: supportPath("setup_complete"))
+    }
+    // Quote arbitrary text as a JavaScript string literal (status text comes
+    // from a file, so it must never be able to break out of the script).
+    func jsString(_ s: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [s]),
+              let arr = String(data: data, encoding: .utf8), arr.count >= 2
+        else { return "\"\"" }
+        return String(arr.dropFirst().dropLast())   // ["x"] -> "x"
+    }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenus()
@@ -47,10 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if offerMoveToApplications() { return }   // relaunching from /Applications
 
-        showStatus("Starting Food Optimizer…",
-                   "The very first time, setup usually takes 1 to 5 minutes "
-                   + "depending on your internet speed. None of your data is "
-                   + "sent anywhere.", spinner: true)
+        showInitialStatus()
         startLauncher()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
             [weak self] _ in self?.poll()
@@ -217,12 +251,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // ---------- status pages ----------
 
-    func showStatus(_ title: String, _ body: String, spinner: Bool = false) {
+    // The page shown while the launcher works. The first run gets the long
+    // explanation and a progress bar; a warm start is over in seconds.
+    func showInitialStatus() {
+        // An upgrade still has the marker at this point (the launcher deletes
+        // it only after announcing itself), so remember which job this is and
+        // let the first status line switch a warm page over to the setup page.
+        setupIsUpgrade = !isFirstRun
+        if isFirstRun {
+            showSetupStatus(step: "Preparing…", progress: 0)
+        } else {
+            showStatus("Opening Food Optimizer…", "", spinner: true)
+        }
+    }
+
+    // The page for a job with steps: explanation, step line and progress bar.
+    func showSetupStatus(step: String, progress: Int?) {
+        let title = setupIsUpgrade ? "Updating Food Optimizer"
+                                   : "Setting up Food Optimizer"
+        let body = setupIsUpgrade
+            ? "Food Optimizer is downloading updated software components. "
+              + "This usually takes a few minutes, longer on slow office "
+              + "Wi-Fi. Leave this window open."
+            : "The first time it opens, Food Optimizer downloads its "
+              + "software components, about 1 GB. This usually takes "
+              + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
+              + "this window open."
+        showStatus(title, body, spinner: true, step: step, progress: progress)
+    }
+
+    func showStatus(_ title: String, _ body: String, spinner: Bool = false,
+                    step: String? = nil, progress: Int? = nil,
+                    retry: Bool = false) {
         let spinnerHTML = spinner ? """
             <div style="margin:24px auto;width:28px;height:28px;border:3px solid #cdd6ce;
                         border-top-color:#2E6E4E;border-radius:50%;
                         animation:spin 1s linear infinite"></div>
             <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+            """ : ""
+        let stepHTML = step.map {
+            """
+            <p id="step" style="font-size:14px;color:#2E6E4E;font-weight:600;
+                                margin:0 0 14px">\($0)</p>
+            """
+        } ?? ""
+        // A bar only where there is a percentage to show. poll() widens #bar
+        // as the launcher reports progress.
+        let barHTML = (progress != nil) ? """
+            <div id="barwrap" style="max-width:320px;height:6px;margin:0 auto 20px;
+                                     background:#e2e6e1;border-radius:3px;overflow:hidden">
+              <div id="bar" style="width:\(max(0, min(progress ?? 0, 100)))%;height:100%;
+                                   background:#2E6E4E;transition:width .4s ease"></div>
+            </div>
+            """ : ""
+        let retryHTML = retry ? """
+            <p style="margin-top:28px"><a href="foodopt://retry"
+               style="display:inline-block;padding:10px 22px;background:#2E6E4E;color:#fff;
+                      border-radius:6px;text-decoration:none;font-weight:600">Try again</a></p>
             """ : ""
         let html = """
         <html><head><meta charset="utf-8"></head>
@@ -231,16 +316,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           <div style="text-align:center;max-width:460px">
             <h1 style="font-weight:600">\(title)</h1>
             \(spinnerHTML)
+            \(stepHTML)
+            \(barHTML)
             <p style="font-size:15px;line-height:1.5;color:#556">\(body)</p>
+            \(retryHTML)
+            <p style="margin-top:36px;font-size:12px;color:#9aa39b">
+              \(appVersion.isEmpty ? "Food Optimizer" : "Food Optimizer " + appVersion)</p>
           </div>
         </body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
+        showingStepPage = (step != nil)
+        showingBar = (progress != nil)
+        // Forget the last line we pushed: the DOM is new, so the next tick
+        // must re-apply the current step even if the launcher has not moved on.
+        lastStatusLine = nil
     }
 
     // ---------- launcher lifecycle ----------
 
     func startLauncher() {
+        launchGeneration += 1
+        let generation = launchGeneration
         let p = Process()
         p.executableURL = URL(fileURLWithPath:
             Bundle.main.bundlePath + "/Contents/Resources/launcher.sh")
@@ -249,7 +346,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         p.terminationHandler = { [weak self] proc in
-            DispatchQueue.main.async { self?.launcherEnded(code: proc.terminationStatus) }
+            DispatchQueue.main.async {
+                // A launcher we deliberately replaced must never paint an
+                // error over the launch that succeeded it.
+                guard let self, generation == self.launchGeneration else { return }
+                self.launcherEnded(code: proc.terminationStatus)
+            }
         }
         do { try p.run() } catch {
             showStatus("The app could not start",
@@ -257,6 +359,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         launcher = p
+    }
+
+    // Every failure page offers this instead of "quit and open the app
+    // again": start the whole launch over, in place.
+    func retryLaunch() {
+        loaded = false
+        pollTicks = 0
+        deferDeadline = nil
+        lastStatusLine = nil
+        lastStepText = nil
+        lastProgress = nil
+        healthStrikes = 0
+        watchTimer?.invalidate()
+        watchTimer = nil
+        // Stay stopped until the replacement is actually running: a leftover
+        // port file from the launcher we are killing would otherwise look
+        // like a healthy server for a tick or two.
+        pollTimer?.invalidate()
+        pollTimer = nil
+        // A failed setup leaves its last line behind — the launcher clears
+        // status.txt only once the NEXT launch owns the lock — so drop it
+        // here, or the restarted poll paints that stale percentage first.
+        try? FileManager.default.removeItem(atPath: supportPath("status.txt"))
+        try? FileManager.default.removeItem(atPath: supportPath("status.txt.tmp"))
+        // Detach the handler BEFORE terminating: a launcher killed mid-setup
+        // exits by signal, and its handler would otherwise report that as a
+        // failure of the launch we are about to start.
+        // A second click during the wait must keep waiting on the same old
+        // process instead of seeing `launcher == nil` and starting at once.
+        let old = launcher ?? pendingOldLauncher
+        pendingOldLauncher = old
+        if let l = old, l.isRunning {
+            l.terminationHandler = nil
+            l.terminate()
+        }
+        launcher = nil
+        showInitialStatus()   // instant feedback: the click must feel like one
+        retryToken += 1
+        startWhenOldLauncherExits(old, token: retryToken,
+                                  deadline: Date().addingTimeInterval(5.0))
+    }
+
+    // The launcher we just terminated can hold launch.lock for up to a second
+    // (bash runs its trap only after the current `sleep` returns). Starting on
+    // top of it makes the new launcher take the "another launch in progress"
+    // exit-0 path, and the window then waits in silence for the deferral
+    // deadline. So wait for the old process to actually go.
+    func startWhenOldLauncherExits(_ old: Process?, token: Int, deadline: Date) {
+        guard token == retryToken else { return }   // a newer click supersedes us
+        if let l = old, l.isRunning, Date() < deadline {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.startWhenOldLauncherExits(old, token: token, deadline: deadline)
+            }
+            return
+        }
+        pendingOldLauncher = nil
+        startLauncher()
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+            [weak self] _ in self?.poll()
+        }
     }
 
     func launcherEnded(code: Int32) {
@@ -281,20 +444,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             showStatus("Setup needs the internet, just this once",
                        "The first time it opens, Food Optimizer downloads its "
                        + "software components. Please connect to the internet, "
-                       + "then quit (press Cmd-Q) and open Food Optimizer again. "
-                       + "After that, no internet is needed. If you are connected "
-                       + "but this message keeps coming back (some office networks "
-                       + "block downloads), reach out to the Food Intelligence Lab.")
+                       + "then click Try again. After that, no internet is "
+                       + "needed. If you are connected but this message keeps "
+                       + "coming back (some office networks block downloads), "
+                       + "reach out to the Food Intelligence Lab.",
+                       retry: true)
         case 4:
             showStatus("Not enough free space to set up",
-                       "Food Optimizer needs about 5 GB of free space the first "
-                       + "time it opens. Please free up some space, then quit "
-                       + "(press Cmd-Q) and open Food Optimizer again.")
+                       "Food Optimizer needs about 6 GB of free space the first "
+                       + "time it opens. Please free up some space, then click "
+                       + "Try again.",
+                       retry: true)
         default:
             showStatus("The app could not start",
-                       "Please quit and open Food Optimizer again. If this keeps "
-                       + "happening, reach out to the Food Intelligence Lab and "
-                       + "attach the file from Help › Show Log File.")
+                       "Please click Try again. If this keeps happening, reach "
+                       + "out to the Food Intelligence Lab and attach the file "
+                       + "from Help › Show Log File.",
+                       retry: true)
         }
     }
 
@@ -308,24 +474,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return token
     }
 
+    // The launcher publishes "<text>|<percent>" (percent may be empty) once
+    // a second during setup. Update the page in place rather than reloading
+    // it, so the spinner and the bar animate instead of restarting.
+    func readStatusFile() {
+        guard !loaded,
+              let raw = try? String(contentsOfFile: supportPath("status.txt"),
+                                    encoding: .utf8)
+        else { return }
+        let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, line != lastStatusLine else { return }
+        lastStatusLine = line
+        var text = line
+        var percent = ""
+        if let sep = line.lastIndex(of: "|") {
+            text = String(line[line.startIndex..<sep])
+                .trimmingCharacters(in: .whitespaces)
+            percent = String(line[line.index(after: sep)...])
+                .trimmingCharacters(in: .whitespaces)
+        }
+        guard !text.isEmpty else { return }
+        lastStepText = text
+        var pct: Int? = nil
+        if let n = Int(percent) {
+            pct = max(0, min(n, 100))
+            lastProgress = pct
+        }
+        // A launch that looked warm turned out to have work to do (an upgrade
+        // keeps the marker until the launcher speaks): swap in the setup page
+        // so there is somewhere for the step line and the bar to live. Only a
+        // real setup line earns that swap — a warm launch also publishes
+        // "Starting the app", and it must keep the plain opening page.
+        guard showingStepPage else {
+            let isSetupLine = pct != nil
+                || setupStepPrefixes.contains { text.hasPrefix($0) }
+            guard isSetupLine else { return }
+            showSetupStatus(step: text, progress: pct)
+            return
+        }
+        // The first percent of a setup that began with unnumbered lines: the
+        // page has no #bar to widen yet, so render it once with one.
+        if pct != nil && !showingBar {
+            showSetupStatus(step: text, progress: pct)
+            return
+        }
+        var js = "var s=document.getElementById('step');"
+            + "if(s){s.textContent=\(jsString(text))}"
+        if let pct = lastProgress {
+            js += ";var b=document.getElementById('bar');"
+                + "if(b){b.style.width='\(pct)%'}"
+        }
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
     func poll() {
         // Keep the setup message honest on slow connections.
         pollTicks += 1
+        readStatusFile()
         if pollTicks == 360 {   // ~6 minutes in
             showStatus("Still setting up…",
                        "The downloads are taking a while — slow connections "
                        + "can take longer than usual. Leave this window open; "
                        + "the app will appear as soon as it's ready.",
-                       spinner: true)
+                       spinner: true, step: lastStepText ?? "Still working…",
+                       progress: lastProgress)
         }
         if let deadline = deferDeadline, pollTicks >= deadline {
             pollTimer?.invalidate()
             showStatus("Food Optimizer could not start",
                        "Another copy of the app seemed to be starting, but it "
-                       + "never finished. Please quit (press Cmd-Q) and open "
-                       + "Food Optimizer again. If this keeps happening, reach "
-                       + "out to the Food Intelligence Lab and attach the file "
-                       + "from Help › Show Log File.")
+                       + "never finished. Please click Try again. If this keeps "
+                       + "happening, reach out to the Food Intelligence Lab and "
+                       + "attach the file from Help › Show Log File.",
+                       retry: true)
             return
         }
         guard let port = readServerPort(),
@@ -362,9 +583,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         if self.healthStrikes >= 3 {
                             self.watchTimer?.invalidate()
                             self.showStatus("Food Optimizer stopped unexpectedly",
-                                "Your projects are saved. Please quit (press Cmd-Q) "
-                                + "and open Food Optimizer again. If this keeps "
-                                + "happening, reach out to the Food Intelligence Lab.")
+                                "Your projects are saved. Please click Try again. "
+                                + "If this keeps happening, reach out to the "
+                                + "Food Intelligence Lab.",
+                                retry: true)
                         }
                     }
                 }
@@ -464,6 +686,13 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // Our own status pages' "Try again" button. Never a real navigation.
+        if let url = navigationAction.request.url,
+           url.scheme?.lowercased() == "foodopt" {
+            decisionHandler(.cancel)
+            if url.host == "retry" { retryLaunch() }
+            return
+        }
         // Keep the app window on our own local server. Any external http(s)
         // link (docs, footer, an embedded link) opens in the user's real
         // browser instead of hijacking the app with no way back.
@@ -502,9 +731,9 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
         guard code != NSURLErrorCancelled, loaded else { return }
         watchTimer?.invalidate()
         showStatus("Food Optimizer stopped unexpectedly",
-                   "Your projects are saved. Please quit (press Cmd-Q) and "
-                   + "open Food Optimizer again. If this keeps happening, "
-                   + "reach out to the Food Intelligence Lab.")
+                   "Your projects are saved. Please click Try again. If this "
+                   + "keeps happening, reach out to the Food Intelligence Lab.",
+                   retry: true)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction,

@@ -12,6 +12,11 @@
 set -u
 
 PYTHON_VERSION="3.13.7"   # the single place the Python version is pinned
+# Installed size of the venv, used only to turn "MB on disk" into a percentage
+# for the setup progress bar. Measured 855 MB on 2026-09-08 for the current
+# lock, rounded up for headroom so the bar does not park at 99% for the last
+# stretch; adjust when the lock changes (a wrong value only skews the bar).
+EXPECTED_VENV_MB=1000
 
 IDLE_TIMEOUT="${FOODOPT_IDLE_TIMEOUT_SECS:-900}"
 ARCH="${FOODOPT_TEST_ARCH:-$(uname -m)}"
@@ -50,12 +55,24 @@ VENV_DIR="$SUPPORT_DIR/venv"
 MARKER_FILE="$SUPPORT_DIR/setup_complete"
 LOG_FILE="$SUPPORT_DIR/launcher.log"
 PORT_FILE="$SUPPORT_DIR/server.port"
+STATUS_FILE="$SUPPORT_DIR/status.txt"   # one line the wrapper shows while setting up
 LOCK_DIR="$SUPPORT_DIR/launch.lock"   # held while a launch is in progress
 LOCK_FILE="$RESOURCES_DIR/requirements.lock.txt"
 
 export UV_PYTHON_INSTALL_DIR="$SUPPORT_DIR/python"
 export UV_CACHE_DIR="$SUPPORT_DIR/uv-cache"
 export PYTHONDONTWRITEBYTECODE=1
+
+# Publish one progress line for the wrapper's status page. Format:
+#   <human-readable text>|<percent>   (percent 0-100, or empty when unknown)
+# Written atomically so the wrapper never reads a half-written line.
+publish() {  # write the line only; the progress loop calls this every second
+  printf '%s\n' "$1" > "$STATUS_FILE.tmp" && mv -f "$STATUS_FILE.tmp" "$STATUS_FILE"
+}
+status() {   # publish and log - for the handful of one-off step transitions
+  publish "$1"
+  say "${1%|*}"
+}
 
 # The wrapper offers to copy the app to /Applications in this case; noted
 # here for the log (and for tests).
@@ -125,6 +142,10 @@ if ! acquire_lock; then
   exit 0
 fi
 trap 'if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$LOCK_DIR"; fi' EXIT
+# Only now that this launch owns the lock is a leftover status file certainly
+# ours to remove: a failed setup exits without reaching cleanup, and the
+# wrapper would otherwise snap its bar to that stale percentage on Try again.
+rm -f "$STATUS_FILE" "$STATUS_FILE.tmp"
 
 # ---------- first-run / upgrade setup ----------
 LOCK_HASH="$(shasum -a 256 "$LOCK_FILE" | awk '{print $1}')"
@@ -140,23 +161,64 @@ if [ "$NEED_SETUP" = "1" ]; then
   if [ -z "$LOCK_HASH" ] || [ ! -f "$LOCK_FILE" ]; then
     die "setup resource missing (requirements.lock.txt) - the app may be damaged" 1
   fi
-  # Setup needs ~5 GB; a full disk fails the same way as no internet, so check
+  # Setup needs ~6 GB; a full disk fails the same way as no internet, so check
   # first and report the real cause (exit 4 -> disk-space page).
   FREE_KB="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
   case "$FREE_KB" in ''|*[!0-9]*) FREE_KB=0 ;; esac
   if [ "$FREE_KB" -gt 0 ] && [ "$FREE_KB" -lt 6291456 ]; then
-    die "not enough free disk space for setup (need about 5 GB)" 4
+    die "not enough free disk space for setup (need about 6 GB)" 4
   fi
   say "one-time setup starting (downloading software components)"
+  # The marker test must run BEFORE the rm below: its presence is what tells
+  # an upgrade (components only) apart from a first install (Python too). An
+  # upgrade skips the Python download, so it is a two-step job, not three -
+  # numbering it 3, 2, 3 would look like the setup was going backwards.
+  if [ -f "$MARKER_FILE" ]; then
+    STEP_ENV="step 1 of 2"
+    STEP_SYNC="step 2 of 2"
+    status "Updating components…|"
+  else
+    STEP_ENV="step 2 of 3"
+    STEP_SYNC="step 3 of 3"
+    status "Downloading Python (step 1 of 3)|"
+  fi
   rm -f "$MARKER_FILE"
   NET_MSG="setup failed - most likely no internet connection"
   say "installing Python $PYTHON_VERSION"
   "$UV_BIN" python install --no-bin "$PYTHON_VERSION" || die "$NET_MSG" 3
-  say "creating environment"
+  status "Creating environment ($STEP_ENV)|"
   rm -rf "$VENV_DIR"
   "$UV_BIN" venv --python "$PYTHON_VERSION" "$VENV_DIR" || die "$NET_MSG" 3
   say "installing components"
-  "$UV_BIN" pip sync --python "$VENV_DIR/bin/python" "$LOCK_FILE" || die "$NET_MSG" 3
+  # Quitting mid-setup must not leave an orphaned uv behind: the post-server
+  # trap below is not installed yet, so cover this window (143 = 128 + TERM).
+  trap 'kill "${SYNC_PID:-}" 2>/dev/null; rm -f "$STATUS_FILE" "$STATUS_FILE.tmp"; exit 143' TERM INT
+  # Run the long download in the background so we can report real progress:
+  # the venv grows on disk as wheels are installed, which is the only
+  # progress signal uv gives us without parsing its output.
+  "$UV_BIN" pip sync --python "$VENV_DIR/bin/python" "$LOCK_FILE" &
+  SYNC_PID=$!
+  LAST_LOG_MB=-25       # so the first measurement is always logged
+  LAST_LOG_AT=$SECONDS
+  while kill -0 "$SYNC_PID" 2>/dev/null; do
+    VENV_KB="$(du -sk "$VENV_DIR" 2>/dev/null | awk '{print $1}')"
+    case "${VENV_KB:-}" in ''|*[!0-9]*) VENV_KB=0 ;; esac
+    VENV_MB=$((VENV_KB / 1024))
+    PCT=$((VENV_MB * 100 / EXPECTED_VENV_MB))
+    [ "$PCT" -gt 99 ] && PCT=99   # never show 100% while work remains
+    MSG="Installing components ($STEP_SYNC): $VENV_MB MB of about $EXPECTED_VENV_MB MB"
+    publish "$MSG|$PCT"
+    # The status file moves every second; the log gets a line only every 25 MB
+    # or 30s, so Help > Show Log File stays readable.
+    if [ $((VENV_MB - LAST_LOG_MB)) -ge 25 ] || [ $((SECONDS - LAST_LOG_AT)) -ge 30 ]; then
+      say "$MSG"
+      LAST_LOG_MB="$VENV_MB"
+      LAST_LOG_AT="$SECONDS"
+    fi
+    sleep 1
+  done
+  wait "$SYNC_PID" || die "$NET_MSG" 3
+  status "Finishing setup ($STEP_SYNC)|100"
   { echo "$LOCK_HASH"; echo "python=$PYTHON_VERSION"; } > "$MARKER_FILE"
   say "setup complete"
 fi
@@ -198,6 +260,7 @@ if [ -e "$1" ]; then
   fi
 fi
 
+status "Starting the app|"
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
   --server.address=127.0.0.1 \
@@ -210,6 +273,7 @@ printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE.tmp" && mv -f "$PORT_FILE.t
 
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null
+  rm -f "$STATUS_FILE" "$STATUS_FILE.tmp"
   # Remove shared files only if this instance still owns them: a launcher
   # exiting late must never clobber a newer instance's port file or lock.
   if [ "$(cat "$PORT_FILE" 2>/dev/null)" = "$PORT $SERVER_PID" ]; then
@@ -220,7 +284,8 @@ cleanup() {
   fi
 }
 # cleanup FIRST: if our stdout pipe is already broken, say() dies on
-# SIGPIPE and must not abort the cleanup.
+# SIGPIPE and must not abort the cleanup. These also replace the setup-phase
+# TERM/INT trap installed above.
 trap 'cleanup; say "signal received - shut down"; exit 0' TERM INT
 trap cleanup EXIT
 
@@ -233,6 +298,7 @@ until curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/_stcore/health" >/dev/nul
   WAITED=$((WAITED + 2))
 done
 say "server healthy on port $PORT (pid $SERVER_PID)"
+rm -f "$STATUS_FILE"   # the wrapper is about to show the app itself
 rm -rf "$LOCK_DIR"
 
 # ---------- idle watchdog: exit after IDLE_TIMEOUT with no window connected ----------

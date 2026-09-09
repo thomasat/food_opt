@@ -44,6 +44,9 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def load_ingredients(path: str = os.path.join(_ROOT, "data", "ingredients.csv")) -> pd.DataFrame:
     df = pd.read_csv(path)
+    # The shipped sample file uses human-readable headers; this script keeps its
+    # original column names.
+    df = df.rename(columns={"Fat per 100 g": "fat_per_100g", "Sodium per 100 g": "sodium_per_100g"})
     return df
 
 

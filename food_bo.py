@@ -1,6 +1,5 @@
 import json
-import os
-import pickle
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -28,6 +27,13 @@ from gpytorch.kernels import (
 )
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
+
+from storage import LocalStorage, StorageError
+
+
+# Column names history_frame() (and any future export) reserves for itself;
+# a variable with one of these names would silently overwrite that column.
+RESERVED_VARIABLE_NAMES = {"Experiment", "Date", "Overall Score", "Recipe"}
 
 
 # --------------------------------------------------------------------------- #
@@ -86,19 +92,23 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 5  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 6  # bump when adding methods/attrs to force session refresh
 
-    def __init__(self, project_name="experiment", robust=False):
+    def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
 
         Args:
             project_name: Name used for the .pkl save file.
             robust: If True, uses Input Warping for cliffs/traps.
                     If False (default), uses standard GP for smooth problems.
+            storage: Persistence backend. Defaults to LocalStorage() (the
+                     desktop app's on-disk .pkl files); a cloud backend can
+                     be injected instead.
         """
         self.project_name = project_name
         self.robust = robust
-        self.filename = f"{project_name}.pkl"
+        self.filename = f"{project_name}.pkl"   # informational; kept for compat
+        self.storage = storage if storage is not None else LocalStorage()
 
         self.variables = []
         self.objectives = []
@@ -112,25 +122,65 @@ class FoodOptimizer:
         self.Y_history = []
         self.recipe_history = []
         self.results_history = []
+        self.timestamps_history = []  # UTC ISO per tell(); parallel to results_history
+        self.pending_batch = None  # suggested-but-unrated recipes (survives sessions)
         self.load_error = None  # set to a plain-language string if load() fails
+        self.save_error = None  # set when a cloud save fails; cleared on success
+        self.last_saved_at = None  # records successful save time; timezone-aware datetime or None
 
-        if os.path.exists(self.filename):
-            self.load()
+        try:
+            exists = self.storage.exists(project_name)
+        except StorageError as e:
+            # Backend down: must NOT save (would overwrite a real project
+            # with a blank one). Surface as a load error instead.
+            self.load_error = str(e)
         else:
-            self.save()
+            if exists:
+                self.load()
+            elif self.storage.persist_empty_on_init:
+                self.save()
 
     # ------------------------------------------------------------------ #
     #  Setup: Ingredients & Process Parameters
     # ------------------------------------------------------------------ #
 
+    def _check_new_variable(self, name, min_val, max_val, category):
+        """Shared validation for add_ingredient / add_process_parameter.
+        Returns the stripped name. Same-name same-category is allowed (the
+        caller updates bounds); a clash with the other category is an error."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("Name cannot be empty.")
+        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+            raise ValueError(
+                f"{name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name, for example {name}s."
+            )
+        if any(name.lower() == obj['name'].lower() for obj in self.objectives):
+            raise ValueError(
+                f"{name} is already the name of a measurement. Choose another name."
+            )
+        if float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        for v in self.variables:
+            if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
+                other = v.get('category', 'ingredient')
+                other_label = "an ingredient" if other == 'ingredient' else "a process parameter"
+                raise ValueError(f"{v['name']} already exists as {other_label}.")
+        return name
+
     def add_ingredient(self, name, min_val, max_val):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
         ingredient is treated as absent (=0) in every prior recipe, and the
         encoded history is rebuilt so the GP stays dimensionally consistent."""
+        name = self._check_new_variable(name, min_val, max_val, 'ingredient')
+        min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                var['bounds'] = (min_val, max_val)
+                self.pending_batch = None
+                self.save()
                 return
-        min_val, max_val = float(min_val), float(max_val)
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
@@ -147,6 +197,7 @@ class FoodOptimizer:
         })
         if self.X_history:
             self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -184,8 +235,20 @@ class FoodOptimizer:
         standard_cols = {'Name', 'Min', 'Max', 'Type'}
         prop_cols = [c for c in df.columns if c not in standard_cols]
 
-        for _, row in df.iterrows():
-            name = row['Name']
+        seen_names = set()
+        for i, (_, row) in enumerate(df.iterrows()):
+            raw_name = row.get('Name')
+            name = "" if raw_name is None or (isinstance(raw_name, float) and np.isnan(raw_name)) else str(raw_name).strip()
+            if not name:
+                raise ValueError(f"Row {i + 2}: the Name cell is blank.")
+            if name.lower() in seen_names:
+                raise ValueError(f"Row {i + 2}: duplicate ingredient name {name}.")
+            if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+                raise ValueError(
+                    f"Row {i + 2}: {name} is a column name Food Optimizer uses "
+                    f"for its own tables. Choose another name, for example {name}s."
+                )
+            seen_names.add(name.lower())
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
@@ -217,6 +280,7 @@ class FoodOptimizer:
             self.ingredient_properties[name] = props
 
         self.variables.extend(process_vars)
+        self.pending_batch = None
         self.save()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None):
@@ -227,10 +291,14 @@ class FoodOptimizer:
         History then encodes at that baseline (its 'absent' value), and min is
         NOT forced to 0 (unlike an ingredient). `baseline` must lie in [min, max].
         """
+        name = self._check_new_variable(name, min_val, max_val, 'process')
+        min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                var['bounds'] = (min_val, max_val)
+                self.pending_batch = None
+                self.save()
                 return
-        min_val, max_val = float(min_val), float(max_val)
         var = {
             'name': name,
             'type': 'continuous',
@@ -252,12 +320,13 @@ class FoodOptimizer:
             baseline = float(baseline)
             if not (min_val <= baseline <= max_val):
                 raise ValueError(
-                    f"baseline {baseline} must lie within [{min_val}, {max_val}]."
+                    f"Baseline {baseline:g} must be between {min_val:g} and {max_val:g}."
                 )
             var['_absent_value'] = baseline
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def remove_process_parameter(self, name):
@@ -266,6 +335,8 @@ class FoodOptimizer:
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
         ]
+        self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def load_screening_model(self, model_obj):
@@ -277,32 +348,212 @@ class FoodOptimizer:
 
     def add_objective(self, name, weight, goal='max', target=None,
                       min_val=None, max_val=None):
+        """Add or replace an objective. Returns True if an objective of the
+        same name was replaced. Stored scores are recomputed either way so the
+        history and the model never disagree with the current weights."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("Objective name cannot be empty.")
+        if any(name.lower() == v['name'].lower() for v in self.variables):
+            raise ValueError(
+                f"{name} is already the name of an ingredient or process "
+                f"parameter. Choose another name for the measurement."
+            )
+        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+            raise ValueError(
+                f"{name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name."
+            )
+        weight = float(weight)
+        if weight <= 0:
+            raise ValueError("Weight must be greater than 0.")
+        min_val = float(min_val) if min_val is not None else 0.0
+        max_val = float(max_val) if max_val is not None else 10.0
+        if min_val >= max_val:
+            raise ValueError("Range Min must be less than Range Max.")
+        if goal == 'target':
+            if target is None:
+                raise ValueError("Enter a target value for a 'Hit a target' objective.")
+            target = float(target)
+            if not (min_val <= target <= max_val):
+                raise ValueError(
+                    f"Target {target:g} must lie within the range {min_val:g} to {max_val:g}."
+                )
+        else:
+            target = None
+        replaced = any(obj['name'] == name for obj in self.objectives)
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self.objectives.append({
-            'name': name,
-            'weight': float(weight),
-            'goal': goal,
-            'target': float(target) if target is not None else None,
-            'min_val': float(min_val) if min_val is not None else 0.0,
-            'max_val': float(max_val) if max_val is not None else 10.0,
+            'name': name, 'weight': weight, 'goal': goal,
+            'target': target, 'min_val': min_val, 'max_val': max_val,
         })
+        self.pending_batch = None
+        self._recompute_utilities()
         self.save()
+        return replaced
 
     def remove_objective(self, name):
         """Remove an objective and recalculate stored utility scores."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
-        if self.results_history:
-            for i, results_dict in enumerate(self.results_history):
-                if i < len(self.Y_history):
-                    self.Y_history[i] = self._compute_utility(results_dict)
+        self.pending_batch = None
+        self._recompute_utilities()
         self.save()
+
+    def _recompute_utilities(self):
+        for i, results_dict in enumerate(self.results_history):
+            if i < len(self.Y_history):
+                self.Y_history[i] = self._compute_utility(results_dict)
+
+    def utility_ceiling(self):
+        """The Overall Score a perfect recipe would get: the sum of weights."""
+        return float(sum(obj['weight'] for obj in self.objectives))
+
+    def best_index(self):
+        """0-based index of the highest-scoring experiment, or None."""
+        if not self.Y_history:
+            return None
+        return int(max(range(len(self.Y_history)), key=lambda i: self.Y_history[i]))
+
+    def best_so_far(self):
+        """Running maximum of the Overall Score, one value per experiment."""
+        out, cur = [], float('-inf')
+        for y in self.Y_history:
+            cur = max(cur, float(y))
+            out.append(cur)
+        return out
+
+    def history_frame(self):
+        """Chronological history for display and CSV export (1-based numbering)."""
+        rows = []
+        for i, x in enumerate(self.X_history):
+            row = {"Experiment": i + 1}
+            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
+            row["Date"] = ts[:10] if isinstance(ts, str) else ""
+            row["Overall Score"] = float(self.Y_history[i])
+            results = self.results_history[i] if i < len(self.results_history) else {}
+            for obj in self.objectives:
+                row[f"{obj['name']} (result)"] = results.get(obj['name'])
+            decoded = {
+                (f"{k} (ingredient)" if k in ("Experiment", "Date", "Overall Score") else k): v
+                for k, v in self._decode(x).items()
+            }
+            row.update(decoded)
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def batch_frame(self, batch):
+        """A suggested batch as a DataFrame with a leading 1-based Recipe column."""
+        df = pd.DataFrame(batch)
+        df.insert(0, "Recipe", range(1, len(df) + 1))
+        return df
+
+    def recipe_lines(self, recipe, limit=None):
+        """Ingredient/setting amounts for display: largest first, zero amounts
+        omitted, as (name, amount) pairs. `limit` keeps the first N (the rest are
+        summarised by the caller)."""
+        pairs = []
+        for k, v in recipe.items():
+            try:
+                amount = float(v)
+            except (TypeError, ValueError):
+                continue
+            if amount != amount or amount == 0.0:   # NaN or exactly zero: not shown
+                continue
+            pairs.append((k, amount))
+        items = sorted(pairs, key=lambda kv: kv[1], reverse=True)
+        return items if limit is None else items[:limit]
+
+    def batch_csv(self, batch):
+        """The suggested batch as CSV text, rounded to 2 decimals to match the
+        table shown on screen (the integer Recipe column is unaffected)."""
+        df = self.batch_frame(batch)
+        return df.round(2).to_csv(index=False)
+
+    def parse_batch_results(self, df, batch):
+        """Match an uploaded results sheet to the pending batch.
+
+        Expects a Recipe column (1-based, as in the downloaded batch sheet) and
+        one column per objective; header matching ignores case and whitespace.
+        Returns [(batch_index, {objective: value}), ...] for the recipes
+        present. Raises ValueError with a message the lab can act on."""
+        norm = {str(c).strip().lower(): c for c in df.columns}
+        if "recipe" not in norm:
+            raise ValueError("The sheet needs a Recipe column (1, 2, 3…) like the downloaded batch sheet.")
+        col_for = {}
+        missing = []
+        for obj in self.objectives:
+            key = obj['name'].strip().lower()
+            if key in norm:
+                col_for[obj['name']] = norm[key]
+            else:
+                missing.append(obj['name'])
+        if missing:
+            raise ValueError("Missing columns: " + ", ".join(missing))
+        if len(df) == 0:
+            raise ValueError("The sheet has no result rows.")
+        parsed = []
+        seen = set()
+        for _, row in df.iterrows():
+            raw_no = row[norm["recipe"]]
+            try:
+                recipe_f = float(raw_no)
+            except (TypeError, ValueError):
+                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
+            if not recipe_f.is_integer():
+                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
+            recipe_no = int(recipe_f)
+            if not (1 <= recipe_no <= len(batch)):
+                raise ValueError(f"Recipe {recipe_no} is not in this batch (it has {len(batch)} recipes).")
+            if recipe_no in seen:
+                raise ValueError(f"Recipe {recipe_no} appears more than once in the sheet.")
+            seen.add(recipe_no)
+            results = {}
+            for obj in self.objectives:
+                val = row[col_for[obj['name']]]
+                if val is None or (isinstance(val, float) and np.isnan(val)) or str(val).strip() == "":
+                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is blank.")
+                try:
+                    val = float(val)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is not a number.")
+                if not (obj['min_val'] <= val <= obj['max_val']):
+                    raise ValueError(
+                        f"Recipe {recipe_no} {obj['name']} is {val:g}, outside the range "
+                        f"{obj['min_val']:g} to {obj['max_val']:g}."
+                    )
+                results[obj['name']] = val
+            parsed.append((recipe_no - 1, results))
+        return parsed
+
+    def history_csv(self):
+        """History as CSV whose variable and objective columns match what
+        'Import Historical Experiments' expects, so exports re-import cleanly.
+
+        Variable columns come from the re-encoded/decoded history (as
+        history_frame() does), not raw recipe_history: a variable added
+        mid-run is backfilled to 0 in X_history for earlier rows, while
+        recipe_history is never backfilled and would leave those rows with
+        a missing key (NaN on export, and a rejected re-import)."""
+        rows = []
+        for i, x in enumerate(self.X_history):
+            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
+            row = {"Experiment": i + 1, "Date": ts[:10] if isinstance(ts, str) else "",
+                   "Overall Score": float(self.Y_history[i])}
+            row.update(self._decode(x))
+            row.update(self.results_history[i] if i < len(self.results_history) else {})
+            rows.append(row)
+        return pd.DataFrame(rows).to_csv(index=False)
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
     # ------------------------------------------------------------------ #
 
     def add_constraint(self, metric, min_val=None, max_val=None):
-        """Add a property-based constraint (e.g. total fat, total sodium)."""
+        """Add a property-based constraint (e.g. total fat, total sodium).
+        Replaces any existing constraint on the same metric."""
+        if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        self.constraints = [c for c in self.constraints if c['metric'] != metric]
         self.constraints.append({
             'metric': metric,
             'min': float(min_val) if min_val is not None else None,
@@ -318,12 +569,19 @@ class FoodOptimizer:
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None):
         """Add a constraint on the sum of selected ingredient quantities.
+        Replaces any existing constraint on the same set of ingredients.
 
         Args:
             ingredients: List of ingredient names whose quantities to sum.
             min_val: Minimum allowed sum (or None for no lower bound).
             max_val: Maximum allowed sum (or None for no upper bound).
         """
+        if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
+            raise ValueError("Min must be less than Max.")
+        ingredient_set = set(ingredients)
+        self.quantity_constraints = [
+            qc for qc in self.quantity_constraints if set(qc['ingredients']) != ingredient_set
+        ]
         self.quantity_constraints.append({
             'ingredients': list(ingredients),
             'min': float(min_val) if min_val is not None else None,
@@ -403,6 +661,8 @@ class FoodOptimizer:
             self.recipe_history.pop(index)
         if index < len(self.results_history):
             self.results_history.pop(index)
+        if index < len(self.timestamps_history):
+            self.timestamps_history.pop(index)
         self.save()
 
     def rewind_to(self, index):
@@ -414,6 +674,8 @@ class FoodOptimizer:
         self.Y_history = self.Y_history[:keep]
         self.recipe_history = self.recipe_history[:keep]
         self.results_history = self.results_history[:keep]
+        self.timestamps_history = self.timestamps_history[:keep]
+        self.pending_batch = None
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -671,15 +933,22 @@ class FoodOptimizer:
     def tell(self, recipe_dict, results_dict):
         """Record an experiment's recipe and results."""
         if not self.objectives:
-            raise ValueError("No objectives defined!")
+            raise ValueError("Add at least one objective before saving results.")
         for obj in self.objectives:
             if results_dict.get(obj['name']) is None:
-                raise ValueError(f"Missing data for {obj['name']}")
+                raise ValueError(f"Enter a value for {obj['name']}.")
 
         self.X_history.append(self._encode(recipe_dict))
         self.Y_history.append(self._compute_utility(results_dict))
         self.recipe_history.append(dict(recipe_dict))
         self.results_history.append(dict(results_dict))
+        self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
+        self.save()
+
+    def set_pending_batch(self, batch_or_none):
+        """Persist (or clear) the suggested-but-not-yet-rated batch so a user
+        who closes the tab mid-experiment finds their recipes on return."""
+        self.pending_batch = batch_or_none
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -768,14 +1037,15 @@ class FoodOptimizer:
             )
             if constr['min'] is not None and hi < constr['min']:
                 raise ValueError(
-                    f"Constraint '{metric} >= {constr['min']}' becomes unsatisfiable: "
-                    f"the remaining active variables reach at most {hi:.4g}. "
-                    f"Relax the constraint before pruning."
+                    f"Pausing these would make the limit on {metric} impossible "
+                    f"to meet: the remaining active ingredients can only reach "
+                    f"{hi:.4g} at most. Loosen the limit first."
                 )
             if constr['max'] is not None and lo > constr['max']:
                 raise ValueError(
-                    f"Constraint '{metric} <= {constr['max']}' becomes unsatisfiable: "
-                    f"the pinned values already total {lo:.4g}."
+                    f"Pausing these would make the limit on {metric} impossible "
+                    f"to meet: the paused items alone add up to {lo:.4g}. "
+                    f"Loosen the limit first."
                 )
 
         for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
@@ -784,14 +1054,15 @@ class FoodOptimizer:
             lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0, pinned)
             if qc['min'] is not None and hi < qc['min']:
                 raise ValueError(
-                    f"Quantity constraint [{i}] '{label} >= {qc['min']}' becomes "
-                    f"unsatisfiable: the remaining active ingredients reach at most "
-                    f"{hi:.4g}. Relax the constraint before pruning."
+                    f"Pausing these would make the limit on {label} impossible "
+                    f"to meet: the remaining active ingredients can only reach "
+                    f"{hi:.4g} at most. Loosen the limit first."
                 )
             if qc['max'] is not None and lo > qc['max']:
                 raise ValueError(
-                    f"Quantity constraint [{i}] '{label} <= {qc['max']}' becomes "
-                    f"unsatisfiable: the pinned values already total {lo:.4g}."
+                    f"Pausing these would make the limit on {label} impossible "
+                    f"to meet: the paused items alone add up to {lo:.4g}. "
+                    f"Loosen the limit first."
                 )
 
     def _get_fixed_features(self):
@@ -829,8 +1100,7 @@ class FoodOptimizer:
             return
         if len(self.active_variables()) <= 1:
             raise ValueError(
-                "Cannot deactivate the last active variable — BO needs at least one "
-                "free dimension to search over."
+                "At least one ingredient or process setting must stay in play."
             )
         frozen = self._frozen_value(var) if value is None else float(value)
         lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
@@ -845,6 +1115,7 @@ class FoodOptimizer:
 
         var['active'] = False
         var['_frozen_at'] = frozen
+        self.pending_batch = None
         self.save()
 
     def reactivate_variable(self, name):
@@ -855,6 +1126,7 @@ class FoodOptimizer:
             return
         var['active'] = True
         var.pop('_frozen_at', None)
+        self.pending_batch = None
         self.save()
 
     def remove_ingredient(self, name, force=False):
@@ -868,12 +1140,13 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
-                f"'{name}' is a process parameter — use remove_process_parameter."
+                f"'{name}' is a process parameter. Use Remove next to the "
+                f"process parameter instead."
             )
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
                 "Cannot remove a variable: some experiments were recorded without "
-                "stored recipes, so the history cannot be re-encoded. Deactivate it "
+                "stored recipes, so the history cannot be rebuilt. Pause it "
                 "instead, or start a fresh project."
             )
 
@@ -886,8 +1159,9 @@ class FoodOptimizer:
             more = f" (+{len(used) - 5} more)" if len(used) > 5 else ""
             raise ValueError(
                 f"'{name}' was used at a nonzero amount in experiment(s) {shown}{more}. "
-                f"Deleting it would discard that information. Deactivate it instead to "
-                f"stop searching over it while keeping the data, or pass force=True."
+                f"Deleting it would discard that information. Pause it instead to "
+                f"stop searching over it while keeping the data. Tick 'Force delete' "
+                f"above if you really want to discard it."
             )
 
         remaining = [v for v in self.variables if v['name'] != name]
@@ -907,6 +1181,7 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
+        self.pending_batch = None
         self.save()
 
     def set_bo_config(self, spec):
@@ -919,11 +1194,11 @@ class FoodOptimizer:
         """Branch the current state into a new project, saved under a new name.
         Used to split one run into adaptive vs non-adaptive at the first re-query:
         both share an identical pre-fork history."""
-        import copy
-        clone = copy.deepcopy(self)
+        clone = FoodOptimizer(new_project_name, storage=self.storage)
+        state = self.export_json()
+        state['project_name'] = new_project_name
+        clone.import_json(state)
         clone.screening_model = None
-        clone.project_name = new_project_name
-        clone.filename = f"{new_project_name}.pkl"
         clone.save()
         return clone
 
@@ -935,24 +1210,24 @@ class FoodOptimizer:
         best_i = int(np.argmax(self.Y_history))
         active = [v['name'] for v in self.active_variables()]
         inactive = [
-            f"{v['name']} (pinned at {self._frozen_value(v):.3g})"
+            f"{v['name']} (fixed at {self._frozen_value(v):.3g})"
             for v in self.inactive_variables()
         ]
         all_names = [v['name'] for v in self.variables]
-        lines = [f"Active variables ({len(active)}): {active}"]
+        lines = [f"In play ({len(active)}): {', '.join(active)}"]
         if inactive:
-            lines.append(f"Pruned / inactive ({len(inactive)}): {inactive}")
+            lines.append(f"Paused ({len(inactive)}): {', '.join(inactive)}")
         lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
-            # Show every variable that was actually used, including since-pruned
-            # ones, so the expert can see what a pruned variable contributed.
+            # Show every variable that was actually used, including since-paused
+            # ones, so the expert can see what a paused variable contributed.
             comp = ", ".join(f"{k}={rec[k]:.3g}" for k in all_names if rec.get(k))
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
             lines.append(
-                f"{mark} iter {i + 1}: utility={y:.4f} | {comp} | attrs: {attrs}"
+                f"{mark} Experiment {i + 1}: score {y:.3f} | {comp} | results: {attrs}"
             )
         return "\n".join(lines)
 
@@ -1001,52 +1276,34 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def save(self):
-        # Project files are stored as JSON (human-readable, and — unlike
-        # pickle — safe to open: loading one can never execute code).
-        # Write-then-rename so a crash mid-write can't corrupt the file.
-        data = json.dumps(self.export_json(), indent=2)
-        tmp_filename = f"{self.filename}.tmp"
+        # Delegates to the storage backend. StorageError (a cloud backend
+        # failure) is swallowed into save_error so the user's in-memory work
+        # survives; the app shows it as a banner. Local I/O errors propagate.
         try:
-            with open(tmp_filename, 'w', encoding='utf-8') as f:
-                f.write(data)
-            os.replace(tmp_filename, self.filename)
-        finally:
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
+            self.storage.save(self.project_name, self.export_json())
+        except StorageError as e:
+            self.save_error = str(e)
+        else:
+            self.save_error = None
+            self.last_saved_at = datetime.now().astimezone()
 
     def load(self):
-        """Load the project file. Sets self.load_error to a plain-language
-        message on failure instead of silently producing a blank project.
-        Returns True on success, False on failure."""
+        """Load the project via the storage backend. Sets self.load_error to a
+        plain-language message on failure instead of silently producing a
+        blank project. Returns True on success, False on failure."""
         self.load_error = None
         try:
-            with open(self.filename, 'rb') as f:
-                raw = f.read()
-        except OSError:
+            state = self.storage.load(self.project_name)
+        except StorageError as e:
+            self.load_error = str(e)
+            return False
+        if state is None:
             self.load_error = (
-                "This project file could not be opened. It may have been "
-                "moved or deleted."
+                "This project could not be found. It may have been renamed "
+                "or archived."
             )
             return False
-
         try:
-            state = json.loads(raw.decode('utf-8'))
-        except (ValueError, UnicodeDecodeError):
-            # Legacy project files were pickle; migrate them once to JSON.
-            try:
-                state = pickle.loads(raw)
-            except Exception:
-                self.load_error = (
-                    "This project file is damaged and could not be opened. "
-                    "If you have a backup, use Restore from backup; otherwise "
-                    "check the FoodOptimizer > backups folder in your home "
-                    "folder for a recent copy."
-                )
-                return False
-
-        try:
-            # import_json restores every field, rebuilds encoded history, and
-            # re-saves — so a migrated legacy pickle is rewritten as JSON here.
             self.import_json(state)
         except Exception:
             self.load_error = (
@@ -1056,7 +1313,16 @@ class FoodOptimizer:
                 "folder for a recent copy."
             )
             return False
-
+        # Re-save only when the file is behind the current CLASS_VERSION, so an
+        # older JSON file is brought up to date once. Up-to-date files are not
+        # rewritten: rewriting on every open would bump the mtime and make
+        # other open windows see a false conflict. Legacy pickle files are no
+        # longer readable (LocalStorage.load refuses them).
+        _ver = state.get('CLASS_VERSION', 0)
+        if not isinstance(_ver, int):
+            _ver = 0
+        if self.storage.persist_after_load and _ver < self.CLASS_VERSION:
+            self.save()
         return True
 
     def export_json(self):
@@ -1085,10 +1351,60 @@ class FoodOptimizer:
             'Y_history': self.Y_history,
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
+            'timestamps_history': self.timestamps_history,
+            'pending_batch': self.pending_batch,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
         return json.loads(json.dumps(state, default=_make_serializable))
+
+    @staticmethod
+    def validate_state(state):
+        """Check a backup dict before importing it. Returns a summary dict
+        (name, experiments, ingredients, version) or raises ValueError with a
+        message suitable for the UI. import_json assigns attributes one by
+        one, so validating first is what keeps a bad file from leaving the
+        optimizer half-mutated."""
+        bad = "This file is not a Food Optimizer backup."
+        if not isinstance(state, dict):
+            raise ValueError(bad)
+        required = {
+            'variables': list, 'objectives': list,
+            'recipe_history': list, 'results_history': list,
+        }
+        if not all(k in state for k in required):
+            raise ValueError(bad)
+        for key, typ in required.items():
+            if not isinstance(state[key], typ):
+                raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        for key in ('variables', 'objectives'):
+            for item in state[key]:
+                if not isinstance(item, dict) or not isinstance(item.get('name'), str):
+                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        for key in ('recipe_history', 'results_history'):
+            for item in state[key]:
+                if not isinstance(item, dict):
+                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        version = state.get('CLASS_VERSION')
+        if not isinstance(version, int):
+            raise ValueError(bad)
+        if version > FoodOptimizer.CLASS_VERSION:
+            raise ValueError(
+                "This backup was made with a newer version of Food Optimizer. "
+                "Update the app, then try again."
+            )
+        if len(state['recipe_history']) != len(state['results_history']):
+            raise ValueError("This backup is inconsistent: recipes and results differ in count.")
+        ingredients = sum(
+            1 for v in state['variables']
+            if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'
+        )
+        return {
+            'name': state.get('project_name', '(unnamed)'),
+            'experiments': len(state['recipe_history']),
+            'ingredients': ingredients,
+            'version': version,
+        }
 
     def import_json(self, state):
         """Restore project state from a JSON dict (as produced by export_json)."""
@@ -1103,6 +1419,10 @@ class FoodOptimizer:
         self.bo_config = validate_bo_config(state.get('bo_config', None))
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
+        self.timestamps_history = state.get('timestamps_history', [])
+        self.pending_batch = state.get('pending_batch', None)
+        while len(self.timestamps_history) < len(self.results_history):
+            self.timestamps_history.append(None)  # pre-feature files/backups
 
         for var in self.variables:
             if 'bounds' in var and isinstance(var['bounds'], list):
@@ -1124,4 +1444,3 @@ class FoodOptimizer:
         # A successful import means the in-memory state is valid again, so a
         # restore-from-backup clears any earlier damaged-file error.
         self.load_error = None
-        self.save()
