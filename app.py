@@ -202,9 +202,14 @@ with st.sidebar:
         if _saved is not None:
             st.caption(f"Saved {_saved:%H:%M} to this computer. Download a backup from Backup & Restore any time.")
 
-        # --- Backup & Restore ---
+        # --- This project: backup, restore, reset, delete ---
+        # The heading names the OPEN project (not the one selected in the box
+        # above), so it is clear what every control below acts on, and it
+        # changes the moment Open switches projects.
         st.divider()
-        st.subheader("Backup & Restore")
+        st.subheader(opt.project_name)
+        st.caption("Everything below acts on this project.")
+        st.markdown("**Backup & Restore**")
 
         if getattr(opt, "load_error", None):
             # Never offer a "backup" of a project that failed to load — it would

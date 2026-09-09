@@ -478,6 +478,26 @@ def test_delete_project_opens_the_most_recent_remaining_project(project_with_his
     assert at.selectbox(key="project_select").options == ["second"]
 
 
+def test_lower_sidebar_heading_names_the_open_project_and_follows_switches(project_with_history):
+    """Backup, restore, reset and delete act on the open project, so the
+    heading above them carries its name and follows Open, not the box."""
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert "my_project" in [h.value for h in at.sidebar.subheader]
+
+    at.selectbox(key="project_select").set_value("second")   # chosen, not opened
+    at.run()
+    assert "my_project" in [h.value for h in at.sidebar.subheader]
+    assert "second" not in [h.value for h in at.sidebar.subheader]
+
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert "second" in [h.value for h in at.sidebar.subheader]
+    assert "my_project" not in [h.value for h in at.sidebar.subheader]
+
+
 def test_forward_buttons_are_primary(project_with_history):
     """The step that advances the project is coloured; housekeeping is grey."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
