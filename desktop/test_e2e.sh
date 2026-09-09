@@ -41,6 +41,11 @@ assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
+# The bar must exist from the first second of a first run, so the very first
+# setup line the launcher publishes has to carry a percent, not an empty field.
+assert "first setup line carries a percent" grep -qF '(step 1 of 3)|2' "$DESKTOP_DIR/launcher.sh"
+assert "second setup line carries a percent" grep -q 'Creating environment (.*)|8' "$DESKTOP_DIR/launcher.sh"
+assert "install step maps onto 10-99" grep -qF '10 + 89 * MB_DONE' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
@@ -176,6 +181,10 @@ assert "venv created"            test -x "$SUPPORT/venv/bin/python"
 assert "python under support"    dir_nonempty "$SUPPORT/python"
 assert "uv cache under support"  dir_nonempty "$SUPPORT/uv-cache"
 assert "marker written"          test -f "$MARKER"
+# Recorded so future sessions can read real first-run timings from launcher.log.
+assert "setup duration logged"   grep -q "setup complete in" "$WORK/run1.out"
+SETUP_SECS="$(sed -n 's/.*setup complete in \([0-9][0-9]*\) s.*/\1/p' "$WORK/run1.out" | tail -1)"
+echo "  (measured: setup complete in ${SETUP_SECS:-?} s)"
 assert "nothing in ~/.local"     not_exists "$E2E_HOME/.local"
 assert "data dir created in home" test -d "$DATA"
 

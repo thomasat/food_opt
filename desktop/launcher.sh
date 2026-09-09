@@ -169,24 +169,30 @@ if [ "$NEED_SETUP" = "1" ]; then
     die "not enough free disk space for setup (need about 6 GB)" 4
   fi
   say "one-time setup starting (downloading software components)"
+  SETUP_START=$SECONDS   # wall clock for the "setup complete in N s" line below
   # The marker test must run BEFORE the rm below: its presence is what tells
   # an upgrade (components only) apart from a first install (Python too). An
   # upgrade skips the Python download, so it is a two-step job, not three -
   # numbering it 3, 2, 3 would look like the setup was going backwards.
+  # Every line below carries a percent: the wrapper draws the bar as soon as
+  # one arrives, so a fast connection must not flash text-only steps past a
+  # user who was promised a progress bar. The two announcement percentages are
+  # nominal (the work they cover gives no measurable signal); the install step
+  # is real, mapped onto 10-99 so the bar only ever moves forwards.
   if [ -f "$MARKER_FILE" ]; then
     STEP_ENV="step 1 of 2"
     STEP_SYNC="step 2 of 2"
-    status "Updating components…|"
+    status "Updating components…|2"
   else
     STEP_ENV="step 2 of 3"
     STEP_SYNC="step 3 of 3"
-    status "Downloading Python (step 1 of 3)|"
+    status "Downloading Python (step 1 of 3)|2"
   fi
   rm -f "$MARKER_FILE"
   NET_MSG="setup failed - most likely no internet connection"
   say "installing Python $PYTHON_VERSION"
   "$UV_BIN" python install --no-bin "$PYTHON_VERSION" || die "$NET_MSG" 3
-  status "Creating environment ($STEP_ENV)|"
+  status "Creating environment ($STEP_ENV)|8"
   rm -rf "$VENV_DIR"
   "$UV_BIN" venv --python "$PYTHON_VERSION" "$VENV_DIR" || die "$NET_MSG" 3
   say "installing components"
@@ -204,7 +210,12 @@ if [ "$NEED_SETUP" = "1" ]; then
     VENV_KB="$(du -sk "$VENV_DIR" 2>/dev/null | awk '{print $1}')"
     case "${VENV_KB:-}" in ''|*[!0-9]*) VENV_KB=0 ;; esac
     VENV_MB=$((VENV_KB / 1024))
-    PCT=$((VENV_MB * 100 / EXPECTED_VENV_MB))
+    # Map "MB on disk" onto 10-99, the slice of the bar this step owns: the
+    # two announcement steps already claimed 0-10, so starting this one at 0
+    # would send the bar backwards the moment the download begins.
+    MB_DONE="$VENV_MB"
+    [ "$MB_DONE" -gt "$EXPECTED_VENV_MB" ] && MB_DONE="$EXPECTED_VENV_MB"
+    PCT=$((10 + 89 * MB_DONE / EXPECTED_VENV_MB))
     [ "$PCT" -gt 99 ] && PCT=99   # never show 100% while work remains
     MSG="Installing components ($STEP_SYNC): $VENV_MB MB of about $EXPECTED_VENV_MB MB"
     publish "$MSG|$PCT"
@@ -220,7 +231,7 @@ if [ "$NEED_SETUP" = "1" ]; then
   wait "$SYNC_PID" || die "$NET_MSG" 3
   status "Finishing setup ($STEP_SYNC)|100"
   { echo "$LOCK_HASH"; echo "python=$PYTHON_VERSION"; } > "$MARKER_FILE"
-  say "setup complete"
+  say "setup complete in $((SECONDS - SETUP_START)) s"
 fi
 
 # ---------- start the server ----------
@@ -260,7 +271,7 @@ if [ -e "$1" ]; then
   fi
 fi
 
-status "Starting the app|"
+status "Starting the app…|"
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
   --server.address=127.0.0.1 \
