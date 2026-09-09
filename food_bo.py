@@ -1100,7 +1100,7 @@ class FoodOptimizer:
             return
         if len(self.active_variables()) <= 1:
             raise ValueError(
-                "At least one ingredient or process setting must stay in play."
+                "At least one ingredient or process setting must stay active."
             )
         frozen = self._frozen_value(var) if value is None else float(value)
         lo, hi = float(var['bounds'][0]), float(var['bounds'][1])

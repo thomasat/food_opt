@@ -864,7 +864,7 @@ class TestActiveSet:
     def test_deactivate_blocks_last_active_variable(self, opt_configured):
         opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")
-        with pytest.raises(ValueError, match="must stay in play"):
+        with pytest.raises(ValueError, match="must stay active"):
             opt_configured.deactivate_variable("Water")
 
     def test_reactivate_restores_the_dimension(self, opt_configured):
