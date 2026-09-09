@@ -358,6 +358,8 @@ def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.pkl")) == []
     assert any("Create your first project" in m.value for m in at.markdown), \
         [m.value for m in at.markdown]
+    # the welcome panel already offers the sample; the sidebar must not duplicate it on a first run
+    assert not any(b.label == "Try the sample project" for b in at.sidebar.button), [b.label for b in at.sidebar.button]
 
 
 def test_create_project_rejects_bad_name(tmp_path, monkeypatch):

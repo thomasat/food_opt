@@ -133,7 +133,9 @@ with st.sidebar:
         if st.button("Open") and selected != _active:
             _open_project(selected)
 
-    if os.path.exists(_SAMPLE_CSV):
+    # On a first run the welcome panel already offers the sample, so the
+    # sidebar shows it only once at least one project exists.
+    if existing_projects and os.path.exists(_SAMPLE_CSV):
         if st.button(
             "Try the sample project", key="sample_project_sidebar",
             help="Opens a ready-made plant-based burger project with twenty "
