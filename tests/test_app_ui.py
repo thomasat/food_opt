@@ -44,7 +44,7 @@ def test_midrun_process_param_error_is_shown_not_raised(project_with_history):
     at.number_input(key="pp_min").set_value(150.0)
     at.number_input(key="pp_max").set_value(220.0)
     at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
-    _submit_button(at, "Add Process Parameter").click()
+    _submit_button(at, "Add process setting").click()
     at.run()
 
     assert not at.exception
@@ -61,11 +61,11 @@ def test_midrun_process_param_with_valid_baseline_succeeds(project_with_history)
     at.number_input(key="pp_min").set_value(150.0)
     at.number_input(key="pp_max").set_value(220.0)
     at.number_input(key="pp_base").set_value(180.0)
-    _submit_button(at, "Add Process Parameter").click()
+    _submit_button(at, "Add process setting").click()
     at.run()
 
     assert not at.exception
-    assert any("Added process parameter" in str(s.value) for s in at.success)
+    assert any("Added process setting" in str(s.value) for s in at.success)
     # The variable really landed, with history re-encoded at the baseline.
     reloaded = FoodOptimizer("my_project")
     assert any(v["name"] == "Oven_Temp" for v in reloaded.variables)
@@ -100,7 +100,7 @@ def test_pending_batch_is_restored_in_a_new_session(project_with_history):
     assert not at.exception
     assert "current_batch" in at.session_state
     assert len(at.session_state["current_batch"]) == 2
-    assert any(b.label == "Save Results" for b in at.button), [b.label for b in at.button]
+    assert any(b.label == "Save results" for b in at.button), [b.label for b in at.button]
 
 
 def test_stale_pending_batch_is_discarded_when_design_space_changes(project_with_history):
@@ -109,7 +109,7 @@ def test_stale_pending_batch_is_discarded_when_design_space_changes(project_with
     at.run()
     assert not at.exception
     assert "current_batch" not in at.session_state
-    assert any("design space changed" in i.value for i in at.info), [i.value for i in at.info]
+    assert any("ingredient list or ranges changed" in i.value for i in at.info), [i.value for i in at.info]
 
 
 def test_delete_experiment_confirmation_is_visible_after_rerun(project_with_history):
@@ -158,7 +158,7 @@ def test_edit_form_keeps_old_value_and_refuses_blank_with_no_history(project_wit
     at.run()
     at.number_input(key="edit_no").set_value(1)   # experiment 1, recorded before Crunch existed
     at.run()
-    _submit_button(at, "Update Result").click()
+    _submit_button(at, "Update result").click()
     at.run()
     assert not at.exception
     assert any("Crunch" in e.value for e in at.error), [e.value for e in at.error]
@@ -166,7 +166,7 @@ def test_edit_form_keeps_old_value_and_refuses_blank_with_no_history(project_wit
 
     at.number_input(key="edit_0_1").set_value(4.0)  # fill Crunch, leave Taste blank
     at.run()
-    _submit_button(at, "Update Result").click()
+    _submit_button(at, "Update result").click()
     at.run()
     assert not at.exception
     assert any("Updated experiment 1" in s.value for s in at.success)
@@ -179,7 +179,7 @@ def test_hard_reset_targets_active_project_not_typed_name(project_with_history, 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.sidebar.text_input[0].set_value("other")   # the sidebar "Project Name" box (only text input in sidebar)
-    _submit_button(at, "Hard Reset Project").click()
+    _submit_button(at, "Hard reset project").click()
     at.run()
     _submit_button(at, "Yes, reset").click()
     at.run()
@@ -263,7 +263,7 @@ def test_blank_result_is_refused_not_saved_as_zero(project_with_pending_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="b0_r0o0").set_value(7.0)   # Recipe 1 only
-    _submit_button(at, "Save Results").click()
+    _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
     assert any("Recipe 2" in e.value for e in at.error), [e.value for e in at.error]
@@ -275,7 +275,7 @@ def test_skipped_recipe_is_left_out(project_with_pending_batch):
     at.run()
     at.number_input(key="b0_r0o0").set_value(7.0)
     at.checkbox(key="b0_skip1").check()
-    _submit_button(at, "Save Results").click()
+    _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
     opt = FoodOptimizer("my_project")
@@ -289,7 +289,7 @@ def test_results_card_and_best_panel_after_save(project_with_pending_batch):
     at.run()
     at.number_input(key="b0_r0o0").set_value(9.0)
     at.number_input(key="b0_r1o0").set_value(2.0)
-    _submit_button(at, "Save Results").click()
+    _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
     texts = [s.value for s in at.success] + [m.value for m in at.markdown] + [c.value for c in at.caption]
@@ -303,7 +303,7 @@ def test_no_backup_nag_after_successful_save(project_with_pending_batch):
     at.run()
     at.number_input(key="b0_r0o0").set_value(7.0)
     at.number_input(key="b0_r1o0").set_value(6.0)
-    _submit_button(at, "Save Results").click()
+    _submit_button(at, "Save results").click()
     at.run()
     assert not any("Download a backup now" in w.value for w in at.warning)
     assert any(c.value.startswith("Saved ") for c in at.caption), [c.value for c in at.caption]
@@ -331,7 +331,7 @@ def test_stale_results_upload_is_cleared_on_hard_reset(project_with_pending_batc
     at.session_state["_results_upload"] = pd.DataFrame({"Recipe": [1], "Taste": [8.0]})
     at.run()
     assert "_results_upload" in at.session_state
-    _submit_button(at, "Hard Reset Project").click()
+    _submit_button(at, "Hard reset project").click()
     at.run()
     _submit_button(at, "Yes, reset").click()
     at.run()
@@ -403,15 +403,125 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     # disk with a later mtime, which would otherwise become the auto-loaded "most
     # recent" project (Task 8) before this test ever switches to it on purpose.
     at.run()
-    _submit_button(at, "Hard Reset Project").click()   # arm the confirmation
+    _submit_button(at, "Hard reset project").click()   # arm the confirmation
     at.run()
     assert any(b.label == "Yes, reset" for b in at.button)
+    # Choosing a project reruns the script and enables Open; only then can a
+    # user click it (Open is greyed out while the box shows the open project).
     at.selectbox(key="project_select").set_value("second")
+    at.run()
     _submit_button(at, "Open").click()
     at.run()
     assert not at.exception
     assert not any(b.label == "Yes, reset" for b in at.button), [b.label for b in at.button]
     assert any("second" in c.value for c in at.caption)
+
+
+def test_open_button_lights_up_only_when_it_would_switch(project_with_history, tmp_path):
+    """Button rule: the button that moves you forward is coloured, and a
+    button that would do nothing is greyed out. Open must be disabled while
+    the box shows the project already on screen, and primary once a
+    different project is chosen."""
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert open_btn.disabled and open_btn.proto.type == "secondary"
+
+    at.selectbox(key="project_select").set_value("second")
+    at.run()
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert not open_btn.disabled and open_btn.proto.type == "primary"
+
+    open_btn.click()
+    at.run()
+    assert any("second" in c.value for c in at.caption)
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert open_btn.disabled
+
+
+def test_delete_project_confirms_archives_and_leaves_the_list(project_with_history, tmp_path):
+    """Delete project must ask first, rename the file to an archive copy
+    rather than erase it, drop the project from the list, and land on the
+    welcome panel when nothing is left to open."""
+    from storage import LocalStorage
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.sidebar, "Delete project").click()
+    at.run()
+    assert (tmp_path / "my_project.pkl").exists()               # not yet
+    warn = next(w.value for w in at.warning if "my_project" in w.value)
+    # Real grammar, never "1 experiment(s)".
+    assert "its 1 experiment?" in warn and "(s)" not in warn, warn
+    _submit_button(at.sidebar, "Yes, delete project").click()
+    at.run()
+    assert not at.exception
+    assert not (tmp_path / "my_project.pkl").exists()
+    assert (tmp_path / "my_project_deleted.pkl").exists()
+    assert LocalStorage().list_projects() == []
+    assert "my_project_deleted" in LocalStorage().list_archives()
+    assert any("Deleted my_project" in i.value for i in at.info), [i.value for i in at.info]
+    assert any("Create your first project" in m.value for m in at.markdown)
+
+
+def test_delete_project_opens_the_most_recent_remaining_project(project_with_history, tmp_path):
+    other = FoodOptimizer("second")
+    other.add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    _submit_button(at.sidebar, "Delete project").click()
+    at.run()
+    _submit_button(at.sidebar, "Yes, delete project").click()
+    at.run()
+    assert not at.exception
+    assert any("second" in c.value for c in at.caption), [c.value for c in at.caption]
+    assert at.selectbox(key="project_select").options == ["second"]
+
+
+def test_lower_sidebar_heading_names_the_open_project_and_follows_switches(project_with_history):
+    """Backup, restore, reset and delete act on the open project, so the
+    heading above them carries its name and follows Open, not the box."""
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert "my_project" in [h.value for h in at.sidebar.subheader]
+
+    at.selectbox(key="project_select").set_value("second")   # chosen, not opened
+    at.run()
+    assert "my_project" in [h.value for h in at.sidebar.subheader]
+    assert "second" not in [h.value for h in at.sidebar.subheader]
+
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert "second" in [h.value for h in at.sidebar.subheader]
+    assert "my_project" not in [h.value for h in at.sidebar.subheader]
+
+
+def test_csv_instructions_are_short_and_name_the_real_columns(project_with_history):
+    """Standing instructions are captions, not info boxes; the import caption
+    lists this project's own column names rather than a made-up example."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not any("Upload a CSV" in i.value for i in at.info), [i.value for i in at.info]
+    captions = [c.value for c in at.caption]
+    assert any(c.startswith("One row per ingredient") for c in captions), captions
+    imp = next(c for c in captions if c.startswith("One row per past experiment"))
+    assert "Water" in imp and "Taste" in imp
+    assert "flour, sugar, butter" not in imp
+
+
+def test_forward_buttons_are_primary(project_with_history):
+    """The step that advances the project is coloured; housekeeping is grey."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    types = {b.label: b.proto.type for b in at.button}
+    for label in ("Create project", "Add ingredient", "Add or update objective"):
+        assert types[label] == "primary", (label, types[label])
+    for label in ("Remove Taste", "Add amount limit", "Add total mass limit"):
+        assert types[label] == "secondary", (label, types[label])
 
 
 def test_generate_is_disabled_with_reason_when_no_objectives(tmp_path, monkeypatch):
@@ -428,7 +538,7 @@ def test_generate_is_disabled_with_reason_when_no_objectives(tmp_path, monkeypat
 def test_exploration_phase_notice(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any("Exploration phase" in i.value for i in at.info), [i.value for i in at.info]
+    assert any("Getting started" in i.value for i in at.info), [i.value for i in at.info]
 
 
 def test_tab_and_section_labels_are_plain(project_with_history):
@@ -488,9 +598,9 @@ def test_history_appears_before_advanced_expanders(project_with_history):
 
     # Some element values are DataFrames (st.dataframe) whose truthiness/
     # equality is ambiguous, so only compare when the value is a string.
-    history = pos(lambda k: isinstance(k[1], str) and k[1] == "Experiment History")
+    history = pos(lambda k: isinstance(k[1], str) and k[1] == "Experiment history")
     adaptive = pos(lambda k: isinstance(k[1], str) and "Change the ingredient list" in k[1])
-    imp = pos(lambda k: isinstance(k[1], str) and "Import Historical" in k[1])
+    imp = pos(lambda k: isinstance(k[1], str) and "Import past experiments" in k[1])
     assert history < imp < adaptive, kinds
 
 
@@ -505,8 +615,18 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
-    assert len(opt.variables) >= 3
-    assert opt.objectives and opt.objectives[0]["name"] == "Taste"
+    # Eight ingredients: enough for a real recipe, few enough to read at a
+    # glance in the results form and the recipe cards.
+    assert len(opt.variables) == 8
+    # The sample is the plant-based burger brief for a trained panel: two
+    # intensity scores with targets (7 and 6 out of 10), firmness weighted
+    # more than juiciness.
+    assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]
+    assert all(o["goal"] == "target" for o in opt.objectives)
+    targets = {o["name"]: o["target"] for o in opt.objectives}
+    assert targets == {"Juiciness": 7, "Firmness": 6}
+    weights = {o["name"]: o["weight"] for o in opt.objectives}
+    assert weights["Firmness"] > weights["Juiciness"]
 
 
 def test_manual_add_ingredient_in_setup(project_with_history):

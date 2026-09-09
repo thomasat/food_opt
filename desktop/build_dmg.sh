@@ -41,7 +41,7 @@ for f in app.py food_bo.py storage.py ui_helpers.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 mkdir -p "$APP_DIR/Contents/Resources/data"
-cp "$REPO_DIR/data/ingredients.csv" "$APP_DIR/Contents/Resources/data/ingredients.csv"
+cp "$REPO_DIR/data/sample_ingredients.csv" "$APP_DIR/Contents/Resources/data/sample_ingredients.csv"
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
 cp "$DESKTOP_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 
@@ -70,9 +70,9 @@ mkdir -p "$STAGING"
 ditto "$APP_DIR" "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 cp "$DESKTOP_DIR/start_here.txt" "$STAGING/Start Here.txt"
-mkdir -p "$STAGING/Example Data"
-cp "$REPO_DIR/data/ingredients.csv" "$STAGING/Example Data/example ingredients.csv"
-cp "$REPO_DIR/data/experiments_example.csv" "$STAGING/Example Data/example experiments.csv"
+# No example-data folder: the app's "Try the sample project" button carries
+# the same ingredients plus objectives, and the welcome panel offers the CSV
+# template. One route to the sample keeps first-run instructions unambiguous.
 
 if command -v create-dmg >/dev/null 2>&1; then
   create-dmg \

@@ -79,14 +79,14 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py data/ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
-# The bundle deliberately ships Resources/data/ingredients.csv (sample project +
+# The bundle deliberately ships Resources/data/sample_ingredients.csv (sample project +
 # template); anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'sample_ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")
@@ -104,8 +104,11 @@ VOL="$(printf '%s\n' "$ATTACH_OUT" | grep -o '/Volumes/.*' | tail -1 | sed 's/[[
 assert "dmg has app"            test -d "$VOL/$APP_NAME.app"
 assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
-assert "dmg has example ingredients" test -f "$VOL/Example Data/example ingredients.csv"
-assert "dmg has example experiments" test -f "$VOL/Example Data/example experiments.csv"
+# The sample lives in the app (Try the sample project); a second copy on the
+# disk image gave first-run users two routes and two names for one thing.
+assert "dmg has no Example Data folder" test ! -e "$VOL/Example Data"
+assert "dmg volume holds only app, Applications, Start Here" \
+  test "$(find "$VOL" -mindepth 1 -maxdepth 1 -not -name '.*' -exec basename {} \; | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   assert "codesign verifies" codesign --verify --deep --strict "$DIST_APP"
@@ -267,7 +270,7 @@ at.text_input(key="pp_name").set_value("oven_temp")
 at.number_input(key="pp_min").set_value(150.0)
 at.number_input(key="pp_max").set_value(220.0)
 at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
-next(b for b in at.button if b.label == "Add Process Parameter").click()
+next(b for b in at.button if b.label == "Add process setting").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
 assert any("must be between" in str(e.value) for e in at.error)

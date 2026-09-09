@@ -21,9 +21,19 @@ def flash(kind, message):
 
 
 def render_flash():
-    """Show and clear queued messages. Call once, near the top of app.py."""
-    for kind, message in st.session_state.pop(_FLASH_KEY, []):
-        getattr(st, kind)(message)
+    """Show and clear queued messages. Call once, near the top of app.py.
+
+    The messages always render inside one container, so the page keeps the
+    same shape whether or not a message is showing. Rendering them as bare
+    top-level elements shifted everything below by one slot on the run that
+    cleared them, which made the browser rebuild the tabs and drop the user
+    back to the first tab (seen right after opening a project and clicking
+    Generate recipes).
+    """
+    box = st.container()
+    with box:
+        for kind, message in st.session_state.pop(_FLASH_KEY, []):
+            getattr(st, kind)(message)
 
 
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
