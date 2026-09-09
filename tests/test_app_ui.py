@@ -406,12 +406,50 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     _submit_button(at, "Hard Reset Project").click()   # arm the confirmation
     at.run()
     assert any(b.label == "Yes, reset" for b in at.button)
+    # Choosing a project reruns the script and enables Open; only then can a
+    # user click it (Open is greyed out while the box shows the open project).
     at.selectbox(key="project_select").set_value("second")
+    at.run()
     _submit_button(at, "Open").click()
     at.run()
     assert not at.exception
     assert not any(b.label == "Yes, reset" for b in at.button), [b.label for b in at.button]
     assert any("second" in c.value for c in at.caption)
+
+
+def test_open_button_lights_up_only_when_it_would_switch(project_with_history, tmp_path):
+    """Button rule: the button that moves you forward is coloured, and a
+    button that would do nothing is greyed out. Open must be disabled while
+    the box shows the project already on screen, and primary once a
+    different project is chosen."""
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert open_btn.disabled and open_btn.proto.type == "secondary"
+
+    at.selectbox(key="project_select").set_value("second")
+    at.run()
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert not open_btn.disabled and open_btn.proto.type == "primary"
+
+    open_btn.click()
+    at.run()
+    assert any("second" in c.value for c in at.caption)
+    open_btn = _submit_button(at.sidebar, "Open")
+    assert open_btn.disabled
+
+
+def test_forward_buttons_are_primary(project_with_history):
+    """The step that advances the project is coloured; housekeeping is grey."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    types = {b.label: b.proto.type for b in at.button}
+    for label in ("Create project", "Add ingredient", "Add or update objective"):
+        assert types[label] == "primary", (label, types[label])
+    for label in ("Remove Taste", "Add Quantity Constraint", "Add Total Mass Constraint"):
+        assert types[label] == "secondary", (label, types[label])
 
 
 def test_generate_is_disabled_with_reason_when_no_objectives(tmp_path, monkeypatch):

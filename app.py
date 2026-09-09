@@ -113,7 +113,7 @@ with st.sidebar:
     with st.form("new_project_form", clear_on_submit=True):
         new_name = st.text_input("New project name", key="new_project_name",
                                  placeholder="e.g. Oat cookie v2")
-        if st.form_submit_button("Create project"):
+        if st.form_submit_button("Create project", type="primary"):
             name = new_name.strip()
             if not _NAME_RE.fullmatch(name):
                 st.error("Use 1 to 64 letters, numbers, spaces, hyphens, underscores or "
@@ -133,7 +133,14 @@ with st.sidebar:
             index=existing_projects.index(_active) if _active in existing_projects else 0,
             key="project_select",
         )
-        if st.button("Open") and selected != _active:
+        # Button rule used throughout the app: the button that moves you
+        # forward is coloured (primary), housekeeping stays grey, and a
+        # button that would do nothing is greyed out. Choosing a project in
+        # the box does not open it, so Open lights up the moment the choice
+        # differs from the project on screen.
+        _switching = selected != _active
+        if st.button("Open", type="primary" if _switching else "secondary",
+                     disabled=not _switching) and _switching:
             _open_project(selected)
 
     # On a first run the welcome panel already offers the sample, so the
@@ -216,7 +223,7 @@ with st.sidebar:
             )
 
         uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
-        if uploaded_json is not None and st.button("Check this backup"):
+        if uploaded_json is not None and st.button("Check this backup", type="primary"):
             try:
                 st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
             except ValueError:
@@ -390,7 +397,7 @@ with tab_setup:
                 )
         if df is not None:
             st.dataframe(df.head(), height=150)
-            if st.button("Load Ingredients"):
+            if st.button("Load Ingredients", type="primary"):
                 try:
                     st.session_state.optimizer.load_ingredients_from_csv(df)
                     st.session_state.pop("current_batch", None)  # stale under new design space
@@ -432,7 +439,7 @@ with tab_setup:
                     "at 0 in every past recipe, so its Min is fixed at 0. You "
                     "can raise it later once the model has data for it."
                 )
-            if st.form_submit_button("Add ingredient"):
+            if st.form_submit_button("Add ingredient", type="primary"):
                 try:
                     st.session_state.optimizer.add_ingredient(ing_name, ing_min, ing_max)
                 except ValueError as e:
@@ -562,7 +569,7 @@ with tab_setup:
 
             obj_target = st.number_input("Target value (only used for 'Hit a target')", value=5.0)
 
-            if st.form_submit_button("Add or update objective"):
+            if st.form_submit_button("Add or update objective", type="primary"):
                 try:
                     replaced = st.session_state.optimizer.add_objective(
                         obj_name, obj_weight, obj_goal,
@@ -943,7 +950,7 @@ with tab_optimize:
                     batch_inputs[i] = rec_scores
                     st.divider()
 
-                if st.form_submit_button("Save Results"):
+                if st.form_submit_button("Save Results", type="primary"):
                     missing = [
                         f"Recipe {i + 1} {name}"
                         for i, scores in batch_inputs.items() if i not in skipped
@@ -982,7 +989,7 @@ with tab_optimize:
                     "recipes you leave out stay on the bench."
                 )
                 up = st.file_uploader("Results sheet", type=["csv"], key=f"b{batch_id}_results_csv")
-                if up is not None and st.button("Check this sheet", key=f"b{batch_id}_check"):
+                if up is not None and st.button("Check this sheet", type="primary", key=f"b{batch_id}_check"):
                     try:
                         st.session_state["_results_upload"] = pd.read_csv(up)
                     except Exception:
