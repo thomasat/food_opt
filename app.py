@@ -10,6 +10,8 @@ from ui_helpers import confirm_action, flash, render_flash
 
 STORAGE = storage_backend.LocalStorage()
 
+_SAMPLE_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ingredients.csv")
+
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Food Optimizer")
 render_flash()
@@ -50,6 +52,24 @@ def _open_project(name, create=False):
     else:
         flash("success", f"Opened {name}.")
     st.rerun()
+
+
+def _open_sample_project():
+    _name = "Sample project"
+    if STORAGE.exists(_name):
+        _open_project(_name)          # already created earlier; just open it
+    else:
+        try:
+            _sample = FoodOptimizer(_name, storage=STORAGE)
+            _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+            _sample.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        except ValueError as e:
+            st.error(f"The sample project could not be created: {e}")
+        else:
+            if _sample.save_error:
+                st.error(_sample.save_error)
+            else:
+                _open_project(_name)
 
 
 def _readiness(opt):
@@ -112,6 +132,14 @@ with st.sidebar:
         )
         if st.button("Open") and selected != _active:
             _open_project(selected)
+
+    if os.path.exists(_SAMPLE_CSV):
+        if st.button(
+            "Try the sample project", key="sample_project_sidebar",
+            help="Opens a ready-made plant-based burger project with twenty "
+                 "ingredients, so you can explore before setting up your own.",
+        ):
+            _open_sample_project()
 
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
@@ -266,8 +294,6 @@ with st.sidebar:
                 st.rerun()
 
 
-_SAMPLE_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ingredients.csv")
-
 if opt is None:
     st.markdown("## Create your first project")
     st.markdown(
@@ -278,21 +304,7 @@ if opt is None:
     wc1, wc2 = st.columns(2)
     with wc1:
         if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample project", type="primary"):
-            _name = "Sample project"
-            if STORAGE.exists(_name):
-                _open_project(_name)          # already created earlier; just open it
-            else:
-                try:
-                    _sample = FoodOptimizer(_name, storage=STORAGE)
-                    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-                    _sample.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
-                except ValueError as e:
-                    st.error(f"The sample project could not be created: {e}")
-                else:
-                    if _sample.save_error:
-                        st.error(_sample.save_error)
-                    else:
-                        _open_project(_name)
+            _open_sample_project()
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             with open(_SAMPLE_CSV, "rb") as f:

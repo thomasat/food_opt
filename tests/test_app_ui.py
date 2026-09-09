@@ -496,7 +496,10 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Try the sample project").click()
+    # The sidebar now also offers "Try the sample project", so target the
+    # welcome-panel button explicitly (scoped to at.main) to keep this test
+    # about that specific first-run flow.
+    _submit_button(at.main, "Try the sample project").click()
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
@@ -548,7 +551,9 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     assert not at.exception
     assert any("Create your first project" in m.value for m in at.markdown)
 
-    _submit_button(at, "Try the sample project").click()
+    # Scope to the welcome-panel button explicitly: the sidebar now also has
+    # a same-labelled button.
+    _submit_button(at.main, "Try the sample project").click()
     at.run()
     assert not at.exception
 
@@ -556,6 +561,42 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     assert len(reloaded.X_history) == 1
     assert any("Sample project" in c.value and "1 experiments" in c.value
                 for c in at.caption), [c.value for c in at.caption]
+
+
+def test_sidebar_sample_project_button_available_with_project_open(project_with_history):
+    """The sample project must be reachable from the sidebar even once a
+    project already exists (the welcome panel is gone at that point)."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+
+    _submit_button(at.sidebar, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+
+    opt = FoodOptimizer("Sample project")
+    assert len(opt.variables) >= 3
+    assert any("Sample project" in c.value for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_sidebar_sample_project_button_reopens_without_recreating(project_with_history):
+    """Clicking the sidebar sample button when the sample already exists
+    must reopen it, not recreate it (experiment count unchanged)."""
+    pre = FoodOptimizer("Sample project")
+    pre.add_ingredient("Water", 0, 100)
+    pre.add_objective("Taste", 1.0, goal="max")
+    pre.tell({"Water": 50.0}, {"Taste": 7.0})
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+
+    _submit_button(at.sidebar, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+
+    assert len(FoodOptimizer("Sample project").X_history) == 1
 
 
 def test_edit_form_guarded_when_no_objectives_remain(project_with_history):
