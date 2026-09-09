@@ -306,6 +306,35 @@ with st.sidebar:
                 st.session_state["_loaded_project"] = _target
                 st.rerun()
 
+        # --- Delete project ---
+        # Same shape as Hard Reset, but the project leaves the list. The file
+        # is renamed to an archive copy (never erased), so a wrong click costs
+        # a rename in the projects folder, not data.
+        if confirm_action(
+            "delete_project", "Delete project",
+            f"Delete **{opt.project_name}**? Its {len(opt.X_history)} experiment(s) "
+            "and setup are moved to an archive copy in your projects folder, not "
+            "erased, and the project leaves this list.",
+            confirm_label="Yes, delete project",
+        ):
+            _target = opt.project_name
+            try:
+                archived = STORAGE.archive(_target, "deleted", copy=False)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if archived:
+                    flash("info", f"Deleted {_target}. A copy was kept as an archive "
+                                  f"named {archived}.")
+                else:
+                    flash("info", f"Deleted {_target}.")
+                _reset_project_session()
+                # With no project pinned, the next run opens the most recent
+                # remaining project, or the welcome panel if none is left.
+                st.session_state.pop("_loaded_project", None)
+                st.session_state.pop("project_select", None)
+                st.rerun()
+
 
 if opt is None:
     st.markdown("## Create your first project")

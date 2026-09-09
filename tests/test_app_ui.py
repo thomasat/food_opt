@@ -441,6 +441,43 @@ def test_open_button_lights_up_only_when_it_would_switch(project_with_history, t
     assert open_btn.disabled
 
 
+def test_delete_project_confirms_archives_and_leaves_the_list(project_with_history, tmp_path):
+    """Delete project must ask first, rename the file to an archive copy
+    rather than erase it, drop the project from the list, and land on the
+    welcome panel when nothing is left to open."""
+    from storage import LocalStorage
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.sidebar, "Delete project").click()
+    at.run()
+    assert (tmp_path / "my_project.pkl").exists()               # not yet
+    assert any("my_project" in w.value for w in at.warning)
+    _submit_button(at.sidebar, "Yes, delete project").click()
+    at.run()
+    assert not at.exception
+    assert not (tmp_path / "my_project.pkl").exists()
+    assert (tmp_path / "my_project_deleted.pkl").exists()
+    assert LocalStorage().list_projects() == []
+    assert "my_project_deleted" in LocalStorage().list_archives()
+    assert any("Deleted my_project" in i.value for i in at.info), [i.value for i in at.info]
+    assert any("Create your first project" in m.value for m in at.markdown)
+
+
+def test_delete_project_opens_the_most_recent_remaining_project(project_with_history, tmp_path):
+    other = FoodOptimizer("second")
+    other.add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    _submit_button(at.sidebar, "Delete project").click()
+    at.run()
+    _submit_button(at.sidebar, "Yes, delete project").click()
+    at.run()
+    assert not at.exception
+    assert any("second" in c.value for c in at.caption), [c.value for c in at.caption]
+    assert at.selectbox(key="project_select").options == ["second"]
+
+
 def test_forward_buttons_are_primary(project_with_history):
     """The step that advances the project is coloured; housekeeping is grey."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
