@@ -45,7 +45,12 @@ assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=m
 # setup line the launcher publishes has to carry a percent, not an empty field.
 assert "first setup line carries a percent" grep -qF '(step 1 of 3)|2' "$DESKTOP_DIR/launcher.sh"
 assert "second setup line carries a percent" grep -q 'Creating environment (.*)|8' "$DESKTOP_DIR/launcher.sh"
-assert "install step maps onto 10-99" grep -qF '10 + 89 * MB_DONE' "$DESKTOP_DIR/launcher.sh"
+assert "install step maps onto 10-99" grep -qF '10 + 89 * MB_DONE / EXPECTED_SETUP_MB' "$DESKTOP_DIR/launcher.sh"
+# The download cache is most of the wait on a slow connection, so the install
+# step's measure has to include it - and sample it apart from the venv, or the
+# hard links between them dedupe away half the total.
+assert "progress counts the download cache" grep -q 'du -sk .*UV_CACHE_DIR' "$DESKTOP_DIR/launcher.sh"
+assert "progress counts the environment"    grep -q 'du -sk .*VENV_DIR' "$DESKTOP_DIR/launcher.sh"
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"

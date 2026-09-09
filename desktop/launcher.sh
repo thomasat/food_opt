@@ -12,11 +12,12 @@
 set -u
 
 PYTHON_VERSION="3.13.7"   # the single place the Python version is pinned
-# Installed size of the venv, used only to turn "MB on disk" into a percentage
-# for the setup progress bar. Measured 855 MB on 2026-09-08 for the current
-# lock, rounded up for headroom so the bar does not park at 99% for the last
-# stretch; adjust when the lock changes (a wrong value only skews the bar).
-EXPECTED_VENV_MB=1000
+# Bytes setup puts on disk, used only to turn "MB on disk" into a percentage
+# for the progress bar: the download cache plus the environment built from it.
+# Measured 861 MB cache + 856 MB venv on 2026-09-08 for the current lock;
+# adjust when the lock changes (a wrong value only skews the bar).
+EXPECTED_SETUP_MB=1750
+EXPECTED_SETUP_MB_TEXT="1,750"   # the same number for humans - keep in step
 
 IDLE_TIMEOUT="${FOODOPT_IDLE_TIMEOUT_SECS:-900}"
 ARCH="${FOODOPT_TEST_ARCH:-$(uname -m)}"
@@ -207,23 +208,31 @@ if [ "$NEED_SETUP" = "1" ]; then
   LAST_LOG_MB=-25       # so the first measurement is always logged
   LAST_LOG_AT=$SECONDS
   while kill -0 "$SYNC_PID" 2>/dev/null; do
+    # Count the download cache as well as the venv. uv fetches every wheel
+    # into its cache first and only then hard-links the files into the venv,
+    # so the venv alone stays near empty for most of a slow download - the
+    # exact stretch where a parked bar is least reassuring. The two must be
+    # measured separately and added: a single du over both would dedupe the
+    # hard links and undercount the finished environment by about half.
+    CACHE_KB="$(du -sk "$UV_CACHE_DIR" 2>/dev/null | awk '{print $1}')"
+    case "${CACHE_KB:-}" in ''|*[!0-9]*) CACHE_KB=0 ;; esac
     VENV_KB="$(du -sk "$VENV_DIR" 2>/dev/null | awk '{print $1}')"
     case "${VENV_KB:-}" in ''|*[!0-9]*) VENV_KB=0 ;; esac
-    VENV_MB=$((VENV_KB / 1024))
+    SETUP_MB=$(((CACHE_KB + VENV_KB) / 1024))
     # Map "MB on disk" onto 10-99, the slice of the bar this step owns: the
     # two announcement steps already claimed 0-10, so starting this one at 0
     # would send the bar backwards the moment the download begins.
-    MB_DONE="$VENV_MB"
-    [ "$MB_DONE" -gt "$EXPECTED_VENV_MB" ] && MB_DONE="$EXPECTED_VENV_MB"
-    PCT=$((10 + 89 * MB_DONE / EXPECTED_VENV_MB))
+    MB_DONE="$SETUP_MB"
+    [ "$MB_DONE" -gt "$EXPECTED_SETUP_MB" ] && MB_DONE="$EXPECTED_SETUP_MB"
+    PCT=$((10 + 89 * MB_DONE / EXPECTED_SETUP_MB))
     [ "$PCT" -gt 99 ] && PCT=99   # never show 100% while work remains
-    MSG="Installing components ($STEP_SYNC): $VENV_MB MB of about $EXPECTED_VENV_MB MB"
+    MSG="Installing components ($STEP_SYNC): $SETUP_MB MB of about $EXPECTED_SETUP_MB_TEXT MB"
     publish "$MSG|$PCT"
     # The status file moves every second; the log gets a line only every 25 MB
     # or 30s, so Help > Show Log File stays readable.
-    if [ $((VENV_MB - LAST_LOG_MB)) -ge 25 ] || [ $((SECONDS - LAST_LOG_AT)) -ge 30 ]; then
+    if [ $((SETUP_MB - LAST_LOG_MB)) -ge 25 ] || [ $((SECONDS - LAST_LOG_AT)) -ge 30 ]; then
       say "$MSG"
-      LAST_LOG_MB="$VENV_MB"
+      LAST_LOG_MB="$SETUP_MB"
       LAST_LOG_AT="$SECONDS"
     fi
     sleep 1
