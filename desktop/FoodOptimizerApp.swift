@@ -285,7 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               + "Wi-Fi. Leave this window open."
             : "The first time it opens, Food Optimizer downloads its "
               + "software components, about 1 GB. This usually takes "
-              + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
+              + "a few minutes, up to 15 on a slow connection. Leave "
               + "this window open."
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
