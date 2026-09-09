@@ -569,7 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "can take longer than usual. Leave this window open; "
                        + "the app will appear as soon as it's ready.",
                        spinner: true, step: lastStepText ?? "Still working…",
-                       progress: lastProgress)
+                       progress: lastProgress, indeterminate: lastProgress == nil)
         }
         if let deadline = deferDeadline, pollTicks >= deadline {
             pollTimer?.invalidate()

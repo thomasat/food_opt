@@ -226,7 +226,7 @@ if [ "$NEED_SETUP" = "1" ]; then
     [ "$MB_DONE" -gt "$EXPECTED_SETUP_MB" ] && MB_DONE="$EXPECTED_SETUP_MB"
     PCT=$((10 + 89 * MB_DONE / EXPECTED_SETUP_MB))
     [ "$PCT" -gt 99 ] && PCT=99   # never show 100% while work remains
-    MSG="Installing components ($STEP_SYNC): $SETUP_MB MB of about $EXPECTED_SETUP_MB_TEXT MB"
+    MSG="Installing components ($STEP_SYNC): $MB_DONE MB of about $EXPECTED_SETUP_MB_TEXT MB"   # clamped: an upgrade's cache already holds the previous version
     publish "$MSG|$PCT"
     # The status file moves every second; the log gets a line only every 25 MB
     # or 30s, so Help > Show Log File stays readable.
@@ -280,6 +280,8 @@ if [ -e "$1" ]; then
   fi
 fi
 
+# Empty percent on purpose: a percent here would make the window treat a
+# plain warm launch as a setup page ("Updating Food Optimizer").
 status "Starting the app…|"
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
