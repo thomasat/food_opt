@@ -196,7 +196,7 @@ with st.sidebar:
                 opt.set_pending_batch(None)
                 st.info(
                     "A previously suggested batch was discarded because the "
-                    "design space changed since it was generated."
+                    "ingredient list or ranges changed since it was generated."
                 )
         # A project that failed to load must never look like an empty success.
         if getattr(opt, "load_error", None):
@@ -211,7 +211,7 @@ with st.sidebar:
         )
         _saved = getattr(opt, "last_saved_at", None)
         if _saved is not None:
-            st.caption(f"Saved {_saved:%H:%M} to this computer. Download a backup from Backup & Restore any time.")
+            st.caption(f"Saved {_saved:%H:%M} to this computer. Download a backup from Backup and restore any time.")
 
         # --- This project: backup, restore, reset, delete ---
         # The heading names the OPEN project (not the one selected in the box
@@ -220,7 +220,7 @@ with st.sidebar:
         st.divider()
         st.subheader(opt.project_name)
         st.caption("Everything below acts on this project.")
-        st.markdown("**Backup & Restore**")
+        st.markdown("**Backup and restore**")
 
         if getattr(opt, "load_error", None):
             # Never offer a "backup" of a project that failed to load — it would
@@ -232,7 +232,7 @@ with st.sidebar:
         else:
             project_json = json.dumps(opt.export_json(), indent=2)
             st.download_button(
-                "Download Project Backup",
+                "Download project backup",
                 data=project_json,
                 file_name=f"{opt.project_name}.json",
                 mime="application/json",
@@ -305,7 +305,7 @@ with st.sidebar:
         st.divider()
 
         if confirm_action(
-            "hard_reset", "Hard Reset Project",
+            "hard_reset", "Hard reset project",
             f"Start **{opt.project_name}** over? Its {len(opt.X_history)} experiment(s) "
             "and setup are moved to an archive copy, not deleted.",
             confirm_label="Yes, reset",
@@ -380,7 +380,7 @@ if getattr(st.session_state.optimizer, "load_error", None):
         "To protect the original file, editing is paused. In the sidebar on "
         "the left you can: restore a backup you downloaded earlier "
         "(Restore from backup), or start this project over "
-        "(Hard Reset Project — the damaged file is archived, not deleted)."
+        "(Hard reset project — the damaged file is archived, not deleted)."
     )
     st.stop()
 
@@ -432,7 +432,7 @@ with tab_setup:
         # (the first-run screen) is unreachable once a project is open.
         st.caption("One row per ingredient: Name, Min, Max, in your own units such as grams.")
         uploaded_csv = st.file_uploader(
-            "Upload Ingredients CSV", type=["csv"],
+            "Upload ingredients CSV", type=["csv"],
             help="Extra columns such as Cost or Protein per 100 g become "
                  "properties you can set limits on.",
         )
@@ -453,7 +453,7 @@ with tab_setup:
                 )
         if df is not None:
             st.dataframe(df, hide_index=True, height=_table_height(len(df)))
-            if st.button("Load Ingredients", type="primary"):
+            if st.button("Load ingredients", type="primary"):
                 try:
                     st.session_state.optimizer.load_ingredients_from_csv(df)
                     st.session_state.pop("current_batch", None)  # stale under new design space
@@ -472,7 +472,7 @@ with tab_setup:
                     "Name": v['name'],
                     "Min": v['bounds'][0],
                     "Max": v['bounds'][1],
-                    "Status": "active" if v.get('active', True) else "pruned",
+                    "Status": "active" if v.get('active', True) else "paused",
                 }
                 for v in ingredient_vars
             ])
@@ -507,21 +507,21 @@ with tab_setup:
         st.divider()
 
         # --- A2. Process Parameters ---
-        st.subheader("Process parameters (optional)")
+        st.subheader("Process settings (optional)")
         st.caption(
-            "Add process settings (e.g. baking temperature, mixing time) "
-            "that the optimizer will also explore."
+            "Add settings such as baking temperature or mixing time that the "
+            "optimizer will also explore."
         )
 
         with st.form("process_param_form"):
             pp_cols = st.columns(4)
             with pp_cols[0]:
                 pp_name = st.text_input(
-                    "Parameter Name", placeholder="e.g. Baking_Temp", key="pp_name")
+                    "Setting name", placeholder="e.g. Baking temperature", key="pp_name")
             with pp_cols[1]:
-                pp_min = st.number_input("Min Value", value=0.0, key="pp_min")
+                pp_min = st.number_input("Min value", value=0.0, key="pp_min")
             with pp_cols[2]:
-                pp_max = st.number_input("Max Value", value=100.0, key="pp_max")
+                pp_max = st.number_input("Max value", value=100.0, key="pp_max")
             _pp_mid_run = bool(st.session_state.optimizer.X_history)
             with pp_cols[3]:
                 if _pp_mid_run:
@@ -533,11 +533,11 @@ with tab_setup:
                 else:
                     pp_base = st.number_input(
                         "Baseline", value=0.0, key="pp_base",
-                        help="Only needed once you have experiments: the value this "
-                             "parameter had in ALL past batches (past experiments "
-                             "encode at this value; must be between Min and Max).",
+                        help="Only needed once you have experiments: the setting used "
+                             "in every past batch, between Min and Max. Past results "
+                             "are recorded at this value.",
                     )
-            if st.form_submit_button("Add Process Parameter"):
+            if st.form_submit_button("Add process setting"):
                 if _pp_mid_run and pp_base is None:
                     st.error("Enter the baseline: the setting you used in all your past batches.")
                 else:
@@ -550,18 +550,18 @@ with tab_setup:
                         st.error(str(e))
                     else:
                         st.session_state.pop("current_batch", None)  # stale under new design space
-                        st.success(f"Added process parameter: {pp_name}")
+                        st.success(f"Added process setting: {pp_name}")
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables
             if v.get('category') == 'process'
         ]
         if proc_vars:
-            st.caption("Current process parameters:")
+            st.caption("Current process settings:")
             for i, pv in enumerate(proc_vars):
                 pc1, pc2 = st.columns([3, 1])
                 with pc1:
-                    _tag = "" if pv.get('active', True) else "  (pruned)"
+                    _tag = "" if pv.get('active', True) else "  (paused)"
                     lo, hi = pv['bounds']
                     _base = pv.get('_absent_value')
                     _base_txt = "" if _base is None else f", baseline {_base:g}"
@@ -572,8 +572,8 @@ with tab_setup:
                     if st.session_state.optimizer.X_history:
                         _go_pp = confirm_action(
                             f"rm_pp_{i}", "Remove",
-                            f"Remove {pv['name']}? Past experiments are kept and "
-                            f"re-encoded without it. A copy of the project is archived first.",
+                            f"Remove {pv['name']}? Past experiments will be recorded "
+                            f"without it. A copy of the project is archived first.",
                             confirm_label="Yes, remove",
                         )
                     else:
@@ -594,15 +594,16 @@ with tab_setup:
         # --- B. Objectives ---
         st.subheader("Objectives — what you'll measure")
         st.caption(
-            "For each measurement, say whether higher or lower is better and the "
-            "range of values you expect. Results are scored on that range."
+            "For each measurement, say whether you want it high, low or at a "
+            "target, and the range of values you expect. Results are scored on "
+            "that range."
         )
 
         _goal_labels = {"max": "Higher is better", "min": "Lower is better", "target": "Hit a target"}
         with st.form("obj_form"):
             col_name, col_w = st.columns([2, 1])
             with col_name:
-                obj_name = st.text_input("Measurement name (e.g. Chewiness)")
+                obj_name = st.text_input("Measurement name, such as Chewiness")
             with col_w:
                 obj_weight = st.slider(
                     "Weight", 0.1, 1.0, 1.0, step=0.1,
@@ -614,16 +615,16 @@ with tab_setup:
             with col_g:
                 obj_goal = st.selectbox(
                     "Goal", list(_goal_labels), format_func=_goal_labels.get,
-                    help="Whether you want this measurement as high as possible, as low as possible, or at a specific value.",
+                    help="Whether you want this measurement higher, lower, or to hit a target.",
                 )
             with col_min:
-                obj_min = st.number_input("Range Min", value=0.0,
+                obj_min = st.number_input("Range min", value=0.0,
                                           help="The lowest value you would realistically measure.")
             with col_max:
-                obj_max = st.number_input("Range Max", value=10.0,
+                obj_max = st.number_input("Range max", value=10.0,
                                           help="The highest value you would realistically measure.")
 
-            obj_target = st.number_input("Target value (only used for 'Hit a target')", value=5.0)
+            obj_target = st.number_input("Target value (used when the goal is Hit a target)", value=5.0)
 
             if st.form_submit_button("Add or update objective", type="primary"):
                 try:
@@ -675,8 +676,8 @@ with tab_setup:
         # --- D. Property Constraints ---
         st.subheader("Limits on ingredient properties (optional)")
         st.caption(
-            "Constraints on computed properties (e.g., total cost, total protein) "
-            "based on ingredient properties from your CSV."
+            "Cap or floor a property of the whole recipe, such as sodium or cost "
+            "per 100 g, using the property columns from your ingredient file."
         )
 
         available_props = set()
@@ -684,21 +685,22 @@ with tab_setup:
             available_props.update(p.keys())
 
         if available_props:
-            c_metric = st.selectbox("Constraint Metric", sorted(available_props))
-            c_min = st.number_input("Min Value", value=0.0, key="prop_c_min")
-            c_max = st.number_input("Max Value", value=100.0, key="prop_c_max")
-            if st.button("Add Property Constraint"):
+            c_metric = st.selectbox("Property", sorted(available_props))
+            c_min = st.number_input("Min value", value=0.0, key="prop_c_min")
+            c_max = st.number_input("Max value", value=100.0, key="prop_c_max")
+            if st.button("Add property limit"):
                 try:
                     st.session_state.optimizer.add_constraint(c_metric, min_val=c_min, max_val=c_max)
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    st.success("Property constraint added.")
+                    st.success(f"Added a limit on {c_metric}.")
         else:
-            st.write("No properties found in CSV.")
+            st.write("Your ingredient file has no property columns, such as "
+                     "Cost or Sodium per 100 g.")
 
         if st.session_state.optimizer.constraints:
-            st.caption("Active property constraints:")
+            st.caption("Current property limits:")
             st.dataframe(pd.DataFrame(st.session_state.optimizer.constraints))
             for i, constr in enumerate(st.session_state.optimizer.constraints):
                 if st.button(f"Remove {constr['metric']}", key=f"rm_constr_{i}"):
@@ -710,9 +712,8 @@ with tab_setup:
         # --- E. Ingredient Quantity Constraints ---
         st.subheader("Limits on ingredient amounts (optional)")
         st.caption(
-            "Set upper/lower limits on the **sum of ingredient quantities**. "
-            "Useful for synergistic effects (e.g., Sugar + Honey <= 50g) "
-            "or constraining total recipe mass."
+            "Limit the combined amount of a group of ingredients, for example "
+            "Sugar plus Honey at most 50 g, or the total mass of the recipe."
         )
 
         ingredient_names = [
@@ -723,25 +724,25 @@ with tab_setup:
         if ingredient_names:
             with st.form("qty_constraint_form"):
                 selected_ings = st.multiselect(
-                    "Select Ingredients for Sum Constraint",
+                    "Ingredients to limit together",
                     ingredient_names,
-                    help="Select the ingredients whose combined amount you want to limit.",
+                    help="The ingredients whose combined amount you want to limit.",
                 )
                 qc_cols = st.columns(2)
                 with qc_cols[0]:
                     qc_min = st.number_input(
-                        "Min Sum", value=0.0, key="qc_min",
-                        help="Leave at 0 for no lower bound",
+                        "Min sum", value=0.0, key="qc_min",
+                        help="Lowest allowed total",
                     )
                 with qc_cols[1]:
                     qc_max = st.number_input(
-                        "Max Sum", value=100.0, key="qc_max",
-                        help="Upper limit for the sum",
+                        "Max sum", value=100.0, key="qc_max",
+                        help="Highest allowed total",
                     )
-                qc_use_min = st.checkbox("Apply minimum bound", value=False, key="qc_use_min")
-                qc_use_max = st.checkbox("Apply maximum bound", value=True, key="qc_use_max")
+                qc_use_min = st.checkbox("Set a minimum", value=False, key="qc_use_min")
+                qc_use_max = st.checkbox("Set a maximum", value=True, key="qc_use_max")
 
-                if st.form_submit_button("Add Quantity Constraint"):
+                if st.form_submit_button("Add amount limit"):
                     if len(selected_ings) >= 1:
                         try:
                             st.session_state.optimizer.add_quantity_constraint(
@@ -752,19 +753,19 @@ with tab_setup:
                         except ValueError as e:
                             st.error(str(e))
                         else:
-                            st.success(f"Added quantity constraint on: {', '.join(selected_ings)}")
+                            st.success(f"Added an amount limit on: {', '.join(selected_ings)}")
                     else:
-                        st.error("Select at least 1 ingredient.")
+                        st.error("Choose at least one ingredient.")
 
             # Total mass shortcut
-            st.caption("Or quickly add a total mass constraint:")
+            st.caption("Or limit the total mass of the recipe:")
             tm_cols = st.columns(3)
             with tm_cols[0]:
-                tm_min = st.number_input("Total Mass Min", value=0.0, key="tm_min")
+                tm_min = st.number_input("Total mass min", value=0.0, key="tm_min")
             with tm_cols[1]:
-                tm_max = st.number_input("Total Mass Max", value=100.0, key="tm_max")
+                tm_max = st.number_input("Total mass max", value=100.0, key="tm_max")
             with tm_cols[2]:
-                if st.button("Add Total Mass Constraint"):
+                if st.button("Add total mass limit"):
                     try:
                         st.session_state.optimizer.add_total_mass_constraint(
                             min_val=tm_min, max_val=tm_max,
@@ -772,12 +773,12 @@ with tab_setup:
                     except ValueError as e:
                         st.error(str(e))
                     else:
-                        st.success("Total mass constraint added.")
+                        st.success("Added a total mass limit.")
 
             # Show active quantity constraints
             qc_list = getattr(st.session_state.optimizer, 'quantity_constraints', [])
             if qc_list:
-                st.caption("Active quantity constraints:")
+                st.caption("Current amount limits:")
                 for i, qc in enumerate(qc_list):
                     if set(qc['ingredients']) == set(ingredient_names):
                         label = "Total mass (all ingredients)"
@@ -796,11 +797,10 @@ with tab_setup:
                             st.session_state.optimizer.remove_quantity_constraint(i)
                             st.rerun()
         else:
-            st.write("Load ingredients first to add quantity constraints.")
+            st.write("Load ingredients first to add amount limits.")
 
         st.divider()
         with st.expander("Advanced model settings (optional)"):
-            st.caption("A pre-screening model is not available in this version.")
             st.caption(
                 "Standard uses tested defaults and fits most projects. "
                 "Expert-selected lets a specialist set the model's kernel, prior, "
@@ -816,7 +816,7 @@ with tab_setup:
                 horizontal=True,
             )
             if _mode == "Standard (default)":
-                if _cur_cfg is not None and st.button("Apply: revert to defaults"):
+                if _cur_cfg is not None and st.button("Revert to standard settings"):
                     _opt.set_bo_config(None)
                     flash("success", "Using default model settings.")
                     st.rerun()
@@ -833,21 +833,21 @@ with tab_setup:
                         "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
                         "sensory panel — keep `default` unless you have a specific reason."
                     )
-                    if st.form_submit_button("Apply expert config"):
+                    if st.form_submit_button("Apply expert settings"):
                         _opt.set_bo_config({
                             "kernel": _k, "lengthscale_prior": _lp,
                             "noise": _ns, "acquisition": _aq,
                         })
                         flash("success", "Model settings updated.")
                         st.rerun()
-                if st.checkbox("Or paste an expert config as JSON", key="bo_cfg_paste"):
+                if st.checkbox("Or paste expert settings as JSON", key="bo_cfg_paste"):
                     _txt = st.text_area(
-                        "Expert config JSON",
+                        "Expert settings JSON",
                         value='{"kernel": "matern52", "lengthscale_prior": "default", '
                               '"noise": "default", "acquisition": "qlognei"}',
                         key="bo_cfg_json",
                     )
-                    if st.button("Apply pasted config"):
+                    if st.button("Apply pasted settings"):
                         try:
                             _opt.set_bo_config(json.loads(_txt))
                             flash("success", "Model settings updated.")
@@ -884,8 +884,9 @@ with tab_optimize:
                 "Best so far": _opt.best_so_far(),
             }).set_index("Experiment")
             st.line_chart(_chart, height=220)
-            st.caption("Each experiment's Overall Score, and the best score reached so far. "
-                       "A flattening line means the optimizer is converging.")
+            st.caption("Each experiment's Overall Score, and the best so far. When the "
+                       "top line stops rising, you are close to the best this "
+                       "ingredient list can do.")
 
     _last = st.session_state.pop("_last_saved", None)
     if _last:
@@ -904,14 +905,15 @@ with tab_optimize:
     #  Ask: Generate Experiments
     # -------------------------------------------------------------- #
     with col_ask:
-        st.subheader("Generate Recipes")
+        st.subheader("Generate recipes")
         _n_hist = len(st.session_state.optimizer.X_history)
         if _n_hist < 5:   # matches ask(n_init_random=5)
-            st.info(f"Exploration phase: {_n_hist} of 5 baseline experiments done. The first "
-                    "recipes are spread across your ranges to map the space; the optimizer "
-                    "starts learning from your results after that.")
+            st.info(f"Getting started: {_n_hist} of 5 first recipes tried. The first five "
+                    "are spread across your ranges so the optimizer can see how each "
+                    "ingredient matters. After that, each batch aims closer to your targets.")
         else:
-            st.caption(f"Optimizing — the model has learned from {_n_hist} experiments.")
+            st.caption(f"Learning from {_n_hist} experiments. Each new batch aims "
+                       "closer to your targets.")
         batch_size = st.slider("How many recipes to try this round", 1, 10, 3,
                                help="Recipes you can realistically make before entering results.")
         if not _ready:
@@ -960,7 +962,7 @@ with tab_optimize:
     #  Tell: Input Lab Results
     # -------------------------------------------------------------- #
     with col_tell:
-        st.subheader("Enter Lab Results")
+        st.subheader("Enter results")
 
         batch = st.session_state.get("current_batch")
         if not batch:
@@ -968,7 +970,10 @@ with tab_optimize:
         else:
             objs = st.session_state.optimizer.objectives
             batch_id = st.session_state.get("_batch_id", 0)
-            with st.form("results_form"):
+            # enter_to_submit=False removes Streamlit's "Press Enter to submit
+            # form" hint under every focused field; with several fields per
+            # recipe that hint was the loudest text on the form.
+            with st.form("results_form", enter_to_submit=False):
                 batch_inputs, skipped = {}, set()
                 for i, recipe in enumerate(batch):
                     st.markdown(f"**Recipe {i + 1}**")
@@ -994,18 +999,20 @@ with tab_optimize:
                         if j % _per_row == 0:
                             cols = st.columns(min(_per_row, len(objs) - j))
                         with cols[j % _per_row]:
+                            # One label (the measurement) and the range as the
+                            # placeholder, which disappears once they type.
                             rec_scores[obj['name']] = st.number_input(
-                                f"{obj['name']} ({obj['min_val']:g}–{obj['max_val']:g})",
+                                obj['name'],
                                 min_value=float(obj['min_val']),
                                 max_value=float(obj['max_val']),
                                 value=None,
-                                placeholder="enter measurement",
+                                placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                                 key=f"b{batch_id}_r{i}o{j}",
                             )
                     batch_inputs[i] = rec_scores
                     st.divider()
 
-                if st.form_submit_button("Save Results", type="primary"):
+                if st.form_submit_button("Save results", type="primary"):
                     missing = [
                         f"Recipe {i + 1} {name}"
                         for i, scores in batch_inputs.items() if i not in skipped
@@ -1090,7 +1097,7 @@ with tab_optimize:
     #  Experiment History (with Edit / Delete / Rewind)
     # -------------------------------------------------------------- #
     if st.session_state.optimizer.X_history:
-        st.subheader("Experiment History")
+        st.subheader("Experiment history")
         _opt = st.session_state.optimizer
         _order = st.radio("Order", ["Most recent first", "Best first"], horizontal=True,
                           key="hist_order", label_visibility="collapsed")
@@ -1142,7 +1149,7 @@ with tab_optimize:
                 if not st.session_state.optimizer.objectives:
                     st.info("Add a measurement in the Set up tab before editing past results.")
                 else:
-                    with st.form("edit_form"):
+                    with st.form("edit_form", enter_to_submit=False):
                         st.markdown(f"**Edit results for experiment {edit_idx + 1}:**")
                         new_results = {}
                         _edit_objs = st.session_state.optimizer.objectives
@@ -1154,17 +1161,17 @@ with tab_optimize:
                                 _has_val = obj['name'] in current_results
                                 current_val = float(current_results[obj['name']]) if _has_val else None
                                 new_results[obj['name']] = st.number_input(
-                                    f"{obj['name']} ({obj['min_val']:g}–{obj['max_val']:g})",
+                                    obj['name'],
                                     min_value=float(obj['min_val']),
                                     max_value=float(obj['max_val']),
                                     value=current_val,
-                                    placeholder="enter measurement",
+                                    placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                                     key=f"edit_{edit_idx}_{j}",
                                 )
 
                         ec1, ec2 = st.columns(2)
                         with ec1:
-                            if st.form_submit_button("Update Result"):
+                            if st.form_submit_button("Update result"):
                                 blank_missing = [
                                     obj['name'] for obj in _edit_objs
                                     if new_results[obj['name']] is None and obj['name'] not in current_results
@@ -1221,13 +1228,13 @@ with tab_optimize:
                         st.rerun()
             else:
                 st.warning(
-                    f"Experiment {edit_idx + 1} was recorded before edit tracking was enabled. "
-                    "Only newer experiments can be edited."
+                    f"Experiment {edit_idx + 1} did not store its measurements, so it "
+                    "cannot be edited. Newer experiments can."
                 )
         else:
             st.info(
-                "Edit capability is available for experiments recorded from this version onward. "
-                "Older experiments (without stored raw results) cannot be edited."
+                "These experiments were recorded before measurements were stored, "
+                "so they cannot be edited. New results can."
             )
 
         # --- Rewind ---
@@ -1299,7 +1306,7 @@ Each score is multiplied by its measurement's weight and the results are added u
             st.caption("One row per past experiment. Add ingredients and measurements "
                        "first; the columns must match their names exactly.")
 
-        import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
+        import_csv = st.file_uploader("Upload experiments CSV", type=["csv"], key="import_csv")
         import_df = None
         if import_csv is not None:
             try:
@@ -1324,7 +1331,7 @@ Each score is multiplied by its measurement's weight and the results are added u
                 nan_cols = [c for c in required if import_df[c].isna().any()]
                 if nan_cols:
                     st.error(f"These columns have blank cells: {', '.join(nan_cols)}")
-                elif st.button("Import All Rows", type="primary"):
+                elif st.button("Import all rows", type="primary"):
                     imported = 0
                     import_error = None
                     try:
@@ -1375,7 +1382,7 @@ Each score is multiplied by its measurement's weight and the results are added u
         _has_hist = bool(_opt.X_history)
         # Radio outside the form so the fields react to the type choice.
         add_type = st.radio(
-            "Type", ["Ingredient", "Process parameter"],
+            "Type", ["Ingredient", "Process setting"],
             horizontal=True, key="adaptive_add_type",
         )
         with st.form("adaptive_add_form"):
@@ -1385,7 +1392,8 @@ Each score is multiplied by its measurement's weight and the results are added u
                 new_min = st.number_input(
                     "Min", value=0.0, key="adaptive_new_min",
                     disabled=(add_type == "Ingredient" and _has_hist),
-                    help="Ingredients added mid-run have min 0 (absent in prior recipes).",
+                    help="An ingredient added now starts at 0 in every past recipe, "
+                         "so its minimum is 0.",
                 )
             with nc2:
                 new_max = st.number_input("Max", value=10.0, key="adaptive_new_max")
@@ -1393,18 +1401,18 @@ Each score is multiplied by its measurement's weight and the results are added u
                 new_base = st.number_input(
                     "Baseline (process only)", value=0.0, key="adaptive_new_base",
                     disabled=(add_type == "Ingredient"),
-                    help="The value used in ALL prior batches. Past experiments encode "
-                         "at this value; must lie within [Min, Max].",
+                    help="The setting used in every past batch, between Min and Max. "
+                         "Past results are recorded at this value.",
                 )
             if add_type == "Ingredient":
                 st.caption(
-                    "Ingredient: absent (0) in every past recipe; mid-run its min is 0 "
+                    "Ingredient: counted as 0 in every past recipe. Its minimum is 0 "
                     "and the optimizer decides how much to use."
                 )
             else:
                 st.caption(
-                    "Process parameter: past batches ran at a fixed setting, so give the "
-                    "Baseline (that setting) — it must lie within [Min, Max]."
+                    "Process setting: past batches used one fixed value, so enter it "
+                    "as the baseline, between Min and Max."
                 )
             if st.form_submit_button("Add"):
                 nm = new_name.strip()
@@ -1442,7 +1450,7 @@ Each score is multiplied by its measurement's weight and the results are added u
                 [v['name'] for v in _act],
                 key="egbo_deactivate",
                 help="Paused ingredients are fixed at 0; paused process "
-                     "parameters are fixed at their baseline or lower bound.",
+                     "settings are fixed at their baseline or lower bound.",
             )
             if st.button("Pause selected", disabled=not _off):
                 try:
@@ -1454,7 +1462,7 @@ Each score is multiplied by its measurement's weight and the results are added u
                 except ValueError as e:
                     st.error(str(e))
         else:
-            st.caption("At least 2 items must be in play before one can be paused.")
+            st.caption("At least two items must be in play before one can be paused.")
 
         if _inact:
             st.caption("Paused — fixed while new recipes are chosen:")
@@ -1484,10 +1492,10 @@ Each score is multiplied by its measurement's weight and the results are added u
         # Checkbox rather than an expander: Streamlit forbids nested expanders.
         if st.checkbox("Show permanent deletion (rarely needed)", key="egbo_show_del"):
             st.caption(
-                "Deletion drops the ingredient's column from the stored history. "
-                "It is refused if the ingredient was ever used at a nonzero amount, "
-                "since that would rewrite past experiments into recipes nobody ran. "
-                "Pausing above is almost always what you want."
+                "Deleting removes the ingredient from every past experiment. It is "
+                "refused if the ingredient was ever used in an amount above 0, "
+                "because that would rewrite past experiments into recipes nobody "
+                "made. Pausing keeps the data."
             )
             _ing_names = [
                 v['name'] for v in _opt.variables
@@ -1501,8 +1509,8 @@ Each score is multiplied by its measurement's weight and the results are added u
                 )
                 if confirm_action(
                     "egbo_del", "Delete permanently",
-                    f"Delete {_del} from this project for good? Past experiments are kept but "
-                    "re-encoded without it. A copy of the project is archived first.",
+                    f"Delete {_del} from this project for good? Past experiments will be "
+                    "recorded without it. A copy of the project is archived first.",
                     confirm_label="Yes, delete",
                 ):
                     try:

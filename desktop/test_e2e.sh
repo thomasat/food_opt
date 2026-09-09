@@ -270,7 +270,7 @@ at.text_input(key="pp_name").set_value("oven_temp")
 at.number_input(key="pp_min").set_value(150.0)
 at.number_input(key="pp_max").set_value(220.0)
 at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
-next(b for b in at.button if b.label == "Add Process Parameter").click()
+next(b for b in at.button if b.label == "Add process setting").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
 assert any("must be between" in str(e.value) for e in at.error)
