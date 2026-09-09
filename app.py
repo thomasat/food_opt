@@ -69,10 +69,13 @@ def _open_sample_project():
         try:
             _sample = FoodOptimizer(_name, storage=STORAGE)
             _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-            # A plant-based burger scored by a tasting panel: both scores
-            # should be high, firmness weighted a little more.
-            _sample.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10)
-            _sample.add_objective("Firmness", 1.5, goal="max", min_val=0, max_val=10)
+            # A plant-based burger rated by a trained panel for intensity, 0 to
+            # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
+            # is a puck), so both are targets; firmness weighted a little more.
+            _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
+                                  min_val=0, max_val=10)
+            _sample.add_objective("Firmness", 1.5, goal="target", target=6,
+                                  min_val=0, max_val=10)
         except ValueError as e:
             st.error(f"The sample project could not be created: {e}")
         else:
@@ -156,8 +159,9 @@ with st.sidebar:
         if st.button(
             "Try the sample project", key="sample_project_sidebar",
             help="Opens a ready-made plant-based burger project with eight "
-                 "ingredients and two panel scores, Juiciness and Firmness, "
-                 "so you can explore before setting up your own.",
+                 "ingredients and two trained-panel scores, Juiciness and "
+                 "Firmness, each with a target intensity, so you can explore "
+                 "before setting up your own.",
         ):
             _open_sample_project()
 

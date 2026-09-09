@@ -616,10 +616,13 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     # Eight ingredients: enough for a real recipe, few enough to read at a
     # glance in the results form and the recipe cards.
     assert len(opt.variables) == 8
-    # The sample is the plant-based burger brief: two panel scores, both
-    # higher-is-better, firmness weighted more than juiciness.
+    # The sample is the plant-based burger brief for a trained panel: two
+    # intensity scores with targets (7 and 6 out of 10), firmness weighted
+    # more than juiciness.
     assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]
-    assert all(o["goal"] == "max" for o in opt.objectives)
+    assert all(o["goal"] == "target" for o in opt.objectives)
+    targets = {o["name"]: o["target"] for o in opt.objectives}
+    assert targets == {"Juiciness": 7, "Firmness": 6}
     weights = {o["name"]: o["weight"] for o in opt.objectives}
     assert weights["Firmness"] > weights["Juiciness"]
 
