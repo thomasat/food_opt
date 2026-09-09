@@ -598,7 +598,7 @@ def test_history_appears_before_advanced_expanders(project_with_history):
     # equality is ambiguous, so only compare when the value is a string.
     history = pos(lambda k: isinstance(k[1], str) and k[1] == "Experiment History")
     adaptive = pos(lambda k: isinstance(k[1], str) and "Change the ingredient list" in k[1])
-    imp = pos(lambda k: isinstance(k[1], str) and "Import Historical" in k[1])
+    imp = pos(lambda k: isinstance(k[1], str) and "Import past experiments" in k[1])
     assert history < imp < adaptive, kinds
 
 

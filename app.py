@@ -799,13 +799,12 @@ with tab_setup:
             st.write("Load ingredients first to add quantity constraints.")
 
         st.divider()
-        with st.expander("Advanced: model settings (most people can skip this)"):
+        with st.expander("Advanced model settings (optional)"):
             st.caption("A pre-screening model is not available in this version.")
             st.caption(
-                "Leave this on Standard unless you know the statistics behind "
-                "the optimizer. Standard uses sensible defaults. 'Expert-selected' "
-                "lets a specialist fix the model's kernel, prior, noise handling "
-                "and acquisition once at the start."
+                "Standard uses tested defaults and fits most projects. "
+                "Expert-selected lets a specialist set the model's kernel, prior, "
+                "noise handling and acquisition once at the start."
             )
             _opt = st.session_state.optimizer
             _cur_cfg = getattr(_opt, "bo_config", None)
@@ -1288,7 +1287,7 @@ Each score is multiplied by its measurement's weight and the results are added u
     # -------------------------------------------------------------- #
     #  Bulk Import Historical Experiments
     # -------------------------------------------------------------- #
-    with st.expander("Import Historical Experiments (CSV)"):
+    with st.expander("Import past experiments from a CSV"):
         # Name the exact columns this project needs instead of a made-up example.
         _imp_opt = st.session_state.optimizer
         _imp_cols = ([v["name"] for v in _imp_opt.variables]
