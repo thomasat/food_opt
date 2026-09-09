@@ -22,7 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
     var showingStepPage = false   // the page on screen has a #step element
-    var showingBar = false        // ...and a #bar element
+    var showingBar = false        // ...and a #bar element whose width we set
+    // The plain "Opening Food Optimizer…" card. It now carries a step line of
+    // its own, so "has a #step element" no longer distinguishes it from a
+    // setup page — but only this page may be swapped out for one.
+    var showingOpeningPage = false
     var retryToken = 0            // cancels a pending retry when Try again is clicked again
     var pendingOldLauncher: Process?   // the launcher a retry is waiting on; a second click must keep waiting on it
     var setupIsUpgrade = false    // the marker existed when this launch began
@@ -30,8 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var launchGeneration = 0
 
     // Lines the launcher publishes while it is doing setup work. "Starting the
-    // app" is deliberately absent: it arrives on EVERY launch, warm ones
-    // included, and must never turn an ordinary opening page into a setup page.
+    // app…" is deliberately absent: it arrives on EVERY launch, warm ones
+    // included, and must never turn an ordinary opening page into a setup page
+    // (it may only update that page's step line).
     let setupStepPrefixes = ["Downloading Python", "Creating environment",
                              "Updating components", "Installing components",
                              "Finishing setup"]
@@ -261,7 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if isFirstRun {
             showSetupStatus(step: "Preparing…", progress: 0)
         } else {
-            showStatus("Opening Food Optimizer…", "", spinner: true)
+            // A warm launch has no measurable steps, but it must still show
+            // motion that means "working", not a bare spinner: a step line the
+            // launcher can update plus a thin looping bar. The step text is
+            // the line the launcher is about to publish, so it does not jump.
+            showStatus("Opening Food Optimizer…", "",
+                       step: "Starting the app…", indeterminate: true)
         }
     }
 
@@ -275,14 +285,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               + "Wi-Fi. Leave this window open."
             : "The first time it opens, Food Optimizer downloads its "
               + "software components, about 1 GB. This usually takes "
-              + "5 to 15 minutes, longer on slow office Wi-Fi. Leave "
+              + "a few minutes, up to 15 on a slow connection. Leave "
               + "this window open."
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 
+    // `indeterminate` draws a looping bar for work with no measurable
+    // progress; it is what marks a page as the opening page.
     func showStatus(_ title: String, _ body: String, spinner: Bool = false,
                     step: String? = nil, progress: Int? = nil,
-                    retry: Bool = false) {
+                    indeterminate: Bool = false, retry: Bool = false) {
         let spinnerHTML = spinner ? """
             <div style="margin:24px auto;width:28px;height:28px;border:3px solid #cdd6ce;
                         border-top-color:#2E6E4E;border-radius:50%;
@@ -295,15 +307,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                 margin:0 0 14px">\($0)</p>
             """
         } ?? ""
-        // A bar only where there is a percentage to show. poll() widens #bar
-        // as the launcher reports progress.
-        let barHTML = (progress != nil) ? """
+        // A measured bar where there is a percentage to show (poll() widens
+        // #bar as the launcher reports progress), otherwise a looping one when
+        // the caller asked for it. Same track and same green either way, so
+        // the two pages read as one family.
+        let indeterminateHTML = """
+            <div style="max-width:320px;height:4px;margin:0 auto 20px;
+                        background:#e2e6e1;border-radius:2px;overflow:hidden">
+              <div style="width:40%;height:100%;background:#2E6E4E;border-radius:2px;
+                          animation:slide 1.5s ease-in-out infinite"></div>
+            </div>
+            <style>@keyframes slide{0%{transform:translateX(-105%)}
+                                    100%{transform:translateX(255%)}}</style>
+            """
+        let barHTML: String
+        if progress != nil {
+            barHTML = """
             <div id="barwrap" style="max-width:320px;height:6px;margin:0 auto 20px;
                                      background:#e2e6e1;border-radius:3px;overflow:hidden">
               <div id="bar" style="width:\(max(0, min(progress ?? 0, 100)))%;height:100%;
                                    background:#2E6E4E;transition:width .4s ease"></div>
             </div>
-            """ : ""
+            """
+        } else {
+            barHTML = indeterminate ? indeterminateHTML : ""
+        }
         let retryHTML = retry ? """
             <p style="margin-top:28px"><a href="foodopt://retry"
                style="display:inline-block;padding:10px 22px;background:#2E6E4E;color:#fff;
@@ -328,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         webView.loadHTMLString(html, baseURL: nil)
         showingStepPage = (step != nil)
         showingBar = (progress != nil)
+        showingOpeningPage = indeterminate
         // Forget the last line we pushed: the DOM is new, so the next tick
         // must re-apply the current step even if the launcher has not moved on.
         lastStatusLine = nil
@@ -501,17 +530,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             lastProgress = pct
         }
         // A launch that looked warm turned out to have work to do (an upgrade
-        // keeps the marker until the launcher speaks): swap in the setup page
-        // so there is somewhere for the step line and the bar to live. Only a
-        // real setup line earns that swap — a warm launch also publishes
-        // "Starting the app", and it must keep the plain opening page.
-        guard showingStepPage else {
-            let isSetupLine = pct != nil
-                || setupStepPrefixes.contains { text.hasPrefix($0) }
-            guard isSetupLine else { return }
+        // keeps the marker until the launcher speaks): swap in the setup page,
+        // which is where the long explanation and the measured bar live. Only
+        // a real setup line earns that swap — every launch, warm ones
+        // included, also publishes "Starting the app…", and that line must
+        // never turn an ordinary opening page into a setup page. It is still
+        // welcome to update the opening page's own step line, which is why the
+        // swap is now gated on the page rather than on "has a #step at all".
+        let isSetupLine = pct != nil
+            || setupStepPrefixes.contains { text.hasPrefix($0) }
+        if isSetupLine && (showingOpeningPage || !showingStepPage) {
             showSetupStatus(step: text, progress: pct)
             return
         }
+        guard showingStepPage else { return }   // nowhere to put the text
         // The first percent of a setup that began with unnumbered lines: the
         // page has no #bar to widen yet, so render it once with one.
         if pct != nil && !showingBar {
@@ -537,7 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "can take longer than usual. Leave this window open; "
                        + "the app will appear as soon as it's ready.",
                        spinner: true, step: lastStepText ?? "Still working…",
-                       progress: lastProgress)
+                       progress: lastProgress, indeterminate: lastProgress == nil)
         }
         if let deadline = deferDeadline, pollTicks >= deadline {
             pollTimer?.invalidate()
