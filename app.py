@@ -137,7 +137,7 @@ with st.sidebar:
             elif name in existing_projects:
                 st.error(f"A project named {name} already exists. Open it below.")
             elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                st.error("That name is already used by a project or an archive. "
+                st.error("That name is already used by a project or an archived copy. "
                          "Choose another.")
             else:
                 _open_project(name, create=True)
@@ -213,7 +213,7 @@ with st.sidebar:
         _paused_suffix = f" · {n_paused} paused" if n_paused > 0 else ""
         st.caption(
             f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
-            f"| {_n_act} ingredients and settings in play{_paused_suffix}"
+            f"| {_n_act} ingredients and settings active{_paused_suffix}"
         )
         _saved = getattr(opt, "last_saved_at", None)
         if _saved is not None:
@@ -251,7 +251,7 @@ with st.sidebar:
             except ValueError:
                 st.session_state.pop("_restore_candidate", None)
                 st.error(
-                    "This backup file couldn't be read. Make sure it's a backup "
+                    "This backup file could not be read. Make sure it is a backup "
                     "downloaded from Food Optimizer (a .json file) and try again."
                 )
 
@@ -267,8 +267,8 @@ with st.sidebar:
                     f"This backup contains project **{summary['name']}** with "
                     f"{summary['experiments']} experiments and {summary['ingredients']} "
                     f"ingredients. Replace **{opt.project_name}** "
-                    f"({len(opt.X_history)} experiments)? The current project is "
-                    "archived first."
+                    f"({len(opt.X_history)} experiments)? A copy of the current "
+                    "project is kept first."
                 )
                 rc1, rc2 = st.columns(2)
                 with rc1:
@@ -312,11 +312,11 @@ with st.sidebar:
 
         if confirm_action(
             "hard_reset", "Hard reset project",
-            (f"Start **{opt.project_name}** over? Its setup is kept as an archive copy "
-             "and the project becomes empty."
+            (f"Start **{opt.project_name}** over? A copy of it is kept in your projects "
+             "folder and the project becomes empty."
              if not opt.X_history else
              f"Start **{opt.project_name}** over? Its {_experiments(len(opt.X_history))} "
-             "and setup are kept as an archive copy, and the project becomes empty."),
+             "and setup are kept as a copy in your projects folder, and the project becomes empty."),
             confirm_label="Yes, reset",
         ):
             _target = opt.project_name
@@ -326,7 +326,7 @@ with st.sidebar:
                 st.error(str(e))
             else:
                 if archived:
-                    flash("info", f"Your previous data was kept as an archive named {archived}.")
+                    flash("info", f"A copy of the previous project was kept as {archived}.")
                 _reset_project_session()
                 st.session_state["_loaded_project"] = _target
                 st.rerun()
@@ -351,8 +351,7 @@ with st.sidebar:
                 st.error(str(e))
             else:
                 if archived:
-                    flash("info", f"Deleted {_target}. A copy was kept as an archive "
-                                  f"named {archived}.")
+                    flash("info", f"Deleted {_target}. A copy was kept as {archived}.")
                 else:
                     flash("info", f"Deleted {_target}.")
                 _reset_project_session()
@@ -367,7 +366,7 @@ if opt is None:
     st.markdown("## Create your first project")
     st.markdown(
         "1. **Name a project** in the sidebar and click Create project.\n"
-        "2. **Add ingredients** and say what you will measure.\n"
+        "2. **Add ingredients** and the measurements you will record.\n"
         "3. **Generate recipes**, make them, and enter the results."
     )
     wc1, wc2 = st.columns(2)
@@ -458,7 +457,7 @@ with tab_setup:
                 df = pd.read_csv(uploaded_csv)
             except Exception:
                 st.error(
-                    "This file couldn't be read as a CSV. If it came from "
+                    "This file could not be read as a CSV. If it came from "
                     "Excel, use File > Save As and pick CSV format, then "
                     "try again."
                 )
@@ -503,8 +502,8 @@ with tab_setup:
             if _has_hist:
                 st.caption(
                     "Because experiments already exist, a new ingredient starts "
-                    "at 0 in every past recipe, so its Min is fixed at 0. You "
-                    "can raise it later once the model has data for it."
+                    "at 0 in every past recipe, so its minimum is fixed at 0 for now. "
+                    "You can raise it once a few recipes have used it."
                 )
             if st.form_submit_button("Add ingredient", type="primary"):
                 try:
@@ -584,7 +583,7 @@ with tab_setup:
                         _go_pp = confirm_action(
                             f"rm_pp_{i}", "Remove",
                             f"Remove {pv['name']}? Past experiments will be recorded "
-                            f"without it. A copy of the project is archived first.",
+                            f"without it. A copy of the project is kept first.",
                             confirm_label="Yes, remove",
                         )
                     else:
@@ -605,9 +604,9 @@ with tab_setup:
         # --- B. Objectives ---
         st.subheader("Objectives — what you'll measure")
         st.caption(
-            "For each measurement, say whether you want it high, low or at a "
-            "target, and the range of values you expect. Results are scored on "
-            "that range."
+            "For each measurement, choose whether you want it high, low or at a "
+            "target, and give the range of values you expect. Results are scored "
+            "on that range."
         )
 
         _goal_labels = {"max": "Higher is better", "min": "Lower is better", "target": "Hit a target"}
@@ -618,8 +617,8 @@ with tab_setup:
             with col_w:
                 obj_weight = st.slider(
                     "Weight", 0.1, 1.0, 1.0, step=0.1,
-                    help="How much this matters relative to your other objectives. "
-                         "Weights are relative and do not need to add up to 1.",
+                    help="How much this measurement matters compared with the others. "
+                         "Only the proportions matter; the weights do not need to add up to 1.",
                 )
 
             col_g, col_min, col_max = st.columns(3)
@@ -654,7 +653,7 @@ with tab_setup:
             _ceiling = st.session_state.optimizer.utility_ceiling()
             st.caption(
                 f"Weights add up to {_ceiling:g}, so a perfect recipe scores {_ceiling:g}. "
-                "Weights are relative: only their ratios matter."
+                "Only the proportions between weights matter."
             )
             _rows = [{
                 "Measurement": o['name'],
@@ -688,8 +687,8 @@ with tab_setup:
         # --- D. Property Constraints ---
         st.subheader("Limits on ingredient properties (optional)")
         st.caption(
-            "Cap or floor a property of the whole recipe, such as sodium or cost "
-            "per 100 g, using the property columns from your ingredient file."
+            "Set a maximum or minimum for a property of the whole recipe, such as "
+            "sodium or cost per 100 g, using the property columns from your ingredient file."
         )
 
         available_props = set()
@@ -882,7 +881,7 @@ with tab_optimize:
         sc1, sc2 = st.columns([1, 2])
         with sc1:
             st.metric("Best Overall Score", f"{_opt.Y_history[_best_i]:.3f}",
-                      help=f"A perfect recipe would score {_ceiling:g} (the sum of your objective weights).")
+                      help=f"A perfect recipe would score {_ceiling:g} , the total of your measurement weights.")
             st.caption(f"Experiment {_best_i + 1} · out of a possible {_ceiling:g}")
             _best_recipe = _opt.recipe_history[_best_i] if _best_i < len(_opt.recipe_history) else {}
             st.table(pd.DataFrame(_opt.recipe_lines(_best_recipe),
@@ -943,8 +942,8 @@ with tab_optimize:
                 except Exception:
                     # A raw traceback is a dead end for a nontechnical user.
                     st.error(
-                        "The app hit an unexpected problem while choosing "
-                        "recipes. Try again with fewer recipes. If it keeps "
+                        "The app could not choose recipes this time. "
+                        "Try again with fewer recipes. If it keeps "
                         "happening, loosen any limits you added recently, "
                         "or open Help › Get Help."
                     )
@@ -1034,7 +1033,7 @@ with tab_optimize:
                     if missing:
                         st.error(
                             "Enter a value for: " + ", ".join(missing) + ". "
-                            "Tick 'Not made or failed' to leave a recipe out."
+                            "Select 'Not made or failed' to leave a recipe out."
                         )
                     elif not kept:
                         st.error("Every recipe is marked as left out, so there is nothing to save.")
@@ -1060,7 +1059,7 @@ with tab_optimize:
                 st.caption(
                     "Download the batch sheet on the left, fill in one column per "
                     "measurement, and upload it here. Rows are matched by Recipe number; "
-                    "recipes you leave out stay on the bench."
+                    "recipes you leave out stay in the batch, waiting for results."
                 )
                 up = st.file_uploader("Results sheet", type=["csv"], key=f"b{batch_id}_results_csv")
                 if up is not None and st.button("Check this sheet", type="primary", key=f"b{batch_id}_check"):
@@ -1068,7 +1067,7 @@ with tab_optimize:
                         st.session_state["_results_upload"] = pd.read_csv(up)
                     except Exception:
                         st.session_state.pop("_results_upload", None)
-                        st.error("This file couldn't be read as a CSV. If it came from Excel, use File > Save As and pick CSV format.")
+                        st.error("This file could not be read as a CSV. If it came from Excel, use File > Save As and pick CSV format.")
                 _sheet = st.session_state.get("_results_upload")
                 if _sheet is not None:
                     _opt = st.session_state.optimizer
@@ -1223,7 +1222,7 @@ with tab_optimize:
                 if confirm_action(
                     "delete_exp",
                     f"Delete experiment {edit_idx + 1}",
-                    f"Delete experiment {edit_idx + 1} ({_desc})? A copy of the project is archived first.",
+                    f"Delete experiment {edit_idx + 1} ({_desc})? A copy of the project is kept first.",
                     confirm_label="Yes, delete",
                 ):
                     try:
@@ -1248,8 +1247,8 @@ with tab_optimize:
         # --- Rewind ---
         st.divider()
         st.caption("Rewind to a past experiment:")
-        st.info("Rewind keeps experiments 1 through N and **discards all later ones**. "
-                "The current project is archived first, so nothing is permanently lost.")
+        st.info("Rewind removes every experiment after the one you choose. "
+                "A copy of the project is kept first, so nothing is permanently lost.")
         rewind_no = st.number_input(
             "Keep experiments up to", min_value=1,
             max_value=len(st.session_state.optimizer.X_history),
@@ -1258,12 +1257,12 @@ with tab_optimize:
         rewind_idx = int(rewind_no) - 1
         n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
         if n_discard > 0:
-            st.warning(f"This will discard {_experiments(n_discard)} "
-                       f"({rewind_idx + 2} through {len(st.session_state.optimizer.X_history)}).")
+            st.warning(f"This will remove {_experiments(n_discard)}: "
+                       f"{rewind_idx + 2} to {len(st.session_state.optimizer.X_history)}.")
         if confirm_action(
             "rewind", "Rewind",
-            f"Discard {_experiments(n_discard)} and keep 1 through {rewind_idx + 1}? "
-            "A copy of the project is archived first.",
+            f"Remove {_experiments(n_discard)} and keep the first {rewind_idx + 1}? "
+            "A copy of the project is kept first.",
             confirm_label="Yes, rewind", disabled=(n_discard == 0),
         ):
             pname = st.session_state.optimizer.project_name
@@ -1273,7 +1272,7 @@ with tab_optimize:
                 st.error(str(e))
             else:
                 if archived:
-                    flash("info", f"Archived current state as {archived}")
+                    flash("info", f"A copy of the project before the rewind was kept as {archived}.")
                 st.session_state.optimizer.rewind_to(rewind_idx)
                 st.session_state.pop("current_batch", None)
                 flash("success", f"Rewound to experiment {rewind_idx + 1}.")
@@ -1321,7 +1320,7 @@ Each score is multiplied by its measurement's weight and the results are added u
                 import_df = pd.read_csv(import_csv)
             except Exception:
                 st.error(
-                    "This file couldn't be read as a CSV. If it came from "
+                    "This file could not be read as a CSV. If it came from "
                     "Excel, use File > Save As and pick CSV format, then "
                     "try again."
                 )
@@ -1372,7 +1371,7 @@ Each score is multiplied by its measurement's weight and the results are added u
         _inact = _opt.inactive_variables()
         ac1, ac2 = st.columns(2)
         with ac1:
-            st.metric("In play", len(_act))
+            st.metric("Active", len(_act))
         with ac2:
             st.metric("Paused (data kept)", len(_inact))
 
@@ -1447,9 +1446,9 @@ Each score is multiplied by its measurement's weight and the results are added u
 
         st.divider()
         st.markdown(
-            "**3. Pause an ingredient.** Paused ingredients are fixed at 0 "
-            "(process settings at their baseline) while new recipes are "
-            "chosen. Nothing is deleted and you can resume it any time."
+            "**3. Pause an ingredient.** Paused ingredients are left out of "
+            "new recipes (process settings stay at their baseline). Nothing is "
+            "deleted, and you can resume at any time."
         )
 
         if len(_act) > 1:
@@ -1457,8 +1456,8 @@ Each score is multiplied by its measurement's weight and the results are added u
                 "Pause",
                 [v['name'] for v in _act],
                 key="egbo_deactivate",
-                help="Paused ingredients are fixed at 0; paused process "
-                     "settings are fixed at their baseline or lower bound.",
+                help="Paused ingredients are left out of new recipes; paused process "
+                     "settings stay at their baseline.",
             )
             if st.button("Pause selected", disabled=not _off):
                 try:
@@ -1470,10 +1469,10 @@ Each score is multiplied by its measurement's weight and the results are added u
                 except ValueError as e:
                     st.error(str(e))
         else:
-            st.caption("At least two items must be in play before one can be paused.")
+            st.caption("At least two ingredients or settings must stay active before one can be paused.")
 
         if _inact:
-            st.caption("Paused — fixed while new recipes are chosen:")
+            st.caption("Paused (left out while new recipes are chosen):")
             st.dataframe(
                 pd.DataFrame([
                     {
@@ -1517,8 +1516,8 @@ Each score is multiplied by its measurement's weight and the results are added u
                 )
                 if confirm_action(
                     "egbo_del", "Delete permanently",
-                    f"Delete {_del} from this project for good? Past experiments will be "
-                    "recorded without it. A copy of the project is archived first.",
+                    f"Delete {_del} from this project permanently? Past experiments will be "
+                    "recorded without it. A copy of the project is kept first.",
                     confirm_label="Yes, delete",
                 ):
                     try:
