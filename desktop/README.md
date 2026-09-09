@@ -148,9 +148,9 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload a CSV (file picker opens), download a
    backup (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. UI walkthrough: create a project, upload the dmg's "Example Data"
-   CSVs, request a suggestion batch, log a result, confirm the `.pkl`
-   appears in `~/FoodOptimizer/`.
+6. UI walkthrough: click "Try the sample project" (twenty ingredients,
+   Juiciness and Firmness), request a suggestion batch, log a result,
+   confirm the `.pkl` appears in `~/FoodOptimizer/`.
 7. Quit, relaunch: fast start, project still listed and loads.
 8. Wi-Fi off on a set-up machine: works fully offline.
 9. Wi-Fi off on a fresh machine: plain-language "needs internet once"

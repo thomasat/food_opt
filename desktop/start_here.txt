@@ -21,12 +21,11 @@ HOW TO INSTALL
    If your Mac asks whether you are sure you want to open it, click Open.
 
 TRYING IT OUT
-- Next to this file you'll find an "Example Data" folder with sample
-  spreadsheets. Upload "example ingredients.csv" in the app's Ingredients
-  section to see how everything works before using your own data.
-- "example experiments.csv" in that same folder holds sample past results.
-  Upload it under Run experiments > Import Historical Experiments to see
-  a project that already has data in it.
+- The app comes with a sample project: a plant-based burger with twenty
+  ingredients and two panel scores. On the first screen, click
+  "Try the sample project" to explore before setting up your own.
+- Starting from a spreadsheet instead? The same screen offers a CSV
+  template you can fill in and upload.
 
 USING IT DAY TO DAY
 - To open the app again later, open Food Optimizer from Applications,

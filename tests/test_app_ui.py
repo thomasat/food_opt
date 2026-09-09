@@ -505,8 +505,13 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
-    assert len(opt.variables) >= 3
-    assert opt.objectives and opt.objectives[0]["name"] == "Taste"
+    assert len(opt.variables) == 20
+    # The sample is the plant-based burger brief: two panel scores, both
+    # higher-is-better, firmness weighted more than juiciness.
+    assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]
+    assert all(o["goal"] == "max" for o in opt.objectives)
+    weights = {o["name"]: o["weight"] for o in opt.objectives}
+    assert weights["Firmness"] > weights["Juiciness"]
 
 
 def test_manual_add_ingredient_in_setup(project_with_history):

@@ -104,8 +104,11 @@ VOL="$(printf '%s\n' "$ATTACH_OUT" | grep -o '/Volumes/.*' | tail -1 | sed 's/[[
 assert "dmg has app"            test -d "$VOL/$APP_NAME.app"
 assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
-assert "dmg has example ingredients" test -f "$VOL/Example Data/example ingredients.csv"
-assert "dmg has example experiments" test -f "$VOL/Example Data/example experiments.csv"
+# The sample lives in the app (Try the sample project); a second copy on the
+# disk image gave first-run users two routes and two names for one thing.
+assert "dmg has no Example Data folder" test ! -e "$VOL/Example Data"
+assert "dmg volume holds only app, Applications, Start Here" \
+  test "$(ls -A "$VOL" | grep -v '^\.' | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   assert "codesign verifies" codesign --verify --deep --strict "$DIST_APP"
