@@ -406,7 +406,11 @@ if getattr(st.session_state.optimizer, "save_error", None):
 #  Tab 1: Setup & Config
 # ================================================================== #
 
-tab_setup, tab_optimize = st.tabs(["1. Set up your project", "2. Run experiments"])
+# Keyed so the chosen tab survives reruns: without a key the browser fell
+# back to tab 1 whenever the content of tab 2 changed shape, e.g. the first
+# time Generate recipes drew the batch and the results form.
+tab_setup, tab_optimize = st.tabs(["1. Set up your project", "2. Run experiments"],
+                                  key="main_tab")
 
 _ready, _reason, _parts = _readiness(st.session_state.optimizer)
 for _tab in (tab_setup, tab_optimize):
