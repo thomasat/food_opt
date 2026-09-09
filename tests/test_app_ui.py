@@ -498,6 +498,19 @@ def test_lower_sidebar_heading_names_the_open_project_and_follows_switches(proje
     assert "my_project" not in [h.value for h in at.sidebar.subheader]
 
 
+def test_csv_instructions_are_short_and_name_the_real_columns(project_with_history):
+    """Standing instructions are captions, not info boxes; the import caption
+    lists this project's own column names rather than a made-up example."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not any("Upload a CSV" in i.value for i in at.info), [i.value for i in at.info]
+    captions = [c.value for c in at.caption]
+    assert any(c.startswith("One row per ingredient") for c in captions), captions
+    imp = next(c for c in captions if c.startswith("One row per past experiment"))
+    assert "Water" in imp and "Taste" in imp
+    assert "flour, sugar, butter" not in imp
+
+
 def test_forward_buttons_are_primary(project_with_history):
     """The step that advances the project is coloured; housekeeping is grey."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)

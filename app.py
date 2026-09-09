@@ -411,14 +411,21 @@ with tab_setup:
     with col_a:
         # --- A1. Ingredients ---
         st.subheader("Ingredients")
-        st.info(
-            "Upload a CSV with columns Name, Min, Max. Min and Max are the "
-            "smallest and largest amount of each ingredient allowed in a "
-            "recipe, in the units you use (e.g. grams). Optional extra "
-            "columns like Cost or Protein become properties you can limit."
+        # Standing instructions live in a caption and a tooltip, not an info
+        # box: the box shouted the same four sentences on every visit. The
+        # template sits right here because the only other place it is offered
+        # (the first-run screen) is unreachable once a project is open.
+        st.caption("One row per ingredient: Name, Min, Max, in your own units such as grams.")
+        uploaded_csv = st.file_uploader(
+            "Upload Ingredients CSV", type=["csv"],
+            help="Extra columns such as Cost or Protein per 100 g become "
+                 "properties you can set limits on.",
         )
-
-        uploaded_csv = st.file_uploader("Upload Ingredients CSV", type=["csv"])
+        if os.path.exists(_SAMPLE_CSV):
+            with open(_SAMPLE_CSV, "rb") as _tf:
+                st.download_button("Download CSV template", data=_tf.read(),
+                                   file_name="ingredients_template.csv", mime="text/csv",
+                                   key="ingredients_template_setup")
         df = None
         if uploaded_csv:
             try:
@@ -1267,15 +1274,16 @@ Each score is multiplied by its measurement's weight and the results are added u
     #  Bulk Import Historical Experiments
     # -------------------------------------------------------------- #
     with st.expander("Import Historical Experiments (CSV)"):
-        st.markdown(
-            "Upload a CSV to bulk-import past experiments. "
-            "Columns must match your **ingredient names** and **objective names** exactly."
-        )
-        st.caption(
-            "Example: if you have ingredients `flour, sugar, butter` and objectives "
-            "`Chewiness, Flavor`, your CSV needs columns: "
-            "`flour, sugar, butter, Chewiness, Flavor`"
-        )
+        # Name the exact columns this project needs instead of a made-up example.
+        _imp_opt = st.session_state.optimizer
+        _imp_cols = ([v["name"] for v in _imp_opt.variables]
+                     + [o["name"] for o in _imp_opt.objectives])
+        if _imp_cols:
+            st.caption("One row per past experiment. The columns must match these names "
+                       "exactly: " + ", ".join(_imp_cols) + ".")
+        else:
+            st.caption("One row per past experiment. Add ingredients and measurements "
+                       "first; the columns must match their names exactly.")
 
         import_csv = st.file_uploader("Upload Experiments CSV", type=["csv"], key="import_csv")
         import_df = None
