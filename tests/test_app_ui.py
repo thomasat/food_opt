@@ -451,7 +451,9 @@ def test_delete_project_confirms_archives_and_leaves_the_list(project_with_histo
     _submit_button(at.sidebar, "Delete project").click()
     at.run()
     assert (tmp_path / "my_project.pkl").exists()               # not yet
-    assert any("my_project" in w.value for w in at.warning)
+    warn = next(w.value for w in at.warning if "my_project" in w.value)
+    # Real grammar, never "1 experiment(s)".
+    assert "its 1 experiment?" in warn and "(s)" not in warn, warn
     _submit_button(at.sidebar, "Yes, delete project").click()
     at.run()
     assert not at.exception

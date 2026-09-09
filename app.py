@@ -85,6 +85,13 @@ def _open_sample_project():
                 _open_project(_name)
 
 
+def _experiments(n):
+    """'no experiments', '1 experiment', '4 experiments' for confirmations."""
+    if n == 0:
+        return "no experiments"
+    return f"{n} experiment" if n == 1 else f"{n} experiments"
+
+
 def _readiness(opt):
     """(ready: bool, reason: str, parts: list[str]) for the status strip."""
     n_ing = sum(1 for v in opt.variables if v.get('category', 'ingredient') == 'ingredient')
@@ -306,8 +313,11 @@ with st.sidebar:
 
         if confirm_action(
             "hard_reset", "Hard reset project",
-            f"Start **{opt.project_name}** over? Its {len(opt.X_history)} experiment(s) "
-            "and setup are moved to an archive copy, not deleted.",
+            (f"Start **{opt.project_name}** over? Its setup is kept as an archive copy "
+             "and the project becomes empty."
+             if not opt.X_history else
+             f"Start **{opt.project_name}** over? Its {_experiments(len(opt.X_history))} "
+             "and setup are kept as an archive copy, and the project becomes empty."),
             confirm_label="Yes, reset",
         ):
             _target = opt.project_name
@@ -328,9 +338,11 @@ with st.sidebar:
         # a rename in the projects folder, not data.
         if confirm_action(
             "delete_project", "Delete project",
-            f"Delete **{opt.project_name}**? Its {len(opt.X_history)} experiment(s) "
-            "and setup are moved to an archive copy in your projects folder, not "
-            "erased, and the project leaves this list.",
+            (f"Delete **{opt.project_name}**? It has no experiments yet. A copy of its "
+             "setup is kept in your projects folder, and it leaves this list."
+             if not opt.X_history else
+             f"Delete **{opt.project_name}** and its {_experiments(len(opt.X_history))}? "
+             "A copy is kept in your projects folder, and it leaves this list."),
             confirm_label="Yes, delete project",
         ):
             _target = opt.project_name
@@ -1250,11 +1262,11 @@ with tab_optimize:
         rewind_idx = int(rewind_no) - 1
         n_discard = len(st.session_state.optimizer.X_history) - 1 - rewind_idx
         if n_discard > 0:
-            st.warning(f"This will discard {n_discard} experiment(s) "
+            st.warning(f"This will discard {_experiments(n_discard)} "
                        f"({rewind_idx + 2} through {len(st.session_state.optimizer.X_history)}).")
         if confirm_action(
             "rewind", "Rewind",
-            f"Discard {n_discard} experiment(s) and keep 1 through {rewind_idx + 1}? "
+            f"Discard {_experiments(n_discard)} and keep 1 through {rewind_idx + 1}? "
             "A copy of the project is archived first.",
             confirm_label="Yes, rewind", disabled=(n_discard == 0),
         ):
