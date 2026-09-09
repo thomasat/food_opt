@@ -108,7 +108,7 @@ assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
 # disk image gave first-run users two routes and two names for one thing.
 assert "dmg has no Example Data folder" test ! -e "$VOL/Example Data"
 assert "dmg volume holds only app, Applications, Start Here" \
-  test "$(ls -A "$VOL" | grep -v '^\.' | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
+  test "$(find "$VOL" -mindepth 1 -maxdepth 1 -not -name '.*' -exec basename {} \; | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   assert "codesign verifies" codesign --verify --deep --strict "$DIST_APP"
