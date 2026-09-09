@@ -38,8 +38,7 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 def _reset_project_session():
     for k in ("optimizer", "current_batch", "_batch_id",
               "_last_saved", "_restore_candidate", "edit_idx", "rewind_idx",
-              "edit_no", "rewind_no", "hist_order", "_results_upload",
-              "_edit_warning_idx", "_edit_warning_n"):
+              "edit_no", "rewind_no", "hist_order", "_results_upload"):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if k.endswith("__pending")]:
         st.session_state.pop(k, None)
@@ -99,7 +98,7 @@ def _readiness(opt):
     parts = [
         f"Ingredients: {n_ing} {'✓' if n_ing else '✗ required'}",
         f"Objectives: {n_obj} {'✓' if n_obj else '✗ required'}",
-        f"Constraints: {len(opt.constraints) + len(opt.quantity_constraints)} (optional)",
+        f"Limits: {len(opt.constraints) + len(opt.quantity_constraints)} (optional)",
     ]
     if not n_ing:
         return False, "Add at least one ingredient in the Set up tab.", parts
@@ -678,7 +677,8 @@ with tab_setup:
                 if _go:
                     st.session_state.optimizer.remove_objective(obj['name'])
                     st.session_state.pop("current_batch", None)
-                    flash("success", f"Removed {obj['name']}.")
+                    flash("success", f"Removed {obj['name']}. Every Overall Score was "
+                                     "recalculated, so the best recipe may have changed.")
                     st.rerun()
 
     # -------------------------------------------------------------- #
@@ -1202,22 +1202,18 @@ with tab_optimize:
                                             final_results[obj['name']] = v
                                     st.session_state.optimizer.edit_result(edit_idx, final_results)
                                     n_after = len(st.session_state.optimizer.X_history) - 1 - edit_idx
+                                    # Later experiments are real data and stay valid;
+                                    # only the choice of those recipes used the old
+                                    # score. Say so instead of suggesting a rewind.
                                     if n_after > 0:
-                                        st.session_state._edit_warning_idx = edit_idx
-                                        st.session_state._edit_warning_n = n_after
-                                    flash("success", f"Updated experiment {edit_idx + 1}.")
+                                        flash("success",
+                                              f"Updated experiment {edit_idx + 1}. Recipes suggested "
+                                              "after it were chosen using the old score; their "
+                                              "results still count, and the next batch will use "
+                                              "the corrected value.")
+                                    else:
+                                        flash("success", f"Updated experiment {edit_idx + 1}.")
                                     st.rerun()
-
-                if st.session_state.get('_edit_warning_idx') is not None:
-                    warn_idx = st.session_state._edit_warning_idx
-                    warn_n = st.session_state._edit_warning_n
-                    st.warning(
-                        f"Experiments after {warn_idx + 1} ({warn_n} total) were based on "
-                        f"the pre-edit ratings and may no longer be valid. "
-                        f"Consider rewinding to {warn_idx + 1}."
-                    )
-                    del st.session_state._edit_warning_idx
-                    del st.session_state._edit_warning_n
 
                 _row = st.session_state.optimizer.recipe_history[edit_idx] if edit_idx < len(st.session_state.optimizer.recipe_history) else {}
                 _top = st.session_state.optimizer.recipe_lines(_row, limit=3)

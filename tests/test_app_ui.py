@@ -513,6 +513,27 @@ def test_csv_instructions_are_short_and_name_the_real_columns(project_with_histo
     assert "flour, sugar, butter" not in imp
 
 
+def test_editing_an_early_result_notes_later_recipes_but_never_suggests_rewind(project_with_history):
+    """Later experiments are real data. Correcting an earlier score must say
+    the later results still count, not call them invalid or point at Rewind."""
+    project_with_history.tell({"Water": 60.0}, {"Taste": 5.0})
+    project_with_history.tell({"Water": 70.0}, {"Taste": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="edit_no").set_value(1)
+    at.run()
+    at.number_input(key="edit_0_0").set_value(9.0)
+    at.run()
+    _submit_button(at, "Update result").click()
+    at.run()
+    assert not at.exception
+    note = next(s.value for s in at.success if "Updated experiment 1" in s.value)
+    assert "still count" in note and "corrected value" in note, note
+    warnings = " ".join(w.value for w in at.warning)
+    assert "no longer be valid" not in warnings and "Consider rewinding" not in warnings, warnings
+    assert FoodOptimizer("my_project").results_history[0] == {"Taste": 9.0}
+
+
 def test_forward_buttons_are_primary(project_with_history):
     """The step that advances the project is coloured; housekeeping is grey."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
