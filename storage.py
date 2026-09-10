@@ -14,7 +14,9 @@ import re
 import shutil
 
 
-ARCHIVE_SUFFIX_RE = re.compile(r"_(archived|deleted|pre_rewind|pre_restore|pre_delete)(_\d+)?$")
+ARCHIVE_SUFFIX_RE = re.compile(
+    r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit|pre_undo)(_\d+)?$"
+)
 
 
 def is_archive_name(name):

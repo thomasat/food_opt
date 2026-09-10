@@ -75,3 +75,110 @@ def test_confirm_action_cancel():
     at.run()
     assert at.session_state["done"] == 0
     assert not any("Really delete?" in w.value for w in at.warning)
+
+
+import pytest
+
+from ui_helpers import (
+    TAB_BATCH, TAB_RESULTS, TAB_SETUP, fmt_amount, goal_line, join_unit,
+    landing_tab, number_list, plural, readiness, saved_line, scale_error,
+    table_height,
+)
+
+
+def test_plural_uses_real_grammar():
+    assert plural(0, "formulation") == "0 formulations"
+    assert plural(1, "formulation") == "1 formulation"
+    assert plural(3, "result") == "3 results"
+
+
+def test_number_list_reads_as_english():
+    assert number_list([1]) == "1"
+    assert number_list([1, 2]) == "1 and 2"
+    assert number_list([7, 8, 9]) == "7, 8 and 9"
+
+
+def test_fmt_amount_trims_and_carries_the_unit():
+    assert fmt_amount(12.5, "g") == "12.5 g"
+    assert fmt_amount(12.0, "g") == "12 g"
+    assert fmt_amount(0.804, "g") == "0.8 g"
+    assert fmt_amount(7.0, "/10") == "7/10"
+    assert fmt_amount(12.5, "") == "12.5"
+    assert fmt_amount(None, "g") == ""
+
+
+def test_join_unit_and_goal_line_are_re_exported():
+    assert join_unit("7", "/10") == "7/10"
+    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
+
+
+def test_scale_error_names_the_value_the_scale_and_the_fix():
+    obj = {"name": "Firmness", "min_val": 0.0, "max_val": 10.0, "unit": "N"}
+    assert scale_error(obj, 6.0) == ""
+    assert scale_error(obj, None) == ""
+    assert scale_error(obj, 12.0) == (
+        "Firmness 12 N is outside your scale of 0 to 10 N. Widen the scale in "
+        "Set up, or check the value."
+    )
+
+
+def test_table_height_grows_with_rows_and_stops_at_the_cap():
+    assert table_height(1) == 75
+    assert table_height(3) == 145
+    assert table_height(0) == table_height(1)          # never a zero-height table
+    assert table_height(50, max_rows=12) == table_height(12, max_rows=12)
+
+
+def test_saved_line_shows_the_time_today_and_the_date_before_that():
+    from datetime import datetime, timedelta
+    now = datetime.now().astimezone()
+    today = now.replace(hour=14, minute=32)
+    assert saved_line(today) == "Saved 14:32 · automatically, to this Mac"
+    earlier = today - timedelta(days=3)
+    line = saved_line(earlier)
+    assert line.startswith("Saved ") and line.endswith("· automatically, to this Mac")
+    assert earlier.strftime("%b") in line
+
+
+class _FakeOpt:
+    def __init__(self, variables, objectives, pending_batch=None):
+        self.variables = variables
+        self.objectives = objectives
+        self.pending_batch = pending_batch
+
+
+def test_readiness_names_the_one_missing_thing():
+    assert readiness(_FakeOpt([], [])) == (False, "Add at least one ingredient.")
+    ing = [{"name": "Water", "category": "ingredient"}]
+    assert readiness(_FakeOpt(ing, [])) == (False, "Add at least one measurement.")
+    assert readiness(_FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}])) == (True, "")
+
+
+def test_landing_tab_follows_the_spec_rule():
+    assert landing_tab(_FakeOpt([], [])) == TAB_SETUP
+    ing = [{"name": "Water", "category": "ingredient"}]
+    assert landing_tab(_FakeOpt(ing, [])) == TAB_SETUP
+    ready = _FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}])
+    assert landing_tab(ready) == TAB_RESULTS
+    mid = _FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}],
+                   pending_batch=[{"formulation": 1, "recipe": {"Water": 1.0}}])
+    assert landing_tab(mid) == TAB_BATCH
+
+
+GO_TO_TAB_SCRIPT = """
+import streamlit as st
+from ui_helpers import TAB_BATCH, TAB_SETUP, TAB_RESULTS, go_to_tab
+st.tabs([TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab")
+if st.button("go"):
+    go_to_tab(TAB_BATCH)
+st.write(f"tab={st.session_state.get('main_tab')}")
+"""
+
+
+def test_go_to_tab_switches_the_open_tab():
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_string(GO_TO_TAB_SCRIPT)
+    at.run()
+    at.button[0].click()
+    at.run()
+    assert at.session_state["main_tab"] == "2 · Make a batch"
