@@ -1404,6 +1404,13 @@ class TestUnitsAndImportance:
         assert opt.closeness_details(0) == []
         assert opt.score_function_line() == ""
 
+    def test_closeness_details_guards_a_bad_index(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 6.0})
+        assert opt.closeness_details(None) == []
+        assert opt.closeness_details(-1) == []
+
     def test_biggest_changes_are_largest_first(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         changes = opt.biggest_changes({"Pea protein": 8.0, "Methylcellulose": 1.8},
@@ -1423,6 +1430,10 @@ class TestUnitsAndImportance:
         assert scaled["Methylcellulose"] == pytest.approx(2.0)
         assert scaled["Cook temperature"] == pytest.approx(180.0)
         assert opt.scaled_recipe(recipe, None) == recipe
+        # A stray key not tied to any current variable (e.g. left over from a
+        # removed ingredient) must survive scaling, not just the unscaled copy.
+        stray = dict(recipe, **{"Old ingredient": 3.0})
+        assert set(opt.scaled_recipe(stray, 22.0)) == set(opt.scaled_recipe(stray, None))
 
     def test_history_frame_columns_and_star(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1485,6 +1496,27 @@ class TestUnitsAndImportance:
         assert df["Formulation"].iloc[0] == 4
         assert df["Batch"].iloc[0] == 2
 
+    def test_history_csv_omits_not_made_rows_but_keeps_partial_rows(self, tmp_path, monkeypatch):
+        """A Not-made row has no results at all, so exporting it would fail the
+        importer's own 'these columns have blank cells' check for every
+        measurement column in the sheet — it carries nothing to import, so it
+        is left out. A partially scored row genuinely has one result and is
+        kept, blank cell and all."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=1, batch_no=1)
+        opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
+                 {"Firmness": 5.0}, formulation_no=2, batch_no=1)   # partial: no Juiciness
+        opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
+        df = pd.read_csv(io.StringIO(opt.history_csv()))
+        var_names = [v['name'] for v in opt.variables]
+        obj_names = [o['name'] for o in opt.objectives]
+        required = var_names + obj_names
+        assert [c for c in required if c not in df.columns] == []   # the importer's own column check
+        assert list(df["Formulation"]) == [1, 2]        # formulation 3 (Not made) is gone
+        assert df["Firmness"].iloc[1] == 5.0
+        assert pd.isna(df["Juiciness"].iloc[1])
+
     def test_batch_frame_is_the_make_these_table(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
@@ -1514,6 +1546,18 @@ class TestUnitsAndImportance:
         assert df["Pea protein"].iloc[0] == 11.88
         assert df["Firmness"].isna().all()
         assert "Note" in df.columns
+
+    def test_objectives_without_a_unit_key_backfill_to_blank_on_load(self, tmp_path, monkeypatch):
+        """A 0.2.x project's objectives were saved before 'unit' existed;
+        loading one must not raise a KeyError the first time a screen reads
+        obj['unit']."""
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        for o in state["objectives"]:
+            o.pop("unit", None)
+        older = FoodOptimizer("older_units")
+        older.import_json(state)
+        assert all(o["unit"] == "" for o in older.objectives)
 
 
 class TestParseBatchResultsByFormulation:
@@ -1550,6 +1594,15 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError, match="needs a Formulation column"):
             opt.parse_batch_results(df, opt.pending_batch)
 
+    def test_missing_measurement_column_is_an_error(self, tmp_path, monkeypatch):
+        """A measurement column absent from the sheet entirely is refused, not
+        silently treated as unscored for every row — a typo'd header would
+        otherwise drop that measurement from the whole batch without a word."""
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0]})
+        with pytest.raises(ValueError, match=r"Missing columns: L\*"):
+            opt.parse_batch_results(df, opt.pending_batch)
+
     def test_a_number_outside_the_batch_names_the_batch(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
@@ -1561,6 +1614,13 @@ class TestParseBatchResultsByFormulation:
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [None], "L*": [70.0]})
         assert opt.parse_batch_results(df, opt.pending_batch) == [(7, {"L*": 70.0}, "")]
+
+    def test_a_present_column_with_a_blank_cell_is_still_partial(self, tmp_path, monkeypatch):
+        """The column existing is what matters; a blank cell within it is a
+        per-row partial result, not the 'missing column' error."""
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [11.0], "L*": [None]})
+        assert opt.parse_batch_results(df, opt.pending_batch) == [(7, {"Hardness": 11.0}, "")]
 
     def test_a_row_with_nothing_filled_in_is_refused(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

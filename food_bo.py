@@ -520,7 +520,11 @@ class FoodOptimizer:
 
         Off by is only meaningful against a target. A 'higher is better'
         measurement has no target, so quoting its distance from the top of the
-        scale would read a good result as a failure; those rows show '—'."""
+        scale would read a good result as a failure; those rows show '—'.
+        No formulation at `index` (None, negative, or past the end) returns
+        an empty list rather than wrapping around or raising."""
+        if index is None or index < 0:
+            return []
         results = self.results_history[index] if index < len(self.results_history) else {}
         rows = []
         for obj in self.measurements_by_importance():
@@ -585,7 +589,7 @@ class FoodOptimizer:
         if total <= 0:
             return dict(recipe)
         factor = float(scale_to) / total
-        out = {}
+        out = dict(recipe)
         for var in self.variables:
             value = float(recipe.get(var['name'], 0.0))
             out[var['name']] = (value * factor
@@ -753,9 +757,12 @@ class FoodOptimizer:
 
         The sheet needs a Formulation column holding the global numbers from
         the downloaded batch sheet. `Recipe` and `Experiment` are accepted as
-        legacy headers and read as 1-based positions in the batch. A blank
-        measurement cell means it could not be scored, so the row is stored as
-        a partial result; a row with nothing filled in is refused. Returns
+        legacy headers and read as 1-based positions in the batch. Every
+        measurement needs its own column — an absent column is refused
+        outright (a typo'd header would otherwise silently drop that
+        measurement from every row). A blank cell in a column that IS present
+        means that one result could not be scored, so the row is stored as a
+        partial result; a row with nothing filled in is refused. Returns
         [(formulation number, {measurement: value}, note), ...].
         """
         rows = self._batch_rows(batch)
@@ -779,7 +786,7 @@ class FoodOptimizer:
                 col_for[obj['name']] = norm[key]
             else:
                 missing.append(obj['name'])
-        if not col_for:
+        if missing:
             raise ValueError("Missing columns: " + ", ".join(missing))
         note_col = norm.get("note")
         if len(df) == 0:
@@ -848,8 +855,12 @@ class FoodOptimizer:
         return parsed
 
     def history_csv(self):
-        """Every formulation as CSV, with the plain column names 'Import past
-        formulations from a CSV' expects, plus Formulation, Batch and Note.
+        """Every scored formulation as CSV, with the plain column names
+        'Import past formulations from a CSV' expects, plus Formulation, Batch
+        and Note. Skipped (Not made) formulations carry no results at all, so
+        they are left out entirely: a blank measurement cell would be refused
+        by the importer's own "these columns have blank cells" check, and a
+        formulation that was never made has nothing to import.
 
         Amount columns come from the re-encoded history (as history_frame
         does), not raw recipe_history: an ingredient added mid-project is
@@ -869,18 +880,6 @@ class FoodOptimizer:
             row.update(self._decode(x))
             row.update(self.results_history[i] if i < len(self.results_history) else {})
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
-            rows.append(row)
-        for s in self.skipped:
-            batch = s.get('batch')
-            row = {
-                "Formulation": int(s['formulation']),
-                "Batch": "" if batch is None else int(batch),
-                "Recorded": "",
-                "Overall score": "",
-            }
-            recipe = s.get('recipe', {})
-            row.update({v['name']: recipe.get(v['name']) for v in self.variables})
-            row["Note"] = s.get('note') or "Not made"
             rows.append(row)
         return pd.DataFrame(rows).to_csv(index=False)
 
@@ -1970,6 +1969,9 @@ class FoodOptimizer:
                 var['bounds'] = tuple(var['bounds'])
             var.setdefault('category', 'ingredient')
             var.setdefault('active', True)
+
+        for obj in self.objectives:
+            obj.setdefault('unit', "")
 
         # Rebuild encoded vectors and utility scores from raw data
         if self.recipe_history and self.variables:
