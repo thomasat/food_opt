@@ -12,9 +12,10 @@ import pandas as pd
 import streamlit as st
 
 from ui_helpers import (
-    TAB_RESULTS, TAB_SETUP, confirm_action, confirmation_open, flash,
-    fmt_amount, go_to_tab, goal_line, join_unit, number_list, open_rows, plural,
-    readiness, saved_ok, scale_error, table_height,
+    TAB_RESULTS, TAB_SETUP, best_formulation_no, confirm_action,
+    confirmation_open, flash, fmt_amount, go_to_tab, goal_line, join_unit,
+    number_list, open_rows, plural, readiness, saved_ok, scale_error,
+    table_height,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -33,11 +34,6 @@ def _left_out(formulation_no):
     """Read the Leave out flag before its checkbox is drawn — the checkbox is
     rendered last in the row, after the boxes the user came to fill."""
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
-
-
-def _best_formulation_no(opt):
-    i = opt.best_index()
-    return None if i is None else int(opt.formulation_ids[i])
 
 
 def _scale_to(opt):
@@ -109,7 +105,7 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
 def _no_batch(opt):
     size = st.number_input("Formulations in this batch", min_value=1,
                            max_value=10, value=3, step=1, key="batch_size")
-    best_no = _best_formulation_no(opt)
+    best_no = best_formulation_no(opt)
     repeat = False
     if best_no is not None:
         repeat = st.checkbox(
@@ -174,7 +170,7 @@ def _batch_table(opt):
         st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
                    "were discarded and their numbers will not be used again.")
 
-    best_no = _best_formulation_no(opt)
+    best_no = best_formulation_no(opt)
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
         index = opt.index_of_formulation(best_no)
         if index is not None:
@@ -479,12 +475,17 @@ def _upload(opt):
                 st.error(f"Could not save these results: {e}")
                 return
             st.session_state.pop("_results_upload", None)
-            flash("success", f"Batch {batch_no} recorded.")
             if open_rows(opt):
                 # Rows still to record: the batch stays open, numbers and all.
+                flash("success", f"Batch {batch_no} recorded.")
                 st.rerun()
             opt.set_pending_batch(None)
             st.session_state.pop("scale_total", None)
+            if not saved_ok(opt):
+                # A move would rerun past app.py's end-of-script check and
+                # hide it, and the batch is still open on disk.
+                return
+            flash("success", f"Batch {batch_no} recorded.")
             go_to_tab(TAB_RESULTS)
 
 

@@ -9,21 +9,11 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, confirmation_open, flash, fmt_amount, goal_line,
-    go_to_tab, join_unit, open_rows, other_confirmation, plural, saved_ok,
-    scale_error, table_height,
+    TAB_BATCH, best_formulation_no, best_move_sentence, bounds_warning,
+    clear_selection, confirm_action, confirmation_open, flash, fmt_amount,
+    goal_line, go_to_tab, open_rows, other_confirmation, plural, saved_ok,
+    scale_error, table_height, take_clear,
 )
-
-
-def _best_formulation_no(opt):
-    i = opt.best_index()
-    return None if i is None else int(opt.formulation_ids[i])
-
-
-def _best_move_sentence(before, after):
-    if before is None or after is None or before == after:
-        return ""
-    return f"Best moved from Formulation {before} to Formulation {after}."
 
 
 def _all_numbers(opt):
@@ -69,26 +59,21 @@ def _number(cell):
 
 def _range_warning(opt, name, value):
     """The line for an imported amount outside what the project allows, or
-    '' when it fits.
+    '' when it fits. Built by the same helper that refuses an out-of-scale
+    measurement, so the two sentences read alike.
     It is a warning, not a refusal: the amount is a fact about work already
     done, and the model learns more from it than from a blank."""
     var = next((v for v in opt.variables if v['name'] == name), None)
     if var is None or value is None:
         return ""
     low, high = (float(b) for b in var['bounds'])
-    if low <= float(value) <= high:
-        return ""
-    unit = _unit_of(opt, name)
-    return (join_unit(f"{name} {float(value):g}", unit)
-            + " is outside its allowed amounts of "
-            + join_unit(f"{low:g} to {high:g}", unit) + ".")
+    return bounds_warning(name, value, low, high, _unit_of(opt, name))
 
 
 def _progress_line(opt):
-    numbered = [int(b) for b in opt.batch_history if b is not None]
-    if not numbered or not opt.Y_history:
+    last = opt.last_batch_no()   # counts a batch whose rows were all left out
+    if last is None or not opt.Y_history:
         return ""
-    last = max(numbered)
     earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
                if b != last]
     if not earlier:
@@ -158,21 +143,24 @@ def _all_formulations(opt):
                        mime="text/csv", key="download_formulations")
 
 
-def _correct(opt):
+def _correct(opt, storage):
+    """The correction row. Returns True while it is open, so the foot knows to
+    step aside: `Save correction` is the one lit action until it is answered."""
     numbers = [int(n) for n in opt.formulation_ids]
     if not numbers:
-        return
+        return False
+    take_clear("correct_formulation")
     choice = st.selectbox("Correct a result", numbers, index=None,
                           placeholder="Formulation", key="correct_formulation")
     if choice is None:
-        return
+        return False
     index = opt.index_of_formulation(choice)
     if index is None:
-        return
+        return False
     ordered = opt.measurements_by_importance()
     if not ordered:
         st.info("Add a measurement in Set up before correcting a result.")
-        return
+        return False
     current = opt.results_history[index]
     typed = {}
     cols = None
@@ -191,24 +179,28 @@ def _correct(opt):
                 key=f"correct_{choice}_{obj['name']}",
             )
     b1, b2 = st.columns(2)
+    # The correction is the one thing to do while its row is open, so it is
+    # lit — unless a confirmation is armed, which outranks everything.
+    lit = not confirmation_open()
     with b1:
         save = st.button("Save correction", key="save_correction",
-                         use_container_width=True)
+                         type="primary" if lit else "secondary",
+                         disabled=not lit, use_container_width=True) and lit
     with b2:
         # The select box cannot be cleared by the user once it holds a value.
         if st.button("Done", key="done_correcting", use_container_width=True):
-            st.session_state.pop("correct_formulation", None)
+            clear_selection("correct_formulation")
             st.rerun()
     if not save:
-        return
+        return True
     if not any(v is not None for v in typed.values()):
         st.error("Enter a value for at least one measurement.")
-        return
+        return True
     for obj in ordered:
         problem = scale_error(obj, typed[obj['name']])
         if problem:
             st.error(problem)
-            return
+            return True
     # A measurement that could not be scored is left out of the stored row, so
     # a corrected result has exactly the shape a recorded one has: tell() drops
     # the Nones, and edit_result would otherwise keep them.
@@ -222,11 +214,18 @@ def _correct(opt):
         if was is None or abs(float(was) - float(value)) > 1e-9:
             changes.append((obj['name'], was, float(value)))
         final[obj['name']] = float(value)
-    before = _best_formulation_no(opt)
+    before = best_formulation_no(opt)
+    # A correction overwrites a reading nobody can retype from memory, so the
+    # project is copied first — as it is before every other destructive act.
+    try:
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return True
     opt.edit_result(index, final)
     if not saved_ok(opt):
-        return
-    after = _best_formulation_no(opt)
+        return True
+    after = best_formulation_no(opt)
     sentences = [
         f"Formulation {choice} {name} corrected {float(was):g} → {float(now):g}."
         for name, was, now in changes if was is not None
@@ -235,15 +234,15 @@ def _correct(opt):
         f"Formulation {choice} {name} recorded as {float(now):g}."
         for name, was, now in changes if was is None
     ]
-    move = _best_move_sentence(before, after)
+    move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
-    flash("success", " ".join(sentences)
-          or f"Formulation {choice} is unchanged.")
+    sentences.append("A copy of the project was kept first.")
+    flash("success", " ".join(sentences))
     st.rerun()
 
 
-def _foot(opt):
+def _foot(opt, correcting=False):
     if opt.pending_batch:
         label = (f"Back to batch {opt.pending_batch_no} · "
                  f"{len(open_rows(opt))} to record")
@@ -251,7 +250,8 @@ def _foot(opt):
         label = "Start the next batch"
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; the next batch can wait a click.
-    lit = not confirmation_open()
+    # An open correction row is the same case: Save correction is the lit one.
+    lit = not confirmation_open() and not correcting
     if st.button(label, type="primary" if lit else "secondary",
                  disabled=not lit, key="foot_batch") and lit:
         go_to_tab(TAB_BATCH)
@@ -319,6 +319,7 @@ def _delete_formulation(opt, storage):
         if not numbers:
             st.caption("Nothing to delete yet.")
             return
+        take_clear("delete_formulation")
         choice = st.selectbox("Formulation", numbers, index=None,
                               placeholder="Formulation",
                               key="delete_formulation")
@@ -336,7 +337,7 @@ def _delete_formulation(opt, storage):
         # that is on screen rather than showing the word twice.
         if (not st.session_state.get("delete_formulation__pending")
                 and st.button("Cancel", key="cancel_delete_formulation")):
-            st.session_state.pop("delete_formulation", None)
+            clear_selection("delete_formulation")
             st.rerun()
         if go:
             try:
@@ -347,7 +348,7 @@ def _delete_formulation(opt, storage):
                 opt.delete_formulation(choice)
                 if not saved_ok(opt):
                     return
-                st.session_state.pop("delete_formulation", None)
+                clear_selection("delete_formulation")
                 flash("success", f"Formulation {choice} deleted. A copy was "
                                  "kept first.")
                 st.rerun()
@@ -455,7 +456,7 @@ def render(opt, storage):
     _best(opt)
     st.divider()
     _all_formulations(opt)
-    _correct(opt)
+    correcting = _correct(opt, storage)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
     # confirmation armed by a click in one of the collapsed sections below it
@@ -468,4 +469,4 @@ def render(opt, storage):
     _delete_formulation(opt, storage)
     _import(opt)
     with foot:
-        _foot(opt)
+        _foot(opt, correcting)

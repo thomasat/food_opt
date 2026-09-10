@@ -725,18 +725,27 @@ class FoodOptimizer:
         size — display only, the stored formulation never changes."""
         unit = self.amount_unit
         total_col = f"Total ({unit})" if unit else "Total"
+        # The total closes the amounts you weigh out, so it sits with them,
+        # before the settings you dial in — the order the sheet is filled in.
+        ingredients = [v for v in self.variables
+                       if v.get('category', 'ingredient') == 'ingredient']
+        process = [v for v in self.variables if v.get('category') == 'process']
         rows = []
         for row in self._batch_rows(batch):
             recipe = self.scaled_recipe(row['recipe'], scale_to)
             item = {"Formulation": int(row['formulation'])}
-            for var in self.variables:
+            for var in ingredients:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
             item[total_col] = self.ingredient_total(recipe)
+            for var in process:
+                item[self._amount_column(var['name'])] = float(
+                    recipe.get(var['name'], 0.0))
             rows.append(item)
         columns = (["Formulation"]
-                   + [self._amount_column(v['name']) for v in self.variables]
-                   + [total_col])
+                   + [self._amount_column(v['name']) for v in ingredients]
+                   + [total_col]
+                   + [self._amount_column(v['name']) for v in process])
         return pd.DataFrame(rows, columns=columns)
 
     def recipe_lines(self, recipe, limit=None):
@@ -1039,6 +1048,15 @@ class FoodOptimizer:
         self.formulation_ids = self.formulation_ids[:keep]
         self.batch_history = self.batch_history[:keep]
         self.notes_history = self.notes_history[:keep]
+        # Left-out formulations belong to their batch. A skipped row from a
+        # batch that no longer has any scored rows would otherwise survive as
+        # an orphan — it would still be offered for deletion, still count
+        # towards the last batch, and still show in All formulations.
+        kept = [int(b) for b in self.batch_history if b is not None]
+        cut = max(kept) if kept else None
+        self.skipped = [s for s in self.skipped
+                        if s.get('batch') is None
+                        or (cut is not None and int(s['batch']) <= cut)]
         self._drop_pending_batch()
         self.save()
 
@@ -1884,7 +1902,7 @@ class FoodOptimizer:
         except Exception:
             self.load_error = (
                 "This project file is damaged and could not be opened. If you have a "
-                "backup, use Restore from backup; otherwise check FoodOptimizer > "
+                "backup, use Restore from backup; otherwise check FoodOptimizer › "
                 "backups in your home folder for a recent copy."
             )
             return False

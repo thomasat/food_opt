@@ -12,8 +12,8 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, confirmation_open, flash, go_to_tab,
-    other_confirmation, plural,
+    TAB_BATCH, best_formulation_no, best_move_sentence, confirm_action,
+    confirmation_open, flash, go_to_tab, join_unit, other_confirmation, plural,
     readiness, saved_ok, table_height,
 )
 
@@ -54,27 +54,13 @@ def _note_discarded_batch(opt, batch_no_before):
 def _goal_text(obj):
     """'Target 6 N', 'Higher is better', 'Lower is better'."""
     if obj['goal'] == 'target':
-        from food_bo import join_unit
         return join_unit(f"Target {float(obj['target']):g}", obj.get('unit'))
     return GOAL_LABELS.get(obj['goal'], obj['goal'])
 
 
 def _scale_text(obj):
-    from food_bo import join_unit
     return join_unit(f"{float(obj['min_val']):g} to {float(obj['max_val']):g}",
                      obj.get('unit'))
-
-
-def _best_formulation_no(opt):
-    i = opt.best_index()
-    return None if i is None else int(opt.formulation_ids[i])
-
-
-def _best_move_sentence(before, after):
-    """'Best moved from Formulation 3 to Formulation 7.' or '' when it stayed."""
-    if before is None or after is None or before == after:
-        return ""
-    return f"Best moved from Formulation {before} to Formulation {after}."
 
 
 def _mkey(editing, field):
@@ -416,7 +402,7 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
     # editing is the live dict; update_objective mutates it, so read it first.
     changed_importance = abs(float(importance) - float(editing['weight'])) > 1e-9
     rescores = _rescores(editing, importance, goal, target, lowest, highest)
-    before = _best_formulation_no(opt)
+    before = best_formulation_no(opt)
     if rescores:
         # No history guard: a copy is kept before every destructive action
         # here, so the user always has one door back.
@@ -439,14 +425,14 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
     _clear_measurement_keys(editing)
     st.session_state.pop("_editing_measurement", None)
     if rescores:
-        after = _best_formulation_no(opt)
+        after = best_formulation_no(opt)
         sentence = (
             f"{editing['name']} importance changed to {float(importance):.1f}. "
             "Every overall score was recalculated."
             if changed_importance else
             f"Updated {editing['name']}. Every overall score was recalculated."
         )
-        move = _best_move_sentence(before, after)
+        move = best_move_sentence(before, after)
         flash("success", f"{sentence} {move}".strip())
     else:
         flash("success", f"Updated {editing['name']}.")
@@ -454,7 +440,7 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
 
 
 def _remove_measurement(opt, storage, name):
-    before = _best_formulation_no(opt)
+    before = best_formulation_no(opt)
     try:
         storage.archive(opt.project_name, "pre_edit", copy=True)
     except storage_backend.StorageError as e:
@@ -463,9 +449,9 @@ def _remove_measurement(opt, storage, name):
     opt.remove_objective(name)
     if not saved_ok(opt):
         return
-    after = _best_formulation_no(opt)
+    after = best_formulation_no(opt)
     sentence = f"{name} removed. Every overall score was recalculated."
-    move = _best_move_sentence(before, after)
+    move = best_move_sentence(before, after)
     flash("success", f"{sentence} {move}".strip())
     st.rerun()
 

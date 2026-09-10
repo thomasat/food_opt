@@ -179,6 +179,10 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     at.run()
     _submit_button(at, "Open").click()
     at.run()
+    # Open is drawn at the foot of the sidebar, so the armed confirmation above
+    # it is still in the aborted pass's element tree; the next plain run shows
+    # what the browser would show.
+    at.run()
     assert not at.exception
     assert not any(b.label == "Yes, reset" for b in at.button), [b.label for b in at.button]
     assert "second" in [h.value for h in at.sidebar.subheader]
@@ -429,11 +433,31 @@ def _unknown(node, kind, label):
     return next(walk(node))
 
 
+def _unknowns(node, kind):
+    """Every UnknownElement of `kind` under `node`, in render order."""
+    def walk(n):
+        children = getattr(n, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for child in children:
+            if (type(child).__name__ == "UnknownElement"
+                    and getattr(child, "type", None) == kind):
+                yield child
+            yield from walk(child)
+    return list(walk(node))
+
+
 def _tab_primaries(at, index):
-    """The coloured buttons inside one tab. AppTest renders every tab's body on
-    every run, so 'one primary per tab' can only be checked tab by tab:
-    at.tabs[0] is Set up, [1] is Make a batch, [2] is Results."""
-    return [b.label for b in at.tabs[index].button if b.proto.type == "primary"]
+    """The coloured ACTIONS inside one tab — st.button and st.download_button
+    alike, because a lit download is as much the next action as a lit button.
+    AppTest renders every tab's body on every run, so 'one primary per tab' can
+    only be checked tab by tab: at.tabs[0] is Set up, [1] is Make a batch, [2]
+    is Results."""
+    tab = at.tabs[index]
+    lit = [b.label for b in tab.button if b.proto.type == "primary"]
+    lit += [d.label for d in _unknowns(tab, "download_button")
+            if d.proto.type == "primary"]
+    return lit
 
 
 def test_tabs_are_the_loop_in_order(project_with_history):
@@ -494,6 +518,38 @@ def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history
     at.run()
     open_button = _submit_button(at.sidebar, "Open")
     assert not open_button.disabled and open_button.proto.type == "primary"
+    # ...and it steps aside the moment a confirmation is armed: the Yes is the
+    # one lit thing in the sidebar, even with a switch waiting to be made.
+    _submit_button(at.sidebar, "Hard reset").click()
+    at.run()
+    lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
+    assert lit == ["Yes, reset"], lit
+    open_button = _submit_button(at.sidebar, "Open")
+    assert not open_button.disabled and open_button.proto.type == "secondary"
+
+
+def test_arming_one_manage_project_confirmation_greys_the_other(project_with_history):
+    """Two armed confirmations would put two coloured Yes buttons in the
+    sidebar, each quietly keeping its own copy of the project."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert not at.button(key="hard_reset__btn").disabled
+    assert not at.button(key="delete_project__btn").disabled
+    _submit_button(at.sidebar, "Hard reset").click()
+    at.run()
+    assert at.button(key="delete_project__btn").disabled
+    assert not at.button(key="hard_reset__btn").disabled
+    _submit_button(at.sidebar, "Cancel").click()
+    at.run()
+    at.run()
+    _submit_button(at.sidebar, "Delete").click()
+    at.run()
+    # Delete renders below Hard reset, so it can only grey the button above it
+    # on the next run; a click in between is ignored by confirm_action anyway.
+    at.run()
+    assert at.button(key="hard_reset__btn").disabled
+    assert not at.button(key="delete_project__btn").disabled
 
 
 def test_an_armed_confirmation_is_the_one_lit_sidebar_button(project_with_history):
@@ -1320,8 +1376,8 @@ def test_both_downloads_are_offered_and_only_the_batch_sheet_is_lit(open_batch):
                     "Download batch sheet").proto.type == "primary"
     assert _unknown(at.main, "download_button",
                     "Download printable sheets").proto.type == "secondary"
-    # The download IS the coloured thing here, so no coloured button competes.
-    assert _tab_primaries(at, 1) == [], _tab_primaries(at, 1)
+    # The download IS the coloured thing here, and it is the only one.
+    assert _tab_primaries(at, 1) == ["Download batch sheet"], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
@@ -1495,6 +1551,39 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
     assert not at.exception
     assert at.session_state["main_tab"] == "2 · Make a batch"
     assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
+
+
+def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch):
+    """Twin of the typed path: closing the batch is a write like any other, and
+    a green "Batch 1 recorded." over a batch still open on disk is a lie."""
+    import storage as storage_backend
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.session_state["_results_upload"] = pd.DataFrame(
+        {"Formulation": [1, 2], "Firmness": [6.0, 4.0],
+         "Juiciness": [7.0, 5.0]})
+    at.run()
+    real_save = at.session_state["optimizer"].storage.save
+    calls = []
+
+    def flaky(name, state):
+        calls.append(name)
+        if len(calls) == 3:      # the write that closes the batch
+            raise storage_backend.StorageError(
+                "The disk is full — your last change was NOT saved.")
+        return real_save(name, state)
+
+    at.session_state["optimizer"].storage.save = flaky
+    _submit_button(at, "Save uploaded results").click()
+    at.run()
+    assert not at.exception
+    assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
+    assert not any("recorded" in s.value for s in at.success), \
+        [s.value for s in at.success]
+    assert at.session_state["main_tab"] == "2 · Make a batch"
+    assert FoodOptimizer("burger").pending_batch is not None
 
 
 def test_leave_out_disables_the_row_but_keeps_its_values(open_batch):
@@ -1825,7 +1914,8 @@ def test_correcting_a_result_reports_the_change_and_the_move(scored):
     assert not at.exception
     note = next(s.value for s in at.success if "corrected" in s.value)
     assert note == ("Formulation 1 Firmness corrected 1 → 6. Best moved from "
-                    "Formulation 2 to Formulation 1.")
+                    "Formulation 2 to Formulation 1. A copy of the project was "
+                    "kept first.")
     assert at.session_state["main_tab"] == "3 · Results"    # no auto-move
 
 
@@ -2158,14 +2248,117 @@ def test_the_desktop_bundle_ships_every_module():
         assert module in e2e, module
 
 
+_FIRST_RUN_SENTENCE = ("On a good connection this takes under a minute; "
+                       "on a slow office network up to 15.")
+
+
+def _flowed(text):
+    """A file's prose as one line. A sentence is wrapped differently in each
+    file — Swift splits it across concatenated literals, Markdown across
+    blockquote lines, Start Here across indented ones — and the sentence, not
+    the wrapping, is what has to be identical everywhere."""
+    import re
+    joined = re.sub(r'"\s*\+\s*"', "", text)          # Swift: "a " + "b"
+    joined = re.sub(r"^[>\s]+", " ", joined, flags=re.M)  # quote / indent
+    return re.sub(r"\s+", " ", joined)
+
+
 def test_first_run_copy_gives_the_honest_timing():
+    """One sentence, verbatim, in all four places a first-run user reads it."""
     root = pathlib.Path(APP_PATH).resolve().parent
     for name in ("desktop/FoodOptimizerApp.swift", "desktop/start_here.txt",
-                 "desktop/README.md"):
+                 "desktop/README.md", "README.md"):
         text = (root / name).read_text()
-        for part in ("under a minute", "up to 15"):
-            assert part in text, (name, part)
+        assert _FIRST_RUN_SENTENCE in _flowed(text), name
         assert "a few minutes, up to 15" not in text, name
+
+
+def test_the_last_batch_line_counts_a_batch_that_was_entirely_left_out(burger):
+    """Nobody managed to make batch 2, but it is still the last batch: the line
+    under the title must not fall back to batch 1."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0},
+                formulation_no=1, batch_no=1)
+    burger.record_skipped(2, 2, {"Pea protein": 20.0, "Methylcellulose": 2.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert any(c.value == "Batch 2 · recorded" for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_a_stale_batch_is_reported_above_the_tabs_not_in_the_sidebar(open_batch,
+                                                                     tmp_path):
+    """The notice is about the batch the user is looking at, so it belongs in
+    the fixed message container above the tabs."""
+    import json
+    notice = ("The open batch was discarded because the ingredient list or "
+              "its allowed amounts changed since it was generated.")
+    state = json.loads((tmp_path / "burger.pkl").read_text())
+    for row in state["pending_batch"]:
+        row["recipe"].pop("Methylcellulose")
+    (tmp_path / "burger.pkl").write_text(json.dumps(state))
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert not at.exception
+    assert any(i.value == notice for i in at.info), [i.value for i in at.info]
+    assert not any(i.value == notice for i in at.sidebar.info), \
+        [i.value for i in at.sidebar.info]
+    assert FoodOptimizer("burger").pending_batch is None
+
+
+def test_advanced_and_limit_forms_do_not_follow_you_to_another_project(burger):
+    """prop_ and bo_ keys belong to the project they were typed in, exactly as
+    the measurement and ingredient forms do."""
+    FoodOptimizer("second").save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.session_state["bo_json"] = '{"kernel": "matern52"}'
+    at.session_state["prop_min"] = 3.0
+    at.run()
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert "bo_json" not in at.session_state
+    assert "prop_min" not in at.session_state
+
+
+def test_a_correction_keeps_a_copy_first_and_says_so(scored, tmp_path):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    at.number_input(key="correct_1_Firmness").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "burger_pre_edit.pkl").exists(), \
+        [p.name for p in tmp_path.glob("*.pkl")]
+    assert any(s.value == ("Formulation 1 Firmness corrected 1 → 6. "
+                           "Best moved from Formulation 2 to Formulation 1. "
+                           "A copy of the project was kept first.")
+               for s in at.success), [s.value for s in at.success]
+    assert FoodOptimizer("burger").results_history[0]["Firmness"] == 6.0
+
+
+def test_save_correction_is_the_one_lit_action_while_the_row_is_open(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    assert _tab_primaries(at, 2) == ["Start the next batch"], _tab_primaries(at, 2)
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    assert _tab_primaries(at, 2) == ["Save correction"], _tab_primaries(at, 2)
+    foot = _submit_button(at, "Start the next batch")
+    assert foot.proto.type == "secondary" and foot.disabled
 
 
 def test_a_half_typed_measurement_does_not_follow_you_to_another_project(burger):

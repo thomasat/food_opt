@@ -286,7 +286,9 @@ def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
     assert list(df["Formulation"]) == [1, 2]
     # Ingredient columns carry the project unit (g is a new project's default);
     # a process setting is not an amount, so a cook temperature is never "(g)".
-    assert list(df.columns) == ["Formulation", "Water (g)", "Temp", "Total (g)"]
+    # The total closes the amounts you weigh out, so it comes straight after
+    # the ingredients and before the settings you dial in.
+    assert list(df.columns) == ["Formulation", "Water (g)", "Total (g)", "Temp"]
     assert df["Total (g)"].iloc[0] == 10.0   # the process setting is not an amount
 
 
@@ -1228,6 +1230,20 @@ class TestFormulationIdentity:
         assert opt.formulation_ids == [1]
         assert opt.batch_history == [1]
         assert opt.notes_history == [""]
+
+    def test_rewind_drops_left_out_rows_from_batches_past_the_cut(self, tmp_path, monkeypatch):
+        """A left-out formulation belongs to its batch. Left behind, it would
+        still be offered for deletion and would still make its batch look like
+        the last one recorded."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        opt.record_skipped(2, 1, {"Water": 20.0})
+        opt.tell({"Water": 30.0}, {"Firmness": 6.0}, formulation_no=3, batch_no=2)
+        opt.record_skipped(4, 2, {"Water": 40.0})
+        opt.rewind_to(0)                     # keep batch 1's one scored row
+        assert opt.formulation_ids == [1]
+        assert [s['formulation'] for s in opt.skipped] == [2]
+        assert opt.last_batch_no() == 1
 
     def test_undo_last_batch_removes_the_batch_and_retires_its_numbers(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

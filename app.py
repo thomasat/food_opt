@@ -12,8 +12,9 @@ import ui_results
 import ui_setup
 from food_bo import FoodOptimizer
 from ui_helpers import (
-    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action, flash,
-    landing_tab, open_rows, plural, render_flash, saved_line,
+    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action,
+    confirmation_open, flash, landing_tab, open_rows, other_confirmation,
+    plural, render_flash, saved_line, saved_ok,
 )
 
 STORAGE = storage_backend.LocalStorage()
@@ -23,7 +24,10 @@ _SAMPLE_CSV = os.path.join(
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Food Optimizer")
-render_flash()
+# The container the flash messages live in. The sidebar below runs later and
+# can queue one of its own, so it is drained a second time once the sidebar
+# has had its say — into this same slot, above the tabs.
+_FLASH_BOX = render_flash()
 
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 
@@ -39,6 +43,8 @@ _FORM_KEY_PREFIXES = (
     "pp_",                         # process setting name, min, max, baseline
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
+    "prop_",                       # property limit metric, min, max
+    "bo_",                         # advanced model settings
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
@@ -52,6 +58,7 @@ def _reset_project_session():
               "_results_upload", "_import_rows", "_editing_measurement",
               "scale_total", "results_order", "show_amounts",
               "correct_formulation", "delete_formulation", "amount_unit",
+              "_clear_correct_formulation", "_clear_delete_formulation",
               "qty_pick", "batch_size", "repeat_best", "_pending_tab",
               ARMED_KEY):
         st.session_state.pop(k, None)
@@ -106,9 +113,9 @@ def _batch_line(opt):
     """The one line under the title on tabs 1 and 2 once a batch exists."""
     if opt.pending_batch:
         return f"Batch {opt.pending_batch_no} · {len(open_rows(opt))} to make"
-    numbered = [int(b) for b in opt.batch_history if b is not None]
-    if numbered:
-        return f"Batch {max(numbered)} · recorded"
+    last = opt.last_batch_no()   # counts a batch whose rows were all left out
+    if last is not None:
+        return f"Batch {last} · recorded"
     return None
 
 
@@ -163,9 +170,10 @@ with st.sidebar:
         # The one sidebar control that ever lights up, and only while it would
         # do something: choosing a project in the box does not open it.
         _switching = selected != _active
-        if st.button("Open", type="primary" if _switching else "secondary",
-                     disabled=not _switching) and _switching:
-            _open_project(selected)
+        # Its position is reserved here and filled at the foot of the sidebar:
+        # arming a confirmation does not rerun, so an Open drawn now would
+        # still be coloured on the very run that puts a "Yes, reset" beside it.
+        _open_slot = st.container()
 
     # On a first run the welcome panel already offers the sample, so the
     # sidebar shows it only once at least one project exists.
@@ -206,10 +214,14 @@ with st.sidebar:
                 _batch_ok = False   # malformed backup rows; treat as a mismatch
             if not _batch_ok:
                 opt.set_pending_batch(None)
-                st.info(
-                    "The open batch was discarded because the ingredient list "
-                    "or its allowed amounts changed since it was generated."
-                )
+                # Above the tabs, not in the sidebar: it is about the batch the
+                # user is looking at. And only claimed once the discard reached
+                # the file — saved_ok puts the red banner up when it did not.
+                if saved_ok(opt):
+                    flash("info",
+                          "The open batch was discarded because the ingredient "
+                          "list or its allowed amounts changed since it was "
+                          "generated.")
         # A project that failed to load must never look like an empty success.
         # The full sentence renders once, in the main body; here it would be
         # the same paragraph twice on one screen, so the sidebar only points.
@@ -336,6 +348,7 @@ with st.sidebar:
                  f"{plural(len(opt.X_history), 'formulation')} and set-up are kept "
                  "as a copy in your projects folder, and the project becomes empty."),
                 confirm_label="Yes, reset",
+                disabled=other_confirmation("hard_reset"),
             ):
                 _target = opt.project_name
                 try:
@@ -361,6 +374,7 @@ with st.sidebar:
                  f"{plural(len(opt.X_history), 'formulation')}? A copy is kept in your "
                  "projects folder, and it leaves this list."),
                 confirm_label="Yes, delete",
+                disabled=other_confirmation("delete_project"),
             ):
                 _target = opt.project_name
                 try:
@@ -376,6 +390,24 @@ with st.sidebar:
                     st.session_state.pop("_loaded_project", None)
                     st.session_state.pop("project_select", None)
                     st.rerun()
+
+
+    if existing_projects:
+        with _open_slot:
+            # Lit only while it would do something, and only while nothing else
+            # is lit: an armed confirmation's Yes is the one coloured button in
+            # the sidebar until it is answered.
+            if st.button(
+                "Open",
+                type=("primary" if _switching and not confirmation_open()
+                      else "secondary"),
+                disabled=not _switching,
+            ) and _switching:
+                _open_project(selected)
+
+
+# Anything the sidebar queued belongs on THIS run, above the tabs.
+render_flash(_FLASH_BOX)
 
 
 # ================================================================== #

@@ -252,3 +252,40 @@ def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
     at.run()
     assert at.session_state["_pending_tab"] == "2 · Make a batch"
     assert "main_tab" not in at.session_state
+
+
+# A select box that a button empties. Popping the widget's key does not reach
+# the browser, so the clear is parked and honoured before the widget is built.
+CLEAR_SELECTION_SCRIPT = """
+import streamlit as st
+from ui_helpers import clear_selection, take_clear
+take_clear("pick")
+st.selectbox("Pick", [1, 2, 3], index=None, key="pick")
+if st.button("Done"):
+    clear_selection("pick")
+    st.rerun()
+"""
+
+
+def test_clear_selection_empties_the_box_on_the_next_run():
+    at = AppTest.from_string(CLEAR_SELECTION_SCRIPT)
+    at.run()
+    at.selectbox(key="pick").set_value(2)
+    at.run()
+    assert at.session_state["pick"] == 2
+    at.button[0].click()
+    at.run()
+    # Assigned, not popped: an assignment is sent to the browser, so the value
+    # cannot come back with the next click.
+    assert at.session_state["pick"] is None
+    assert "_clear_pick" not in at.session_state
+    assert at.selectbox(key="pick").value is None
+
+
+def test_take_clear_is_a_no_op_when_nothing_asked_for_it():
+    at = AppTest.from_string(CLEAR_SELECTION_SCRIPT)
+    at.run()
+    at.selectbox(key="pick").set_value(3)
+    at.run()
+    at.run()
+    assert at.session_state["pick"] == 3

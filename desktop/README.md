@@ -6,10 +6,10 @@ Design spec: `docs/superpowers/specs/2026-08-13-desktop-packaging-design.md`.
 ## Build
 
 ```bash
-./desktop/build_dmg.sh 0.1.0        # version is the only argument
+./desktop/build_dmg.sh 0.3.0        # version is the only argument
 ```
 
-Output: `desktop/dist/FoodOptimizer-0.1.0.dmg`. Unsigned builds print a
+Output: `desktop/dist/FoodOptimizer-0.3.0.dmg`. Unsigned builds print a
 loud warning and are for internal testing only — never send one to a
 recipient.
 
@@ -46,7 +46,7 @@ Then every distribution build:
 ```bash
 export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
 export NOTARY_PROFILE=foodopt-notary
-./desktop/build_dmg.sh 0.1.0
+./desktop/build_dmg.sh 0.3.0
 ```
 
 ## Updating dependencies

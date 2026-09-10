@@ -27,20 +27,25 @@ def flash(kind, message):
     st.session_state.setdefault(_FLASH_KEY, []).append((kind, message))
 
 
-def render_flash():
-    """Show and clear queued messages. Call once, near the top of app.py.
+def render_flash(box=None):
+    """Show and clear queued messages, and return the container they went into.
 
     The messages always render inside one container, so the page keeps the
     same shape whether or not a message is showing. Rendering them as bare
     top-level elements shifted everything below by one slot on the run that
     cleared them, which made the browser rebuild the tabs and drop the user
     back to the first tab (seen right after opening a project and clicking
-    Generate recipes).
+    Generate).
+
+    Pass the container back to drain messages queued LATER in the same run —
+    the sidebar runs after this point and can discard an unmakeable batch,
+    and that notice belongs above the tabs on this run, not the next one.
     """
-    box = st.container()
+    box = st.container() if box is None else box
     with box:
         for kind, message in st.session_state.pop(_FLASH_KEY, []):
             getattr(st, kind)(message)
+    return box
 
 
 def saved_ok(opt):
@@ -170,6 +175,17 @@ def fmt_amount(value, unit="", decimals=2):
     return join_unit(txt, unit)
 
 
+def outside_message(name, value, low, high, unit, what, tail=""):
+    """'Firmness 12 N is outside your scale of 0 to 10 N.' — the one builder
+    for every out-of-bounds line, so a measurement and an amount are refused
+    and warned about in the same words. `what` names the bounds, `tail` is any
+    sentence that follows."""
+    return (join_unit(f"{name} {float(value):g}", unit)
+            + f" is outside {what} of "
+            + join_unit(f"{float(low):g} to {float(high):g}", unit)
+            + "." + tail)
+
+
 def scale_error(obj, value):
     """The refusal for a measured value outside its scale, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 scale is either a
@@ -179,11 +195,19 @@ def scale_error(obj, value):
     low, high = float(obj['min_val']), float(obj['max_val'])
     if low <= float(value) <= high:
         return ""
-    unit = obj.get('unit')
-    return (join_unit(f"{obj['name']} {float(value):g}", unit)
-            + " is outside your scale of "
-            + join_unit(f"{low:g} to {high:g}", unit)
-            + ". Widen the scale in Set up, or check the value.")
+    return outside_message(obj['name'], value, low, high, obj.get('unit'),
+                           "your scale",
+                           " Widen the scale in Set up, or check the value.")
+
+
+def bounds_warning(name, value, low, high, unit):
+    """The caution for an amount outside what the project allows, or '' when it
+    fits. Same builder as scale_error, so the two lines never drift apart."""
+    if value is None:
+        return ""
+    if float(low) <= float(value) <= float(high):
+        return ""
+    return outside_message(name, value, low, high, unit, "its allowed amounts")
 
 
 def table_height(n_rows, max_rows=12):
@@ -202,6 +226,38 @@ def saved_line(saved_at):
     else:
         when = saved_at.strftime("%d %b %H:%M").lstrip("0")
     return f"Saved {when} · automatically, to this Mac"
+
+
+def clear_selection(key):
+    """Ask for a select box to be emptied on the NEXT run.
+
+    Popping a widget's key does not reach the browser: it keeps the old value
+    and sends it back with the next click, so a row closed by Done reopened
+    under the user's finger and swallowed that click. Assigning None instead is
+    refused once the widget exists on this run. So the request is parked here
+    and honoured by take_clear() just before the widget is created."""
+    st.session_state[f"_clear_{key}"] = True
+
+
+def take_clear(key):
+    """Honour a pending clear_selection. Call immediately BEFORE the widget."""
+    if st.session_state.pop(f"_clear_{key}", False):
+        st.session_state[key] = None
+
+
+def best_formulation_no(opt):
+    """The number of the best formulation, or None. Three tabs name it — the
+    repeat checkbox, the biggest-changes line and every 'Best moved' sentence —
+    and they must all mean the same formulation."""
+    i = opt.best_index()
+    return None if i is None else int(opt.formulation_ids[i])
+
+
+def best_move_sentence(before, after):
+    """'Best moved from Formulation 3 to Formulation 7.' or '' when it stayed."""
+    if before is None or after is None or before == after:
+        return ""
+    return f"Best moved from Formulation {before} to Formulation {after}."
 
 
 def readiness(opt):
