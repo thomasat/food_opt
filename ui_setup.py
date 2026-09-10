@@ -1041,9 +1041,12 @@ def _limits(opt, storage):
     if not opt.has_ingredients():
         return
     with st.expander("Limits (optional)"):
+        # "of your ingredients", not "from your ingredient file": a property
+        # is named in the app as often as it arrives in a file, and the box
+        # that names one is two lines below this caption.
         st.caption("Limits hold every new formulation to an amount you weigh "
-                   "out or a property from your ingredient file. Measurements "
-                   "are aimed at with targets, not limited.")
+                   "out or a property of your ingredients. Measurements are "
+                   "aimed at with targets, not limited.")
 
         _property_limits(opt, storage)
 

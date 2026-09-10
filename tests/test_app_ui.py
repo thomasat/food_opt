@@ -2717,6 +2717,18 @@ def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
     assert dict(zip(table["Name"], table["Used so far"])) == {
         "Pea protein": "", "Methylcellulose": "",
         "Cook temperature": "180 °C"}
+def test_the_limits_caption_covers_a_property_named_in_the_app(burger):
+    """A property is named in the app as often as it arrives in a file, and
+    the box that names one is two lines below this caption."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == ("Limits hold every new formulation to an amount "
+                           "you weigh out or a property of your ingredients. "
+                           "Measurements are aimed at with targets, not "
+                           "limited.") for c in at.caption), \
+        [c.value for c in at.caption]
+
+
 def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     """It used to send the user off to build a CSV; a property can now be
     named here, so the section offers the box instead of an errand."""
