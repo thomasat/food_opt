@@ -648,3 +648,361 @@ def test_an_uploaded_import_sheet_does_not_follow_a_project_switch(project_with_
     at.run()
     assert not at.exception
     assert "_import_rows" not in at.session_state
+
+
+@pytest.fixture
+def burger(tmp_path, monkeypatch):
+    """A project shaped like the sample: units everywhere, two targets,
+    firmness the more important of the two."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("burger")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 0, 25)
+    opt.add_ingredient("Methylcellulose", 0, 3)
+    opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                      min_val=0, max_val=10, unit="/10")
+    opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                      min_val=0, max_val=10, unit="N")
+    return opt
+
+
+def _labels(at):
+    return [b.label for b in at.button]
+
+
+def test_setup_shows_the_amount_unit_and_uses_it_in_headers(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.text_input(key="amount_unit").value == "g"
+    assert any("Min (g)" in str(d.value.columns.tolist()) for d in at.dataframe), \
+        [d.value.columns.tolist() for d in at.dataframe]
+
+
+def test_a_unit_typed_with_a_trailing_space_is_saved_once(burger):
+    """Comparing a stripped value with an unstripped one re-saved on every
+    rerun, and a failing save then bounced the script into a rerun loop."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="amount_unit").set_value("kg ")
+    at.run()
+    assert FoodOptimizer("burger").amount_unit == "kg"
+    saved_at = at.session_state["optimizer"].last_saved_at
+    at.run()
+    assert at.session_state["optimizer"].last_saved_at == saved_at   # no re-save
+    assert not at.exception
+
+
+def test_measurements_table_is_sorted_by_importance_with_shares(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Priority" in d.value.columns)
+    assert list(table.columns) == ["Priority", "Measurement", "Goal", "Scale",
+                                   "Importance", "Share"]
+    assert list(table["Measurement"]) == ["Firmness", "Juiciness"]
+    assert list(table["Share"]) == ["60%", "40%"]
+    assert list(table["Goal"]) == ["Target 6 N", "Target 7/10"]
+
+
+def test_the_score_function_is_written_out_under_the_table(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == (
+        "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness closeness. "
+        "Closeness is 1 on target and falls evenly with distance from it; a "
+        "full scale width away scores 0. Every measurement on target scores 2.50."
+    ) for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_collapsed_sections_are_the_spec_list(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = [e.label for e in at.expander]
+    for label in ("Change the ingredient list", "Add a measurement",
+                  "How closeness is worked out", "Process settings (optional)",
+                  "Limits (optional)", "Advanced model settings"):
+        assert label in labels, labels
+
+
+def test_importance_is_a_number_from_a_tenth_to_a_hundred(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    field = at.number_input(key="meas_new_importance")
+    assert field.min == 0.1 and field.max == 100.0
+    assert field.value == 1.0
+    assert not at.slider, [s.label for s in at.slider]
+
+
+def test_the_live_share_line_follows_what_is_typed(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="meas_new_name").set_value("Chewiness")
+    at.number_input(key="meas_new_importance").set_value(2.5)
+    at.run()
+    assert any(m.value == "Chewiness: 50% of the overall score" for m in at.markdown), \
+        [m.value for m in at.markdown]
+
+
+def test_continue_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bare2")
+    opt.add_ingredient("Water", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    button = _submit_button(at, "Continue to make a batch")
+    assert button.disabled
+    assert button.proto.type == "secondary"
+    assert any(c.value == "Add at least one measurement." for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_continue_is_lit_and_moves_to_the_batch_tab(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    button = _submit_button(at, "Continue to make a batch")
+    assert not button.disabled and button.proto.type == "primary"
+    button.click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == "2 · Make a batch"
+
+
+def test_set_up_has_exactly_one_coloured_button(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_primaries(at, 0) == ["Continue to make a batch"], _tab_primaries(at, 0)
+
+
+def test_edit_reopens_the_measurement_with_the_name_locked(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Edit Firmness").click()
+    at.run()
+    assert not at.exception
+    assert at.text_input(key="meas_Firmness_name").disabled is True
+    assert at.number_input(key="meas_Firmness_importance").value == 1.5
+    assert "Cancel" in _labels(at)
+    _submit_button(at, "Cancel").click()
+    at.run()
+    assert "_editing_measurement" not in at.session_state
+
+
+def test_changing_importance_keeps_a_copy_and_reports_the_move(burger, tmp_path):
+    # Chosen so Formulation 3 wins at importance 1.5 (1.75 vs 1.65) and
+    # Formulation 7 wins at 2.0 (2.10 vs 2.00) — the move the sentence reports.
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=3, batch_no=1)
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
+                {"Juiciness": 0.0, "Firmness": 7.0}, formulation_no=7, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "1 · Set up"
+    at.run()
+    _submit_button(at, "Edit Firmness").click()
+    at.run()
+    at.number_input(key="meas_Firmness_importance").set_value(2.0)
+    _submit_button(at, "Save changes").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "burger_pre_edit.pkl").exists()
+    note = next(s.value for s in at.success if "importance changed" in s.value)
+    assert note == ("Firmness importance changed to 2.0. Every overall score was "
+                    "recalculated. Best moved from Formulation 3 to Formulation 7.")
+    assert at.session_state["main_tab"] == "1 · Set up"   # a set-up edit never moves
+
+
+def test_editing_a_measurement_leaves_the_open_batch_alone(burger):
+    """A formulation is a set of amounts; changing what you measure cannot
+    invalidate it, and silently retiring its numbers would break the promise
+    that a number is never reissued."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _submit_button(at, "Edit Firmness").click()
+    at.run()
+    at.number_input(key="meas_Firmness_importance").set_value(2.0)
+    _submit_button(at, "Save changes").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert [r["formulation"] for r in reloaded.pending_batch] == [1]
+    assert reloaded.pending_batch_no == 1
+
+
+def test_adding_and_removing_a_measurement_leaves_the_open_batch_alone(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.text_input(key="meas_new_name").set_value("Chewiness")
+    _submit_button(at, "Add measurement").click()
+    at.run()
+    assert FoodOptimizer("burger").pending_batch is not None
+    _submit_button(at, "Remove Chewiness").click()
+    at.run()
+    _submit_button(at, "Yes, remove").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").pending_batch is not None
+
+
+def test_adding_an_ingredient_does_discard_the_open_batch(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.text_input(key="ing_name").set_value("Beet juice powder")
+    at.number_input(key="ing_max").set_value(2.0)
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").pending_batch is None
+
+
+def test_removing_a_measurement_keeps_a_copy_and_recalculates(burger, tmp_path):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Remove Juiciness").click()
+    at.run()
+    _submit_button(at, "Yes, remove").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "burger_pre_edit.pkl").exists()
+    assert [o["name"] for o in FoodOptimizer("burger").objectives] == ["Firmness"]
+    assert any("Every overall score was recalculated" in s.value for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_adding_a_measurement_from_the_collapsed_form(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="meas_new_name").set_value("Chewiness")
+    at.text_input(key="meas_new_unit").set_value("N")
+    at.number_input(key="meas_new_max").set_value(20.0)
+    at.number_input(key="meas_new_importance").set_value(0.5)
+    _submit_button(at, "Add measurement").click()
+    at.run()
+    assert not at.exception
+    added = next(o for o in FoodOptimizer("burger").objectives
+                 if o["name"] == "Chewiness")
+    assert added["unit"] == "N" and added["weight"] == 0.5 and added["max_val"] == 20.0
+
+
+def test_the_ingredient_uploader_help_names_the_real_columns(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
+    assert "Name, Min, Max" in uploader.proto.help, uploader.proto.help
+    assert any(c.value == "One row per ingredient: Name, Min, Max."
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_change_the_ingredient_list_carries_the_unit(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="ing_min").label == "Min (g)"
+    assert at.number_input(key="ing_max").label == "Max (g)"
+
+
+def test_manual_add_ingredient_and_the_mid_run_minimum_notice(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="ing_min").disabled is True
+    at.text_input(key="ing_name").set_value("Beet juice powder")
+    at.number_input(key="ing_max").set_value(2.0)
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert not at.exception
+    assert any(v["name"] == "Beet juice powder" for v in FoodOptimizer("burger").variables)
+
+
+def test_process_setting_baseline_error_is_shown_not_raised(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="pp_name").set_value("Cook temperature")
+    at.number_input(key="pp_min").set_value(150.0)
+    at.number_input(key="pp_max").set_value(220.0)
+    at.number_input(key="pp_base").set_value(100.0)   # outside [150, 220]
+    _submit_button(at, "Add process setting").click()
+    at.run()
+    assert not at.exception
+    assert any("must be between" in str(e.value) for e in at.error), \
+        [str(e.value) for e in at.error]
+
+
+def test_removing_a_process_setting_confirms_and_archives(burger, tmp_path):
+    """0.2.x safety behaviour that must survive the rebuild: a removal that
+    rewrites recorded formulations keeps a copy first."""
+    burger.add_process_parameter("Cook temperature", 150, 220)
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0,
+                 "Cook temperature": 180.0},
+                {"Juiciness": 7.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Remove").click()
+    at.run()
+    assert any("Cook temperature" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    assert any(v["name"] == "Cook temperature" for v in FoodOptimizer("burger").variables)
+    _submit_button(at, "Yes, remove").click()
+    at.run()
+    assert not at.exception
+    assert (tmp_path / "burger_pre_delete.pkl").exists()
+    assert not any(v["name"] == "Cook temperature"
+                   for v in FoodOptimizer("burger").variables)
+
+
+def test_limit_fields_start_blank_and_the_maximum_is_unchecked(burger):
+    """A pre-filled 100 g maximum on a 400 g burger made every future batch
+    infeasible in one click."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="tm_max").value is None
+    assert at.number_input(key="tm_max").placeholder == "no limit"
+    assert at.checkbox(key="qc_use_max").value is False
+
+
+def test_a_new_limit_says_past_formulations_are_kept(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="tm_max").set_value(400.0)
+    _submit_button(at, "Add a total amount limit").click()
+    at.run()
+    assert not at.exception
+    assert any("Formulations already made are kept. The next batch will respect "
+               "this limit." in s.value for s in at.success), [s.value for s in at.success]
+
+
+def test_a_limit_that_excludes_everything_made_so_far_warns(burger):
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
+                {"Juiciness": 7.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="tm_max").set_value(5.0)     # the one formulation is 22 g
+    _submit_button(at, "Add a total amount limit").click()
+    at.run()
+    assert not at.exception
+    assert any(w.value == "No formulation you have made fits this limit."
+               for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").quantity_constraints    # still added
+
+
+def test_conflicting_save_shows_the_banner_immediately(burger, tmp_path):
+    """Another window changed the file first: the conflict must appear on THIS
+    run, not wait for the next click."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    other = FoodOptimizer("burger")
+    other.add_objective("Crunch", 1.0)
+    time.sleep(0.01)   # coarse-mtime filesystems
+    at.text_input(key="meas_new_name").set_value("Zing")
+    _submit_button(at, "Add measurement").click()
+    at.run()
+    assert not at.exception
+    assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
