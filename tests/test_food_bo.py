@@ -118,7 +118,9 @@ class TestVariables:
         opt.load_ingredients_from_csv(df)
         assert len(opt.variables) == 3
         assert "Water" in opt.ingredient_properties
-        assert opt.ingredient_properties["Flour"]["fat"] == 1.0
+        # The file's own capitalisation is kept: the picker and the limits
+        # list show this name.
+        assert opt.ingredient_properties["Flour"]["Fat"] == 1.0
 
     def test_load_ingredients_csv_lowercase_columns(self, opt):
         """User CSVs vary in header case; lowercase must work (the shipped
@@ -1111,8 +1113,16 @@ class TestValidateState:
         opt.add_ingredient("Water", 0, 100)
         opt.add_objective("Taste", 1.0, goal="max")
         opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        opt.record_skipped(2, 1, {"Water": 60.0})
+        opt.add_process_parameter("Cook temperature", 150, 200, baseline=170,
+                                  unit="°C")
         summary = FoodOptimizer.validate_state(opt.export_json())
-        assert summary == {"name": "src", "experiments": 1, "ingredients": 1,
+        # 'formulations' counts the left-out row too — a warning that offers
+        # to replace a project must not undercount what it holds — and the
+        # settings are named, so a settings-only project is not '0
+        # ingredients' and nothing else.
+        assert summary == {"name": "src", "experiments": 1, "formulations": 2,
+                           "ingredients": 1, "settings": 1,
                            "version": FoodOptimizer.CLASS_VERSION}
 
 
@@ -1970,7 +1980,7 @@ class TestUnitPerIngredient:
         assert opt.unit_of("Flour") == "g"
         assert opt.unit_of("Salt") == "g"
         # ...and the unit column is not read as an ingredient property.
-        assert set(opt.ingredient_properties["Water"]) == {"fat per 100 g"}
+        assert set(opt.ingredient_properties["Water"]) == {"Fat per 100 g"}
 
     def test_the_shipped_csv_template_carries_the_unit_column(self, tmp_path,
                                                               monkeypatch):
@@ -2048,8 +2058,12 @@ class TestUnitPerIngredient:
         with pytest.raises(ValueError,
                            match="Choose ingredients that share a unit."):
             opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
-        with pytest.raises(ValueError,
-                           match="Choose ingredients that share a unit."):
+        # The total-amount control has no ingredient picker — it is every
+        # ingredient by definition — so it names the units instead.
+        with pytest.raises(
+                ValueError,
+                match=r"A total needs all ingredients in one unit\. Yours "
+                      r"are in g and ml\."):
             opt.add_total_mass_constraint(max_val=400)
         assert opt.quantity_constraints == []
         # One unit between them, and the same limit is accepted.
@@ -2337,6 +2351,99 @@ _BANNED = [
     re.compile(r"(?<!Food )\boptimi[sz](er|ation)\b", re.I),
     re.compile(r"Overall Score"),
 ]
+
+class TestRoundTwoFixes:
+    """Verification round 2: a name the app owns, a unit edit that reaches the
+    limits, a property that keeps its capitals, and a score written once."""
+
+    def _opt(self, tmp_path, monkeypatch, name="round2"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        return opt
+
+    def test_total_is_reserved_like_every_other_column_the_app_owns(
+            self, tmp_path, monkeypatch):
+        """Two columns named 'Total (g)' break the batch table outright, and
+        on the sheet the ingredient's own column carries the batch total."""
+        opt = self._opt(tmp_path, monkeypatch)
+        for name in ("Total", "total", "Total (g)", "TOTAL (ml)"):
+            with pytest.raises(ValueError, match="column name Food Optimizer"):
+                opt.add_ingredient(name, 0, 10)
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_process_parameter("Total", 0, 10)
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_objective("Total", 1.0, goal="max")
+        assert [v['name'] for v in opt.variables] == ["Pea protein", "Water"]
+
+    def test_total_is_refused_in_an_ingredient_csv_too(self, tmp_path,
+                                                       monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("csv_total")
+        df = pd.DataFrame({"Name": ["Flour", "Total (g)"], "Min": [0, 0],
+                           "Max": [100, 10]})
+        with pytest.raises(ValueError, match="Row 3: Total \\(g\\) is a column "
+                                             "name Food Optimizer uses"):
+            opt.load_ingredients_from_csv(df)
+        # The refusal comes before the file is saved, so nothing on disk holds
+        # a column the app owns.
+        assert "Total (g)" not in [v['name'] for v in opt.variables]
+
+    def test_re_adding_an_ingredient_prunes_the_limits_it_breaks(
+            self, tmp_path, monkeypatch):
+        """add_ingredient on a name the project already has is a unit edit,
+        and it was the one way a project could hold a limit that adds grams
+        to millilitres."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_total_mass_constraint(min_val=50, max_val=150)
+        removed = opt.add_ingredient("Water", 0, 100, unit="ml")
+        assert opt.quantity_constraints == []
+        assert [r['reason'] for r in removed] == ["unit"]
+        assert set(removed[0]['ingredients']) == {"Pea protein", "Water"}
+        # A limit that still means something is left alone.
+        opt.set_ingredient_unit("Water", "g")
+        opt.add_total_mass_constraint(max_val=150)
+        assert opt.add_ingredient("Water", 0, 90, unit="g") == []
+        assert len(opt.quantity_constraints) == 1
+
+    def test_a_property_keeps_the_capitals_the_file_gave_it(self, tmp_path,
+                                                            monkeypatch):
+        """The picker shows this name and the caption above it writes 'Cost or
+        Sodium per 100 g', so lower-casing it read as a different column."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("props")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Oil"], "Min": [0, 0], "Max": [100, 50],
+            "Fat per 100 g": [1.0, 90.0]}))
+        assert set(opt.ingredient_properties["Oil"]) == {"Fat per 100 g"}
+        # Matching ignores capitals, so a limit written by an older project
+        # (which stored the name lower-cased) still finds the column.
+        opt.add_constraint("fat per 100 g", max_val=100.0)
+        assert opt._check_constraints({"Flour": 10.0, "Oil": 1.0}) is True
+        assert opt._check_constraints({"Flour": 10.0, "Oil": 2.0}) is False
+        # ...and a second limit on the same column replaces the first.
+        opt.add_constraint("Fat per 100 g", max_val=200.0)
+        assert len(opt.constraints) == 1
+
+    def test_the_downloaded_scores_are_the_scores_on_screen(self, tmp_path,
+                                                            monkeypatch):
+        """The table shows 2.62; the file used to hold 2.625."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Juiciness", 0.75, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+        opt.tell({"Pea protein": 10.0, "Water": 5.0},
+                 {"Firmness": 5.5, "Juiciness": 6.5}, formulation_no=1,
+                 batch_no=1)
+        frame = pd.read_csv(io.StringIO(opt.history_csv()))
+        on_screen = opt.history_frame()["Overall score"].iloc[0]
+        assert f"{frame['Overall score'].iloc[0]:.2f}" == on_screen
+        assert frame["Overall score"].iloc[0] == round(
+            float(opt.Y_history[0]), 2)
+
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {

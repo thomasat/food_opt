@@ -97,7 +97,7 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
             # Named on the batch table and carried into the stored result: an
             # unexplained extra row is not a repeat, it is a mystery.
             opt.add_to_pending_batch(opt.recipe_history[index],
-                                     note=f"repeat of Formulation {best_no}")
+                                     note=f"Repeat of Formulation {best_no}")
     if batch_no is not None or discarded is not None:
         # A regenerated batch keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
@@ -181,8 +181,13 @@ def _batch_table(opt):
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
         index = opt.index_of_formulation(best_no)
         if index is not None:
-            changes = opt.biggest_changes(rows[0]['recipe'],
-                                          opt.recipe_history[index], n=2)
+            # Against the amounts on the table above, not the ones underneath
+            # them: while the batch is scaled to a total, a change read off
+            # the generated amounts is a number nothing on screen shows. The
+            # formulation it compares is scaled to that same total.
+            changes = opt.biggest_changes(
+                opt.scaled_recipe(rows[0]['recipe'], scale_to),
+                opt.scaled_recipe(opt.recipe_history[index], scale_to), n=2)
             if changes:
                 # Each change in that ingredient's own unit: +10.00 ml of
                 # water beside +2.00 g of protein.
@@ -191,7 +196,11 @@ def _batch_table(opt):
                     f"{fmt_amount(abs(delta), opt.unit_of(name))}"
                     for name, delta in changes
                 )
-                st.caption(f"Biggest changes from Formulation {best_no}: {parts}.")
+                # Named: the line reads one row of the batch, so a batch of
+                # three must not sound as though it describes all of them.
+                st.caption(f"Biggest changes in Formulation "
+                           f"{rows[0]['formulation']} from Formulation "
+                           f"{best_no}: {parts}.")
 
 
 def _scale_control(opt, unit, scale_to):
@@ -260,7 +269,12 @@ def _sheet_lines(opt, row, scale_to):
         lines.append(f"Measured {label_with_unit(obj['name'], obj.get('unit'))}"
                      f" · {goal_line(obj)}: ______________________")
     lines.append("")
-    lines.append("Note: ______________________________________________")
+    # A repeat says so on the sheet the technician carries: two sheets with
+    # identical amounts and nothing printed to say why is how a batch gets
+    # made twice by mistake.
+    note = str(row.get('note') or "").strip()
+    lines.append(f"Note: {note}" if note else
+                 "Note: ______________________________________________")
     lines.append("Not made [  ]")
     return lines
 
@@ -416,12 +430,14 @@ def _record_results(opt):
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
-        st.text_input("Note", key=f"f{number}_note", disabled=skip)
+        # Never disabled: why a formulation was not made is the only record
+        # of what went wrong, and a Note that greys out on the tick can only
+        # be typed by someone who knew to type it first.
+        st.text_input("Note", key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
         st.checkbox("Leave out", key=f"f{number}_leave_out",
-                    help="Not made, or failed. The formulation keeps its "
-                         "number and its amounts, and is stored without "
-                         "results.")
+                    help="Not made, or failed. Type why in Note; it is kept "
+                         "with the formulation.")
         if has_value and not skip:
             entered += 1
         st.divider()
@@ -498,8 +514,11 @@ def _upload(opt):
         st.caption("Download the batch sheet above, fill in one column per "
                    "measurement, and upload it here. Rows are matched by "
                    "Formulation number.")
-        sheet_file = st.file_uploader("Results sheet", type=["csv"],
-                                      key="results_csv")
+        sheet_file = st.file_uploader(
+            "Results sheet", type=["csv"],
+            # Per project: an uploader cannot be emptied from session state,
+            # so a shared key offered the next project this one's sheet.
+            key=f"results_csv_{opt.project_name}")
         if sheet_file is not None and st.button("Check this sheet",
                                                 key="check_sheet"):
             try:

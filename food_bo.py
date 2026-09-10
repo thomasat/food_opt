@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 
 import numpy as np
@@ -36,7 +37,23 @@ from storage import LocalStorage, StorageError
 RESERVED_VARIABLE_NAMES = {
     "Experiment", "Date", "Overall Score", "Recipe",
     "Formulation", "Batch", "Overall score", "Note", "Recorded", "Best",
+    "Total",
 }
+
+# The batch table's own total column carries the unit it is summing —
+# 'Total (g)', 'Total (ml)' — so an ingredient named 'Total (g)' collides with
+# it just as plainly as one named 'Total'. Two columns of the same name break
+# the batch table outright and put the batch total on the sheet where that
+# ingredient's own amount belongs.
+_TOTAL_COLUMN_RE = re.compile(r"^total(\s*\(.*\))?$", re.IGNORECASE)
+
+
+def is_reserved_name(name):
+    """True when a variable name would overwrite a column the app owns.
+    Capitalisation is ignored: 'total' and 'Total (g)' are the same column."""
+    name = str(name).strip()
+    return (name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}
+            or bool(_TOTAL_COLUMN_RE.match(name)))
 
 
 def join_unit(text, unit):
@@ -250,7 +267,7 @@ class FoodOptimizer:
         name = str(name).strip()
         if not name:
             raise ValueError("Name cannot be empty.")
-        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+        if is_reserved_name(name):
             raise ValueError(
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
@@ -276,7 +293,13 @@ class FoodOptimizer:
         `unit` is this ingredient's own unit — the water may be in ml while
         the powders are in g. None means "no unit of its own": the ingredient
         follows the project's default (`amount_unit`), which is what a 0.2.x
-        project's ingredients do and what a blank CSV cell means."""
+        project's ingredients do and what a blank CSV cell means.
+
+        Returns the amount limits this change emptied of meaning (see
+        prune_amount_limits), as every other unit edit does: adding an
+        ingredient that already exists is one of the ways a unit changes, and
+        a limit that then adds grams to millilitres is a number of nothing.
+        """
         name = self._check_new_variable(name, min_val, max_val, 'ingredient')
         min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
@@ -284,9 +307,10 @@ class FoodOptimizer:
                 var['bounds'] = (min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
+                removed = self.prune_amount_limits()
                 self._drop_pending_batch()
                 self.save()
-                return
+                return removed
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
@@ -306,8 +330,10 @@ class FoodOptimizer:
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
+        removed = self.prune_amount_limits()
         self._drop_pending_batch()
         self.save()
+        return removed
 
     def load_ingredients_from_csv(self, df):
         """Bulk-load ingredients from a DataFrame (used by the app).
@@ -356,7 +382,7 @@ class FoodOptimizer:
                 raise ValueError(f"Row {i + 2}: the Name cell is blank.")
             if name.lower() in seen_names:
                 raise ValueError(f"Row {i + 2}: duplicate ingredient name {name}.")
-            if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+            if is_reserved_name(name):
                 raise ValueError(
                     f"Row {i + 2}: {name} is a column name Food Optimizer uses "
                     f"for its own tables. Choose another name, for example {name}s."
@@ -397,7 +423,11 @@ class FoodOptimizer:
                 try:
                     val = float(row[col])
                     if not pd.isna(val):
-                        props[col.lower()] = val
+                        # The file's own capitalisation, kept: the picker and
+                        # the limits list show this name, and 'Fat per 100 g'
+                        # lower-cased read as a different column from the one
+                        # the caption above it names. Matching ignores case.
+                        props[str(col).strip()] = val
                 except (ValueError, TypeError):
                     pass
             self.ingredient_properties[name] = props
@@ -494,7 +524,7 @@ class FoodOptimizer:
                 f"{name} is already the name of an ingredient or process "
                 f"setting. Choose another name for the measurement."
             )
-        if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
+        if is_reserved_name(name):
             raise ValueError(
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name."
@@ -610,6 +640,22 @@ class FoodOptimizer:
             return str(var.get('unit', "") or "")
         unit = var.get('unit')
         return str(self.amount_unit or "") if unit is None else str(unit or "")
+
+    def property_value(self, name, metric):
+        """One ingredient's value for a property — 0.0 when it has none.
+
+        Matched without regard to capitalisation: the stored key carries the
+        file's own capitalisation ('Fat per 100 g'), while a limit written
+        against an older project stored it lower-cased, and both must find
+        the same column."""
+        props = self.ingredient_properties.get(name, {}) or {}
+        if metric in props:
+            return float(props[metric])
+        lowered = str(metric).strip().lower()
+        for key, value in props.items():
+            if str(key).strip().lower() == lowered:
+                return float(value)
+        return 0.0
 
     def ingredient_units(self):
         """Every unit the ingredients are written in, in ingredient order."""
@@ -1174,7 +1220,9 @@ class FoodOptimizer:
                 "Formulation": int(self.formulation_ids[i]),
                 "Batch": "" if batch is None else int(batch),
                 "Recorded": local_date(ts),
-                "Overall score": float(self.Y_history[i]),
+                # Two decimals, as the screen shows it: a file that says
+                # 2.625 where the table says 2.62 reads as a third number.
+                "Overall score": round(float(self.Y_history[i]), 2),
             }
             row.update(self._decode(x))
             row.update(self.results_history[i] if i < len(self.results_history) else {})
@@ -1191,7 +1239,11 @@ class FoodOptimizer:
         Replaces any existing constraint on the same metric."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
             raise ValueError("Min must be less than Max.")
-        self.constraints = [c for c in self.constraints if c['metric'] != metric]
+        # Same property, whatever its capitalisation: two limits on 'Fat' and
+        # 'fat' would both be enforced against the same column.
+        self.constraints = [c for c in self.constraints
+                            if str(c['metric']).strip().lower()
+                            != str(metric).strip().lower()]
         self.constraints.append({
             'metric': metric,
             'min': float(min_val) if min_val is not None else None,
@@ -1232,11 +1284,22 @@ class FoodOptimizer:
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None):
-        """Shortcut: constrain the total mass (sum of all ingredients)."""
+        """Shortcut: constrain the total amount (sum of all ingredients).
+
+        Refused, in its own words, while the ingredients are not all in one
+        unit. This control has no ingredient picker — it is every ingredient
+        by definition — so "Choose ingredients that share a unit" would name
+        a choice the screen does not offer."""
         all_ingredients = [
             v['name'] for v in self.variables
             if v.get('category', 'ingredient') == 'ingredient'
         ]
+        units = self.ingredient_units()
+        if len(units) > 1:
+            raise ValueError(
+                "A total needs all ingredients in one unit. Yours are in "
+                + number_list([u or "no unit" for u in units]) + "."
+            )
         self.add_quantity_constraint(all_ingredients, min_val, max_val)
 
     def remove_quantity_constraint(self, index):
@@ -1406,7 +1469,7 @@ class FoodOptimizer:
             offset_lhs = 0.0
 
             for var_name, idx in var_indices.items():
-                prop_val = self.ingredient_properties.get(var_name, {}).get(metric, 0.0)
+                prop_val = self.property_value(var_name, metric)
                 if prop_val != 0:
                     var_def = next(v for v in self.variables if v['name'] == var_name)
                     v_min, v_max = var_def['bounds']
@@ -1456,9 +1519,10 @@ class FoodOptimizer:
         for constr in self.constraints:
             metric = constr['metric']
             total_val = 0.0
-            for var_name, props in self.ingredient_properties.items():
+            for var_name in self.ingredient_properties:
                 if var_name in recipe_dict:
-                    total_val += recipe_dict[var_name] * props.get(metric, 0.0)
+                    total_val += (recipe_dict[var_name]
+                                  * self.property_value(var_name, metric))
             if constr['min'] is not None and total_val < constr['min']:
                 return False
             if constr['max'] is not None and total_val > constr['max']:
@@ -1905,7 +1969,7 @@ class FoodOptimizer:
         for constr in self.constraints:
             metric = constr['metric']
             lo, hi = self._achievable_range(
-                lambda n: self.ingredient_properties.get(n, {}).get(metric, 0.0),
+                lambda n: self.property_value(n, metric),
                 pinned,
             )
             if constr['min'] is not None and hi < constr['min']:
@@ -2356,10 +2420,20 @@ class FoodOptimizer:
             1 for v in state['variables']
             if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'
         )
+        settings = sum(
+            1 for v in state['variables']
+            if isinstance(v, dict) and v.get('category') == 'process'
+        )
         return {
             'name': state.get('project_name', '(unnamed)'),
             'experiments': len(state['recipe_history']),
+            # Everything the backup holds a number for. A left-out formulation
+            # keeps its number, its amounts and its note, so a warning that
+            # counts only the scored ones undercounts what it is offering.
+            'formulations': len(state['recipe_history'])
+                            + len(state.get('skipped') or []),
             'ingredients': ingredients,
+            'settings': settings,
             'version': version,
         }
 

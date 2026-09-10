@@ -11,9 +11,9 @@ import storage as storage_backend
 from ui_helpers import (
     TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_warning, clear_selection, confirm_action, confirmation_open, flash,
-    fmt_amount, fmt_setting, goal_line, go_to_tab, label_with_unit, open_rows,
-    other_confirmation, plural, readiness, saved_ok, scale_error,
-    table_height, take_clear,
+    fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit, label_with_unit,
+    open_rows, other_confirmation, plural, readiness, saved_ok, scale_error,
+    table_height, take_clear, unit_after_number,
 )
 
 
@@ -122,7 +122,12 @@ def _best(opt):
     if unused:
         st.caption("Not used: " + ", ".join(unused))
     ceiling = opt.utility_ceiling()
-    st.caption(f"Overall score {float(opt.Y_history[index]):.2f} of "
+    # "(partial)", exactly as the All formulations row writes it: a score
+    # missing one measurement is not the same number as a full one.
+    scored = opt.results_history[index] if index < len(opt.results_history) else {}
+    partial = " (partial)" if any(o['name'] not in scored
+                                  for o in opt.objectives) else ""
+    st.caption(f"Overall score {float(opt.Y_history[index]):.2f}{partial} of "
                f"{ceiling:.2f} · {ceiling:.2f} is every measurement on target "
                "· not comparable across projects.")
 
@@ -143,7 +148,8 @@ def _all_formulations(opt):
                        file_name=f"{opt.project_name} formulations.csv",
                        mime="text/csv", key="download_formulations",
                        help="Amounts are unitless in this file so it can be "
-                            "imported back; units are shown on screen.")
+                            "imported back; units are shown on screen. "
+                            "Formulations you left out are not included.")
 
 
 def _correct(opt):
@@ -250,12 +256,20 @@ def _save_correction(opt, storage, pending):
     if not saved_ok(opt):
         return
     after = best_formulation_no(opt)
+    # Every number wears its unit: 66 could be °C or a panel score, and this
+    # sentence is the only confirmation that the right one was typed.
+    units = {o['name']: unit_after_number(o.get('unit')) for o in ordered}
+
+    def _n(name, value):
+        return join_unit(f"{float(value):g}", units.get(name, ""))
+
     sentences = [
-        f"Formulation {choice} {name} corrected {float(was):g} → {float(now):g}."
+        f"Formulation {choice} {name} corrected "
+        f"{_n(name, was)} → {_n(name, now)}."
         for name, was, now in changes if was is not None
     ]
     sentences += [
-        f"Formulation {choice} {name} recorded as {float(now):g}."
+        f"Formulation {choice} {name} recorded as {_n(name, now)}."
         for name, was, now in changes if was is None
     ]
     move = best_move_sentence(before, after)
@@ -266,12 +280,18 @@ def _save_correction(opt, storage, pending):
     st.rerun()
 
 
-def _foot(opt, correcting=False):
+def _foot_label(opt):
+    """What the foot of this tab offers. An open batch outranks everything:
+    the work to do is the batch on the bench, and every other screen already
+    says so in these words."""
     if opt.pending_batch:
-        label = (f"Back to batch {opt.pending_batch_no} · "
-                 f"{len(open_rows(opt))} to record")
-    else:
-        label = "Start the next batch"
+        return (f"Back to batch {opt.pending_batch_no} · "
+                f"{len(open_rows(opt))} to record")
+    return "Start the next batch"
+
+
+def _foot(opt, correcting=False):
+    label = _foot_label(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; the next batch can wait a click.
     # An open correction row is the same case: Save correction is the lit one.
@@ -398,8 +418,11 @@ def _import(opt):
             st.caption("One row per formulation you already made. Add "
                        "ingredients and measurements first; the columns must "
                        "match their names exactly.")
-        uploaded = st.file_uploader("Upload formulations CSV", type=["csv"],
-                                    key="import_csv")
+        uploaded = st.file_uploader(
+            "Upload formulations CSV", type=["csv"],
+            # Per project: an uploader cannot be emptied from session state,
+            # so a shared key offered the next project this one's file.
+            key=f"import_csv_{opt.project_name}")
         # The parse is behind a button, as it is on tab 2: reading the file on
         # every rerun left the sheet on screen after it had been imported, and
         # a second click on Import recorded every row twice.
@@ -476,12 +499,19 @@ def render(opt, storage):
         st.markdown("No results yet.")
         # A project with no ingredients cannot make a batch: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
+        # And a batch already on the bench is not a first batch to make: the
+        # foot of every other screen calls it "Back to batch 1 · 3 to record".
         ready, _ = readiness(opt)
+        if not ready:
+            label, target = "Set up this project", TAB_SETUP
+        elif opt.pending_batch:
+            label, target = _foot_label(opt), TAB_BATCH
+        else:
+            label, target = "Make your first batch", TAB_BATCH
         lit = not confirmation_open()
-        if st.button("Make your first batch" if ready else "Set up this project",
-                     type="primary" if lit else "secondary",
+        if st.button(label, type="primary" if lit else "secondary",
                      disabled=not lit, key="first_batch") and lit:
-            go_to_tab(TAB_BATCH if ready else TAB_SETUP)
+            go_to_tab(target)
         # A fresh project is exactly when someone imports past work.
         _import(opt)
         return

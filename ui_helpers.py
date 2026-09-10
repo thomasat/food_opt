@@ -74,11 +74,25 @@ def armed_confirmation():
     return st.session_state.get(ARMED_KEY)
 
 
+RESTORE_KEY = "_restore_candidate"
+
+
+def restore_armed():
+    """True while a checked backup is waiting for `Yes, replace`.
+
+    Restore is the one confirmation that is not a confirm_action: it is drawn
+    by hand in the sidebar because it has a file to read and a summary to
+    show first. It is still a confirmation — it replaces the project and keeps
+    a copy — so it counts as one everywhere ARMED_KEY does, and the rest of
+    the app dims behind it."""
+    return st.session_state.get(RESTORE_KEY) is not None
+
+
 def confirmation_open():
     """True while a confirmation is armed. Its "Yes" is the lit button, and
     a tab never shows two coloured buttons at once, so every tab's own primary
     steps aside while one is on screen."""
-    return armed_confirmation() is not None
+    return armed_confirmation() is not None or restore_armed()
 
 
 def other_confirmation(key):
@@ -86,7 +100,7 @@ def other_confirmation(key):
     put two coloured Yes buttons on the tab, each keeping its own copy, so
     arming one greys the other's button until it is answered."""
     armed = armed_confirmation()
-    return armed is not None and armed != key
+    return (armed is not None and armed != key) or restore_armed()
 
 
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):

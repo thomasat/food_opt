@@ -46,6 +46,12 @@ _FORM_KEY_PREFIXES = (
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, min, max
     "bo_",                         # advanced model settings
+    # The three file uploaders. A file uploader cannot be emptied from session
+    # state at all — assigning None is refused and popping the key leaves the
+    # mounted widget holding the file — so each is keyed to its project
+    # (ingredients_csv_<project>) and a new project renders a new, empty one.
+    # These pops only clear the state the old widgets left behind.
+    "ingredients_csv", "results_csv", "import_csv",
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
@@ -119,6 +125,10 @@ def _open_project(name, create=False, made=False):
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     st.session_state["_land_on_open"] = True
+    # Parked, not popped: the box is mounted in the browser and would post the
+    # previous project's name straight back, leaving the sidebar naming one
+    # project, the box another, and Open lit over the project just abandoned.
+    clear_selection("project_select")
     flash("success",
           f"Created {name}." if (create or made) else f"Opened {name}.")
     st.rerun()
@@ -310,10 +320,17 @@ with st.sidebar:
                 )
                 st.session_state.pop("_restore_candidate", None)
             else:
+                # Both halves count the same way — scored and left out — or
+                # replacing a project with its own backup reads as losing one.
+                # A settings-only project is named by its settings: "0
+                # ingredients" alone described a fully set-up project as empty.
+                _holds = [plural(summary['formulations'], 'formulation'),
+                          plural(summary['ingredients'], 'ingredient')]
+                if summary['settings']:
+                    _holds.append(plural(summary['settings'], 'process setting'))
                 st.warning(
                     f"This backup contains project **{summary['name']}** with "
-                    f"{plural(summary['experiments'], 'formulation')} and "
-                    f"{plural(summary['ingredients'], 'ingredient')}. Replace "
+                    + ", ".join(_holds[:-1]) + f" and {_holds[-1]}. Replace "
                     f"**{opt.project_name}** "
                     f"({plural(_held(opt), 'formulation')})? A copy of "
                     "the current project is kept first."
@@ -468,7 +485,7 @@ if opt is None:
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             with open(_SAMPLE_CSV, "rb") as f:
-                st.download_button("Download ingredient CSV template", data=f.read(),
+                st.download_button("Download CSV template", data=f.read(),
                                    file_name="ingredients_template.csv", mime="text/csv")
     st.stop()
 

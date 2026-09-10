@@ -1030,7 +1030,8 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
     at.run()
     uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
     assert "Name, Min, Max" in uploader.proto.help, uploader.proto.help
-    assert any(c.value.startswith("One row per ingredient: Name, Min, Max")
+    assert any(c.value.startswith("Upload a CSV with the columns Name, Min, "
+                                  "Max")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1377,10 +1378,10 @@ def test_repeat_of_the_best_is_offered_and_adds_one_formulation(burger):
     assert reloaded.pending_batch[-1]["recipe"] == {"Pea protein": 10.0,
                                                     "Methylcellulose": 1.0}
     # And the extra row says what it is, on the table and in its note box.
-    assert reloaded.pending_batch[-1]["note"] == "repeat of Formulation 1"
+    assert reloaded.pending_batch[-1]["note"] == "Repeat of Formulation 1"
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(table["Note"]) == ["", "", "repeat of Formulation 1"]
-    assert at.session_state["f4_note"] == "repeat of Formulation 1"
+    assert list(table["Note"]) == ["", "", "Repeat of Formulation 1"]
+    assert at.session_state["f4_note"] == "Repeat of Formulation 1"
 
 
 def test_the_batch_table_carries_units_and_a_total(open_batch):
@@ -1417,7 +1418,8 @@ def test_biggest_changes_line_appears_from_batch_two(burger):
                              batch_no=2)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Biggest changes from Formulation 1: "
+    assert any(c.value == ("Biggest changes in Formulation 2 from "
+                           "Formulation 1: "
                            "Pea protein −2.10 g, Methylcellulose +0.80 g.")
                for c in at.caption), [c.value for c in at.caption]
 
@@ -1978,9 +1980,11 @@ def test_correcting_a_result_reports_the_change_and_the_move(scored):
     at.run()
     assert not at.exception
     note = next(s.value for s in at.success if "corrected" in s.value)
-    assert note == ("Formulation 1 Firmness corrected 1 → 6. Best moved from "
-                    "Formulation 2 to Formulation 1. A copy of the project was "
-                    "kept first.")
+    # Every number wears its unit: the flash is the only confirmation that
+    # the right reading was typed.
+    assert note == ("Formulation 1 Firmness corrected 1 N → 6 N. Best moved "
+                    "from Formulation 2 to Formulation 1. A copy of the "
+                    "project was kept first.")
     assert at.session_state["main_tab"] == "3 · Results"    # no auto-move
 
 
@@ -2411,7 +2415,7 @@ def test_a_correction_keeps_a_copy_first_and_says_so(scored, tmp_path):
     assert not at.exception
     assert (tmp_path / "burger_pre_edit.pkl").exists(), \
         [p.name for p in tmp_path.glob("*.pkl")]
-    assert any(s.value == ("Formulation 1 Firmness corrected 1 → 6. "
+    assert any(s.value == ("Formulation 1 Firmness corrected 1 N → 6 N. "
                            "Best moved from Formulation 2 to Formulation 1. "
                            "A copy of the project was kept first.")
                for s in at.success), [s.value for s in at.success]
@@ -2928,11 +2932,16 @@ def mixed_units(tmp_path, monkeypatch):
     return opt
 
 
-def test_the_unit_box_names_itself_the_default_for_new_ingredients(burger):
+def test_the_unit_box_names_every_ingredient_it_speaks_for(burger):
+    """The box moves every ingredient that has no unit of its own, so its
+    label must not say 'new'."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     box = at.text_input(key="amount_unit")
-    assert box.label == "Default unit for new ingredients"
+    assert box.label == "Unit for ingredients without one of their own"
+    assert box.proto.help.startswith(
+        "New ingredients start in this unit, and so does every ingredient "
+        "you have not given its own unit."), box.proto.help
     assert box.value == "g"
 
 
@@ -3047,8 +3056,8 @@ def test_the_biggest_changes_line_uses_each_ingredients_unit(mixed_units):
     at.run()
     line = next((c.value for c in at.caption
                  if c.value.startswith("Biggest changes")), "")
-    assert line == ("Biggest changes from Formulation 1: Water +10.00 ml, "
-                    "Pea protein +2.00 g."), line
+    assert line == ("Biggest changes in Formulation 2 from Formulation 1: "
+                    "Water +10.00 ml, Pea protein +2.00 g."), line
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -3289,8 +3298,8 @@ def test_set_unit_refuses_an_empty_box(burger):
 def test_the_ingredients_caption_mentions_the_unit_column(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == "One row per ingredient: Name, Min, Max and, if "
-                          "you like, Unit." for c in at.caption), \
+    assert any(c.value == "Upload a CSV with the columns Name, Min, Max "
+                          "and, optionally, Unit." for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -3304,7 +3313,8 @@ def test_the_formulations_download_says_why_it_carries_no_units(burger):
                         "Download all formulations (CSV)")
     assert download.proto.help == ("Amounts are unitless in this file so it "
                                    "can be imported back; units are shown on "
-                                   "screen.")
+                                   "screen. Formulations you left out are "
+                                   "not included.")
 
 
 # A reloaded ingredient file is the third edit that can empty a limit of
@@ -3350,3 +3360,414 @@ def test_every_removed_limit_is_named_in_one_line():
         "The limit on Total amount (all ingredients) was removed because "
         "those ingredients no longer share a unit.",
     ], [w.value for w in at.warning]
+
+
+# ------------------------------------------------------------------ #
+#  Verification round 2: fresh forms per project, an armed restore,
+#  a unit on every number, and Total reserved
+# ------------------------------------------------------------------ #
+
+def test_a_new_default_unit_says_how_many_ingredients_moved(burger):
+    """The box re-labels every ingredient that has no unit of its own. It
+    used to do it in silence, under a label that said 'new'."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="amount_unit").set_value("%")
+    at.run()
+    assert not at.exception
+    assert any(s.value == "2 ingredients now read in %." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("burger").amount_unit == "%"
+
+
+def test_one_ingredient_moving_is_not_written_as_two(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("one_ing")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="amount_unit").set_value("ml")
+    at.run()
+    assert any(s.value == "1 ingredient now reads in ml." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_an_ingredient_with_its_own_unit_is_not_counted_as_moved(mixed_units):
+    """Water is in ml by its own choice; only the powder follows the default."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="amount_unit").set_value("kg")
+    at.run()
+    assert any(s.value.startswith("1 ingredient now reads in kg.")
+               for s in at.success), [s.value for s in at.success]
+
+
+def test_a_unit_change_that_splits_the_units_says_the_batch_is_unscaled(burger):
+    """Scaling needs one unit. A unit change that takes it away used to leave
+    the table silently back at the generated amounts."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(400.0)
+    at.run()
+    at.selectbox(key="unit_pick").select("Methylcellulose")
+    at.text_input(key="unit_value").set_value("ml")
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == ("Methylcellulose is measured in ml. Batch 2 is no "
+                           "longer scaled to 400 g; scaling needs all "
+                           "ingredients in one unit.")
+               for s in at.success), [s.value for s in at.success]
+    # ...and the box that held the total is empty, not quietly meaning nothing.
+    assert ("scale_total" not in at.session_state
+            or at.session_state["scale_total"] is None)
+
+
+def test_the_total_limit_is_refused_in_words_the_screen_can_obey(mixed_units):
+    """That control has no ingredient picker, so 'choose ingredients' names a
+    choice it does not offer."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="tm_max").set_value(300.0)
+    _submit_button(at, "Add a total amount limit").click()
+    at.run()
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        "A total needs all ingredients in one unit. Yours are in g and ml."]
+    assert FoodOptimizer("mixed").quantity_constraints == []
+
+
+def test_leaving_a_formulation_out_keeps_the_note_box_open(open_batch):
+    """The note is the only record of what went wrong, and it is typed after
+    the tick as often as before it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.checkbox(key="f1_leave_out").check()
+    at.run()
+    assert not at.exception
+    note = next(t for t in at.text_input if t.key == "f1_note")
+    assert not note.disabled
+    tick = next(c for c in at.checkbox if c.key == "f1_leave_out")
+    assert tick.help == ("Not made, or failed. Type why in Note; it is kept "
+                         "with the formulation.")
+    # The measurement boxes still grey out: a left-out formulation has no
+    # results, and only the note it leaves behind.
+    assert next(n for n in at.number_input if n.key == "f1_Firmness").disabled
+
+
+def test_a_left_out_formulation_keeps_the_note_typed_after_the_tick(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.checkbox(key="f1_leave_out").check()
+    at.run()
+    at.text_input(key="f1_note").set_value("Mixer jammed")
+    at.run()
+    at.number_input(key="f2_Firmness").set_value(6.0)
+    at.number_input(key="f2_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").skipped[0]["note"] == "Not made · Mixer jammed"
+
+
+def test_a_newly_recorded_correction_carries_its_unit(burger):
+    """66 could be °C or a panel score; the flash is the only confirmation
+    that the right number was typed."""
+    burger.add_objective("Serving temperature", 1.0, goal="target", target=65,
+                         min_val=0, max_val=100, unit="°C")
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    at.number_input(key="correct_1_Serving temperature").set_value(66.0)
+    at.run()
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert not at.exception
+    assert any("Formulation 1 Serving temperature recorded as 66 °C."
+               in s.value for s in at.success), [s.value for s in at.success]
+
+
+def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
+    """The All formulations row already says (partial); the caption above it
+    said the same score as a full one."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    assert not at.exception
+    assert any(c.value.startswith("Overall score 1.50 (partial) of 2.50 ·")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_set_unit_picker_is_not_called_a_measurement(burger):
+    """It picks the ingredient whose unit changes, not what to measure."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.selectbox(key="unit_pick").label == "Ingredient"
+
+
+def test_pausing_speaks_for_settings_as_well_as_ingredients(ferment):
+    """In a fermentation project the picker offers process settings only."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value.startswith("A paused ingredient or setting is left out")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()                                   # the welcome panel: no project
+    assert _unknown(at.main, "download_button", "Download CSV template")
+    FoodOptimizer("named").save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _unknown(at.main, "download_button", "Download CSV template")
+
+
+def test_the_tab_three_foot_never_offers_a_first_batch_over_an_open_one(burger):
+    """A batch on the bench is not a first batch to make, and the foot of
+    every other screen already knows the words."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                              {"Pea protein": 20.0, "Methylcellulose": 2.0},
+                              {"Pea protein": 5.0, "Methylcellulose": 0.5}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    assert not at.exception
+    assert _tab_primaries(at, 2) == ["Back to batch 1 · 3 to record"], \
+        _tab_primaries(at, 2)
+
+
+def test_the_biggest_changes_line_reads_the_amounts_on_the_table(burger):
+    """While the batch is scaled, a change read off the generated amounts is
+    a number nothing on screen shows."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 10.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 30.0, "Methylcellulose": 10.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # As generated, the only change is +20.00 g of protein.
+    assert any(c.value == ("Biggest changes in Formulation 2 from "
+                           "Formulation 1: Pea protein +20.00 g.")
+               for c in at.caption), [c.value for c in at.caption]
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00, and
+    # the line reads the table: the reference is scaled to the same total.
+    line = next((c.value for c in at.caption
+                 if c.value.startswith("Biggest changes")), "")
+    assert line == ("Biggest changes in Formulation 2 from Formulation 1: "
+                    "Pea protein +5.00 g, Methylcellulose −5.00 g."), line
+
+
+def _uploader_keys(at):
+    """The user key of every file uploader on the tabs, read off its widget
+    id (AppTest gives no accessor for st.file_uploader)."""
+    return sorted(u.proto.id.split("-")[-1]
+                  for u in _unknowns(at.main, "file_uploader"))
+
+
+def test_each_project_gets_its_own_file_uploaders(burger):
+    """A file uploader cannot be emptied from session state — assigning None
+    is refused and popping the key leaves the mounted widget holding the file
+    — so each is keyed to its project and a new project renders an empty one."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 20.0, "Methylcellulose": 2.0}],
+                             batch_no=2)
+    FoodOptimizer("second").save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert _uploader_keys(at) == ["import_csv_burger", "ingredients_csv_burger",
+                                  "results_csv_burger"], _uploader_keys(at)
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == "second"
+    # Not one widget of the last project's is still on screen.
+    assert all(k.endswith("_second") for k in _uploader_keys(at)), \
+        _uploader_keys(at)
+
+
+def test_opening_a_project_renames_the_sidebar_box_and_greys_open(burger):
+    """The box kept the previous project's name and Open lit up over the
+    project the user was typing into."""
+    FoodOptimizer("second").save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert at.sidebar.selectbox(key="project_select").value == "second"
+    assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+    assert _submit_button(at.sidebar, "Open").disabled
+
+
+def test_creating_a_project_renames_the_sidebar_box_and_greys_open(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.sidebar.text_input[0].set_value("Probe proj")
+    at.sidebar.button[0].click()          # Create project (a form submit)
+    at.run()
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == "Probe proj"
+    assert at.sidebar.selectbox(key="project_select").value == "Probe proj"
+    assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+
+
+def test_a_checked_backup_is_an_armed_confirmation(scored):
+    """Yes, replace keeps a copy and replaces the project, so it is the one
+    coloured button on screen until it is answered."""
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Flour", 0, 100)
+    donor.add_objective("Crunch", 1.0, goal="max")
+    donor.tell({"Flour": 10.0}, {"Crunch": 5.0})
+    FoodOptimizer("spare").save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["_restore_candidate"] = donor.export_json()
+    at.run()
+    assert not at.exception
+    # One lit button in the sidebar, and none on any tab.
+    assert [b.label for b in at.sidebar.button
+            if b.proto.type == "primary"] == ["Yes, replace"]
+    assert _tab_primaries(at, 0) == [], _tab_primaries(at, 0)
+    assert _tab_primaries(at, 2) == [], _tab_primaries(at, 2)
+    assert _submit_button(at, "Continue to make a batch").disabled
+    # Cancel puts everything back.
+    _submit_button(at.sidebar, "Cancel").click()
+    at.run()
+    at.run()
+    assert "_restore_candidate" not in at.session_state
+    assert _tab_primaries(at, 0) == ["Continue to make a batch"]
+
+
+def test_the_restore_warning_counts_every_formulation_and_names_settings(scored):
+    """Both halves of the sentence count the same way, or replacing a project
+    with its own backup reads as losing one."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["_restore_candidate"] = scored.export_json()
+    at.run()
+    assert not at.exception
+    assert any(w.value == ("This backup contains project **burger** with "
+                           "3 formulations and 2 ingredients. Replace "
+                           "**burger** (3 formulations)? A copy of the "
+                           "current project is kept first.")
+               for w in at.warning), [w.value for w in at.warning]
+
+
+def test_the_restore_warning_names_a_settings_only_project(ferment):
+    ferment.tell({"Incubation temperature": 38.0, "Incubation time": 6.0},
+                 {"Acidity": 4.5}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_restore_candidate"] = ferment.export_json()
+    at.run()
+    assert not at.exception
+    assert any(w.value.startswith("This backup contains project **ferment** "
+                                  "with 1 formulation, 0 ingredients and "
+                                  "2 process settings.")
+               for w in at.warning), [w.value for w in at.warning]
+
+
+def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
+    """Two sheets with identical amounts and nothing printed to say why is
+    how a batch gets made twice."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 20.0, "Methylcellulose": 2.0}],
+                             batch_no=2)
+    burger.add_to_pending_batch({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                                note="Repeat of Formulation 1")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    lines = [t.value for t in at.text]
+    assert "Note: Repeat of Formulation 1" in lines, lines
+    # The rows with nothing to say still carry a line to write one on.
+    assert "Note: ______________________________________________" in lines
+
+
+def test_a_settings_only_project_opens_on_its_settings(ferment):
+    """A fermentation scientist weighs nothing out, so the ingredients — and
+    the unit their amounts would be in — fold away beneath the settings."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert labels[0] == "Process settings", labels
+    assert "Ingredients (optional)" in labels, labels
+    assert "Process settings (optional)" not in labels, labels
+    # The unit box moves inside the folded section rather than opening the tab.
+    folded = next(e for e in at.expander if e.label == "Ingredients (optional)")
+    assert "amount_unit" in [t.key for t in folded.text_input], \
+        [t.key for t in folded.text_input]
+
+
+def test_an_ingredient_list_puts_the_ingredients_first(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = [e.label for e in at.expander]
+    assert "Process settings (optional)" in labels, labels
+    assert "Ingredients (optional)" not in labels, labels
+    assert any(h.value == "Ingredients" for h in at.subheader), \
+        [h.value for h in at.subheader]
+
+
+def test_re_adding_an_ingredient_in_another_unit_names_the_limit_it_broke(burger):
+    """Every other unit edit prunes the limits it breaks and says which. This
+    one used to say only 'Added Water.'"""
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
+                                   min_val=5, max_val=150)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="ing_name").set_value("Methylcellulose")
+    at.text_input(key="ing_unit").set_value("ml")
+    at.number_input(key="ing_max").set_value(3.0)
+    at.run()
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Added Methylcellulose." for s in at.success), \
+        [s.value for s in at.success]
+    assert any(w.value == ("The limit on Total amount (all ingredients) was "
+                           "removed because those ingredients no longer share "
+                           "a unit.") for w in at.warning), \
+        [w.value for w in at.warning]
+    assert FoodOptimizer("burger").quantity_constraints == []
+
+
+def test_an_ingredient_named_total_is_refused_on_the_form(burger):
+    """Total is the batch table's own column: two of them break the table and
+    put the batch total on the sheet where the ingredient's amount belongs."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="ing_name").set_value("Total")
+    at.run()
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert not at.exception
+    assert any("Total is a column name Food Optimizer uses" in e.value
+               for e in at.error), [e.value for e in at.error]
+    assert [v["name"] for v in FoodOptimizer("burger").variables] == [
+        "Pea protein", "Methylcellulose"]
