@@ -32,9 +32,9 @@ _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
 # food_bo drops the open batch inside add_ingredient, deactivate_variable,
 # add_process_parameter and friends, so app.py's makeability check never sees
 # the mismatch. Every handler here that can change the ingredient list, a
-# process setting or a range says so itself.
+# process setting or an allowed amount says so itself.
 _BATCH_DISCARDED = ("The open batch was discarded because the ingredient list "
-                    "or its ranges changed since it was generated.")
+                    "or its allowed amounts changed since it was generated.")
 
 
 # ------------------------------------------------------------------ #

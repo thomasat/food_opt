@@ -1768,22 +1768,55 @@ import re
 
 _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         "ui_results.py", "food_bo.py", "storage.py"]
+# The user-facing files that are not Python. They are scanned as plain text,
+# except the Swift wrapper, where only its string literals are screen text.
+_USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
+_USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
+
 _BANNED = [
     re.compile(r"\brecipes?\b", re.I),
     re.compile(r"\bexperiments?\b", re.I),
     re.compile(r"\bobjectives?\b", re.I),
     re.compile(r"\bweight(s|ed)?\b", re.I),
+    re.compile(r"\brange(s|d)?\b", re.I),
+    re.compile(r"\brewind(s|ing)?\b", re.I),
+    re.compile(r"\balgorithm\b", re.I),
+    # "Food Optimizer" is the product's name and stays; nothing else on screen
+    # calls itself an optimizer or talks about optimization.
+    re.compile(r"(?<!Food )\boptimi[sz](er|ation)\b", re.I),
     re.compile(r"Overall Score"),
 ]
-# The one legacy value that must stay spelled the old way: it is the reserved
-# column name a 0.2.x project could collide with.
-_ALLOWED_EXACT = {"Overall Score"}
+
+# Sentences that are allowed to keep a banned word, each for a stated reason.
+_ALLOWED_EXACT = {
+    # The one legacy value that must stay spelled the old way: it is the
+    # reserved column name a 0.2.x project could collide with.
+    "Overall Score",
+    # The one permitted "range": it is the spec's verbatim caption, and it
+    # means an instrument's range, not an ingredient's allowed amounts.
+    "The ends of your scale or instrument range, not the values you expect",
+}
+
+# Single-word literals that are internal machinery, never screen text.
+_ALLOWED_SINGLE_WORDS = {
+    # Legacy CSV column headers an import still accepts, and the reserved
+    # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES).
+    "Recipe", "Experiment",
+    # Stored field names and JSON keys. The spec keeps the stored spelling of
+    # importance ('weight') and of a formulation's amounts ('recipe').
+    "recipe", "experiment", "experiments", "objectives", "weight",
+}
+# Fragments removed from the Swift wrapper before it is scanned: CSS property
+# names inside the setup page's inline styles, not prose.
+_SWIFT_NOT_PROSE = ("font-weight",)
+
+_SINGLE_WORDS = re.compile(
+    r"^(recipes?|experiments?|objectives?|weights?|ranges?|rewind|pruned)$", re.I)
 
 
-def _prose_constants(path):
-    """Every string literal in a file that reads like a sentence (it contains a
-    space), minus docstrings — those are notes to the next engineer, not
-    screen text."""
+def _string_constants(path):
+    """Every string literal in a Python file, minus docstrings — those are
+    notes to the next engineer, not screen text."""
     tree = ast.parse(pathlib.Path(path).read_text())
     docstrings = set()
     for node in ast.walk(tree):
@@ -1796,12 +1829,25 @@ def _prose_constants(path):
                 docstrings.add(id(first.value))
     return [node.value for node in ast.walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
-            and " " in node.value and id(node) not in docstrings]
+            and id(node) not in docstrings]
+
+
+def _prose_constants(path):
+    """The literals that read like a sentence (they contain a space)."""
+    return [v for v in _string_constants(path) if " " in v]
+
+
+def _single_word_constants(path):
+    """The one-word literals. A screen label is often a single word — 'Recipe',
+    'Weight' — so the prose pass alone would miss the words that matter most."""
+    return [v for v in _string_constants(path) if " " not in v]
 
 
 def test_no_old_vocabulary_reaches_the_user():
     """recipe → formulation, experiment → formulation, objective →
-    measurement, weight → importance, 'Overall Score' → 'Overall score'."""
+    measurement, weight → importance, range → allowed amounts (an instrument's
+    range is the one exception), rewind → undo, and nothing on screen mentions
+    an algorithm or optimization. 'Overall Score' → 'Overall score'."""
     root = pathlib.Path(__file__).resolve().parent.parent
     offenders = []
     for name in _USER_FACING_SOURCES:
@@ -1810,4 +1856,27 @@ def test_no_old_vocabulary_reaches_the_user():
                 continue
             if any(pattern.search(text) for pattern in _BANNED):
                 offenders.append((name, text))
+        for word in _single_word_constants(root / name):
+            if word in _ALLOWED_SINGLE_WORDS:
+                continue
+            if _SINGLE_WORDS.fullmatch(word):
+                offenders.append((name, word))
+    assert offenders == [], offenders
+
+
+def test_no_old_vocabulary_reaches_the_user_outside_python():
+    """Start Here, the two READMEs and the app window's own copy are read by
+    the same people, so they follow the same vocabulary."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = []
+    for name in _USER_FACING_TEXT:
+        for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+            if any(pattern.search(line) for pattern in _BANNED):
+                offenders.append((name, i, line))
+    swift = (root / _USER_FACING_SWIFT).read_text()
+    for fragment in _SWIFT_NOT_PROSE:
+        swift = swift.replace(fragment, "")
+    for literal in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift):
+        if any(pattern.search(literal) for pattern in _BANNED):
+            offenders.append((_USER_FACING_SWIFT, literal))
     assert offenders == [], offenders

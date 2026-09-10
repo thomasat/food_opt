@@ -1007,7 +1007,7 @@ class FoodOptimizer:
     def edit_result(self, index, new_results_dict):
         """Edit a previously saved result and recalculate its utility."""
         if index < 0 or index >= len(self.Y_history):
-            raise IndexError("Formulation index out of range")
+            raise IndexError("There is no formulation at that position.")
         if index < len(self.results_history):
             self.results_history[index] = dict(new_results_dict)
         self.Y_history[index] = self._compute_utility(new_results_dict)
@@ -1016,7 +1016,7 @@ class FoodOptimizer:
     def delete_result(self, index):
         """Delete one formulation. Later formulations keep their numbers."""
         if index < 0 or index >= len(self.X_history):
-            raise IndexError("Formulation index out of range")
+            raise IndexError("There is no formulation at that position.")
         self.X_history.pop(index)
         self.Y_history.pop(index)
         for lst in (self.recipe_history, self.results_history,
@@ -1029,7 +1029,7 @@ class FoodOptimizer:
     def rewind_to(self, index):
         """Keep only formulations 0..index (inclusive), discard the rest."""
         if index < 0 or index >= len(self.X_history):
-            raise IndexError("Formulation index out of range")
+            raise IndexError("There is no formulation at that position.")
         keep = index + 1
         self.X_history = self.X_history[:keep]
         self.Y_history = self.Y_history[:keep]
@@ -1257,13 +1257,13 @@ class FoodOptimizer:
         if not results:
             raise ValueError(
                 "No valid formulations found — your limits may be too restrictive. "
-                "Try widening ingredient ranges or relaxing limits."
+                "Try widening the allowed amounts or relaxing limits."
             )
         return results
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
-        print(f"DEBUG: Optimization step (batch of {n_suggestions})...")
+        print(f"DEBUG: suggestion step (batch of {n_suggestions})...")
         torch.manual_seed(len(self.X_history))
 
         train_X = torch.tensor(self.X_history, dtype=torch.double)
@@ -1989,7 +1989,9 @@ class FoodOptimizer:
         identity = {
             'formulation_ids': _whole,
             'batch_history': lambda x: x is None or _whole(x),
-            'notes_history': lambda x: isinstance(x, str),
+            # None is accepted: import_json coerces it to "", so an older
+            # or hand-edited backup with a blank note still restores.
+            'notes_history': lambda x: x is None or isinstance(x, str),
             'skipped': lambda x: isinstance(x, dict),
         }
         for key, ok in identity.items():

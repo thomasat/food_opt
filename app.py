@@ -12,8 +12,8 @@ import ui_results
 import ui_setup
 from food_bo import FoodOptimizer
 from ui_helpers import (
-    TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action, flash, landing_tab,
-    open_rows, plural, render_flash, saved_line,
+    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action, flash,
+    landing_tab, open_rows, plural, render_flash, saved_line,
 )
 
 STORAGE = storage_backend.LocalStorage()
@@ -52,7 +52,7 @@ def _reset_project_session():
               "_results_upload", "_import_rows", "_editing_measurement",
               "scale_total", "results_order", "show_amounts",
               "correct_formulation", "delete_formulation", "amount_unit",
-              "qty_pick", "batch_size", "repeat_best"):
+              "qty_pick", "batch_size", "repeat_best", ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state
               if isinstance(k, str) and (
@@ -207,14 +207,14 @@ with st.sidebar:
                 opt.set_pending_batch(None)
                 st.info(
                     "The open batch was discarded because the ingredient list "
-                    "or its ranges changed since it was generated."
+                    "or its allowed amounts changed since it was generated."
                 )
         # A project that failed to load must never look like an empty success.
         # The full sentence renders once, in the main body; here it would be
         # the same paragraph twice on one screen, so the sidebar only points.
         if getattr(opt, "load_error", None):
-            st.error("This project file cannot be read. See the message on "
-                     "the right.")
+            st.error("This project could not be opened. See the message "
+                     "on the right.")
 
         st.divider()
         st.subheader(opt.project_name)

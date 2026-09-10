@@ -52,19 +52,33 @@ def saved_ok(opt):
     return True
 
 
+ARMED_KEY = "_armed_confirmation"
+
+
+def armed_confirmation():
+    """The key of the one confirmation that is armed, or None.
+
+    One key rather than a scan of every `{key}__pending` flag. A scan answers
+    differently depending on where in the script it is asked from — a flag is
+    only set once its own confirm_action has run — so two confirmations could
+    end up armed on one frame, each with its own coloured Yes and its own
+    copy of the project. This key is the single answer everything reads."""
+    return st.session_state.get(ARMED_KEY)
+
+
 def confirmation_open():
-    """True while any confirmation is armed. Its "Yes" is the lit button, and
+    """True while a confirmation is armed. Its "Yes" is the lit button, and
     a tab never shows two coloured buttons at once, so every tab's own primary
     steps aside while one is on screen."""
-    return any(bool(v) for k, v in st.session_state.items()
-               if isinstance(k, str) and k.endswith("__pending"))
+    return armed_confirmation() is not None
 
 
 def other_confirmation(key):
     """True while a DIFFERENT confirmation is armed. Two armed at once would
     put two coloured Yes buttons on the tab, each keeping its own copy, so
     arming one greys the other's button until it is answered."""
-    return confirmation_open() and not st.session_state.get(f"{key}__pending")
+    armed = armed_confirmation()
+    return armed is not None and armed != key
 
 
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
@@ -80,8 +94,14 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
     """
     pending_key = f"{key}__pending"
     if st.button(button_label, key=f"{key}__btn", disabled=disabled):
-        st.session_state[pending_key] = True
-    if not st.session_state.get(pending_key):
+        # One at a time. A click that arrives while another confirmation is
+        # armed — a second click in the same frame, or a click already in
+        # flight against a button this frame draws greyed — is ignored rather
+        # than lighting a second Yes beside the first.
+        if armed_confirmation() in (None, key):
+            st.session_state[ARMED_KEY] = key
+            st.session_state[pending_key] = True
+    if armed_confirmation() != key or not st.session_state.get(pending_key):
         return False
     slot = st.empty()                      # reserves the position above the buttons
     c1, c2 = st.columns(2)
@@ -91,9 +111,11 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
     with c2:
         if st.button("Cancel", key=f"{key}__no", use_container_width=True):
             st.session_state[pending_key] = False
+            st.session_state.pop(ARMED_KEY, None)
             st.rerun()
     if confirmed:
         st.session_state[pending_key] = False
+        st.session_state.pop(ARMED_KEY, None)
         return True
     slot.warning(warning)                  # only on runs where the user has not confirmed
     return False

@@ -66,6 +66,52 @@ def test_confirm_action_needs_two_clicks():
     assert not any("Really delete?" in w.value for w in at.warning)
 
 
+TWO_CONFIRM_SCRIPT = """
+import streamlit as st
+from ui_helpers import confirm_action, other_confirmation
+for key in ("first", "last"):
+    if confirm_action(key, f"Arm {key}", f"Really {key}?",
+                      confirm_label=f"Yes, {key}",
+                      disabled=other_confirmation(key)):
+        st.session_state[f"{key}_done"] = True
+"""
+
+
+def test_arming_the_first_site_greys_the_last_one_on_the_same_frame():
+    """The gap a scan of `{key}__pending` flags left open: the flag is set at
+    the point in the script where its own confirm_action runs, so anything
+    drawn before it answered 'nothing is armed'. One key answers everywhere."""
+    at = AppTest.from_string(TWO_CONFIRM_SCRIPT)
+    at.run()
+    assert not at.button(key="first__btn").disabled
+    assert not at.button(key="last__btn").disabled
+    _btn(at, "Arm first").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "first"
+    assert at.button(key="last__btn").disabled
+    assert not at.button(key="first__btn").disabled
+    assert [b.label for b in at.button if b.proto.type == "primary"] == ["Yes, first"]
+
+
+def test_two_arming_clicks_in_one_run_leave_exactly_one_armed():
+    """Both buttons were live on the frame the user clicked, so both clicks
+    arrive together. The second must be dropped, not light a second Yes."""
+    at = AppTest.from_string(TWO_CONFIRM_SCRIPT)
+    at.run()
+    _btn(at, "Arm first").click()
+    _btn(at, "Arm last").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "first"
+    assert [b.label for b in at.button if b.proto.type == "primary"] == ["Yes, first"]
+    assert [w.value for w in at.warning] == ["Really first?"]
+    # Answering the one that is armed frees the other.
+    _btn(at, "Cancel").click()
+    at.run()
+    at.run()
+    assert "_armed_confirmation" not in at.session_state
+    assert not at.button(key="last__btn").disabled
+
+
 def test_confirm_action_cancel():
     at = AppTest.from_string(CONFIRM_SCRIPT)
     at.run()

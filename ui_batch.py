@@ -126,8 +126,8 @@ def _no_batch(opt):
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n, repeat, best_no)
     if len(opt.X_history) < 5:
-        st.caption("The first few formulations spread across your ingredient "
-                   "ranges; later batches aim closer to your targets.")
+        st.caption("The first few formulations spread across the amounts you "
+                   "allowed; later batches aim closer to your targets.")
     else:
         st.caption("Each batch aims closer to your targets.")
     st.caption("Only one batch is open at a time.")

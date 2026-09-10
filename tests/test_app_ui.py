@@ -894,7 +894,7 @@ def test_adding_an_ingredient_does_discard_the_open_batch(burger):
     # food_bo drops the batch inside add_ingredient, so app.py's makeability
     # check never sees a mismatch: the handler has to say so itself.
     assert any("The open batch was discarded because the ingredient list or "
-               "its ranges changed since it was generated." == i.value
+               "its allowed amounts changed since it was generated." == i.value
                for i in at.info), [i.value for i in at.info]
 
 
@@ -1231,8 +1231,8 @@ def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
 def test_the_getting_started_sentence_changes_after_five_results(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("The first few formulations spread across your "
-                           "ingredient ranges; later batches aim closer to "
+    assert any(c.value == ("The first few formulations spread across the "
+                           "amounts you allowed; later batches aim closer to "
                            "your targets.") for c in at.caption), \
         [c.value for c in at.caption]
     for i in range(5):
@@ -2106,7 +2106,7 @@ def test_an_import_outside_an_ingredient_range_warns_and_still_imports(burger):
     _submit_button(at, "Import all rows").click()
     at.run()
     assert not at.exception
-    assert any(w.value == ("Row 2: Pea protein 999 g is outside its range of "
+    assert any(w.value == ("Row 2: Pea protein 999 g is outside its allowed amounts of "
                            "0 to 25 g.") for w in at.warning), \
         [w.value for w in at.warning]
     assert len(FoodOptimizer("burger").X_history) == 2

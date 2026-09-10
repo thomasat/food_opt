@@ -68,7 +68,8 @@ def _number(cell):
 
 
 def _range_warning(opt, name, value):
-    """The line for an imported amount outside its range, or '' when it fits.
+    """The line for an imported amount outside what the project allows, or
+    '' when it fits.
     It is a warning, not a refusal: the amount is a fact about work already
     done, and the model learns more from it than from a blank."""
     var = next((v for v in opt.variables if v['name'] == name), None)
@@ -79,7 +80,7 @@ def _range_warning(opt, name, value):
         return ""
     unit = _unit_of(opt, name)
     return (join_unit(f"{name} {float(value):g}", unit)
-            + " is outside its range of "
+            + " is outside its allowed amounts of "
             + join_unit(f"{low:g} to {high:g}", unit) + ".")
 
 
