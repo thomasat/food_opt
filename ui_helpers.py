@@ -100,10 +100,10 @@ TAB_RESULTS = "3 · Results"
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from four handlers only: Continue to make a batch,
-    Save results, Start the next batch, and opening a project. A set-up edit,
-    Generate, a correction or a plain rerun must never call it, and neither
-    must a handler whose write failed."""
+    tabs, and it is called from six handlers only: Continue to make a batch,
+    Back to set up, Save results, Save uploaded results, Start the next batch,
+    and opening a project. A set-up edit, Generate, a correction or a plain
+    rerun must never call it, and neither must a handler whose write failed."""
     st.session_state["main_tab"] = label
     st.rerun()
 

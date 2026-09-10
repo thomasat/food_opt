@@ -418,8 +418,10 @@ if getattr(st.session_state.optimizer, "save_error", None):
 
 _opt = st.session_state.optimizer
 
-# The landing rule. This is one of the four places allowed to change tabs, and
-# it fires only on the run that follows opening a project.
+# The landing rule. This is one of the six places allowed to change tabs (the
+# other five are go_to_tab's callers: Continue to make a batch, Back to set up,
+# Save results, Save uploaded results, Start the next batch), and it fires only
+# on the run that follows opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
 

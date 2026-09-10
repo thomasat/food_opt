@@ -5,11 +5,13 @@ bug where the backend raises a clean ValueError but the UI fails to catch it
 and shows the user a raw traceback.
 """
 
+import io
 import os
 import pathlib
 import time
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -1264,7 +1266,9 @@ def test_the_batch_table_carries_units_and_a_total(open_batch):
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
                                    "Methylcellulose (g)", "Total (g)"]
-    assert at.number_input(key="scale_total").value == 11.0
+    box = at.number_input(key="scale_total")
+    assert box.value is None                          # empty: as generated
+    assert box.proto.placeholder == "as generated"
 
 
 def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
@@ -1592,3 +1596,87 @@ def test_a_confirmation_greys_save_results(open_batch):
     assert save.disabled and save.proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
+
+
+def _displayed(element):
+    """The strings a st.dataframe actually puts on screen. A Styler's number
+    formatting rides along in the proto as display values, so this is what the
+    user reads, not the raw floats behind it."""
+    return pa.ipc.open_stream(
+        io.BytesIO(element.proto.arrow_data.styler.display_values)
+    ).read_pandas()
+
+
+def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
+    """The two formulations weigh 11 g and 22 g. Nothing may quietly rewrite
+    the second one to the first one's size just because the tab was opened."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
+    assert any(c.value == "Shown as generated." for c in at.caption), \
+        [c.value for c in at.caption]
+    texts = [t.value for t in at.text]
+    assert "Pea protein: 20 g" in texts, texts        # the sheet, as generated
+
+
+def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
+    """11 g is what the first formulation already weighs, so a box that opened
+    pre-filled with it made typing 11 a silent no-op. It must scale."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(11.0)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([11.0, 11.0])
+    assert table["Pea protein (g)"].iloc[1] == pytest.approx(10.0)
+    assert any(c.value == "Sheets use the scaled amounts (total 11 g)."
+               for c in at.caption), [c.value for c in at.caption]
+    # Both sheets now carry the same amounts, so the downloads followed.
+    assert [t.value for t in at.text].count("Pea protein: 10 g") == 2
+    assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] == 20.0
+
+
+def test_the_batch_table_never_dresses_a_setting_as_an_amount(burger):
+    burger.add_process_parameter("Cook temperature", 100, 200)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
+                               "Cook temperature": 180.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    shown = _displayed(next(d for d in at.dataframe
+                            if "Formulation" in d.value.columns))
+    assert shown["Pea protein (g)"].iloc[0] == "10.00"
+    assert shown["Cook temperature"].iloc[0] == "180", shown.to_dict()
+
+
+def test_a_one_formulation_batch_reads_as_one(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(m.value == "**Batch 1 · make this 1 formulation**"
+               for m in at.markdown), [m.value for m in at.markdown]
+
+
+def test_a_note_typed_on_a_row_that_is_left_out_is_kept(open_batch):
+    """Why it was not made is often typed before the box is ticked, and it is
+    the only record of what went wrong."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.text_input(key="f2_note").set_value("burner failed")
+    at.checkbox(key="f2_leave_out").check()
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").skipped[0]["note"] == "burner failed"
+
+
+def test_a_recorded_row_shows_its_note(open_batch):
+    open_batch.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                    {"Juiciness": 7.0, "Firmness": 6.0},
+                    formulation_no=1, batch_no=1, note="held together")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == "Firmness 6 N · Juiciness 7/10 · Note: held together"
+               for c in at.caption), [c.value for c in at.caption]

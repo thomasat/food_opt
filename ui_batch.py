@@ -48,19 +48,18 @@ def _open_rows(opt):
 
 
 def _scale_to(opt):
-    """(scale_to, generated_total). `scale_to` is None for 'as generated'.
+    """The total every formulation is scaled to, or None while the box is empty.
 
-    The box defaults to the FIRST formulation's total, and formulations in a
-    batch rarely weigh the same, so a value equal to that default must mean no
-    scaling at all — otherwise simply opening the tab would silently rewrite
-    every other row to the first row's size."""
-    rows = opt.pending_batch or []
-    generated = round(opt.ingredient_total(rows[0]['recipe']), 2) if rows else 0.0
-    st.session_state.setdefault("scale_total", generated)
+    The box starts EMPTY, and empty means 'as generated'. It used to open
+    pre-filled with the first formulation's total, which was wrong in both
+    directions: the other rows still showed their own (larger) totals, and
+    typing that same number back was a silent no-op. An empty box has one
+    meaning, any number in it has the other, and clearing it undoes the
+    scaling."""
     value = st.session_state.get("scale_total")
-    if not value or abs(float(value) - generated) < 1e-9:
-        return None, generated
-    return float(value), generated
+    if value is None or float(value) <= 0:
+        return None
+    return float(value)
 
 
 def _any_value_typed(opt):
@@ -141,23 +140,43 @@ def _no_batch(opt):
     st.caption("Only one batch is open at a time.")
 
 
+def _amount_format(opt, frame):
+    """How each column of the batch table is written out: two decimals for the
+    amounts and the total, because that is the precision a balance works to,
+    and a plain number for a process setting, because a cook temperature is
+    neither an amount nor 180.00."""
+    settings = {opt._amount_column(v['name']) for v in opt.variables
+                if v.get('category') == 'process'}
+    return {c: ("{:g}" if c in settings else "{:.2f}")
+            for c in frame.columns if c != "Formulation"}
+
+
 def _batch_table(opt):
     rows = opt.pending_batch
     unit = opt.amount_unit
-    st.markdown(f"**Batch {opt.pending_batch_no} · make these "
+    st.markdown(f"**Batch {opt.pending_batch_no} · make "
+                f"{'this' if len(rows) == 1 else 'these'} "
                 f"{plural(len(rows), 'formulation')}**")
-    scale_to, _generated = _scale_to(opt)
+    scale_to = _scale_to(opt)
     frame = opt.batch_frame(rows, scale_to=scale_to)
     st.dataframe(
-        frame.style.format({c: "{:.2f}" for c in frame.columns
-                            if c != "Formulation"}),
+        frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
     st.number_input(
         f"Scale each formulation to a total of ({unit})" if unit
         else "Scale each formulation to a total of",
-        min_value=0.0, step=1.0, key="scale_total",
+        min_value=0.0, value=None, step=1.0, placeholder="as generated",
+        key="scale_total",
+        help="Leave this empty to weigh out the amounts as they were "
+             "generated. Type a total and every formulation is rewritten to "
+             "it, on screen and in both downloads.",
     )
+    if scale_to is None:
+        st.caption("Shown as generated.")
+    else:
+        st.caption("Sheets use the scaled amounts (total "
+                   + fmt_amount(scale_to, unit) + ").")
     if opt.pending_batch_discarded:
         st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
                    "were discarded and their numbers will not be used again.")
@@ -242,7 +261,6 @@ def _printable(opt, scale_to):
 
 def _download_row(opt, scale_to):
     rows = opt.pending_batch
-    unit = opt.amount_unit
     # The batch sheet is the lit thing until the first result is typed, and it
     # steps aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
@@ -264,17 +282,13 @@ def _download_row(opt, scale_to):
             file_name=f"{opt.project_name} batch {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
         )
-    if scale_to is not None:
-        st.caption("Sheets use the scaled amounts (total "
-                   + fmt_amount(scale_to, unit) + ").")
-
     with st.expander("Printable formulation sheets"):
         _printable(opt, scale_to)
 
 
 def _downloads(opt):
     rows = opt.pending_batch
-    scale_to, _generated = _scale_to(opt)
+    scale_to = _scale_to(opt)
     numbers = [r['formulation'] for r in rows]
 
     # The downloads belong above `Generate a different batch`, but the question
@@ -303,7 +317,9 @@ def _downloads(opt):
 
 def _recorded_row(opt, number, ordered):
     """The read-only line a formulation gets once its results are in — a batch
-    recorded one sheet at a time reopens here with those rows already done."""
+    recorded one sheet at a time reopens here with those rows already done. The
+    note is part of the record, so it is shown with the numbers rather than
+    being kept for tab 3."""
     index = opt.index_of_formulation(number)
     results = opt.results_history[index] if index is not None else {}
     line = " · ".join(
@@ -312,6 +328,10 @@ def _recorded_row(opt, number, ordered):
     )
     if any(o['name'] not in results for o in ordered):
         line = f"{line} · (partial)" if line else "(partial)"
+    note = (opt.notes_history[index] if index is not None
+            and index < len(opt.notes_history) else "")
+    if note:
+        line = f"{line} · Note: {note}" if line else f"Note: {note}"
     st.caption(line or "recorded")
 
 
@@ -407,8 +427,13 @@ def _save_results(opt, kept, left_out, open_rows):
         if not saved_ok(opt):
             return
     for row in open_rows:
-        if row['formulation'] in left_out:
-            opt.record_skipped(row['formulation'], batch_no, row['recipe'])
+        number = row['formulation']
+        if number in left_out:
+            # Why it was not made is often typed before the box is ticked, and
+            # it is the only record of what went wrong.
+            note = str(st.session_state.get(f"f{number}_note") or "").strip()
+            opt.record_skipped(number, batch_no, row['recipe'],
+                               note=note or "Not made")
     opt.set_pending_batch(None)
     st.session_state.pop("scale_total", None)
     st.session_state.pop("_results_upload", None)
@@ -453,12 +478,14 @@ def _upload(opt):
                 for number, results, note in parsed:
                     opt.tell(by_number[number], results, formulation_no=number,
                              batch_no=batch_no, note=note)
+                    # Stop at the first row that did not reach the disk rather
+                    # than telling the user a whole sheet was recorded.
+                    if not saved_ok(opt):
+                        return
             except (ValueError, TypeError, KeyError) as e:
                 st.error(f"Could not save these results: {e}")
                 return
             st.session_state.pop("_results_upload", None)
-            if not saved_ok(opt):
-                return
             flash("success", f"Batch {batch_no} recorded.")
             if _open_rows(opt):
                 # Rows still to record: the batch stays open, numbers and all.
