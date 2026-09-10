@@ -25,7 +25,7 @@ with `swiftc`, so the build machine needs the Xcode Command Line Tools
 ```
 
 Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
-(deleted afterward); it never touches your real environment.
+(removed afterward); it never touches your real environment.
 
 ## Signing + notarization (required before distributing)
 
@@ -125,7 +125,7 @@ xattr -d com.apple.quarantine ~/Downloads/FoodOptimizer-X.Y.Z.dmg
 ```
 
 (No output = success. If the app was already copied to /Applications from
-a quarantined mount, delete it and drag it again from the cleaned image.)
+a quarantined mount, remove it and drag it again from the cleaned image.)
 
 Real recipients must never need this: signing + notarization removes the
 warnings entirely, and the checklist below gates distribution on that.

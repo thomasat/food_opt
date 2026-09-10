@@ -48,6 +48,12 @@ RESERVED_VARIABLE_NAMES = {
 _TOTAL_COLUMN_RE = re.compile(r"^total(\s*\(.*\))?$", re.IGNORECASE)
 
 
+# What a missing ingredient-file column is called on screen. The file may
+# head its columns Min and Max, or Lowest and Highest; the boxes on the screen
+# say Lowest and Highest, so that is what any message about them says.
+_FILE_COLUMNS = {'Name': 'Name', 'Min': 'Lowest', 'Max': 'Highest'}
+
+
 def is_reserved_name(name):
     """True when a variable name would overwrite a column the app owns.
     Capitalisation is ignored: 'total' and 'Total (g)' are the same column."""
@@ -281,7 +287,7 @@ class FoodOptimizer:
                 f"{name} is already the name of a measurement. Choose another name."
             )
         if float(min_val) >= float(max_val):
-            raise ValueError("Min must be less than Max.")
+            raise ValueError("Lowest must be less than Highest.")
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
@@ -349,15 +355,18 @@ class FoodOptimizer:
         if self.X_history:
             raise ValueError(
                 "Cannot reload ingredients after results have been recorded. Use "
-                "Manage project > Hard reset to start a new project, or restore from "
-                "a backup."
+                "Manage project > Empty this project to start over, or restore "
+                "from a backup."
             )
 
         # Accept any capitalization/whitespace for the required headers, and
         # fail with a plain-language error (the app shows ValueError text to
         # the user) instead of a KeyError when one is missing.
+        # Lowest/Highest are what every box on the screen says; Min/Max are
+        # what a sheet written for an older version carries. Both are read,
+        # and neither is mentioned to the user in the other's place.
         canonical = {'name': 'Name', 'min': 'Min', 'max': 'Max', 'type': 'Type',
-                     'unit': 'Unit'}
+                     'unit': 'Unit', 'lowest': 'Min', 'highest': 'Max'}
         df = df.rename(columns={
             c: canonical[c.strip().lower()]
             for c in df.columns if c.strip().lower() in canonical
@@ -366,9 +375,9 @@ class FoodOptimizer:
         if missing:
             raise ValueError(
                 f"The ingredients file is missing required column(s): "
-                f"{', '.join(missing)}. Expected columns: Name, Min, Max "
-                f"(plus an optional Unit column and property columns like "
-                f"Cost or Protein)."
+                f"{', '.join(_FILE_COLUMNS[c] for c in missing)}. Expected "
+                f"columns: Name, Lowest, Highest (plus an optional Unit "
+                f"column and property columns like Cost or Protein)."
             )
 
         process_vars = [v for v in self.variables if v.get('category') == 'process']
@@ -396,13 +405,15 @@ class FoodOptimizer:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
                 raise ValueError(
-                    f"Ingredient '{row['Name']}': Min and Max must be numbers. "
+                    f"Ingredient '{row['Name']}': Lowest and Highest must be "
+                    f"numbers. "
                     f"Please check that column for text or blank cells and try "
                     f"again."
                 )
             if min_val >= max_val:
                 raise ValueError(
-                    f"Ingredient '{name}': Min ({min_val}) must be less than Max ({max_val})"
+                    f"Ingredient '{name}': Lowest ({min_val}) must be less "
+                    f"than Highest ({max_val})"
                 )
             var = {
                 'name': name,
@@ -868,6 +879,50 @@ class FoodOptimizer:
         return sum(coeff(name) * float(amount or 0.0)
                    for name, amount in recipe_dict.items())
 
+    def majority_amount_unit(self, names=None):
+        """The unit most of the ingredients are already in — the one the
+        refusals ask for the odd ones out to be re-entered in."""
+        counted = {}
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            if names is not None and var['name'] not in names:
+                continue
+            counted.setdefault(self._unit_of(var), []).append(var['name'])
+        if not counted:
+            return str(self.amount_unit or "")
+        order = list(counted)
+        return sorted(order, key=lambda u: (-len(counted[u]), u == "",
+                                            order.index(u)))[0]
+
+    def unit_fix_sentence(self, names=None):
+        """'enter Water in g instead of ml.' — the change that would let a
+        limit be written, or '' when the ingredients already share a unit.
+
+        A refusal that only says the units differ leaves the user to work out
+        which ingredient is the odd one and what to do about it. `names`
+        limits the question to one group of ingredients (an amount limit); the
+        default asks it of every ingredient (a property limit)."""
+        counted = {}
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            if names is not None and var['name'] not in names:
+                continue
+            counted.setdefault(self._unit_of(var), []).append(var['name'])
+        if len(counted) <= 1:
+            return ""
+        order = list(counted)
+        # The unit most of them are already in, preferring a real unit to a
+        # blank one and, on a tie, the one that appears first.
+        target = self.majority_amount_unit(names)
+        odd = [name for unit in order if unit != target
+               for name in counted[unit]]
+        others = [unit for unit in order if unit != target]
+        tail = (f" instead of {others[0] or 'no unit'}"
+                if len(others) == 1 else "")
+        return (f"enter {number_list(odd)} in {target or 'no unit'}{tail}.")
+
     def ingredient_units(self):
         """Every unit the ingredients are written in, in ingredient order."""
         units = []
@@ -1174,8 +1229,11 @@ class FoodOptimizer:
             }
             for obj in objs:
                 row[self._measurement_column(obj)] = results.get(obj['name'])
+            # '2.30 · partial', in the separator the rest of the app reads
+            # a list with: a partial score is missing a measurement and is not
+            # the same number as a complete one.
             row["Overall score"] = (f"{float(self.Y_history[i]):.2f}"
-                                    + (" (partial)" if partial else ""))
+                                    + (" · partial" if partial else ""))
             row["Recorded"] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
@@ -1184,7 +1242,9 @@ class FoodOptimizer:
         for k, s in enumerate(self.skipped):
             batch = s.get('batch')
             row = {
-                "Best": "",
+                # A row nobody made has no score to be best; saying so in the
+                # Best column is what stops it reading as the worst.
+                "Best": "not made",
                 "Batch": "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
@@ -1453,14 +1513,15 @@ class FoodOptimizer:
         Per 100 g of formulation, not as a total: a total grew with the batch,
         so the same formulation passed at 100 g and failed at 1 kg."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError("Min must be less than Max.")
+            raise ValueError("Lowest must be less than Highest.")
         # An average over the amounts, so the amounts must be in one unit:
         # 25 g of powder and 40 ml of water share no 100 g to be measured per.
         units = self.ingredient_units()
         if len(units) > 1:
             raise ValueError(
-                "A property limit needs all ingredients in one unit. Yours are "
-                "in " + number_list([u or "no unit" for u in units]) + "."
+                f"Property limits are per 100 "
+                f"{self.majority_amount_unit() or 'g'}, so every "
+                f"ingredient needs a mass unit; " + self.unit_fix_sentence()
             )
         # Same property, whatever its capitalisation: two limits on 'Fat' and
         # 'fat' would both be enforced against the same column.
@@ -1494,11 +1555,13 @@ class FoodOptimizer:
             max_val: Maximum allowed sum (or None for no upper bound).
         """
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError("Min must be less than Max.")
+            raise ValueError("Lowest must be less than Highest.")
         # A limit is a sum, and a sum across units is a number of nothing:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
-            raise ValueError("Choose ingredients that share a unit.")
+            raise ValueError(
+                "Amount limits add amounts, so these ingredients need one "
+                "unit; " + self.unit_fix_sentence(list(ingredients)))
         ingredient_set = set(ingredients)
         self.quantity_constraints = [
             qc for qc in self.quantity_constraints if set(qc['ingredients']) != ingredient_set
@@ -1511,22 +1574,17 @@ class FoodOptimizer:
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None):
-        """Shortcut: constrain the total amount (sum of all ingredients).
+        """The amount limit over every ingredient — what the one Amount limit
+        control writes when its picker is left on All ingredients.
 
-        Refused, in its own words, while the ingredients are not all in one
-        unit. This control has no ingredient picker — it is every ingredient
-        by definition — so "Choose ingredients that share a unit" would name
-        a choice the screen does not offer."""
+        Refused in the same words as any other amount limit while the
+        ingredients are not all in one unit: the refusal names the ingredient
+        to re-enter and the unit to enter it in, which is the same answer
+        whether the group is two ingredients or all of them."""
         all_ingredients = [
             v['name'] for v in self.variables
             if v.get('category', 'ingredient') == 'ingredient'
         ]
-        units = self.ingredient_units()
-        if len(units) > 1:
-            raise ValueError(
-                "A total needs all ingredients in one unit. Yours are in "
-                + number_list([u or "no unit" for u in units]) + "."
-            )
         self.add_quantity_constraint(all_ingredients, min_val, max_val)
 
     def remove_quantity_constraint(self, index):
@@ -2385,7 +2443,7 @@ class FoodOptimizer:
             word = "Formulation" if len(numbers) == 1 else "Formulations"
             raise ValueError(
                 f"'{name}' was used in {word} {number_list(numbers)}, so it "
-                f"cannot be deleted. Tick 'Delete even if it was used' to "
+                f"cannot be removed. Tick 'Remove even if it was used' to "
                 f"discard that information."
             )
 
@@ -2533,9 +2591,9 @@ class FoodOptimizer:
             self.import_json(state)
         except Exception:
             self.load_error = (
-                "This project file is damaged and could not be opened. If you have a "
-                "backup, use Restore from backup; otherwise check FoodOptimizer › "
-                "backups in your home folder for a recent copy."
+                "This project file is damaged and could not be opened. If you "
+                "have a backup, use Restore from backup; otherwise look in your "
+                "FoodOptimizer folder for a recent copy."
             )
             return False
         # Re-save only when the file is behind the current CLASS_VERSION, so an

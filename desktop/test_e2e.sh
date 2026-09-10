@@ -276,7 +276,7 @@ at.number_input(key="var_low").set_value(150.0)
 at.number_input(key="var_high").set_value(220.0)
 at.number_input(key="var_base").set_value(100.0)  # outside [150, 220]
 at.run()
-next(b for b in at.button if b.label == "Add").click()
+next(b for b in at.button if b.label == "Add ingredient or setting").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
 assert any("must be between" in str(e.value) for e in at.error)

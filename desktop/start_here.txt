@@ -40,7 +40,7 @@ YOUR DATA STAYS ON YOUR COMPUTER
   statistics.
 - Your project files are saved in a folder called FoodOptimizer in your
   home folder (in Finder: click the Go menu, then Home). You can see,
-  copy or delete them at any time.
+  copy or remove them at any time.
 - The one-time setup only downloads the app's software components. It
   sends nothing of yours anywhere.
 

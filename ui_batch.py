@@ -31,7 +31,7 @@ def _result_key(formulation_no, measurement):
 
 
 def _left_out(formulation_no):
-    """Read the Leave out flag before its checkbox is drawn — the checkbox is
+    """Read the Not made flag before its checkbox is drawn — the checkbox is
     rendered last in the row, after the boxes the user came to fill."""
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
 
@@ -58,7 +58,7 @@ def _scale_to(opt):
 
 def _any_value_typed(opt):
     """True once a result has been typed into a row that is still being kept.
-    A left-out row is skipped: a disabled number_input still returns its stored
+    A row nobody made is skipped: a disabled number_input still returns its stored
     value, which would flip the batch sheet grey on a tick."""
     for row in open_rows(opt):
         number = row['formulation']
@@ -121,9 +121,10 @@ def _no_batch(opt):
     repeat = False
     if best_no is not None:
         repeat = st.checkbox(
-            f"Include a repeat of Formulation {best_no}", key="repeat_best",
-            help="Adds the best formulation to this batch as an extra "
-                 "formulation, so you can check it again.",
+            f"Remake Formulation {best_no} (best so far) in this batch",
+            key="repeat_best",
+            help="Checks the best result again alongside the new "
+                 "formulations.",
         )
     n = int(size)
     # The repeat is a formulation the user will have to make, so the button
@@ -141,7 +142,6 @@ def _no_batch(opt):
                    "allowed; later batches aim closer to your targets.")
     else:
         st.caption("Each batch aims closer to your targets.")
-    st.caption("Only one batch is open at a time.")
 
 
 def _amount_format(opt, frame):
@@ -215,25 +215,21 @@ def _scale_control(opt, unit, scale_to):
     if not opt.has_ingredients():
         return
     if unit is None:
-        st.caption("Scaling needs all ingredients in one unit.")
+        st.caption("A batch size needs all ingredients in one unit.")
         return
     st.session_state.setdefault("scale_total", None)
+    # "Batch size", not "Scale": Scale is the measurement's scale on tab 1,
+    # and one word cannot be two things across two tabs.
     st.number_input(
-        f"Scale each formulation to a total of ({unit})" if unit
-        else "Scale each formulation to a total of",
+        f"Batch size ({unit})" if unit else "Batch size",
         min_value=0.0, step=1.0, placeholder="as generated",
         key="scale_total",
         help="Leave this empty to weigh out the amounts as they were "
              "generated. Type a total and every formulation is rewritten "
              "to it, on screen and in both downloads.",
     )
-    if scale_to is None:
-        st.caption("Shown as generated.")
-    else:
-        # The table on screen is scaled as well, so this is not a fact about
-        # the downloads alone.
-        st.caption("Shown and printed at a total of "
-                   + join_unit(f"{scale_to:g}", unit) + ".")
+    if scale_to is not None:
+        st.caption("Amounts shown for this total.")
 
 
 def _sheet_lines(opt, row, scale_to):
@@ -318,7 +314,7 @@ def _download_row(opt, scale_to):
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
-            "Download batch sheet",
+            "Download batch sheet (CSV)",
             data=opt.batch_csv(rows, scale_to=scale_to),
             file_name=f"{opt.project_name} batch {opt.pending_batch_no}.csv",
             mime="text/csv", key="download_batch_sheet",
@@ -327,12 +323,18 @@ def _download_row(opt, scale_to):
         )
     with d2:
         st.download_button(
-            "Download printable sheets",
+            "Download formulation sheets (to print)",
             data=_sheets_html(opt, scale_to),
             file_name=f"{opt.project_name} batch {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
         )
-    with st.expander("Printable formulation sheets"):
+    if scale_to is not None:
+        # Both files carry the amounts on screen, so the size they were
+        # written for is named directly under the two buttons.
+        st.caption("Sheets use a batch size of "
+                   + join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")
+                   + ".")
+    with st.expander("Preview formulation sheets"):
         _printable(opt, scale_to)
 
 
@@ -379,7 +381,7 @@ def _recorded_row(opt, number, ordered):
         for o in ordered if o['name'] in results
     )
     if any(o['name'] not in results for o in ordered):
-        line = f"{line} · (partial)" if line else "(partial)"
+        line = f"{line} · partial" if line else "partial"
     note = (opt.notes_history[index] if index is not None
             and index < len(opt.notes_history) else "")
     if note:
@@ -435,9 +437,8 @@ def _record_results(opt):
         # be typed by someone who knew to type it first.
         st.text_input("Note", key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox("Leave out", key=f"f{number}_leave_out",
-                    help="Not made, or failed. Type why in Note; it is kept "
-                         "with the formulation.")
+        st.checkbox("Not made", key=f"f{number}_leave_out",
+                    help="Type why in Note; it is kept with the formulation.")
         if has_value and not skip:
             entered += 1
         st.divider()
@@ -454,10 +455,12 @@ def _record_results(opt):
     if st.button("Save results", type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
         _save_results(opt, kept, left_out, to_record)
-    counter = f"{entered} of {plural(len(kept), 'formulation')} entered"
+    # What the button under it does is written on the button; the line only
+    # counts what is in.
+    counter = f"Results for {entered} of {plural(len(kept), 'formulation')}"
     if left_out:
-        counter += f" · {len(left_out)} left out"
-    st.caption(counter + " · saved when you press Save results")
+        counter += f" · {len(left_out)} not made"
+    st.caption(counter)
 
 
 def _save_results(opt, kept, left_out, to_record):
@@ -495,8 +498,8 @@ def _save_results(opt, kept, left_out, to_record):
             # it is the only record of what went wrong.
             note = str(st.session_state.get(f"f{number}_note") or "").strip()
             # "Not made" first, always: with only the typed note, the All
-            # formulations row for a left-out formulation said nothing about
-            # having been left out.
+            # formulations row for a formulation nobody made said nothing
+            # about not having been made.
             opt.record_skipped(number, batch_no, row['recipe'],
                                note=f"Not made · {note}" if note else "Not made")
     opt.set_pending_batch(None)

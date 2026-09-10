@@ -16,6 +16,14 @@ from ui_helpers import (
     table_height, take_clear, unit_after_number,
 )
 
+# The one sentence any screen says about the copy an irreversible action keeps.
+_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
+
+# Said under a table or a score that holds one, and nowhere else: a partial
+# score is a real number that cannot be compared with a complete one.
+_PARTIAL = ("Partial scores are missing a measurement and cannot be compared "
+            "with complete ones.")
+
 
 def _all_numbers(opt):
     """Every number this project has issued and still holds, in order."""
@@ -69,7 +77,7 @@ def _range_warning(opt, name, value):
 
 
 def _progress_line(opt):
-    last = opt.last_batch_no()   # counts a batch whose rows were all left out
+    last = opt.last_batch_no()   # counts a batch nobody managed to make
     if last is None or not opt.Y_history:
         return ""
     earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
@@ -88,9 +96,12 @@ def _progress_line(opt):
 
 
 def _best(opt):
+    """The best formulation. Returns True when it has already said what a
+    partial score cannot be compared with, so the table below does not say the
+    same sentence again on the same screen."""
     index = opt.best_index()
     if index is None:
-        return
+        return False
     number = int(opt.formulation_ids[index])
     batch = opt.batch_history[index]
     heading = f"Best so far: Formulation {number}"
@@ -103,9 +114,13 @@ def _best(opt):
 
     details = opt.closeness_details(index)
     if details:
+        # Off by is a distance from a target, so it only appears once a
+        # measurement has one: a column of dashes said nothing on every row.
+        has_target = any(o['goal'] == 'target' for o in opt.objectives)
         st.dataframe(pd.DataFrame([
             {"Measurement": d['name'], "Goal": d['goal'],
-             "Measured": d['measured'], "Off by": d['off_by']}
+             "Measured": d['measured'],
+             **({"Off by": d['off_by']} if has_target else {})}
             for d in details
         ]), hide_index=True, key="best_off_by",
             height=table_height(len(details)))
@@ -122,17 +137,20 @@ def _best(opt):
     if unused:
         st.caption("Not used: " + ", ".join(unused))
     ceiling = opt.utility_ceiling()
-    # "(partial)", exactly as the All formulations row writes it: a score
+    # "· partial", exactly as the All formulations row writes it: a score
     # missing one measurement is not the same number as a full one.
     scored = opt.results_history[index] if index < len(opt.results_history) else {}
-    partial = " (partial)" if any(o['name'] not in scored
-                                  for o in opt.objectives) else ""
-    st.caption(f"Overall score {float(opt.Y_history[index]):.2f}{partial} of "
-               f"{ceiling:.2f} · {ceiling:.2f} is every measurement on target "
-               "· not comparable across projects.")
+    partial = any(o['name'] not in scored for o in opt.objectives)
+    st.caption(f"Overall score {float(opt.Y_history[index]):.2f}"
+               + (" · partial" if partial else "")
+               + f" of {ceiling:.2f} · {ceiling:.2f} is every measurement on "
+               "target · not comparable across projects.")
+    if partial:
+        st.caption(_PARTIAL)
+    return partial
 
 
-def _all_formulations(opt):
+def _all_formulations(opt, said_partial=False):
     st.markdown("**All formulations**")
     o1, o2 = st.columns([2, 1])
     with o1:
@@ -144,12 +162,16 @@ def _all_formulations(opt):
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
     st.dataframe(frame, hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
+    if not said_partial and any("· partial" in str(v)
+                                for v in frame["Overall score"]):
+        st.caption(_PARTIAL)
     st.download_button("Download all formulations (CSV)", data=opt.history_csv(),
                        file_name=f"{opt.project_name} formulations.csv",
                        mime="text/csv", key="download_formulations",
                        help="Amounts are unitless in this file so it can be "
                             "imported back; units are shown on screen. "
-                            "Formulations you left out are not included.")
+                            "Formulations that were not made are not "
+                            "included.")
 
 
 def _correct(opt):
@@ -167,6 +189,10 @@ def _correct(opt):
     take_clear("correct_formulation")
     choice = st.selectbox("Correct a result", numbers, index=None,
                           placeholder="Formulation", key="correct_formulation")
+    if opt.skipped:
+        # The picker offers fewer numbers than All formulations lists, and
+        # the reason is not visible from the box.
+        st.caption("Formulations that were not made have no result to correct.")
     if choice is None:
         return None
     index = opt.index_of_formulation(choice)
@@ -275,7 +301,7 @@ def _save_correction(opt, storage, pending):
     move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
-    sentences.append("A copy of the project was kept first.")
+    sentences.append(_COPY_KEPT)
     flash("success", " ".join(sentences))
     st.rerun()
 
@@ -316,100 +342,108 @@ def _progress_chart(opt):
                    "this ingredient list can do.")
 
 
+def _remove_batch_or_formulation(opt, storage):
+    """One section for both ways a formulation leaves the project: the whole
+    of the last batch, or one formulation. They were two expanders, and the
+    first was a heading and a button with the same words, so clicking the
+    heading read as having undone the batch."""
+    with st.expander("Remove a batch or a formulation"):
+        _undo(opt, storage)
+        st.divider()
+        _remove_formulation(opt, storage)
+
+
 def _undo(opt, storage):
-    with st.expander("Undo the last batch"):
-        # Left-out formulations count: a batch nobody managed to make is still
-        # the last batch, and undoing must not reach past it.
-        last = opt.last_batch_no()
-        if last is None:
-            if opt.X_history or opt.skipped:
-                st.caption("These formulations were recorded before batches "
-                           "existed, so there is no batch to undo. You can "
-                           "delete one formulation at a time below.")
-            else:
-                st.caption("No batch to undo yet.")
-            return
-        if opt.pending_batch:
-            st.caption("Record or discard the open batch first.")
-            st.button("Undo the last batch", disabled=True, key="undo_batch__btn")
-            return
-        count = sum(1 for b in opt.batch_history if b == last)
-        count += sum(1 for s in opt.skipped if s.get('batch') == last)
-        # Said once, in the confirmation: a caption above it repeats it.
-        if confirm_action(
-            "undo_batch", "Undo the last batch",
-            # Formulations, not results: one of them may have been left out
-            # and have no result at all, and formulation is the app's noun.
-            f"Removes batch {last} and its {plural(count, 'formulation')}. "
-            "A copy is kept first.",
-            confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
-        ):
+    # Left-out formulations count: a batch nobody managed to make is still
+    # the last batch, and undoing must not reach past it.
+    last = opt.last_batch_no()
+    if last is None:
+        if opt.X_history or opt.skipped:
+            st.caption("These formulations were recorded before batches "
+                       "existed, so there is no batch to undo. You can "
+                       "remove one formulation at a time below.")
+        else:
+            st.caption("No batch to undo yet.")
+        return
+    if opt.pending_batch:
+        st.caption("Record or discard the open batch first.")
+        st.button("Undo the last batch", disabled=True, key="undo_batch__btn")
+        return
+    count = sum(1 for b in opt.batch_history if b == last)
+    count += sum(1 for s in opt.skipped if s.get('batch') == last)
+    # Said once, in the confirmation: a caption above it repeats it.
+    if confirm_action(
+        "undo_batch", "Undo the last batch",
+        # Formulations, not results: one of them may never have been made
+        # and have no result at all, and formulation is the app's noun.
+        f"Removes batch {last} and its {plural(count, 'formulation')}. "
+        + _COPY_KEPT,
+        confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
+    ):
+        try:
+            storage.archive(opt.project_name, "pre_undo", copy=True)
+        except storage_backend.StorageError as e:
+            st.error(str(e))
+        else:
             try:
-                storage.archive(opt.project_name, "pre_undo", copy=True)
-            except storage_backend.StorageError as e:
+                opt.undo_last_batch()
+            except ValueError as e:
+                # The open batch appeared between the click and the
+                # confirmation: say why, do not take it down as well.
                 st.error(str(e))
-            else:
-                try:
-                    opt.undo_last_batch()
-                except ValueError as e:
-                    # The open batch appeared between the click and the
-                    # confirmation: say why, do not take it down as well.
-                    st.error(str(e))
-                    return
-                if not saved_ok(opt):
-                    return
-                st.session_state.pop("scale_total", None)
-                st.session_state.pop("_results_upload", None)
-                flash("success", f"Batch {last} removed. A copy was kept first.")
-                st.rerun()
-
-
-def _delete_formulation(opt, storage):
-    with st.expander("Delete a formulation"):
-        numbers = _all_numbers(opt)
-        if not numbers:
-            st.caption("Nothing to delete yet.")
-            return
-        take_clear("delete_formulation")
-        choice = st.selectbox("Formulation", numbers, index=None,
-                              placeholder="Formulation",
-                              key="delete_formulation")
-        if choice is None:
-            return
-        go = confirm_action(
-            "delete_formulation", f"Delete Formulation {choice}",
-            f"Delete Formulation {choice}? Later formulations keep their "
-            "numbers. A copy is kept first.",
-            confirm_label="Yes, delete",
-            disabled=other_confirmation("delete_formulation"),
-        )
-        # The select box cannot be cleared by the user once it holds a value.
-        # The confirmation brings its own Cancel, so this one steps aside while
-        # that is on screen rather than showing the word twice.
-        if (not st.session_state.get("delete_formulation__pending")
-                and st.button("Choose a different formulation",
-                              key="cancel_delete_formulation")):
-            clear_selection("delete_formulation")
+                return
+            if not saved_ok(opt):
+                return
+            st.session_state.pop("scale_total", None)
+            st.session_state.pop("_results_upload", None)
+            flash("success", f"Batch {last} removed. " + _COPY_KEPT)
             st.rerun()
-        if go:
-            try:
-                storage.archive(opt.project_name, "pre_delete", copy=True)
-            except storage_backend.StorageError as e:
-                st.error(str(e))
-            else:
-                opt.delete_formulation(choice)
-                if not saved_ok(opt):
-                    return
-                clear_selection("delete_formulation")
-                flash("success", f"Formulation {choice} deleted. A copy was "
-                                 "kept first.")
-                st.rerun()
+
+
+def _remove_formulation(opt, storage):
+    numbers = _all_numbers(opt)
+    if not numbers:
+        st.caption("No formulation to remove yet.")
+        return
+    take_clear("delete_formulation")
+    choice = st.selectbox("Formulation to remove", numbers, index=None,
+                          placeholder="Formulation",
+                          key="delete_formulation")
+    if choice is None:
+        return
+    go = confirm_action(
+        "delete_formulation", f"Remove Formulation {choice}",
+        f"Remove Formulation {choice}? Later formulations keep their "
+        "numbers. " + _COPY_KEPT,
+        confirm_label="Yes, remove",
+        disabled=other_confirmation("delete_formulation"),
+    )
+    # The select box cannot be cleared by the user once it holds a value.
+    # The confirmation brings its own Cancel, so this one steps aside while
+    # that is on screen rather than showing the word twice.
+    if (not st.session_state.get("delete_formulation__pending")
+            and st.button("Close", key="cancel_delete_formulation")):
+        clear_selection("delete_formulation")
+        st.rerun()
+    if go:
+        try:
+            storage.archive(opt.project_name, "pre_delete", copy=True)
+        except storage_backend.StorageError as e:
+            st.error(str(e))
+        else:
+            opt.delete_formulation(choice)
+            if not saved_ok(opt):
+                return
+            clear_selection("delete_formulation")
+            flash("success", f"Formulation {choice} removed. " + _COPY_KEPT)
+            st.rerun()
 
 
 def _import(opt):
     with st.expander("Import past formulations from a CSV"):
         variables = [v['name'] for v in opt.variables]
-        measurements = [o['name'] for o in opt.objectives]
+        # By importance, as every other list of measurements on every tab.
+        measurements = [o['name'] for o in opt.measurements_by_importance()]
         if variables or measurements:
             st.caption("One row per formulation you already made. The columns "
                        "must match these names exactly: "
@@ -426,7 +460,7 @@ def _import(opt):
         # The parse is behind a button, as it is on tab 2: reading the file on
         # every rerun left the sheet on screen after it had been imported, and
         # a second click on Import recorded every row twice.
-        if uploaded is not None and st.button("Check this sheet",
+        if uploaded is not None and st.button("Check this file",
                                               key="check_import"):
             try:
                 st.session_state["_import_rows"] = pd.read_csv(uploaded)
@@ -518,9 +552,9 @@ def render(opt, storage):
     if not opt.objectives:
         st.info("Add a measurement in Set up to score these formulations "
                 "again. Nothing recorded has been lost.")
-    _best(opt)
+    said_partial = _best(opt)
     st.divider()
-    _all_formulations(opt)
+    _all_formulations(opt, said_partial)
     pending = _correct(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
@@ -530,8 +564,7 @@ def render(opt, storage):
     foot = st.container()
     st.divider()
     _progress_chart(opt)
-    _undo(opt, storage)
-    _delete_formulation(opt, storage)
+    _remove_batch_or_formulation(opt, storage)
     _import(opt)
     with foot:
         _foot(opt, pending is not None)

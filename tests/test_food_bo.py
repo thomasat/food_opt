@@ -162,7 +162,7 @@ class TestVariables:
             "Min": [50],
             "Max": [50],
         })
-        with pytest.raises(ValueError, match="Min.*must be less than Max"):
+        with pytest.raises(ValueError, match="Lowest.*must be less than Highest"):
             opt.load_ingredients_from_csv(df)
 
     def test_csv_preserves_process_params(self, opt):
@@ -571,7 +571,7 @@ class TestPropertyLimitsPerHundred:
     def test_a_property_limit_needs_one_unit(self, opt):
         opt = self._fatty(opt)
         opt.set_ingredient_unit("Fatty", "ml")
-        with pytest.raises(ValueError, match="all ingredients in one unit"):
+        with pytest.raises(ValueError, match="every ingredient needs a mass unit"):
             opt.add_constraint("Fat per 100 g", max_val=25)
         assert opt.constraints == []
 
@@ -1083,7 +1083,7 @@ class TestRemoveIngredient:
         opt_configured.tell(
             {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
         )
-        with pytest.raises(ValueError, match="cannot be deleted"):
+        with pytest.raises(ValueError, match="cannot be removed"):
             opt_configured.remove_ingredient("Flour")
 
     def test_allows_never_used_ingredient(self, opt_configured):
@@ -1335,9 +1335,9 @@ class TestSetupValidation:
 
     def test_inverted_bounds(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="Min must be less than Max"):
+        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
             opt.add_process_parameter("Temp", 200, 100)
-        with pytest.raises(ValueError, match="Min must be less than Max"):
+        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
             opt.add_ingredient("Water", 5, 5)
 
     def test_cross_category_name_collision(self, tmp_path, monkeypatch):
@@ -1362,7 +1362,7 @@ class TestSetupValidation:
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_ingredient("Sugar", 0, 100)
         opt.add_ingredient("Honey", 0, 100)
-        with pytest.raises(ValueError, match="Min must be less than Max"):
+        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
             opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
 
     def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
@@ -1818,14 +1818,14 @@ class TestUnitsAndImportance:
             opt.remove_ingredient("Pea protein")
         assert str(one.value) == (
             "'Pea protein' was used in Formulation 3, so it cannot be "
-            "deleted. Tick 'Delete even if it was used' to discard that "
+            "removed. Tick 'Remove even if it was used' to discard that "
             "information."
         )
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 0.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=5, batch_no=1)
         with pytest.raises(ValueError) as two:
             opt.remove_ingredient("Pea protein")
-        assert "used in Formulations 3 and 5, so it cannot be deleted" in str(two.value)
+        assert "used in Formulations 3 and 5, so it cannot be removed" in str(two.value)
 
     def test_measurements_are_ordered_by_importance(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1980,7 +1980,8 @@ class TestUnitsAndImportance:
         assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
                                     "Juiciness", "Overall score", "Recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
-        assert list(df["Best"]) == ["★", "", ""]
+        # A row nobody made has no score to be best, and says so.
+        assert list(df["Best"]) == ["★", "", "not made"]
         assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
         assert df["Note"].iloc[2] == "Not made"
@@ -1997,7 +1998,7 @@ class TestUnitsAndImportance:
     def test_history_frame_marks_a_partial_score(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0}, {"Firmness": 6.0})
-        assert opt.history_frame()["Overall score"].iloc[0].endswith("(partial)")
+        assert opt.history_frame()["Overall score"].iloc[0].endswith("· partial")
 
     def test_history_frame_orders(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2247,15 +2248,19 @@ class TestUnitPerIngredient:
 
     def test_an_amount_limit_needs_one_unit(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError,
-                           match="Choose ingredients that share a unit."):
-            opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
-        # The total-amount control has no ingredient picker — it is every
-        # ingredient by definition — so it names the units instead.
+        # The refusal names the fix: which ingredient to re-enter, and in
+        # what.
         with pytest.raises(
                 ValueError,
-                match=r"A total needs all ingredients in one unit\. Yours "
-                      r"are in g and ml\."):
+                match=r"Amount limits add amounts, so these ingredients need "
+                      r"one unit; enter Water in g instead of ml\."):
+            opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        # All ingredients is the same limit over every one of them, refused
+        # in the same words.
+        with pytest.raises(
+                ValueError,
+                match=r"Amount limits add amounts, so these ingredients need "
+                      r"one unit; enter Water in g instead of ml\."):
             opt.add_total_mass_constraint(max_val=400)
         assert opt.quantity_constraints == []
         # One unit between them, and the same limit is accepted.
@@ -2542,6 +2547,19 @@ _BANNED = [
     # calls itself an optimizer or talks about optimization.
     re.compile(r"(?<!Food )\boptimi[sz](er|ation)\b", re.I),
     re.compile(r"Overall Score"),
+    # The coherence wave (2026-09-10): one word per concept on every screen.
+    # Lowest/Highest for the ends of a range (Min and Max survive only as
+    # column headers an ingredient CSV may carry); Remove for anything taken
+    # out of a project, with Delete kept for the project itself; Not made for
+    # a formulation nobody made; Batch size for the total a batch is written
+    # to; and no Priority column beside the importance it was a rank of.
+    re.compile(r"\bMin\b"),
+    re.compile(r"\bMax\b"),
+    re.compile(r"\bhard reset\b", re.I),
+    re.compile(r"\bleave (it )?out\b", re.I),
+    re.compile(r"\bdelet(e|es|ed|ing)\b", re.I),
+    re.compile(r"\bscale each formulation\b", re.I),
+    re.compile(r"\btotal amount\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -2642,21 +2660,34 @@ _ALLOWED_EXACT = {
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
-    # The one permitted "range": it is the spec's verbatim caption, and it
-    # means an instrument's range, not an ingredient's allowed amounts.
-    "The ends of your scale or instrument range, not the values you expect",
-    # The one permitted "weight": the technical gloss folded away under How
-    # closeness is worked out, whose whole job is to name the word behind
-    # importance for a reader who wants it.
-    "Importance is the weight of each measurement in the overall score; "
-    "closeness is its normalised score between 0 and 1.",
+    # The one permitted "weight": the tail of the Importance tooltip, whose
+    # whole job is to name the word behind importance for a reader who wants
+    # it.
+    "Importance is the weight of each measurement in the overall score.",
+    # "Delete" belongs to the project and to nothing else, so these are the
+    # only sentences that may carry it — the sidebar's own confirmation, its
+    # button, and what it says afterwards.
+    "Delete this project",
+    "Yes, delete it",
+    "Delete **",
+    "**? It has no formulations yet, "
+    "and it leaves this list. ",
+    "** and its ",
 }
+
+# Fragments of the sidebar's delete-the-project sentences (they are f-strings,
+# so each piece is scanned on its own).
+_ALLOWED_PREFIXES = ("Delete **", "Deleted ")
 
 # Single-word literals that are internal machinery, never screen text.
 _ALLOWED_SINGLE_WORDS = {
     # Legacy CSV column headers an import still accepts, and the reserved
     # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES).
     "Recipe", "Experiment",
+    # The ingredient file's own column headers. The boxes on screen say
+    # Lowest and Highest; a sheet may head its columns either way, and the
+    # loader reads both.
+    "Min", "Max", "min", "max", "lowest", "highest",
     # Stored field names and JSON keys. The spec keeps the stored spelling of
     # importance ('weight') and of a formulation's amounts ('recipe').
     "recipe", "experiment", "experiments", "objectives", "weight",
@@ -2666,7 +2697,8 @@ _ALLOWED_SINGLE_WORDS = {
 _SWIFT_NOT_PROSE = ("font-weight",)
 
 _SINGLE_WORDS = re.compile(
-    r"^(recipes?|experiments?|objectives?|weights?|ranges?|rewind|pruned)$", re.I)
+    r"^(recipes?|experiments?|objectives?|weights?|ranges?|rewind|pruned"
+    r"|priority|delete)$", re.I)
 
 
 def _string_constants(path):
@@ -2707,7 +2739,7 @@ def test_no_old_vocabulary_reaches_the_user():
     offenders = []
     for name in _USER_FACING_SOURCES:
         for text in _prose_constants(root / name):
-            if text in _ALLOWED_EXACT:
+            if text in _ALLOWED_EXACT or text.startswith(_ALLOWED_PREFIXES):
                 continue
             if any(pattern.search(text) for pattern in _BANNED):
                 offenders.append((name, text))

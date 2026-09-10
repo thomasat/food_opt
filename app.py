@@ -20,6 +20,9 @@ from ui_helpers import (
 
 STORAGE = storage_backend.LocalStorage()
 
+# The one sentence any screen says about the copy an irreversible action keeps.
+_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
+
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
 
@@ -86,7 +89,7 @@ _PROPERTY_BOX_PREFIXES = ("var_prop_", "setprop_")
 
 
 def _grid_fresh(key):
-    """The empty value of one result-grid box: a note is text, Leave out is a
+    """The empty value of one result-grid box: a note is text, Not made is a
     tick, and a measurement is an empty number box."""
     if key.endswith("_note"):
         return ""
@@ -314,7 +317,7 @@ with st.sidebar:
                 st.error(
                     "This file could not be read as a Food Optimizer backup. "
                     "If you have another copy, try that one; recent copies are "
-                    "kept in FoodOptimizer › backups in your home folder."
+                    "saved in your FoodOptimizer folder."
                 )
 
         candidate = st.session_state.get("_restore_candidate")
@@ -323,8 +326,8 @@ with st.sidebar:
                 summary = FoodOptimizer.validate_state(candidate)
             except ValueError as e:
                 st.error(
-                    f"{e} Recent copies of your own projects are kept in "
-                    "FoodOptimizer › backups in your home folder."
+                    f"{e} Recent copies of your own projects are saved in "
+                    "your FoodOptimizer folder."
                 )
                 st.session_state.pop("_restore_candidate", None)
             else:
@@ -340,8 +343,7 @@ with st.sidebar:
                     f"This backup contains project **{summary['name']}** with "
                     + ", ".join(_holds[:-1]) + f" and {_holds[-1]}. Replace "
                     f"**{opt.project_name}** "
-                    f"({plural(_held(opt), 'formulation')})? A copy of "
-                    "the current project is kept first."
+                    f"({plural(_held(opt), 'formulation')})? " + _COPY_KEPT
                 )
                 rc1, rc2 = st.columns(2)
                 with rc1:
@@ -383,8 +385,7 @@ with st.sidebar:
                                         f"into {new_opt.project_name}."
                                     )
                                     if archived:
-                                        _done += (" A copy of the previous project "
-                                                  f"was kept as {archived}.")
+                                        _done += f" A copy was saved as {archived}."
                                     flash("success", _done)
                                     st.rerun()
                 with rc2:
@@ -394,14 +395,14 @@ with st.sidebar:
 
         with st.expander("Manage project"):
             if confirm_action(
-                "hard_reset", "Hard reset",
-                (f"Start **{opt.project_name}** over? A copy of it is kept in your "
-                 "projects folder and the project becomes empty."
+                "hard_reset", "Empty this project",
+                (f"Start **{opt.project_name}** over? It becomes empty. "
+                 + _COPY_KEPT
                  if not _held(opt) else
                  f"Start **{opt.project_name}** over? Its "
-                 f"{plural(_held(opt), 'formulation')} and set-up are kept "
-                 "as a copy in your projects folder, and the project becomes empty."),
-                confirm_label="Yes, reset",
+                 f"{plural(_held(opt), 'formulation')} and set-up go, and the "
+                 f"project becomes empty. " + _COPY_KEPT),
+                confirm_label="Yes, empty it",
                 disabled=other_confirmation("hard_reset"),
             ):
                 _target = opt.project_name
@@ -421,24 +422,23 @@ with st.sidebar:
                         st.error(_fresh.save_error)
                     else:
                         if archived:
-                            flash("info", "A copy of the previous project was "
-                                          f"kept as {archived}.")
+                            flash("info", f"A copy was saved as {archived}.")
                         _reset_project_session()
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
                         st.rerun()
 
-            # Same shape as Hard reset, but the project leaves the list. The
+            # Same shape as Empty this project, but the project leaves the list. The
             # file is renamed to an archive copy, never erased.
             if confirm_action(
-                "delete_project", "Delete",
-                (f"Delete **{opt.project_name}**? It has no formulations yet. A copy "
-                 "of its set-up is kept in your projects folder, and it leaves this list."
+                "delete_project", "Delete this project",
+                (f"Delete **{opt.project_name}**? It has no formulations yet, "
+                 f"and it leaves this list. " + _COPY_KEPT
                  if not _held(opt) else
                  f"Delete **{opt.project_name}** and its "
-                 f"{plural(_held(opt), 'formulation')}? A copy is kept in your "
-                 "projects folder, and it leaves this list."),
-                confirm_label="Yes, delete",
+                 f"{plural(_held(opt), 'formulation')}? It leaves this list. "
+                 + _COPY_KEPT),
+                confirm_label="Yes, delete it",
                 disabled=other_confirmation("delete_project"),
             ):
                 _target = opt.project_name
@@ -448,7 +448,8 @@ with st.sidebar:
                     st.error(str(e))
                 else:
                     if archived:
-                        flash("info", f"Deleted {_target}. A copy was kept as {archived}.")
+                        flash("info", f"Deleted {_target}. A copy was saved "
+                                      f"as {archived}.")
                     else:
                         flash("info", f"Deleted {_target}.")
                     _reset_project_session()
@@ -507,7 +508,8 @@ if getattr(st.session_state.optimizer, "load_error", None):
         "To protect the original file, editing is paused. In the sidebar on "
         "the left you can: restore a backup you downloaded earlier "
         "(Restore from backup), or start this project over "
-        "(Manage project › Hard reset — the damaged file is archived, not deleted)."
+        "(Manage project › Empty this project — a copy of the damaged file is "
+        "saved first)."
     )
     st.stop()
 
