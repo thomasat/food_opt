@@ -267,11 +267,16 @@ at = AppTest.from_file(
 at.session_state["_loaded_project"] = "UI_Check"
 at.run()
 assert not at.exception, at.exception
-at.text_input(key="pp_name").set_value("oven_temp")
-at.number_input(key="pp_min").set_value(150.0)
-at.number_input(key="pp_max").set_value(220.0)
-at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
-next(b for b in at.button if b.label == "Add process setting").click()
+# One form adds both kinds: Kind picks which, and a setting added mid-run
+# asks for the baseline the formulations already made were run at.
+at.radio(key="var_kind").set_value("Process setting")
+at.run()
+at.text_input(key="var_name").set_value("oven_temp")
+at.number_input(key="var_low").set_value(150.0)
+at.number_input(key="var_high").set_value(220.0)
+at.number_input(key="var_base").set_value(100.0)  # outside [150, 220]
+at.run()
+next(b for b in at.button if b.label == "Add").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
 assert any("must be between" in str(e.value) for e in at.error)
