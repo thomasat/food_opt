@@ -1078,22 +1078,25 @@ with tab_optimize:
                         st.error(str(e))
                         st.session_state.pop("_results_upload", None)
                     else:
+                        _rows = _opt._batch_rows(batch)
+                        _by_number = {r['formulation']: r['recipe'] for r in _rows}
                         st.info(f"Found results for {len(parsed)} of {len(batch)} recipes: "
-                                + ", ".join(f"Recipe {i + 1}" for i, _ in parsed) + ".")
+                                + ", ".join(f"Recipe {no}" for no, _, _ in parsed) + ".")
                         if st.button("Save uploaded results", type="primary", key=f"b{batch_id}_save_upload"):
                             try:
-                                for i, results in parsed:
-                                    _opt.tell(batch[i], results)
-                            except (ValueError, TypeError) as e:
+                                for no, results, _note in parsed:
+                                    _opt.tell(_by_number[no], results)
+                            except (ValueError, TypeError, KeyError) as e:
                                 st.error(f"Could not save these results: {e}")
                             else:
-                                done = {i for i, _ in parsed}
+                                done = {no for no, _, _ in parsed}
                                 n = len(_opt.Y_history)
                                 st.session_state["_last_saved"] = [
-                                    {"recipe": i + 1, "score": float(_opt.Y_history[n - len(parsed) + k])}
-                                    for k, (i, _) in enumerate(parsed)
+                                    {"recipe": no, "score": float(_opt.Y_history[n - len(parsed) + k])}
+                                    for k, (no, _, _) in enumerate(parsed)
                                 ]
-                                remaining = [r for i, r in enumerate(batch) if i not in done]
+                                remaining = [r['recipe'] for r in _rows
+                                             if r['formulation'] not in done]
                                 _opt.set_pending_batch(remaining or None)
                                 if remaining:
                                     st.session_state.current_batch = remaining
@@ -1113,27 +1116,10 @@ with tab_optimize:
         _opt = st.session_state.optimizer
         _order = st.radio("Order", ["Most recent first", "Best first"], horizontal=True,
                           key="hist_order", label_visibility="collapsed")
-        hist_df = _opt.history_frame()
-        if _order == "Best first":
-            hist_df = hist_df.sort_values("Overall Score", ascending=False)
-        else:
-            hist_df = hist_df.sort_values("Experiment", ascending=False)
-        _best_exp = (_opt.best_index() or 0) + 1
-        _num_cols = [
-            c for c in hist_df.columns
-            if c not in ("Experiment", "Date") and pd.api.types.is_numeric_dtype(hist_df[c])
-        ]
-        _fmt = {c: "{:.2f}" for c in _num_cols if c != "Overall Score"}
-        if "Overall Score" in hist_df.columns:
-            _fmt["Overall Score"] = "{:.3f}"
-        st.dataframe(
-            hist_df.style
-                .format(_fmt, na_rep="")
-                .apply(lambda r: ["background-color: rgba(46,110,78,.18)" if r["Experiment"] == _best_exp else "" for _ in r], axis=1),
-            hide_index=True,
-        )
-        st.caption(f"Highlighted: experiment {_best_exp}, the best so far. "
-                   f"Overall Score is out of {_opt.utility_ceiling():g}.")
+        hist_df = _opt.history_frame(
+            order="Best first" if _order == "Best first" else "Newest first")
+        st.dataframe(hist_df, hide_index=True)
+        st.caption(f"Overall score is out of {_opt.utility_ceiling():g}.")
 
         st.download_button(
             "Download history (CSV)", data=_opt.history_csv(),

@@ -33,7 +33,35 @@ from storage import LocalStorage, StorageError
 
 # Column names history_frame() (and any future export) reserves for itself;
 # a variable with one of these names would silently overwrite that column.
-RESERVED_VARIABLE_NAMES = {"Experiment", "Date", "Overall Score", "Recipe"}
+RESERVED_VARIABLE_NAMES = {
+    "Experiment", "Date", "Overall Score", "Recipe",
+    "Formulation", "Batch", "Overall score", "Note", "Recorded", "Best",
+}
+
+
+def join_unit(text, unit):
+    """'6 N', '7/10' — a unit that starts with a slash joins tight, everything
+    else takes one space. Every screen goes through this, so a project whose
+    panel scores are '/10' never reads '7 /10'."""
+    unit = str(unit or "")
+    if not unit:
+        return str(text)
+    return f"{text}{unit}" if unit.startswith("/") else f"{text} {unit}"
+
+
+def goal_line(obj):
+    """The half of an input label that says what a good number looks like:
+    'target 6 N', 'lower is better', 'higher is better'."""
+    if obj.get('goal') == 'target' and obj.get('target') is not None:
+        return join_unit(f"target {float(obj['target']):g}", obj.get('unit'))
+    return "lower is better" if obj.get('goal') == 'min' else "higher is better"
+
+
+def _fmt_weight(w):
+    """'1.0', '1.5', '2.25' — an importance always shows a decimal, so the
+    written-out score function reads as arithmetic, not as a rank."""
+    txt = f"{float(w):.2f}".rstrip("0")
+    return txt + "0" if txt.endswith(".") else txt
 
 
 # --------------------------------------------------------------------------- #
@@ -360,7 +388,7 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def add_objective(self, name, weight, goal='max', target=None,
-                      min_val=None, max_val=None):
+                      min_val=None, max_val=None, unit=""):
         """Add or replace an objective. Returns True if an objective of the
         same name was replaced. Stored scores are recomputed either way so the
         history and the model never disagree with the current weights."""
@@ -399,6 +427,7 @@ class FoodOptimizer:
         self.objectives.append({
             'name': name, 'weight': weight, 'goal': goal,
             'target': target, 'min_val': min_val, 'max_val': max_val,
+            'unit': str(unit or "").strip(),
         })
         self._recompute_utilities()
         self.save()
@@ -409,6 +438,160 @@ class FoodOptimizer:
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self._recompute_utilities()
         self.save()
+
+    def set_amount_unit(self, unit):
+        """One unit for every amount in the project — 'g', '%', 'kg'. It shows
+        in every ingredient header, batch sheet and off-by line."""
+        self.amount_unit = str(unit or "").strip()
+        self.save()
+
+    def update_objective(self, name, /, **fields):
+        """Change a measurement in place. Its name is fixed (renaming would
+        orphan every stored result), everything else can change, and every
+        stored overall score is recalculated. The open batch is untouched:
+        formulations do not depend on measurements."""
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        if obj is None:
+            raise ValueError(f"No measurement named {name}.")
+        allowed = {'weight', 'goal', 'target', 'min_val', 'max_val', 'unit'}
+        unknown = sorted(set(fields) - allowed)
+        if unknown:
+            raise ValueError(f"Cannot change {', '.join(unknown)}.")
+        merged = dict(obj)
+        merged.update(fields)
+        weight = float(merged.get('weight', 1.0))
+        if weight <= 0:
+            raise ValueError("Importance must be greater than 0.")
+        min_val = float(merged.get('min_val', 0.0))
+        max_val = float(merged.get('max_val', 10.0))
+        if min_val >= max_val:
+            raise ValueError("Scale lowest must be less than scale highest.")
+        goal = merged.get('goal', 'max')
+        if goal == 'target':
+            if merged.get('target') is None:
+                raise ValueError("Enter a target value for a 'Hit a target' measurement.")
+            target = float(merged['target'])
+            if not (min_val <= target <= max_val):
+                raise ValueError(
+                    f"Target {target:g} must lie within the scale "
+                    f"{min_val:g} to {max_val:g}."
+                )
+        else:
+            target = None
+        obj.update({
+            'weight': weight, 'goal': goal, 'target': target,
+            'min_val': min_val, 'max_val': max_val,
+            'unit': str(merged.get('unit', "") or "").strip(),
+        })
+        self._recompute_utilities()
+        self.save()
+        return obj
+
+    def measurements_by_importance(self):
+        """Measurements as every screen orders them: most important first,
+        ties in the order they were added."""
+        return sorted(self.objectives, key=lambda o: -float(o['weight']))
+
+    def importance_share(self, name):
+        """This measurement's share of the overall score, 0.0 to 1.0."""
+        total = self.utility_ceiling()
+        if total <= 0:
+            return 0.0
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        return 0.0 if obj is None else float(obj['weight']) / total
+
+    def score_function_line(self):
+        """The one line under the measurements table that writes the score out."""
+        if not self.objectives:
+            return ""
+        terms = " + ".join(
+            f"{_fmt_weight(o['weight'])} × {o['name']} closeness"
+            for o in self.measurements_by_importance()
+        )
+        return (f"Overall score = {terms}. Closeness is 1 on target and falls "
+                f"evenly with distance from it; a full scale width away scores "
+                f"0. Every measurement on target scores "
+                f"{self.utility_ceiling():.2f}.")
+
+    def closeness_details(self, index):
+        """The best-formulation table, most important first: one dict per
+        measurement with 'name', 'goal', 'measured' and 'off_by' as the
+        strings the screen shows.
+
+        Off by is only meaningful against a target. A 'higher is better'
+        measurement has no target, so quoting its distance from the top of the
+        scale would read a good result as a failure; those rows show '—'."""
+        results = self.results_history[index] if index < len(self.results_history) else {}
+        rows = []
+        for obj in self.measurements_by_importance():
+            unit = str(obj.get('unit', "") or "")
+            is_target = obj['goal'] == 'target'
+            if is_target:
+                goal_text = join_unit(f"Target {float(obj['target']):g}", unit)
+            elif obj['goal'] == 'min':
+                goal_text = "Lower is better"
+            else:
+                goal_text = "Higher is better"
+            raw = results.get(obj['name'])
+            if raw is None:
+                rows.append({'name': obj['name'], 'goal': goal_text,
+                             'measured': "not scored",
+                             'off_by': "not scored" if is_target else "—"})
+                continue
+            val = float(raw)
+            measured = join_unit(f"{val:g}", unit)
+            if not is_target:
+                rows.append({'name': obj['name'], 'goal': goal_text,
+                             'measured': measured, 'off_by': "—"})
+                continue
+            delta = val - float(obj['target'])
+            if abs(delta) < 1e-9:
+                off_by = "On target"
+            else:
+                size = join_unit(f"{abs(delta):.1f}", unit)
+                off_by = f"{size} too high" if delta > 0 else f"{size} too low"
+            rows.append({'name': obj['name'], 'goal': goal_text,
+                         'measured': measured, 'off_by': off_by})
+        return rows
+
+    def biggest_changes(self, recipe, ref_recipe, n=2):
+        """The n largest amount changes from ref_recipe to recipe, largest
+        first, as (name, change) pairs. Amounts that did not move are left out."""
+        pairs = []
+        for var in self.variables:
+            name = var['name']
+            try:
+                delta = float(recipe.get(name, 0.0)) - float(ref_recipe.get(name, 0.0))
+            except (TypeError, ValueError):
+                continue
+            if abs(delta) < 0.005:
+                continue
+            pairs.append((name, delta))
+        pairs.sort(key=lambda kv: abs(kv[1]), reverse=True)
+        return pairs[:n]
+
+    def ingredient_total(self, recipe):
+        """The batch size: process settings are not amounts and are excluded."""
+        return sum(float(recipe.get(v['name'], 0.0)) for v in self.variables
+                   if v.get('category', 'ingredient') == 'ingredient')
+
+    def scaled_recipe(self, recipe, scale_to=None):
+        """The same formulation written for a different batch size. Every
+        screen, sheet and download that shows a scaled amount goes through
+        this, so what is printed always equals what is displayed."""
+        if scale_to is None:
+            return dict(recipe)
+        total = self.ingredient_total(recipe)
+        if total <= 0:
+            return dict(recipe)
+        factor = float(scale_to) / total
+        out = {}
+        for var in self.variables:
+            value = float(recipe.get(var['name'], 0.0))
+            out[var['name']] = (value * factor
+                                if var.get('category', 'ingredient') == 'ingredient'
+                                else value)
+        return out
 
     def _recompute_utilities(self):
         for i, results_dict in enumerate(self.results_history):
@@ -433,30 +616,101 @@ class FoodOptimizer:
             out.append(cur)
         return out
 
-    def history_frame(self):
-        """Chronological history for display and CSV export (1-based numbering)."""
-        rows = []
-        for i, x in enumerate(self.X_history):
-            row = {"Experiment": i + 1}
-            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
-            row["Date"] = ts[:10] if isinstance(ts, str) else ""
-            row["Overall Score"] = float(self.Y_history[i])
-            results = self.results_history[i] if i < len(self.results_history) else {}
-            for obj in self.objectives:
-                row[f"{obj['name']} (result)"] = results.get(obj['name'])
-            decoded = {
-                (f"{k} (ingredient)" if k in ("Experiment", "Date", "Overall Score") else k): v
-                for k, v in self._decode(x).items()
-            }
-            row.update(decoded)
-            rows.append(row)
-        return pd.DataFrame(rows)
+    def _measurement_column(self, obj):
+        unit = str(obj.get('unit', "") or "")
+        return f"{obj['name']} ({unit})" if unit else obj['name']
 
-    def batch_frame(self, batch):
-        """A suggested batch as a DataFrame with a leading 1-based Recipe column."""
-        df = pd.DataFrame(batch)
-        df.insert(0, "Recipe", range(1, len(df) + 1))
-        return df
+    def _amount_column(self, name):
+        return f"{name} ({self.amount_unit})" if self.amount_unit else name
+
+    def _amount_columns(self, recipe):
+        return {self._amount_column(v['name']): recipe.get(v['name'])
+                for v in self.variables}
+
+    def history_frame(self, order="Best first", include_amounts=False):
+        """Every formulation — scored and left out — as the All formulations
+        table shows them. `order` is 'Best first', 'Newest first' or
+        'Batch order'. Batch is a string in every row: a project that predates
+        batches has blanks, and a mixed int/blank column renders inconsistently."""
+        objs = self.measurements_by_importance()
+        best_i = self.best_index()
+        rows = []
+        for i in range(len(self.X_history)):
+            results = self.results_history[i] if i < len(self.results_history) else {}
+            partial = any(o['name'] not in results for o in objs)
+            ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
+            batch = self.batch_history[i] if i < len(self.batch_history) else None
+            row = {
+                "Best": "★" if i == best_i else "",
+                "Batch": "" if batch is None else str(int(batch)),
+                "Formulation": int(self.formulation_ids[i]),
+                "_score": float(self.Y_history[i]),
+                "_seq": i,
+                "_batch": 0 if batch is None else int(batch),
+            }
+            for obj in objs:
+                row[self._measurement_column(obj)] = results.get(obj['name'])
+            row["Overall score"] = (f"{float(self.Y_history[i]):.2f}"
+                                    + (" (partial)" if partial else ""))
+            row["Recorded"] = ts[:10] if isinstance(ts, str) else ""
+            row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
+            if include_amounts:
+                row.update(self._amount_columns(self._decode(self.X_history[i])))
+            rows.append(row)
+        for k, s in enumerate(self.skipped):
+            batch = s.get('batch')
+            row = {
+                "Best": "",
+                "Batch": "" if batch is None else str(int(batch)),
+                "Formulation": int(s['formulation']),
+                "_score": float('-inf'),
+                "_seq": len(self.X_history) + k,
+                "_batch": 0 if batch is None else int(batch),
+            }
+            for obj in objs:
+                row[self._measurement_column(obj)] = None
+            row["Overall score"] = ""
+            row["Recorded"] = ""
+            row["Note"] = s.get('note') or "Not made"
+            if include_amounts:
+                row.update(self._amount_columns(s.get('recipe', {})))
+            rows.append(row)
+        columns = (["Best", "Batch", "Formulation"]
+                   + [self._measurement_column(o) for o in objs]
+                   + ["Overall score", "Recorded", "Note"])
+        if include_amounts:
+            columns += [self._amount_column(v['name']) for v in self.variables]
+        if not rows:
+            return pd.DataFrame(columns=columns)
+        df = pd.DataFrame(rows)
+        if order == "Newest first":
+            df = df.sort_values("_seq", ascending=False)
+        elif order == "Batch order":
+            df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
+        else:
+            df = df.sort_values(["_score", "_seq"], ascending=[False, True])
+        return df[columns].reset_index(drop=True)
+
+    def batch_frame(self, batch, scale_to=None):
+        """The open batch as the make-these table: one row per formulation, one
+        column per ingredient and setting carrying the project's unit, and the
+        total of the ingredients. `scale_to` rewrites it for a different batch
+        size — display only, the stored formulation never changes."""
+        unit = self.amount_unit
+        total_col = f"Total ({unit})" if unit else "Total"
+        rows = []
+        for row in self._batch_rows(batch):
+            recipe = self.scaled_recipe(row['recipe'], scale_to)
+            item = {"Formulation": int(row['formulation'])}
+            for var in self.variables:
+                item[self._amount_column(var['name'])] = float(
+                    recipe.get(var['name'], 0.0))
+            item[total_col] = self.ingredient_total(recipe)
+            rows.append(item)
+        columns = (["Formulation"]
+                   + [self._amount_column(v['name']) for v in self.variables]
+                   + [total_col])
+        return pd.DataFrame(rows, columns=columns)
 
     def recipe_lines(self, recipe, limit=None):
         """Ingredient/setting amounts for display: largest first, zero amounts
@@ -474,84 +728,159 @@ class FoodOptimizer:
         items = sorted(pairs, key=lambda kv: kv[1], reverse=True)
         return items if limit is None else items[:limit]
 
-    def batch_csv(self, batch):
-        """The suggested batch as CSV text, rounded to 2 decimals to match the
-        table shown on screen (the integer Recipe column is unaffected)."""
-        df = self.batch_frame(batch)
-        return df.round(2).to_csv(index=False)
+    def batch_csv(self, batch, scale_to=None):
+        """The sheet the lab fills in: the global Formulation numbers, the
+        amounts to weigh out rounded as the screen rounds them, one blank
+        column per measurement, and a Note column. `scale_to` must match what
+        the screen shows, or the lab weighs out amounts nobody saw."""
+        objs = self.measurements_by_importance()
+        rows = []
+        for row in self._batch_rows(batch):
+            recipe = self.scaled_recipe(row['recipe'], scale_to)
+            item = {"Formulation": int(row['formulation'])}
+            for var in self.variables:
+                item[var['name']] = round(float(recipe.get(var['name'], 0.0)), 2)
+            for obj in objs:
+                item[obj['name']] = ""
+            item["Note"] = ""
+            rows.append(item)
+        columns = (["Formulation"] + [v['name'] for v in self.variables]
+                   + [o['name'] for o in objs] + ["Note"])
+        return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
     def parse_batch_results(self, df, batch):
-        """Match an uploaded results sheet to the pending batch.
+        """Match an uploaded results sheet to the open batch.
 
-        Expects a Recipe column (1-based, as in the downloaded batch sheet) and
-        one column per objective; header matching ignores case and whitespace.
-        Returns [(batch_index, {objective: value}), ...] for the recipes
-        present. Raises ValueError with a message the lab can act on."""
+        The sheet needs a Formulation column holding the global numbers from
+        the downloaded batch sheet. `Recipe` and `Experiment` are accepted as
+        legacy headers and read as 1-based positions in the batch. A blank
+        measurement cell means it could not be scored, so the row is stored as
+        a partial result; a row with nothing filled in is refused. Returns
+        [(formulation number, {measurement: value}, note), ...].
+        """
+        rows = self._batch_rows(batch)
+        numbers = [r['formulation'] for r in rows]
         norm = {str(c).strip().lower(): c for c in df.columns}
-        if "recipe" not in norm:
-            raise ValueError("The sheet needs a Recipe column (1, 2, 3…) like the downloaded batch sheet.")
-        col_for = {}
-        missing = []
+        if "formulation" in norm:
+            key_col, legacy = norm["formulation"], False
+        elif "recipe" in norm:
+            key_col, legacy = norm["recipe"], True
+        elif "experiment" in norm:
+            key_col, legacy = norm["experiment"], True
+        else:
+            raise ValueError(
+                "The sheet needs a Formulation column with the numbers from "
+                "the downloaded batch sheet."
+            )
+        col_for, missing = {}, []
         for obj in self.objectives:
             key = obj['name'].strip().lower()
             if key in norm:
                 col_for[obj['name']] = norm[key]
             else:
                 missing.append(obj['name'])
-        if missing:
+        if not col_for:
             raise ValueError("Missing columns: " + ", ".join(missing))
+        note_col = norm.get("note")
         if len(df) == 0:
             raise ValueError("The sheet has no result rows.")
-        parsed = []
-        seen = set()
-        for _, row in df.iterrows():
-            raw_no = row[norm["recipe"]]
+        in_batch = ", ".join(str(n) for n in numbers)
+        parsed, seen = [], set()
+        for _, sheet_row in df.iterrows():
+            raw_no = sheet_row[key_col]
             try:
-                recipe_f = float(raw_no)
+                as_float = float(raw_no)
             except (TypeError, ValueError):
-                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
-            if not recipe_f.is_integer():
-                raise ValueError(f"Recipe number {raw_no!s} is not a whole number.")
-            recipe_no = int(recipe_f)
-            if not (1 <= recipe_no <= len(batch)):
-                raise ValueError(f"Recipe {recipe_no} is not in this batch (it has {len(batch)} recipes).")
-            if recipe_no in seen:
-                raise ValueError(f"Recipe {recipe_no} appears more than once in the sheet.")
-            seen.add(recipe_no)
+                raise ValueError(f"Formulation number {raw_no!s} is not a whole number.")
+            if not as_float.is_integer():
+                raise ValueError(f"Formulation number {raw_no!s} is not a whole number.")
+            number = int(as_float)
+            if legacy:
+                if not (1 <= number <= len(rows)):
+                    raise ValueError(
+                        f"Formulation {number} is not in batch "
+                        f"{self.pending_batch_no} (it has {in_batch})."
+                    )
+                number = numbers[number - 1]
+            elif number not in numbers:
+                raise ValueError(
+                    f"Formulation {number} is not in batch "
+                    f"{self.pending_batch_no} (it has {in_batch})."
+                )
+            if number in seen:
+                raise ValueError(
+                    f"Formulation {number} appears more than once in the sheet."
+                )
+            seen.add(number)
             results = {}
-            for obj in self.objectives:
-                val = row[col_for[obj['name']]]
-                if val is None or (isinstance(val, float) and np.isnan(val)) or str(val).strip() == "":
-                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is blank.")
+            for name, col in col_for.items():
+                val = sheet_row[col]
+                if (val is None
+                        or (isinstance(val, float) and np.isnan(val))
+                        or str(val).strip() == ""):
+                    continue
                 try:
                     val = float(val)
                 except (TypeError, ValueError):
-                    raise ValueError(f"Recipe {recipe_no} {obj['name']} is not a number.")
+                    raise ValueError(f"Formulation {number} {name} is not a number.")
+                obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
                     raise ValueError(
-                        f"Recipe {recipe_no} {obj['name']} is {val:g}, outside the range "
-                        f"{obj['min_val']:g} to {obj['max_val']:g}."
+                        join_unit(f"Formulation {number} {name} {val:g}",
+                                  obj.get('unit'))
+                        + " is outside your scale of "
+                        + join_unit(f"{obj['min_val']:g} to {obj['max_val']:g}",
+                                    obj.get('unit'))
+                        + ". Widen the scale in Set up, or check the value."
                     )
-                results[obj['name']] = val
-            parsed.append((recipe_no - 1, results))
+                results[name] = val
+            if not results:
+                raise ValueError(
+                    f"Formulation {number} has no measurements filled in."
+                )
+            note = ""
+            if note_col is not None:
+                raw_note = sheet_row[note_col]
+                if raw_note is not None and not (isinstance(raw_note, float)
+                                                 and np.isnan(raw_note)):
+                    note = str(raw_note).strip()
+            parsed.append((number, results, note))
         return parsed
 
     def history_csv(self):
-        """History as CSV whose variable and objective columns match what
-        'Import Historical Experiments' expects, so exports re-import cleanly.
+        """Every formulation as CSV, with the plain column names 'Import past
+        formulations from a CSV' expects, plus Formulation, Batch and Note.
 
-        Variable columns come from the re-encoded/decoded history (as
-        history_frame() does), not raw recipe_history: a variable added
-        mid-run is backfilled to 0 in X_history for earlier rows, while
-        recipe_history is never backfilled and would leave those rows with
-        a missing key (NaN on export, and a rejected re-import)."""
+        Amount columns come from the re-encoded history (as history_frame
+        does), not raw recipe_history: an ingredient added mid-project is
+        backfilled to 0 in X_history for earlier rows, while recipe_history is
+        never backfilled and would export a blank there.
+        """
         rows = []
         for i, x in enumerate(self.X_history):
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
-            row = {"Experiment": i + 1, "Date": ts[:10] if isinstance(ts, str) else "",
-                   "Overall Score": float(self.Y_history[i])}
+            batch = self.batch_history[i] if i < len(self.batch_history) else None
+            row = {
+                "Formulation": int(self.formulation_ids[i]),
+                "Batch": "" if batch is None else int(batch),
+                "Recorded": ts[:10] if isinstance(ts, str) else "",
+                "Overall score": float(self.Y_history[i]),
+            }
             row.update(self._decode(x))
             row.update(self.results_history[i] if i < len(self.results_history) else {})
+            row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
+            rows.append(row)
+        for s in self.skipped:
+            batch = s.get('batch')
+            row = {
+                "Formulation": int(s['formulation']),
+                "Batch": "" if batch is None else int(batch),
+                "Recorded": "",
+                "Overall score": "",
+            }
+            recipe = s.get('recipe', {})
+            row.update({v['name']: recipe.get(v['name']) for v in self.variables})
+            row["Note"] = s.get('note') or "Not made"
             rows.append(row)
         return pd.DataFrame(rows).to_csv(index=False)
 

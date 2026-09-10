@@ -254,18 +254,18 @@ def test_best_index_and_running_max(tmp_path, monkeypatch):
     assert opt.best_so_far() == pytest.approx([0.3, 0.8, 0.8])
 
 
-def test_history_frame_is_1_based_and_chronological(tmp_path, monkeypatch):
+def test_history_frame_names_formulations_not_experiments(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("hist")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     opt.tell({"Water": 20.0}, {"Taste": 8.0})
-    df = opt.history_frame()
-    assert list(df["Experiment"]) == [1, 2]
-    assert list(df.columns[:3]) == ["Experiment", "Date", "Overall Score"]
-    assert "Taste (result)" in df.columns and "Water" in df.columns
-    assert df["Date"].iloc[0] and len(df["Date"].iloc[0]) == 10
+    df = opt.history_frame(order="Newest first")
+    assert list(df.columns[:3]) == ["Best", "Batch", "Formulation"]
+    assert list(df["Formulation"]) == [2, 1]
+    assert "Taste" in df.columns
+    assert len(df["Recorded"].iloc[0]) == 10
 
 
 def test_reserved_column_name_is_rejected(tmp_path, monkeypatch):
@@ -275,34 +275,17 @@ def test_reserved_column_name_is_rejected(tmp_path, monkeypatch):
         opt.add_ingredient("Date", 0, 10)
 
 
-def test_history_frame_renames_variable_colliding_with_fixed_column(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("hist_collision")
-    opt.add_ingredient("Water", 0, 100)
-    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
-    # Bypass add_ingredient's validation to mirror a project that already has
-    # a variable literally named "Date" (e.g. imported from an old file).
-    opt.variables.append({
-        'name': 'Date',
-        'type': 'continuous',
-        'bounds': (0.0, 10.0),
-        'category': 'ingredient',
-        'active': True,
-    })
-    opt.tell({"Water": 10.0, "Date": 5.0}, {"Taste": 3.0})
-    df = opt.history_frame()
-    assert "Date" in df.columns
-    assert isinstance(df["Date"].iloc[0], str)
-    assert "Date (ingredient)" in df.columns
-    assert df["Date (ingredient)"].iloc[0] == 5.0
-
-
-def test_batch_frame_has_recipe_labels(tmp_path, monkeypatch):
+def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("bf")
-    df = opt.batch_frame([{"Water": 10.0, "Temp": 180.0}, {"Water": 20.0, "Temp": 190.0}])
-    assert list(df["Recipe"]) == [1, 2]
-    assert list(df.columns) == ["Recipe", "Water", "Temp"]
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_process_parameter("Temp", 100, 200)
+    opt.set_pending_batch([{"Water": 10.0, "Temp": 180.0},
+                           {"Water": 20.0, "Temp": 190.0}])
+    df = opt.batch_frame(opt.pending_batch)
+    assert list(df["Formulation"]) == [1, 2]
+    assert list(df.columns) == ["Formulation", "Water", "Temp", "Total"]
+    assert df["Total"].iloc[0] == 10.0   # the process setting is not an amount
 
 
 def test_recipe_lines_sorts_largest_first_and_omits_zeros(tmp_path, monkeypatch):
@@ -317,77 +300,13 @@ def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
     """The downloaded sheet must match the two-decimal table shown on screen,
     not the raw float precision the optimizer suggests."""
     monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("bf")
-    csv_text = opt.batch_csv([{"Water": 11.877679824829102}])
-    df = pd.read_csv(io.StringIO(csv_text))
+    opt = FoodOptimizer("bf2")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_pending_batch([{"Water": 11.877679824829102}])
+    df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
     assert df["Water"].iloc[0] == 11.88
-    assert list(df["Recipe"]) == [1]
-
-
-class TestParseBatchResults:
-    def _opt(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        opt = FoodOptimizer("pbr")
-        opt.add_ingredient("Water", 0, 100)
-        opt.add_objective("Hardness", 1.0, goal="target", target=12, min_val=0, max_val=30)
-        opt.add_objective("L*", 1.0, goal="max", min_val=0, max_val=100)
-        return opt
-
-    def test_parses_matching_rows_case_insensitively(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        batch = [{"Water": 10.0}, {"Water": 20.0}, {"Water": 30.0}]
-        df = pd.DataFrame({"recipe": [1, 3], " hardness ": [11.0, 14.0], "l*": [70.0, 65.0]})
-        parsed = opt.parse_batch_results(df, batch)
-        assert parsed == [(0, {"Hardness": 11.0, "L*": 70.0}), (2, {"Hardness": 14.0, "L*": 65.0})]
-
-    def test_missing_recipe_column(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        df = pd.DataFrame({"Hardness": [1.0], "L*": [2.0]})
-        with pytest.raises(ValueError, match="needs a Recipe column"):
-            opt.parse_batch_results(df, [{"Water": 10.0}])
-
-    def test_missing_measurement_column(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        df = pd.DataFrame({"Recipe": [1], "Hardness": [1.0]})
-        with pytest.raises(ValueError, match="Missing columns: L\\*"):
-            opt.parse_batch_results(df, [{"Water": 10.0}])
-
-    def test_blank_cell_and_unknown_recipe(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        batch = [{"Water": 10.0}]
-        with pytest.raises(ValueError, match="Recipe 1 Hardness is blank"):
-            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [None], "L*": [5.0]}), batch)
-        with pytest.raises(ValueError, match="Recipe 7 is not in this batch"):
-            opt.parse_batch_results(pd.DataFrame({"Recipe": [7], "Hardness": [1.0], "L*": [5.0]}), batch)
-
-    def test_out_of_range_value(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="Recipe 1 L\\* is 140.*0 to 100"):
-            opt.parse_batch_results(pd.DataFrame({"Recipe": [1], "Hardness": [1.0], "L*": [140.0]}),
-                                    [{"Water": 10.0}])
-
-    def test_duplicate_recipe_row_is_rejected(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        batch = [{"Water": 10.0}, {"Water": 20.0}]
-        df = pd.DataFrame({"Recipe": [1, 1], "Hardness": [11.0, 12.0], "L*": [70.0, 71.0]})
-        with pytest.raises(ValueError, match="appears more than once"):
-            opt.parse_batch_results(df, batch)
-
-    def test_non_integer_recipe_number(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        batch = [{"Water": 10.0}]
-        with pytest.raises(ValueError, match="is not a whole number"):
-            opt.parse_batch_results(
-                pd.DataFrame({"Recipe": ["abc"], "Hardness": [1.0], "L*": [5.0]}), batch)
-        with pytest.raises(ValueError, match="is not a whole number"):
-            opt.parse_batch_results(
-                pd.DataFrame({"Recipe": [1.5], "Hardness": [1.0], "L*": [5.0]}), batch)
-
-    def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        df = pd.DataFrame({"Recipe": [], "Hardness": [], "L*": []})
-        with pytest.raises(ValueError, match="no result rows"):
-            opt.parse_batch_results(df, [{"Water": 10.0}])
+    assert list(df["Formulation"]) == [1]
 
 
 def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
@@ -396,9 +315,9 @@ def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
-    import io
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    for col in ["Experiment", "Date", "Overall Score", "Water", "Taste"]:
+    for col in ["Formulation", "Batch", "Recorded", "Overall score", "Water",
+                "Taste", "Note"]:
         assert col in df.columns
     assert df["Taste"].iloc[0] == 3.0
 
@@ -1356,3 +1275,321 @@ class TestFormulationIdentity:
         assert reloaded.skipped[0]["formulation"] == 2
         assert reloaded.next_formulation_no == 3
         assert reloaded.pending_batch_no == 1
+
+
+class TestUnitsAndImportance:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("units")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 25)
+        opt.add_ingredient("Methylcellulose", 0, 3)
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10)
+        return opt
+
+    def test_join_unit_keeps_a_slash_unit_tight(self):
+        from food_bo import join_unit
+        assert join_unit("6", "N") == "6 N"
+        assert join_unit("7", "/10") == "7/10"
+        assert join_unit("7", "") == "7"
+
+    def test_goal_line_reads_like_a_label(self):
+        from food_bo import goal_line
+        assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
+        assert goal_line({"goal": "target", "target": 7, "unit": "/10"}) == "target 7/10"
+        assert goal_line({"goal": "min", "unit": "N"}) == "lower is better"
+        assert goal_line({"goal": "max", "unit": ""}) == "higher is better"
+
+    def test_amount_unit_and_measurement_unit_persist(self, tmp_path, monkeypatch):
+        self._opt(tmp_path, monkeypatch)
+        reloaded = FoodOptimizer("units")
+        assert reloaded.amount_unit == "g"
+        assert reloaded.objectives[0]["unit"] == "N"
+
+    def test_measurements_are_ordered_by_importance(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert [o["name"] for o in opt.measurements_by_importance()] == ["Firmness", "Juiciness"]
+        assert opt.importance_share("Firmness") == pytest.approx(0.6)
+
+    def test_score_function_line_is_the_spec_sentence(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.score_function_line() == (
+            "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness closeness. "
+            "Closeness is 1 on target and falls evenly with distance from it; a "
+            "full scale width away scores 0. Every measurement on target scores 2.50."
+        )
+
+    def test_update_objective_recomputes_scores_and_keeps_the_open_batch(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 3.0})
+        opt.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}])
+        before = float(opt.Y_history[0])
+        opt.update_objective("Firmness", weight=2.0)
+        assert opt.objectives[0]["weight"] == 2.0
+        assert float(opt.Y_history[0]) > before
+        assert opt.utility_ceiling() == pytest.approx(3.0)
+        assert opt.pending_batch is not None
+
+    def test_adding_or_removing_a_measurement_keeps_the_open_batch(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}])
+        opt.add_objective("Chewiness", 0.5, goal="max", min_val=0, max_val=10)
+        assert opt.pending_batch is not None
+        opt.remove_objective("Chewiness")
+        assert opt.pending_batch is not None
+
+    def test_changing_an_ingredient_still_discards_the_open_batch(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}])
+        opt.add_ingredient("Beet juice powder", 0, 2)
+        assert opt.pending_batch is None
+        assert opt.pending_batch_no is None
+
+    def test_update_objective_rejects_an_unknown_field(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Cannot change name"):
+            opt.update_objective("Firmness", name="Hardness")
+
+    def test_reserved_column_names_are_refused(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("reserved2")
+        for bad in ("Formulation", "Batch", "Overall score", "Note", "Recorded", "Best"):
+            with pytest.raises(ValueError, match="column name Food Optimizer uses"):
+                opt.add_ingredient(bad, 0, 10)
+
+    def test_closeness_details_only_measures_off_by_against_a_target(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 8.0, "Juiciness": None})
+        rows = opt.closeness_details(0)
+        assert [r["name"] for r in rows] == ["Firmness", "Juiciness"]
+        assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
+                           "measured": "8 N", "off_by": "2.0 N too high"}
+        assert rows[1]["measured"] == "not scored"
+        assert rows[1]["off_by"] == "not scored"
+
+    def test_closeness_details_leaves_off_by_blank_for_higher_and_lower(self, tmp_path, monkeypatch):
+        """A 'higher is better' measurement has no target, so an off-by number
+        would read a pass as a failure."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("nogoal")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10, unit="/10")
+        opt.add_objective("Grittiness", 0.5, goal="min", min_val=0, max_val=10, unit="/10")
+        opt.tell({"Water": 10.0}, {"Juiciness": 8.0, "Grittiness": 2.0})
+        rows = opt.closeness_details(0)
+        assert rows[0] == {"name": "Juiciness", "goal": "Higher is better",
+                           "measured": "8/10", "off_by": "—"}
+        assert rows[1] == {"name": "Grittiness", "goal": "Lower is better",
+                           "measured": "2/10", "off_by": "—"}
+
+    def test_closeness_details_says_on_target(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 6.0})
+        rows = opt.closeness_details(0)
+        assert rows[0]["off_by"] == "On target"
+        assert rows[1]["off_by"] == "1.0 too low"
+
+    def test_closeness_details_on_a_project_with_no_measurements(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 6.0})
+        opt.remove_objective("Firmness")
+        opt.remove_objective("Juiciness")
+        assert opt.closeness_details(0) == []
+        assert opt.score_function_line() == ""
+
+    def test_biggest_changes_are_largest_first(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        changes = opt.biggest_changes({"Pea protein": 8.0, "Methylcellulose": 1.8},
+                                      {"Pea protein": 10.1, "Methylcellulose": 1.0})
+        assert changes[0][0] == "Pea protein"
+        assert changes[0][1] == pytest.approx(-2.1)
+        assert changes[1][0] == "Methylcellulose"
+        assert changes[1][1] == pytest.approx(0.8)
+
+    def test_scaled_recipe_scales_amounts_and_leaves_settings_alone(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 100, 220)
+        recipe = {"Pea protein": 10.0, "Methylcellulose": 1.0, "Cook temperature": 180.0}
+        assert opt.ingredient_total(recipe) == pytest.approx(11.0)
+        scaled = opt.scaled_recipe(recipe, 22.0)
+        assert scaled["Pea protein"] == pytest.approx(20.0)
+        assert scaled["Methylcellulose"] == pytest.approx(2.0)
+        assert scaled["Cook temperature"] == pytest.approx(180.0)
+        assert opt.scaled_recipe(recipe, None) == recipe
+
+    def test_history_frame_columns_and_star(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 3.0, "Juiciness": 3.0}, formulation_no=1, batch_no=1)
+        opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=2, batch_no=1,
+                 note="best yet")
+        opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
+        df = opt.history_frame()
+        assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
+                                    "Juiciness", "Overall score", "Recorded", "Note"]
+        assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
+        assert list(df["Best"]) == ["★", "", ""]
+        assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
+        assert df["Note"].iloc[0] == "best yet"
+        assert df["Note"].iloc[2] == "Not made"
+        assert df["Overall score"].iloc[2] == ""
+
+    def test_history_frame_batch_column_is_all_strings_on_a_mixed_project(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0})            # no batch (imported)
+        opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, batch_no=1)
+        assert set(opt.history_frame()["Batch"]) == {"", "1"}
+
+    def test_history_frame_marks_a_partial_score(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0}, {"Firmness": 6.0})
+        assert opt.history_frame()["Overall score"].iloc[0].endswith("(partial)")
+
+    def test_history_frame_orders(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=1, batch_no=2)
+        opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
+                 {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=2, batch_no=1)
+        assert list(opt.history_frame(order="Best first")["Formulation"]) == [1, 2]
+        assert list(opt.history_frame(order="Newest first")["Formulation"]) == [2, 1]
+        assert list(opt.history_frame(order="Batch order")["Formulation"]) == [2, 1]
+
+    def test_history_frame_amounts_carry_the_unit(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0})
+        df = opt.history_frame(include_amounts=True)
+        assert "Pea protein (g)" in df.columns
+        assert df["Pea protein (g)"].iloc[0] == pytest.approx(10.0)
+
+    def test_history_csv_uses_plain_names_and_carries_identity(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=4, batch_no=2,
+                 note="ok")
+        df = pd.read_csv(io.StringIO(opt.history_csv()))
+        for col in ("Formulation", "Batch", "Recorded", "Overall score",
+                    "Pea protein", "Firmness", "Note"):
+            assert col in df.columns
+        assert df["Formulation"].iloc[0] == 4
+        assert df["Batch"].iloc[0] == 2
+
+    def test_batch_frame_is_the_make_these_table(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+        df = opt.batch_frame(opt.pending_batch)
+        assert list(df.columns) == ["Formulation", "Pea protein (g)",
+                                    "Methylcellulose (g)", "Total (g)"]
+        assert list(df["Formulation"]) == [1]
+        assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
+
+    def test_batch_frame_and_csv_carry_the_scale_through(self, tmp_path, monkeypatch):
+        """What is downloaded must equal what is on screen, or the lab weighs
+        out the wrong amounts."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+        df = opt.batch_frame(opt.pending_batch, scale_to=22.0)
+        assert df["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
+        assert df["Total (g)"].iloc[0] == pytest.approx(22.0)
+        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch, scale_to=22.0)))
+        assert sheet["Pea protein"].iloc[0] == 20.0
+
+    def test_batch_csv_has_formulation_numbers_and_blank_measurements(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 11.877679824829102,
+                                "Methylcellulose": 1.0}])
+        df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
+        assert list(df["Formulation"]) == [1]
+        assert df["Pea protein"].iloc[0] == 11.88
+        assert df["Firmness"].isna().all()
+        assert "Note" in df.columns
+
+
+class TestParseBatchResultsByFormulation:
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("pbr2")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Hardness", 1.0, goal="target", target=12, min_val=0, max_val=30)
+        opt.add_objective("L*", 1.0, goal="max", min_val=0, max_val=100)
+        opt.next_formulation_no = 7
+        opt.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}, {"Water": 30.0}],
+                              batch_no=3)
+        return opt
+
+    def test_matches_global_numbers_case_insensitively(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"formulation": [7, 9], " hardness ": [11.0, 14.0],
+                           "l*": [70.0, 65.0], "Note": ["", "soft"]})
+        assert opt.parse_batch_results(df, opt.pending_batch) == [
+            (7, {"Hardness": 11.0, "L*": 70.0}, ""),
+            (9, {"Hardness": 14.0, "L*": 65.0}, "soft"),
+        ]
+
+    def test_legacy_recipe_and_experiment_columns_are_positions(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        legacy = pd.DataFrame({"Recipe": [1], "Hardness": [11.0], "L*": [70.0]})
+        assert opt.parse_batch_results(legacy, opt.pending_batch)[0][0] == 7
+        older = pd.DataFrame({"Experiment": [3], "Hardness": [11.0], "L*": [70.0]})
+        assert opt.parse_batch_results(older, opt.pending_batch)[0][0] == 9
+
+    def test_missing_key_column(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Hardness": [1.0], "L*": [2.0]})
+        with pytest.raises(ValueError, match="needs a Formulation column"):
+            opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_a_number_outside_the_batch_names_the_batch(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
+        with pytest.raises(ValueError,
+                           match=r"Formulation 11 is not in batch 3 \(it has 7, 8, 9\)\."):
+            opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [None], "L*": [70.0]})
+        assert opt.parse_batch_results(df, opt.pending_batch) == [(7, {"L*": 70.0}, "")]
+
+    def test_a_row_with_nothing_filled_in_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [None], "L*": [None]})
+        with pytest.raises(ValueError, match="Formulation 7 has no measurements filled in"):
+            opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_out_of_scale_value(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0], "L*": [140.0]})
+        with pytest.raises(ValueError, match=r"outside your scale of 0 to 100"):
+            opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [7, 7], "Hardness": [11.0, 12.0],
+                           "L*": [70.0, 71.0]})
+        with pytest.raises(ValueError, match="appears more than once"):
+            opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_non_integer_number(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        for bad in ("abc", 7.5):
+            df = pd.DataFrame({"Formulation": [bad], "Hardness": [1.0], "L*": [5.0]})
+            with pytest.raises(ValueError, match="is not a whole number"):
+                opt.parse_batch_results(df, opt.pending_batch)
+
+    def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        df = pd.DataFrame({"Formulation": [], "Hardness": [], "L*": []})
+        with pytest.raises(ValueError, match="no result rows"):
+            opt.parse_batch_results(df, opt.pending_batch)
