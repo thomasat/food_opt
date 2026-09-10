@@ -52,7 +52,8 @@ def _reset_project_session():
               "_results_upload", "_import_rows", "_editing_measurement",
               "scale_total", "results_order", "show_amounts",
               "correct_formulation", "delete_formulation", "amount_unit",
-              "qty_pick", "batch_size", "repeat_best", ARMED_KEY):
+              "qty_pick", "batch_size", "repeat_best", "_pending_tab",
+              ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state
               if isinstance(k, str) and (
@@ -447,8 +448,15 @@ _opt = st.session_state.optimizer
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
 
+# A move asked for on the previous run by go_to_tab. Both this and the landing
+# rule above must land BEFORE st.tabs: the widget reads its key from session
+# state only while it is being created, and on_change="rerun" is what binds the
+# key to the frontend at all — without it "main_tab" is only a CSS class.
+if "_pending_tab" in st.session_state:
+    st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
+
 tab_setup, tab_batch, tab_results = st.tabs(
-    [TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab")
+    [TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab", on_change="rerun")
 
 _line = _batch_line(_opt)
 

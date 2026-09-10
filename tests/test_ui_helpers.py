@@ -211,20 +211,44 @@ def test_landing_tab_follows_the_spec_rule():
     assert landing_tab(mid) == TAB_BATCH
 
 
+# The two halves of the move, in the same order as app.py: the pending target
+# is drained into the widget key BEFORE st.tabs, and on_change="rerun" is what
+# binds that key to the frontend at all.
 GO_TO_TAB_SCRIPT = """
 import streamlit as st
 from ui_helpers import TAB_BATCH, TAB_SETUP, TAB_RESULTS, go_to_tab
-st.tabs([TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab")
+if "_pending_tab" in st.session_state:
+    st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
+st.tabs([TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab",
+        on_change="rerun")
 if st.button("go"):
     go_to_tab(TAB_BATCH)
 st.write(f"tab={st.session_state.get('main_tab')}")
 """
 
+# go_to_tab on its own, with no tabs widget to drain it: what it leaves behind.
+GO_TO_TAB_ALONE_SCRIPT = """
+import streamlit as st
+from ui_helpers import TAB_BATCH, go_to_tab
+if st.button("go"):
+    go_to_tab(TAB_BATCH)
+"""
+
 
 def test_go_to_tab_switches_the_open_tab():
-    from streamlit.testing.v1 import AppTest
     at = AppTest.from_string(GO_TO_TAB_SCRIPT)
     at.run()
     at.button[0].click()
     at.run()
     assert at.session_state["main_tab"] == "2 · Make a batch"
+
+
+def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
+    """The tabs widget already exists when a handler runs, so go_to_tab must
+    not touch its key: it parks the target for the next run to drain."""
+    at = AppTest.from_string(GO_TO_TAB_ALONE_SCRIPT)
+    at.run()
+    at.button[0].click()
+    at.run()
+    assert at.session_state["_pending_tab"] == "2 · Make a batch"
+    assert "main_tab" not in at.session_state
