@@ -14,8 +14,8 @@ import storage as storage_backend
 from ui_helpers import (
     TAB_BATCH, best_formulation_no, best_move_sentence, confirm_action,
     confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, join_unit,
-    label_with_unit, other_confirmation, park_clear, plural, readiness,
-    saved_ok, table_height, unit_after_number,
+    label_with_unit, number_list, other_confirmation, park_clear, plural,
+    readiness, saved_ok, table_height, unit_after_number,
 )
 
 GOAL_LABELS = {
@@ -110,8 +110,12 @@ def _amount_unit(opt):
     # unstripped box re-saved on every rerun, and a failing save then bounced
     # the script into a rerun loop.
     if typed != opt.amount_unit:
-        opt.set_amount_unit(typed)
-        saved_ok(opt)
+        removed = opt.set_amount_unit(typed)
+        if saved_ok(opt) and removed:
+            # Every ingredient without a unit of its own just moved with the
+            # default, which can leave a limit adding grams to millilitres.
+            _flash_removed_limits(opt, removed)
+            st.rerun()
     elif getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
@@ -123,7 +127,8 @@ def _amount_unit(opt):
 
 def _ingredients(opt, storage):
     st.subheader("Ingredients")
-    st.caption("One row per ingredient: Name, Min, Max.")
+    st.caption("One row per ingredient: Name, Min, Max and, if you like, "
+               "Unit.")
     uploaded = st.file_uploader(
         "Upload ingredients CSV", type=["csv"], key="ingredients_csv",
         help="Columns Name, Min, Max, and an optional Unit (a blank cell uses "
@@ -157,13 +162,16 @@ def _ingredients(opt, storage):
         if st.button("Load ingredients", key="load_ingredients"):
             batch_no = opt.pending_batch_no
             try:
-                opt.load_ingredients_from_csv(df)
+                removed = opt.load_ingredients_from_csv(df)
             except ValueError as e:
                 st.error(str(e))
             else:
                 if saved_ok(opt):
                     st.session_state["_ingredients_loaded"] = mark
                     flash("success", f"Loaded {plural(len(df), 'ingredient')}.")
+                    # The new file can rename a unit or drop an ingredient a
+                    # limit was written against.
+                    _flash_removed_limits(opt, removed)
                     _note_discarded_batch(opt, batch_no)
                     st.rerun()
 
@@ -315,6 +323,22 @@ def _change_ingredient_list(opt, storage):
                         st.rerun()
 
 
+def _flash_removed_limits(opt, removed):
+    """Name every amount limit an edit just emptied of meaning, one line
+    each. Three edits can do it — a unit set on one ingredient, a new default
+    unit, a reloaded ingredient file — and all three say it the same way."""
+    for qc in removed:
+        label = _limit_label(opt, qc)
+        if qc.get('reason') == 'missing':
+            gone = qc.get('missing') or []
+            who = (f"{number_list(gone)} are no longer ingredients"
+                   if len(gone) > 1 else f"{gone[0]} is no longer an ingredient")
+            flash("warning", f"The limit on {label} was removed because {who}.")
+        else:
+            flash("warning", f"The limit on {label} was removed because those "
+                             "ingredients no longer share a unit.")
+
+
 def _limit_label(opt, qc):
     """How one amount limit is named on screen — 'Total amount (all
     ingredients)' or 'Water + Oil'. The list under Limits and the line that
@@ -345,6 +369,12 @@ def _set_unit(opt):
     with u3:
         # Grey: the tab's one coloured button is Continue at the foot.
         if st.button("Set unit", key="set_unit"):
+            if not str(typed).strip():
+                # A blank box looks like a no-op and is not one: it would
+                # rewrite the ingredient to no unit at all, and could take an
+                # amount limit with it.
+                st.error("Enter a unit, such as g or ml.")
+                return
             try:
                 removed = opt.set_ingredient_unit(pick, typed)
             except ValueError as e:
@@ -357,11 +387,7 @@ def _set_unit(opt):
                           else f"{pick} is shown without a unit.")
                     # An amount limit is a sum, and this change may have left
                     # one adding grams to millilitres. It is gone; say which.
-                    for qc in removed:
-                        flash("warning",
-                              f"The limit on {_limit_label(opt, qc)} was "
-                              "removed because those ingredients no longer "
-                              "share a unit.")
+                    _flash_removed_limits(opt, removed)
                     # Emptied for the next ingredient: a unit left in the box
                     # is one click away from being applied to another row.
                     park_clear("unit_value", "")

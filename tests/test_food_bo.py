@@ -2025,18 +2025,14 @@ class TestUnitPerIngredient:
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
         assert opt.one_amount_unit() == "g"
 
-    def test_the_batch_sheet_carries_the_units_and_the_same_total(
-            self, tmp_path, monkeypatch):
+    def test_the_batch_sheet_carries_the_units(self, tmp_path, monkeypatch):
         """The sheet the lab fills in must say what the amounts are measured
         in, or 40 of water is 40 of nothing."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
         sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert list(sheet.columns) == ["Formulation", "Pea protein (g)",
-                                       "Water (ml)", "Total", "Firmness",
-                                       "Note"]
+        assert "Pea protein (g)" in sheet.columns
         assert sheet["Water (ml)"].iloc[0] == 40.0
-        assert sheet["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
     def test_ingredients_in_several_units_have_no_single_unit(self, tmp_path,
                                                               monkeypatch):
@@ -2093,6 +2089,69 @@ class TestUnitPerIngredient:
         opt.add_quantity_constraint(["Pea protein", "Salt"], max_val=20)
         assert opt.set_ingredient_unit("Water", "l") == []
         assert len(opt.quantity_constraints) == 1
+
+    def test_changing_the_default_unit_removes_a_limit_it_breaks(
+            self, tmp_path, monkeypatch):
+        """The default is the unit of every ingredient without one of its
+        own, so moving it can split a limit's ingredients apart too."""
+        opt = self._opt(tmp_path, monkeypatch)          # Water is in ml
+        opt.set_ingredient_unit("Water", "g")           # ...pinned to g
+        opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        removed = opt.set_amount_unit("ml")             # Pea protein follows
+        assert [r['ingredients'] for r in removed] == [["Pea protein", "Water"]]
+        assert [r['reason'] for r in removed] == ["unit"]
+        assert FoodOptimizer("peruint").quantity_constraints == []
+
+    def test_changing_the_default_unit_leaves_a_limit_it_does_not_break(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Pea protein"], max_val=20)
+        assert opt.set_amount_unit("kg") == []
+        assert len(opt.quantity_constraints) == 1
+
+    def test_reloading_the_ingredient_file_removes_limits_it_breaks(
+            self, tmp_path, monkeypatch):
+        """A reload can rewrite every unit and drop ingredients outright."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_ingredient_unit("Water", "g")
+        opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        opt.add_quantity_constraint(["Pea protein"], max_val=20)
+        removed = opt.load_ingredients_from_csv(pd.DataFrame({
+            "name": ["Pea protein", "Water"], "min": [0, 0], "max": [25, 60],
+            "unit": ["g", "ml"],
+        }))
+        assert [r['reason'] for r in removed] == ["unit"]
+        assert [qc['ingredients'] for qc in opt.quantity_constraints] == \
+            [["Pea protein"]]
+
+    def test_reloading_without_an_ingredient_removes_the_limits_naming_it(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_ingredient_unit("Water", "g")
+        opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        removed = opt.load_ingredients_from_csv(pd.DataFrame({
+            "name": ["Pea protein"], "min": [0], "max": [25], "unit": ["g"],
+        }))
+        assert [r['reason'] for r in removed] == ["missing"]
+        assert removed[0]['missing'] == ["Water"]
+        assert opt.quantity_constraints == []
+
+    def test_the_batch_sheet_totals_each_unit_in_its_own_column(
+            self, tmp_path, monkeypatch):
+        """A spreadsheet cannot add up '10.00 g · 40.00 ml', so the CSV gives
+        each unit a column of numbers; the screen and the printable sheets
+        keep the one cell."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
+        assert list(sheet.columns) == ["Formulation", "Pea protein (g)",
+                                       "Water (ml)", "Total (g)", "Total (ml)",
+                                       "Firmness", "Note"]
+        assert sheet["Total (g)"].iloc[0] == 10.0
+        assert sheet["Total (ml)"].iloc[0] == 40.0
+        # The screen is unchanged: one cell, both units.
+        assert opt.batch_frame(opt.pending_batch)["Total"].iloc[0] == \
+            "10.00 g · 40.00 ml"
 
 
 class TestSettingsOnlyProject:

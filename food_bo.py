@@ -313,7 +313,8 @@ class FoodOptimizer:
         """Bulk-load ingredients from a DataFrame (used by the app).
 
         Raises ValueError if experiments already exist, since reloading
-        would invalidate encoded history vectors.
+        would invalidate encoded history vectors. Returns the amount limits
+        the new file emptied of meaning (see prune_amount_limits).
         """
         if self.X_history:
             raise ValueError(
@@ -402,8 +403,12 @@ class FoodOptimizer:
             self.ingredient_properties[name] = props
 
         self.variables.extend(process_vars)
+        # The new file can rename every unit and drop ingredients outright,
+        # so the limits are re-checked against it and the caller is told.
+        removed = self.prune_amount_limits()
         self._drop_pending_batch()
         self.save()
+        return removed
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
                               unit=""):
@@ -534,32 +539,56 @@ class FoodOptimizer:
         also the unit every ingredient without one of its own is written in,
         which is what makes it the one place a 0.2.x project (whose
         ingredients predate per-ingredient units) can be corrected in one
-        move."""
+        move — and what lets it split an amount limit's ingredients apart, so
+        it prunes them like every other unit change and returns what went."""
         self.amount_unit = str(unit or "").strip()
         self.amount_unit_backfilled = False
+        removed = self.prune_amount_limits()
         self.save()
+        return removed
+
+    def prune_amount_limits(self):
+        """Drop every amount limit that has stopped meaning anything, and
+        return what was dropped so the screen can name it.
+
+        An amount limit is arithmetic, not a label: it holds the next batch
+        to the SUM of some ingredients. Three edits can leave that sum
+        meaningless — a unit set on one ingredient, a new default unit (every
+        ingredient without one of its own follows it), and a reloaded
+        ingredient file, which can do both at once and drop ingredients
+        outright. All three call this, so a limit that survives one edit is
+        one that still means something.
+
+        Each entry is {'ingredients', 'min', 'max', 'reason'} with
+        reason 'missing' (it names an ingredient this project no longer has,
+        listed in 'missing') or 'unit' (its ingredients no longer share one).
+        Formulations already made are untouched."""
+        names = {v['name'] for v in self.variables
+                 if v.get('category', 'ingredient') == 'ingredient'}
+        kept, removed = [], []
+        for qc in self.quantity_constraints:
+            gone = [n for n in qc['ingredients'] if n not in names]
+            if gone:
+                removed.append(dict(qc, reason='missing', missing=gone))
+            elif len({self.unit_of(n) for n in qc['ingredients']}) > 1:
+                removed.append(dict(qc, reason='unit'))
+            else:
+                kept.append(qc)
+        self.quantity_constraints = kept
+        return removed
 
     def set_ingredient_unit(self, name, unit):
         """The unit one ingredient's amounts are written in. Nothing is
         rescored and the open batch stands: a unit is how a number is
-        written, not the number.
-
-        An amount limit IS arithmetic, though, so any limit whose ingredients
-        no longer share a unit is removed — leaving it would hold the next
-        batch to a sum of grams and millilitres. The removed limits are
-        returned so the screen can name them; formulations already made are
-        untouched."""
+        written, not the number. Returns the amount limits this change
+        emptied of meaning (see prune_amount_limits)."""
         var = next((v for v in self.variables
                     if v['name'] == name
                     and v.get('category', 'ingredient') == 'ingredient'), None)
         if var is None:
             raise ValueError(f"No ingredient named {name}.")
         var['unit'] = str(unit or "").strip()
-        kept, removed = [], []
-        for qc in self.quantity_constraints:
-            spans = len({self.unit_of(n) for n in qc['ingredients']}) > 1
-            (removed if spans else kept).append(qc)
-        self.quantity_constraints = kept
+        removed = self.prune_amount_limits()
         self.save()
         return removed
 
@@ -649,6 +678,18 @@ class FoodOptimizer:
         if self.one_amount_unit() is None:
             return self.total_text(recipe)
         return self.ingredient_total(recipe)
+
+    def total_csv_columns(self):
+        """The total columns of the downloaded batch sheet, as
+        [(unit, header), ...]. A spreadsheet cannot add up '10.00 g · 40.00
+        ml', so where the screen shows one written-out cell the sheet gives
+        each unit a column of numbers: `Total (g)`, `Total (ml)`."""
+        if not self.has_ingredients():
+            return []
+        if self.one_amount_unit() is not None:
+            return [(self.one_amount_unit(), self.total_column())]
+        return [(unit, f"Total ({unit})" if unit else "Total")
+                for unit in self.ingredient_units()]
 
     def update_objective(self, name, /, **fields):
         """Change a measurement in place. Its name is fixed (renaming would
@@ -980,12 +1021,14 @@ class FoodOptimizer:
 
         The measurement columns stay bare: they are the ones an uploaded
         sheet is matched by, and a "/10" belongs on a label, not in a
-        header the parser reads back."""
+        header the parser reads back. Where the screen writes one total cell
+        across units, the sheet gives each unit its own column of numbers —
+        a spreadsheet cannot add up "10.00 g · 40.00 ml"."""
         objs = self.measurements_by_importance()
         ingredients = [v for v in self.variables
                        if v.get('category', 'ingredient') == 'ingredient']
         process = [v for v in self.variables if v.get('category') == 'process']
-        total_col = self.total_column()
+        total_cols = self.total_csv_columns()
         rows = []
         for row in self._batch_rows(batch):
             recipe = self.scaled_recipe(row['recipe'], scale_to)
@@ -993,10 +1036,9 @@ class FoodOptimizer:
             for var in ingredients:
                 item[self._amount_column(var['name'])] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
-            if total_col is not None:
-                total = self._total_cell(recipe)
-                item[total_col] = (total if isinstance(total, str)
-                                   else round(float(total), 2))
+            totals = dict(self.unit_totals(recipe))
+            for unit, column in total_cols:
+                item[column] = round(float(totals.get(unit, 0.0)), 2)
             for var in process:
                 item[self._amount_column(var['name'])] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
@@ -1006,7 +1048,7 @@ class FoodOptimizer:
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
-                   + ([total_col] if total_col is not None else [])
+                   + [column for _, column in total_cols]
                    + [self._amount_column(v['name']) for v in process]
                    + [o['name'] for o in objs] + ["Note"])
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)

@@ -141,7 +141,9 @@ def _all_formulations(opt):
                  height=table_height(len(frame), max_rows=20))
     st.download_button("Download all formulations (CSV)", data=opt.history_csv(),
                        file_name=f"{opt.project_name} formulations.csv",
-                       mime="text/csv", key="download_formulations")
+                       mime="text/csv", key="download_formulations",
+                       help="Amounts are unitless in this file so it can be "
+                            "imported back; units are shown on screen.")
 
 
 def _correct(opt):

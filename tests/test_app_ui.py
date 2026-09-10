@@ -1030,7 +1030,7 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
     at.run()
     uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
     assert "Name, Min, Max" in uploader.proto.help, uploader.proto.help
-    assert any(c.value == "One row per ingredient: Name, Min, Max."
+    assert any(c.value.startswith("One row per ingredient: Name, Min, Max")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -3249,3 +3249,104 @@ def test_a_unit_change_that_breaks_an_amount_limit_removes_it_and_says_so(
     at.run()
     assert [w.value for w in at.warning] == [], [w.value for w in at.warning]
     assert len(FoodOptimizer("burger").quantity_constraints) == 1
+
+
+def test_a_new_default_unit_that_breaks_a_limit_removes_it_and_says_so(burger):
+    """The default is the unit of every ingredient without one of its own, so
+    retyping it can split a limit's ingredients apart."""
+    burger.add_ingredient("Salt", 0, 3)
+    burger.set_ingredient_unit("Methylcellulose", "g")   # pinned; the others
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],  # follow
+                                   max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="amount_unit").set_value("ml")
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning] == [
+        "The limit on Pea protein + Methylcellulose was removed because "
+        "those ingredients no longer share a unit."], \
+        [w.value for w in at.warning]
+    assert FoodOptimizer("burger").quantity_constraints == []
+
+
+def test_set_unit_refuses_an_empty_box(burger):
+    """A blank would rewrite the ingredient to no unit at all — and could
+    take an amount limit with it — on a click that looks like a no-op."""
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
+                                   max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="unit_pick").select("Methylcellulose")
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert [e.value for e in at.error] == ["Enter a unit, such as g or ml."]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.unit_of("Methylcellulose") == "g"
+    assert len(reloaded.quantity_constraints) == 1
+
+
+def test_the_ingredients_caption_mentions_the_unit_column(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == "One row per ingredient: Name, Min, Max and, if "
+                          "you like, Unit." for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_the_formulations_download_says_why_it_carries_no_units(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    download = _unknown(at.main, "download_button",
+                        "Download all formulations (CSV)")
+    assert download.proto.help == ("Amounts are unitless in this file so it "
+                                   "can be imported back; units are shown on "
+                                   "screen.")
+
+
+# A reloaded ingredient file is the third edit that can empty a limit of
+# meaning, and the only one AppTest cannot drive (st.file_uploader takes no
+# file from a test). The backend path is covered in test_food_bo; this pins
+# the lines the handler writes, including the one no other path can produce.
+REMOVED_LIMIT_LINES = """
+import streamlit as st
+from ui_helpers import render_flash
+from ui_setup import _flash_removed_limits
+
+
+class _Opt:
+    variables = [{"name": "Water", "category": "ingredient"},
+                 {"name": "Oil", "category": "ingredient"},
+                 {"name": "Salt", "category": "ingredient"}]
+
+
+_flash_removed_limits(_Opt(), [
+    {"ingredients": ["Water", "Oil"], "reason": "unit"},
+    {"ingredients": ["Water", "Coconut oil"], "reason": "missing",
+     "missing": ["Coconut oil"]},
+    {"ingredients": ["Water", "Coconut oil", "Beet juice powder"],
+     "reason": "missing", "missing": ["Coconut oil", "Beet juice powder"]},
+    {"ingredients": ["Water", "Oil", "Salt"], "reason": "unit"},
+])
+render_flash()
+"""
+
+
+def test_every_removed_limit_is_named_in_one_line():
+    at = AppTest.from_string(REMOVED_LIMIT_LINES)
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning] == [
+        "The limit on Water + Oil was removed because those ingredients no "
+        "longer share a unit.",
+        "The limit on Water + Coconut oil was removed because Coconut oil is "
+        "no longer an ingredient.",
+        "The limit on Water + Coconut oil + Beet juice powder was removed "
+        "because Coconut oil and Beet juice powder are no longer ingredients.",
+        # Every ingredient in it: named as the Limits list names it.
+        "The limit on Total amount (all ingredients) was removed because "
+        "those ingredients no longer share a unit.",
+    ], [w.value for w in at.warning]
