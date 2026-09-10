@@ -1419,6 +1419,30 @@ class FoodOptimizer:
         self._retire_formulation_no(formulation_no)
         self.save()
 
+    def import_formulation(self, recipe_dict, results_dict, note="Imported"):
+        """Record a formulation made before this project existed. It draws the
+        next global number, its batch stays blank (it belongs to no batch this
+        project generated), and the note says where it came from."""
+        self.tell(recipe_dict, results_dict, note=note)
+        self.batch_history[-1] = None    # tell() would inherit the open batch
+        self.save()
+
+    def delete_formulation(self, no):
+        """Delete one formulation by its global number, scored or left out.
+        Later formulations keep their numbers; the deleted number retires.
+        Returns True when something was deleted."""
+        index = self.index_of_formulation(no)
+        if index is not None:
+            self.delete_result(index)
+            return True
+        before = len(self.skipped)
+        self.skipped = [s for s in self.skipped
+                        if int(s['formulation']) != int(no)]
+        if len(self.skipped) != before:
+            self.save()
+            return True
+        return False
+
     def undo_last_batch(self):
         """Remove the most recently recorded batch: its scored rows and its
         left-out formulations. Returns (batch number, rows removed), or None
