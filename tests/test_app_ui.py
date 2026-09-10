@@ -320,7 +320,7 @@ def test_upload_results_for_batch(project_with_pending_batch):
     assert not at.exception
     opt = FoodOptimizer("my_project")
     assert len(opt.X_history) == 2
-    assert opt.pending_batch == [{"Water": 20.0}]
+    assert [r["recipe"] for r in opt.pending_batch] == [{"Water": 20.0}]
     assert any("Results saved" in s.value for s in at.success), [s.value for s in at.success]
 
 

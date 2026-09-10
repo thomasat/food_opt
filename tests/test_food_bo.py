@@ -597,7 +597,7 @@ class TestAskTell:
         assert len(opt_configured.results_history) == 1
 
     def test_tell_no_objectives_raises(self, opt_with_ingredients):
-        with pytest.raises(ValueError, match="Add at least one objective"):
+        with pytest.raises(ValueError, match="Add at least one measurement"):
             opt_with_ingredients.tell({"Water": 50, "Flour": 25, "Sugar": 10},
                                       {"Taste": 7.0})
 
@@ -1157,3 +1157,181 @@ def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("rl_nan")
     assert opt.recipe_lines({"Water": 5.0, "Salt": float("nan"), "Sugar": "2", "Oil": None}) == [("Water", 5.0), ("Sugar", 2.0)]
+
+
+class TestFormulationIdentity:
+    def _opt(self, tmp_path, monkeypatch, name="ident"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6, min_val=0, max_val=10)
+        return opt
+
+    def test_ask_issues_global_numbers_and_opens_a_batch(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=3)
+        assert [r["formulation"] for r in opt.pending_batch] == [1, 2, 3]
+        assert opt.pending_batch_no == 1
+        assert opt.next_formulation_no == 4
+        assert len(opt.pending_batch_created) == 10      # an ISO date
+
+    def test_discarded_numbers_are_never_reissued(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=3)
+        opt.set_pending_batch(None)          # "Generate a different batch"
+        opt.ask(n_suggestions=2)
+        assert [r["formulation"] for r in opt.pending_batch] == [4, 5]
+        assert opt.pending_batch_no == 1     # the batch keeps its number
+
+    def test_set_pending_batch_remembers_what_was_discarded(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=2)
+        opt.set_pending_batch(None)
+        opt.ask(n_suggestions=2)
+        opt.set_pending_batch(opt.pending_batch, batch_no=1, discarded=[1, 2])
+        assert opt.pending_batch_discarded == [1, 2]
+        assert FoodOptimizer(opt.project_name).pending_batch_discarded == [1, 2]
+
+    def test_add_to_pending_batch_draws_the_next_number(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=2)
+        issued = opt.add_to_pending_batch({"Water": 42.0})
+        assert issued == 3
+        assert opt.pending_batch[-1] == {"formulation": 3, "recipe": {"Water": 42.0}}
+
+    def test_tell_records_formulation_batch_and_note(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=2)
+        row = opt.pending_batch[0]
+        opt.tell(row["recipe"], {"Firmness": 6.0},
+                 formulation_no=row["formulation"], batch_no=opt.pending_batch_no,
+                 note="crumbly edges")
+        assert opt.formulation_ids == [1]
+        assert opt.batch_history == [1]
+        assert opt.notes_history == ["crumbly edges"]
+
+    def test_an_explicit_number_still_advances_the_counter(self, tmp_path, monkeypatch):
+        """A number handed to tell() or record_skipped() must retire with it, or
+        the next ask() would hand the same number to a different formulation."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0}, formulation_no=9)
+        assert opt.next_formulation_no == 10
+        opt.record_skipped(12, None, {"Water": 20.0})
+        assert opt.next_formulation_no == 13
+        opt.ask(n_suggestions=2)
+        assert [r["formulation"] for r in opt.pending_batch] == [13, 14]
+
+    def test_tell_stores_partial_results_and_refuses_an_all_blank_row(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7, min_val=0, max_val=10)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": None})
+        assert opt.results_history[0] == {"Firmness": 6.0}
+        with pytest.raises(ValueError, match="Enter a value for"):
+            opt.tell({"Water": 20.0}, {"Firmness": None, "Juiciness": None})
+
+    def test_skipped_formulations_live_outside_the_scored_history(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.record_skipped(4, 2, {"Water": 30.0})
+        assert opt.skipped == [
+            {"formulation": 4, "batch": 2, "recipe": {"Water": 30.0}, "note": "Not made"}
+        ]
+        assert opt.X_history == []
+
+    def test_delete_result_keeps_every_parallel_list_in_step(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        for k, v in enumerate([3.0, 6.0, 9.0]):
+            opt.tell({"Water": v}, {"Firmness": v}, formulation_no=k + 1, batch_no=1, note=f"n{k}")
+        opt.delete_result(1)
+        assert opt.formulation_ids == [1, 3]
+        assert opt.batch_history == [1, 1]
+        assert opt.notes_history == ["n0", "n2"]
+        assert len(opt.X_history) == len(opt.Y_history) == 2
+
+    def test_rewind_keeps_every_parallel_list_in_step(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        for k, v in enumerate([3.0, 6.0, 9.0]):
+            opt.tell({"Water": v}, {"Firmness": v}, formulation_no=k + 1, batch_no=1)
+        opt.rewind_to(0)
+        assert opt.formulation_ids == [1]
+        assert opt.batch_history == [1]
+        assert opt.notes_history == [""]
+
+    def test_undo_last_batch_removes_the_batch_and_retires_its_numbers(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        opt.tell({"Water": 20.0}, {"Firmness": 6.0}, formulation_no=2, batch_no=2)
+        opt.tell({"Water": 30.0}, {"Firmness": 4.0}, formulation_no=3, batch_no=2)
+        opt.record_skipped(4, 2, {"Water": 40.0})
+        assert opt.undo_last_batch() == (2, 3)
+        assert opt.formulation_ids == [1]
+        assert opt.batch_history == [1]
+        assert opt.skipped == []
+        assert opt.next_formulation_no == 5      # 2, 3 and 4 retire
+
+    def test_undo_last_batch_refuses_while_a_batch_is_open(self, tmp_path, monkeypatch):
+        """Undo must never take an open batch down with it — its numbers would
+        retire without the user asking."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        opt.ask(n_suggestions=2)
+        with pytest.raises(ValueError, match="Record or discard the open batch first."):
+            opt.undo_last_batch()
+        assert opt.pending_batch is not None
+        assert opt.formulation_ids == [1]
+
+    def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0})
+        assert opt.undo_last_batch() is None
+
+    def test_index_of_formulation(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=7)
+        assert opt.index_of_formulation(7) == 0
+        assert opt.index_of_formulation(8) is None
+
+    def test_old_projects_backfill_numbers_on_load(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0})
+        opt.tell({"Water": 20.0}, {"Firmness": 6.0})
+        state = opt.export_json()
+        for key in ("formulation_ids", "batch_history", "notes_history", "skipped",
+                    "next_formulation_no", "pending_batch_no",
+                    "pending_batch_created", "pending_batch_discarded"):
+            state.pop(key, None)
+        older = FoodOptimizer("older")
+        older.import_json(state)
+        assert older.formulation_ids == [1, 2]
+        assert older.batch_history == [None, None]
+        assert older.notes_history == ["", ""]
+        assert older.skipped == []
+        assert older.next_formulation_no == 3
+        assert older.pending_batch_created is None
+        assert older.pending_batch_discarded == []
+
+    def test_a_legacy_pending_batch_of_bare_recipes_is_numbered_on_load(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0})
+        state = opt.export_json()
+        for key in ("formulation_ids", "next_formulation_no", "pending_batch_no"):
+            state.pop(key, None)
+        state["pending_batch"] = [{"Water": 30.0}, {"Water": 40.0}]
+        older = FoodOptimizer("older_pending")
+        older.import_json(state)
+        assert [r["formulation"] for r in older.pending_batch] == [2, 3]
+        assert older.next_formulation_no == 4
+
+    def test_identity_survives_save_and_reload(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="roundtrip")
+        opt.ask(n_suggestions=2)
+        row = opt.pending_batch[0]
+        opt.tell(row["recipe"], {"Firmness": 6.0},
+                 formulation_no=row["formulation"], batch_no=opt.pending_batch_no, note="ok")
+        opt.record_skipped(2, 1, opt.pending_batch[1]["recipe"])
+        reloaded = FoodOptimizer("roundtrip")
+        assert reloaded.formulation_ids == [1]
+        assert reloaded.batch_history == [1]
+        assert reloaded.notes_history == ["ok"]
+        assert reloaded.skipped[0]["formulation"] == 2
+        assert reloaded.next_formulation_no == 3
+        assert reloaded.pending_batch_no == 1

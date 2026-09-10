@@ -92,7 +92,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 6  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 7  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
@@ -123,7 +123,20 @@ class FoodOptimizer:
         self.recipe_history = []
         self.results_history = []
         self.timestamps_history = []  # UTC ISO per tell(); parallel to results_history
-        self.pending_batch = None  # suggested-but-unrated recipes (survives sessions)
+        # Identity. A formulation's number is permanent and never reissued:
+        # numbers are drawn at generation from next_formulation_no, and a
+        # discarded, deleted or undone number simply retires.
+        self.formulation_ids = []     # global formulation number per scored row
+        self.batch_history = []       # batch number per scored row, or None
+        self.notes_history = []       # the lab's note per scored row, or ""
+        self.skipped = []             # generated but never scored: dicts with
+                                      # formulation / batch / recipe / note
+        self.next_formulation_no = 1
+        self.amount_unit = ""         # one unit for every amount in the project
+        self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
+        self.pending_batch_no = None  # its batch number
+        self.pending_batch_created = None   # ISO date it was generated, for the sheets
+        self.pending_batch_discarded = []   # numbers a regenerate retired, for one caption
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
         self.last_saved_at = None  # records successful save time; timezone-aware datetime or None
@@ -178,7 +191,7 @@ class FoodOptimizer:
         for var in self.variables:
             if var['name'] == name:
                 var['bounds'] = (min_val, max_val)
-                self.pending_batch = None
+                self._drop_pending_batch()
                 self.save()
                 return
         if self.X_history:
@@ -197,7 +210,7 @@ class FoodOptimizer:
         })
         if self.X_history:
             self._reencode_history()
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -280,7 +293,7 @@ class FoodOptimizer:
             self.ingredient_properties[name] = props
 
         self.variables.extend(process_vars)
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None):
@@ -296,7 +309,7 @@ class FoodOptimizer:
         for var in self.variables:
             if var['name'] == name:
                 var['bounds'] = (min_val, max_val)
-                self.pending_batch = None
+                self._drop_pending_batch()
                 self.save()
                 return
         var = {
@@ -326,7 +339,7 @@ class FoodOptimizer:
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def remove_process_parameter(self, name):
@@ -336,7 +349,7 @@ class FoodOptimizer:
             if not (v['name'] == name and v.get('category') == 'process')
         ]
         self._reencode_history()
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def load_screening_model(self, model_obj):
@@ -387,7 +400,6 @@ class FoodOptimizer:
             'name': name, 'weight': weight, 'goal': goal,
             'target': target, 'min_val': min_val, 'max_val': max_val,
         })
-        self.pending_batch = None
         self._recompute_utilities()
         self.save()
         return replaced
@@ -395,7 +407,6 @@ class FoodOptimizer:
     def remove_objective(self, name):
         """Remove an objective and recalculate stored utility scores."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
-        self.pending_batch = None
         self._recompute_utilities()
         self.save()
 
@@ -652,30 +663,32 @@ class FoodOptimizer:
         self.save()
 
     def delete_result(self, index):
-        """Delete an experiment by index."""
+        """Delete one formulation. Later formulations keep their numbers."""
         if index < 0 or index >= len(self.X_history):
-            raise IndexError("Result index out of range")
+            raise IndexError("Formulation index out of range")
         self.X_history.pop(index)
         self.Y_history.pop(index)
-        if index < len(self.recipe_history):
-            self.recipe_history.pop(index)
-        if index < len(self.results_history):
-            self.results_history.pop(index)
-        if index < len(self.timestamps_history):
-            self.timestamps_history.pop(index)
+        for lst in (self.recipe_history, self.results_history,
+                    self.timestamps_history, self.formulation_ids,
+                    self.batch_history, self.notes_history):
+            if index < len(lst):
+                lst.pop(index)
         self.save()
 
     def rewind_to(self, index):
-        """Keep only experiments 0..index (inclusive), discard the rest."""
+        """Keep only formulations 0..index (inclusive), discard the rest."""
         if index < 0 or index >= len(self.X_history):
-            raise IndexError("Experiment index out of range")
+            raise IndexError("Formulation index out of range")
         keep = index + 1
         self.X_history = self.X_history[:keep]
         self.Y_history = self.Y_history[:keep]
         self.recipe_history = self.recipe_history[:keep]
         self.results_history = self.results_history[:keep]
         self.timestamps_history = self.timestamps_history[:keep]
-        self.pending_batch = None
+        self.formulation_ids = self.formulation_ids[:keep]
+        self.batch_history = self.batch_history[:keep]
+        self.notes_history = self.notes_history[:keep]
+        self._drop_pending_batch()
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -842,10 +855,14 @@ class FoodOptimizer:
 
         # Cold start: space-filling Sobol sequence
         if len(self.X_history) < n_init_random:
-            return self._ask_cold_start(n_suggestions, bounds_tensor, dim)
+            recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
+        else:
+            # Warm: GP-based Bayesian optimization
+            recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
 
-        # Warm: GP-based Bayesian optimization
-        return self._ask_optimize(n_suggestions, bounds_tensor, dim)
+        # Numbers are issued here, at generation, and never reissued.
+        self.set_pending_batch(recipes)
+        return recipes
 
     def _ask_cold_start(self, n_suggestions, bounds_tensor, dim):
         """Generate initial recipes using Sobol sampling."""
@@ -930,25 +947,198 @@ class FoodOptimizer:
             for i in range(n_suggestions)
         ]
 
-    def tell(self, recipe_dict, results_dict):
-        """Record an experiment's recipe and results."""
+    def tell(self, recipe_dict, results_dict, formulation_no=None,
+             batch_no=None, note=None):
+        """Record a formulation's amounts and results.
+
+        A measurement that could not be scored is left out (None or absent):
+        the formulation is stored as a partial result and its overall score is
+        computed from what was measured. A row with nothing measured at all is
+        refused. `formulation_no` defaults to the next global number, and
+        `batch_no` to the open batch's number. A number passed in explicitly
+        still retires, so no later ask() can hand it out again.
+        """
         if not self.objectives:
-            raise ValueError("Add at least one objective before saving results.")
-        for obj in self.objectives:
-            if results_dict.get(obj['name']) is None:
-                raise ValueError(f"Enter a value for {obj['name']}.")
+            raise ValueError("Add at least one measurement before saving results.")
+        kept = {k: v for k, v in results_dict.items() if v is not None}
+        if not any(obj['name'] in kept for obj in self.objectives):
+            raise ValueError("Enter a value for at least one measurement.")
+
+        if formulation_no is None:
+            formulation_no = self._issue_formulation_no()
+        else:
+            self._retire_formulation_no(formulation_no)
+        if batch_no is None:
+            batch_no = self.pending_batch_no
 
         self.X_history.append(self._encode(recipe_dict))
-        self.Y_history.append(self._compute_utility(results_dict))
+        self.Y_history.append(self._compute_utility(kept))
         self.recipe_history.append(dict(recipe_dict))
-        self.results_history.append(dict(results_dict))
+        self.results_history.append(kept)
         self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
+        self.formulation_ids.append(int(formulation_no))
+        self.batch_history.append(None if batch_no is None else int(batch_no))
+        self.notes_history.append("" if note is None else str(note))
         self.save()
 
-    def set_pending_batch(self, batch_or_none):
-        """Persist (or clear) the suggested-but-not-yet-rated batch so a user
-        who closes the tab mid-experiment finds their recipes on return."""
-        self.pending_batch = batch_or_none
+    # ------------------------------------------------------------------ #
+    #  Identity: formulation numbers, batch numbers, the open batch
+    # ------------------------------------------------------------------ #
+
+    def _drop_pending_batch(self):
+        """Forget the open batch. The numbers it used retire — they are never
+        reissued, so a discarded batch can never be confused with a later one."""
+        self.pending_batch = None
+        self.pending_batch_no = None
+        self.pending_batch_created = None
+        self.pending_batch_discarded = []
+
+    def _issue_formulation_no(self):
+        n = int(self.next_formulation_no)
+        self.next_formulation_no = n + 1
+        return n
+
+    def _retire_formulation_no(self, no):
+        """Make sure a number handed in from outside can never be issued again."""
+        self.next_formulation_no = max(int(self.next_formulation_no), int(no) + 1)
+
+    def next_batch_no(self):
+        """The number the next batch will carry: one past the highest in use."""
+        seen = [int(b) for b in self.batch_history if b is not None]
+        seen += [int(s['batch']) for s in self.skipped if s.get('batch') is not None]
+        if self.pending_batch_no is not None:
+            seen.append(int(self.pending_batch_no))
+        return (max(seen) + 1) if seen else 1
+
+    def _batch_rows(self, batch):
+        """Read a batch in either shape without issuing numbers: the stored
+        [{'formulation': n, 'recipe': {...}}, ...] or a bare list of recipes
+        (which a 0.2.x file's pending_batch is)."""
+        rows = []
+        for k, item in enumerate(batch or []):
+            if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
+                rows.append({'formulation': int(item['formulation']),
+                             'recipe': dict(item['recipe'])})
+            else:
+                rows.append({'formulation': k + 1, 'recipe': dict(item)})
+        return rows
+
+    def _number_batch(self, batch):
+        """Like _batch_rows, but rows that carry no number draw one."""
+        if batch is None:
+            return None
+        rows = []
+        for item in batch:
+            if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
+                rows.append({'formulation': int(item['formulation']),
+                             'recipe': dict(item['recipe'])})
+            else:
+                rows.append({'formulation': self._issue_formulation_no(),
+                             'recipe': dict(item)})
+        return rows
+
+    def add_to_pending_batch(self, recipe):
+        """Append one more formulation to the open batch (the repeat of the
+        best) and return the global number it was given."""
+        rows = list(self.pending_batch or [])
+        number = self._issue_formulation_no()
+        rows.append({'formulation': number, 'recipe': dict(recipe)})
+        self.pending_batch = rows
+        if self.pending_batch_no is None:
+            self.pending_batch_no = self.next_batch_no()
+        self.save()
+        return number
+
+    def index_of_formulation(self, no):
+        """Position of formulation `no` in the scored history, or None."""
+        try:
+            return [int(i) for i in self.formulation_ids].index(int(no))
+        except (ValueError, TypeError):
+            return None
+
+    def record_skipped(self, formulation_no, batch_no, recipe, note="Not made"):
+        """Store a formulation that was generated but never scored. It keeps
+        its number and amounts, and stays out of the scored history and the
+        model."""
+        self.skipped.append({
+            'formulation': int(formulation_no),
+            'batch': None if batch_no is None else int(batch_no),
+            'recipe': dict(recipe),
+            'note': str(note) if note else "Not made",
+        })
+        self._retire_formulation_no(formulation_no)
+        self.save()
+
+    def undo_last_batch(self):
+        """Remove the most recently recorded batch: its scored rows and its
+        left-out formulations. Returns (batch number, rows removed), or None
+        when no batch is numbered. next_formulation_no is NOT wound back, so
+        the numbers retire rather than coming back on the next batch.
+
+        Refused while a batch is open: taking that batch down as a side effect
+        would retire numbers the user never asked to discard."""
+        if self.pending_batch:
+            raise ValueError("Record or discard the open batch first.")
+        numbered = [int(b) for b in self.batch_history if b is not None]
+        if not numbered:
+            return None
+        last = max(numbered)
+        keep = [i for i, b in enumerate(self.batch_history) if b != last]
+        removed = len(self.batch_history) - len(keep)
+        self.X_history = [self.X_history[i] for i in keep]
+        self.Y_history = [self.Y_history[i] for i in keep]
+        self.recipe_history = [self.recipe_history[i] for i in keep]
+        self.results_history = [self.results_history[i] for i in keep]
+        self.timestamps_history = [self.timestamps_history[i] for i in keep]
+        self.formulation_ids = [self.formulation_ids[i] for i in keep]
+        self.notes_history = [self.notes_history[i] for i in keep]
+        self.batch_history = [self.batch_history[i] for i in keep]
+        removed += sum(1 for s in self.skipped if s.get('batch') == last)
+        self.skipped = [s for s in self.skipped if s.get('batch') != last]
+        self.save()
+        return last, removed
+
+    def _backfill_identity(self):
+        """Give a 0.2.x project the identity it never had: its rows are
+        numbered 1..n in the order they were recorded, their batch is blank,
+        and the counter starts after the highest number in use."""
+        n = len(self.X_history)
+        while len(self.formulation_ids) < n:
+            highest = max([int(i) for i in self.formulation_ids] or [0])
+            self.formulation_ids.append(highest + 1)
+        del self.formulation_ids[n:]
+        while len(self.batch_history) < n:
+            self.batch_history.append(None)
+        del self.batch_history[n:]
+        while len(self.notes_history) < n:
+            self.notes_history.append("")
+        del self.notes_history[n:]
+        used = [int(i) for i in self.formulation_ids]
+        used += [int(s['formulation']) for s in self.skipped
+                 if s.get('formulation') is not None]
+        used += [int(r['formulation']) for r in (self.pending_batch or [])
+                 if isinstance(r, dict) and 'formulation' in r]
+        highest = max(used) if used else 0
+        self.next_formulation_no = max(int(self.next_formulation_no or 1), highest + 1)
+
+    def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):
+        """Persist (or clear) the open batch so a user who closes the window
+        mid-batch finds their formulations on return. Rows without a number
+        draw one. Only one batch is ever open. `discarded` records the numbers
+        a regenerate retired, so the screen can say so once."""
+        if batch_or_none is None:
+            self._drop_pending_batch()
+        else:
+            rows = self._number_batch(batch_or_none)
+            if batch_no is not None:
+                self.pending_batch_no = int(batch_no)
+            elif self.pending_batch_no is None:
+                self.pending_batch_no = self.next_batch_no()
+            if self.pending_batch_created is None:
+                self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+            if discarded is not None:
+                self.pending_batch_discarded = [int(n) for n in discarded]
+            self.pending_batch = rows
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -1115,7 +1305,7 @@ class FoodOptimizer:
 
         var['active'] = False
         var['_frozen_at'] = frozen
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def reactivate_variable(self, name):
@@ -1126,7 +1316,7 @@ class FoodOptimizer:
             return
         var['active'] = True
         var.pop('_frozen_at', None)
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def remove_ingredient(self, name, force=False):
@@ -1181,7 +1371,7 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
-        self.pending_batch = None
+        self._drop_pending_batch()
         self.save()
 
     def set_bo_config(self, spec):
@@ -1352,6 +1542,15 @@ class FoodOptimizer:
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
             'timestamps_history': self.timestamps_history,
+            'formulation_ids': self.formulation_ids,
+            'batch_history': self.batch_history,
+            'notes_history': self.notes_history,
+            'skipped': self.skipped,
+            'next_formulation_no': self.next_formulation_no,
+            'pending_batch_no': self.pending_batch_no,
+            'pending_batch_created': self.pending_batch_created,
+            'pending_batch_discarded': self.pending_batch_discarded,
+            'amount_unit': self.amount_unit,
             'pending_batch': self.pending_batch,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
@@ -1420,7 +1619,20 @@ class FoodOptimizer:
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
         self.timestamps_history = state.get('timestamps_history', [])
+        self.formulation_ids = [int(i) for i in state.get('formulation_ids', [])]
+        self.batch_history = [None if b is None else int(b)
+                              for b in state.get('batch_history', [])]
+        self.notes_history = ["" if t is None else str(t)
+                              for t in state.get('notes_history', [])]
+        self.skipped = [dict(s) for s in state.get('skipped', [])]
+        self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
+        self.amount_unit = str(state.get('amount_unit', "") or "")
         self.pending_batch = state.get('pending_batch', None)
+        self.pending_batch_no = state.get('pending_batch_no', None)
+        self.pending_batch_created = state.get('pending_batch_created', None)
+        self.pending_batch_discarded = [
+            int(n) for n in (state.get('pending_batch_discarded') or [])
+        ]
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 
@@ -1444,3 +1656,13 @@ class FoodOptimizer:
         # A successful import means the in-memory state is valid again, so a
         # restore-from-backup clears any earlier damaged-file error.
         self.load_error = None
+
+        # Identity last: the counter must be correct before a 0.2.x pending
+        # batch of bare recipes draws its numbers, or it would reuse numbers
+        # the backfilled history already owns.
+        self._backfill_identity()
+        self.pending_batch = self._number_batch(self.pending_batch)
+        if self.pending_batch and self.pending_batch_no is None:
+            self.pending_batch_no = self.next_batch_no()
+        if self.pending_batch_no is not None:
+            self.pending_batch_no = int(self.pending_batch_no)

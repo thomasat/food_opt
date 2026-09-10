@@ -192,12 +192,14 @@ with st.sidebar:
             _var_names = {v['name'] for v in opt.variables}
             try:
                 _batch_ok = bool(opt.objectives) and all(
-                    set(r) == _var_names for r in opt.pending_batch
+                    set(r['recipe']) == _var_names for r in opt.pending_batch
                 )
-            except (TypeError, AttributeError):
+            except (TypeError, AttributeError, KeyError):
                 _batch_ok = False   # malformed backup rows; treat as a mismatch
             if _batch_ok:
-                st.session_state.current_batch = opt.pending_batch
+                st.session_state.current_batch = [
+                    r['recipe'] for r in opt.pending_batch
+                ]
             else:
                 opt.set_pending_batch(None)
                 st.info(
