@@ -9,8 +9,9 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, confirmation_open, flash, go_to_tab, goal_line,
-    plural, saved_ok, scale_error, table_height,
+    TAB_BATCH, confirm_action, confirmation_open, flash, fmt_amount, go_to_tab,
+    goal_line, join_unit, open_rows, plural, saved_ok, scale_error,
+    table_height,
 )
 
 
@@ -30,6 +31,56 @@ def _all_numbers(opt):
     numbers = [int(n) for n in opt.formulation_ids]
     numbers += [int(s['formulation']) for s in opt.skipped]
     return sorted(numbers)
+
+
+def _unit_of(opt, name):
+    """The unit one variable's amount is written in. An ingredient is measured
+    in the project's amount unit; a process setting is not an amount at all, so
+    it carries its own unit or none — a cook temperature is never 200 g."""
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    if var is not None and var.get('category') == 'process':
+        return str(var.get('unit', "") or "")
+    return str(opt.amount_unit or "")
+
+
+def _amount_rows(opt, recipe):
+    """The `Amounts to make it` rows: ingredients by amount, largest first,
+    then the process settings, each written with its own unit."""
+    category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
+    pairs = opt.recipe_lines(recipe)
+    ingredients = [p for p in pairs if category.get(p[0]) != 'process']
+    settings = [p for p in pairs if category.get(p[0]) == 'process']
+    return [{"Ingredient or setting": name,
+             "Amount": fmt_amount(value, _unit_of(opt, name))}
+            for name, value in ingredients + settings]
+
+
+def _number(cell):
+    """A CSV cell as a float, or None when it is blank or not a number. The
+    import loop reports an unreadable cell by row; the checks above it step
+    over one rather than crashing on the way to the message."""
+    try:
+        if pd.isna(cell):
+            return None
+        return float(cell)
+    except (TypeError, ValueError):
+        return None
+
+
+def _range_warning(opt, name, value):
+    """The line for an imported amount outside its range, or '' when it fits.
+    It is a warning, not a refusal: the amount is a fact about work already
+    done, and the model learns more from it than from a blank."""
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    if var is None or value is None:
+        return ""
+    low, high = (float(b) for b in var['bounds'])
+    if low <= float(value) <= high:
+        return ""
+    unit = _unit_of(opt, name)
+    return (join_unit(f"{name} {float(value):g}", unit)
+            + " is outside its range of "
+            + join_unit(f"{low:g} to {high:g}", unit) + ".")
 
 
 def _progress_line(opt):
@@ -74,12 +125,8 @@ def _best(opt):
 
     st.markdown("**Amounts to make it**")
     recipe = opt.recipe_history[index]
-    unit = opt.amount_unit
-    amount_col = f"Amount ({unit})" if unit else "Amount"
-    st.table(pd.DataFrame(
-        [{"Ingredient or setting": name, amount_col: round(float(value), 2)}
-         for name, value in opt.recipe_lines(recipe)]
-    ))
+    st.table(pd.DataFrame(_amount_rows(opt, recipe),
+                          columns=["Ingredient or setting", "Amount"]))
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
     unused = [v['name'] for v in opt.variables
@@ -139,6 +186,7 @@ def _correct(opt):
                 value=(float(current[obj['name']])
                        if current.get(obj['name']) is not None else None),
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
+                help="Leave blank to keep the value already recorded.",
                 key=f"correct_{choice}_{obj['name']}",
             )
     b1, b2 = st.columns(2)
@@ -196,10 +244,8 @@ def _correct(opt):
 
 def _foot(opt):
     if opt.pending_batch:
-        recorded = {int(i) for i in opt.formulation_ids}
-        left = sum(1 for r in opt.pending_batch
-                   if r['formulation'] not in recorded)
-        label = f"Back to batch {opt.pending_batch_no} · {left} to record"
+        label = (f"Back to batch {opt.pending_batch_no} · "
+                 f"{len(open_rows(opt))} to record")
     else:
         label = "Start the next batch"
     # While a confirmation is armed, its "Yes" is the one coloured button and
@@ -208,6 +254,13 @@ def _foot(opt):
     if st.button(label, type="primary" if lit else "secondary",
                  disabled=not lit, key="foot_batch") and lit:
         go_to_tab(TAB_BATCH)
+
+
+def _other_confirmation(key):
+    """True while a DIFFERENT confirmation is armed. Two armed at once would
+    put two coloured Yes buttons on the tab, each keeping its own copy, so
+    arming one greys the other's button until it is answered."""
+    return confirmation_open() and not st.session_state.get(f"{key}__pending")
 
 
 def _progress_chart(opt):
@@ -227,15 +280,16 @@ def _progress_chart(opt):
 
 def _undo(opt, storage):
     with st.expander("Undo the last batch"):
-        numbered = [int(b) for b in opt.batch_history if b is not None]
-        if not numbered:
+        # Left-out formulations count: a batch nobody managed to make is still
+        # the last batch, and undoing must not reach past it.
+        last = opt.last_batch_no()
+        if last is None:
             st.caption("No batch to undo yet.")
             return
         if opt.pending_batch:
             st.caption("Record or discard the open batch first.")
             st.button("Undo the last batch", disabled=True, key="undo_batch__btn")
             return
-        last = max(numbered)
         count = sum(1 for b in opt.batch_history if b == last)
         count += sum(1 for s in opt.skipped if s.get('batch') == last)
         # Said once, in the confirmation: a caption above it repeats it.
@@ -243,7 +297,7 @@ def _undo(opt, storage):
             "undo_batch", "Undo the last batch",
             f"Removes batch {last} and its {plural(count, 'result')}. "
             "A copy is kept first.",
-            confirm_label="Yes, undo",
+            confirm_label="Yes, undo", disabled=_other_confirmation("undo_batch"),
         ):
             try:
                 storage.archive(opt.project_name, "pre_undo", copy=True)
@@ -281,6 +335,7 @@ def _delete_formulation(opt, storage):
             f"Delete Formulation {choice}? Later formulations keep their "
             "numbers. A copy is kept first.",
             confirm_label="Yes, delete",
+            disabled=_other_confirmation("delete_formulation"),
         )
         # The select box cannot be cleared by the user once it holds a value.
         # The confirmation brings its own Cancel, so this one steps aside while
@@ -318,7 +373,11 @@ def _import(opt):
                        "match their names exactly.")
         uploaded = st.file_uploader("Upload formulations CSV", type=["csv"],
                                     key="import_csv")
-        if uploaded is not None:
+        # The parse is behind a button, as it is on tab 2: reading the file on
+        # every rerun left the sheet on screen after it had been imported, and
+        # a second click on Import recorded every row twice.
+        if uploaded is not None and st.button("Check this sheet",
+                                              key="check_import"):
             try:
                 st.session_state["_import_rows"] = pd.read_csv(uploaded)
             except Exception:
@@ -341,6 +400,20 @@ def _import(opt):
             return
         if not st.button("Import all rows", key="import_rows"):
             return
+        # Nothing is recorded until the whole file has been read: a reading
+        # outside its scale is a typo or a scale that is too narrow, and it
+        # would otherwise arrive as the best formulation in the project.
+        cautions = []
+        for position, (_, row) in enumerate(rows.iterrows(), start=1):
+            for obj in opt.objectives:
+                problem = scale_error(obj, _number(row[obj['name']]))
+                if problem:
+                    st.error(f"Row {position}: {problem}")
+                    return
+            for name in variables:
+                caution = _range_warning(opt, name, _number(row[name]))
+                if caution:
+                    cautions.append(f"Row {position}: {caution}")
         imported, failure = 0, None
         try:
             for _, row in rows.iterrows():
@@ -350,18 +423,24 @@ def _import(opt):
                            if not pd.isna(row[name])}
                 opt.import_formulation(
                     {name: float(row[name]) for name in variables}, results)
+                # Stop at the first row that did not reach the disk rather than
+                # reporting a whole file as imported.
+                if not saved_ok(opt):
+                    return
                 imported += 1
         except (ValueError, TypeError) as e:
             failure = e
         if failure is not None:
-            st.error(f"Stopped at row {imported + 1}: {failure} The "
-                     f"{plural(imported, 'row')} before it were imported and "
-                     "saved.")
-            return
-        if not saved_ok(opt):
+            message = f"Stopped at row {imported + 1}: {failure}"
+            if imported:
+                message += (f" The {plural(imported, 'row')} before it were "
+                            "imported and saved.")
+            st.error(message)
             return
         st.session_state.pop("_import_rows", None)
         flash("success", f"Imported {plural(imported, 'formulation')}.")
+        for caution in cautions:
+            flash("warning", caution)
         st.rerun()
 
 

@@ -1443,6 +1443,15 @@ class FoodOptimizer:
             return True
         return False
 
+    def last_batch_no(self):
+        """The highest batch number in the recorded history. Left-out
+        formulations count: a batch nobody managed to make is still the last
+        batch, and undo has to be able to reach it."""
+        seen = [int(b) for b in self.batch_history if b is not None]
+        seen += [int(s['batch']) for s in self.skipped
+                 if s.get('batch') is not None]
+        return max(seen) if seen else None
+
     def undo_last_batch(self):
         """Remove the most recently recorded batch: its scored rows and its
         left-out formulations. Returns (batch number, rows removed), or None
@@ -1453,10 +1462,9 @@ class FoodOptimizer:
         would retire numbers the user never asked to discard."""
         if self.pending_batch is not None:
             raise ValueError("Record or discard the open batch first.")
-        numbered = [int(b) for b in self.batch_history if b is not None]
-        if not numbered:
+        last = self.last_batch_no()
+        if last is None:
             return None
-        last = max(numbered)
         keep = [i for i, b in enumerate(self.batch_history) if b != last]
         removed = len(self.batch_history) - len(keep)
         self.X_history = [self.X_history[i] for i in keep]

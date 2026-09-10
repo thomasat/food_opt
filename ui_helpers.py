@@ -108,6 +108,15 @@ def go_to_tab(label):
     st.rerun()
 
 
+def open_rows(opt):
+    """Rows of the open batch that have not been recorded yet. Three screens
+    count them — the line under the title, the result grid on tab 2 and the
+    foot of tab 3 — and they must agree."""
+    recorded = {int(i) for i in opt.formulation_ids}
+    return [r for r in (opt.pending_batch or [])
+            if r['formulation'] not in recorded]
+
+
 def plural(n, word):
     """'1 formulation', '3 formulations' — never '1 formulation(s)'."""
     return f"{n} {word}" if n == 1 else f"{n} {word}s"

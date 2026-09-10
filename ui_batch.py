@@ -13,8 +13,8 @@ import streamlit as st
 
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, confirm_action, confirmation_open, flash,
-    fmt_amount, go_to_tab, goal_line, join_unit, number_list, plural, readiness,
-    saved_ok, scale_error, table_height,
+    fmt_amount, go_to_tab, goal_line, join_unit, number_list, open_rows, plural,
+    readiness, saved_ok, scale_error, table_height,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -40,13 +40,6 @@ def _best_formulation_no(opt):
     return None if i is None else int(opt.formulation_ids[i])
 
 
-def _open_rows(opt):
-    """Rows of the open batch that have not been recorded yet."""
-    recorded = {int(i) for i in opt.formulation_ids}
-    return [r for r in (opt.pending_batch or [])
-            if r['formulation'] not in recorded]
-
-
 def _scale_to(opt):
     """The total every formulation is scaled to, or None while the box is empty.
 
@@ -66,7 +59,7 @@ def _any_value_typed(opt):
     """True once a result has been typed into a row that is still being kept.
     A left-out row is skipped: a disabled number_input still returns its stored
     value, which would flip the batch sheet grey on a tick."""
-    for row in _open_rows(opt):
+    for row in open_rows(opt):
         number = row['formulation']
         if _left_out(number):
             continue
@@ -337,8 +330,8 @@ def _recorded_row(opt, number, ordered):
 
 def _record_results(opt):
     rows = opt.pending_batch
-    open_rows = _open_rows(opt)
-    open_numbers = {r['formulation'] for r in open_rows}
+    to_record = open_rows(opt)
+    open_numbers = {r['formulation'] for r in to_record}
     ordered = opt.measurements_by_importance()
     st.subheader("Record results")
     st.caption("Enter your panel mean. Leave a measurement blank if it could "
@@ -380,25 +373,25 @@ def _record_results(opt):
             entered += 1
         st.divider()
 
-    kept = [r for r in open_rows if r['formulation'] not in left_out]
+    kept = [r for r in to_record if r['formulation'] not in left_out]
     ready = bool(kept) and all(
         any(st.session_state.get(_result_key(r['formulation'], o['name'])) is not None
             for o in opt.objectives)
         for r in kept
     )
-    if open_rows and not kept:
+    if to_record and not kept:
         st.info("Nothing to save — at least one formulation needs results.")
     lit = ready and not confirmation_open()
     if st.button("Save results", type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
-        _save_results(opt, kept, left_out, open_rows)
+        _save_results(opt, kept, left_out, to_record)
     counter = f"{entered} of {len(kept)} entered"
     if left_out:
         counter += f" · {len(left_out)} left out"
     st.caption(counter + " · saved when you press Save")
 
 
-def _save_results(opt, kept, left_out, open_rows):
+def _save_results(opt, kept, left_out, to_record):
     batch_no = opt.pending_batch_no
     # Check every value against its scale before writing anything: a half-saved
     # batch is worse than a refused one.
@@ -426,7 +419,7 @@ def _save_results(opt, kept, left_out, open_rows):
             return
         if not saved_ok(opt):
             return
-    for row in open_rows:
+    for row in to_record:
         number = row['formulation']
         if number in left_out:
             # Why it was not made is often typed before the box is ticked, and
@@ -487,7 +480,7 @@ def _upload(opt):
                 return
             st.session_state.pop("_results_upload", None)
             flash("success", f"Batch {batch_no} recorded.")
-            if _open_rows(opt):
+            if open_rows(opt):
                 # Rows still to record: the batch stays open, numbers and all.
                 st.rerun()
             opt.set_pending_batch(None)

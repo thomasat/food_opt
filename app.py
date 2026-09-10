@@ -13,7 +13,7 @@ import ui_setup
 from food_bo import FoodOptimizer
 from ui_helpers import (
     TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action, flash, landing_tab,
-    plural, render_flash, saved_line,
+    open_rows, plural, render_flash, saved_line,
 )
 
 STORAGE = storage_backend.LocalStorage()
@@ -83,9 +83,7 @@ def _open_sample_project():
 def _batch_line(opt):
     """The one line under the title on tabs 1 and 2 once a batch exists."""
     if opt.pending_batch:
-        recorded = {int(i) for i in opt.formulation_ids}
-        left = sum(1 for r in opt.pending_batch if r['formulation'] not in recorded)
-        return f"Batch {opt.pending_batch_no} · {left} to make"
+        return f"Batch {opt.pending_batch_no} · {len(open_rows(opt))} to make"
     numbered = [int(b) for b in opt.batch_history if b is not None]
     if numbered:
         return f"Batch {max(numbered)} · recorded"

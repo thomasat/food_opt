@@ -2015,3 +2015,119 @@ def test_importing_past_formulations_marks_them_and_accepts_partials(burger):
     assert reloaded.batch_history == [None, None]
     assert reloaded.notes_history == ["Imported", "Imported"]
     assert reloaded.results_history[1] == {"Firmness": 5.5}
+
+
+def test_the_best_amounts_table_carries_each_rows_own_unit(burger):
+    """One Amount column formatted per row: a cook temperature is not grams,
+    and settings are listed after the ingredients, however large they are."""
+    burger.add_process_parameter("Cook temperature", 0, 220)
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0,
+                 "Cook temperature": 200.0},
+                {"Juiciness": 7.0, "Firmness": 6.0},
+                formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(t.value for t in at.table
+                 if "Ingredient or setting" in t.value.columns)
+    assert list(table.columns) == ["Ingredient or setting", "Amount"]
+    names = list(table["Ingredient or setting"])
+    assert names == ["Pea protein", "Methylcellulose", "Cook temperature"], names
+    amounts = dict(zip(names, table["Amount"]))
+    assert amounts["Pea protein"] == "20 g"
+    assert amounts["Cook temperature"] == "200"
+
+
+def test_only_one_confirmation_can_be_armed_at_a_time(scored):
+    """Two armed confirmations would put two coloured Yes buttons on the tab
+    and leave the user guessing which copy is kept."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="delete_formulation").set_value(1)
+    at.run()
+    _submit_button(at, "Undo the last batch").click()
+    at.run()
+    assert _tab_primaries(at, 2) == ["Yes, undo"], _tab_primaries(at, 2)
+    assert _submit_button(at, "Delete Formulation 1").disabled
+
+
+def test_a_correction_box_says_a_blank_keeps_the_recorded_value(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    assert (at.number_input(key="correct_1_Firmness").help
+            == "Leave blank to keep the value already recorded.")
+
+
+def test_an_import_outside_the_scale_is_refused_naming_the_row(burger):
+    """A 99 typed into a 0-10 column would sail in as the best formulation."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["_import_rows"] = pd.DataFrame({
+        "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
+        "Juiciness": [6.0, 6.5], "Firmness": [5.0, 99.0],
+    })
+    at.run()
+    _submit_button(at, "Import all rows").click()
+    at.run()
+    assert not at.exception
+    assert any(e.value == ("Row 2: Firmness 99 N is outside your scale of 0 to "
+                           "10 N. Widen the scale in Set up, or check the "
+                           "value.") for e in at.error), [e.value for e in at.error]
+    assert FoodOptimizer("burger").X_history == []   # the whole file is refused
+
+
+def test_an_import_outside_an_ingredient_range_warns_and_still_imports(burger):
+    """An amount outside the range is a fact about work already done, not a
+    mistake to refuse: the model needs it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["_import_rows"] = pd.DataFrame({
+        "Pea protein": [12.0, 999.0], "Methylcellulose": [1.2, 1.3],
+        "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
+    })
+    at.run()
+    _submit_button(at, "Import all rows").click()
+    at.run()
+    assert not at.exception
+    assert any(w.value == ("Row 2: Pea protein 999 g is outside its range of "
+                           "0 to 25 g.") for w in at.warning), \
+        [w.value for w in at.warning]
+    assert len(FoodOptimizer("burger").X_history) == 2
+
+
+def test_a_finished_import_does_not_offer_to_import_again(burger):
+    """The parse used to run on every rerun, so a second click after a
+    successful import recorded every row twice."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["_import_rows"] = pd.DataFrame({
+        "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
+        "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
+    })
+    at.run()
+    _submit_button(at, "Import all rows").click()
+    at.run()
+    assert "_import_rows" not in at.session_state
+    at.run()
+    assert not any(b.label == "Import all rows" for b in at.button), _labels(at)
+    assert len(FoodOptimizer("burger").X_history) == 2
+
+
+def test_undo_takes_a_last_batch_that_was_entirely_left_out(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0},
+                formulation_no=1, batch_no=1)
+    burger.record_skipped(2, 2, {"Pea protein": 20.0, "Methylcellulose": 2.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Undo the last batch").click()
+    at.run()
+    assert any(w.value == "Removes batch 2 and its 1 result. A copy is kept "
+                          "first." for w in at.warning), \
+        [w.value for w in at.warning]
+    _submit_button(at, "Yes, undo").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.skipped == [] and reloaded.formulation_ids == [1]

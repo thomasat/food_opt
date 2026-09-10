@@ -1201,6 +1201,18 @@ class TestFormulationIdentity:
         assert opt.skipped == []
         assert opt.next_formulation_no == 5      # 2, 3 and 4 retire
 
+    def test_undo_last_batch_finds_a_batch_that_was_entirely_left_out(self, tmp_path, monkeypatch):
+        """A batch nobody made is still the last batch: undoing must take it,
+        not the recorded batch before it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        opt.record_skipped(2, 2, {"Water": 20.0})
+        opt.record_skipped(3, 2, {"Water": 30.0})
+        assert opt.undo_last_batch() == (2, 2)
+        assert opt.formulation_ids == [1]
+        assert opt.batch_history == [1]
+        assert opt.skipped == []
+
     def test_undo_last_batch_refuses_while_a_batch_is_open(self, tmp_path, monkeypatch):
         """Undo must never take an open batch down with it — its numbers would
         retire without the user asking."""
