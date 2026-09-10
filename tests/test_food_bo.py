@@ -656,6 +656,26 @@ class TestPropertyLimitsPerHundred:
         with pytest.raises(ValueError, match="No ingredient or setting named"):
             opt.set_variable_unit("Nutmeg", "g")
 
+    def test_the_stranded_limit_refusals_are_written_per_100_g(self, opt):
+        """The number in the refusal is an average now, so it says so: a
+        bare 5 read as five grams of fat in the whole batch."""
+        opt = self._fatty(opt)                # Lean 10 fat, Fatty 30 fat
+        opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
+        opt.add_constraint("Fat per 100 g", min_val=25)
+        with pytest.raises(ValueError) as caught:
+            opt.deactivate_variable("Fatty")
+        assert ("the remaining active ingredients can only reach 10 per 100 g "
+                "at most. Loosen the limit first." in str(caught.value)), \
+            str(caught.value)
+
+        opt.remove_constraint(0)
+        opt.add_constraint("Fat per 100 g", max_val=15)
+        with pytest.raises(ValueError) as caught:
+            opt.deactivate_variable("Lean")
+        assert ("the remaining active ingredients cannot get below 30 per 100 "
+                "g. Loosen the limit first." in str(caught.value)), \
+            str(caught.value)
+
     def test_pausing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
         """Pausing the only ingredient that carries the fat leaves a minimum
         nothing can reach."""

@@ -154,9 +154,9 @@ def _variables(opt, storage):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
-        st.caption("This project was made before units were recorded; its "
-                   f"amounts are shown in {opt.amount_unit}. Set each "
-                   "ingredient's unit below if that is wrong.")
+        st.caption("Made before units were recorded; amounts are in "
+                   f"{opt.amount_unit}. Set each unit below if that is "
+                   "wrong.")
     _variable_controls(opt, storage)
     with st.expander("Or upload a list"):
         _upload_ingredients(opt)
@@ -346,7 +346,10 @@ def _variable_controls(opt, storage):
         _pause_or_resume(opt, var, pick)
     with c3:
         st.session_state.setdefault("unit_value", "")
-        typed = st.text_input("Unit", key="unit_value",
+        # "New unit", not "Unit": the add form above has a Unit box of its
+        # own, and two of them on one row asked the reader which was which.
+        # The placeholder is the unit the picked row is in today.
+        typed = st.text_input("New unit", key="unit_value",
                               placeholder=opt.unit_of(pick) or "g")
     with c4:
         if st.button("Set unit", key="set_unit"):
@@ -467,6 +470,14 @@ def _remove_variable(opt, storage, pick, is_ingredient):
                 st.rerun()
 
 
+def _load_label(opt):
+    """What the button under an uploaded file does. It does not add to the
+    list, it replaces it — every ingredient not in the file is dropped — and
+    a button that said Load over a project's own eight ingredients did not
+    say so."""
+    return "Replace ingredients" if opt.has_ingredients() else "Load ingredients"
+
+
 def _upload_ingredients(opt):
     """The ingredient file, folded away: typing one ingredient is the common
     case, and a file is the shortcut for a project that already has one."""
@@ -478,9 +489,9 @@ def _upload_ingredients(opt):
         # state, so a shared key handed the next project the sheet this one
         # loaded, with a live Load ingredients under it.
         key=f"ingredients_csv_{opt.project_name}",
-        help="Columns Name, Min, Max, and an optional Unit (a blank cell is "
-             "in g). Extra columns such as Cost or Protein per 100 g become "
-             "properties you can set limits on.",
+        # The caption above lists the columns; the one thing it does not say
+        # is what a blank Unit cell means, which is this project's own unit.
+        help=f"A blank Unit cell is in {opt.amount_unit}.",
     )
     if os.path.exists(_SAMPLE_CSV):
         with open(_SAMPLE_CSV, "rb") as handle:
@@ -506,7 +517,7 @@ def _upload_ingredients(opt):
                    "the ingredient list.")
     elif df is not None:
         st.dataframe(df, hide_index=True, height=table_height(len(df)))
-        if st.button("Load ingredients", key="load_ingredients"):
+        if st.button(_load_label(opt), key="load_ingredients"):
             batch_no = opt.pending_batch_no
             try:
                 removed = opt.load_ingredients_from_csv(df)

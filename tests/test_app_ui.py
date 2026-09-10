@@ -1011,7 +1011,10 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
-    assert "Name, Min, Max" in uploader.proto.help, uploader.proto.help
+    # The caption lists the columns; the tooltip says the one thing it does
+    # not — what a blank Unit cell means — and says it in this project's unit.
+    assert uploader.proto.help == "A blank Unit cell is in g.", \
+        uploader.proto.help
     assert any(c.value.startswith("A CSV with the columns Name, Min, Max")
                for c in at.caption), [c.value for c in at.caption]
 def test_manual_add_ingredient_and_the_mid_run_minimum_notice(burger):
@@ -2641,10 +2644,11 @@ def test_a_project_saved_before_units_existed_says_the_g_is_a_guess(tmp_path,
     at.session_state["_loaded_project"] = "legacy"
     at.run()
     assert not at.exception
-    assert any(c.value == ("This project was made before units were recorded; "
-                           "its amounts are shown in g. Set each ingredient's "
-                           "unit below if that is wrong.")
+    assert any(c.value == ("Made before units were recorded; amounts are in "
+                           "g. Set each unit below if that is wrong.")
                for c in at.caption), [c.value for c in at.caption]
+    # ...and it is a caption like every other on the tab: one line, said once.
+    _assert_captions_read_once(at)
 
 
 def test_undo_explains_a_history_that_belongs_to_no_batch(burger):
@@ -3408,6 +3412,26 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
                for c in at.caption), [c.value for c in at.caption]
 
 
+def test_the_two_unit_boxes_on_the_tab_are_told_apart(burger):
+    """The add form says what a new row is written in; the control row says
+    what to rewrite the picked row to. Two boxes labelled Unit did not."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.text_input(key="var_unit").label == "Unit"
+    box = at.text_input(key="unit_value")
+    assert box.label == "New unit"
+    assert box.proto.placeholder == "g"       # what the picked row is in today
+
+
+def test_loading_over_a_list_says_it_replaces_it(burger, tmp_path,
+                                                 monkeypatch):
+    """The file does not add to the list, it replaces it."""
+    from ui_setup import _load_label
+    assert _load_label(burger) == "Replace ingredients"
+    monkeypatch.chdir(tmp_path)
+    assert _load_label(FoodOptimizer("empty_list")) == "Load ingredients"
+
+
 def test_the_set_unit_picker_is_not_called_a_measurement(burger):
     """It picks the row the controls act on, not what to measure."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -4141,15 +4165,20 @@ def test_the_closeness_fold_says_what_importance_and_closeness_are(burger):
         [m.value for m in fold.markdown]
 
 
-def test_no_caption_is_said_twice_on_the_tab(burger):
-    """Sparse: one line each, and never the same line twice."""
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
+def _assert_captions_read_once(at):
+    """Sparse: one line each, and never the same line twice. The score
+    function is generated from the measurements, not written here."""
     captions = [c for c in _tab1_captions(at)
                 if not c.startswith("Overall score = ")]
     assert len(captions) == len(set(captions)), captions
     assert all(len(c) <= 100 for c in captions), \
         [c for c in captions if len(c) > 100]
+
+
+def test_no_caption_is_said_twice_on_the_tab(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _assert_captions_read_once(at)
 
 
 def test_the_tab_reads_in_one_order(burger):
