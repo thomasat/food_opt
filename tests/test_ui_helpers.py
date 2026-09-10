@@ -212,10 +212,25 @@ class _FakeOpt:
 
 
 def test_readiness_names_the_one_missing_thing():
-    assert readiness(_FakeOpt([], [])) == (False, "Add at least one ingredient.")
+    assert readiness(_FakeOpt([], [])) == (
+        False, "Add at least one ingredient or process setting.")
     ing = [{"name": "Water", "category": "ingredient"}]
     assert readiness(_FakeOpt(ing, [])) == (False, "Add at least one measurement.")
     assert readiness(_FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}])) == (True, "")
+
+
+def test_a_project_of_process_settings_alone_is_ready():
+    """A fermentation project varies incubation temperature, time and culture
+    dose and weighs nothing out. It is a project, not an incomplete one."""
+    setting = [{"name": "Incubation temperature", "category": "process"}]
+    meas = [{"name": "Acidity", "weight": 1.0}]
+    assert readiness(_FakeOpt(setting, [])) == (
+        False, "Add at least one measurement.")
+    assert readiness(_FakeOpt(setting, meas)) == (True, "")
+    # ...and the landing rule reads it the same way: complete, nothing made
+    # yet, so it opens on its set-up.
+    assert landing_tab(_FakeOpt(setting, meas)) == TAB_SETUP
+    assert landing_tab(_FakeOpt(setting, meas, X_history=[[0.5]])) == TAB_RESULTS
 
 
 def test_landing_tab_follows_the_spec_rule():

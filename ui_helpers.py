@@ -304,13 +304,14 @@ def best_move_sentence(before, after):
 
 def readiness(opt):
     """(ready, the missing item named) for the foot button on tab 1 and the
-    Generate button on tab 2. Ready means at least one ingredient and at least
-    one measurement."""
-    has_ingredient = any(
-        v.get('category', 'ingredient') == 'ingredient' for v in opt.variables
-    )
-    if not has_ingredient:
-        return False, "Add at least one ingredient."
+    Generate button on tab 2. Ready means something to vary — an ingredient
+    OR a process setting — and at least one measurement.
+
+    A fermentation project varies incubation temperature, time and culture
+    dose and weighs nothing out; holding it incomplete until it listed an
+    ingredient asked it to invent one."""
+    if not opt.variables:
+        return False, "Add at least one ingredient or process setting."
     if not opt.objectives:
         return False, "Add at least one measurement."
     return True, ""

@@ -172,28 +172,7 @@ def _batch_table(opt):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-    if unit is None:
-        # Scaling 10 g of powder and 40 ml of water to "400" is not a total
-        # of anything, so the box is not offered and one line says why.
-        st.caption("Scaling needs all ingredients in one unit.")
-    else:
-        st.session_state.setdefault("scale_total", None)
-        st.number_input(
-            f"Scale each formulation to a total of ({unit})" if unit
-            else "Scale each formulation to a total of",
-            min_value=0.0, step=1.0, placeholder="as generated",
-            key="scale_total",
-            help="Leave this empty to weigh out the amounts as they were "
-                 "generated. Type a total and every formulation is rewritten "
-                 "to it, on screen and in both downloads.",
-        )
-        if scale_to is None:
-            st.caption("Shown as generated.")
-        else:
-            # The table on screen is scaled as well, so this is not a fact
-            # about the downloads alone.
-            st.caption("Shown and printed at a total of "
-                       + join_unit(f"{scale_to:g}", unit) + ".")
+    _scale_control(opt, unit, scale_to)
     if opt.pending_batch_discarded:
         st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
                    "were discarded and their numbers will not be used again.")
@@ -215,6 +194,39 @@ def _batch_table(opt):
                 st.caption(f"Biggest changes from Formulation {best_no}: {parts}.")
 
 
+def _scale_control(opt, unit, scale_to):
+    """The box that rewrites every formulation to a total, and the line under
+    it. `unit` is the unit the ingredients share, or None when they differ.
+
+    Two projects are offered nothing at all: one that weighs nothing out (a
+    fermentation project of settings alone has no total to scale to), and one
+    whose ingredients are in different units — scaling 10 g of powder and
+    40 ml of water to "400" is not a total of anything, and that one says so.
+    """
+    if not opt.has_ingredients():
+        return
+    if unit is None:
+        st.caption("Scaling needs all ingredients in one unit.")
+        return
+    st.session_state.setdefault("scale_total", None)
+    st.number_input(
+        f"Scale each formulation to a total of ({unit})" if unit
+        else "Scale each formulation to a total of",
+        min_value=0.0, step=1.0, placeholder="as generated",
+        key="scale_total",
+        help="Leave this empty to weigh out the amounts as they were "
+             "generated. Type a total and every formulation is rewritten "
+             "to it, on screen and in both downloads.",
+    )
+    if scale_to is None:
+        st.caption("Shown as generated.")
+    else:
+        # The table on screen is scaled as well, so this is not a fact about
+        # the downloads alone.
+        st.caption("Shown and printed at a total of "
+                   + join_unit(f"{scale_to:g}", unit) + ".")
+
+
 def _sheet_lines(opt, row, scale_to):
     """One printable sheet as a list of plain-text lines. Shared by the on-screen
     sheets and the downloadable HTML so the two can never drift apart."""
@@ -230,10 +242,13 @@ def _sheet_lines(opt, row, scale_to):
         lines.append(f"{var['name']}: "
                      + fmt_amount(recipe.get(var['name'], 0.0),
                                   opt.unit_of(var['name'])))
-    # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
-    lines.append("Total: " + opt.total_text(recipe))
+    if ingredients:
+        # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
+        # A sheet with nothing to weigh out claims no total at all.
+        lines.append("Total: " + opt.total_text(recipe))
     if process:
-        lines.append("")
+        if ingredients:
+            lines.append("")      # a blank line only separates two lists
         for var in process:
             # A setting is not an amount, so it never wears the project's unit
             # and never the two decimals a balance works to.

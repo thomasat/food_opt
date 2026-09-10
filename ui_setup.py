@@ -315,6 +315,17 @@ def _change_ingredient_list(opt, storage):
                         st.rerun()
 
 
+def _limit_label(opt, qc):
+    """How one amount limit is named on screen — 'Total amount (all
+    ingredients)' or 'Water + Oil'. The list under Limits and the line that
+    reports a limit removed both read from here, so they name it alike."""
+    names = [v['name'] for v in opt.variables
+             if v.get('category', 'ingredient') == 'ingredient']
+    if names and set(qc['ingredients']) == set(names):
+        return "Total amount (all ingredients)"
+    return " + ".join(qc['ingredients'])
+
+
 def _set_unit(opt):
     """Change one ingredient's unit. Nothing is rescored and the open batch
     stands: a unit is how an amount is written, not the amount."""
@@ -335,7 +346,7 @@ def _set_unit(opt):
         # Grey: the tab's one coloured button is Continue at the foot.
         if st.button("Set unit", key="set_unit"):
             try:
-                opt.set_ingredient_unit(pick, typed)
+                removed = opt.set_ingredient_unit(pick, typed)
             except ValueError as e:
                 st.error(str(e))
             else:
@@ -344,6 +355,13 @@ def _set_unit(opt):
                     flash("success",
                           f"{pick} is measured in {written}." if written
                           else f"{pick} is shown without a unit.")
+                    # An amount limit is a sum, and this change may have left
+                    # one adding grams to millilitres. It is gone; say which.
+                    for qc in removed:
+                        flash("warning",
+                              f"The limit on {_limit_label(opt, qc)} was "
+                              "removed because those ingredients no longer "
+                              "share a unit.")
                     # Emptied for the next ingredient: a unit left in the box
                     # is one click away from being applied to another row.
                     park_clear("unit_value", "")
@@ -808,9 +826,7 @@ def _limits(opt):
                         _report_limit(opt, "Total amount limit added.")
 
         for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
-            label = ("Total amount (all ingredients)"
-                     if set(qc['ingredients']) == set(names)
-                     else " + ".join(qc['ingredients']))
+            label = _limit_label(opt, qc)
             # An amount limit sums ingredients that share a unit, so the
             # limit is written in it: "at most 400 g", never a bare 400.
             limited = {opt.unit_of(n) for n in qc['ingredients']}

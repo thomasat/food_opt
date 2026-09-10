@@ -542,14 +542,26 @@ class FoodOptimizer:
     def set_ingredient_unit(self, name, unit):
         """The unit one ingredient's amounts are written in. Nothing is
         rescored and the open batch stands: a unit is how a number is
-        written, not the number."""
+        written, not the number.
+
+        An amount limit IS arithmetic, though, so any limit whose ingredients
+        no longer share a unit is removed — leaving it would hold the next
+        batch to a sum of grams and millilitres. The removed limits are
+        returned so the screen can name them; formulations already made are
+        untouched."""
         var = next((v for v in self.variables
                     if v['name'] == name
                     and v.get('category', 'ingredient') == 'ingredient'), None)
         if var is None:
             raise ValueError(f"No ingredient named {name}.")
         var['unit'] = str(unit or "").strip()
+        kept, removed = [], []
+        for qc in self.quantity_constraints:
+            spans = len({self.unit_of(n) for n in qc['ingredients']}) > 1
+            (removed if spans else kept).append(qc)
+        self.quantity_constraints = kept
         self.save()
+        return removed
 
     def unit_of(self, name):
         """The unit one variable's amount is written in. Every screen that
@@ -613,10 +625,19 @@ class FoodOptimizer:
         shown = [(u, t) for u, t in groups if round(float(t), 2) != 0] or groups[:1]
         return " · ".join(join_unit(f"{float(t):.2f}", u) for u, t in shown)
 
+    def has_ingredients(self):
+        """True when anything is weighed out. A project of process settings
+        alone — incubation temperature, time, culture dose — has no amounts,
+        so it has no total to show and nothing to scale to one."""
+        return any(v.get('category', 'ingredient') == 'ingredient'
+                   for v in self.variables)
+
     def total_column(self):
         """The header of the total column: 'Total (g)' while every ingredient
         shares one unit, a bare 'Total' when they do not, because the cell
-        then carries the units itself."""
+        then carries the units itself. None when nothing is weighed out."""
+        if not self.has_ingredients():
+            return None
         unit = self.one_amount_unit()
         if unit is None:
             return "Total"
@@ -917,7 +938,8 @@ class FoodOptimizer:
             for var in ingredients:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
-            item[total_col] = self._total_cell(recipe)
+            if total_col is not None:
+                item[total_col] = self._total_cell(recipe)
             for var in process:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
@@ -926,7 +948,7 @@ class FoodOptimizer:
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
-                   + [total_col]
+                   + ([total_col] if total_col is not None else [])
                    + [self._amount_column(v['name']) for v in process]
                    + (["Note"] if noted else []))
         return pd.DataFrame(rows, columns=columns)
@@ -971,9 +993,10 @@ class FoodOptimizer:
             for var in ingredients:
                 item[self._amount_column(var['name'])] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
-            total = self._total_cell(recipe)
-            item[total_col] = (total if isinstance(total, str)
-                               else round(float(total), 2))
+            if total_col is not None:
+                total = self._total_cell(recipe)
+                item[total_col] = (total if isinstance(total, str)
+                                   else round(float(total), 2))
             for var in process:
                 item[self._amount_column(var['name'])] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
@@ -983,7 +1006,7 @@ class FoodOptimizer:
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
-                   + [total_col]
+                   + ([total_col] if total_col is not None else [])
                    + [self._amount_column(v['name']) for v in process]
                    + [o['name'] for o in objs] + ["Note"])
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)

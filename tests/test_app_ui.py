@@ -3117,3 +3117,135 @@ def test_an_amount_limit_is_listed_in_the_unit_it_limits(mixed_units):
     at.run()
     assert any(t.value == "Water: at most 45 ml" for t in at.text), \
         [t.value for t in at.text]
+
+
+# ------------------------------------------------------------------ #
+#  Projects made of process settings alone (owner ruling, 2026-09-10)
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def ferment(tmp_path, monkeypatch):
+    """A fermentation project: nothing is weighed out, two settings are
+    dialled in, and one measurement is scored."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ferment")
+    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+    opt.add_objective("Acidity", 1.0, goal="target", target=4.5,
+                      min_val=3.0, max_val=7.0, unit="pH")
+    return opt
+
+
+def test_a_project_of_settings_alone_is_complete_and_lights_continue(ferment):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert _tab_primaries(at, 0) == ["Continue to make a batch"]
+    assert not any(c.value.startswith("Add at least one") for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_the_foot_names_a_setting_as_well_as_an_ingredient(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    FoodOptimizer("empty_one")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "empty_one"
+    at.run()
+    assert any(c.value == "Add at least one ingredient or process setting."
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
+    """No amounts are weighed out, so there is no total to show, nothing to
+    scale to a total, and no amount limits to set."""
+    ferment.set_pending_batch([{"Incubation temperature": 37.0,
+                                "Incubation time": 8.0},
+                               {"Incubation temperature": 40.0,
+                                "Incubation time": 12.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(frame.value.columns) == ["Formulation",
+                                         "Incubation temperature (°C)",
+                                         "Incubation time (h)"]
+    assert [n.key for n in at.number_input if n.key == "scale_total"] == []
+    assert not any("Scaling needs" in c.value for c in at.caption), \
+        [c.value for c in at.caption]
+    # The printable sheet lists the settings and claims no total.
+    lines = [t.value for t in at.text]
+    assert "Incubation temperature: 37 °C" in lines, lines
+    assert not any(l.startswith("Total") for l in lines), lines
+    assert any(c.value == "Load ingredients first to add amount limits."
+               for c in at.caption), [c.value for c in at.caption]
+    assert [b.label for b in at.button if b.label == "Add an amount limit"] == []
+    assert [b.label for b in at.button
+            if b.label == "Add a total amount limit"] == []
+
+
+def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
+    """Generate, record two formulations, save, and read the best back."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Continue to make a batch").click()
+    at.run()
+    at.number_input(key="batch_size").set_value(2)
+    at.run()
+    _submit_button(at, "Generate 2 formulations").click()
+    at.run()
+    assert not at.exception
+    made = FoodOptimizer("ferment")
+    assert len(made.pending_batch) == 2
+    at.number_input(key="f1_Acidity").set_value(4.5)
+    at.number_input(key="f2_Acidity").set_value(5.5)
+    at.run()
+    assert _tab_primaries(at, 1) == ["Save results"], _tab_primaries(at, 1)
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == "3 · Results"
+    assert any(h.value == "Best so far: Formulation 1 (batch 1)"
+               for h in at.subheader), [h.value for h in at.subheader]
+    table = next(t.value for t in at.table
+                 if "Ingredient or setting" in t.value.columns)
+    shown = dict(zip(table["Ingredient or setting"], table["Amount"]))
+    assert set(shown) == {"Incubation temperature", "Incubation time"}
+    assert shown["Incubation temperature"].endswith(" °C"), shown
+    assert not any(c.value.startswith("Not used:") for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_a_unit_change_that_breaks_an_amount_limit_removes_it_and_says_so(
+        burger):
+    """A limit is a sum. Once one of its ingredients is measured in another
+    unit the sum means nothing, so the limit goes and the line says which."""
+    burger.add_ingredient("Salt", 0, 3)
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
+                                   max_val=20)
+    burger.add_total_mass_constraint(max_val=100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="unit_pick").select("Methylcellulose")
+    at.text_input(key="unit_value").set_value("ml")
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning] == [
+        "The limit on Pea protein + Methylcellulose was removed because "
+        "those ingredients no longer share a unit.",
+        "The limit on Total amount (all ingredients) was removed because "
+        "those ingredients no longer share a unit.",
+    ], [w.value for w in at.warning]
+    assert FoodOptimizer("burger").quantity_constraints == []
+    # A limit whose ingredients still share a unit is left alone. (Read the
+    # project back first: the fixture's own copy is now behind the screen's.)
+    reloaded = FoodOptimizer("burger")
+    reloaded.add_quantity_constraint(["Pea protein", "Salt"], max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="unit_pick").select("Methylcellulose")   # not in it
+    at.text_input(key="unit_value").set_value("mg")
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert [w.value for w in at.warning] == [], [w.value for w in at.warning]
+    assert len(FoodOptimizer("burger").quantity_constraints) == 1

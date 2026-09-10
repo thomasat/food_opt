@@ -2073,6 +2073,72 @@ class TestUnitPerIngredient:
         assert [n for n, _ in changes] == ["Water", "Pea protein"]
         assert [opt.unit_of(n) for n, _ in changes] == ["ml", "g"]
 
+    def test_a_unit_change_removes_a_limit_it_breaks(self, tmp_path,
+                                                     monkeypatch):
+        """A limit is arithmetic, not a label: once its ingredients are in
+        different units the sum it holds the next batch to is a sum of
+        nothing. It is removed, and named back to the caller."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_ingredient_unit("Water", "g")
+        opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        removed = opt.set_ingredient_unit("Water", "ml")
+        assert [qc['ingredients'] for qc in removed] == [["Pea protein", "Water"]]
+        assert opt.quantity_constraints == []
+        assert FoodOptimizer("peruint").quantity_constraints == []
+
+    def test_a_unit_change_leaves_a_limit_it_does_not_break(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Salt", 0, 3)
+        opt.add_quantity_constraint(["Pea protein", "Salt"], max_val=20)
+        assert opt.set_ingredient_unit("Water", "l") == []
+        assert len(opt.quantity_constraints) == 1
+
+
+class TestSettingsOnlyProject:
+    """A fermentation project varies incubation temperature, time and culture
+    dose. Nothing is weighed out, so nothing may claim a total."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("ferment_bo")
+        opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+        opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+        opt.add_objective("Acidity", 1.0, goal="target", target=4.5,
+                          min_val=3.0, max_val=7.0, unit="pH")
+        return opt
+
+    def test_the_batch_table_and_sheet_carry_the_settings_and_no_total(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Incubation temperature": 37.0,
+                                "Incubation time": 8.0}])
+        assert opt.has_ingredients() is False
+        assert opt.total_column() is None
+        df = opt.batch_frame(opt.pending_batch)
+        assert list(df.columns) == ["Formulation",
+                                    "Incubation temperature (°C)",
+                                    "Incubation time (h)"]
+        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
+        assert list(sheet.columns) == ["Formulation",
+                                       "Incubation temperature (°C)",
+                                       "Incubation time (h)", "Acidity",
+                                       "Note"]
+
+    def test_the_loop_runs_on_settings_alone(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=2)
+        assert len(opt.pending_batch) == 2
+        row = opt.pending_batch[0]
+        opt.tell(row['recipe'], {"Acidity": 4.5},
+                 formulation_no=row['formulation'],
+                 batch_no=opt.pending_batch_no)
+        assert opt.best_index() == 0
+        assert opt.ingredient_total(row['recipe']) == 0.0
+        # Nothing was weighed out, so no change can be reported as an amount.
+        assert opt.biggest_changes(opt.pending_batch[1]['recipe'],
+                                   row['recipe']) == []
+
 
 class TestParseBatchResultsByFormulation:
     def _opt(self, tmp_path, monkeypatch):
