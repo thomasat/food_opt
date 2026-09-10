@@ -1963,6 +1963,25 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError, match=r"outside your scale of 0 to 100"):
             opt.parse_batch_results(df, opt.pending_batch)
 
+    def test_the_out_of_scale_refusal_follows_the_unit_rule(self, tmp_path,
+                                                            monkeypatch):
+        """A value read off an uploaded sheet is refused in exactly the words
+        the results grid uses: a "/10" on the label, never after a number."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.update_objective("Hardness", unit="N", max_val=10, target=6)
+        df = pd.DataFrame({"Formulation": [7], "Hardness": [12.0], "L*": [70.0]})
+        with pytest.raises(ValueError) as with_unit:
+            opt.parse_batch_results(df, opt.pending_batch)
+        assert str(with_unit.value) == (
+            "Formulation 7 Hardness 12 N is outside your scale of 0 to 10 N. "
+            "Widen the scale in Set up, or check the value.")
+        opt.update_objective("Hardness", unit="/10")
+        with pytest.raises(ValueError) as slash:
+            opt.parse_batch_results(df, opt.pending_batch)
+        assert str(slash.value) == (
+            "Formulation 7 Hardness 12 is outside your scale of 0 to 10. "
+            "Widen the scale in Set up, or check the value.")
+
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7, 7], "Hardness": [11.0, 12.0],

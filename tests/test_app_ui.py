@@ -2845,3 +2845,31 @@ def test_a_deleted_project_leaves_the_sidebar_box(project_with_history):
     assert at.sidebar.selectbox(key="project_select").value == "keeper"
     at.run()      # AppTest keeps the answered confirmation's buttons a run
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+
+
+def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
+    """188.494 °C is a precision no oven dial has. The batch table, the
+    printable sheet and the amounts table must round it the same way."""
+    burger.add_process_parameter("Cook temperature", 100, 220, unit="°C")
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
+                               "Cook temperature": 188.4936}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    shown = _displayed(next(d for d in at.dataframe
+                            if "Formulation" in d.value.columns))
+    assert shown["Cook temperature (°C)"].iloc[0] == "188.49", shown.to_dict()
+    assert any(t.value == "Cook temperature: 188.49 °C" for t in at.text), \
+        [t.value for t in at.text]
+    # ... and on tab 3, once it is recorded.
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0,
+                 "Cook temperature": 188.4936},
+                {"Juiciness": 7.0, "Firmness": 6.0},
+                formulation_no=1, batch_no=1)
+    burger.set_pending_batch(None)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(t.value for t in at.table
+                 if "Ingredient or setting" in t.value.columns)
+    amounts = dict(zip(table["Ingredient or setting"], table["Amount"]))
+    assert amounts["Cook temperature"] == "188.49 °C", amounts

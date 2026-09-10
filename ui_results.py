@@ -11,7 +11,7 @@ import storage as storage_backend
 from ui_helpers import (
     TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_warning, clear_selection, confirm_action, confirmation_open, flash,
-    fmt_amount, goal_line, go_to_tab, join_unit, label_with_unit, open_rows,
+    fmt_amount, fmt_setting, goal_line, go_to_tab, label_with_unit, open_rows,
     other_confirmation, plural, readiness, saved_ok, scale_error,
     table_height, take_clear,
 )
@@ -45,7 +45,7 @@ def _amount_rows(opt, recipe):
     def amount(name, value):
         if category.get(name) == 'process':
             # 180 °C, never 180.00 °C: a setting is dialled in, not weighed.
-            return join_unit(f"{float(value):g}", _unit_of(opt, name))
+            return fmt_setting(value, _unit_of(opt, name))
         return fmt_amount(value, _unit_of(opt, name))
 
     return [{"Ingredient or setting": name, "Amount": amount(name, value)}

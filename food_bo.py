@@ -65,6 +65,19 @@ def label_with_unit(name, unit):
     return f"{name} ({unit})" if unit.startswith("/") else str(name)
 
 
+def outside_message(name, value, low, high, unit, what, tail=""):
+    """'Firmness 12 N is outside your scale of 0 to 10 N.' — the one builder
+    for every out-of-bounds line, so a measurement typed into the grid, one
+    read off an uploaded sheet and an amount imported from a CSV are refused
+    in the same words. `what` names the bounds, `tail` is any sentence that
+    follows. A "/"-style unit stays off the numbers, as it does everywhere."""
+    unit = unit_after_number(unit)
+    return (join_unit(f"{name} {float(value):g}", unit)
+            + f" is outside {what} of "
+            + join_unit(f"{float(low):g} to {float(high):g}", unit)
+            + "." + tail)
+
+
 def local_date(ts):
     """The date a stored moment fell on where the user is standing. Results
     are stamped in UTC, so slicing the first ten characters off the stamp
@@ -923,14 +936,12 @@ class FoodOptimizer:
                     raise ValueError(f"Formulation {number} {name} is not a number.")
                 obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
-                    raise ValueError(
-                        join_unit(f"Formulation {number} {name} {val:g}",
-                                  obj.get('unit'))
-                        + " is outside your scale of "
-                        + join_unit(f"{obj['min_val']:g} to {obj['max_val']:g}",
-                                    obj.get('unit'))
-                        + ". Widen the scale in Set up, or check the value."
-                    )
+                    # The same sentence the results grid refuses with.
+                    raise ValueError(outside_message(
+                        f"Formulation {number} {name}", val,
+                        obj['min_val'], obj['max_val'], obj.get('unit'),
+                        "your scale",
+                        " Widen the scale in Set up, or check the value."))
                 results[name] = val
             if not results:
                 raise ValueError(

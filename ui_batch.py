@@ -13,9 +13,9 @@ import streamlit as st
 
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, confirm_action,
-    confirmation_open, flash, fmt_amount, go_to_tab, goal_line, join_unit,
-    label_with_unit, number_list, open_rows, plural, readiness, saved_ok,
-    scale_error, table_height, unit_after_number,
+    confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
+    join_unit, label_with_unit, number_list, open_rows, plural, readiness,
+    saved_ok, scale_error, table_height, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -142,11 +142,12 @@ def _no_batch(opt):
 def _amount_format(opt, frame):
     """How each column of the batch table is written out: two decimals for the
     amounts and the total, because that is the precision a balance works to,
-    and a plain number for a process setting, because a cook temperature is
-    neither an amount nor 180.00."""
+    and fmt_setting for a process setting, because a cook temperature is
+    neither an amount nor 180.00 nor 188.494. The column header already
+    carries the setting's unit, so only the number is formatted here."""
     settings = {opt._amount_column(v['name']) for v in opt.variables
                 if v.get('category') == 'process'}
-    return {c: ("{:g}" if c in settings else "{:.2f}")
+    return {c: (fmt_setting if c in settings else "{:.2f}")
             for c in frame.columns if c not in ("Formulation", "Note")}
 
 
@@ -217,10 +218,11 @@ def _sheet_lines(opt, row, scale_to):
     if process:
         lines.append("")
         for var in process:
-            # A setting is not an amount, so it never wears the project's unit.
+            # A setting is not an amount, so it never wears the project's unit
+            # and never the two decimals a balance works to.
             lines.append(f"{var['name']}: "
-                         + join_unit(f"{float(recipe.get(var['name'], 0.0)):g}",
-                                     var.get('unit')))
+                         + fmt_setting(recipe.get(var['name'], 0.0),
+                                       var.get('unit')))
     lines.append("")
     for obj in opt.measurements_by_importance():
         lines.append(f"Measured {label_with_unit(obj['name'], obj.get('unit'))}"

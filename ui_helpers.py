@@ -13,7 +13,8 @@ import streamlit as st
 # closeness_details needs them too); the tab modules import them from here so
 # there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
-    goal_line, join_unit, label_with_unit, number_list, unit_after_number,
+    goal_line, join_unit, label_with_unit, number_list, outside_message,
+    unit_after_number,
 )
 
 _FLASH_KEY = "_flash_messages"
@@ -179,16 +180,19 @@ def fmt_amount(value, unit="", decimals=2):
     return join_unit(txt, unit)
 
 
-def outside_message(name, value, low, high, unit, what, tail=""):
-    """'Firmness 12 N is outside your scale of 0 to 10 N.' — the one builder
-    for every out-of-bounds line, so a measurement and an amount are refused
-    and warned about in the same words. `what` names the bounds, `tail` is any
-    sentence that follows."""
-    unit = unit_after_number(unit)   # '/10' lives on the label, not the number
-    return (join_unit(f"{name} {float(value):g}", unit)
-            + f" is outside {what} of "
-            + join_unit(f"{float(low):g} to {float(high):g}", unit)
-            + "." + tail)
+def fmt_setting(value, unit=""):
+    """A process setting as prose: '188.49 °C', '180 °C', '' for a missing
+    value. A setting is dialled in, not weighed: at most two decimals, and no
+    trailing zeros, because 188.494 is a precision no oven dial has and
+    180.00 is a precision nobody typed. Every screen that shows a setting —
+    the batch table, the printable sheets, the amounts table — goes through
+    here, so the three always agree."""
+    if value is None:
+        return ""
+    txt = f"{float(value):.2f}".rstrip("0").rstrip(".")
+    if txt in ("", "-0"):
+        txt = "0"
+    return join_unit(txt, unit)
 
 
 def scale_error(obj, value):

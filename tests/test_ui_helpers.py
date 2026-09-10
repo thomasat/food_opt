@@ -155,6 +155,19 @@ def test_fmt_amount_always_shows_two_decimals_with_the_unit():
     assert fmt_amount(None, "g") == ""
 
 
+def test_fmt_setting_rounds_a_dial_to_what_a_dial_can_hold():
+    """188.494 °C is a precision no oven has, and 180.00 °C is one nobody
+    typed. Two decimals at most, trailing zeros stripped."""
+    from ui_helpers import fmt_setting
+    assert fmt_setting(188.4936, "°C") == "188.49 °C"
+    assert fmt_setting(180.0, "°C") == "180 °C"
+    assert fmt_setting(12.5, "min") == "12.5 min"
+    assert fmt_setting(0.0, "°C") == "0 °C"
+    assert fmt_setting(-0.001, "°C") == "0 °C"
+    assert fmt_setting(180.0, "") == "180"
+    assert fmt_setting(None, "°C") == ""
+
+
 def test_join_unit_and_goal_line_are_re_exported():
     assert join_unit("7", "/10") == "7/10"
     assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
