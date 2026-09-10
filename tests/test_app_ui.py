@@ -478,6 +478,85 @@ def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history
     assert not open_button.disabled and open_button.proto.type == "primary"
 
 
+def test_an_armed_confirmation_is_the_one_lit_sidebar_button(project_with_history):
+    """A confirmation button is transient and IS the next action while it is
+    armed, so exactly one thing is lit — and only until it is answered."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+    _submit_button(at.sidebar, "Hard reset").click()
+    at.run()
+    lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
+    assert lit == ["Yes, reset"], lit
+    _submit_button(at.sidebar, "Cancel").click()
+    at.run()
+    assert at.session_state["hard_reset__pending"] is False
+    # Cancel ends in st.rerun(), and AppTest leaves the aborted pass's buttons
+    # in the element tree alongside the settled ones; the next plain run shows
+    # what the browser would show.
+    at.run()
+    assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+
+
+def test_the_restore_confirmation_is_lit_like_every_other_confirmation(project_with_history):
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Flour", 0, 100)
+    donor.add_objective("Crunch", 1.0, goal="max")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.session_state["_restore_candidate"] = donor.export_json()
+    at.run()
+    lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
+    assert lit == ["Yes, replace"], lit
+
+
+def test_removing_every_measurement_keeps_the_open_batch(project_with_history):
+    """Measurements never discard a batch: a formulation is amounts, and it can
+    still be made while the user reworks what they will score."""
+    project_with_history.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}])
+    project_with_history.remove_objective("Taste")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("my_project").pending_batch is not None
+    assert not any("ingredient list" in i.value for i in at.info), [i.value for i in at.info]
+
+
+def test_restore_says_nothing_about_a_copy_when_none_was_kept(project_with_history, monkeypatch):
+    """'kept as None' is not a sentence. With no file to archive, the message
+    simply stops after naming what was restored."""
+    from storage import LocalStorage
+    monkeypatch.setattr(LocalStorage, "archive", lambda self, *a, **k: None)
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Water", 0, 100)
+    donor.add_objective("Taste", 1.0, goal="max")
+    for value in (10.0, 20.0, 30.0):
+        donor.tell({"Water": value}, {"Taste": 5.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.session_state["_restore_candidate"] = donor.export_json()
+    at.run()
+    _submit_button(at, "Yes, replace").click()
+    at.run()
+    assert not at.exception
+    note = next(s.value for s in at.success if "Restored" in s.value)
+    assert note == "Restored 3 formulations into my_project.", note
+    assert "None" not in note
+
+
+def test_the_saved_line_shows_for_a_project_opened_but_not_yet_saved(project_with_history):
+    """last_saved_at is only set by a save in THIS session, so a returning user
+    would otherwise see no saved line at all until their first edit."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    assert at.session_state["optimizer"].last_saved_at is None
+    assert any("automatically, to this Mac" in c.value for c in at.sidebar.caption), \
+        [c.value for c in at.sidebar.caption]
+
+
 def test_manage_project_holds_hard_reset_and_delete(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

@@ -176,7 +176,10 @@ with st.sidebar:
         if (not getattr(opt, "load_error", None)) and getattr(opt, "pending_batch", None):
             _var_names = {v['name'] for v in opt.variables}
             try:
-                _batch_ok = bool(opt.objectives) and all(
+                # Ingredients only. A measurement is what you will score, not
+                # what you weigh out, so removing or editing one leaves every
+                # formulation in the batch perfectly makeable.
+                _batch_ok = all(
                     set(r['recipe']) == _var_names for r in opt.pending_batch
                 )
             except (TypeError, AttributeError, KeyError):
@@ -197,7 +200,10 @@ with st.sidebar:
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)
         else:
-            _saved = getattr(opt, "last_saved_at", None)
+            # last_saved_at only records saves made in THIS session, so a
+            # returning user would see no saved line until their first edit.
+            _saved = getattr(opt, "last_saved_at", None) or getattr(
+                opt.storage, "saved_at", lambda n: None)(opt.project_name)
             if _saved is not None:
                 st.caption(saved_line(_saved))
 
@@ -250,7 +256,10 @@ with st.sidebar:
                 )
                 rc1, rc2 = st.columns(2)
                 with rc1:
-                    if st.button("Yes, replace", use_container_width=True):
+                    # A confirmation is the one thing to do while it is on
+                    # screen, so it is lit — like every confirm_action.
+                    if st.button("Yes, replace", type="primary",
+                                 use_container_width=True):
                         # Constructing FoodOptimizer below would re-stamp the
                         # shared _seen entry from the current file, so the
                         # stale check must happen first, against what THIS
@@ -279,11 +288,15 @@ with st.sidebar:
                                     st.session_state.optimizer = new_opt
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
-                                    flash("success",
-                                          f"Restored "
-                                          f"{plural(len(new_opt.X_history), 'formulation')} "
-                                          f"into {new_opt.project_name}. A copy of the "
-                                          f"previous project was kept as {archived}.")
+                                    _done = (
+                                        f"Restored "
+                                        f"{plural(len(new_opt.X_history), 'formulation')} "
+                                        f"into {new_opt.project_name}."
+                                    )
+                                    if archived:
+                                        _done += (" A copy of the previous project "
+                                                  f"was kept as {archived}.")
+                                    flash("success", _done)
                                     st.rerun()
                 with rc2:
                     if st.button("Cancel", use_container_width=True, key="restore_cancel"):

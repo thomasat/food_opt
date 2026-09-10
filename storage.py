@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime
 
 
 ARCHIVE_SUFFIX_RE = re.compile(
@@ -70,6 +71,17 @@ class LocalStorage:
 
     def exists(self, name):
         return os.path.exists(self._path(name))
+
+    def saved_at(self, name):
+        """When the project file was last written, or None if there is no file.
+        FoodOptimizer.last_saved_at only records saves made in this session, so
+        a user who opens a project and changes nothing has no time to show; the
+        file's own modification time is that missing fact."""
+        try:
+            stamp = os.stat(self._path(name)).st_mtime
+        except (FileNotFoundError, OSError):
+            return None
+        return datetime.fromtimestamp(stamp).astimezone()
 
     def load(self, name):
         seen = self.__dict__.setdefault("_seen", {})
