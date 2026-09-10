@@ -1077,7 +1077,7 @@ class FoodOptimizer:
 
         Refused while a batch is open: taking that batch down as a side effect
         would retire numbers the user never asked to discard."""
-        if self.pending_batch:
+        if self.pending_batch is not None:
             raise ValueError("Record or discard the open batch first.")
         numbered = [int(b) for b in self.batch_history if b is not None]
         if not numbered:

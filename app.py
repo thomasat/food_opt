@@ -938,7 +938,6 @@ with tab_optimize:
                     st.session_state.current_batch = recipes
                     st.session_state["_batch_id"] = st.session_state.get("_batch_id", 0) + 1
                     st.session_state.pop("_results_upload", None)
-                    st.session_state.optimizer.set_pending_batch(recipes)
                 except ValueError as e:
                     st.error(str(e))
                 except Exception:

@@ -1175,6 +1175,18 @@ class TestFormulationIdentity:
         assert opt.next_formulation_no == 4
         assert len(opt.pending_batch_created) == 10      # an ISO date
 
+    def test_ask_issues_numbers_exactly_once_per_generate(self, tmp_path, monkeypatch):
+        """A caller must not re-number a batch ask() already opened: ask()
+        itself calls set_pending_batch, so a second call on the same rows
+        (as app.py used to do) would burn numbers twice per generate."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=3)
+        assert [r["formulation"] for r in opt.pending_batch] == [1, 2, 3]
+        assert opt.next_formulation_no == 4
+        opt.set_pending_batch(None)
+        opt.ask(n_suggestions=3)
+        assert [r["formulation"] for r in opt.pending_batch] == [4, 5, 6]
+
     def test_discarded_numbers_are_never_reissued(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.ask(n_suggestions=3)
@@ -1278,6 +1290,15 @@ class TestFormulationIdentity:
             opt.undo_last_batch()
         assert opt.pending_batch is not None
         assert opt.formulation_ids == [1]
+
+    def test_undo_last_batch_refuses_while_an_open_batch_is_empty(self, tmp_path, monkeypatch):
+        """An open batch with every row generated-and-removed is still open —
+        `[]` is not the same as `None` — so undo must still refuse."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        opt.set_pending_batch([])
+        with pytest.raises(ValueError, match="Record or discard the open batch first."):
+            opt.undo_last_batch()
 
     def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
