@@ -49,6 +49,16 @@ def join_unit(text, unit):
     return f"{text}{unit}" if unit.startswith("/") else f"{text} {unit}"
 
 
+def number_list(numbers):
+    """'1', '1 and 2', '7, 8 and 9'. Lives here because refusals raised by the
+    model name formulations too, and ui_helpers already imports from this
+    module."""
+    items = [str(n) for n in numbers]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def goal_line(obj):
     """The half of an input label that says what a good number looks like:
     'target 6 N', 'lower is better', 'higher is better'."""
@@ -160,7 +170,9 @@ class FoodOptimizer:
         self.skipped = []             # generated but never scored: dicts with
                                       # formulation / batch / recipe / note
         self.next_formulation_no = 1
-        self.amount_unit = ""         # one unit for every amount in the project
+        # One unit for every amount in the project. Grams is the default a
+        # food scientist expects; a blank unit made every amount ambiguous.
+        self.amount_unit = "g"
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.pending_batch_no = None  # its batch number
         self.pending_batch_created = None   # ISO date it was generated, for the sheets
@@ -411,14 +423,15 @@ class FoodOptimizer:
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
-            raise ValueError("Range Min must be less than Range Max.")
+            raise ValueError("Scale lowest must be less than scale highest.")
         if goal == 'target':
             if target is None:
                 raise ValueError("Enter a target value for a 'Hit a target' objective.")
             target = float(target)
             if not (min_val <= target <= max_val):
                 raise ValueError(
-                    f"Target {target:g} must lie within the range {min_val:g} to {max_val:g}."
+                    f"Target {target:g} must be between the scale's lowest "
+                    f"and highest ({min_val:g} to {max_val:g})."
                 )
         else:
             target = None
@@ -473,8 +486,8 @@ class FoodOptimizer:
             target = float(merged['target'])
             if not (min_val <= target <= max_val):
                 raise ValueError(
-                    f"Target {target:g} must lie within the scale "
-                    f"{min_val:g} to {max_val:g}."
+                    f"Target {target:g} must be between the scale's lowest "
+                    f"and highest ({min_val:g} to {max_val:g})."
                 )
         else:
             target = None
@@ -1673,13 +1686,15 @@ class FoodOptimizer:
             if float(r.get(name, 0.0)) != 0.0
         ]
         if used and not force:
-            shown = ", ".join(f"#{i}" for i in used[:5])
-            more = f" (+{len(used) - 5} more)" if len(used) > 5 else ""
+            # Name the formulations, not row indexes: a formulation number is
+            # what the user wrote on the sheet, and #0 is not a thing they own.
+            numbers = [int(self.formulation_ids[i]) if i < len(self.formulation_ids)
+                       else i + 1 for i in used]
+            word = "Formulation" if len(numbers) == 1 else "Formulations"
             raise ValueError(
-                f"'{name}' was used at a nonzero amount in experiment(s) {shown}{more}. "
-                f"Deleting it would discard that information. Pause it instead to "
-                f"stop searching over it while keeping the data. Tick 'Force delete' "
-                f"above if you really want to discard it."
+                f"'{name}' was used in {word} {number_list(numbers)}, so it "
+                f"cannot be deleted. Tick 'Delete even if it was used' to "
+                f"discard that information."
             )
 
         remaining = [v for v in self.variables if v['name'] != name]
@@ -1954,7 +1969,9 @@ class FoodOptimizer:
                               for t in state.get('notes_history', [])]
         self.skipped = [dict(s) for s in state.get('skipped', [])]
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
-        self.amount_unit = str(state.get('amount_unit', "") or "")
+        # A 0.2.x file has no unit at all: it backfills to g rather than
+        # reopening as a project whose amounts mean nothing.
+        self.amount_unit = str(state.get('amount_unit', "") or "") or "g"
         self.pending_batch = state.get('pending_batch', None)
         self.pending_batch_no = state.get('pending_batch_no', None)
         self.pending_batch_created = state.get('pending_batch_created', None)

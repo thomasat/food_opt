@@ -27,6 +27,13 @@ _SAMPLE_CSV = os.path.join(
 _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
                "respect this limit.")
 
+# food_bo drops the open batch inside add_ingredient, deactivate_variable,
+# add_process_parameter and friends, so app.py's makeability check never sees
+# the mismatch. Every handler here that can change the ingredient list, a
+# process setting or a range says so itself.
+_BATCH_DISCARDED = ("The open batch was discarded because the ingredient list "
+                    "or its ranges changed since it was generated.")
+
 
 # ------------------------------------------------------------------ #
 #  Small shared text
@@ -34,6 +41,28 @@ _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
 
 def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
+
+
+def _saved_ok(opt):
+    """True when the write that just ran reached the file. A green 'Added ...'
+    over a change that never saved is a lie, so every handler asks first."""
+    if getattr(opt, "save_error", None):
+        st.error(opt.save_error)
+        return False
+    return True
+
+
+def _note_discarded_batch(opt, batch_no_before):
+    """Flash the notice when the write just now retired the open batch."""
+    if batch_no_before is not None and opt.pending_batch_no is None:
+        flash("info", _BATCH_DISCARDED)
+
+
+def _confirmation_open():
+    """True while any confirmation is armed. Its 'Yes' is the lit button, and
+    this tab never shows two coloured buttons at once."""
+    return any(bool(v) for k, v in st.session_state.items()
+               if isinstance(k, str) and k.endswith("__pending"))
 
 
 def _goal_text(obj):
@@ -82,6 +111,8 @@ def _nothing_made_fits(opt):
 
 
 def _report_limit(opt, sentence):
+    if not _saved_ok(opt):
+        return
     flash("success", f"{sentence} {_LIMIT_KEPT}")
     if _nothing_made_fits(opt):
         flash("warning", "No formulation you have made fits this limit.")
@@ -104,6 +135,7 @@ def _amount_unit(opt):
     # the script into a rerun loop.
     if typed != opt.amount_unit:
         opt.set_amount_unit(typed)
+        _saved_ok(opt)
 
 
 def _ingredients(opt, storage):
@@ -131,25 +163,32 @@ def _ingredients(opt, storage):
     if df is not None:
         st.dataframe(df, hide_index=True, height=table_height(len(df)))
         if st.button("Load ingredients", key="load_ingredients"):
+            batch_no = opt.pending_batch_no
             try:
                 opt.load_ingredients_from_csv(df)
             except ValueError as e:
                 st.error(str(e))
             else:
-                # Clear the uploader too: leaving the file and its preview on
-                # screen invites a second Load, which errors once results exist.
-                st.session_state.pop("ingredients_csv", None)
-                flash("success", f"Loaded {plural(len(df), 'ingredient')}.")
-                st.rerun()
+                if _saved_ok(opt):
+                    # Clear the uploader too: leaving the file and its preview
+                    # on screen invites a second Load, which errors once
+                    # results exist.
+                    st.session_state.pop("ingredients_csv", None)
+                    flash("success", f"Loaded {plural(len(df), 'ingredient')}.")
+                    _note_discarded_batch(opt, batch_no)
+                    st.rerun()
 
     ingredients = [v for v in opt.variables
                    if v.get('category', 'ingredient') == 'ingredient']
     if ingredients:
+        # A Status column that says "active" on every row is a column of noise.
+        any_paused = any(not v.get('active', True) for v in ingredients)
         rows = pd.DataFrame([{
             "Name": v['name'],
             f"Min{_unit_suffix(unit)}": float(v['bounds'][0]),
             f"Max{_unit_suffix(unit)}": float(v['bounds'][1]),
-            "Status": "active" if v.get('active', True) else "paused",
+            **({"Status": "active" if v.get('active', True) else "paused"}
+               if any_paused else {}),
         } for v in ingredients])
         st.dataframe(rows, hide_index=True, key="ingredient_table",
                      height=table_height(len(rows), max_rows=20))
@@ -174,6 +213,7 @@ def _change_ingredient_list(opt, storage):
         st.caption("A new ingredient starts at 0 in every formulation already "
                    "made, so its minimum is fixed at 0 for now.")
     if st.button("Add ingredient", key="add_ingredient"):
+        batch_no = opt.pending_batch_no
         try:
             opt.add_ingredient(st.session_state["ing_name"],
                                st.session_state["ing_min"],
@@ -181,8 +221,11 @@ def _change_ingredient_list(opt, storage):
         except ValueError as e:
             st.error(str(e))
         else:
-            flash("success", f"Added {str(st.session_state['ing_name']).strip()}.")
-            st.rerun()
+            if _saved_ok(opt):
+                flash("success",
+                      f"Added {str(st.session_state['ing_name']).strip()}.")
+                _note_discarded_batch(opt, batch_no)
+                st.rerun()
 
     active = opt.active_variables()
     inactive = opt.inactive_variables()
@@ -193,14 +236,17 @@ def _change_ingredient_list(opt, storage):
     if len(active) > 1:
         pause = st.multiselect("Pause", [v['name'] for v in active], key="pause_pick")
         if st.button("Pause selected", disabled=not pause, key="pause_go"):
+            batch_no = opt.pending_batch_no
             try:
                 for name in pause:
                     opt.deactivate_variable(name)
             except ValueError as e:
                 st.error(str(e))
             else:
-                flash("success", f"Paused: {', '.join(pause)}.")
-                st.rerun()
+                if _saved_ok(opt):
+                    flash("success", f"Paused: {', '.join(pause)}.")
+                    _note_discarded_batch(opt, batch_no)
+                    st.rerun()
     else:
         st.caption("At least two ingredients or settings must stay active "
                    "before one can be paused.")
@@ -214,10 +260,13 @@ def _change_ingredient_list(opt, storage):
         resume = st.multiselect("Resume", [v['name'] for v in inactive],
                                 key="resume_pick")
         if st.button("Resume selected", disabled=not resume, key="resume_go"):
+            batch_no = opt.pending_batch_no
             for name in resume:
                 opt.reactivate_variable(name)
-            flash("success", f"Resumed: {', '.join(resume)}.")
-            st.rerun()
+            if _saved_ok(opt):
+                flash("success", f"Resumed: {', '.join(resume)}.")
+                _note_discarded_batch(opt, batch_no)
+                st.rerun()
 
     st.divider()
     # A checkbox, not an expander: Streamlit forbids nesting expanders.
@@ -241,14 +290,17 @@ def _change_ingredient_list(opt, storage):
                 "project is kept first.",
                 confirm_label="Yes, delete",
             ):
+                batch_no = opt.pending_batch_no
                 try:
                     storage.archive(opt.project_name, "pre_delete", copy=True)
                     opt.remove_ingredient(pick, force=force)
                 except (ValueError, storage_backend.StorageError) as e:
                     st.error(str(e))
                 else:
-                    flash("success", f"Deleted {pick}.")
-                    st.rerun()
+                    if _saved_ok(opt):
+                        flash("success", f"Deleted {pick}.")
+                        _note_discarded_batch(opt, batch_no)
+                        st.rerun()
 
 
 def _measurement_editor(opt, storage, editing):
@@ -287,11 +339,11 @@ def _measurement_editor(opt, storage, editing):
     with s1:
         st.session_state.setdefault(_mkey(editing, "min"),
                                     float((editing or {}).get('min_val', 0.0)))
-        lowest = st.number_input("lowest possible", key=_mkey(editing, "min"))
+        lowest = st.number_input("Lowest possible", key=_mkey(editing, "min"))
     with s2:
         st.session_state.setdefault(_mkey(editing, "max"),
                                     float((editing or {}).get('max_val', 10.0)))
-        highest = st.number_input("highest possible", key=_mkey(editing, "max"))
+        highest = st.number_input("Highest possible", key=_mkey(editing, "max"))
     st.caption("The ends of your scale or instrument range, not the values "
                "you expect")
 
@@ -303,14 +355,25 @@ def _measurement_editor(opt, storage, editing):
         help="Any positive number. 2 counts twice as much as 1.",
     )
 
-    others = sum(float(o['weight']) for o in opt.objectives if o['name'] != name)
-    total = others + float(importance)
-    share = (float(importance) / total * 100.0) if total > 0 else 0.0
-    shown_name = str(name).strip() or "This measurement"
-    st.markdown(f"{shown_name}: {share:.0f}% of the overall score")
+    # Only once there is something to name: "This measurement: 40% of the
+    # overall score" on an empty form is a share of nothing.
+    if str(name).strip():
+        others = sum(float(o['weight']) for o in opt.objectives
+                     if o['name'] != name)
+        total = others + float(importance)
+        share = (float(importance) / total * 100.0) if total > 0 else 0.0
+        st.markdown(f"{str(name).strip()}: {share:.0f}% of the overall score")
 
     if editing is None:
         if st.button("Add measurement", key="add_measurement"):
+            # add_objective REPLACES a measurement of the same name, which
+            # would silently overwrite its goal, target and scale and rescore
+            # every result with no copy kept. Editing is a different door.
+            if any(str(name).strip().lower() == o['name'].lower()
+                   for o in opt.objectives):
+                st.error("That measurement already exists. Use Edit on its "
+                         "row to change it.")
+                return
             try:
                 opt.add_objective(
                     name, importance, goal,
@@ -320,8 +383,7 @@ def _measurement_editor(opt, storage, editing):
             except (ValueError, storage_backend.StorageError) as e:
                 st.error(str(e))
             else:
-                if opt.save_error:
-                    st.error(opt.save_error)
+                if not _saved_ok(opt):
                     return
                 _clear_measurement_keys(None)
                 flash("success", f"Added {str(name).strip()}.")
@@ -342,11 +404,34 @@ def _measurement_editor(opt, storage, editing):
                                 lowest, highest, unit)
 
 
+def _rescores(editing, importance, goal, target, lowest, highest):
+    """True when this edit changes how every stored result scores. Importance
+    is not the only such field: the goal, the target and either end of the
+    scale all feed closeness, so all of them recalculate the history."""
+    def moved(before, after):
+        return abs(float(after) - float(before)) > 1e-9
+    if moved(editing['weight'], importance):
+        return True
+    if goal != editing['goal']:
+        return True
+    before_target = editing.get('target')
+    after_target = target if goal == 'target' else None
+    if (before_target is None) != (after_target is None):
+        return True
+    if before_target is not None and moved(before_target, after_target):
+        return True
+    return moved(editing['min_val'], lowest) or moved(editing['max_val'], highest)
+
+
 def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
                             lowest, highest, unit):
+    # editing is the live dict; update_objective mutates it, so read it first.
     changed_importance = abs(float(importance) - float(editing['weight'])) > 1e-9
+    rescores = _rescores(editing, importance, goal, target, lowest, highest)
     before = _best_formulation_no(opt)
-    if changed_importance and opt.X_history:
+    if rescores:
+        # No history guard: a copy is kept before every destructive action
+        # here, so the user always has one door back.
         try:
             storage.archive(opt.project_name, "pre_edit", copy=True)
         except storage_backend.StorageError as e:
@@ -361,16 +446,18 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
     except ValueError as e:
         st.error(str(e))
         return
-    if opt.save_error:
-        st.error(opt.save_error)
+    if not _saved_ok(opt):
         return
     _clear_measurement_keys(editing)
     st.session_state.pop("_editing_measurement", None)
-    if changed_importance:
+    if rescores:
         after = _best_formulation_no(opt)
-        sentence = (f"{editing['name']} importance changed to "
-                    f"{float(importance):.1f}. Every overall score was "
-                    "recalculated.")
+        sentence = (
+            f"{editing['name']} importance changed to {float(importance):.1f}. "
+            "Every overall score was recalculated."
+            if changed_importance else
+            f"Updated {editing['name']}. Every overall score was recalculated."
+        )
         move = _best_move_sentence(before, after)
         flash("success", f"{sentence} {move}".strip())
     else:
@@ -380,13 +467,14 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
 
 def _remove_measurement(opt, storage, name):
     before = _best_formulation_no(opt)
-    if opt.X_history:
-        try:
-            storage.archive(opt.project_name, "pre_edit", copy=True)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-            return
+    try:
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
     opt.remove_objective(name)
+    if not _saved_ok(opt):
+        return
     after = _best_formulation_no(opt)
     sentence = f"{name} removed. Every overall score was recalculated."
     move = _best_move_sentence(before, after)
@@ -420,21 +508,6 @@ def _measurements(opt, storage):
         "Share": f"{opt.importance_share(o['name']) * 100:.0f}%",
     } for i, o in enumerate(ordered)]), hide_index=True, key="measurement_table",
         height=table_height(len(ordered)))
-    st.caption(opt.score_function_line())
-
-    with st.expander("How closeness is worked out"):
-        st.markdown(
-            "- **Higher is better:** closeness = (measured − lowest) ÷ "
-            "(highest − lowest), so the top of your scale scores 1 and the "
-            "bottom scores 0.\n"
-            "- **Lower is better:** the reverse — the bottom of your scale "
-            "scores 1 and the top scores 0.\n"
-            "- **Hit a target:** closeness is 1 at the target and falls evenly "
-            "with distance from it; a full scale width away scores 0.\n\n"
-            "Each closeness is multiplied by that measurement's importance, "
-            "and the results are added up."
-        )
-
     for obj in ordered:
         e1, e2 = st.columns(2)
         with e1:
@@ -449,6 +522,21 @@ def _measurements(opt, storage):
                 confirm_label="Yes, remove",
             ):
                 _remove_measurement(opt, storage, obj['name'])
+
+    st.caption(opt.score_function_line())
+
+    with st.expander("How closeness is worked out"):
+        st.markdown(
+            "- **Higher is better:** closeness = (measured − lowest) ÷ "
+            "(highest − lowest), so the top of your scale scores 1 and the "
+            "bottom scores 0.\n"
+            "- **Lower is better:** the reverse — the bottom of your scale "
+            "scores 1 and the top scores 0.\n"
+            "- **Hit a target:** closeness is 1 at the target and falls evenly "
+            "with distance from it; a full scale width away scores 0.\n\n"
+            "Each closeness is multiplied by that measurement's importance, "
+            "and the results are added up."
+        )
 
 
 def _process_settings(opt, storage):
@@ -482,6 +570,7 @@ def _process_settings(opt, storage):
                 st.error("Enter the baseline: the setting you used for every "
                          "formulation already made.")
             else:
+                batch_no = opt.pending_batch_no
                 try:
                     opt.add_process_parameter(
                         st.session_state["pp_name"], st.session_state["pp_min"],
@@ -491,9 +580,11 @@ def _process_settings(opt, storage):
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    flash("success",
-                          f"Added {str(st.session_state['pp_name']).strip()}.")
-                    st.rerun()
+                    if _saved_ok(opt):
+                        flash("success",
+                              f"Added {str(st.session_state['pp_name']).strip()}.")
+                        _note_discarded_batch(opt, batch_no)
+                        st.rerun()
 
         process = [v for v in opt.variables if v.get('category') == 'process']
         for i, pv in enumerate(process):
@@ -505,25 +596,27 @@ def _process_settings(opt, storage):
                 paused = "" if pv.get('active', True) else "  (paused)"
                 st.text(f"{pv['name']}: {low:g} to {high:g}{base_txt}{paused}")
             with p2:
-                if opt.X_history:
-                    go = confirm_action(
-                        f"rm_pp_{i}", "Remove",
-                        f"Remove {pv['name']}? Formulations already made will "
-                        "be recorded without it. A copy of the project is "
-                        "kept first.",
-                        confirm_label="Yes, remove",
-                    )
-                else:
-                    go = st.button("Remove", key=f"rm_pp_{i}")
-                if go:
+                # Always confirmed, always copied first, history or not: a
+                # removal is a removal and the user is told the same thing
+                # every time.
+                if confirm_action(
+                    f"rm_pp_{i}", "Remove",
+                    f"Remove {pv['name']}? Formulations already made will "
+                    "be recorded without it. A copy of the project is "
+                    "kept first.",
+                    confirm_label="Yes, remove",
+                ):
+                    batch_no = opt.pending_batch_no
                     try:
                         storage.archive(opt.project_name, "pre_delete", copy=True)
                     except storage_backend.StorageError as e:
                         st.error(str(e))
                     else:
                         opt.remove_process_parameter(pv['name'])
-                        flash("success", f"Removed {pv['name']}.")
-                        st.rerun()
+                        if _saved_ok(opt):
+                            flash("success", f"Removed {pv['name']}.")
+                            _note_discarded_batch(opt, batch_no)
+                            st.rerun()
 
 
 def _limits(opt):
@@ -573,9 +666,10 @@ def _limits(opt):
                 if st.button("Remove", key=f"rm_constr_{i}"):
                     metric = constraint['metric']
                     opt.remove_constraint(i)
-                    flash("success", f"Limit on {metric} removed. The next "
-                                     "batch is no longer held to it.")
-                    st.rerun()
+                    if _saved_ok(opt):
+                        flash("success", f"Limit on {metric} removed. The next "
+                                         "batch is no longer held to it.")
+                        st.rerun()
 
         names = [v['name'] for v in opt.variables
                  if v.get('category', 'ingredient') == 'ingredient']
@@ -593,15 +687,11 @@ def _limits(opt):
         with q2:
             st.number_input(f"Max sum{_unit_suffix(unit)}", value=None,
                             placeholder="no limit", key="qc_max")
-        u1, u2 = st.columns(2)
-        with u1:
-            use_min = st.checkbox("Set a minimum", value=False, key="qc_use_min")
-        with u2:
-            # Unchecked: a maximum applied by default is a limit nobody chose.
-            use_max = st.checkbox("Set a maximum", value=False, key="qc_use_max")
+        # No "Set a maximum" tick box: a blank field already means no limit,
+        # exactly as it does for the total amount below, and a box the user
+        # forgot to tick silently threw their number away.
         if st.button("Add an amount limit", key="add_amount_limit"):
-            low = st.session_state["qc_min"] if use_min else None
-            high = st.session_state["qc_max"] if use_max else None
+            low, high = st.session_state["qc_min"], st.session_state["qc_max"]
             if not picked:
                 st.error("Choose at least one ingredient.")
             elif low is None and high is None:
@@ -646,10 +736,11 @@ def _limits(opt):
             with l2:
                 if st.button("Remove", key=f"rm_qc_{i}"):
                     opt.remove_quantity_constraint(i)
-                    # No .lower(): ingredient names are names.
-                    flash("success", f"Limit on {label} removed. The next "
-                                     "batch is no longer held to it.")
-                    st.rerun()
+                    if _saved_ok(opt):
+                        # No .lower(): ingredient names are names.
+                        flash("success", f"Limit on {label} removed. The next "
+                                         "batch is no longer held to it.")
+                        st.rerun()
 
 
 def _advanced(opt):
@@ -664,8 +755,9 @@ def _advanced(opt):
             if current is not None and st.button("Revert to standard settings",
                                                  key="bo_revert"):
                 opt.set_bo_config(None)
-                flash("success", "Using default model settings.")
-                st.rerun()
+                if _saved_ok(opt):
+                    flash("success", "Using default model settings.")
+                    st.rerun()
         else:
             b1, b2 = st.columns(2)
             with b1:
@@ -685,8 +777,9 @@ def _advanced(opt):
             if st.button("Apply expert settings", key="bo_apply"):
                 opt.set_bo_config({"kernel": kernel, "lengthscale_prior": prior,
                                    "noise": noise, "acquisition": acq})
-                flash("success", "Model settings updated.")
-                st.rerun()
+                if _saved_ok(opt):
+                    flash("success", "Model settings updated.")
+                    st.rerun()
             if st.checkbox("Or paste expert settings as JSON", key="bo_paste"):
                 text = st.text_area(
                     "Expert settings JSON",
@@ -700,8 +793,9 @@ def _advanced(opt):
                     except Exception as e:
                         st.error(f"Invalid JSON: {e}")
                     else:
-                        flash("success", "Model settings updated.")
-                        st.rerun()
+                        if _saved_ok(opt):
+                            flash("success", "Model settings updated.")
+                            st.rerun()
         if current:
             st.caption("Active model settings: "
                        + ", ".join(f"{k}: {v}" for k, v in current.items()))
@@ -709,9 +803,12 @@ def _advanced(opt):
 
 def _foot(opt):
     ready, missing = readiness(opt)
+    # While a confirmation is armed, its "Yes" is the one coloured button and
+    # answering it is the one thing to do; moving on can wait a click.
+    lit = ready and not _confirmation_open()
     if st.button("Continue to make a batch",
-                 type="primary" if ready else "secondary",
-                 disabled=not ready, key="continue_to_batch") and ready:
+                 type="primary" if lit else "secondary",
+                 disabled=not lit, key="continue_to_batch") and lit:
         go_to_tab(TAB_BATCH)
     if not ready:
         st.caption(missing)

@@ -222,7 +222,7 @@ class TestObjectiveValidation:
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="within the range"):
+        with pytest.raises(ValueError, match="must be between the scale"):
             opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
 
     def test_blank_name_rejected(self, tmp_path, monkeypatch):
@@ -284,8 +284,9 @@ def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
                            {"Water": 20.0, "Temp": 190.0}])
     df = opt.batch_frame(opt.pending_batch)
     assert list(df["Formulation"]) == [1, 2]
-    assert list(df.columns) == ["Formulation", "Water", "Temp", "Total"]
-    assert df["Total"].iloc[0] == 10.0   # the process setting is not an amount
+    # Every column carries the project unit, and g is a new project's default.
+    assert list(df.columns) == ["Formulation", "Water (g)", "Temp (g)", "Total (g)"]
+    assert df["Total (g)"].iloc[0] == 10.0   # the process setting is not an amount
 
 
 def test_recipe_lines_sorts_largest_first_and_omits_zeros(tmp_path, monkeypatch):
@@ -882,7 +883,7 @@ class TestRemoveIngredient:
         opt_configured.tell(
             {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
         )
-        with pytest.raises(ValueError, match="nonzero amount"):
+        with pytest.raises(ValueError, match="cannot be deleted"):
             opt_configured.remove_ingredient("Flour")
 
     def test_allows_never_used_ingredient(self, opt_configured):
@@ -1308,6 +1309,59 @@ class TestUnitsAndImportance:
         reloaded = FoodOptimizer("units")
         assert reloaded.amount_unit == "g"
         assert reloaded.objectives[0]["unit"] == "N"
+
+    def test_a_new_project_is_already_in_grams(self, tmp_path, monkeypatch):
+        """A blank unit made every amount on every screen ambiguous."""
+        monkeypatch.chdir(tmp_path)
+        assert FoodOptimizer("fresh").amount_unit == "g"
+
+    def test_a_project_saved_before_units_existed_opens_in_grams(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("legacy")
+        opt.add_ingredient("Water", 0, 100)
+        state = opt.export_json()
+        state.pop("amount_unit", None)          # a 0.2.x file has no unit
+        opened = FoodOptimizer("legacy2")
+        opened.import_json(state)
+        assert opened.amount_unit == "g"
+
+    def test_the_target_refusal_names_the_scale_in_plain_words(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as add:
+            opt.add_objective("Chew", 1.0, goal="target", target=99,
+                              min_val=0, max_val=10)
+        assert str(add.value) == ("Target 99 must be between the scale's "
+                                  "lowest and highest (0 to 10).")
+        with pytest.raises(ValueError) as edit:
+            opt.update_objective("Firmness", target=99)
+        assert str(edit.value) == ("Target 99 must be between the scale's "
+                                   "lowest and highest (0 to 10).")
+
+    def test_a_backwards_scale_is_refused_in_the_tab_s_words(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as e:
+            opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
+        assert str(e.value) == "Scale lowest must be less than scale highest."
+
+    def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 0.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=3, batch_no=1)
+        with pytest.raises(ValueError) as one:
+            opt.remove_ingredient("Pea protein")
+        assert str(one.value) == (
+            "'Pea protein' was used in Formulation 3, so it cannot be "
+            "deleted. Tick 'Delete even if it was used' to discard that "
+            "information."
+        )
+        opt.tell({"Pea protein": 12.0, "Methylcellulose": 0.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=5, batch_no=1)
+        with pytest.raises(ValueError) as two:
+            opt.remove_ingredient("Pea protein")
+        assert "used in Formulations 3 and 5, so it cannot be deleted" in str(two.value)
 
     def test_measurements_are_ordered_by_importance(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

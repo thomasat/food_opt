@@ -73,7 +73,7 @@ from datetime import datetime
 # join_unit and goal_line live in food_bo (they are pure data formatting and
 # closeness_details needs them too); the tab modules import them from here so
 # there is one import site for screen helpers.
-from food_bo import goal_line, join_unit  # noqa: F401  (re-exported)
+from food_bo import goal_line, join_unit, number_list  # noqa: F401  (re-exported)
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
@@ -94,14 +94,6 @@ def go_to_tab(label):
 def plural(n, word):
     """'1 formulation', '3 formulations' — never '1 formulation(s)'."""
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
-
-
-def number_list(numbers):
-    """'1', '1 and 2', '7, 8 and 9'."""
-    items = [str(n) for n in numbers]
-    if len(items) <= 1:
-        return "".join(items)
-    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def fmt_amount(value, unit="", decimals=2):
