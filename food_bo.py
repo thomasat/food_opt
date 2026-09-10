@@ -578,21 +578,24 @@ class FoodOptimizer:
         return removed
 
     def prune_amount_limits(self):
-        """Drop every amount limit that has stopped meaning anything, and
-        return what was dropped so the screen can name it.
+        """Drop every limit that has stopped meaning anything, and return what
+        was dropped so the screen can name it.
 
-        An amount limit is arithmetic, not a label: it holds the next batch
-        to the SUM of some ingredients. Three edits can leave that sum
-        meaningless — a unit set on one ingredient, a new default unit (every
-        ingredient without one of its own follows it), and a reloaded
-        ingredient file, which can do both at once and drop ingredients
-        outright. All three call this, so a limit that survives one edit is
-        one that still means something.
+        A limit is arithmetic, not a label: an amount limit holds the next
+        batch to the SUM of some ingredients, and a property limit to their
+        mass-weighted AVERAGE. Three edits can leave either meaningless — a
+        unit set on one ingredient, a new default unit (every ingredient
+        without one of its own follows it), and a reloaded ingredient file,
+        which can do both at once and drop ingredients outright. All three
+        call this, so a limit that survives one edit is one that still means
+        something.
 
-        Each entry is {'ingredients', 'min', 'max', 'reason'} with
+        An amount-limit entry is {'ingredients', 'min', 'max', 'reason'} with
         reason 'missing' (it names an ingredient this project no longer has,
-        listed in 'missing') or 'unit' (its ingredients no longer share one).
-        Formulations already made are untouched."""
+        listed in 'missing') or 'unit' (its ingredients no longer share one);
+        a property-limit entry carries 'metric' instead of 'ingredients', and
+        only ever the 'unit' reason. Formulations already made are
+        untouched."""
         names = {v['name'] for v in self.variables
                  if v.get('category', 'ingredient') == 'ingredient'}
         kept, removed = [], []
@@ -605,7 +608,29 @@ class FoodOptimizer:
             else:
                 kept.append(qc)
         self.quantity_constraints = kept
+        # A property limit is read per 100 g of the finished formulation —
+        # an average over the same amounts — so it needs one unit just as a
+        # sum does, and there is no per-limit question to ask: once the
+        # ingredients differ, every one of them has stopped meaning anything.
+        if self.constraints and len(self.ingredient_units()) > 1:
+            removed += [dict(c, reason='unit') for c in self.constraints]
+            self.constraints = []
         return removed
+
+    def set_variable_unit(self, name, unit):
+        """The unit one row of What you can vary is written in, whichever kind
+        it is. A process setting carries its own unit — a cook temperature is
+        in °C — and is part of no sum and no average, so setting one can break
+        no limit; an ingredient's goes the long way round, through the pruning
+        every unit change owes the limits."""
+        var = next((v for v in self.variables if v['name'] == name), None)
+        if var is None:
+            raise ValueError(f"No ingredient or setting named {name}.")
+        if var.get('category', 'ingredient') == 'ingredient':
+            return self.set_ingredient_unit(name, unit)
+        var['unit'] = str(unit or "").strip()
+        self.save()
+        return []
 
     def set_ingredient_unit(self, name, unit):
         """The unit one ingredient's amounts are written in. Nothing is

@@ -349,10 +349,7 @@ def _variable_controls(opt, storage):
         typed = st.text_input("Unit", key="unit_value",
                               placeholder=opt.unit_of(pick) or "g")
     with c4:
-        if st.button("Set unit", key="set_unit", disabled=not is_ingredient,
-                     help=(None if is_ingredient else
-                           "A process setting's unit is set when you add "
-                           "it.")):
+        if st.button("Set unit", key="set_unit"):
             _set_unit_now(opt, pick, typed)
     with c5:
         _remove_variable(opt, storage, pick, is_ingredient)
@@ -389,8 +386,9 @@ def _pause_or_resume(opt, var, pick):
 
 
 def _set_unit_now(opt, pick, typed):
-    """Change one ingredient's unit. Nothing is rescored and the open batch
-    stands: a unit is how an amount is written, not the amount."""
+    """Change one row's unit, ingredient or process setting. Nothing is
+    rescored and the open batch stands: a unit is how a number is written,
+    not the number."""
     if not str(typed).strip():
         # A blank box looks like a no-op and is not one: it would rewrite the
         # ingredient to no unit at all, and could take an amount limit with it.
@@ -398,7 +396,7 @@ def _set_unit_now(opt, pick, typed):
         return
     scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
     try:
-        removed = opt.set_ingredient_unit(pick, typed)
+        removed = opt.set_variable_unit(pick, typed)
     except ValueError as e:
         st.error(str(e))
         return
@@ -530,6 +528,13 @@ def _flash_removed_limits(opt, removed):
     each. Three edits can do it — a unit set on one ingredient, a new default
     unit, a reloaded ingredient file — and all three say it the same way."""
     for qc in removed:
+        if 'metric' in qc:
+            # A property limit is an average over the amounts, so it is the
+            # ingredients as a whole that stopped sharing a unit — there is no
+            # list of its own to name.
+            flash("warning", f"The limit on {qc['metric']} was removed because "
+                             "the ingredients no longer share a unit.")
+            continue
         label = _limit_label(opt, qc)
         if qc.get('reason') == 'missing':
             gone = qc.get('missing') or []

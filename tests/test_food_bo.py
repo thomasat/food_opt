@@ -595,6 +595,67 @@ class TestPropertyLimitsPerHundred:
         opt.add_constraint("Fat per 100 g", max_val=25)
         assert opt.constraints[0]['basis'] == 'per_100'
 
+    def test_a_unit_set_on_one_ingredient_drops_a_property_limit(self, opt):
+        """An average over the amounts needs one unit, exactly as a sum does,
+        so the same three edits that prune an amount limit prune this one."""
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        removed = opt.set_ingredient_unit("Fatty", "ml")
+        assert opt.constraints == []
+        assert [(r['metric'], r['reason']) for r in removed] == [
+            ("Fat per 100 g", "unit")]
+
+    def test_re_adding_an_ingredient_in_another_unit_drops_it(self, opt):
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        removed = opt.add_ingredient("Fatty", 0, 100, unit="ml")
+        assert opt.constraints == []
+        assert [r['metric'] for r in removed] == ["Fat per 100 g"]
+
+    def test_a_reloaded_file_in_two_units_drops_it(self, opt):
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        removed = opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Lean", "Fatty"],
+            "Min": [0, 0],
+            "Max": [100, 100],
+            "Unit": ["g", "ml"],
+            "Fat per 100 g": [10.0, 30.0],
+        }))
+        assert opt.constraints == []
+        assert [r['metric'] for r in removed] == ["Fat per 100 g"]
+
+    def test_a_limit_that_still_means_something_is_left_alone(self, opt):
+        """An edit that leaves every ingredient in one unit takes nothing."""
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        assert opt.set_ingredient_unit("Fatty", "g") == []
+        assert opt.add_ingredient("Fatty", 0, 90, unit="g") == []
+        assert len(opt.constraints) == 1
+
+    def test_a_settings_unit_is_set_without_touching_a_limit(self, opt):
+        """A process setting is not part of any sum or any average, so its
+        unit cannot break a limit."""
+        opt = self._fatty(opt)
+        opt.add_process_parameter("Cook temperature", 150, 200)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        opt.add_total_mass_constraint(max_val=150)
+        assert opt.set_variable_unit("Cook temperature", "°C") == []
+        assert opt._var_by_name("Cook temperature")['unit'] == "°C"
+        assert len(opt.constraints) == 1
+        assert len(opt.quantity_constraints) == 1
+
+    def test_set_variable_unit_still_prunes_for_an_ingredient(self, opt):
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        removed = opt.set_variable_unit("Fatty", "ml")
+        assert [r['metric'] for r in removed] == ["Fat per 100 g"]
+
+    def test_set_variable_unit_refuses_a_name_the_project_lacks(self, opt):
+        opt = self._fatty(opt)
+        with pytest.raises(ValueError, match="No ingredient or setting named"):
+            opt.set_variable_unit("Nutmeg", "g")
+
     def test_pausing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
         """Pausing the only ingredient that carries the fat leaves a minimum
         nothing can reach."""

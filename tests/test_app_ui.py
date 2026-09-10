@@ -3959,16 +3959,74 @@ def test_the_control_row_sets_one_ingredient_unit(burger):
     assert FoodOptimizer("burger").unit_of("Methylcellulose") == "ml"
 
 
-def test_set_unit_is_grey_for_a_process_setting(burger):
+def test_set_unit_changes_a_process_setting_too(burger):
+    """A setting carries its own unit, so the same control sets it — and it
+    is part of no sum and no average, so no limit is touched."""
+    burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
+                                   max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Cook temperature")
+    at.run()
+    assert not _submit_button(at, "Set unit").disabled
+    at.text_input(key="unit_value").set_value("°F")
+    at.run()
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Cook temperature is measured in °F."
+               for s in at.success), [s.value for s in at.success]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.unit_of("Cook temperature") == "°F"
+    assert len(reloaded.quantity_constraints) == 1
+    assert not at.warning, [w.value for w in at.warning]
+
+
+def test_a_blank_unit_is_refused_for_a_setting_as_well(burger):
     burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.selectbox(key="var_pick").select("Cook temperature")
     at.run()
-    button = _submit_button(at, "Set unit")
-    assert button.disabled
-    assert button.proto.help == ("A process setting's unit is set when you "
-                                 "add it.")
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert [e.value for e in at.error] == ["Enter a unit, such as g or ml."]
+    assert FoodOptimizer("burger").unit_of("Cook temperature") == "°C"
+
+
+def test_a_unit_change_that_breaks_a_property_limit_says_so(with_properties):
+    """A property limit is an average over the amounts, so it needs one unit
+    just as a sum does; when a unit change takes that away it is removed, in
+    the same one line an amount limit gets."""
+    with_properties.add_constraint("Fat per 100 g", max_val=25.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Water")
+    at.run()
+    at.text_input(key="unit_value").set_value("ml")
+    at.run()
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning] == [
+        "The limit on Fat per 100 g was removed because the ingredients no "
+        "longer share a unit."], [w.value for w in at.warning]
+    assert FoodOptimizer("props").constraints == []
+
+
+def test_a_reloaded_file_in_two_units_says_which_limit_went(with_properties):
+    with_properties.add_constraint("Fat per 100 g", max_val=25.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Coconut oil")
+    at.run()
+    at.text_input(key="unit_value").set_value("ml")
+    at.run()
+    _submit_button(at, "Set unit").click()
+    at.run()
+    assert any("The limit on Fat per 100 g was removed" in w.value
+               for w in at.warning), [w.value for w in at.warning]
 
 
 def test_remove_from_the_control_row_confirms_and_keeps_a_copy(burger, tmp_path):
