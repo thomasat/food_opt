@@ -779,12 +779,12 @@ def _labels(at):
     return [b.label for b in at.button]
 
 
-def test_setup_shows_the_amount_unit_and_uses_it_in_headers(burger):
+def test_setup_shows_the_default_unit_and_the_ingredients_that_follow_it(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.text_input(key="amount_unit").value == "g"
-    assert any("Min (g)" in str(d.value.columns.tolist()) for d in at.dataframe), \
-        [d.value.columns.tolist() for d in at.dataframe]
+    table = next(d.value for d in at.dataframe if "Unit" in d.value.columns)
+    assert list(table["Unit"]) == ["g", "g"], table.to_dict()
 
 
 def test_a_unit_typed_with_a_trailing_space_is_saved_once(burger):
@@ -1034,11 +1034,14 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_change_the_ingredient_list_carries_the_unit(burger):
+def test_change_the_ingredient_list_opens_on_the_default_unit(burger):
+    """Min and Max stay plain: the unit is the box beside them, and repeating
+    it in their labels would go stale the moment it is retyped."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="ing_min").label == "Min (g)"
-    assert at.number_input(key="ing_max").label == "Max (g)"
+    assert at.text_input(key="ing_unit").value == "g"
+    assert at.number_input(key="ing_min").label == "Min"
+    assert at.number_input(key="ing_max").label == "Max"
 
 
 def test_manual_add_ingredient_and_the_mid_run_minimum_notice(burger):
@@ -1279,12 +1282,12 @@ def test_the_scale_labels_are_sentence_case(burger):
 def test_the_ingredient_table_has_no_status_column_until_something_is_paused(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Min (g)" in d.value.columns)
-    assert list(table.columns) == ["Name", "Min (g)", "Max (g)"], list(table.columns)
+    table = next(d.value for d in at.dataframe if "Min" in d.value.columns)
+    assert list(table.columns) == ["Name", "Min", "Max", "Unit"], list(table.columns)
     at.multiselect(key="pause_pick").set_value(["Methylcellulose"])
     _submit_button(at, "Pause selected").click()
     at.run()
-    table = next(d.value for d in at.dataframe if "Min (g)" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Min" in d.value.columns)
     assert list(table["Status"]) == ["active", "paused"], list(table["Status"])
 
 
@@ -2653,8 +2656,8 @@ def test_a_project_saved_before_units_existed_says_the_g_is_a_guess(tmp_path,
     at.run()
     assert not at.exception
     assert any(c.value == ("This project was made before units were recorded. "
-                           "Amounts are shown in g — change it here if that "
-                           "is wrong.") for c in at.caption), \
+                           "Its amounts are shown in g — change it here if "
+                           "that is wrong.") for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -2906,3 +2909,211 @@ def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
                  if "Ingredient or setting" in t.value.columns)
     amounts = dict(zip(table["Ingredient or setting"], table["Amount"]))
     assert amounts["Cook temperature"] == "188.49 °C", amounts
+
+
+# ------------------------------------------------------------------ #
+#  Units per ingredient (owner amendment, 2026-09-10)
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def mixed_units(tmp_path, monkeypatch):
+    """A project whose ingredients are not all in one unit: the powder is
+    weighed in grams, the water is measured in millilitres."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mixed")
+    opt.add_ingredient("Pea protein", 0, 25)
+    opt.add_ingredient("Water", 0, 60, unit="ml")
+    opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                      min_val=0, max_val=10, unit="N")
+    return opt
+
+
+def test_the_unit_box_names_itself_the_default_for_new_ingredients(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    box = at.text_input(key="amount_unit")
+    assert box.label == "Default unit for new ingredients"
+    assert box.value == "g"
+
+
+def test_the_ingredient_table_has_plain_headers_and_a_unit_column(mixed_units):
+    """Min (g) over a row measured in ml was a lie. The headers are plain and
+    each row says what it is measured in."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Name" in d.value.columns)
+    assert list(table.columns) == ["Name", "Min", "Max", "Unit"]
+    assert dict(zip(table["Name"], table["Unit"])) == {"Pea protein": "g",
+                                                       "Water": "ml"}
+
+
+def test_a_new_ingredient_is_added_with_its_own_unit(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.text_input(key="ing_unit").value == "g"      # the project default
+    assert at.number_input(key="ing_min").label == "Min"
+    assert at.number_input(key="ing_max").label == "Max"
+    at.text_input(key="ing_name").set_value("Water")
+    at.text_input(key="ing_unit").set_value("ml")
+    at.number_input(key="ing_max").set_value(60.0)
+    _submit_button(at, "Add ingredient").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").unit_of("Water") == "ml"
+
+
+def test_set_unit_changes_one_ingredient_and_says_so(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="unit_pick").select("Methylcellulose")
+    at.text_input(key="unit_value").set_value("mg")
+    button = _submit_button(at, "Set unit")
+    assert button.proto.type == "secondary"     # the foot keeps the colour
+    button.click()
+    at.run()
+    assert not at.exception
+    assert any("Methylcellulose is measured in mg." in s.value
+               for s in at.success), [s.value for s in at.success]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.unit_of("Methylcellulose") == "mg"
+    assert reloaded.unit_of("Pea protein") == "g"
+    # The box empties: a unit left in it is one click away from being
+    # applied to the next ingredient chosen.
+    assert at.text_input(key="unit_value").value == ""
+
+
+def test_the_uploader_says_the_unit_column_is_optional(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
+    assert "Unit" in uploader.proto.help, uploader.proto.help
+
+
+def test_the_batch_table_carries_each_unit_and_a_per_unit_total(mixed_units):
+    mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(frame.value.columns) == ["Formulation", "Pea protein (g)",
+                                         "Water (ml)", "Total"]
+    assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
+
+
+def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
+    """Scaling 10 g of powder and 40 ml of water to a total of 400 means
+    nothing, so the box is not offered and one line says why."""
+    mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert [n.key for n in at.number_input if n.key == "scale_total"] == []
+    assert any(c.value == "Scaling needs all ingredients in one unit."
+               for c in at.caption), [c.value for c in at.caption]
+    # ... and it comes back the moment they do share one.
+    mixed_units.set_ingredient_unit("Water", "g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="scale_total").label == \
+        "Scale each formulation to a total of (g)"
+
+
+def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
+    """The box is gone, but Streamlit keeps a hidden widget's last value. It
+    must not go on scaling amounts nobody can see it acting on."""
+    mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["scale_total"] = 400.0
+    at.run()
+    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
+    assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
+
+
+def test_the_printable_sheet_writes_every_amount_in_its_own_unit(mixed_units):
+    mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    lines = [t.value for t in at.text]
+    assert "Pea protein: 10.00 g" in lines, lines
+    assert "Water: 40.00 ml" in lines, lines
+    assert "Total: 10.00 g · 40.00 ml" in lines, lines
+
+
+def test_the_biggest_changes_line_uses_each_ingredients_unit(mixed_units):
+    mixed_units.tell({"Pea protein": 10.0, "Water": 30.0}, {"Firmness": 6.0},
+                     formulation_no=1, batch_no=1)
+    mixed_units.set_pending_batch([{"Pea protein": 12.0, "Water": 40.0}],
+                                  batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    line = next((c.value for c in at.caption
+                 if c.value.startswith("Biggest changes")), "")
+    assert line == ("Biggest changes from Formulation 1: Water +10.00 ml, "
+                    "Pea protein +2.00 g."), line
+
+
+def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
+    mixed_units.tell({"Pea protein": 10.0, "Water": 40.0}, {"Firmness": 6.0},
+                     formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(t.value for t in at.table
+                 if "Ingredient or setting" in t.value.columns)
+    amounts = dict(zip(table["Ingredient or setting"], table["Amount"]))
+    assert amounts == {"Water": "40.00 ml", "Pea protein": "10.00 g"}
+
+
+def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.multiselect(key="qty_pick").select("Water")
+    at.number_input(key="qc_max").set_value(50.0)
+    _submit_button(at, "Add an amount limit").click()
+    at.run()
+    assert not at.exception
+    assert [e.value for e in at.error] == ["Choose ingredients that share a unit."]
+    assert FoodOptimizer("mixed").quantity_constraints == []
+
+
+def test_a_paused_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
+    mixed_units.add_process_parameter("Cook temperature", 160, 200, unit="°C")
+    mixed_units.deactivate_variable("Water", value=30.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Held at" in d.value.columns)
+    assert dict(zip(table["Name"], table["Held at"])) == {"Water": "30.00 ml"}
+
+
+def test_the_set_unit_box_survives_a_switch_to_a_project_without_that_row(
+        mixed_units, tmp_path):
+    """A select box cannot show a value that is not one of its options, and
+    the other project has no ingredient called Water: it must fall back to
+    that project's first ingredient rather than break the tab."""
+    other = FoodOptimizer("other")
+    other.set_amount_unit("ml")
+    other.add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mixed"
+    at.run()
+    at.selectbox(key="unit_pick").select("Water")
+    at.text_input(key="ing_unit").set_value("kg")
+    at.run()
+    at.sidebar.selectbox(key="project_select").select("other")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert at.selectbox(key="unit_pick").value == "Flour"
+    # ...and the add form opens on the NEW project's default, not on what was
+    # half-typed in the old one.
+    assert at.text_input(key="ing_unit").value == "ml"
+
+
+def test_an_amount_limit_is_listed_in_the_unit_it_limits(mixed_units):
+    """A limit is a sum of ingredients that share a unit, so the number it
+    holds them to is written in that unit."""
+    mixed_units.add_quantity_constraint(["Water"], max_val=45)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(t.value == "Water: at most 45 ml" for t in at.text), \
+        [t.value for t in at.text]

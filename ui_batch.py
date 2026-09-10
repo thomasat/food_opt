@@ -37,7 +37,10 @@ def _left_out(formulation_no):
 
 
 def _scale_to(opt):
-    """The total every formulation is scaled to, or None while the box is empty.
+    """The total every formulation is scaled to, or None while the box is empty
+    — and always None while the ingredients are not all in one unit, because
+    the box is not offered then and a value left behind in it must not go on
+    quietly rewriting amounts nobody can see it acting on.
 
     The box starts EMPTY, and empty means 'as generated'. It used to open
     pre-filled with the first formulation's total, which was wrong in both
@@ -45,6 +48,8 @@ def _scale_to(opt):
     typing that same number back was a silent no-op. An empty box has one
     meaning, any number in it has the other, and clearing it undoes the
     scaling."""
+    if opt.one_amount_unit() is None:
+        return None
     value = st.session_state.get("scale_total")
     if value is None or float(value) <= 0:
         return None
@@ -147,13 +152,17 @@ def _amount_format(opt, frame):
     carries the setting's unit, so only the number is formatted here."""
     settings = {opt._amount_column(v['name']) for v in opt.variables
                 if v.get('category') == 'process'}
+    # A total across several units is already written out ("10.00 g · 40.00
+    # ml"); formatting a string as a number would raise.
+    skip = {"Formulation", "Note"} | {c for c in frame.columns
+                                      if frame[c].dtype == object}
     return {c: (fmt_setting if c in settings else "{:.2f}")
-            for c in frame.columns if c not in ("Formulation", "Note")}
+            for c in frame.columns if c not in skip}
 
 
 def _batch_table(opt):
     rows = opt.pending_batch
-    unit = opt.amount_unit
+    unit = opt.one_amount_unit()
     st.markdown(f"**Batch {opt.pending_batch_no} · make "
                 f"{'this' if len(rows) == 1 else 'these'} "
                 f"{plural(len(rows), 'formulation')}**")
@@ -163,23 +172,28 @@ def _batch_table(opt):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-    st.session_state.setdefault("scale_total", None)
-    st.number_input(
-        f"Scale each formulation to a total of ({unit})" if unit
-        else "Scale each formulation to a total of",
-        min_value=0.0, step=1.0, placeholder="as generated",
-        key="scale_total",
-        help="Leave this empty to weigh out the amounts as they were "
-             "generated. Type a total and every formulation is rewritten to "
-             "it, on screen and in both downloads.",
-    )
-    if scale_to is None:
-        st.caption("Shown as generated.")
+    if unit is None:
+        # Scaling 10 g of powder and 40 ml of water to "400" is not a total
+        # of anything, so the box is not offered and one line says why.
+        st.caption("Scaling needs all ingredients in one unit.")
     else:
-        # The table on screen is scaled as well, so this is not a fact about
-        # the downloads alone.
-        st.caption("Shown and printed at a total of "
-                   + join_unit(f"{scale_to:g}", unit) + ".")
+        st.session_state.setdefault("scale_total", None)
+        st.number_input(
+            f"Scale each formulation to a total of ({unit})" if unit
+            else "Scale each formulation to a total of",
+            min_value=0.0, step=1.0, placeholder="as generated",
+            key="scale_total",
+            help="Leave this empty to weigh out the amounts as they were "
+                 "generated. Type a total and every formulation is rewritten "
+                 "to it, on screen and in both downloads.",
+        )
+        if scale_to is None:
+            st.caption("Shown as generated.")
+        else:
+            # The table on screen is scaled as well, so this is not a fact
+            # about the downloads alone.
+            st.caption("Shown and printed at a total of "
+                       + join_unit(f"{scale_to:g}", unit) + ".")
     if opt.pending_batch_discarded:
         st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
                    "were discarded and their numbers will not be used again.")
@@ -191,9 +205,11 @@ def _batch_table(opt):
             changes = opt.biggest_changes(rows[0]['recipe'],
                                           opt.recipe_history[index], n=2)
             if changes:
+                # Each change in that ingredient's own unit: +10.00 ml of
+                # water beside +2.00 g of protein.
                 parts = ", ".join(
                     f"{name} {'+' if delta > 0 else '−'}"
-                    f"{fmt_amount(abs(delta), unit)}"
+                    f"{fmt_amount(abs(delta), opt.unit_of(name))}"
                     for name, delta in changes
                 )
                 st.caption(f"Biggest changes from Formulation {best_no}: {parts}.")
@@ -202,7 +218,6 @@ def _batch_table(opt):
 def _sheet_lines(opt, row, scale_to):
     """One printable sheet as a list of plain-text lines. Shared by the on-screen
     sheets and the downloadable HTML so the two can never drift apart."""
-    unit = opt.amount_unit
     recipe = opt.scaled_recipe(row['recipe'], scale_to)
     made_on = opt.pending_batch_created or datetime.now().astimezone().strftime("%Y-%m-%d")
     ingredients = [v for v in opt.variables
@@ -213,8 +228,10 @@ def _sheet_lines(opt, row, scale_to):
              ""]
     for var in ingredients:
         lines.append(f"{var['name']}: "
-                     + fmt_amount(recipe.get(var['name'], 0.0), unit))
-    lines.append("Total: " + fmt_amount(opt.ingredient_total(recipe), unit))
+                     + fmt_amount(recipe.get(var['name'], 0.0),
+                                  opt.unit_of(var['name'])))
+    # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
+    lines.append("Total: " + opt.total_text(recipe))
     if process:
         lines.append("")
         for var in process:

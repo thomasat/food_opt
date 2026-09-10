@@ -310,7 +310,9 @@ def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.set_pending_batch([{"Water": 11.877679824829102}])
     df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-    assert df["Water"].iloc[0] == 11.88
+    # The sheet's amount columns carry the ingredient's unit, as the batch
+    # table's do: a bare "Water" column left the lab guessing.
+    assert df["Water (g)"].iloc[0] == 11.88
     assert list(df["Formulation"]) == [1]
 
 
@@ -1864,7 +1866,8 @@ class TestUnitsAndImportance:
         assert df["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
         assert df["Total (g)"].iloc[0] == pytest.approx(22.0)
         sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch, scale_to=22.0)))
-        assert sheet["Pea protein"].iloc[0] == 20.0
+        assert sheet["Pea protein (g)"].iloc[0] == 20.0
+        assert sheet["Total (g)"].iloc[0] == pytest.approx(22.0)
 
     def test_batch_csv_has_formulation_numbers_and_blank_measurements(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1872,7 +1875,7 @@ class TestUnitsAndImportance:
                                 "Methylcellulose": 1.0}])
         df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
         assert list(df["Formulation"]) == [1]
-        assert df["Pea protein"].iloc[0] == 11.88
+        assert df["Pea protein (g)"].iloc[0] == 11.88
         assert df["Firmness"].isna().all()
         assert "Note" in df.columns
 
@@ -1887,6 +1890,188 @@ class TestUnitsAndImportance:
         older = FoodOptimizer("older_units")
         older.import_json(state)
         assert all(o["unit"] == "" for o in older.objectives)
+
+
+class TestUnitPerIngredient:
+    """Different ingredients are measured in different units: grams for the
+    powders, millilitres for the water, and a process setting in °C or min.
+    The project's own unit is only the DEFAULT a new ingredient starts with."""
+
+    def _opt(self, tmp_path, monkeypatch, name="peruint"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.add_ingredient("Pea protein", 0, 25)              # takes the default
+        opt.add_ingredient("Water", 0, 60, unit="ml")
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        return opt
+
+    def test_an_ingredient_keeps_the_unit_it_was_added_with(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.unit_of("Water") == "ml"
+        assert opt.unit_of("Pea protein") == "g"
+        assert FoodOptimizer("peruint").unit_of("Water") == "ml"
+
+    def test_an_ingredient_with_no_unit_of_its_own_follows_the_default(
+            self, tmp_path, monkeypatch):
+        """A 0.2.x project's ingredients were saved before an ingredient could
+        carry a unit. They follow the project's default, so typing the right
+        one into `Default unit for new ingredients` still fixes the whole
+        project in one move, as the backfill notice promises."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("legacy_units")
+        opt.add_ingredient("Water", 0, 100)
+        state = opt.export_json()
+        state.pop("amount_unit")                    # a 0.2.x file has no unit
+        for var in state["variables"]:
+            var.pop("unit", None)                   # nor did its ingredients
+        opened = FoodOptimizer("legacy_units2")
+        opened.import_json(state)
+        assert opened.unit_of("Water") == "g"       # backfilled to the default
+        opened.set_amount_unit("ml")
+        assert opened.unit_of("Water") == "ml"
+
+    def test_setting_one_ingredients_unit_leaves_the_others_alone(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        scores_before = list(opt.Y_history)
+        opt.set_ingredient_unit("Pea protein", " kg ")
+        assert opt.unit_of("Pea protein") == "kg"
+        assert opt.unit_of("Water") == "ml"
+        assert FoodOptimizer("peruint").unit_of("Pea protein") == "kg"
+        assert list(opt.Y_history) == scores_before   # a unit rescores nothing
+
+    def test_setting_the_unit_of_something_that_is_not_an_ingredient(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="No ingredient named Salt."):
+            opt.set_ingredient_unit("Salt", "g")
+
+    def test_the_default_unit_only_reaches_new_ingredients(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_amount_unit("kg")
+        assert opt.unit_of("Water") == "ml"           # its own unit stands
+        opt.add_ingredient("Salt", 0, 3)
+        assert opt.unit_of("Salt") == "kg"
+
+    def test_the_ingredient_csv_carries_an_optional_unit_column(self, tmp_path,
+                                                                monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("csv_units")
+        df = pd.DataFrame({"name": ["Water", "Flour", "Salt"],
+                           "min": [0, 0, 0], "max": [60, 100, 3],
+                           "unit": ["ml", "", None],
+                           "Fat per 100 g": [0.0, 1.0, 0.0]})
+        opt.load_ingredients_from_csv(df)
+        assert opt.unit_of("Water") == "ml"
+        # A blank cell means "the project's default", not a blank unit.
+        assert opt.unit_of("Flour") == "g"
+        assert opt.unit_of("Salt") == "g"
+        # ...and the unit column is not read as an ingredient property.
+        assert set(opt.ingredient_properties["Water"]) == {"fat per 100 g"}
+
+    def test_the_shipped_csv_template_carries_the_unit_column(self, tmp_path,
+                                                              monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        df = pd.read_csv(os.path.join(root, "data", "sample_ingredients.csv"))
+        assert "unit" in df.columns
+        opt = FoodOptimizer("template_units")
+        opt.load_ingredients_from_csv(df)
+        assert {opt.unit_of(v["name"]) for v in opt.variables} == {"g"}
+
+    def test_every_table_header_carries_the_ingredients_own_unit(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 160, 200, unit="°C")
+        assert opt._amount_column("Water") == "Water (ml)"
+        assert opt._amount_column("Pea protein") == "Pea protein (g)"
+        assert opt._amount_column("Cook temperature") == "Cook temperature (°C)"
+        opt.tell({"Pea protein": 10.0, "Water": 40.0, "Cook temperature": 180.0},
+                 {"Firmness": 6.0}, formulation_no=1, batch_no=1)
+        frame = opt.history_frame(include_amounts=True)
+        assert "Water (ml)" in frame.columns
+        assert "Pea protein (g)" in frame.columns
+
+    def test_the_batch_table_totals_per_unit(self, tmp_path, monkeypatch):
+        """A total that added 25 g of powder to 40 ml of water was a number of
+        nothing. Each unit gets its own total, in one cell."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+        df = opt.batch_frame(opt.pending_batch)
+        assert list(df.columns) == ["Formulation", "Pea protein (g)",
+                                    "Water (ml)", "Total"]
+        assert df["Total"].iloc[0] == "10.00 g · 40.00 ml"
+
+    def test_a_unit_that_adds_up_to_nothing_is_left_out_of_the_total(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 0.0}])
+        assert opt.batch_frame(opt.pending_batch)["Total"].iloc[0] == "10.00 g"
+
+    def test_one_unit_everywhere_keeps_the_total_a_number(self, tmp_path,
+                                                          monkeypatch):
+        """Nothing changes for a project whose ingredients are all in grams:
+        one `Total (g)` column, holding a number the screen rounds itself."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("one_unit")
+        opt.add_ingredient("Pea protein", 0, 25)
+        opt.add_ingredient("Methylcellulose", 0, 3)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+        df = opt.batch_frame(opt.pending_batch)
+        assert list(df.columns)[-1] == "Total (g)"
+        assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
+        assert opt.one_amount_unit() == "g"
+
+    def test_the_batch_sheet_carries_the_units_and_the_same_total(
+            self, tmp_path, monkeypatch):
+        """The sheet the lab fills in must say what the amounts are measured
+        in, or 40 of water is 40 of nothing."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
+        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
+        assert list(sheet.columns) == ["Formulation", "Pea protein (g)",
+                                       "Water (ml)", "Total", "Firmness",
+                                       "Note"]
+        assert sheet["Water (ml)"].iloc[0] == 40.0
+        assert sheet["Total"].iloc[0] == "10.00 g · 40.00 ml"
+
+    def test_ingredients_in_several_units_have_no_single_unit(self, tmp_path,
+                                                              monkeypatch):
+        """What the screen asks before offering to scale a batch to a total:
+        scaling 25 g of powder and 40 ml of water to '400' means nothing."""
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.one_amount_unit() is None
+        opt.set_ingredient_unit("Water", "g")
+        assert opt.one_amount_unit() == "g"
+
+    def test_an_amount_limit_needs_one_unit(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError,
+                           match="Choose ingredients that share a unit."):
+            opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
+        with pytest.raises(ValueError,
+                           match="Choose ingredients that share a unit."):
+            opt.add_total_mass_constraint(max_val=400)
+        assert opt.quantity_constraints == []
+        # One unit between them, and the same limit is accepted.
+        opt.add_quantity_constraint(["Pea protein"], max_val=20)
+        assert opt.quantity_constraints[0]["max"] == 20
+        opt.set_ingredient_unit("Water", "g")
+        opt.add_total_mass_constraint(max_val=400)
+        assert len(opt.quantity_constraints) == 2
+
+    def test_the_biggest_changes_are_reported_with_each_own_unit(
+            self, tmp_path, monkeypatch):
+        """biggest_changes hands back the names; the caller writes each one
+        with that ingredient's unit."""
+        opt = self._opt(tmp_path, monkeypatch)
+        changes = opt.biggest_changes({"Pea protein": 12.0, "Water": 40.0},
+                                      {"Pea protein": 10.0, "Water": 30.0})
+        assert [n for n, _ in changes] == ["Water", "Pea protein"]
+        assert [opt.unit_of(n) for n, _ in changes] == ["ml", "g"]
 
 
 class TestParseBatchResultsByFormulation:

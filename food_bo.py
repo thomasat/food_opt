@@ -268,15 +268,22 @@ class FoodOptimizer:
                 raise ValueError(f"{v['name']} already exists as {other_label}.")
         return name
 
-    def add_ingredient(self, name, min_val, max_val):
+    def add_ingredient(self, name, min_val, max_val, unit=None):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
         ingredient is treated as absent (=0) in every prior recipe, and the
-        encoded history is rebuilt so the GP stays dimensionally consistent."""
+        encoded history is rebuilt so the GP stays dimensionally consistent.
+
+        `unit` is this ingredient's own unit — the water may be in ml while
+        the powders are in g. None means "no unit of its own": the ingredient
+        follows the project's default (`amount_unit`), which is what a 0.2.x
+        project's ingredients do and what a blank CSV cell means."""
         name = self._check_new_variable(name, min_val, max_val, 'ingredient')
         min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
                 var['bounds'] = (min_val, max_val)
+                if unit is not None:
+                    var['unit'] = str(unit).strip()
                 self._drop_pending_batch()
                 self.save()
                 return
@@ -287,13 +294,16 @@ class FoodOptimizer:
                     "amounts. Start a fresh project or re-import your history."
                 )
             min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
-        self.variables.append({
+        var = {
             'name': name,
             'type': 'continuous',
             'bounds': (min_val, max_val),
             'category': 'ingredient',
             'active': True,
-        })
+        }
+        if unit is not None:
+            var['unit'] = str(unit).strip()
+        self.variables.append(var)
         if self.X_history:
             self._reencode_history()
         self._drop_pending_batch()
@@ -315,7 +325,8 @@ class FoodOptimizer:
         # Accept any capitalization/whitespace for the required headers, and
         # fail with a plain-language error (the app shows ValueError text to
         # the user) instead of a KeyError when one is missing.
-        canonical = {'name': 'Name', 'min': 'Min', 'max': 'Max', 'type': 'Type'}
+        canonical = {'name': 'Name', 'min': 'Min', 'max': 'Max', 'type': 'Type',
+                     'unit': 'Unit'}
         df = df.rename(columns={
             c: canonical[c.strip().lower()]
             for c in df.columns if c.strip().lower() in canonical
@@ -325,14 +336,15 @@ class FoodOptimizer:
             raise ValueError(
                 f"The ingredients file is missing required column(s): "
                 f"{', '.join(missing)}. Expected columns: Name, Min, Max "
-                f"(plus optional property columns like Cost or Protein)."
+                f"(plus an optional Unit column and property columns like "
+                f"Cost or Protein)."
             )
 
         process_vars = [v for v in self.variables if v.get('category') == 'process']
         self.variables = []
         self.ingredient_properties = {}
 
-        standard_cols = {'Name', 'Min', 'Max', 'Type'}
+        standard_cols = {'Name', 'Min', 'Max', 'Type', 'Unit'}
         prop_cols = [c for c in df.columns if c not in standard_cols]
 
         seen_names = set()
@@ -361,13 +373,23 @@ class FoodOptimizer:
                 raise ValueError(
                     f"Ingredient '{name}': Min ({min_val}) must be less than Max ({max_val})"
                 )
-            self.variables.append({
+            var = {
                 'name': name,
                 'type': 'continuous',
                 'bounds': (min_val, max_val),
                 'category': 'ingredient',
                 'active': True,
-            })
+            }
+            # A blank Unit cell means "the project's default", not a blank
+            # unit: a file listing ml against the water alone should leave
+            # every other row in whatever the project is set to.
+            raw_unit = row.get('Unit') if 'Unit' in df.columns else None
+            if raw_unit is not None and not (isinstance(raw_unit, float)
+                                             and np.isnan(raw_unit)):
+                unit = str(raw_unit).strip()
+                if unit:
+                    var['unit'] = unit
+            self.variables.append(var)
 
             props = {}
             for col in prop_cols:
@@ -508,11 +530,104 @@ class FoodOptimizer:
         self.save()
 
     def set_amount_unit(self, unit):
-        """One unit for every amount in the project — 'g', '%', 'kg'. It shows
-        in every ingredient header, batch sheet and off-by line."""
+        """The default unit a new ingredient starts in — 'g', '%', 'ml'. It is
+        also the unit every ingredient without one of its own is written in,
+        which is what makes it the one place a 0.2.x project (whose
+        ingredients predate per-ingredient units) can be corrected in one
+        move."""
         self.amount_unit = str(unit or "").strip()
         self.amount_unit_backfilled = False
         self.save()
+
+    def set_ingredient_unit(self, name, unit):
+        """The unit one ingredient's amounts are written in. Nothing is
+        rescored and the open batch stands: a unit is how a number is
+        written, not the number."""
+        var = next((v for v in self.variables
+                    if v['name'] == name
+                    and v.get('category', 'ingredient') == 'ingredient'), None)
+        if var is None:
+            raise ValueError(f"No ingredient named {name}.")
+        var['unit'] = str(unit or "").strip()
+        self.save()
+
+    def unit_of(self, name):
+        """The unit one variable's amount is written in. Every screen that
+        prints an amount asks here, so the batch table, the printable sheets,
+        the amounts table and the CSV always agree."""
+        return self._unit_of(next((v for v in self.variables
+                                   if v['name'] == name), None))
+
+    def _unit_of(self, var):
+        """The same answer for a variable dict. A process setting has its own
+        unit or none — a cook temperature is never 200 g. An ingredient with
+        no unit of its own follows the project's default: that is how a 0.2.x
+        project's ingredients (and a blank Unit cell in a CSV) behave."""
+        if var is None:
+            return ""
+        if var.get('category', 'ingredient') == 'process':
+            return str(var.get('unit', "") or "")
+        unit = var.get('unit')
+        return str(self.amount_unit or "") if unit is None else str(unit or "")
+
+    def ingredient_units(self):
+        """Every unit the ingredients are written in, in ingredient order."""
+        units = []
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            unit = self._unit_of(var)
+            if unit not in units:
+                units.append(unit)
+        return units
+
+    def one_amount_unit(self):
+        """The unit every ingredient shares, or None when they differ. What
+        the screen asks before offering to scale a batch to a total, and what
+        an amount limit needs: adding 25 g of powder to 40 ml of water gives
+        a number of nothing."""
+        units = self.ingredient_units()
+        if not units:
+            return str(self.amount_unit or "")
+        return units[0] if len(units) == 1 else None
+
+    def unit_totals(self, recipe):
+        """The batch size per unit: [(unit, total), ...] in ingredient order.
+        A total that added grams to millilitres was a number of nothing."""
+        totals, order = {}, []
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            unit = self._unit_of(var)
+            if unit not in totals:
+                totals[unit] = 0.0
+                order.append(unit)
+            totals[unit] += float(recipe.get(var['name'], 0.0))
+        return [(unit, totals[unit]) for unit in order]
+
+    def total_text(self, recipe):
+        """'340.00 g · 60.00 ml' — the total of a formulation whose
+        ingredients are not all in one unit, written as one cell. A unit that
+        adds up to nothing is left out; two decimals, as every other amount."""
+        groups = self.unit_totals(recipe)
+        shown = [(u, t) for u, t in groups if round(float(t), 2) != 0] or groups[:1]
+        return " · ".join(join_unit(f"{float(t):.2f}", u) for u, t in shown)
+
+    def total_column(self):
+        """The header of the total column: 'Total (g)' while every ingredient
+        shares one unit, a bare 'Total' when they do not, because the cell
+        then carries the units itself."""
+        unit = self.one_amount_unit()
+        if unit is None:
+            return "Total"
+        return f"Total ({unit})" if unit else "Total"
+
+    def _total_cell(self, recipe):
+        """What goes in that column: a number while there is one unit (the
+        screen rounds it itself), the written-out per-unit total otherwise."""
+        if self.one_amount_unit() is None:
+            return self.total_text(recipe)
+        return self.ingredient_total(recipe)
 
     def update_objective(self, name, /, **fields):
         """Change a measurement in place. Its name is fixed (renaming would
@@ -706,15 +821,11 @@ class FoodOptimizer:
         return f"{obj['name']} ({unit})" if unit else obj['name']
 
     def _amount_column(self, name):
-        """The table header for one variable. An ingredient amount carries the
-        project's amount unit; a process setting is not an amount, so it carries
-        its own unit when it has one and none otherwise — a cook temperature
-        must never read "Cook temperature (g)"."""
-        var = next((v for v in self.variables if v['name'] == name), None)
-        if var is not None and var.get('category') == 'process':
-            unit = str(var.get('unit', "") or "")
-        else:
-            unit = str(self.amount_unit or "")
+        """The table header for one variable, carrying that variable's own
+        unit: `Water (ml)` beside `Pea protein (g)`, and a process setting
+        with its own unit or none — a cook temperature must never read
+        "Cook temperature (g)"."""
+        unit = self.unit_of(name)
         return f"{name} ({unit})" if unit else name
 
     def _amount_columns(self, recipe):
@@ -787,11 +898,11 @@ class FoodOptimizer:
 
     def batch_frame(self, batch, scale_to=None):
         """The open batch as the make-these table: one row per formulation, one
-        column per ingredient and setting carrying the project's unit, and the
-        total of the ingredients. `scale_to` rewrites it for a different batch
-        size — display only, the stored formulation never changes."""
-        unit = self.amount_unit
-        total_col = f"Total ({unit})" if unit else "Total"
+        column per ingredient and setting carrying its own unit, and the total
+        of the ingredients — one number while they share a unit, `340.00 g ·
+        60.00 ml` when they do not. `scale_to` rewrites it for a different
+        batch size — display only, the stored formulation never changes."""
+        total_col = self.total_column()
         # The total closes the amounts you weigh out, so it sits with them,
         # before the settings you dial in — the order the sheet is filled in.
         ingredients = [v for v in self.variables
@@ -806,7 +917,7 @@ class FoodOptimizer:
             for var in ingredients:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
-            item[total_col] = self.ingredient_total(recipe)
+            item[total_col] = self._total_cell(recipe)
             for var in process:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
@@ -838,21 +949,42 @@ class FoodOptimizer:
 
     def batch_csv(self, batch, scale_to=None):
         """The sheet the lab fills in: the global Formulation numbers, the
-        amounts to weigh out rounded as the screen rounds them, one blank
-        column per measurement, and a Note column. `scale_to` must match what
-        the screen shows, or the lab weighs out amounts nobody saw."""
+        amounts to weigh out with their units in the headers and rounded as
+        the screen rounds them, the same total the screen shows, one blank
+        column per measurement, and a Note column. Its columns run in the
+        order the batch table's do, so the sheet reads like the screen.
+        `scale_to` must match what the screen shows, or the lab weighs out
+        amounts nobody saw.
+
+        The measurement columns stay bare: they are the ones an uploaded
+        sheet is matched by, and a "/10" belongs on a label, not in a
+        header the parser reads back."""
         objs = self.measurements_by_importance()
+        ingredients = [v for v in self.variables
+                       if v.get('category', 'ingredient') == 'ingredient']
+        process = [v for v in self.variables if v.get('category') == 'process']
+        total_col = self.total_column()
         rows = []
         for row in self._batch_rows(batch):
             recipe = self.scaled_recipe(row['recipe'], scale_to)
             item = {"Formulation": int(row['formulation'])}
-            for var in self.variables:
-                item[var['name']] = round(float(recipe.get(var['name'], 0.0)), 2)
+            for var in ingredients:
+                item[self._amount_column(var['name'])] = round(
+                    float(recipe.get(var['name'], 0.0)), 2)
+            total = self._total_cell(recipe)
+            item[total_col] = (total if isinstance(total, str)
+                               else round(float(total), 2))
+            for var in process:
+                item[self._amount_column(var['name'])] = round(
+                    float(recipe.get(var['name'], 0.0)), 2)
             for obj in objs:
                 item[obj['name']] = ""
             item["Note"] = row.get('note', "")
             rows.append(item)
-        columns = (["Formulation"] + [v['name'] for v in self.variables]
+        columns = (["Formulation"]
+                   + [self._amount_column(v['name']) for v in ingredients]
+                   + [total_col]
+                   + [self._amount_column(v['name']) for v in process]
                    + [o['name'] for o in objs] + ["Note"])
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
@@ -1019,6 +1151,10 @@ class FoodOptimizer:
         """
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
             raise ValueError("Min must be less than Max.")
+        # A limit is a sum, and a sum across units is a number of nothing:
+        # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
+        if len({self.unit_of(name) for name in ingredients}) > 1:
+            raise ValueError("Choose ingredients that share a unit.")
         ingredient_set = set(ingredients)
         self.quantity_constraints = [
             qc for qc in self.quantity_constraints if set(qc['ingredients']) != ingredient_set

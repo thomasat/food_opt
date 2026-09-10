@@ -24,19 +24,10 @@ def _all_numbers(opt):
     return sorted(numbers)
 
 
-def _unit_of(opt, name):
-    """The unit one variable's amount is written in. An ingredient is measured
-    in the project's amount unit; a process setting is not an amount at all, so
-    it carries its own unit or none — a cook temperature is never 200 g."""
-    var = next((v for v in opt.variables if v['name'] == name), None)
-    if var is not None and var.get('category') == 'process':
-        return str(var.get('unit', "") or "")
-    return str(opt.amount_unit or "")
-
-
 def _amount_rows(opt, recipe):
     """The `Amounts to make it` rows: ingredients by amount, largest first,
-    then the process settings, each written with its own unit."""
+    then the process settings, each written with its own unit — the water in
+    ml beside the protein in g, and a cook temperature never in either."""
     category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
     pairs = opt.recipe_lines(recipe)
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
@@ -45,8 +36,8 @@ def _amount_rows(opt, recipe):
     def amount(name, value):
         if category.get(name) == 'process':
             # 180 °C, never 180.00 °C: a setting is dialled in, not weighed.
-            return fmt_setting(value, _unit_of(opt, name))
-        return fmt_amount(value, _unit_of(opt, name))
+            return fmt_setting(value, opt.unit_of(name))
+        return fmt_amount(value, opt.unit_of(name))
 
     return [{"Ingredient or setting": name, "Amount": amount(name, value)}
             for name, value in ingredients + settings]
@@ -74,7 +65,7 @@ def _range_warning(opt, name, value):
     if var is None or value is None:
         return ""
     low, high = (float(b) for b in var['bounds'])
-    return bounds_warning(name, value, low, high, _unit_of(opt, name))
+    return bounds_warning(name, value, low, high, opt.unit_of(name))
 
 
 def _progress_line(opt):

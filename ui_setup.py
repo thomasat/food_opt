@@ -13,9 +13,9 @@ import streamlit as st
 import storage as storage_backend
 from ui_helpers import (
     TAB_BATCH, best_formulation_no, best_move_sentence, confirm_action,
-    confirmation_open, flash, go_to_tab, join_unit, label_with_unit,
-    other_confirmation, plural, readiness, saved_ok, table_height,
-    unit_after_number,
+    confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, join_unit,
+    label_with_unit, other_confirmation, park_clear, plural, readiness,
+    saved_ok, table_height, unit_after_number,
 )
 
 GOAL_LABELS = {
@@ -101,9 +101,10 @@ def _report_limit(opt, sentence):
 def _amount_unit(opt):
     st.session_state.setdefault("amount_unit", opt.amount_unit)
     typed = str(st.text_input(
-        "Amounts are in", key="amount_unit", placeholder="g",
-        help="One unit for every amount in this project, such as g, % or kg. "
-             "It shows in every ingredient header, batch sheet and off-by line.",
+        "Default unit for new ingredients", key="amount_unit", placeholder="g",
+        help="The unit a new ingredient starts in, such as g, ml or %. Every "
+             "ingredient can be set to its own unit under Change the "
+             "ingredient list.",
     )).strip()
     # Compare stripped with stripped: comparing a stripped store against an
     # unstripped box re-saved on every rerun, and a failing save then bounced
@@ -115,19 +116,19 @@ def _amount_unit(opt):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
-        st.caption(f"This project was made before units were recorded. "
-                   f"Amounts are shown in {opt.amount_unit} — change it here "
+        st.caption(f"This project was made before units were recorded. Its "
+                   f"amounts are shown in {opt.amount_unit} — change it here "
                    "if that is wrong.")
 
 
 def _ingredients(opt, storage):
-    unit = opt.amount_unit
     st.subheader("Ingredients")
     st.caption("One row per ingredient: Name, Min, Max.")
     uploaded = st.file_uploader(
         "Upload ingredients CSV", type=["csv"], key="ingredients_csv",
-        help="Columns Name, Min, Max. Extra columns such as Cost or Protein "
-             "per 100 g become properties you can set limits on.",
+        help="Columns Name, Min, Max, and an optional Unit (a blank cell uses "
+             "the default above). Extra columns such as Cost or Protein per "
+             "100 g become properties you can set limits on.",
     )
     if os.path.exists(_SAMPLE_CSV):
         with open(_SAMPLE_CSV, "rb") as handle:
@@ -171,10 +172,13 @@ def _ingredients(opt, storage):
     if ingredients:
         # A Status column that says "active" on every row is a column of noise.
         any_paused = any(not v.get('active', True) for v in ingredients)
+        # Plain Min and Max with a Unit column of their own: "Min (g)" over a
+        # row measured in ml was a lie, and the water really is in ml.
         rows = pd.DataFrame([{
             "Name": v['name'],
-            f"Min{_unit_suffix(unit)}": float(v['bounds'][0]),
-            f"Max{_unit_suffix(unit)}": float(v['bounds'][1]),
+            "Min": float(v['bounds'][0]),
+            "Max": float(v['bounds'][1]),
+            "Unit": opt.unit_of(v['name']),
             **({"Status": "active" if v.get('active', True) else "paused"}
                if any_paused else {}),
         } for v in ingredients])
@@ -186,23 +190,28 @@ def _ingredients(opt, storage):
 
 
 def _change_ingredient_list(opt, storage):
-    unit = opt.amount_unit
     has_history = bool(opt.X_history)
     st.markdown("**Add an ingredient**")
-    ic1, ic2, ic3 = st.columns([2, 1, 1])
+    ic1, ic2, ic3, ic4 = st.columns([2, 1, 1, 1])
     with ic1:
         st.text_input("Ingredient name", key="ing_name")
     with ic2:
+        # Its own unit, opening on the project's default: the water is in ml
+        # while the powders are in g. Min and Max stay plain — the unit is
+        # the box beside them, and repeating it in their labels would go
+        # stale the moment it is retyped.
+        st.session_state.setdefault("ing_unit", opt.amount_unit)
+        st.text_input("Unit", key="ing_unit", placeholder="g")
+    with ic3:
         # The opening value comes from session state, never from a `value=`
         # argument: a project switch assigns these keys (see app.py's
         # _FORM_FRESH), and Streamlit warns on screen when a widget is given
         # both a default and a session-state value.
         st.session_state.setdefault("ing_min", 0.0)
-        st.number_input(f"Min{_unit_suffix(unit)}", key="ing_min",
-                        disabled=has_history)
-    with ic3:
+        st.number_input("Min", key="ing_min", disabled=has_history)
+    with ic4:
         st.session_state.setdefault("ing_max", 100.0)
-        st.number_input(f"Max{_unit_suffix(unit)}", key="ing_max")
+        st.number_input("Max", key="ing_max")
     if has_history:
         st.caption("A new ingredient starts at 0 in every formulation already "
                    "made, so its minimum is fixed at 0 for now.")
@@ -211,7 +220,8 @@ def _change_ingredient_list(opt, storage):
         try:
             opt.add_ingredient(st.session_state["ing_name"],
                                st.session_state["ing_min"],
-                               st.session_state["ing_max"])
+                               st.session_state["ing_max"],
+                               unit=st.session_state.get("ing_unit", ""))
         except ValueError as e:
             st.error(str(e))
         else:
@@ -220,6 +230,8 @@ def _change_ingredient_list(opt, storage):
                       f"Added {str(st.session_state['ing_name']).strip()}.")
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
+
+    _set_unit(opt)
 
     active = opt.active_variables()
     inactive = opt.inactive_variables()
@@ -245,11 +257,16 @@ def _change_ingredient_list(opt, storage):
         st.caption("At least two ingredients or settings must stay active "
                    "before one can be paused.")
     if inactive:
+        # Each row in its own unit: a paused cook temperature "held at 175 g"
+        # priced a setting in grams, and the water is held at millilitres.
         st.dataframe(pd.DataFrame([{
             "Name": v['name'],
             "Type": "ingredient" if v.get('category', 'ingredient') == 'ingredient'
                     else "process setting",
-            f"Held at{_unit_suffix(unit)}": opt._frozen_value(v),
+            "Held at": (fmt_setting(opt._frozen_value(v), opt.unit_of(v['name']))
+                        if v.get('category') == 'process'
+                        else fmt_amount(opt._frozen_value(v),
+                                        opt.unit_of(v['name']))),
         } for v in inactive]), hide_index=True, key="paused_table")
         resume = st.multiselect("Resume", [v['name'] for v in inactive],
                                 key="resume_pick")
@@ -296,6 +313,41 @@ def _change_ingredient_list(opt, storage):
                         flash("success", f"Deleted {pick}.")
                         _note_discarded_batch(opt, batch_no)
                         st.rerun()
+
+
+def _set_unit(opt):
+    """Change one ingredient's unit. Nothing is rescored and the open batch
+    stands: a unit is how an amount is written, not the amount."""
+    names = [v['name'] for v in opt.variables
+             if v.get('category', 'ingredient') == 'ingredient']
+    if not names:
+        return
+    st.divider()
+    st.markdown("**Set the unit of one ingredient**")
+    u1, u2, u3 = st.columns([2, 1, 1])
+    with u1:
+        pick = st.selectbox("Ingredient to measure", names, key="unit_pick")
+    with u2:
+        st.session_state.setdefault("unit_value", "")
+        typed = st.text_input("Unit", key="unit_value",
+                              placeholder=opt.unit_of(pick) or "g")
+    with u3:
+        # Grey: the tab's one coloured button is Continue at the foot.
+        if st.button("Set unit", key="set_unit"):
+            try:
+                opt.set_ingredient_unit(pick, typed)
+            except ValueError as e:
+                st.error(str(e))
+            else:
+                if saved_ok(opt):
+                    written = opt.unit_of(pick)
+                    flash("success",
+                          f"{pick} is measured in {written}." if written
+                          else f"{pick} is shown without a unit.")
+                    # Emptied for the next ingredient: a unit left in the box
+                    # is one click away from being applied to another row.
+                    park_clear("unit_value", "")
+                    st.rerun()
 
 
 def _measurement_editor(opt, storage, editing):
@@ -642,7 +694,10 @@ def _process_settings(opt, storage):
 
 
 def _limits(opt):
-    unit = opt.amount_unit
+    # A limit is a sum, and a sum only has a unit when the ingredients share
+    # one. When they do not, the labels stay bare and the limit itself is
+    # refused with "Choose ingredients that share a unit."
+    unit = opt.one_amount_unit() or ""
     with st.expander("Limits (optional)"):
         st.caption("Limits apply to ingredient amounts and to properties from "
                    "your ingredient file. To cap something you measure, add it "
@@ -756,8 +811,14 @@ def _limits(opt):
             label = ("Total amount (all ingredients)"
                      if set(qc['ingredients']) == set(names)
                      else " + ".join(qc['ingredients']))
-            bounds = ([f"at least {qc['min']:g}"] if qc['min'] is not None else [])
-            bounds += ([f"at most {qc['max']:g}"] if qc['max'] is not None else [])
+            # An amount limit sums ingredients that share a unit, so the
+            # limit is written in it: "at most 400 g", never a bare 400.
+            limited = {opt.unit_of(n) for n in qc['ingredients']}
+            qc_unit = limited.pop() if len(limited) == 1 else ""
+            bounds = ([join_unit(f"at least {qc['min']:g}", qc_unit)]
+                      if qc['min'] is not None else [])
+            bounds += ([join_unit(f"at most {qc['max']:g}", qc_unit)]
+                       if qc['max'] is not None else [])
             l1, l2 = st.columns([3, 1])
             with l1:
                 st.text(f"{label}: {' and '.join(bounds)}")
