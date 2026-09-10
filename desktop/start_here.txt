@@ -31,8 +31,8 @@ USING IT DAY TO DAY
 - To open the app again, open Food Optimizer from Applications, like
   any app. It runs in its own window.
 - To quit, close the window.
-- Your projects folder is one click away: File menu > Open Projects
-  Folder. Need bigger text? View menu > Bigger Text.
+- Your projects folder is one click away: File menu › Open Projects
+  Folder. Need bigger text? View menu › Bigger Text.
 
 YOUR DATA STAYS ON YOUR COMPUTER
 - Your formulations and results never leave your Mac. The app

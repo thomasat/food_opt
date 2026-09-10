@@ -200,28 +200,6 @@ with st.sidebar:
         opt = st.session_state.optimizer
 
     if opt is not None:
-        # A batch generated before the ingredient list changed cannot be made.
-        if (not getattr(opt, "load_error", None)) and getattr(opt, "pending_batch", None):
-            _var_names = {v['name'] for v in opt.variables}
-            try:
-                # Ingredients only. A measurement is what you will score, not
-                # what you weigh out, so removing or editing one leaves every
-                # formulation in the batch perfectly makeable.
-                _batch_ok = all(
-                    set(r['recipe']) == _var_names for r in opt.pending_batch
-                )
-            except (TypeError, AttributeError, KeyError):
-                _batch_ok = False   # malformed backup rows; treat as a mismatch
-            if not _batch_ok:
-                opt.set_pending_batch(None)
-                # Above the tabs, not in the sidebar: it is about the batch the
-                # user is looking at. And only claimed once the discard reached
-                # the file — saved_ok puts the red banner up when it did not.
-                if saved_ok(opt):
-                    flash("info",
-                          "The open batch was discarded because the ingredient "
-                          "list or its allowed amounts changed since it was "
-                          "generated.")
         # A project that failed to load must never look like an empty success.
         # The full sentence renders once, in the main body; here it would be
         # the same paragraph twice on one screen, so the sidebar only points.
@@ -467,11 +445,35 @@ if getattr(st.session_state.optimizer, "save_error", None):
             st.rerun()
 
 
+# A batch generated before the ingredient list changed cannot be made. This
+# lives in the main body, not the sidebar: the notice is about the batch the
+# user is looking at, and so is the red banner when the discard fails to save.
+_opt = st.session_state.optimizer
+if getattr(_opt, "pending_batch", None):
+    _var_names = {v['name'] for v in _opt.variables}
+    try:
+        # Ingredients only. A measurement is what you will score, not what you
+        # weigh out, so removing or editing one leaves every formulation in the
+        # batch perfectly makeable.
+        _batch_ok = all(set(r['recipe']) == _var_names for r in _opt.pending_batch)
+    except (TypeError, AttributeError, KeyError):
+        _batch_ok = False           # malformed backup rows; treat as a mismatch
+    if not _batch_ok:
+        _opt.set_pending_batch(None)
+        # Only claimed once the discard reached the file. A failed write here
+        # arrives after the banner above has rendered, which is exactly what
+        # the end-of-script check at the foot of this file is for.
+        if saved_ok(_opt):
+            flash("info",
+                  "The open batch was discarded because the ingredient list or "
+                  "its allowed amounts changed since it was generated.")
+            render_flash(_FLASH_BOX)   # this run, above the tabs
+
+
 # ================================================================== #
 #  The loop: three tabs
 # ================================================================== #
 
-_opt = st.session_state.optimizer
 
 # The landing rule. This is one of the six places allowed to change tabs (the
 # other five are go_to_tab's callers: Continue to make a batch, Back to set up,

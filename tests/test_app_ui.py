@@ -2348,6 +2348,50 @@ def test_a_correction_keeps_a_copy_first_and_says_so(scored, tmp_path):
     assert FoodOptimizer("burger").results_history[0]["Firmness"] == 6.0
 
 
+def test_a_no_op_correction_says_so_and_keeps_no_copy(scored, tmp_path):
+    """Saving a row nobody changed writes nothing, so it must not claim a copy
+    was kept — or keep one."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    _submit_button(at, "Save correction").click()      # the boxes hold what
+    at.run()                                           # was already recorded
+    assert not at.exception
+    assert any(s.value == "Formulation 1 is unchanged." for s in at.success), \
+        [s.value for s in at.success]
+    assert not (tmp_path / "burger_pre_edit.pkl").exists(), \
+        [p.name for p in tmp_path.glob("*.pkl")]
+
+
+def test_a_confirmation_takes_the_colour_from_save_correction(scored):
+    """Two coloured buttons on one tab, even for one frame: arming a
+    confirmation below the correction row must take the colour from it on the
+    same run, which is why the button row is drawn last."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "3 · Results"
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    assert _tab_primaries(at, 2) == ["Save correction"], _tab_primaries(at, 2)
+    _submit_button(at, "Undo the last batch").click()
+    at.run()
+    assert _tab_primaries(at, 2) == ["Yes, undo"], _tab_primaries(at, 2)
+    save = _submit_button(at, "Save correction")
+    assert save.proto.type == "secondary" and save.disabled
+    _submit_button(at, "Cancel").click()
+    at.run()
+    at.run()
+    at.selectbox(key="delete_formulation").set_value(1)
+    at.run()
+    _submit_button(at, "Delete Formulation 1").click()
+    at.run()
+    assert _tab_primaries(at, 2) == ["Yes, delete"], _tab_primaries(at, 2)
+
+
 def test_save_correction_is_the_one_lit_action_while_the_row_is_open(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"

@@ -143,24 +143,30 @@ def _all_formulations(opt):
                        mime="text/csv", key="download_formulations")
 
 
-def _correct(opt, storage):
-    """The correction row. Returns True while it is open, so the foot knows to
-    step aside: `Save correction` is the one lit action until it is answered."""
+def _correct(opt):
+    """The correction row: the select box and the boxes to retype. Returns the
+    open correction, or None — the foot reads that and steps aside, because
+    `Save correction` is the one lit action until the row is answered.
+
+    Its button row is only RESERVED here. Arming a confirmation in one of the
+    sections below does not rerun, so a Save correction drawn now would still
+    be coloured on the very run that puts a Yes beside it; render() fills the
+    slot once the confirmations have had their say."""
     numbers = [int(n) for n in opt.formulation_ids]
     if not numbers:
-        return False
+        return None
     take_clear("correct_formulation")
     choice = st.selectbox("Correct a result", numbers, index=None,
                           placeholder="Formulation", key="correct_formulation")
     if choice is None:
-        return False
+        return None
     index = opt.index_of_formulation(choice)
     if index is None:
-        return False
+        return None
     ordered = opt.measurements_by_importance()
     if not ordered:
         st.info("Add a measurement in Set up before correcting a result.")
-        return False
+        return None
     current = opt.results_history[index]
     typed = {}
     cols = None
@@ -178,6 +184,16 @@ def _correct(opt, storage):
                 help="Leave blank to keep the value already recorded.",
                 key=f"correct_{choice}_{obj['name']}",
             )
+    return {"choice": choice, "index": index, "ordered": ordered,
+            "current": current, "typed": typed, "slot": st.container()}
+
+
+def _save_correction(opt, storage, pending):
+    """The correction's button row, drawn into the slot reserved at the row's
+    position once every confirmation on the tab has been drawn."""
+    choice, index = pending['choice'], pending['index']
+    ordered, current, typed = (pending['ordered'], pending['current'],
+                               pending['typed'])
     b1, b2 = st.columns(2)
     # The correction is the one thing to do while its row is open, so it is
     # lit — unless a confirmation is armed, which outranks everything.
@@ -192,15 +208,15 @@ def _correct(opt, storage):
             clear_selection("correct_formulation")
             st.rerun()
     if not save:
-        return True
+        return
     if not any(v is not None for v in typed.values()):
         st.error("Enter a value for at least one measurement.")
-        return True
+        return
     for obj in ordered:
         problem = scale_error(obj, typed[obj['name']])
         if problem:
             st.error(problem)
-            return True
+            return
     # A measurement that could not be scored is left out of the stored row, so
     # a corrected result has exactly the shape a recorded one has: tell() drops
     # the Nones, and edit_result would otherwise keep them.
@@ -214,6 +230,10 @@ def _correct(opt, storage):
         if was is None or abs(float(was) - float(value)) > 1e-9:
             changes.append((obj['name'], was, float(value)))
         final[obj['name']] = float(value)
+    if not changes:
+        # Nothing to write, so nothing to copy first, and nothing to claim.
+        flash("success", f"Formulation {choice} is unchanged.")
+        st.rerun()
     before = best_formulation_no(opt)
     # A correction overwrites a reading nobody can retype from memory, so the
     # project is copied first — as it is before every other destructive act.
@@ -221,10 +241,10 @@ def _correct(opt, storage):
         storage.archive(opt.project_name, "pre_edit", copy=True)
     except storage_backend.StorageError as e:
         st.error(str(e))
-        return True
+        return
     opt.edit_result(index, final)
     if not saved_ok(opt):
-        return True
+        return
     after = best_formulation_no(opt)
     sentences = [
         f"Formulation {choice} {name} corrected {float(was):g} → {float(now):g}."
@@ -456,7 +476,7 @@ def render(opt, storage):
     _best(opt)
     st.divider()
     _all_formulations(opt)
-    correcting = _correct(opt, storage)
+    pending = _correct(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
     # confirmation armed by a click in one of the collapsed sections below it
@@ -469,4 +489,7 @@ def render(opt, storage):
     _delete_formulation(opt, storage)
     _import(opt)
     with foot:
-        _foot(opt, correcting)
+        _foot(opt, pending is not None)
+    if pending is not None:
+        with pending['slot']:
+            _save_correction(opt, storage, pending)
