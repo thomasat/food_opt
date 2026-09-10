@@ -12,7 +12,8 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, flash, go_to_tab, plural, readiness, table_height,
+    TAB_BATCH, confirm_action, confirmation_open, flash, go_to_tab, plural,
+    readiness, saved_ok, table_height,
 )
 
 GOAL_LABELS = {
@@ -43,26 +44,10 @@ def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
 
 
-def _saved_ok(opt):
-    """True when the write that just ran reached the file. A green 'Added ...'
-    over a change that never saved is a lie, so every handler asks first."""
-    if getattr(opt, "save_error", None):
-        st.error(opt.save_error)
-        return False
-    return True
-
-
 def _note_discarded_batch(opt, batch_no_before):
     """Flash the notice when the write just now retired the open batch."""
     if batch_no_before is not None and opt.pending_batch_no is None:
         flash("info", _BATCH_DISCARDED)
-
-
-def _confirmation_open():
-    """True while any confirmation is armed. Its 'Yes' is the lit button, and
-    this tab never shows two coloured buttons at once."""
-    return any(bool(v) for k, v in st.session_state.items()
-               if isinstance(k, str) and k.endswith("__pending"))
 
 
 def _goal_text(obj):
@@ -111,7 +96,7 @@ def _nothing_made_fits(opt):
 
 
 def _report_limit(opt, sentence):
-    if not _saved_ok(opt):
+    if not saved_ok(opt):
         return
     flash("success", f"{sentence} {_LIMIT_KEPT}")
     if _nothing_made_fits(opt):
@@ -135,7 +120,7 @@ def _amount_unit(opt):
     # the script into a rerun loop.
     if typed != opt.amount_unit:
         opt.set_amount_unit(typed)
-        _saved_ok(opt)
+        saved_ok(opt)
 
 
 def _ingredients(opt, storage):
@@ -169,7 +154,7 @@ def _ingredients(opt, storage):
             except ValueError as e:
                 st.error(str(e))
             else:
-                if _saved_ok(opt):
+                if saved_ok(opt):
                     # Clear the uploader too: leaving the file and its preview
                     # on screen invites a second Load, which errors once
                     # results exist.
@@ -221,7 +206,7 @@ def _change_ingredient_list(opt, storage):
         except ValueError as e:
             st.error(str(e))
         else:
-            if _saved_ok(opt):
+            if saved_ok(opt):
                 flash("success",
                       f"Added {str(st.session_state['ing_name']).strip()}.")
                 _note_discarded_batch(opt, batch_no)
@@ -243,7 +228,7 @@ def _change_ingredient_list(opt, storage):
             except ValueError as e:
                 st.error(str(e))
             else:
-                if _saved_ok(opt):
+                if saved_ok(opt):
                     flash("success", f"Paused: {', '.join(pause)}.")
                     _note_discarded_batch(opt, batch_no)
                     st.rerun()
@@ -263,7 +248,7 @@ def _change_ingredient_list(opt, storage):
             batch_no = opt.pending_batch_no
             for name in resume:
                 opt.reactivate_variable(name)
-            if _saved_ok(opt):
+            if saved_ok(opt):
                 flash("success", f"Resumed: {', '.join(resume)}.")
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
@@ -297,7 +282,7 @@ def _change_ingredient_list(opt, storage):
                 except (ValueError, storage_backend.StorageError) as e:
                     st.error(str(e))
                 else:
-                    if _saved_ok(opt):
+                    if saved_ok(opt):
                         flash("success", f"Deleted {pick}.")
                         _note_discarded_batch(opt, batch_no)
                         st.rerun()
@@ -383,7 +368,7 @@ def _measurement_editor(opt, storage, editing):
             except (ValueError, storage_backend.StorageError) as e:
                 st.error(str(e))
             else:
-                if not _saved_ok(opt):
+                if not saved_ok(opt):
                     return
                 _clear_measurement_keys(None)
                 flash("success", f"Added {str(name).strip()}.")
@@ -446,7 +431,7 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
     except ValueError as e:
         st.error(str(e))
         return
-    if not _saved_ok(opt):
+    if not saved_ok(opt):
         return
     _clear_measurement_keys(editing)
     st.session_state.pop("_editing_measurement", None)
@@ -473,7 +458,7 @@ def _remove_measurement(opt, storage, name):
         st.error(str(e))
         return
     opt.remove_objective(name)
-    if not _saved_ok(opt):
+    if not saved_ok(opt):
         return
     after = _best_formulation_no(opt)
     sentence = f"{name} removed. Every overall score was recalculated."
@@ -580,7 +565,7 @@ def _process_settings(opt, storage):
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    if _saved_ok(opt):
+                    if saved_ok(opt):
                         flash("success",
                               f"Added {str(st.session_state['pp_name']).strip()}.")
                         _note_discarded_batch(opt, batch_no)
@@ -613,7 +598,7 @@ def _process_settings(opt, storage):
                         st.error(str(e))
                     else:
                         opt.remove_process_parameter(pv['name'])
-                        if _saved_ok(opt):
+                        if saved_ok(opt):
                             flash("success", f"Removed {pv['name']}.")
                             _note_discarded_batch(opt, batch_no)
                             st.rerun()
@@ -666,7 +651,7 @@ def _limits(opt):
                 if st.button("Remove", key=f"rm_constr_{i}"):
                     metric = constraint['metric']
                     opt.remove_constraint(i)
-                    if _saved_ok(opt):
+                    if saved_ok(opt):
                         flash("success", f"Limit on {metric} removed. The next "
                                          "batch is no longer held to it.")
                         st.rerun()
@@ -736,7 +721,7 @@ def _limits(opt):
             with l2:
                 if st.button("Remove", key=f"rm_qc_{i}"):
                     opt.remove_quantity_constraint(i)
-                    if _saved_ok(opt):
+                    if saved_ok(opt):
                         # No .lower(): ingredient names are names.
                         flash("success", f"Limit on {label} removed. The next "
                                          "batch is no longer held to it.")
@@ -755,7 +740,7 @@ def _advanced(opt):
             if current is not None and st.button("Revert to standard settings",
                                                  key="bo_revert"):
                 opt.set_bo_config(None)
-                if _saved_ok(opt):
+                if saved_ok(opt):
                     flash("success", "Using default model settings.")
                     st.rerun()
         else:
@@ -777,7 +762,7 @@ def _advanced(opt):
             if st.button("Apply expert settings", key="bo_apply"):
                 opt.set_bo_config({"kernel": kernel, "lengthscale_prior": prior,
                                    "noise": noise, "acquisition": acq})
-                if _saved_ok(opt):
+                if saved_ok(opt):
                     flash("success", "Model settings updated.")
                     st.rerun()
             if st.checkbox("Or paste expert settings as JSON", key="bo_paste"):
@@ -793,7 +778,7 @@ def _advanced(opt):
                     except Exception as e:
                         st.error(f"Invalid JSON: {e}")
                     else:
-                        if _saved_ok(opt):
+                        if saved_ok(opt):
                             flash("success", "Model settings updated.")
                             st.rerun()
         if current:
@@ -805,7 +790,7 @@ def _foot(opt):
     ready, missing = readiness(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; moving on can wait a click.
-    lit = ready and not _confirmation_open()
+    lit = ready and not confirmation_open()
     if st.button("Continue to make a batch",
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:

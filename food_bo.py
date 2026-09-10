@@ -638,7 +638,16 @@ class FoodOptimizer:
         return f"{obj['name']} ({unit})" if unit else obj['name']
 
     def _amount_column(self, name):
-        return f"{name} ({self.amount_unit})" if self.amount_unit else name
+        """The table header for one variable. An ingredient amount carries the
+        project's amount unit; a process setting is not an amount, so it carries
+        its own unit when it has one and none otherwise — a cook temperature
+        must never read "Cook temperature (g)"."""
+        var = next((v for v in self.variables if v['name'] == name), None)
+        if var is not None and var.get('category') == 'process':
+            unit = str(var.get('unit', "") or "")
+        else:
+            unit = str(self.amount_unit or "")
+        return f"{name} ({unit})" if unit else name
 
     def _amount_columns(self, recipe):
         return {self._amount_column(v['name']): recipe.get(v['name'])

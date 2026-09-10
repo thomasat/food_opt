@@ -284,8 +284,9 @@ def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
                            {"Water": 20.0, "Temp": 190.0}])
     df = opt.batch_frame(opt.pending_batch)
     assert list(df["Formulation"]) == [1, 2]
-    # Every column carries the project unit, and g is a new project's default.
-    assert list(df.columns) == ["Formulation", "Water (g)", "Temp (g)", "Total (g)"]
+    # Ingredient columns carry the project unit (g is a new project's default);
+    # a process setting is not an amount, so a cook temperature is never "(g)".
+    assert list(df.columns) == ["Formulation", "Water (g)", "Temp", "Total (g)"]
     assert df["Total (g)"].iloc[0] == 10.0   # the process setting is not an amount
 
 

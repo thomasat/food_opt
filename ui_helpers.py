@@ -36,6 +36,23 @@ def render_flash():
             getattr(st, kind)(message)
 
 
+def saved_ok(opt):
+    """True when the write that just ran reached the file. A green 'Added ...'
+    over a change that never saved is a lie, so every handler asks first."""
+    if getattr(opt, "save_error", None):
+        st.error(opt.save_error)
+        return False
+    return True
+
+
+def confirmation_open():
+    """True while any confirmation is armed. Its "Yes" is the lit button, and
+    a tab never shows two coloured buttons at once, so every tab's own primary
+    steps aside while one is on screen."""
+    return any(bool(v) for k, v in st.session_state.items()
+               if isinstance(k, str) and k.endswith("__pending"))
+
+
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
     """Two-step confirmation for an irreversible action.
 
