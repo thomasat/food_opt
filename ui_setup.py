@@ -1,8 +1,9 @@
-"""Tab 1 · Set up: what the project is made of and what will be measured.
+"""Tab 1 · Set up: what the project can vary and what will be measured.
 
-One column, in the order a formulator fills it in: the unit amounts are in,
-the ingredients, the measurements, then the optional sections. Exactly one
-coloured button lives here — `Continue to make a batch` at the foot.
+One column, in the order a formulator fills it in: what you can vary — the
+ingredients and the process settings together — then the measurements, then
+the optional sections. Exactly one coloured button lives here — `Continue to
+make a batch` at the foot.
 """
 import json
 import os
@@ -12,10 +13,11 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, best_formulation_no, best_move_sentence, confirm_action,
-    confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, join_unit,
-    label_with_unit, number_list, other_confirmation, park_clear, plural,
-    readiness, saved_ok, table_height, unit_after_number,
+    ARMED_KEY, TAB_BATCH, armed_confirmation, best_formulation_no,
+    best_move_sentence, confirm_action, confirmation_open, flash, fmt_amount,
+    fmt_setting, go_to_tab, join_unit, label_with_unit, number_list,
+    other_confirmation, park_clear, plural, readiness, saved_ok, table_height,
+    unit_after_number,
 )
 
 GOAL_LABELS = {
@@ -36,6 +38,12 @@ _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
 # process setting or an allowed amount says so itself.
 _BATCH_DISCARDED = ("The open batch was discarded because the ingredient list "
                     "or its allowed amounts changed since it was generated.")
+
+# The one sentence on any screen that says "weight": the technical gloss at
+# the foot of How closeness is worked out, which is there to join the word
+# the tab uses to the one a statistician would.
+_GLOSS = ("Importance is the weight of each measurement in the overall score; "
+          "closeness is its normalised score between 0 and 1.")
 
 
 # ------------------------------------------------------------------ #
@@ -98,22 +106,8 @@ def _report_limit(opt, sentence):
 #  Sections
 # ------------------------------------------------------------------ #
 
-def _followers(opt):
-    """The ingredients written in the project's default unit because they have
-    none of their own. They are what a new default really re-labels, so the
-    box says how many of them moved."""
-    return [v['name'] for v in opt.variables
-            if v.get('category', 'ingredient') == 'ingredient'
-            and v.get('unit') is None]
-
-
-def _moved_sentence(names, unit):
-    """'2 ingredients now read in %.' — what a new default unit did to the
-    amounts already on screen. Never plural about one ingredient."""
-    verb = "reads" if len(names) == 1 else "read"
-    if not unit:
-        return f"{plural(len(names), 'ingredient')} now {verb} without a unit."
-    return f"{plural(len(names), 'ingredient')} now {verb} in {unit}."
+KIND_INGREDIENT = "Ingredient"
+KIND_SETTING = "Process setting"
 
 
 def _scaled_now(opt):
@@ -142,64 +136,353 @@ def _unscaled_tail(opt, before, before_unit):
             + "; scaling needs all ingredients in one unit.")
 
 
-def _amount_unit(opt):
-    st.session_state.setdefault("amount_unit", opt.amount_unit)
-    typed = str(st.text_input(
-        "Unit for ingredients without one of their own", key="amount_unit",
-        placeholder="g",
-        help="New ingredients start in this unit, and so does every "
-             "ingredient you have not given its own unit. Set one ingredient's "
-             "own unit under Change the ingredient list.",
-    )).strip()
-    # Compare stripped with stripped: comparing a stripped store against an
-    # unstripped box re-saved on every rerun, and a failing save then bounced
-    # the script into a rerun loop.
-    if typed != opt.amount_unit:
-        # Every ingredient without a unit of its own is about to be re-labelled,
-        # which can also leave a limit adding grams to millilitres and a batch
-        # scaled to a total of nothing.
-        moved = _followers(opt)
-        scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
-        removed = opt.set_amount_unit(typed)
-        if saved_ok(opt):
-            said = []
-            if moved:
-                said.append(_moved_sentence(moved, opt.amount_unit))
-            tail = _unscaled_tail(opt, scaled, scaled_unit)
-            if tail:
-                said.append(tail)
-            if said:
-                flash("success", " ".join(said))
-            _flash_removed_limits(opt, removed)
-            if said or removed:
-                st.rerun()
-    elif getattr(opt, "amount_unit_backfilled", False):
+def _variables(opt, storage):
+    """What you can vary: the ingredients and the process settings, in one
+    open section. The form first, then one table of everything, then one row
+    of controls, with the file upload folded away beneath.
+
+    They were four places — an Ingredients subheader with its own uploader, a
+    Change the ingredient list expander, a Process settings expander and an
+    Ingredients fold — which asked the same question ('what changes between
+    formulations?') in four different shapes."""
+    st.subheader("What you can vary")
+    st.caption("Ingredients and process settings you will change between "
+               "formulations.")
+    _add_variable(opt)
+    _variable_table(opt)
+    if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
-        st.caption(f"This project was made before units were recorded. Its "
-                   f"amounts are shown in {opt.amount_unit} — change it here "
-                   "if that is wrong.")
+        st.caption("This project was made before units were recorded; its "
+                   f"amounts are shown in {opt.amount_unit}. Set each "
+                   "ingredient's unit below if that is wrong.")
+    _variable_controls(opt, storage)
+    with st.expander("Or upload a list"):
+        _upload_ingredients(opt)
 
 
-def _ingredients(opt, storage, nested=False):
-    """The ingredient list. `nested` is the settings-first layout, where this
-    whole section already sits inside an expander — Streamlit forbids an
-    expander inside an expander, so `Change the ingredient list` is written
-    out in place of one."""
-    if not nested:
-        st.subheader("Ingredients")
-    st.caption("Upload a CSV with the columns Name, Min, Max and, optionally, "
-               "Unit.")
+def _add_variable(opt):
+    """One form for both kinds. Kind is a radio rather than two forms: an
+    ingredient and a setting are the same four answers — what it is called,
+    how low, how high, and in what."""
+    mid_run = bool(opt.X_history)
+    st.session_state.setdefault("var_kind", KIND_INGREDIENT)
+    kind = st.session_state["var_kind"]
+    setting = kind == KIND_SETTING
+    # The unit box opens on what that kind is written in: g for an ingredient,
+    # blank for a setting, because a cook temperature is never 175 g. Assigned
+    # before the box is created, which is the one moment Streamlit allows it.
+    if st.session_state.get("_var_kind_shown") != kind:
+        st.session_state["_var_kind_shown"] = kind
+        st.session_state["var_unit"] = "" if setting else (opt.amount_unit or "")
+    wants_baseline = setting and mid_run
+    widths = [2, 2, 1, 1, 1] + ([1] if wants_baseline else [])
+    cols = st.columns(widths)
+    with cols[0]:
+        st.session_state.setdefault("var_name", "")
+        st.text_input("Name", key="var_name",
+                      placeholder=("e.g. Cook temperature" if setting
+                                   else "e.g. Water"))
+    with cols[1]:
+        st.radio("Kind", [KIND_INGREDIENT, KIND_SETTING], key="var_kind",
+                 horizontal=True)
+    with cols[2]:
+        # The opening value comes from session state, never from a `value=`
+        # argument: a project switch assigns these keys (see app.py's
+        # _FORM_FRESH), and Streamlit warns on screen when a widget is given
+        # both a default and a session-state value.
+        st.session_state.setdefault("var_low", 0.0)
+        if mid_run and not setting:
+            # Fixed at 0 and shown as 0: a number left in the box by a
+            # setting typed a moment ago would go on to be sent as the
+            # ingredient's lowest, which the box says it cannot be.
+            st.session_state["var_low"] = 0.0
+        st.number_input(
+            "Lowest", key="var_low", disabled=mid_run and not setting,
+            help=("A new ingredient starts at 0 in every formulation already "
+                  "made, so its lowest is fixed at 0 for now."
+                  if mid_run and not setting else None),
+        )
+    with cols[3]:
+        st.session_state.setdefault("var_high", 100.0)
+        st.number_input("Highest", key="var_high")
+    with cols[4]:
+        st.session_state.setdefault("var_unit", opt.amount_unit or "")
+        st.text_input("Unit", key="var_unit", placeholder="°C, min, %")
+    if wants_baseline:
+        with cols[5]:
+            st.session_state.setdefault("var_base", None)
+            st.number_input(
+                "Baseline", key="var_base", placeholder="required",
+                help="The setting you used for every formulation already "
+                     "made, so those results still count.",
+            )
+    # Grey: the tab's one coloured button is Continue at the foot.
+    if st.button("Add", key="add_variable"):
+        _add_variable_now(opt, setting, wants_baseline)
+
+
+def _add_variable_now(opt, setting, wants_baseline):
+    name = st.session_state["var_name"]
+    low, high = st.session_state["var_low"], st.session_state["var_high"]
+    unit = st.session_state.get("var_unit", "")
+    batch_no = opt.pending_batch_no
+    if setting:
+        if wants_baseline and st.session_state.get("var_base") is None:
+            st.error("Enter the baseline: the setting you used for every "
+                     "formulation already made.")
+            return
+        try:
+            opt.add_process_parameter(
+                name, low, high,
+                baseline=(st.session_state.get("var_base")
+                          if wants_baseline else None),
+                unit=unit,
+            )
+        except ValueError as e:
+            st.error(str(e))
+            return
+        if saved_ok(opt):
+            flash("success", f"Added {str(name).strip()}.")
+            _note_discarded_batch(opt, batch_no)
+            st.rerun()
+        return
+
+    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
+    try:
+        # Adding a name the project already has is an edit, and it can set
+        # that ingredient's unit — so it can leave an amount limit adding
+        # grams to millilitres, exactly as Set unit can.
+        removed = opt.add_ingredient(name, low, high, unit=unit)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    if saved_ok(opt):
+        added = f"Added {str(name).strip()}."
+        tail = _unscaled_tail(opt, scaled, scaled_unit)
+        flash("success", f"{added} {tail}" if tail else added)
+        _flash_removed_limits(opt, removed)
+        _note_discarded_batch(opt, batch_no)
+        st.rerun()
+
+
+def _ordered_variables(opt):
+    """Ingredients first, then process settings, each in the order they were
+    added. The table and the picker beneath it read the same way down."""
+    ingredients = [v for v in opt.variables
+                   if v.get('category', 'ingredient') == 'ingredient']
+    settings = [v for v in opt.variables if v.get('category') == 'process']
+    return ingredients + settings
+
+
+def _held_at(opt, var):
+    """What a paused row is held at in every new formulation. A cook
+    temperature is dialled in, an ingredient is weighed out, and each is
+    written in its own unit — a paused setting 'held at 175 g' priced a
+    setting in grams."""
+    unit = opt.unit_of(var['name'])
+    value = opt._frozen_value(var)
+    if var.get('category') == 'process':
+        return fmt_setting(value, unit)
+    return fmt_amount(value, unit)
+
+
+def _variable_table(opt):
+    rows = _ordered_variables(opt)
+    if not rows:
+        return
+    # A column that says the same thing on every row is a column of noise, so
+    # Status arrives with the first paused row and Baseline with the first
+    # setting that has one.
+    any_paused = any(not v.get('active', True) for v in rows)
+    any_baseline = any(v.get('_absent_value') is not None for v in rows)
+    frame = pd.DataFrame([{
+        "Kind": (KIND_INGREDIENT if v.get('category', 'ingredient') == 'ingredient'
+                 else KIND_SETTING),
+        "Name": v['name'],
+        "Lowest": float(v['bounds'][0]),
+        "Highest": float(v['bounds'][1]),
+        # Plain Lowest and Highest with a Unit column of their own: "Lowest
+        # (g)" over a row measured in ml was a lie, and the water really is
+        # in ml.
+        "Unit": opt.unit_of(v['name']),
+        **({"Baseline": (fmt_setting(v.get('_absent_value'),
+                                     opt.unit_of(v['name']))
+                         if v.get('_absent_value') is not None else "")}
+           if any_baseline else {}),
+        **({"Status": ("active" if v.get('active', True)
+                       else f"paused · held at {_held_at(opt, v)}")}
+           if any_paused else {}),
+    } for v in rows])
+    st.dataframe(frame, hide_index=True, key="variable_table",
+                 height=table_height(len(frame), max_rows=20))
+
+
+def _disarm_other_removals(pick):
+    """An armed Remove belongs to the row it was armed on. Changing the pick
+    would otherwise leave a confirmation armed with nothing on screen to
+    answer it, and the tab's Continue greyed behind it for ever."""
+    armed = armed_confirmation()
+    if armed and armed.startswith("rm_var_") and armed != f"rm_var_{pick}":
+        st.session_state.pop(f"{armed}__pending", None)
+        st.session_state.pop(ARMED_KEY, None)
+
+
+def _variable_controls(opt, storage):
+    """One row for everything you can do to a row of the table: pause it or
+    resume it, set its unit, remove it."""
+    rows = _ordered_variables(opt)
+    if not rows:
+        return
+    c1, c2, c3, c4, c5 = st.columns([2.4, 1, 1.2, 1, 1.6])
+    with c1:
+        pick = st.selectbox("Ingredient or setting", [v['name'] for v in rows],
+                            key="var_pick")
+    var = opt._var_by_name(pick)
+    is_ingredient = var.get('category', 'ingredient') == 'ingredient'
+    _disarm_other_removals(pick)
+    with c2:
+        _pause_or_resume(opt, var, pick)
+    with c3:
+        st.session_state.setdefault("unit_value", "")
+        typed = st.text_input("Unit", key="unit_value",
+                              placeholder=opt.unit_of(pick) or "g")
+    with c4:
+        if st.button("Set unit", key="set_unit", disabled=not is_ingredient,
+                     help=(None if is_ingredient else
+                           "A process setting's unit is set when you add "
+                           "it.")):
+            _set_unit_now(opt, pick, typed)
+    with c5:
+        _remove_variable(opt, storage, pick, is_ingredient)
+
+
+def _pause_or_resume(opt, var, pick):
+    """Whichever of the two applies to the row that is picked. A paused row is
+    left out of new formulations; nothing is deleted."""
+    batch_no = opt.pending_batch_no
+    if not var.get('active', True):
+        if st.button("Resume", key="resume_var",
+                     help="Put it back into new formulations."):
+            opt.reactivate_variable(pick)
+            if saved_ok(opt):
+                flash("success", f"Resumed {pick}.")
+                _note_discarded_batch(opt, batch_no)
+                st.rerun()
+        return
+    alone = len(opt.active_variables()) <= 1
+    if st.button("Pause", key="pause_var", disabled=alone,
+                 help=("At least two ingredients or settings must stay active "
+                       "before one can be paused." if alone else
+                       "Leave it out of new formulations, keeping every "
+                       "result already recorded.")):
+        try:
+            opt.deactivate_variable(pick)
+        except ValueError as e:
+            st.error(str(e))
+        else:
+            if saved_ok(opt):
+                flash("success", f"Paused {pick}.")
+                _note_discarded_batch(opt, batch_no)
+                st.rerun()
+
+
+def _set_unit_now(opt, pick, typed):
+    """Change one ingredient's unit. Nothing is rescored and the open batch
+    stands: a unit is how an amount is written, not the amount."""
+    if not str(typed).strip():
+        # A blank box looks like a no-op and is not one: it would rewrite the
+        # ingredient to no unit at all, and could take an amount limit with it.
+        st.error("Enter a unit, such as g or ml.")
+        return
+    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
+    try:
+        removed = opt.set_ingredient_unit(pick, typed)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    if saved_ok(opt):
+        written = opt.unit_of(pick)
+        said = (f"{pick} is measured in {written}." if written
+                else f"{pick} is shown without a unit.")
+        # Scaling needs one unit, and this change may have taken it away; the
+        # batch is back to as-generated, so say so.
+        tail = _unscaled_tail(opt, scaled, scaled_unit)
+        flash("success", f"{said} {tail}" if tail else said)
+        # An amount limit is a sum, and this change may have left one adding
+        # grams to millilitres. It is gone; say which.
+        _flash_removed_limits(opt, removed)
+        # Emptied for the next ingredient: a unit left in the box is one click
+        # away from being applied to another row.
+        park_clear("unit_value", "")
+        st.rerun()
+
+
+def _remove_variable(opt, storage, pick, is_ingredient):
+    """Remove one row for good. Always confirmed, always copied first, history
+    or not: a removal is a removal and the user is told the same thing every
+    time."""
+    key = f"rm_var_{pick}"
+    warning = (f"Remove {pick} from this project permanently? " if is_ingredient
+               else f"Remove {pick}? ")
+    confirmed = confirm_action(
+        key, "Remove",
+        warning + "Formulations already made will be recorded without it. "
+                  "A copy of the project is kept first.",
+        confirm_label="Yes, remove",
+        disabled=other_confirmation(key),
+    )
+    # Read here, before the tick box below is cleared: the run that confirms
+    # is the run that disarms.
+    force = bool(st.session_state.get("delete_ing_force", False))
+    armed = (armed_confirmation() == key
+             and st.session_state.get(f"{key}__pending"))
+    # The tick box is drawn AFTER confirm_action, because the click that arms
+    # the confirmation is only recorded inside it: asking first showed the box
+    # one click late. It is rarely needed and only ever seen while a removal
+    # is armed — removing an ingredient that was used above 0 would rewrite
+    # formulations nobody made.
+    if armed and is_ingredient:
+        st.caption("Deleting removes it from every formulation already made; "
+                   "pausing keeps the data.")
+        st.checkbox("Delete even if it was used (discards that information)",
+                    key="delete_ing_force")
+    elif not armed:
+        # Never carried into the next removal, or the next project: a tick
+        # left behind is one click away from discarding real results.
+        st.session_state.pop("delete_ing_force", None)
+    if confirmed:
+        batch_no = opt.pending_batch_no
+        try:
+            storage.archive(opt.project_name, "pre_delete", copy=True)
+            if is_ingredient:
+                opt.remove_ingredient(pick, force=force)
+            else:
+                opt.remove_process_parameter(pick)
+        except (ValueError, storage_backend.StorageError) as e:
+            st.error(str(e))
+        else:
+            if saved_ok(opt):
+                flash("success", f"Removed {pick}.")
+                _note_discarded_batch(opt, batch_no)
+                st.rerun()
+
+
+def _upload_ingredients(opt):
+    """The ingredient file, folded away: typing one ingredient is the common
+    case, and a file is the shortcut for a project that already has one."""
+    st.caption("A CSV with the columns Name, Min, Max and, optionally, Unit. "
+               "Extra columns become properties you can set limits on.")
     uploaded = st.file_uploader(
         "Upload ingredients CSV", type=["csv"],
         # Keyed to the project: a file uploader cannot be emptied from session
         # state, so a shared key handed the next project the sheet this one
         # loaded, with a live Load ingredients under it.
         key=f"ingredients_csv_{opt.project_name}",
-        help="Columns Name, Min, Max, and an optional Unit (a blank cell uses "
-             "the default above). Extra columns such as Cost or Protein per "
-             "100 g become properties you can set limits on.",
+        help="Columns Name, Min, Max, and an optional Unit (a blank cell is "
+             "in g). Extra columns such as Cost or Protein per 100 g become "
+             "properties you can set limits on.",
     )
     if os.path.exists(_SAMPLE_CSV):
         with open(_SAMPLE_CSV, "rb") as handle:
@@ -241,165 +524,6 @@ def _ingredients(opt, storage, nested=False):
                     _note_discarded_batch(opt, batch_no)
                     st.rerun()
 
-    ingredients = [v for v in opt.variables
-                   if v.get('category', 'ingredient') == 'ingredient']
-    if ingredients:
-        # A Status column that says "active" on every row is a column of noise.
-        any_paused = any(not v.get('active', True) for v in ingredients)
-        # Plain Min and Max with a Unit column of their own: "Min (g)" over a
-        # row measured in ml was a lie, and the water really is in ml.
-        rows = pd.DataFrame([{
-            "Name": v['name'],
-            "Min": float(v['bounds'][0]),
-            "Max": float(v['bounds'][1]),
-            "Unit": opt.unit_of(v['name']),
-            **({"Status": "active" if v.get('active', True) else "paused"}
-               if any_paused else {}),
-        } for v in ingredients])
-        st.dataframe(rows, hide_index=True, key="ingredient_table",
-                     height=table_height(len(rows), max_rows=20))
-
-    if nested:
-        st.divider()
-        st.markdown("**Change the ingredient list**")
-        _change_ingredient_list(opt, storage)
-    else:
-        with st.expander("Change the ingredient list"):
-            _change_ingredient_list(opt, storage)
-
-
-def _change_ingredient_list(opt, storage):
-    has_history = bool(opt.X_history)
-    st.markdown("**Add an ingredient**")
-    ic1, ic2, ic3, ic4 = st.columns([2, 1, 1, 1])
-    with ic1:
-        st.text_input("Ingredient name", key="ing_name")
-    with ic2:
-        # Its own unit, opening on the project's default: the water is in ml
-        # while the powders are in g. Min and Max stay plain — the unit is
-        # the box beside them, and repeating it in their labels would go
-        # stale the moment it is retyped.
-        st.session_state.setdefault("ing_unit", opt.amount_unit)
-        st.text_input("Unit", key="ing_unit", placeholder="g")
-    with ic3:
-        # The opening value comes from session state, never from a `value=`
-        # argument: a project switch assigns these keys (see app.py's
-        # _FORM_FRESH), and Streamlit warns on screen when a widget is given
-        # both a default and a session-state value.
-        st.session_state.setdefault("ing_min", 0.0)
-        st.number_input("Min", key="ing_min", disabled=has_history)
-    with ic4:
-        st.session_state.setdefault("ing_max", 100.0)
-        st.number_input("Max", key="ing_max")
-    if has_history:
-        st.caption("A new ingredient starts at 0 in every formulation already "
-                   "made, so its minimum is fixed at 0 for now.")
-    if st.button("Add ingredient", key="add_ingredient"):
-        batch_no = opt.pending_batch_no
-        scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
-        try:
-            # Adding a name the project already has is an edit, and it can set
-            # that ingredient's unit — so it can leave an amount limit adding
-            # grams to millilitres, exactly as Set unit can.
-            removed = opt.add_ingredient(st.session_state["ing_name"],
-                                         st.session_state["ing_min"],
-                                         st.session_state["ing_max"],
-                                         unit=st.session_state.get("ing_unit", ""))
-        except ValueError as e:
-            st.error(str(e))
-        else:
-            if saved_ok(opt):
-                added = f"Added {str(st.session_state['ing_name']).strip()}."
-                tail = _unscaled_tail(opt, scaled, scaled_unit)
-                flash("success", f"{added} {tail}" if tail else added)
-                _flash_removed_limits(opt, removed)
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
-
-    _set_unit(opt)
-
-    active = opt.active_variables()
-    inactive = opt.inactive_variables()
-    st.divider()
-    st.markdown("**Pause an ingredient or setting**")
-    st.caption("A paused ingredient or setting is left out of new "
-               "formulations; nothing is deleted and you can resume at any "
-               "time.")
-    if len(active) > 1:
-        pause = st.multiselect("Pause", [v['name'] for v in active], key="pause_pick")
-        if st.button("Pause selected", disabled=not pause, key="pause_go"):
-            batch_no = opt.pending_batch_no
-            try:
-                for name in pause:
-                    opt.deactivate_variable(name)
-            except ValueError as e:
-                st.error(str(e))
-            else:
-                if saved_ok(opt):
-                    flash("success", f"Paused: {', '.join(pause)}.")
-                    _note_discarded_batch(opt, batch_no)
-                    st.rerun()
-    else:
-        st.caption("At least two ingredients or settings must stay active "
-                   "before one can be paused.")
-    if inactive:
-        # Each row in its own unit: a paused cook temperature "held at 175 g"
-        # priced a setting in grams, and the water is held at millilitres.
-        st.dataframe(pd.DataFrame([{
-            "Name": v['name'],
-            "Type": "ingredient" if v.get('category', 'ingredient') == 'ingredient'
-                    else "process setting",
-            "Held at": (fmt_setting(opt._frozen_value(v), opt.unit_of(v['name']))
-                        if v.get('category') == 'process'
-                        else fmt_amount(opt._frozen_value(v),
-                                        opt.unit_of(v['name']))),
-        } for v in inactive]), hide_index=True, key="paused_table")
-        resume = st.multiselect("Resume", [v['name'] for v in inactive],
-                                key="resume_pick")
-        if st.button("Resume selected", disabled=not resume, key="resume_go"):
-            batch_no = opt.pending_batch_no
-            for name in resume:
-                opt.reactivate_variable(name)
-            if saved_ok(opt):
-                flash("success", f"Resumed: {', '.join(resume)}.")
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
-
-    st.divider()
-    # A checkbox, not an expander: Streamlit forbids nesting expanders.
-    if st.checkbox("Show permanent deletion (rarely needed)", key="show_delete_ing"):
-        st.caption("Deleting removes the ingredient from every formulation "
-                   "already made. It is refused if the ingredient was ever "
-                   "used above 0, because that would rewrite formulations "
-                   "nobody made. Pausing keeps the data.")
-        names = [v['name'] for v in opt.variables
-                 if v.get('category', 'ingredient') == 'ingredient']
-        if not names:
-            st.caption("No ingredients loaded.")
-        else:
-            pick = st.selectbox("Ingredient", names, key="delete_ing_pick")
-            force = st.checkbox("Delete even if it was used (discards that "
-                                "information)", key="delete_ing_force")
-            if confirm_action(
-                "delete_ing", "Delete permanently",
-                f"Delete {pick} from this project permanently? Formulations "
-                "already made will be recorded without it. A copy of the "
-                "project is kept first.",
-                confirm_label="Yes, delete",
-                disabled=other_confirmation("delete_ing"),
-            ):
-                batch_no = opt.pending_batch_no
-                try:
-                    storage.archive(opt.project_name, "pre_delete", copy=True)
-                    opt.remove_ingredient(pick, force=force)
-                except (ValueError, storage_backend.StorageError) as e:
-                    st.error(str(e))
-                else:
-                    if saved_ok(opt):
-                        flash("success", f"Deleted {pick}.")
-                        _note_discarded_batch(opt, batch_no)
-                        st.rerun()
-
 
 def _flash_removed_limits(opt, removed):
     """Name every amount limit an edit just emptied of meaning, one line
@@ -426,54 +550,6 @@ def _limit_label(opt, qc):
     if names and set(qc['ingredients']) == set(names):
         return "Total amount (all ingredients)"
     return " + ".join(qc['ingredients'])
-
-
-def _set_unit(opt):
-    """Change one ingredient's unit. Nothing is rescored and the open batch
-    stands: a unit is how an amount is written, not the amount."""
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
-    if not names:
-        return
-    st.divider()
-    st.markdown("**Set the unit of one ingredient**")
-    u1, u2, u3 = st.columns([2, 1, 1])
-    with u1:
-        pick = st.selectbox("Ingredient", names, key="unit_pick")
-    with u2:
-        st.session_state.setdefault("unit_value", "")
-        typed = st.text_input("Unit", key="unit_value",
-                              placeholder=opt.unit_of(pick) or "g")
-    with u3:
-        # Grey: the tab's one coloured button is Continue at the foot.
-        if st.button("Set unit", key="set_unit"):
-            if not str(typed).strip():
-                # A blank box looks like a no-op and is not one: it would
-                # rewrite the ingredient to no unit at all, and could take an
-                # amount limit with it.
-                st.error("Enter a unit, such as g or ml.")
-                return
-            scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
-            try:
-                removed = opt.set_ingredient_unit(pick, typed)
-            except ValueError as e:
-                st.error(str(e))
-            else:
-                if saved_ok(opt):
-                    written = opt.unit_of(pick)
-                    said = (f"{pick} is measured in {written}." if written
-                            else f"{pick} is shown without a unit.")
-                    # Scaling needs one unit, and this change may have taken
-                    # it away; the batch is back to as-generated, so say so.
-                    tail = _unscaled_tail(opt, scaled, scaled_unit)
-                    flash("success", f"{said} {tail}" if tail else said)
-                    # An amount limit is a sum, and this change may have left
-                    # one adding grams to millilitres. It is gone; say which.
-                    _flash_removed_limits(opt, removed)
-                    # Emptied for the next ingredient: a unit left in the box
-                    # is one click away from being applied to another row.
-                    park_clear("unit_value", "")
-                    st.rerun()
 
 
 def _measurement_editor(opt, storage, editing):
@@ -671,13 +747,12 @@ def _measurements(opt, storage):
     """Draw the measurements section. Returns True while a measurement is
     open for editing: `Save changes` is then the tab's one lit action and the
     foot steps aside."""
-    st.subheader("Measurements")
+    st.subheader("Measurements and targets")
     editing_name = st.session_state.get("_editing_measurement")
     editing = next((o for o in opt.objectives if o['name'] == editing_name), None)
     if editing is not None:
         _measurement_editor(opt, storage, editing)
     elif not opt.objectives:
-        st.caption("What you will measure on every formulation.")
         _measurement_editor(opt, storage, None)
     else:
         with st.expander("Add a measurement"):
@@ -724,104 +799,10 @@ def _measurements(opt, storage):
             "- **Hit a target:** closeness is 1 at the target and falls evenly "
             "with distance from it; a full scale width away scores 0.\n\n"
             "Each closeness is multiplied by that measurement's importance, "
-            "and the results are added up."
+            "and the results are added up.\n\n"
+            + _GLOSS
         )
     return editing is not None
-
-
-def _process_settings(opt, storage, first=False):
-    """The settings that vary between formulations. `first` is a project that
-    weighs nothing out — a fermentation loop varies incubation temperature,
-    time and culture dose — where this is the section the work is done in, so
-    it opens, it is not called optional, and the ingredients sit under it."""
-    with st.expander("Process settings" if first else "Process settings (optional)",
-                     expanded=first):
-        st.caption("Settings such as cook temperature or mixing time that can "
-                   "vary between formulations.")
-        mid_run = bool(opt.X_history)
-        pc = st.columns(5)
-        with pc[0]:
-            st.text_input("Setting name", key="pp_name",
-                          placeholder="e.g. Cook temperature")
-        with pc[1]:
-            # A setting is not an amount, so it never wears the project's
-            # amount unit; without one of its own the sheet a technician
-            # follows read "Cook temperature: 175".
-            st.text_input("Unit", key="pp_unit", placeholder="e.g. °C")
-        with pc[2]:
-            st.session_state.setdefault("pp_min", 0.0)
-            st.number_input("Min value", key="pp_min")
-        with pc[3]:
-            st.session_state.setdefault("pp_max", 100.0)
-            st.number_input("Max value", key="pp_max")
-        with pc[4]:
-            st.session_state.setdefault("pp_base", None)
-            st.number_input(
-                "Baseline", key="pp_base",
-                placeholder="required" if mid_run else "not needed yet",
-                help=("The setting you used for every formulation already "
-                      "made, so those results still count." if mid_run else
-                      "Only needed once results exist: the setting used for "
-                      "every formulation already made."),
-            )
-        if st.button("Add process setting", key="add_process_setting"):
-            if mid_run and st.session_state["pp_base"] is None:
-                st.error("Enter the baseline: the setting you used for every "
-                         "formulation already made.")
-            else:
-                batch_no = opt.pending_batch_no
-                try:
-                    opt.add_process_parameter(
-                        st.session_state["pp_name"], st.session_state["pp_min"],
-                        st.session_state["pp_max"],
-                        baseline=(st.session_state["pp_base"] if mid_run else None),
-                        unit=st.session_state.get("pp_unit", ""),
-                    )
-                except ValueError as e:
-                    st.error(str(e))
-                else:
-                    if saved_ok(opt):
-                        flash("success",
-                              f"Added {str(st.session_state['pp_name']).strip()}.")
-                        _note_discarded_batch(opt, batch_no)
-                        st.rerun()
-
-        process = [v for v in opt.variables if v.get('category') == 'process']
-        for i, pv in enumerate(process):
-            p1, p2 = st.columns([3, 1])
-            with p1:
-                low, high = pv['bounds']
-                p_unit = str(pv.get('unit', "") or "")
-                base = pv.get('_absent_value')
-                base_txt = ("" if base is None else
-                            " · baseline " + join_unit(f"{base:g}", p_unit))
-                paused = "" if pv.get('active', True) else "  (paused)"
-                st.text(f"{pv['name']}: "
-                        + join_unit(f"{low:g} to {high:g}", p_unit)
-                        + f"{base_txt}{paused}")
-            with p2:
-                # Always confirmed, always copied first, history or not: a
-                # removal is a removal and the user is told the same thing
-                # every time.
-                if confirm_action(
-                    f"rm_pp_{i}", "Remove",
-                    f"Remove {pv['name']}? Formulations already made will "
-                    "be recorded without it. A copy of the project is "
-                    "kept first.",
-                    confirm_label="Yes, remove",
-                    disabled=other_confirmation(f"rm_pp_{i}"),
-                ):
-                    batch_no = opt.pending_batch_no
-                    try:
-                        storage.archive(opt.project_name, "pre_delete", copy=True)
-                    except storage_backend.StorageError as e:
-                        st.error(str(e))
-                    else:
-                        opt.remove_process_parameter(pv['name'])
-                        if saved_ok(opt):
-                            flash("success", f"Removed {pv['name']}.")
-                            _note_discarded_batch(opt, batch_no)
-                            st.rerun()
 
 
 def _limits(opt):
@@ -830,9 +811,8 @@ def _limits(opt):
     # refused with "Choose ingredients that share a unit."
     unit = opt.one_amount_unit() or ""
     with st.expander("Limits (optional)"):
-        st.caption("Limits apply to ingredient amounts and to properties from "
-                   "your ingredient file. To cap something you measure, add it "
-                   "as a measurement.")
+        st.caption("Limits hold the next batch to an amount or a property; to "
+                   "cap something you measure, make it a measurement.")
 
         properties = set()
         for props in opt.ingredient_properties.values():
@@ -1048,30 +1028,10 @@ def _foot(opt, editing=False):
 
 
 def render(opt, storage):
-    # A project that varies process settings and weighs nothing out opens on
-    # the settings, with the ingredients — and the unit its amounts would be
-    # in — folded away beneath them. Anything else keeps the formulator's
-    # order: the unit, the ingredients, the measurements.
-    settings_first = (not opt.has_ingredients()
-                      and any(v.get('category') == 'process'
-                              for v in opt.variables))
-    if settings_first:
-        _process_settings(opt, storage, first=True)
-        with st.expander("Ingredients (optional)"):
-            _amount_unit(opt)
-            st.divider()
-            _ingredients(opt, storage, nested=True)
-        st.divider()
-        editing = _measurements(opt, storage)
-        st.divider()
-    else:
-        _amount_unit(opt)
-        st.divider()
-        _ingredients(opt, storage)
-        st.divider()
-        editing = _measurements(opt, storage)
-        st.divider()
-        _process_settings(opt, storage)
+    _variables(opt, storage)
+    st.divider()
+    editing = _measurements(opt, storage)
+    st.divider()
     _limits(opt)
     _advanced(opt)
     st.divider()

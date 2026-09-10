@@ -2564,6 +2564,11 @@ _ALLOWED_EXACT = {
     # The one permitted "range": it is the spec's verbatim caption, and it
     # means an instrument's range, not an ingredient's allowed amounts.
     "The ends of your scale or instrument range, not the values you expect",
+    # The one permitted "weight": the technical gloss folded away under How
+    # closeness is worked out, whose whole job is to name the word behind
+    # importance for a reader who wants it.
+    "Importance is the weight of each measurement in the overall score; "
+    "closeness is its normalised score between 0 and 1.",
 }
 
 # Single-word literals that are internal machinery, never screen text.

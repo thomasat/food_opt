@@ -40,8 +40,8 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 # only ever runs from a handler, before the tabs render.
 _FORM_KEY_PREFIXES = (
     "meas_",                       # the measurement form, new and per-edit
-    "ing_",                        # ingredient name, min, max
-    "pp_",                         # process setting name, min, max, baseline
+    "var_",                        # the one add form: name, kind, lowest,
+                                   # highest, unit, baseline, and the picker
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, min, max
@@ -62,23 +62,21 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 # So the empty value is PARKED and assigned before the widget is created, the
 # same pattern clear_selection has always used for a select box.
 _FORM_FRESH = {
-    "ing_name": "", "ing_min": 0.0, "ing_max": 100.0, "unit_value": "",
-    "pp_name": "", "pp_unit": "", "pp_min": 0.0, "pp_max": 100.0,
-    "pp_base": None,
+    "var_name": "", "var_low": 0.0, "var_high": 100.0, "var_base": None,
+    "var_kind": "Ingredient", "unit_value": "",
     "prop_min": None, "prop_max": None,
     "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
     "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
     "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
     "meas_new_importance": 1.0,
-    "qty_pick": [], "pause_pick": [], "resume_pick": [],
+    "qty_pick": [],
     "batch_size": 3, "repeat_best": False, "scale_total": None,
 }
-# The boxes whose empty value is None: the select boxes, and the two unit
-# boxes — the project's default and the add-an-ingredient one — which empty to
-# the newly opened project's own default (app.py passes it to drain_clears; it
-# is not known here).
+# The boxes whose empty value is None: the select boxes, and the add form's
+# unit box, which empties to the newly opened project's own default (app.py
+# passes it to drain_clears; it is not known here).
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_formulation",
-                         "amount_unit", "ing_unit")
+                         "var_unit")
 
 
 def _grid_fresh(key):
@@ -99,7 +97,7 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", ARMED_KEY):
+              "_pending_tab", "_var_kind_shown", ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
@@ -571,8 +569,7 @@ if "_pending_tab" in st.session_state:
 # Everything a project switch parked is assigned here: the previous run's
 # widgets are gone and this run's tab widgets do not exist yet, which is the
 # one moment Streamlit lets a widget's value be set.
-drain_clears({"amount_unit": _opt.amount_unit,
-              "ing_unit": _opt.amount_unit})
+drain_clears({"var_unit": _opt.amount_unit})
 
 tab_setup, tab_batch, tab_results = st.tabs(
     [TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab", on_change="rerun")
