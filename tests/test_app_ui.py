@@ -2709,13 +2709,18 @@ def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
     assert dict(zip(table["Name"], table["Baseline"])) == {
         "Pea protein": "", "Methylcellulose": "",
         "Cook temperature": "180 °C"}
-def test_the_property_limit_line_asks_for_a_file_when_there_is_none(burger):
+def test_a_project_with_no_properties_still_offers_to_name_one(burger):
+    """It used to send the user off to build a CSV; a property can now be
+    named here, so the section offers the box instead of an errand."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Upload an ingredient CSV with extra columns such "
-                           "as Cost or Sodium per 100 g to set property "
-                           "limits.") for c in at.caption), \
-        [c.value for c in at.caption]
+    assert not any("Upload an ingredient CSV with extra columns" in c.value
+                   for c in at.caption), [c.value for c in at.caption]
+    assert at.text_input(key="prop_new").label == \
+        "Add a property, such as Sodium per 100 g"
+    # Nothing to limit yet, so no property picker and no limit button.
+    assert "prop_metric" not in [b.key for b in at.selectbox]
+    assert "Add property limit" not in _labels(at)
 
 
 def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
@@ -3732,8 +3737,8 @@ def test_a_property_limit_says_it_is_per_100_g_of_the_formulation(with_propertie
     assert any(m.value == "**Limit on the finished formulation**"
                for m in at.markdown), [m.value for m in at.markdown]
     assert at.selectbox(key="prop_metric").label == "Property"
-    assert any(c.value == ("Per 100 g of formulation, worked out from your "
-                           "ingredient file's property columns.")
+    assert any(c.value == ("Per 100 g of formulation, worked out from each "
+                           "ingredient's value for it.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -3751,7 +3756,7 @@ def test_adding_a_property_limit_lists_it_and_keeps_what_was_made(with_propertie
     at.run()
     at.number_input(key="prop_max").set_value(20.0)
     at.run()
-    _submit_button(at, "Add a property limit").click()
+    _submit_button(at, "Add property limit").click()
     at.run()
     assert not at.exception
     assert any(s.value == ("Limit added on Fat per 100 g. Formulations "
@@ -3769,7 +3774,7 @@ def test_a_property_limit_is_refused_while_the_units_differ(with_properties):
     at.run()
     at.number_input(key="prop_max").set_value(20.0)
     at.run()
-    _submit_button(at, "Add a property limit").click()
+    _submit_button(at, "Add property limit").click()
     at.run()
     assert not at.exception
     assert any(e.value == ("A property limit needs all ingredients in one "
@@ -4197,3 +4202,188 @@ def test_the_tab_reads_in_one_order(burger):
     assert order == ["What you can vary", "Measurements and targets",
                      "Limits (optional)", "Advanced model settings"], order
     assert _tab_primaries(at, 0) == ["Continue to make a batch"]
+
+
+# ------------------------------------------------------------------ #
+#  Properties named in the app (no ingredient CSV needed)
+# ------------------------------------------------------------------ #
+
+def _prop_name_box(at):
+    return at.text_input(key="prop_new")
+
+
+def test_a_property_is_named_on_the_limits_section_and_the_box_empties(burger):
+    """A property used to need an ingredient CSV with an extra column, so a
+    project typed in by hand could not limit sodium at all."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _prop_name_box(at).label == "Add a property, such as Sodium per 100 g"
+    _prop_name_box(at).set_value("Sodium per 100 g")
+    at.run()
+    next(b for b in at.button if b.key == "add_property").click()
+    at.run()
+    assert not at.exception
+    assert any("Added Sodium per 100 g." in s.value for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("burger").properties() == ["Sodium per 100 g"]
+    # The box empties, or the next click adds the same name again.
+    assert _prop_name_box(at).value == ""
+    assert at.selectbox(key="prop_metric").options == ["Sodium per 100 g"]
+
+
+def test_a_property_name_that_clashes_is_refused_on_screen(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _prop_name_box(at).set_value("Firmness")
+    at.run()
+    next(b for b in at.button if b.key == "add_property").click()
+    at.run()
+    assert not at.exception
+    assert any("already the name of a measurement" in e.value for e in at.error), \
+        [e.value for e in at.error]
+    assert FoodOptimizer("burger").properties() == []
+
+
+def test_the_add_form_and_the_table_carry_one_column_per_property(burger):
+    """One number box per property on the add form, one column per property in
+    the table, blank where an ingredient has no value."""
+    burger.add_property("Sodium per 100 g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    box = at.number_input(key="var_prop_Sodium per 100 g")
+    assert box.label == "Sodium per 100 g"
+    at.text_input(key="var_name").set_value("Salt")
+    at.number_input(key="var_high").set_value(5.0)
+    box.set_value(39000.0)
+    at.run()
+    _submit_button(at, "Add").click()
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.property_value("Salt", "Sodium per 100 g") == 39000.0
+    table = next(d.value for d in at.dataframe if "Kind" in d.value.columns)
+    assert list(table.columns)[-1] == "Sodium per 100 g"
+    assert dict(zip(table["Name"], table["Sodium per 100 g"])) == {
+        "Pea protein": "", "Methylcellulose": "", "Salt": "39000"}
+    # The box empties, or the next ingredient inherits this one's value.
+    assert at.number_input(key="var_prop_Sodium per 100 g").value is None
+
+
+def test_a_process_setting_is_not_asked_for_a_property_value(burger):
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="var_prop_Cost") is not None
+    at.radio(key="var_kind").set_value("Process setting")
+    at.run()
+    assert "var_prop_Cost" not in [n.key for n in at.number_input]
+
+
+def test_set_property_values_writes_the_picked_ingredients_values(burger):
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Methylcellulose")
+    at.run()
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    at.number_input(key="setprop_Methylcellulose_Cost").set_value(42.0)
+    at.run()
+    next(b for b in at.button if b.key == "save_props").click()
+    at.run()
+    assert not at.exception
+    assert any("Property values saved for Methylcellulose." in s.value
+               for s in at.success), [s.value for s in at.success]
+    assert FoodOptimizer("burger").property_value("Methylcellulose", "Cost") == 42.0
+    # The editor closes; the button is back on its own.
+    assert "setprop_Methylcellulose_Cost" not in [n.key for n in at.number_input]
+
+
+def test_the_property_editor_opens_on_the_value_already_stored(burger):
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    assert at.number_input(key="setprop_Pea protein_Cost").value == 3.5
+    # A second ingredient opens on its own value, not on this one's: the box
+    # is keyed per ingredient and seeded when the editor opens.
+    next(b for b in at.button if b.key == "close_props").click()
+    at.run()
+    at.selectbox(key="var_pick").select("Methylcellulose")
+    at.run()
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    assert at.number_input(key="setprop_Methylcellulose_Cost").value is None
+    # Emptying a box clears the value (no value is not 0); AppTest cannot type
+    # an empty number box, so that half is covered in test_food_bo.py.
+
+
+def test_a_limit_names_the_ingredients_that_have_no_value(burger):
+    """An ingredient with no value counts as 0 in the average, and a limit
+    that looks satisfied for that reason is the one way this lies."""
+    burger.add_property("Sodium per 100 g")
+    burger.set_property_value("Pea protein", "Sodium per 100 g", 20)
+    burger.add_constraint("Sodium per 100 g", max_val=450)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    line = next(t.value for t in at.text if t.value.startswith("Sodium per 100 g:"))
+    assert line == ("Sodium per 100 g: at most 450 · Methylcellulose has no "
+                    "value and counts as 0.")
+    at.session_state["optimizer"].set_property_value(
+        "Methylcellulose", "Sodium per 100 g", 0)
+    at.run()
+    line = next(t.value for t in at.text if t.value.startswith("Sodium per 100 g:"))
+    assert line == "Sodium per 100 g: at most 450"
+
+
+def test_removing_a_property_asks_first_keeps_a_copy_and_takes_its_limit(
+        burger, tmp_path):
+    burger.add_property("Sodium per 100 g")
+    burger.set_property_value("Pea protein", "Sodium per 100 g", 20)
+    burger.add_constraint("Sodium per 100 g", max_val=450)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    next(b for b in at.button
+         if b.key == "rm_prop_Sodium per 100 g__btn").click()
+    at.run()
+    assert any("Remove Sodium per 100 g and its 1 limit?" in w.value
+               for w in at.warning), [w.value for w in at.warning]
+    assert any("A copy is saved in your FoodOptimizer folder first." in w.value
+               for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").properties() == ["Sodium per 100 g"]
+    next(b for b in at.button
+         if b.key == "rm_prop_Sodium per 100 g__yes").click()
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.properties() == []
+    assert saved.constraints == []
+    assert saved.ingredient_properties["Pea protein"] == {}
+    assert (tmp_path / "burger_pre_delete.pkl").exists()
+    assert any("Removed Sodium per 100 g. Its 1 limit went with it." in s.value
+               for s in at.success), [s.value for s in at.success]
+
+
+def test_a_hand_made_property_limit_reaches_the_batch(burger):
+    """The whole point: name a property, give it values, limit it, and the
+    formulations the app chooses respect the limit."""
+    burger.add_property("Sodium per 100 g")
+    burger.set_property_value("Pea protein", "Sodium per 100 g", 1000)
+    burger.set_property_value("Methylcellulose", "Sodium per 100 g", 0)
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    at.selectbox(key="prop_metric").select("Sodium per 100 g")
+    at.number_input(key="prop_max").set_value(200.0)
+    at.run()
+    _submit_button(at, "Add property limit").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").constraints[0]['max'] == 200.0
+    at.button(key="generate").click()
+    at.run()
+    opt = at.session_state["optimizer"]
+    assert opt.pending_batch, [e.value for e in at.error]
+    for row in opt.pending_batch:
+        assert opt.property_per_100(row['recipe'], "Sodium per 100 g") <= 200.0 + 1e-6

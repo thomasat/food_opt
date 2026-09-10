@@ -192,7 +192,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 7  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 8  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
@@ -213,6 +213,10 @@ class FoodOptimizer:
         self.variables = []
         self.objectives = []
         self.ingredient_properties = {}
+        # Properties named in the app rather than in an ingredient file. The
+        # ordered union of these and the columns a file brought in is what
+        # properties() answers, and what the screen lists.
+        self.property_names = []
         self.constraints = []
         self.quantity_constraints = []
         self.screening_model = None
@@ -433,6 +437,11 @@ class FoodOptimizer:
             self.ingredient_properties[name] = props
 
         self.variables.extend(process_vars)
+        # A column of the file is a property of this project from now on, and
+        # it keeps its place in the file's own order. A property named in the
+        # app earlier stays named: the file replaces the values, not the list.
+        for col in prop_cols:
+            self._remember_property(str(col).strip())
         # The new file can rename every unit and drop ingredients outright,
         # so the limits are re-checked against it and the caller is told.
         removed = self.prune_amount_limits()
@@ -665,6 +674,142 @@ class FoodOptimizer:
             return str(var.get('unit', "") or "")
         unit = var.get('unit')
         return str(self.amount_unit or "") if unit is None else str(unit or "")
+
+    def properties(self):
+        """Every property this project knows, in order: the ones named in the
+        app first, then any column an ingredient file brought in.
+
+        A property is an attribute of an ingredient — Sodium per 100 g, Cost —
+        that a limit on the finished formulation is written against. It used
+        to arrive only as an extra column in an ingredient CSV; it can now be
+        named on the Limits section and given a value per ingredient, which is
+        why this is the one list the screen reads."""
+        names, seen = [], set()
+        for name in (getattr(self, 'property_names', None) or []):
+            key = str(name).strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                names.append(str(name).strip())
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            for prop in (self.ingredient_properties.get(var['name']) or {}):
+                key = str(prop).strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    names.append(str(prop).strip())
+        return names
+
+    def _remember_property(self, name):
+        """Record a property name in property_names if it is not there yet."""
+        name = str(name).strip()
+        if not name:
+            return
+        stored = getattr(self, 'property_names', None) or []
+        if any(str(p).strip().lower() == name.lower() for p in stored):
+            return
+        self.property_names = list(stored) + [name]
+
+    def _known_property(self, metric):
+        """The stored spelling of a property, or None. Matching ignores
+        capitals, exactly as property_value does."""
+        wanted = str(metric).strip().lower()
+        return next((p for p in self.properties()
+                     if str(p).strip().lower() == wanted), None)
+
+    def add_property(self, name):
+        """Name a property in the app, with no ingredient file at all. Returns
+        the stored name.
+
+        A property is a column of the app's own tables once it exists, so its
+        name is checked against everything else the project names: a property
+        called Water beside an ingredient called Water is two things with one
+        name on one screen."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("Name cannot be empty.")
+        if is_reserved_name(name):
+            raise ValueError(
+                f"{name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name, for example {name}s."
+            )
+        lowered = name.lower()
+        for var in self.variables:
+            if var['name'].lower() == lowered:
+                kind = ("an ingredient"
+                        if var.get('category', 'ingredient') == 'ingredient'
+                        else "a process setting")
+                raise ValueError(
+                    f"{var['name']} is already the name of {kind}. Choose "
+                    f"another name.")
+        for obj in self.objectives:
+            if obj['name'].lower() == lowered:
+                raise ValueError(
+                    f"{obj['name']} is already the name of a measurement. "
+                    f"Choose another name.")
+        if self._known_property(name) is not None:
+            raise ValueError(f"{name} is already a property of this project.")
+        self._remember_property(name)
+        self.save()
+        return name
+
+    def remove_property(self, name):
+        """Remove a property, the values every ingredient holds for it and any
+        limit written against it. Returns the limits that went, so the screen
+        can name them."""
+        stored = self._known_property(name)
+        if stored is None:
+            raise ValueError(f"No property named {name}.")
+        lowered = stored.lower()
+        self.property_names = [
+            p for p in (getattr(self, 'property_names', None) or [])
+            if str(p).strip().lower() != lowered
+        ]
+        for props in self.ingredient_properties.values():
+            for key in [k for k in list(props or {})
+                        if str(k).strip().lower() == lowered]:
+                props.pop(key, None)
+        removed = [c for c in self.constraints
+                   if str(c['metric']).strip().lower() == lowered]
+        self.constraints = [c for c in self.constraints
+                            if str(c['metric']).strip().lower() != lowered]
+        self.save()
+        return removed
+
+    def set_property_value(self, ingredient, metric, value):
+        """One ingredient's value for one property. `None` clears it, and an
+        ingredient with no value counts as 0 in the average — which is what
+        the limit line says on screen."""
+        var = next((v for v in self.variables
+                    if v['name'] == ingredient
+                    and v.get('category', 'ingredient') == 'ingredient'), None)
+        if var is None:
+            raise ValueError(f"No ingredient named {ingredient}.")
+        stored = self._known_property(metric)
+        if stored is None:
+            raise ValueError(f"No property named {metric}.")
+        props = self.ingredient_properties.setdefault(ingredient, {})
+        for key in [k for k in list(props)
+                    if str(k).strip().lower() == stored.lower()]:
+            props.pop(key, None)
+        if value is not None:
+            props[stored] = float(value)
+        self.save()
+
+    def has_property_value(self, name, metric):
+        """True when this ingredient has a value for this property. A 0 is a
+        value; a blank is not, and the two must not read alike."""
+        props = self.ingredient_properties.get(name, {}) or {}
+        wanted = str(metric).strip().lower()
+        return any(str(key).strip().lower() == wanted for key in props)
+
+    def ingredients_without_property(self, metric):
+        """The ingredients that have no value for this property, in order.
+        They count as 0 in the per-100 average, and every limit on it says so
+        in as many words."""
+        return [v['name'] for v in self.variables
+                if v.get('category', 'ingredient') == 'ingredient'
+                and not self.has_property_value(v['name'], metric)]
 
     def property_value(self, name, metric):
         """One ingredient's value for a property — 0.0 when it has none.
@@ -2424,6 +2569,7 @@ class FoodOptimizer:
             'variables': self.variables,
             'objectives': self.objectives,
             'ingredient_properties': self.ingredient_properties,
+            'property_names': self.property_names,
             'constraints': self.constraints,
             'quantity_constraints': self.quantity_constraints,
             'robust': self.robust,
@@ -2528,6 +2674,13 @@ class FoodOptimizer:
                 state['next_formulation_no']):
             raise ValueError(
                 "This backup's 'next_formulation_no' section has the wrong shape.")
+        # Properties named in the app. A malformed list would reach the
+        # property picker and the limits list, so it is refused here.
+        names = state.get('property_names')
+        if names is not None and (not isinstance(names, list)
+                                  or not all(isinstance(n, str) for n in names)):
+            raise ValueError(
+                "This backup's 'property_names' section has the wrong shape.")
         pending = state.get('pending_batch')
         if pending is not None and not isinstance(pending, list):
             raise ValueError("This backup's 'pending_batch' section has the wrong shape.")
@@ -2585,6 +2738,8 @@ class FoodOptimizer:
         self.variables = state.get('variables', [])
         self.objectives = state.get('objectives', [])
         self.ingredient_properties = state.get('ingredient_properties', {})
+        self.property_names = [str(p).strip()
+                               for p in (state.get('property_names') or [])]
         self.constraints = state.get('constraints', [])
         self.quantity_constraints = state.get('quantity_constraints', [])
         self.robust = state.get('robust', False)

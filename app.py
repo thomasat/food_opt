@@ -44,7 +44,9 @@ _FORM_KEY_PREFIXES = (
                                    # highest, unit, baseline, and the picker
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
-    "prop_",                       # property limit metric, min, max
+    "prop_",                       # property limit metric, at least, at most,
+                                   # and the box that names a new property
+    "setprop_",                    # the Set property values editor
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
@@ -64,7 +66,7 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 _FORM_FRESH = {
     "var_name": "", "var_low": 0.0, "var_high": 100.0, "var_base": None,
     "var_kind": "Ingredient", "unit_value": "",
-    "prop_min": None, "prop_max": None,
+    "prop_min": None, "prop_max": None, "prop_new": "",
     "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
     "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
     "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
@@ -77,6 +79,10 @@ _FORM_FRESH = {
 # passes it to drain_clears; it is not known here).
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_formulation",
                          "var_unit")
+
+# The property boxes: one per property on the add form (var_prop_<name>) and
+# one per property in the Set property values editor (setprop_<row>_<name>).
+_PROPERTY_BOX_PREFIXES = ("var_prop_", "setprop_")
 
 
 def _grid_fresh(key):
@@ -97,11 +103,15 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_var_kind_shown", ARMED_KEY):
+              "_pending_tab", "_var_kind_shown", "_props_for", ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
+        elif k.startswith(_PROPERTY_BOX_PREFIXES):
+            # One box per property: the names are the project's own, so they
+            # are parked by prefix rather than listed in _FORM_FRESH.
+            park_clear(k, None)
         elif k in _FORM_EMPTIES_TO_NONE:
             clear_selection(k)
         elif _GRID_KEY_RE.match(k):

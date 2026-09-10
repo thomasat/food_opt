@@ -2735,3 +2735,145 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
         if any(pattern.search(literal) for pattern in _BANNED):
             offenders.append((_USER_FACING_SWIFT, literal))
     assert offenders == [], offenders
+
+
+class TestPropertiesNamedInTheApp:
+    """A property used to arrive only as an extra column in an ingredient CSV,
+    so a project typed in by hand could not limit sodium at all. It can now be
+    named in the app, given a value per ingredient, and removed."""
+
+    def _opt(self, tmp_path, monkeypatch, name="props_in_app"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Salt", 0, 10)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_a_property_can_be_named_and_survives_a_reload(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.properties() == []
+        assert opt.add_property("  Sodium per 100 g ") == "Sodium per 100 g"
+        assert opt.properties() == ["Sodium per 100 g"]
+        again = FoodOptimizer("props_in_app")
+        assert again.properties() == ["Sodium per 100 g"]
+        assert again.property_names == ["Sodium per 100 g"]
+
+    def test_a_property_name_cannot_collide_with_anything_else(self, tmp_path,
+                                                               monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 100, 200)
+        with pytest.raises(ValueError, match="already the name of an ingredient"):
+            opt.add_property("Salt")
+        with pytest.raises(ValueError, match="already the name of a process setting"):
+            opt.add_property("Cook temperature")
+        with pytest.raises(ValueError, match="already the name of a measurement"):
+            opt.add_property("Taste")
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_property("Total (g)")
+        with pytest.raises(ValueError, match="Name cannot be empty"):
+            opt.add_property("   ")
+        opt.add_property("Cost")
+        with pytest.raises(ValueError, match="already a property"):
+            opt.add_property("cost")
+        assert opt.properties() == ["Cost"]
+
+    def test_a_value_is_set_cleared_and_told_apart_from_a_gap(self, tmp_path,
+                                                              monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Sodium per 100 g")
+        opt.set_property_value("Salt", "Sodium per 100 g", 39000)
+        opt.set_property_value("Water", "Sodium per 100 g", 0)
+        assert opt.property_value("Salt", "Sodium per 100 g") == 39000.0
+        # A 0 is a value; a blank is not, and the limit line tells them apart.
+        assert opt.has_property_value("Water", "Sodium per 100 g") is True
+        assert opt.ingredients_without_property("Sodium per 100 g") == []
+        opt.set_property_value("Water", "Sodium per 100 g", None)
+        assert opt.has_property_value("Water", "Sodium per 100 g") is False
+        assert opt.property_value("Water", "Sodium per 100 g") == 0.0
+        assert opt.ingredients_without_property("Sodium per 100 g") == ["Water"]
+        # Capitals do not make a second property.
+        opt.set_property_value("Salt", "sodium PER 100 G", 100)
+        assert opt.ingredient_properties["Salt"] == {"Sodium per 100 g": 100.0}
+
+    def test_a_value_needs_an_ingredient_and_a_property_that_exist(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Cost")
+        opt.add_process_parameter("Cook temperature", 100, 200)
+        with pytest.raises(ValueError, match="No ingredient named Flour"):
+            opt.set_property_value("Flour", "Cost", 1)
+        # A process setting is weighed into nothing, so it carries no property.
+        with pytest.raises(ValueError, match="No ingredient named Cook"):
+            opt.set_property_value("Cook temperature", "Cost", 1)
+        with pytest.raises(ValueError, match="No property named Fat"):
+            opt.set_property_value("Salt", "Fat", 1)
+
+    def test_a_hand_made_property_holds_a_batch_to_its_limit(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Sodium per 100 g")
+        opt.set_property_value("Salt", "Sodium per 100 g", 39000)
+        opt.set_property_value("Water", "Sodium per 100 g", 0)
+        opt.add_constraint("Sodium per 100 g", max_val=450)
+        # 1 g of salt in 100 g of formulation averages 390 per 100 g.
+        assert opt.property_per_100({"Salt": 1.0, "Water": 99.0},
+                                    "Sodium per 100 g") == pytest.approx(390.0)
+        assert opt._check_constraints({"Salt": 1.0, "Water": 99.0}) is True
+        assert opt._check_constraints({"Salt": 2.0, "Water": 98.0}) is False
+
+    def test_removing_a_property_takes_its_values_and_its_limits(self, tmp_path,
+                                                                 monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Sodium per 100 g")
+        opt.add_property("Cost")
+        opt.set_property_value("Salt", "Sodium per 100 g", 39000)
+        opt.set_property_value("Salt", "Cost", 2)
+        opt.add_constraint("Sodium per 100 g", max_val=450)
+        opt.add_constraint("Cost", max_val=5)
+        removed = opt.remove_property("sodium per 100 g")
+        assert [c['metric'] for c in removed] == ["Sodium per 100 g"]
+        assert opt.properties() == ["Cost"]
+        assert opt.ingredient_properties["Salt"] == {"Cost": 2.0}
+        assert [c['metric'] for c in opt.constraints] == ["Cost"]
+        with pytest.raises(ValueError, match="No property named"):
+            opt.remove_property("Sodium per 100 g")
+        assert FoodOptimizer("props_in_app").properties() == ["Cost"]
+
+    def test_a_csv_still_names_its_property_columns(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("csv_props")
+        opt.add_property("Cost")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Oil"], "Min": [0, 0], "Max": [100, 50],
+            "Fat per 100 g": [1.0, 90.0], "Sodium per 100 g": [1.0, 0.0]}))
+        # The file's columns join the list, in the file's own order, and a
+        # property named in the app earlier keeps its place.
+        assert opt.properties() == ["Cost", "Fat per 100 g", "Sodium per 100 g"]
+        assert opt.ingredient_properties["Oil"]["Fat per 100 g"] == 90.0
+        assert opt.ingredients_without_property("Cost") == ["Flour", "Oil"]
+
+    def test_a_property_survives_export_and_import(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Sodium per 100 g")
+        opt.set_property_value("Salt", "Sodium per 100 g", 39000)
+        state = opt.export_json()
+        assert state['property_names'] == ["Sodium per 100 g"]
+        FoodOptimizer.validate_state(state)      # a good backup passes
+        fresh = FoodOptimizer("restored_props")
+        fresh.import_json(state)
+        assert fresh.properties() == ["Sodium per 100 g"]
+        assert fresh.property_value("Salt", "Sodium per 100 g") == 39000.0
+
+    def test_a_malformed_property_list_is_refused_before_import(self, tmp_path,
+                                                                monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state['property_names'] = [{"name": "Sodium"}]
+        with pytest.raises(ValueError, match="'property_names' section"):
+            FoodOptimizer.validate_state(state)
+        state['property_names'] = None
+        # An absent or null list is simply no properties, not a broken file.
+        FoodOptimizer.validate_state(state)

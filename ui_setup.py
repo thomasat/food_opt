@@ -32,6 +32,11 @@ _SAMPLE_CSV = os.path.join(
 _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
                "respect this limit.")
 
+# The one sentence any screen says about the copy an irreversible action keeps.
+# Archived copies are written beside the project's own file, which on the
+# desktop app is the FoodOptimizer folder.
+_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
+
 # food_bo drops the open batch inside add_ingredient, deactivate_variable,
 # add_process_parameter and friends, so app.py's makeability check never sees
 # the mismatch. Every handler here that can change the ingredient list, a
@@ -218,12 +223,38 @@ def _add_variable(opt):
                 help="The setting you used for every formulation already "
                      "made, so those results still count.",
             )
+    # One box per property, on their own row: a property is an ingredient's
+    # value, so a process setting is never asked for one.
+    properties = [] if setting else opt.properties()
+    if properties:
+        prop_cols = st.columns(min(4, len(properties)))
+        for j, prop in enumerate(properties):
+            with prop_cols[j % len(prop_cols)]:
+                st.session_state.setdefault(_prop_key(prop), None)
+                st.number_input(prop, key=_prop_key(prop), placeholder="no value")
     # Grey: the tab's one coloured button is Continue at the foot.
     if st.button("Add", key="add_variable"):
-        _add_variable_now(opt, setting, wants_baseline)
+        _add_variable_now(opt, setting, wants_baseline, properties)
 
 
-def _add_variable_now(opt, setting, wants_baseline):
+def _prop_key(prop):
+    """The add form's box for one property. Keyed by name, so a project switch
+    empties it (app.py parks every var_prop_ key)."""
+    return f"var_prop_{prop}"
+
+
+def _set_typed_properties(opt, name, properties):
+    """Write the property values typed on the add form, and empty the boxes.
+    Nothing is written for a box left blank: no value is not 0, and the limit
+    line says which ingredients have none."""
+    for prop in properties:
+        value = st.session_state.get(_prop_key(prop))
+        if value is not None:
+            opt.set_property_value(name, prop, value)
+        park_clear(_prop_key(prop), None)
+
+
+def _add_variable_now(opt, setting, wants_baseline, properties=()):
     name = st.session_state["var_name"]
     low, high = st.session_state["var_low"], st.session_state["var_high"]
     unit = st.session_state.get("var_unit", "")
@@ -259,6 +290,9 @@ def _add_variable_now(opt, setting, wants_baseline):
         st.error(str(e))
         return
     if saved_ok(opt):
+        _set_typed_properties(opt, str(name).strip(), properties)
+        if not saved_ok(opt):
+            return
         added = f"Added {str(name).strip()}."
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added} {tail}" if tail else added)
@@ -288,10 +322,20 @@ def _held_at(opt, var):
     return fmt_amount(value, unit)
 
 
+def _property_cell(opt, var, prop):
+    """One ingredient's value for one property, as the table writes it."""
+    if var.get('category', 'ingredient') != 'ingredient':
+        return ""
+    if not opt.has_property_value(var['name'], prop):
+        return ""
+    return f"{opt.property_value(var['name'], prop):g}"
+
+
 def _variable_table(opt):
     rows = _ordered_variables(opt)
     if not rows:
         return
+    properties = opt.properties()
     # A column that says the same thing on every row is a column of noise, so
     # Status arrives with the first paused row and Baseline with the first
     # setting that has one.
@@ -314,6 +358,10 @@ def _variable_table(opt):
         **({"Status": ("active" if v.get('active', True)
                        else f"paused · held at {_held_at(opt, v)}")}
            if any_paused else {}),
+        # One column per property, blank where an ingredient has no value —
+        # a 0 is a value and must not read like a gap. A process setting is
+        # weighed into nothing, so its cells are blank too.
+        **{prop: _property_cell(opt, v, prop) for prop in properties},
     } for v in rows])
     st.dataframe(frame, hide_index=True, key="variable_table",
                  height=table_height(len(frame), max_rows=20))
@@ -335,27 +383,78 @@ def _variable_controls(opt, storage):
     rows = _ordered_variables(opt)
     if not rows:
         return
-    c1, c2, c3, c4, c5 = st.columns([2.4, 1, 1.2, 1, 1.6])
-    with c1:
+    properties = opt.properties()
+    widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
+    cols = st.columns(widths)
+    with cols[0]:
         pick = st.selectbox("Ingredient or setting", [v['name'] for v in rows],
                             key="var_pick")
     var = opt._var_by_name(pick)
     is_ingredient = var.get('category', 'ingredient') == 'ingredient'
     _disarm_other_removals(pick)
-    with c2:
+    with cols[1]:
         _pause_or_resume(opt, var, pick)
-    with c3:
+    with cols[2]:
         st.session_state.setdefault("unit_value", "")
         # "New unit", not "Unit": the add form above has a Unit box of its
         # own, and two of them on one row asked the reader which was which.
         # The placeholder is the unit the picked row is in today.
         typed = st.text_input("New unit", key="unit_value",
                               placeholder=opt.unit_of(pick) or "g")
-    with c4:
+    with cols[3]:
         if st.button("Set unit", key="set_unit"):
             _set_unit_now(opt, pick, typed)
-    with c5:
+    with cols[4]:
         _remove_variable(opt, storage, pick, is_ingredient)
+    if properties:
+        with cols[5]:
+            # Disabled rather than hidden for a setting: a control that comes
+            # and goes as the pick changes reads as a fault in the app.
+            if st.button("Set property values", key="set_props",
+                         disabled=not is_ingredient,
+                         help=("Only an ingredient carries property values."
+                               if not is_ingredient else None)):
+                st.session_state["_props_for"] = pick
+                # Seeded here, the one moment a widget's value can be set:
+                # the boxes do not exist yet on the run that follows.
+                for prop in properties:
+                    park_clear(_pkey(pick, prop),
+                               float(opt.property_value(pick, prop))
+                               if opt.has_property_value(pick, prop) else None)
+                st.rerun()
+        if st.session_state.get("_props_for") == pick and is_ingredient:
+            _property_value_editor(opt, pick, properties)
+
+
+def _pkey(pick, prop):
+    return f"setprop_{pick}_{prop}"
+
+
+def _property_value_editor(opt, pick, properties):
+    """One box per property for the picked ingredient, opened by Set property
+    values. Blank means no value, which counts as 0 in the per-100 average —
+    and every limit on that property names the ingredients it is reading as
+    zeroes."""
+    st.caption(f"Values for {pick}. Leave a box empty for no value.")
+    boxes = st.columns(min(4, len(properties)))
+    for j, prop in enumerate(properties):
+        with boxes[j % len(boxes)]:
+            st.session_state.setdefault(_pkey(pick, prop), None)
+            st.number_input(prop, key=_pkey(pick, prop), placeholder="no value")
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("Save", key="save_props", use_container_width=True):
+            for prop in properties:
+                opt.set_property_value(pick, prop,
+                                       st.session_state.get(_pkey(pick, prop)))
+            if saved_ok(opt):
+                flash("success", f"Property values saved for {pick}.")
+                st.session_state.pop("_props_for", None)
+                st.rerun()
+    with b2:
+        if st.button("Close", key="close_props", use_container_width=True):
+            st.session_state.pop("_props_for", None)
+            st.rerun()
 
 
 def _pause_or_resume(opt, var, pick):
@@ -821,7 +920,111 @@ def _measurements(opt, storage):
     return editing is not None
 
 
-def _limits(opt):
+def _add_property(opt):
+    """Name a property in the app. A property used to arrive only as an extra
+    column in an ingredient CSV, which meant a project without one could not
+    limit sodium at all without going back to a spreadsheet."""
+    a1, a2 = st.columns([3, 1])
+    with a1:
+        st.session_state.setdefault("prop_new", "")
+        typed = st.text_input("Add a property, such as Sodium per 100 g",
+                              key="prop_new", placeholder="e.g. Sodium per 100 g")
+    with a2:
+        # Grey, like every other Add on this tab: the one coloured button is
+        # Continue at the foot.
+        if st.button("Add", key="add_property"):
+            try:
+                added = opt.add_property(typed)
+            except ValueError as e:
+                st.error(str(e))
+            else:
+                if saved_ok(opt):
+                    flash("success", f"Added {added}. Give each ingredient a "
+                                     "value for it in What you can vary.")
+                    park_clear("prop_new", "")
+                    st.rerun()
+
+
+def _property_list(opt, storage, properties):
+    """Every property, with a Remove that names what goes with it."""
+    for prop in properties:
+        limits = sum(1 for c in opt.constraints
+                     if str(c['metric']).strip().lower() == prop.lower())
+        key = f"rm_prop_{prop}"
+        head = (f"Remove {prop} and its {plural(limits, 'limit')}? "
+                if limits else f"Remove {prop}? ")
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.text(prop)
+        with c2:
+            confirmed = confirm_action(
+                key, "Remove",
+                head + "Ingredient values for it are removed too. " + _COPY_KEPT,
+                confirm_label="Yes, remove", disabled=other_confirmation(key),
+            )
+        if confirmed:
+            try:
+                storage.archive(opt.project_name, "pre_delete", copy=True)
+                removed = opt.remove_property(prop)
+            except (ValueError, storage_backend.StorageError) as e:
+                st.error(str(e))
+            else:
+                if saved_ok(opt):
+                    gone = (f" Its {plural(len(removed), 'limit')} went with it."
+                            if removed else "")
+                    flash("success", f"Removed {prop}.{gone}")
+                    st.rerun()
+
+
+def _property_limits(opt, storage):
+    """Limits on the finished formulation, and the properties they are written
+    against. Ingredients only: a property is a value each ingredient carries,
+    and a process setting is weighed into nothing."""
+    st.markdown("**Limit on the finished formulation**")
+    # Per 100 g of what you make, not a total that grows with the batch: the
+    # same limit then means the same thing at 100 g and at 10 kg. Written in
+    # the unit the ingredients are actually in.
+    st.caption(f"Per 100 {opt.one_amount_unit() or 'g'} of formulation, worked "
+               "out from each ingredient's value for it.")
+    _add_property(opt)
+    properties = opt.properties()
+    if not properties:
+        return
+    _property_list(opt, storage, properties)
+    metric = st.selectbox("Property", properties, key="prop_metric")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.session_state.setdefault("prop_min", None)
+        st.number_input("At least", placeholder="no limit", key="prop_min")
+    with p2:
+        st.session_state.setdefault("prop_max", None)
+        st.number_input("At most", placeholder="no limit", key="prop_max")
+    if st.button("Add property limit", key="add_property_limit"):
+        low, high = st.session_state["prop_min"], st.session_state["prop_max"]
+        if low is None and high is None:
+            st.error("Enter a lowest, a highest, or both.")
+        else:
+            try:
+                opt.add_constraint(metric, min_val=low, max_val=high)
+            except ValueError as e:
+                st.error(str(e))
+            else:
+                _report_limit(opt, f"Limit added on {metric}.")
+
+
+def _limit_gap_tail(opt, metric):
+    """'· Water has no value and counts as 0.' — the ingredients this limit
+    is silently reading as zeroes. A limit that looks satisfied because half
+    the recipe was never given a value is the one way this arithmetic lies."""
+    gaps = opt.ingredients_without_property(metric)
+    if not gaps:
+        return ""
+    if len(gaps) == 1:
+        return f" · {gaps[0]} has no value and counts as 0."
+    return f" · {number_list(gaps)} have no value and count as 0."
+
+
+def _limits(opt, storage):
     # A limit is a sum, and a sum only has a unit when the ingredients share
     # one. When they do not, the labels stay bare and the limit itself is
     # refused with "Choose ingredients that share a unit."
@@ -830,41 +1033,7 @@ def _limits(opt):
         st.caption("Limits hold the next batch to an amount or a property; to "
                    "cap something you measure, make it a measurement.")
 
-        properties = set()
-        for props in opt.ingredient_properties.values():
-            properties.update(props.keys())
-        if properties:
-            st.markdown("**Limit on the finished formulation**")
-            # Per 100 g of what you make, not a total that grows with the
-            # batch: the same limit then means the same thing at 100 g and at
-            # 10 kg. Written in the unit the ingredients are actually in.
-            st.caption(f"Per 100 {opt.one_amount_unit() or 'g'} of "
-                       "formulation, worked out from your ingredient file's "
-                       "property columns.")
-            metric = st.selectbox("Property", sorted(properties), key="prop_metric")
-            p1, p2 = st.columns(2)
-            with p1:
-                st.session_state.setdefault("prop_min", None)
-                st.number_input("Min value", placeholder="no limit",
-                                key="prop_min")
-            with p2:
-                st.session_state.setdefault("prop_max", None)
-                st.number_input("Max value", placeholder="no limit",
-                                key="prop_max")
-            if st.button("Add a property limit", key="add_property_limit"):
-                low, high = st.session_state["prop_min"], st.session_state["prop_max"]
-                if low is None and high is None:
-                    st.error("Enter a minimum, a maximum, or both.")
-                else:
-                    try:
-                        opt.add_constraint(metric, min_val=low, max_val=high)
-                    except ValueError as e:
-                        st.error(str(e))
-                    else:
-                        _report_limit(opt, f"Limit added on {metric}.")
-        else:
-            st.caption("Upload an ingredient CSV with extra columns such as "
-                       "Cost or Sodium per 100 g to set property limits.")
+        _property_limits(opt, storage)
 
         # A limit written before 0.3.0 was a total, and the file does not say
         # so; the same stored number now means a per-100 g average. Said once,
@@ -880,7 +1049,8 @@ def _limits(opt):
                           if constraint['min'] is not None else [])
                 bounds += ([f"at most {constraint['max']:g}"]
                            if constraint['max'] is not None else [])
-                st.text(f"{constraint['metric']}: {' and '.join(bounds)}")
+                st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
+                        + _limit_gap_tail(opt, constraint['metric']))
             with c2:
                 if st.button("Remove", key=f"rm_constr_{i}"):
                     metric = constraint['metric']
@@ -1048,7 +1218,7 @@ def render(opt, storage):
     st.divider()
     editing = _measurements(opt, storage)
     st.divider()
-    _limits(opt)
+    _limits(opt, storage)
     _advanced(opt)
     st.divider()
     _foot(opt, editing)
