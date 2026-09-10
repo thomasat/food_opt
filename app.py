@@ -12,16 +12,13 @@ import ui_results
 import ui_setup
 from food_bo import FoodOptimizer
 from ui_helpers import (
-    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
+    ARMED_KEY, COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, render_flash,
     saved_line, saved_ok, take_clear,
 )
 
 STORAGE = storage_backend.LocalStorage()
-
-# The one sentence any screen says about the copy an irreversible action keeps.
-_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
 
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
@@ -343,7 +340,7 @@ with st.sidebar:
                     f"This backup contains project **{summary['name']}** with "
                     + ", ".join(_holds[:-1]) + f" and {_holds[-1]}. Replace "
                     f"**{opt.project_name}** "
-                    f"({plural(_held(opt), 'formulation')})? " + _COPY_KEPT
+                    f"({plural(_held(opt), 'formulation')})? " + COPY_KEPT
                 )
                 rc1, rc2 = st.columns(2)
                 with rc1:
@@ -397,11 +394,11 @@ with st.sidebar:
             if confirm_action(
                 "hard_reset", "Empty this project",
                 (f"Start **{opt.project_name}** over? It becomes empty. "
-                 + _COPY_KEPT
+                 + COPY_KEPT
                  if not _held(opt) else
                  f"Start **{opt.project_name}** over? Its "
                  f"{plural(_held(opt), 'formulation')} and set-up go, and the "
-                 f"project becomes empty. " + _COPY_KEPT),
+                 f"project becomes empty. " + COPY_KEPT),
                 confirm_label="Yes, empty it",
                 disabled=other_confirmation("hard_reset"),
             ):
@@ -433,11 +430,11 @@ with st.sidebar:
             if confirm_action(
                 "delete_project", "Delete this project",
                 (f"Delete **{opt.project_name}**? It has no formulations yet, "
-                 f"and it leaves this list. " + _COPY_KEPT
+                 f"and it leaves this list. " + COPY_KEPT
                  if not _held(opt) else
                  f"Delete **{opt.project_name}** and its "
                  f"{plural(_held(opt), 'formulation')}? It leaves this list. "
-                 + _COPY_KEPT),
+                 + COPY_KEPT),
                 confirm_label="Yes, delete it",
                 disabled=other_confirmation("delete_project"),
             ):

@@ -518,11 +518,11 @@ def _upload(opt):
                    "measurement, and upload it here. Rows are matched by "
                    "Formulation number.")
         sheet_file = st.file_uploader(
-            "Results sheet", type=["csv"],
+            "Upload results CSV", type=["csv"],
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
             key=f"results_csv_{opt.project_name}")
-        if sheet_file is not None and st.button("Check this sheet",
+        if sheet_file is not None and st.button("Check this file",
                                                 key="check_sheet"):
             try:
                 st.session_state["_results_upload"] = pd.read_csv(sheet_file)

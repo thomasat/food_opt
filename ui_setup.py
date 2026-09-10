@@ -13,7 +13,7 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    ARMED_KEY, TAB_BATCH, armed_confirmation, best_formulation_no,
+    ARMED_KEY, COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
     best_move_sentence, confirm_action, confirmation_open, flash, fmt_amount,
     fmt_setting, go_to_tab, join_unit, label_with_unit, number_list,
     other_confirmation, park_clear, plural, readiness, saved_ok, table_height,
@@ -31,11 +31,6 @@ _SAMPLE_CSV = os.path.join(
 
 _LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
                "respect this limit.")
-
-# The one sentence any screen says about the copy an irreversible action keeps.
-# Archived copies are written beside the project's own file, which on the
-# desktop app is the FoodOptimizer folder.
-_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
 
 # food_bo drops the open batch inside add_ingredient, deactivate_variable,
 # add_process_parameter and friends, so app.py's makeability check never sees
@@ -226,8 +221,11 @@ def _add_variable(opt):
                      "made, so those results still count.",
             )
     # One box per property, on their own row: a property is an ingredient's
-    # value, so a process setting is never asked for one.
-    properties = [] if setting else opt.properties()
+    # value, so a process setting is never asked for one — and neither is this
+    # form while Set property values is open below it, or the same property
+    # would have two boxes on one screen.
+    editing_values = st.session_state.get("_props_for") is not None
+    properties = [] if (setting or editing_values) else opt.properties()
     if properties:
         prop_cols = st.columns(min(4, len(properties)))
         for j, prop in enumerate(properties):
@@ -445,7 +443,7 @@ def _property_value_editor(opt, pick, properties):
             st.number_input(prop, key=_pkey(pick, prop), placeholder="no value")
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("Save", key="save_props", use_container_width=True):
+        if st.button("Save values", key="save_props", use_container_width=True):
             for prop in properties:
                 opt.set_property_value(pick, prop,
                                        st.session_state.get(_pkey(pick, prop)))
@@ -508,9 +506,13 @@ def _set_unit_now(opt, pick, typed):
         written = opt.unit_of(pick)
         # What changed is how the number is written, not the number: nothing
         # is converted and nothing is rescored, and only this sentence says so.
-        said = (f"{pick} is now written in {written}. The amounts were not "
-                "converted." if written
-                else f"{pick} is shown without a unit.")
+        # An ingredient has amounts; a process setting has one value, and
+        # "the amounts" named something a cook temperature does not have.
+        var = opt._var_by_name(pick)
+        held = ("amounts were" if var.get('category', 'ingredient') == 'ingredient'
+                else "value was")
+        said = (f"{pick} is now written in {written}. The {held} not converted."
+                if written else f"{pick} is shown without a unit.")
         # Scaling needs one unit, and this change may have taken it away; the
         # batch is back to as-generated, so say so.
         tail = _unscaled_tail(opt, scaled, scaled_unit)
@@ -532,9 +534,9 @@ def _remove_variable(opt, storage, pick, is_ingredient):
     warning = (f"Remove {pick} from this project permanently? " if is_ingredient
                else f"Remove {pick}? ")
     confirmed = confirm_action(
-        key, "Remove",
+        key, f"Remove {pick}",
         warning + "Formulations already made will be recorded without it. "
-                + _COPY_KEPT,
+                + COPY_KEPT,
         confirm_label="Yes, remove",
         disabled=other_confirmation(key),
     )
@@ -662,9 +664,9 @@ def _flash_removed_limits(opt, removed):
 
 
 def _limit_label(opt, qc):
-    """How one amount limit is named on screen — 'Total amount (all
-    ingredients)' or 'Water + Oil'. The list under Limits and the line that
-    reports a limit removed both read from here, so they name it alike."""
+    """How one amount limit is named on screen — 'All ingredients' or
+    'Water + Oil'. The list under Limits and the line that reports a limit
+    removed both read from here, so they name it alike."""
     names = [v['name'] for v in opt.variables
              if v.get('category', 'ingredient') == 'ingredient']
     if names and set(qc['ingredients']) == set(names):
@@ -837,7 +839,7 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
         parts = [sentence, best_move_sentence(before, after),
                  # This edit has no confirmation before it, so the copy it
                  # kept is named here, as a correction names its own.
-                 _COPY_KEPT]
+                 COPY_KEPT]
         flash("success", " ".join(p for p in parts if p))
     else:
         flash("success", f"Updated {editing['name']}.")
@@ -901,7 +903,7 @@ def _measurements(opt, storage):
             if confirm_action(
                 f"rm_meas_{obj['name']}", f"Remove {obj['name']}",
                 f"Remove {obj['name']}? Every overall score is recalculated "
-                "without it. " + _COPY_KEPT,
+                "without it. " + COPY_KEPT,
                 confirm_label="Yes, remove",
                 disabled=other_confirmation(f"rm_meas_{obj['name']}"),
             ):
@@ -933,11 +935,14 @@ def _add_property(opt):
     with a1:
         st.session_state.setdefault("prop_new", "")
         typed = st.text_input("Add a property, such as Sodium per 100 g",
-                              key="prop_new", placeholder="e.g. Sodium per 100 g")
+                              key="prop_new",
+                              # The name carries the unit: nothing else on the
+                              # screen can say whether 450 is mg or a percent.
+                              placeholder="e.g. Sodium mg per 100 g")
     with a2:
         # Grey, like every other Add on this tab: the one coloured button is
         # Continue at the foot.
-        if st.button("Add", key="add_property"):
+        if st.button("Add property", key="add_property"):
             try:
                 added = opt.add_property(typed)
             except ValueError as e:
@@ -963,8 +968,8 @@ def _property_list(opt, storage, properties):
             st.text(prop)
         with c2:
             confirmed = confirm_action(
-                key, "Remove",
-                head + "Ingredient values for it are removed too. " + _COPY_KEPT,
+                key, f"Remove {prop}",
+                head + "Ingredient values for it are removed too. " + COPY_KEPT,
                 confirm_label="Yes, remove", disabled=other_confirmation(key),
             )
         if confirmed:
@@ -989,8 +994,15 @@ def _property_limits(opt, storage):
     # Per 100 g of what you make, not a total that grows with the batch: the
     # same limit then means the same thing at 100 g and at 10 kg. Written in
     # the unit the ingredients are actually in.
-    st.caption(f"Per 100 {opt.one_amount_unit() or 'g'} of formulation, worked "
-               "out from each ingredient's value for it.")
+    unit = opt.one_amount_unit()
+    if unit is None:
+        # The ingredients differ, so there is no 100 of anything yet, and the
+        # limit itself is refused in words that name the fix.
+        st.caption("Per 100 g of formulation once every ingredient is in one "
+                   "mass unit.")
+    else:
+        st.caption(f"Per 100 {unit or 'g'} of formulation, worked out from "
+                   "each ingredient's value for it.")
     _add_property(opt)
     properties = opt.properties()
     if not properties:
@@ -1067,7 +1079,9 @@ def _limits(opt, storage):
                 st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
                         + _limit_gap_tail(opt, constraint['metric']))
             with c2:
-                if st.button("Remove", key=f"rm_constr_{i}"):
+                # The line beside it names the limit; the button says
+                # what it takes out, not which one.
+                if st.button("Remove limit", key=f"rm_constr_{i}"):
                     metric = constraint['metric']
                     opt.remove_constraint(i)
                     if saved_ok(opt):
@@ -1127,7 +1141,7 @@ def _limits(opt, storage):
             with l1:
                 st.text(f"{label}: {' and '.join(bounds)}")
             with l2:
-                if st.button("Remove", key=f"rm_qc_{i}"):
+                if st.button("Remove limit", key=f"rm_qc_{i}"):
                     opt.remove_quantity_constraint(i)
                     if saved_ok(opt):
                         # No .lower(): ingredient names are names.

@@ -1071,7 +1071,7 @@ def test_removing_a_process_setting_confirms_and_archives(burger, tmp_path):
     at.run()
     at.selectbox(key="var_pick").select("Cook temperature")
     at.run()
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Cook temperature").click()
     at.run()
     assert any("Cook temperature" in w.value for w in at.warning), \
         [w.value for w in at.warning]
@@ -1225,7 +1225,7 @@ def test_removing_a_process_setting_confirms_even_with_no_results(burger, tmp_pa
     at.run()
     at.selectbox(key="var_pick").select("Cook temperature")
     at.run()
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Cook temperature").click()
     at.run()
     assert any("Cook temperature" in w.value for w in at.warning), \
         [w.value for w in at.warning]
@@ -2717,9 +2717,12 @@ def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
     assert dict(zip(table["Name"], table["Used so far"])) == {
         "Pea protein": "", "Methylcellulose": "",
         "Cook temperature": "180 °C"}
-def test_the_limits_caption_covers_a_property_named_in_the_app(burger):
+
+
+def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     """A property is named in the app as often as it arrives in a file, and
     the box that names one is two lines below this caption."""
+    with_properties.add_property("Sodium mg per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(c.value == ("Limits hold every new formulation to an amount "
@@ -3884,7 +3887,7 @@ def test_the_add_form_is_the_first_thing_on_the_tab(burger):
     assert at.number_input(key="var_low").label == "Lowest"
     assert at.number_input(key="var_high").label == "Highest"
     assert at.text_input(key="var_unit").value == "g"
-    add = _submit_button(at, "Add")
+    add = _submit_button(at, "Add ingredient or setting")
     assert add.proto.type == "secondary"
     # ...and it is not folded away inside anything.
     folded = {id(t) for e in _tab1(at).expander for t in e.text_input}
@@ -4036,7 +4039,9 @@ def test_set_unit_changes_a_process_setting_too(burger):
     _submit_button(at, "Set unit").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Cook temperature is now written in °F. The amounts were not converted."
+    # A setting has one value, not amounts: the sentence says what it changed.
+    assert any(s.value == ("Cook temperature is now written in °F. The value "
+                           "was not converted.")
                for s in at.success), [s.value for s in at.success]
     reloaded = FoodOptimizer("burger")
     assert reloaded.unit_of("Cook temperature") == "°F"
@@ -4095,7 +4100,7 @@ def test_remove_from_the_control_row_confirms_and_keeps_a_copy(burger, tmp_path)
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Methylcellulose").click()
     at.run()
     assert any("Remove Methylcellulose from this project permanently?"
                in w.value for w in at.warning), [w.value for w in at.warning]
@@ -4117,7 +4122,7 @@ def test_remove_still_offers_the_used_ingredient_path(burger):
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
     assert not [c for c in at.checkbox if c.key == "delete_ing_force"]
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Methylcellulose").click()
     at.run()
     assert at.checkbox(key="delete_ing_force").label == (
         "Remove even if it was used (discards that information)")
@@ -4128,7 +4133,7 @@ def test_remove_still_offers_the_used_ingredient_path(burger):
     # The refusal leaves nothing armed, so the tick box is gone with it: the
     # deletion is asked for again, this time with the box ticked.
     assert not [c for c in at.checkbox if c.key == "delete_ing_force"]
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Methylcellulose").click()
     at.run()
     at.checkbox(key="delete_ing_force").set_value(True)
     at.run()
@@ -4145,7 +4150,7 @@ def test_remove_takes_a_process_setting_too(burger, tmp_path):
     at.run()
     at.selectbox(key="var_pick").select("Cook temperature")
     at.run()
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Cook temperature").click()
     at.run()
     _submit_button(at, "Yes, remove").click()
     at.run()
@@ -4163,7 +4168,7 @@ def test_changing_the_pick_disarms_a_removal(burger):
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, "Remove").click()
+    _submit_button(at, "Remove Methylcellulose").click()
     at.run()
     at.selectbox(key="var_pick").select("Pea protein")
     at.run()
@@ -4570,3 +4575,89 @@ def test_the_two_downloads_on_the_batch_name_their_format(open_batch):
     assert "Download formulation sheets (to print)" in names, names
     assert any(e.label == "Preview formulation sheets" for e in at.expander), \
         [e.label for e in at.expander]
+
+
+# ------------------------------------------------------------------ #
+#  Coherence follow-up: every Remove names its object, one shape for
+#  the uploaders, one set of property boxes at a time
+# ------------------------------------------------------------------ #
+
+def test_every_remove_on_set_up_names_what_it_takes_out(burger):
+    """A row of bare `Remove` buttons asks the reader which one is theirs."""
+    burger.add_property("Fat per 100 g")
+    burger.add_constraint("Fat per 100 g", max_val=20)
+    burger.add_quantity_constraint(["Pea protein"], max_val=10)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = _labels(at)
+    assert "Remove Pea protein" in labels, labels        # the control row
+    assert "Remove Fat per 100 g" in labels, labels      # the property list
+    assert "Remove Firmness" in labels, labels           # the measurement
+    # A limit line already names the limit beside it, so its button says only
+    # what it takes out.
+    assert labels.count("Remove limit") == 2, labels
+    assert "Remove" not in labels, labels
+
+
+def test_the_control_rows_remove_follows_the_pick(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Methylcellulose")
+    at.run()
+    assert "Remove Methylcellulose" in _labels(at), _labels(at)
+
+
+def test_the_property_button_says_what_it_adds(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert "Add property" in _labels(at), _labels(at)
+    # The name carries the unit, and the placeholder shows one.
+    assert at.text_input(key="prop_new").proto.placeholder == \
+        "e.g. Sodium mg per 100 g"
+
+
+def test_the_per_100_caption_waits_for_one_unit(mixed_units):
+    """`Per 100 g` over a project of grams and millilitres named a hundred of
+    nothing; the limit itself is refused until they agree."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == ("Per 100 g of formulation once every ingredient is "
+                           "in one mass unit.") for c in at.caption), \
+        [c.value for c in at.caption]
+    mixed_units.set_ingredient_unit("Water", "g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == ("Per 100 g of formulation, worked out from each "
+                           "ingredient's value for it.") for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_only_one_set_of_property_boxes_is_on_screen(burger):
+    """The add form and Set property values both hold a box per property;
+    two boxes for one property on one screen is two answers to one question."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    keys = [n.key for n in at.number_input]
+    assert "var_prop_Cost" in keys and "setprop_Pea protein_Cost" not in keys
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    keys = [n.key for n in at.number_input]
+    assert "setprop_Pea protein_Cost" in keys, keys
+    assert "var_prop_Cost" not in keys, keys
+    assert "Save values" in _labels(at), _labels(at)
+    next(b for b in at.button if b.key == "close_props").click()
+    at.run()
+    assert "var_prop_Cost" in [n.key for n in at.number_input]
+
+
+def test_both_upload_doors_read_the_same_way(open_batch):
+    """One shape for the three uploaders, and one verb for the button that
+    reads whatever was put in them."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = [u.label for u in _unknowns(at.main, "file_uploader")]
+    assert "Upload ingredients CSV" in labels, labels
+    assert "Upload results CSV" in labels, labels
+    assert "Upload formulations CSV" in labels, labels
+    assert not any(l == "Results sheet" for l in labels), labels

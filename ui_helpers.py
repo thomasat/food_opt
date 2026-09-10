@@ -19,6 +19,12 @@ from food_bo import (  # noqa: F401  (re-exported)
 
 _FLASH_KEY = "_flash_messages"
 
+# The one sentence any screen says about the copy an irreversible action keeps.
+# Archived copies are written beside the project's own file, which on the
+# desktop app is the FoodOptimizer folder. Every tab and the sidebar import it
+# from here, so the sentence exists once.
+COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
+
 
 def flash(kind, message):
     """Queue a message for the top of the NEXT run. Call right before st.rerun().

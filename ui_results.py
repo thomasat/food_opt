@@ -9,15 +9,12 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
+    COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_warning, clear_selection, confirm_action, confirmation_open, flash,
     fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit, label_with_unit,
     open_rows, other_confirmation, plural, readiness, saved_ok, scale_error,
     table_height, take_clear, unit_after_number,
 )
-
-# The one sentence any screen says about the copy an irreversible action keeps.
-_COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
 
 # Said under a table or a score that holds one, and nowhere else: a partial
 # score is a real number that cannot be compared with a complete one.
@@ -301,7 +298,7 @@ def _save_correction(opt, storage, pending):
     move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
-    sentences.append(_COPY_KEPT)
+    sentences.append(COPY_KEPT)
     flash("success", " ".join(sentences))
     st.rerun()
 
@@ -377,7 +374,7 @@ def _undo(opt, storage):
         # Formulations, not results: one of them may never have been made
         # and have no result at all, and formulation is the app's noun.
         f"Removes batch {last} and its {plural(count, 'formulation')}. "
-        + _COPY_KEPT,
+        + COPY_KEPT,
         confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
     ):
         try:
@@ -396,7 +393,7 @@ def _undo(opt, storage):
                 return
             st.session_state.pop("scale_total", None)
             st.session_state.pop("_results_upload", None)
-            flash("success", f"Batch {last} removed. " + _COPY_KEPT)
+            flash("success", f"Batch {last} removed. " + COPY_KEPT)
             st.rerun()
 
 
@@ -414,7 +411,7 @@ def _remove_formulation(opt, storage):
     go = confirm_action(
         "delete_formulation", f"Remove Formulation {choice}",
         f"Remove Formulation {choice}? Later formulations keep their "
-        "numbers. " + _COPY_KEPT,
+        "numbers. " + COPY_KEPT,
         confirm_label="Yes, remove",
         disabled=other_confirmation("delete_formulation"),
     )
@@ -435,7 +432,7 @@ def _remove_formulation(opt, storage):
             if not saved_ok(opt):
                 return
             clear_selection("delete_formulation")
-            flash("success", f"Formulation {choice} removed. " + _COPY_KEPT)
+            flash("success", f"Formulation {choice} removed. " + COPY_KEPT)
             st.rerun()
 
 

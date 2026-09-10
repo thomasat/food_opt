@@ -2627,7 +2627,7 @@ class FoodOptimizer:
             'variables': self.variables,
             'objectives': self.objectives,
             'ingredient_properties': self.ingredient_properties,
-            'property_names': self.property_names,
+            'property_names': getattr(self, 'property_names', None) or [],
             'constraints': self.constraints,
             'quantity_constraints': self.quantity_constraints,
             'robust': self.robust,
