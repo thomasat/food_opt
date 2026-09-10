@@ -1171,3 +1171,424 @@ def test_the_ingredient_table_has_no_status_column_until_something_is_paused(bur
     at.run()
     table = next(d.value for d in at.dataframe if "Min (g)" in d.value.columns)
     assert list(table["Status"]) == ["active", "paused"], list(table["Status"])
+
+
+@pytest.fixture
+def open_batch(burger):
+    """Batch 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                              {"Pea protein": 20.0, "Methylcellulose": 2.0}])
+    return burger
+
+
+def test_batch_tab_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("bare3")
+    opt.add_ingredient("Water", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    generate = _submit_button(at, "Generate formulations")
+    back = _submit_button(at, "Back to set up")
+    assert generate.disabled and generate.proto.type == "secondary"
+    assert back.proto.type == "secondary"
+    assert any(c.value == "Add at least one measurement." for c in at.caption)
+
+
+def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    # Pin the project so the landing rule does not fire, and seed the tab:
+    # st.tabs(key=) does not write session_state on render.
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.run()
+    _submit_button(at, "Generate 3 formulations").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert [r["formulation"] for r in reloaded.pending_batch] == [1, 2, 3]
+    assert reloaded.pending_batch_no == 1
+    assert at.session_state["main_tab"] == "2 · Make a batch"   # never auto-moves
+
+
+def test_the_getting_started_sentence_changes_after_five_results(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == ("The first few formulations spread across your "
+                           "ingredient ranges; later batches aim closer to "
+                           "your targets.") for c in at.caption), \
+        [c.value for c in at.caption]
+    for i in range(5):
+        burger.tell({"Pea protein": 5.0 + i, "Methylcellulose": 1.0},
+                    {"Juiciness": 6.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == "Each batch aims closer to your targets."
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_only_one_batch_at_a_time_is_said_where_it_helps(open_batch):
+    """The line belongs to the no-batch state, not under a batch that is
+    plainly open."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not any(c.value == "Only one batch is open at a time."
+                   for c in at.caption), [c.value for c in at.caption]
+
+
+def test_repeat_of_the_best_is_offered_and_adds_one_formulation(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.label == "Include a repeat of Formulation 1" for c in at.checkbox), \
+        [c.label for c in at.checkbox]
+    at.checkbox(key="repeat_best").check()
+    at.number_input(key="batch_size").set_value(2)
+    at.run()
+    _submit_button(at, "Generate 2 formulations").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert len(reloaded.pending_batch) == 3
+    # Numbers 1 is taken, so the new ones start at 2 and never repeat it.
+    assert [r["formulation"] for r in reloaded.pending_batch] == [2, 3, 4]
+    assert reloaded.pending_batch[-1]["recipe"] == {"Pea protein": 10.0,
+                                                    "Methylcellulose": 1.0}
+
+
+def test_the_batch_table_carries_units_and_a_total(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(m.value == "**Batch 1 · make these 2 formulations**"
+               for m in at.markdown), [m.value for m in at.markdown]
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(table.columns) == ["Formulation", "Pea protein (g)",
+                                   "Methylcellulose (g)", "Total (g)"]
+    assert at.number_input(key="scale_total").value == 11.0
+
+
+def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
+    """What is downloaded must equal what is on screen: the whole point of the
+    scale box is that the lab weighs those amounts out."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(22.0)
+    at.run()
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert table["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
+    assert any(c.value == "Sheets use the scaled amounts (total 22 g)."
+               for c in at.caption), [c.value for c in at.caption]
+    assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 10.0
+
+
+def test_biggest_changes_line_appears_from_batch_two(burger):
+    burger.tell({"Pea protein": 10.1, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 8.0, "Methylcellulose": 1.8}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value == ("Biggest changes from Formulation 1: "
+                           "Pea protein −2.1 g, Methylcellulose +0.8 g.")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_both_downloads_are_offered_and_only_the_batch_sheet_is_lit(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _unknown(at.main, "download_button",
+                    "Download batch sheet").proto.type == "primary"
+    assert _unknown(at.main, "download_button",
+                    "Download printable sheets").proto.type == "secondary"
+    # The download IS the coloured thing here, so no coloured button competes.
+    assert _tab_primaries(at, 1) == [], _tab_primaries(at, 1)
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    assert _unknown(at.main, "download_button",
+                    "Download batch sheet").proto.type == "secondary"
+
+
+def test_leaving_a_row_out_does_not_grey_the_batch_sheet(open_batch):
+    """A disabled number_input still returns its stored value, so a naive
+    'has anything been typed' check flipped the download grey on a tick."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    at.checkbox(key="f1_leave_out").check()
+    at.run()
+    assert _unknown(at.main, "download_button",
+                    "Download batch sheet").proto.type == "primary"
+
+
+def test_regenerating_names_the_numbers_it_discards(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Generate a different batch").click()
+    at.run()
+    assert any(w.value == ("Batch 1 (Formulations 1, 2) will be discarded. "
+                           "Those numbers will not be used again.")
+               for w in at.warning), [w.value for w in at.warning]
+    _submit_button(at, "Yes, discard").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert [r["formulation"] for r in reloaded.pending_batch] == [3, 4]
+    assert reloaded.pending_batch_no == 1     # the batch keeps its number
+    assert any(c.value == ("Formulations 1 and 2 were discarded and their "
+                           "numbers will not be used again.")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_printable_sheet_names_the_formulation_and_the_batch(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(e.label == "Printable formulation sheets" for e in at.expander)
+    texts = [t.value for t in at.text]
+    assert "Formulation 1 · batch 1" in texts, texts
+    assert any(t.startswith("Not made") for t in texts), texts
+    # Underscore rules go through st.text: st.markdown would italicise them and
+    # would mangle a measurement named L_a_b.
+    assert any("Measured Firmness · target 6 N:" in t for t in texts), texts
+
+
+def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.number_input(key="f1_Firmness").label == "Firmness · target 6 N"
+    assert at.number_input(key="f1_Juiciness").label == "Juiciness · target 7/10"
+    labels = [n.label for n in at.number_input]
+    assert labels.index("Firmness · target 6 N") < labels.index("Juiciness · target 7/10")
+    assert any(c.value == ("Enter your panel mean. Leave a measurement blank if "
+                           "it could not be scored.") for c in at.caption)
+
+
+def test_result_inputs_do_not_clamp_and_refuse_out_of_scale_on_save(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    field = at.number_input(key="f1_Firmness")
+    # An unbounded st.number_input reports ±DBL_MAX rather than None, so what
+    # is checked is that neither end is the 0-to-10 scale: nothing is clamped.
+    assert field.min < 0.0 and field.max > 10.0
+    field.set_value(12.0)
+    at.number_input(key="f2_Firmness").set_value(6.0)
+    at.run()
+    assert at.number_input(key="f1_Firmness").value == 12.0   # not clamped to 10
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert any(e.value == ("Firmness 12 N is outside your scale of 0 to 10 N. "
+                           "Widen the scale in Set up, or check the value.")
+               for e in at.error), [e.value for e in at.error]
+    assert FoodOptimizer("burger").X_history == []
+
+
+def test_leave_out_comes_after_the_note_field(open_batch):
+    """The first control in a row must be a box the user came to fill, not a
+    checkbox for not making it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+
+    def positions(node, out):
+        children = getattr(node, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for child in children:
+            key = getattr(child, "key", None)
+            if key in ("f1_Firmness", "f1_note", "f1_leave_out"):
+                out.append(key)
+            positions(child, out)
+        return out
+
+    order = positions(at.main, [])
+    assert order.index("f1_Firmness") < order.index("f1_note") < order.index("f1_leave_out"), order
+
+
+def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _submit_button(at, "Save results").disabled
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    assert _submit_button(at, "Save results").disabled
+    assert any(c.value == "1 of 2 entered · saved when you press Save"
+               for c in at.caption), [c.value for c in at.caption]
+    at.number_input(key="f2_Juiciness").set_value(4.0)
+    at.run()
+    save = _submit_button(at, "Save results")
+    assert not save.disabled and save.proto.type == "primary"
+    assert _tab_primaries(at, 1) == ["Save results"], _tab_primaries(at, 1)
+
+
+def test_the_counter_counts_kept_rows_only(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.checkbox(key="f2_leave_out").check()
+    at.run()
+    assert any(c.value == "1 of 1 entered · 1 left out · saved when you press Save"
+               for c in at.caption), [c.value for c in at.caption]
+    assert not _submit_button(at, "Save results").disabled
+
+
+def test_saving_records_partials_notes_and_moves_to_results(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f1_Juiciness").set_value(7.0)
+    at.text_input(key="f1_note").set_value("held together")
+    at.number_input(key="f2_Firmness").set_value(2.0)     # Juiciness left blank
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [1, 2]
+    assert reloaded.batch_history == [1, 1]
+    assert reloaded.notes_history[0] == "held together"
+    assert reloaded.results_history[1] == {"Firmness": 2.0}
+    assert reloaded.pending_batch is None
+    assert at.session_state["main_tab"] == "3 · Results"
+    # A real save also puts the saved line in the sidebar and no backup nag.
+    assert any("automatically, to this Mac" in c.value for c in at.sidebar.caption), \
+        [c.value for c in at.sidebar.caption]
+    assert not any("Download a backup now" in w.value for w in at.warning)
+
+
+def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monkeypatch):
+    """go_to_tab reruns, which would outrun app.py's end-of-script save-error
+    check and hide the fact that nothing was written."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f2_Firmness").set_value(4.0)
+    at.run()
+    at.session_state["optimizer"].storage.save = lambda name, state: (_ for _ in ()).throw(
+        __import__("storage").StorageError("The disk is full — your last change was NOT saved.")
+    )
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == "2 · Make a batch"
+    assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
+
+
+def test_leave_out_disables_the_row_but_keeps_its_values(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f2_Firmness").set_value(3.0)
+    at.checkbox(key="f2_leave_out").check()
+    at.run()
+    assert at.number_input(key="f2_Firmness").disabled is True
+    assert at.number_input(key="f2_Firmness").value == 3.0
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [1]
+    assert reloaded.skipped == [{"formulation": 2, "batch": 1,
+                                 "recipe": {"Pea protein": 20.0,
+                                            "Methylcellulose": 2.0},
+                                 "note": "Not made"}]
+
+
+def test_every_row_left_out_says_there_is_nothing_to_save(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.checkbox(key="f1_leave_out").check()
+    at.checkbox(key="f2_leave_out").check()
+    at.run()
+    assert any(i.value == "Nothing to save — at least one formulation needs results."
+               for i in at.info), [i.value for i in at.info]
+    assert _submit_button(at, "Save results").disabled
+    assert FoodOptimizer("burger").pending_batch is not None
+
+
+def test_a_partly_recorded_batch_reopens_with_recorded_rows_read_only(open_batch):
+    open_batch.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                    {"Juiciness": 7.0, "Firmness": 6.0},
+                    formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    keys = [n.key for n in at.number_input]
+    assert "f1_Firmness" not in keys
+    assert "f2_Firmness" in keys
+    assert any(c.value == "Firmness 6 N · Juiciness 7/10" for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_uploading_a_sheet_matches_global_formulation_numbers(open_batch):
+    """AppTest cannot drive st.file_uploader, so prime the parsed sheet the way
+    the uploader handler does."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.session_state["_results_upload"] = pd.DataFrame(
+        {"Formulation": [2], "Firmness": [6.0], "Juiciness": [7.0],
+         "Note": ["from the sheet"]})
+    at.run()
+    assert any("Formulation 2" in i.value for i in at.info), [i.value for i in at.info]
+    _submit_button(at, "Save uploaded results").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [2]
+    assert reloaded.notes_history == ["from the sheet"]
+    assert [r["formulation"] for r in reloaded.pending_batch] == [1, 2]
+    assert at.session_state["main_tab"] == "2 · Make a batch"   # one row still open
+
+
+def test_a_stale_upload_is_cleared_by_hard_reset(open_batch, tmp_path):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_results_upload"] = pd.DataFrame(
+        {"Formulation": [1], "Firmness": [6.0], "Juiciness": [7.0]})
+    at.run()
+    assert "_results_upload" in at.session_state
+    _submit_button(at, "Hard reset").click()
+    at.run()
+    _submit_button(at, "Yes, reset").click()
+    at.run()
+    assert not at.exception
+    assert "_results_upload" not in at.session_state
+
+
+def test_generate_is_the_one_lit_button_before_a_batch_exists(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_primaries(at, 1) == ["Generate 3 formulations"], _tab_primaries(at, 1)
+
+
+def test_a_confirmation_takes_the_colour_from_the_batch_sheet(open_batch):
+    """While a confirmation is armed, answering it is the one thing to do: the
+    lit download steps aside rather than competing with the Yes."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _unknown(at.main, "download_button",
+                    "Download batch sheet").proto.type == "primary"
+    _submit_button(at, "Generate a different batch").click()
+    at.run()
+    assert _unknown(at.main, "download_button",
+                    "Download batch sheet").proto.type == "secondary"
+    assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
+
+
+def test_a_confirmation_greys_save_results(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f2_Firmness").set_value(4.0)
+    at.run()
+    assert _tab_primaries(at, 1) == ["Save results"], _tab_primaries(at, 1)
+    _submit_button(at, "Generate a different batch").click()
+    at.run()
+    save = _submit_button(at, "Save results")
+    assert save.disabled and save.proto.type == "secondary"
+    assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
+
