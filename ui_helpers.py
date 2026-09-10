@@ -12,7 +12,9 @@ import streamlit as st
 # join_unit and goal_line live in food_bo (they are pure data formatting and
 # closeness_details needs them too); the tab modules import them from here so
 # there is one import site for screen helpers.
-from food_bo import goal_line, join_unit, number_list  # noqa: F401  (re-exported)
+from food_bo import (  # noqa: F401  (re-exported)
+    goal_line, join_unit, label_with_unit, number_list, unit_after_number,
+)
 
 _FLASH_KEY = "_flash_messages"
 
@@ -163,15 +165,17 @@ def plural(n, word):
 
 
 def fmt_amount(value, unit="", decimals=2):
-    """An amount as prose: '12.5 g', '12 g', '7/10', '' for a missing value.
-    Trailing zeros are trimmed."""
+    """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
+
+    Always two decimals. A weighing sheet that mixes '0.3 g', '33.9 g' and
+    '11.88 g' cannot be read down the column, and 0.30 g is the precision a
+    balance works to. A process setting is not an amount and does not come
+    through here: a cook temperature is 180 °C, never 180.00 °C."""
     if value is None:
         return ""
     txt = f"{float(value):.{decimals}f}"
-    if "." in txt:
-        txt = txt.rstrip("0").rstrip(".")
-    if txt in ("", "-0"):
-        txt = "0"
+    if float(txt) == 0:
+        txt = f"{0.0:.{decimals}f}"     # never '-0.00'
     return join_unit(txt, unit)
 
 
@@ -180,6 +184,7 @@ def outside_message(name, value, low, high, unit, what, tail=""):
     for every out-of-bounds line, so a measurement and an amount are refused
     and warned about in the same words. `what` names the bounds, `tail` is any
     sentence that follows."""
+    unit = unit_after_number(unit)   # '/10' lives on the label, not the number
     return (join_unit(f"{name} {float(value):g}", unit)
             + f" is outside {what} of "
             + join_unit(f"{float(low):g} to {float(high):g}", unit)
@@ -232,17 +237,50 @@ def clear_selection(key):
     """Ask for a select box to be emptied on the NEXT run.
 
     Popping a widget's key does not reach the browser: it keeps the old value
-    and sends it back with the next click, so a row closed by Done reopened
+    and sends it back with the next click, so a row closed by Close reopened
     under the user's finger and swallowed that click. Assigning None instead is
     refused once the widget exists on this run. So the request is parked here
     and honoured by take_clear() just before the widget is created."""
     st.session_state[f"_clear_{key}"] = True
 
 
-def take_clear(key):
-    """Honour a pending clear_selection. Call immediately BEFORE the widget."""
-    if st.session_state.pop(f"_clear_{key}", False):
-        st.session_state[key] = None
+def park_clear(key, value):
+    """Same request, for a box that empties to something other than None: a
+    text box to "", a tick box to False, a number box to the value it opens
+    with. This is what makes a project switch really empty the set-up and
+    result forms in the browser — popping the key alone leaves the mounted
+    widget to post its old value straight back."""
+    st.session_state[f"_clear_{key}"] = ("value", value)
+
+
+def take_clear(key, fresh=None):
+    """Honour a pending clear. Call immediately BEFORE the widget is created.
+    `fresh` is what a plain clear_selection should leave behind when the right
+    empty value is only known here (the amount-unit box holds the newly opened
+    project's unit)."""
+    parked = st.session_state.pop(f"_clear_{key}", None)
+    if parked is None:
+        return
+    if isinstance(parked, tuple) and parked and parked[0] == "value":
+        st.session_state[key] = parked[1]
+    else:
+        st.session_state[key] = fresh
+
+
+def drain_clears(fresh=None):
+    """Honour every parked clear, at the one moment in a run when it is legal:
+    the previous run's widgets are gone and this run's have not been created
+    yet. app.py calls this once, just before the tabs render, which is what
+    makes a project switch really empty the forms in the browser.
+
+    `fresh` names the value for a plain clear_selection where only the caller
+    knows it (the amount-unit box holds the newly opened project's unit).
+    """
+    fresh = fresh or {}
+    for key in [k for k in st.session_state
+                if isinstance(k, str) and k.startswith("_clear_")]:
+        name = key[len("_clear_"):]
+        take_clear(name, fresh.get(name))
 
 
 def best_formulation_no(opt):

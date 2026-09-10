@@ -13,8 +13,9 @@ import streamlit as st
 import storage as storage_backend
 from ui_helpers import (
     TAB_BATCH, best_formulation_no, best_move_sentence, confirm_action,
-    confirmation_open, flash, go_to_tab, join_unit, other_confirmation, plural,
-    readiness, saved_ok, table_height,
+    confirmation_open, flash, go_to_tab, join_unit, label_with_unit,
+    other_confirmation, plural, readiness, saved_ok, table_height,
+    unit_after_number,
 )
 
 GOAL_LABELS = {
@@ -52,15 +53,17 @@ def _note_discarded_batch(opt, batch_no_before):
 
 
 def _goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better'."""
+    """'Target 6 N', 'Higher is better', 'Lower is better'. A '/10' rides on
+    the measurement's own name instead of on every number in its row."""
     if obj['goal'] == 'target':
-        return join_unit(f"Target {float(obj['target']):g}", obj.get('unit'))
+        return join_unit(f"Target {float(obj['target']):g}",
+                         unit_after_number(obj.get('unit')))
     return GOAL_LABELS.get(obj['goal'], obj['goal'])
 
 
 def _scale_text(obj):
     return join_unit(f"{float(obj['min_val']):g} to {float(obj['max_val']):g}",
-                     obj.get('unit'))
+                     unit_after_number(obj.get('unit')))
 
 
 def _mkey(editing, field):
@@ -108,6 +111,13 @@ def _amount_unit(opt):
     if typed != opt.amount_unit:
         opt.set_amount_unit(typed)
         saved_ok(opt)
+    elif getattr(opt, "amount_unit_backfilled", False):
+        # The file this project was saved in predates the unit; its amounts
+        # may have been percentages or millilitres, and nothing on screen
+        # would otherwise say the g was the app's guess and not the user's.
+        st.caption(f"This project was made before units were recorded. "
+                   f"Amounts are shown in {opt.amount_unit} — change it here "
+                   "if that is wrong.")
 
 
 def _ingredients(opt, storage):
@@ -132,7 +142,16 @@ def _ingredients(opt, storage):
             st.error("This file could not be read as a CSV. If it came from "
                      "Excel, use File > Save As and pick CSV format, then "
                      "try again.")
-    if df is not None:
+    # The file itself is left alone. Taking it out of the uploader changed
+    # the widget's identity, which shut every open expander on the page under
+    # the user's hands; remembering which file was loaded stops a second Load
+    # just as well.
+    mark = None if uploaded is None else (
+        getattr(uploaded, "file_id", None) or f"{uploaded.name}:{uploaded.size}")
+    if df is not None and mark == st.session_state.get("_ingredients_loaded"):
+        st.caption("This file is already loaded. Choose another to replace "
+                   "the ingredient list.")
+    elif df is not None:
         st.dataframe(df, hide_index=True, height=table_height(len(df)))
         if st.button("Load ingredients", key="load_ingredients"):
             batch_no = opt.pending_batch_no
@@ -142,10 +161,7 @@ def _ingredients(opt, storage):
                 st.error(str(e))
             else:
                 if saved_ok(opt):
-                    # Clear the uploader too: leaving the file and its preview
-                    # on screen invites a second Load, which errors once
-                    # results exist.
-                    st.session_state.pop("ingredients_csv", None)
+                    st.session_state["_ingredients_loaded"] = mark
                     flash("success", f"Loaded {plural(len(df), 'ingredient')}.")
                     _note_discarded_batch(opt, batch_no)
                     st.rerun()
@@ -177,10 +193,16 @@ def _change_ingredient_list(opt, storage):
     with ic1:
         st.text_input("Ingredient name", key="ing_name")
     with ic2:
-        st.number_input(f"Min{_unit_suffix(unit)}", value=0.0, key="ing_min",
+        # The opening value comes from session state, never from a `value=`
+        # argument: a project switch assigns these keys (see app.py's
+        # _FORM_FRESH), and Streamlit warns on screen when a widget is given
+        # both a default and a session-state value.
+        st.session_state.setdefault("ing_min", 0.0)
+        st.number_input(f"Min{_unit_suffix(unit)}", key="ing_min",
                         disabled=has_history)
     with ic3:
-        st.number_input(f"Max{_unit_suffix(unit)}", value=100.0, key="ing_max")
+        st.session_state.setdefault("ing_max", 100.0)
+        st.number_input(f"Max{_unit_suffix(unit)}", key="ing_max")
     if has_history:
         st.caption("A new ingredient starts at 0 in every formulation already "
                    "made, so its minimum is fixed at 0 for now.")
@@ -202,7 +224,7 @@ def _change_ingredient_list(opt, storage):
     active = opt.active_variables()
     inactive = opt.inactive_variables()
     st.divider()
-    st.markdown("**Pause an ingredient**")
+    st.markdown("**Pause an ingredient or setting**")
     st.caption("A paused ingredient is left out of new formulations; nothing "
                "is deleted and you can resume at any time.")
     if len(active) > 1:
@@ -364,9 +386,14 @@ def _measurement_editor(opt, storage, editing):
         return
 
     b1, b2 = st.columns(2)
+    # The edit being made is the one thing to do while its row is open, as a
+    # correction is on tab 3; the foot's Continue steps aside (it would
+    # navigate away and throw the edit away).
+    lit = not confirmation_open()
     with b1:
         save = st.button("Save changes", key="save_measurement",
-                         use_container_width=True)
+                         type="primary" if lit else "secondary",
+                         disabled=not lit, use_container_width=True) and lit
     with b2:
         if st.button("Cancel", key="cancel_measurement", use_container_width=True):
             _clear_measurement_keys(editing)
@@ -426,14 +453,19 @@ def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
     st.session_state.pop("_editing_measurement", None)
     if rescores:
         after = best_formulation_no(opt)
+        # Nothing has been scored yet: there is no overall score to
+        # recalculate, and saying otherwise invents a history.
+        recalculated = (" Every overall score was recalculated."
+                        if opt.Y_history else "")
         sentence = (
-            f"{editing['name']} importance changed to {float(importance):.1f}. "
-            "Every overall score was recalculated."
-            if changed_importance else
-            f"Updated {editing['name']}. Every overall score was recalculated."
-        )
-        move = best_move_sentence(before, after)
-        flash("success", f"{sentence} {move}".strip())
+            f"{editing['name']} importance changed to {float(importance):.1f}."
+            if changed_importance else f"Updated {editing['name']}."
+        ) + recalculated
+        parts = [sentence, best_move_sentence(before, after),
+                 # This edit has no confirmation before it, so the copy it
+                 # kept is named here, as a correction names its own.
+                 "A copy of the project was kept first."]
+        flash("success", " ".join(p for p in parts if p))
     else:
         flash("success", f"Updated {editing['name']}.")
     st.rerun()
@@ -450,13 +482,17 @@ def _remove_measurement(opt, storage, name):
     if not saved_ok(opt):
         return
     after = best_formulation_no(opt)
-    sentence = f"{name} removed. Every overall score was recalculated."
+    sentence = f"{name} removed." + (" Every overall score was recalculated."
+                                     if opt.Y_history else "")
     move = best_move_sentence(before, after)
     flash("success", f"{sentence} {move}".strip())
     st.rerun()
 
 
 def _measurements(opt, storage):
+    """Draw the measurements section. Returns True while a measurement is
+    open for editing: `Save changes` is then the tab's one lit action and the
+    foot steps aside."""
     st.subheader("Measurements")
     editing_name = st.session_state.get("_editing_measurement")
     editing = next((o for o in opt.objectives if o['name'] == editing_name), None)
@@ -470,12 +506,12 @@ def _measurements(opt, storage):
             _measurement_editor(opt, storage, None)
 
     if not opt.objectives:
-        return
+        return editing is not None
 
     ordered = opt.measurements_by_importance()
     st.dataframe(pd.DataFrame([{
         "Priority": i + 1,
-        "Measurement": o['name'],
+        "Measurement": label_with_unit(o['name'], o.get('unit')),
         "Goal": _goal_text(o),
         "Scale": _scale_text(o),
         "Importance": float(o['weight']),
@@ -512,6 +548,7 @@ def _measurements(opt, storage):
             "Each closeness is multiplied by that measurement's importance, "
             "and the results are added up."
         )
+    return editing is not None
 
 
 def _process_settings(opt, storage):
@@ -519,27 +556,31 @@ def _process_settings(opt, storage):
         st.caption("Settings such as cook temperature or mixing time that can "
                    "vary between formulations.")
         mid_run = bool(opt.X_history)
-        pc = st.columns(4)
+        pc = st.columns(5)
         with pc[0]:
             st.text_input("Setting name", key="pp_name",
                           placeholder="e.g. Cook temperature")
         with pc[1]:
-            st.number_input("Min value", value=0.0, key="pp_min")
+            # A setting is not an amount, so it never wears the project's
+            # amount unit; without one of its own the sheet a technician
+            # follows read "Cook temperature: 175".
+            st.text_input("Unit", key="pp_unit", placeholder="e.g. °C")
         with pc[2]:
-            st.number_input("Max value", value=100.0, key="pp_max")
+            st.session_state.setdefault("pp_min", 0.0)
+            st.number_input("Min value", key="pp_min")
         with pc[3]:
-            if mid_run:
-                st.number_input(
-                    "Baseline", value=None, placeholder="required", key="pp_base",
-                    help="The setting you used for every formulation already "
-                         "made, so those results still count.",
-                )
-            else:
-                st.number_input(
-                    "Baseline", value=0.0, key="pp_base",
-                    help="Only needed once results exist: the setting used for "
-                         "every formulation already made.",
-                )
+            st.session_state.setdefault("pp_max", 100.0)
+            st.number_input("Max value", key="pp_max")
+        with pc[4]:
+            st.session_state.setdefault("pp_base", None)
+            st.number_input(
+                "Baseline", key="pp_base",
+                placeholder="required" if mid_run else "not needed yet",
+                help=("The setting you used for every formulation already "
+                      "made, so those results still count." if mid_run else
+                      "Only needed once results exist: the setting used for "
+                      "every formulation already made."),
+            )
         if st.button("Add process setting", key="add_process_setting"):
             if mid_run and st.session_state["pp_base"] is None:
                 st.error("Enter the baseline: the setting you used for every "
@@ -551,6 +592,7 @@ def _process_settings(opt, storage):
                         st.session_state["pp_name"], st.session_state["pp_min"],
                         st.session_state["pp_max"],
                         baseline=(st.session_state["pp_base"] if mid_run else None),
+                        unit=st.session_state.get("pp_unit", ""),
                     )
                 except ValueError as e:
                     st.error(str(e))
@@ -566,10 +608,14 @@ def _process_settings(opt, storage):
             p1, p2 = st.columns([3, 1])
             with p1:
                 low, high = pv['bounds']
+                p_unit = str(pv.get('unit', "") or "")
                 base = pv.get('_absent_value')
-                base_txt = "" if base is None else f", baseline {base:g}"
+                base_txt = ("" if base is None else
+                            " · baseline " + join_unit(f"{base:g}", p_unit))
                 paused = "" if pv.get('active', True) else "  (paused)"
-                st.text(f"{pv['name']}: {low:g} to {high:g}{base_txt}{paused}")
+                st.text(f"{pv['name']}: "
+                        + join_unit(f"{low:g} to {high:g}", p_unit)
+                        + f"{base_txt}{paused}")
             with p2:
                 # Always confirmed, always copied first, history or not: a
                 # removal is a removal and the user is told the same thing
@@ -610,10 +656,12 @@ def _limits(opt):
             metric = st.selectbox("Property", sorted(properties), key="prop_metric")
             p1, p2 = st.columns(2)
             with p1:
-                st.number_input("Min value", value=None, placeholder="no limit",
+                st.session_state.setdefault("prop_min", None)
+                st.number_input("Min value", placeholder="no limit",
                                 key="prop_min")
             with p2:
-                st.number_input("Max value", value=None, placeholder="no limit",
+                st.session_state.setdefault("prop_max", None)
+                st.number_input("Max value", placeholder="no limit",
                                 key="prop_max")
             if st.button("Add a property limit", key="add_property_limit"):
                 low, high = st.session_state["prop_min"], st.session_state["prop_max"]
@@ -627,8 +675,8 @@ def _limits(opt):
                     else:
                         _report_limit(opt, f"Limit added on {metric}.")
         else:
-            st.caption("Your ingredient file has no property columns, such as "
-                       "Cost or Sodium per 100 g.")
+            st.caption("Upload an ingredient CSV with extra columns such as "
+                       "Cost or Sodium per 100 g to set property limits.")
 
         for i, constraint in enumerate(opt.constraints):
             c1, c2 = st.columns([3, 1])
@@ -658,10 +706,12 @@ def _limits(opt):
                                 key="qty_pick")
         q1, q2 = st.columns(2)
         with q1:
-            st.number_input(f"Min sum{_unit_suffix(unit)}", value=None,
+            st.session_state.setdefault("qc_min", None)
+            st.number_input(f"Min sum{_unit_suffix(unit)}",
                             placeholder="no limit", key="qc_min")
         with q2:
-            st.number_input(f"Max sum{_unit_suffix(unit)}", value=None,
+            st.session_state.setdefault("qc_max", None)
+            st.number_input(f"Max sum{_unit_suffix(unit)}",
                             placeholder="no limit", key="qc_max")
         # No "Set a maximum" tick box: a blank field already means no limit,
         # exactly as it does for the total amount below, and a box the user
@@ -682,10 +732,12 @@ def _limits(opt):
 
         t1, t2, t3 = st.columns(3)
         with t1:
-            st.number_input(f"Total amount min{_unit_suffix(unit)}", value=None,
+            st.session_state.setdefault("tm_min", None)
+            st.number_input(f"Total amount min{_unit_suffix(unit)}",
                             placeholder="no limit", key="tm_min")
         with t2:
-            st.number_input(f"Total amount max{_unit_suffix(unit)}", value=None,
+            st.session_state.setdefault("tm_max", None)
+            st.number_input(f"Total amount max{_unit_suffix(unit)}",
                             placeholder="no limit", key="tm_max")
         with t3:
             if st.button("Add a total amount limit", key="add_total_limit"):
@@ -777,11 +829,13 @@ def _advanced(opt):
                        + ", ".join(f"{k}: {v}" for k, v in current.items()))
 
 
-def _foot(opt):
+def _foot(opt, editing=False):
     ready, missing = readiness(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
-    # answering it is the one thing to do; moving on can wait a click.
-    lit = ready and not confirmation_open()
+    # answering it is the one thing to do; moving on can wait a click. An open
+    # measurement editor is the same case: Save changes is the lit one, and
+    # Continue would leave the tab and throw the edit away.
+    lit = ready and not confirmation_open() and not editing
     if st.button("Continue to make a batch",
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
@@ -795,10 +849,10 @@ def render(opt, storage):
     st.divider()
     _ingredients(opt, storage)
     st.divider()
-    _measurements(opt, storage)
+    editing = _measurements(opt, storage)
     st.divider()
     _process_settings(opt, storage)
     _limits(opt)
     _advanced(opt)
     st.divider()
-    _foot(opt)
+    _foot(opt, editing)

@@ -9,10 +9,11 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, best_formulation_no, best_move_sentence, bounds_warning,
-    clear_selection, confirm_action, confirmation_open, flash, fmt_amount,
-    goal_line, go_to_tab, open_rows, other_confirmation, plural, saved_ok,
-    scale_error, table_height, take_clear,
+    TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
+    bounds_warning, clear_selection, confirm_action, confirmation_open, flash,
+    fmt_amount, goal_line, go_to_tab, join_unit, label_with_unit, open_rows,
+    other_confirmation, plural, readiness, saved_ok, scale_error,
+    table_height, take_clear,
 )
 
 
@@ -40,8 +41,14 @@ def _amount_rows(opt, recipe):
     pairs = opt.recipe_lines(recipe)
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
     settings = [p for p in pairs if category.get(p[0]) == 'process']
-    return [{"Ingredient or setting": name,
-             "Amount": fmt_amount(value, _unit_of(opt, name))}
+
+    def amount(name, value):
+        if category.get(name) == 'process':
+            # 180 °C, never 180.00 °C: a setting is dialled in, not weighed.
+            return join_unit(f"{float(value):g}", _unit_of(opt, name))
+        return fmt_amount(value, _unit_of(opt, name))
+
+    return [{"Ingredient or setting": name, "Amount": amount(name, value)}
             for name, value in ingredients + settings]
 
 
@@ -77,7 +84,10 @@ def _progress_line(opt):
     earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
                if b != last]
     if not earlier:
-        return f"Batch {last} recorded."
+        # Nothing to compare it with. The flash above the tabs already says
+        # "Batch 1 recorded."; saying it again four lines lower is the same
+        # sentence twice on one screen.
+        return ""
     best_now = max(float(y) for y in opt.Y_history)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
@@ -177,7 +187,8 @@ def _correct(opt):
             # No clamping here either: the same reading refused on tab 2 must
             # be refusable here, not silently pulled back to the scale end.
             typed[obj['name']] = st.number_input(
-                f"{obj['name']} · {goal_line(obj)}",
+                f"{label_with_unit(obj['name'], obj.get('unit'))} · "
+                f"{goal_line(obj)}",
                 value=(float(current[obj['name']])
                        if current.get(obj['name']) is not None else None),
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
@@ -204,7 +215,7 @@ def _save_correction(opt, storage, pending):
                          disabled=not lit, use_container_width=True) and lit
     with b2:
         # The select box cannot be cleared by the user once it holds a value.
-        if st.button("Done", key="done_correcting", use_container_width=True):
+        if st.button("Close", key="done_correcting", use_container_width=True):
             clear_selection("correct_formulation")
             st.rerun()
     if not save:
@@ -298,7 +309,12 @@ def _undo(opt, storage):
         # the last batch, and undoing must not reach past it.
         last = opt.last_batch_no()
         if last is None:
-            st.caption("No batch to undo yet.")
+            if opt.X_history or opt.skipped:
+                st.caption("These formulations were recorded before batches "
+                           "existed, so there is no batch to undo. You can "
+                           "delete one formulation at a time below.")
+            else:
+                st.caption("No batch to undo yet.")
             return
         if opt.pending_batch:
             st.caption("Record or discard the open batch first.")
@@ -309,7 +325,9 @@ def _undo(opt, storage):
         # Said once, in the confirmation: a caption above it repeats it.
         if confirm_action(
             "undo_batch", "Undo the last batch",
-            f"Removes batch {last} and its {plural(count, 'result')}. "
+            # Formulations, not results: one of them may have been left out
+            # and have no result at all, and formulation is the app's noun.
+            f"Removes batch {last} and its {plural(count, 'formulation')}. "
             "A copy is kept first.",
             confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
         ):
@@ -356,7 +374,8 @@ def _delete_formulation(opt, storage):
         # The confirmation brings its own Cancel, so this one steps aside while
         # that is on screen rather than showing the word twice.
         if (not st.session_state.get("delete_formulation__pending")
-                and st.button("Cancel", key="cancel_delete_formulation")):
+                and st.button("Choose a different formulation",
+                              key="cancel_delete_formulation")):
             clear_selection("delete_formulation")
             st.rerun()
         if go:
@@ -462,11 +481,14 @@ def _import(opt):
 def render(opt, storage):
     if not opt.X_history and not opt.skipped:
         st.markdown("No results yet.")
+        # A project with no ingredients cannot make a batch: sending the user
+        # to a tab holding a greyed Generate is a lit button to a dead end.
+        ready, _ = readiness(opt)
         lit = not confirmation_open()
-        if st.button("Make your first batch",
+        if st.button("Make your first batch" if ready else "Set up this project",
                      type="primary" if lit else "secondary",
                      disabled=not lit, key="first_batch") and lit:
-            go_to_tab(TAB_BATCH)
+            go_to_tab(TAB_BATCH if ready else TAB_SETUP)
         # A fresh project is exactly when someone imports past work.
         _import(opt)
         return

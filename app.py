@@ -12,9 +12,10 @@ import ui_results
 import ui_setup
 from food_bo import FoodOptimizer
 from ui_helpers import (
-    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, confirm_action,
-    confirmation_open, flash, landing_tab, open_rows, other_confirmation,
-    plural, render_flash, saved_line, saved_ok,
+    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
+    confirm_action, confirmation_open, drain_clears, flash, landing_tab,
+    open_rows, other_confirmation, park_clear, plural, render_flash,
+    saved_line, saved_ok, take_clear,
 )
 
 STORAGE = storage_backend.LocalStorage()
@@ -48,6 +49,40 @@ _FORM_KEY_PREFIXES = (
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
+# What each box on the set-up and batch forms holds in a project nobody has
+# typed in yet. Popping a widget's key does NOT empty it: the widget is still
+# mounted in the browser and posts its old value straight back, which carried
+# a half-typed ingredient into the next project and offered to add it there.
+# So the empty value is PARKED and assigned before the widget is created, the
+# same pattern clear_selection has always used for a select box.
+_FORM_FRESH = {
+    "ing_name": "", "ing_min": 0.0, "ing_max": 100.0,
+    "pp_name": "", "pp_unit": "", "pp_min": 0.0, "pp_max": 100.0,
+    "pp_base": None,
+    "prop_min": None, "prop_max": None,
+    "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
+    "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
+    "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
+    "meas_new_importance": 1.0,
+    "qty_pick": [], "pause_pick": [], "resume_pick": [],
+    "batch_size": 3, "repeat_best": False, "scale_total": None,
+}
+# The boxes whose empty value is None: a select box, and the unit box, which
+# empties to the newly opened project's own unit (app.py passes it to
+# drain_clears; it is not known here).
+_FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_formulation",
+                         "amount_unit")
+
+
+def _grid_fresh(key):
+    """The empty value of one result-grid box: a note is text, Leave out is a
+    tick, and a measurement is an empty number box."""
+    if key.endswith("_note"):
+        return ""
+    if key.endswith("_leave_out"):
+        return False
+    return None
+
 
 def _reset_project_session():
     """Everything a project owns. A key left behind here follows the user into
@@ -56,21 +91,24 @@ def _reset_project_session():
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
-              "scale_total", "results_order", "show_amounts",
-              "correct_formulation", "delete_formulation", "amount_unit",
-              "_clear_correct_formulation", "_clear_delete_formulation",
-              "qty_pick", "batch_size", "repeat_best", "_pending_tab",
-              ARMED_KEY):
+              "_ingredients_loaded", "results_order", "show_amounts",
+              "_pending_tab", ARMED_KEY):
         st.session_state.pop(k, None)
-    for k in [k for k in st.session_state
-              if isinstance(k, str) and (
-                  k.endswith("__pending")
-                  or k.startswith(_FORM_KEY_PREFIXES)
-                  or _GRID_KEY_RE.match(k))]:
-        st.session_state.pop(k, None)
+    for k in [k for k in st.session_state if isinstance(k, str)]:
+        if k in _FORM_FRESH:
+            park_clear(k, _FORM_FRESH[k])
+        elif k in _FORM_EMPTIES_TO_NONE:
+            clear_selection(k)
+        elif _GRID_KEY_RE.match(k):
+            park_clear(k, _grid_fresh(k))
+        elif k.endswith("__pending") or k.startswith(_FORM_KEY_PREFIXES):
+            st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False):
+def _open_project(name, create=False, made=False):
+    """Open a project. `create` makes an empty one first; `made` says the
+    project was built a moment ago by another handler (the sample), so the
+    user is told it was created rather than opened."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -80,7 +118,8 @@ def _open_project(name, create=False):
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     st.session_state["_land_on_open"] = True
-    flash("success", f"Created {name}." if create else f"Opened {name}.")
+    flash("success",
+          f"Created {name}." if (create or made) else f"Opened {name}.")
     st.rerun()
 
 
@@ -106,7 +145,14 @@ def _open_sample_project():
             if _sample.save_error:
                 st.error(_sample.save_error)
             else:
-                _open_project(_name)
+                _open_project(_name, made=True)
+
+
+def _held(opt):
+    """Every formulation the project holds: scored, and left out. A left-out
+    formulation keeps its number and its amounts, so a warning that counts
+    only the scored ones undercounts what it is about to archive."""
+    return len(opt.X_history) + len(opt.skipped)
 
 
 def _batch_line(opt):
@@ -162,6 +208,10 @@ with st.sidebar:
 
     if existing_projects:
         _active = st.session_state.get("_loaded_project")
+        # A deleted project's name would otherwise stay in the box — popping
+        # the key does not reach the browser — leaving Open lit over a
+        # project that is no longer there.
+        take_clear("project_select", fresh=_active)
         selected = st.selectbox(
             "Open project", existing_projects,
             index=existing_projects.index(_active) if _active in existing_projects else 0,
@@ -264,7 +314,7 @@ with st.sidebar:
                     f"{plural(summary['experiments'], 'formulation')} and "
                     f"{plural(summary['ingredients'], 'ingredient')}. Replace "
                     f"**{opt.project_name}** "
-                    f"({plural(len(opt.X_history), 'formulation')})? A copy of "
+                    f"({plural(_held(opt), 'formulation')})? A copy of "
                     "the current project is kept first."
                 )
                 rc1, rc2 = st.columns(2)
@@ -321,9 +371,9 @@ with st.sidebar:
                 "hard_reset", "Hard reset",
                 (f"Start **{opt.project_name}** over? A copy of it is kept in your "
                  "projects folder and the project becomes empty."
-                 if not opt.X_history else
+                 if not _held(opt) else
                  f"Start **{opt.project_name}** over? Its "
-                 f"{plural(len(opt.X_history), 'formulation')} and set-up are kept "
+                 f"{plural(_held(opt), 'formulation')} and set-up are kept "
                  "as a copy in your projects folder, and the project becomes empty."),
                 confirm_label="Yes, reset",
                 disabled=other_confirmation("hard_reset"),
@@ -334,12 +384,23 @@ with st.sidebar:
                 except storage_backend.StorageError as e:
                     st.error(str(e))
                 else:
-                    if archived:
-                        flash("info", f"A copy of the previous project was kept as {archived}.")
-                    _reset_project_session()
-                    st.session_state["_loaded_project"] = _target
-                    st.session_state["_land_on_open"] = True
-                    st.rerun()
+                    # Archiving renames the file away, so the emptied project
+                    # has to be written back under its own name. Without this
+                    # the project vanished from Open project, the sidebar
+                    # still named it, and Open lit up over a project that was
+                    # no longer on disk.
+                    _fresh = FoodOptimizer(_target, storage=STORAGE)
+                    _fresh.save()
+                    if _fresh.save_error:
+                        st.error(_fresh.save_error)
+                    else:
+                        if archived:
+                            flash("info", "A copy of the previous project was "
+                                          f"kept as {archived}.")
+                        _reset_project_session()
+                        st.session_state["_loaded_project"] = _target
+                        st.session_state["_land_on_open"] = True
+                        st.rerun()
 
             # Same shape as Hard reset, but the project leaves the list. The
             # file is renamed to an archive copy, never erased.
@@ -347,9 +408,9 @@ with st.sidebar:
                 "delete_project", "Delete",
                 (f"Delete **{opt.project_name}**? It has no formulations yet. A copy "
                  "of its set-up is kept in your projects folder, and it leaves this list."
-                 if not opt.X_history else
+                 if not _held(opt) else
                  f"Delete **{opt.project_name}** and its "
-                 f"{plural(len(opt.X_history), 'formulation')}? A copy is kept in your "
+                 f"{plural(_held(opt), 'formulation')}? A copy is kept in your "
                  "projects folder, and it leaves this list."),
                 confirm_label="Yes, delete",
                 disabled=other_confirmation("delete_project"),
@@ -366,7 +427,7 @@ with st.sidebar:
                         flash("info", f"Deleted {_target}.")
                     _reset_project_session()
                     st.session_state.pop("_loaded_project", None)
-                    st.session_state.pop("project_select", None)
+                    clear_selection("project_select")   # parked: see above
                     st.rerun()
 
 
@@ -489,19 +550,24 @@ if st.session_state.pop("_land_on_open", False):
 if "_pending_tab" in st.session_state:
     st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
 
+# Everything a project switch parked is assigned here: the previous run's
+# widgets are gone and this run's tab widgets do not exist yet, which is the
+# one moment Streamlit lets a widget's value be set.
+drain_clears({"amount_unit": _opt.amount_unit})
+
 tab_setup, tab_batch, tab_results = st.tabs(
     [TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab", on_change="rerun")
 
 _line = _batch_line(_opt)
 
 with tab_setup:
+    # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
+    # directly above "Batch 1 · make these 3 formulations" saying it again.
     if _line:
         st.caption(_line)
     ui_setup.render(_opt, STORAGE)
 
 with tab_batch:
-    if _line:
-        st.caption(_line)
     ui_batch.render(_opt, STORAGE)
 
 with tab_results:

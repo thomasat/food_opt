@@ -179,8 +179,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Need help? Reach out to the Food Intelligence Lab"
         alert.informativeText =
-            "Describe what happened and, if you can, attach the app's log "
-            + "file to your message — Help › Show Log File finds it for you."
+            "Write to us at https://github.com/thomasat/food_opt/issues. "
+            + "Describe the problem in words, and do not attach project "
+            + "files, backups or formulations, because that page is public. "
+            + "Attaching the app's log file helps — Help › Show Log File "
+            + "finds it for you."
         alert.runModal()
     }
     @objc func showLogFile() {
@@ -281,12 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                    : "Setting up Food Optimizer"
         let body = setupIsUpgrade
             ? "Food Optimizer is downloading updated software components. "
-              + "This usually takes under a minute; up to 15 on a slow "
-              + "office network. Leave this window open."
+              + "This usually takes under a minute; up to 15 minutes on a "
+              + "slow office network. Leave this window open."
             : "The first time it opens, Food Optimizer downloads its "
               + "software components, about 1 GB. On a good connection this "
-              + "takes under a minute; on a slow office network up to 15. "
-              + "Leave this window open."
+              + "takes under a minute; on a slow office network up to 15 "
+              + "minutes. Leave this window open."
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 

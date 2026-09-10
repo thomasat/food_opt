@@ -14,8 +14,8 @@ import streamlit as st
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, confirm_action,
     confirmation_open, flash, fmt_amount, go_to_tab, goal_line, join_unit,
-    number_list, open_rows, plural, readiness, saved_ok, scale_error,
-    table_height,
+    label_with_unit, number_list, open_rows, plural, readiness, saved_ok,
+    scale_error, table_height, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -89,7 +89,10 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
     if repeat and best_no is not None:
         index = opt.index_of_formulation(best_no)
         if index is not None:
-            opt.add_to_pending_batch(opt.recipe_history[index])
+            # Named on the batch table and carried into the stored result: an
+            # unexplained extra row is not a repeat, it is a mystery.
+            opt.add_to_pending_batch(opt.recipe_history[index],
+                                     note=f"repeat of Formulation {best_no}")
     if batch_no is not None or discarded is not None:
         # A regenerated batch keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
@@ -103,8 +106,12 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
 
 
 def _no_batch(opt):
-    size = st.number_input("Formulations in this batch", min_value=1,
-                           max_value=10, value=3, step=1, key="batch_size")
+    # The opening value comes from session state (see app.py's _FORM_FRESH):
+    # Streamlit warns on screen when a widget carries both a `value=` and a
+    # session-state entry, and a project switch assigns these keys.
+    st.session_state.setdefault("batch_size", 3)
+    size = st.number_input("New formulations in this batch", min_value=1,
+                           max_value=10, step=1, key="batch_size")
     best_no = best_formulation_no(opt)
     repeat = False
     if best_no is not None:
@@ -114,10 +121,13 @@ def _no_batch(opt):
                  "formulation, so you can check it again.",
         )
     n = int(size)
+    # The repeat is a formulation the user will have to make, so the button
+    # counts it: ticking the box on a batch of three makes four.
+    making = n + (1 if repeat else 0)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
-    if st.button(f"Generate {n} formulations",
+    if st.button(f"Generate {making} formulations",
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n, repeat, best_no)
@@ -137,7 +147,7 @@ def _amount_format(opt, frame):
     settings = {opt._amount_column(v['name']) for v in opt.variables
                 if v.get('category') == 'process'}
     return {c: ("{:g}" if c in settings else "{:.2f}")
-            for c in frame.columns if c != "Formulation"}
+            for c in frame.columns if c not in ("Formulation", "Note")}
 
 
 def _batch_table(opt):
@@ -152,10 +162,11 @@ def _batch_table(opt):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
+    st.session_state.setdefault("scale_total", None)
     st.number_input(
         f"Scale each formulation to a total of ({unit})" if unit
         else "Scale each formulation to a total of",
-        min_value=0.0, value=None, step=1.0, placeholder="as generated",
+        min_value=0.0, step=1.0, placeholder="as generated",
         key="scale_total",
         help="Leave this empty to weigh out the amounts as they were "
              "generated. Type a total and every formulation is rewritten to "
@@ -164,8 +175,10 @@ def _batch_table(opt):
     if scale_to is None:
         st.caption("Shown as generated.")
     else:
-        st.caption("Sheets use the scaled amounts (total "
-                   + fmt_amount(scale_to, unit) + ").")
+        # The table on screen is scaled as well, so this is not a fact about
+        # the downloads alone.
+        st.caption("Shown and printed at a total of "
+                   + join_unit(f"{scale_to:g}", unit) + ".")
     if opt.pending_batch_discarded:
         st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
                    "were discarded and their numbers will not be used again.")
@@ -210,8 +223,8 @@ def _sheet_lines(opt, row, scale_to):
                                      var.get('unit')))
     lines.append("")
     for obj in opt.measurements_by_importance():
-        lines.append(f"Measured {obj['name']} · {goal_line(obj)}: "
-                     "______________________")
+        lines.append(f"Measured {label_with_unit(obj['name'], obj.get('unit'))}"
+                     f" · {goal_line(obj)}: ______________________")
     lines.append("")
     lines.append("Note: ______________________________________________")
     lines.append("Not made [  ]")
@@ -312,7 +325,9 @@ def _recorded_row(opt, number, ordered):
     index = opt.index_of_formulation(number)
     results = opt.results_history[index] if index is not None else {}
     line = " · ".join(
-        join_unit(f"{o['name']} {float(results[o['name']]):g}", o.get('unit'))
+        join_unit(f"{label_with_unit(o['name'], o.get('unit'))} "
+                  f"{float(results[o['name']]):g}",
+                  unit_after_number(o.get('unit')))
         for o in ordered if o['name'] in results
     )
     if any(o['name'] not in results for o in ordered):
@@ -352,13 +367,21 @@ def _record_results(opt):
             with cols[j % _PER_ROW]:
                 # No min_value/max_value: clamping turns a 12 N reading into a
                 # silent 10 N. Out-of-scale values are refused on save instead.
+                # The box opens empty from session state rather than from a
+                # `value=`, which Streamlit warns about once a project switch
+                # has assigned the key.
+                st.session_state.setdefault(_result_key(number, obj['name']),
+                                            None)
                 value = st.number_input(
-                    f"{obj['name']} · {goal_line(obj)}",
-                    value=None,
+                    f"{label_with_unit(obj['name'], obj.get('unit'))} · "
+                    f"{goal_line(obj)}",
                     placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                     key=_result_key(number, obj['name']), disabled=skip,
                 )
                 has_value = has_value or value is not None
+        if row.get('note'):
+            # A repeat of the best formulation arrives already saying so.
+            st.session_state.setdefault(f"f{number}_note", row['note'])
         st.text_input("Note", key=f"f{number}_note", disabled=skip)
         # Last in the row, per spec: the boxes the user came to fill come first.
         st.checkbox("Leave out", key=f"f{number}_leave_out",
@@ -381,10 +404,10 @@ def _record_results(opt):
     if st.button("Save results", type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
         _save_results(opt, kept, left_out, to_record)
-    counter = f"{entered} of {len(kept)} entered"
+    counter = f"{entered} of {plural(len(kept), 'formulation')} entered"
     if left_out:
         counter += f" · {len(left_out)} left out"
-    st.caption(counter + " · saved when you press Save")
+    st.caption(counter + " · saved when you press Save results")
 
 
 def _save_results(opt, kept, left_out, to_record):
@@ -421,8 +444,11 @@ def _save_results(opt, kept, left_out, to_record):
             # Why it was not made is often typed before the box is ticked, and
             # it is the only record of what went wrong.
             note = str(st.session_state.get(f"f{number}_note") or "").strip()
+            # "Not made" first, always: with only the typed note, the All
+            # formulations row for a left-out formulation said nothing about
+            # having been left out.
             opt.record_skipped(number, batch_no, row['recipe'],
-                               note=note or "Not made")
+                               note=f"Not made · {note}" if note else "Not made")
     opt.set_pending_batch(None)
     st.session_state.pop("scale_total", None)
     st.session_state.pop("_results_upload", None)
@@ -475,9 +501,14 @@ def _upload(opt):
                 st.error(f"Could not save these results: {e}")
                 return
             st.session_state.pop("_results_upload", None)
-            if open_rows(opt):
-                # Rows still to record: the batch stays open, numbers and all.
-                flash("success", f"Batch {batch_no} recorded.")
+            left = open_rows(opt)
+            if left:
+                # Rows still to record: the batch stays open, numbers and all,
+                # so the whole-batch sentence would be a lie.
+                flash("success",
+                      f"Recorded {len(parsed)} of {len(opt.pending_batch)} "
+                      f"formulations in batch {batch_no} · "
+                      f"{len(left)} to make.")
                 st.rerun()
             opt.set_pending_batch(None)
             st.session_state.pop("scale_total", None)

@@ -49,6 +49,37 @@ def join_unit(text, unit):
     return f"{text}{unit}" if unit.startswith("/") else f"{text} {unit}"
 
 
+def unit_after_number(unit):
+    """The unit as it is written after a number. A "/"-style unit (such as
+    /10) is shown once, in the measurement's label or column header, so after
+    a number it is nothing at all: '5', not '5/10'."""
+    unit = str(unit or "")
+    return "" if unit.startswith("/") else unit
+
+
+def label_with_unit(name, unit):
+    """'Firmness (/10)' — the one place a "/"-style unit is written. Every
+    other unit rides after its number, so the label stays bare ('Firmness',
+    measured '6 N')."""
+    unit = str(unit or "")
+    return f"{name} ({unit})" if unit.startswith("/") else str(name)
+
+
+def local_date(ts):
+    """The date a stored moment fell on where the user is standing. Results
+    are stamped in UTC, so slicing the first ten characters off the stamp
+    dated a batch recorded at 23:25 as tomorrow."""
+    if not isinstance(ts, str) or not ts:
+        return ""
+    try:
+        moment = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts[:10]
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone().strftime("%Y-%m-%d")
+
+
 def number_list(numbers):
     """'1', '1 and 2', '7, 8 and 9'. Lives here because refusals raised by the
     model name formulations too, and ui_helpers already imports from this
@@ -63,7 +94,8 @@ def goal_line(obj):
     """The half of an input label that says what a good number looks like:
     'target 6 N', 'lower is better', 'higher is better'."""
     if obj.get('goal') == 'target' and obj.get('target') is not None:
-        return join_unit(f"target {float(obj['target']):g}", obj.get('unit'))
+        return join_unit(f"target {float(obj['target']):g}",
+                         unit_after_number(obj.get('unit')))
     return "lower is better" if obj.get('goal') == 'min' else "higher is better"
 
 
@@ -173,6 +205,7 @@ class FoodOptimizer:
         # One unit for every amount in the project. Grams is the default a
         # food scientist expects; a blank unit made every amount ambiguous.
         self.amount_unit = "g"
+        self.amount_unit_backfilled = False  # True only for a file with no unit
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.pending_batch_no = None  # its batch number
         self.pending_batch_created = None   # ISO date it was generated, for the sheets
@@ -337,19 +370,26 @@ class FoodOptimizer:
         self._drop_pending_batch()
         self.save()
 
-    def add_process_parameter(self, name, min_val, max_val, baseline=None):
+    def add_process_parameter(self, name, min_val, max_val, baseline=None,
+                              unit=""):
         """Add a process parameter (e.g. baking temperature, mixing time).
 
         Added mid-run it requires `baseline` — the value used in ALL prior
         batches — because past experiments ran at a fixed setting, not at 0.
         History then encodes at that baseline (its 'absent' value), and min is
         NOT forced to 0 (unlike an ingredient). `baseline` must lie in [min, max].
+
+        `unit` is the setting's own unit (°C, min, rpm). A setting is not an
+        amount, so it never wears the project's amount unit; without one of
+        its own a sheet printed a bare "Cook temperature: 175".
         """
         name = self._check_new_variable(name, min_val, max_val, 'process')
         min_val, max_val = float(min_val), float(max_val)
+        unit = str(unit or "").strip()
         for var in self.variables:
             if var['name'] == name:
                 var['bounds'] = (min_val, max_val)
+                var['unit'] = unit
                 self._drop_pending_batch()
                 self.save()
                 return
@@ -359,6 +399,7 @@ class FoodOptimizer:
             'bounds': (min_val, max_val),
             'category': 'process',
             'active': True,
+            'unit': unit,
         }
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
@@ -457,6 +498,7 @@ class FoodOptimizer:
         """One unit for every amount in the project — 'g', '%', 'kg'. It shows
         in every ingredient header, batch sheet and off-by line."""
         self.amount_unit = str(unit or "").strip()
+        self.amount_unit_backfilled = False
         self.save()
 
     def update_objective(self, name, /, **fields):
@@ -522,10 +564,11 @@ class FoodOptimizer:
             f"{_fmt_weight(o['weight'])} × {o['name']} closeness"
             for o in self.measurements_by_importance()
         )
-        return (f"Overall score = {terms}. Closeness is 1 on target and falls "
-                f"evenly with distance from it; a full scale width away scores "
-                f"0. Every measurement on target scores "
-                f"{self.utility_ceiling():.2f}.")
+        # How closeness is worked out belongs in the expander below this
+        # line, per goal: two of the three goals have no target at all, so a
+        # sentence about distance from one was wrong on most screens.
+        return (f"Overall score = {terms}. Every measurement at its goal "
+                f"scores {self.utility_ceiling():.2f}.")
 
     def closeness_details(self, index):
         """The best-formulation table, most important first: one dict per
@@ -542,7 +585,11 @@ class FoodOptimizer:
         results = self.results_history[index] if index < len(self.results_history) else {}
         rows = []
         for obj in self.measurements_by_importance():
-            unit = str(obj.get('unit', "") or "")
+            # A "/10" is written once, on the measurement's own row label;
+            # every other unit follows each number. Measured and Off by share
+            # one number format, so 5 and 1 never read as 5 and 1.0.
+            unit = unit_after_number(obj.get('unit'))
+            name = label_with_unit(obj['name'], obj.get('unit'))
             is_target = obj['goal'] == 'target'
             if is_target:
                 goal_text = join_unit(f"Target {float(obj['target']):g}", unit)
@@ -552,31 +599,38 @@ class FoodOptimizer:
                 goal_text = "Higher is better"
             raw = results.get(obj['name'])
             if raw is None:
-                rows.append({'name': obj['name'], 'goal': goal_text,
+                rows.append({'name': name, 'goal': goal_text,
                              'measured': "not scored",
                              'off_by': "not scored" if is_target else "—"})
                 continue
             val = float(raw)
             measured = join_unit(f"{val:g}", unit)
             if not is_target:
-                rows.append({'name': obj['name'], 'goal': goal_text,
+                rows.append({'name': name, 'goal': goal_text,
                              'measured': measured, 'off_by': "—"})
                 continue
             delta = val - float(obj['target'])
             if abs(delta) < 1e-9:
                 off_by = "On target"
             else:
-                size = join_unit(f"{abs(delta):.1f}", unit)
+                size = join_unit(f"{abs(delta):g}", unit)
                 off_by = f"{size} too high" if delta > 0 else f"{size} too low"
-            rows.append({'name': obj['name'], 'goal': goal_text,
+            rows.append({'name': name, 'goal': goal_text,
                          'measured': measured, 'off_by': off_by})
         return rows
 
     def biggest_changes(self, recipe, ref_recipe, n=2):
         """The n largest amount changes from ref_recipe to recipe, largest
-        first, as (name, change) pairs. Amounts that did not move are left out."""
+        first, as (name, change) pairs. Amounts that did not move are left out.
+
+        Ingredients only. A process setting is not an amount: reporting a cook
+        temperature as "+198.65 g" priced a setting in grams, and against a
+        formulation made before the setting existed the change was the whole
+        baseline rather than anything the batch actually moved."""
         pairs = []
         for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
             name = var['name']
             try:
                 delta = float(recipe.get(name, 0.0)) - float(ref_recipe.get(name, 0.0))
@@ -679,7 +733,7 @@ class FoodOptimizer:
                 row[self._measurement_column(obj)] = results.get(obj['name'])
             row["Overall score"] = (f"{float(self.Y_history[i]):.2f}"
                                     + (" (partial)" if partial else ""))
-            row["Recorded"] = ts[:10] if isinstance(ts, str) else ""
+            row["Recorded"] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
                 row.update(self._amount_columns(self._decode(self.X_history[i])))
@@ -731,7 +785,9 @@ class FoodOptimizer:
                        if v.get('category', 'ingredient') == 'ingredient']
         process = [v for v in self.variables if v.get('category') == 'process']
         rows = []
-        for row in self._batch_rows(batch):
+        read = self._batch_rows(batch)
+        noted = any(r.get('note') for r in read)
+        for row in read:
             recipe = self.scaled_recipe(row['recipe'], scale_to)
             item = {"Formulation": int(row['formulation'])}
             for var in ingredients:
@@ -741,11 +797,14 @@ class FoodOptimizer:
             for var in process:
                 item[self._amount_column(var['name'])] = float(
                     recipe.get(var['name'], 0.0))
+            if noted:
+                item["Note"] = row.get('note', "")
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
                    + [total_col]
-                   + [self._amount_column(v['name']) for v in process])
+                   + [self._amount_column(v['name']) for v in process]
+                   + (["Note"] if noted else []))
         return pd.DataFrame(rows, columns=columns)
 
     def recipe_lines(self, recipe, limit=None):
@@ -778,7 +837,7 @@ class FoodOptimizer:
                 item[var['name']] = round(float(recipe.get(var['name'], 0.0)), 2)
             for obj in objs:
                 item[obj['name']] = ""
-            item["Note"] = ""
+            item["Note"] = row.get('note', "")
             rows.append(item)
         columns = (["Formulation"] + [v['name'] for v in self.variables]
                    + [o['name'] for o in objs] + ["Note"])
@@ -906,7 +965,7 @@ class FoodOptimizer:
             row = {
                 "Formulation": int(self.formulation_ids[i]),
                 "Batch": "" if batch is None else int(batch),
-                "Recorded": ts[:10] if isinstance(ts, str) else "",
+                "Recorded": local_date(ts),
                 "Overall score": float(self.Y_history[i]),
             }
             row.update(self._decode(x))
@@ -1386,11 +1445,21 @@ class FoodOptimizer:
         rows = []
         for k, item in enumerate(batch or []):
             if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
-                rows.append({'formulation': int(item['formulation']),
-                             'recipe': dict(item['recipe'])})
+                rows.append(self._batch_row(int(item['formulation']),
+                                            item['recipe'], item.get('note')))
             else:
-                rows.append({'formulation': k + 1, 'recipe': dict(item)})
+                rows.append(self._batch_row(k + 1, item, None))
         return rows
+
+    @staticmethod
+    def _batch_row(number, recipe, note=None):
+        """One row of the open batch. The note is kept only when there is one:
+        it is how a repeat of the best formulation says so, on the make-these
+        table and in the note stored with the result."""
+        row = {'formulation': int(number), 'recipe': dict(recipe)}
+        if note:
+            row['note'] = str(note)
+        return row
 
     def _number_batch(self, batch):
         """Like _batch_rows, but rows that carry no number draw one."""
@@ -1399,19 +1468,20 @@ class FoodOptimizer:
         rows = []
         for item in batch:
             if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
-                rows.append({'formulation': int(item['formulation']),
-                             'recipe': dict(item['recipe'])})
+                rows.append(self._batch_row(int(item['formulation']),
+                                            item['recipe'], item.get('note')))
             else:
-                rows.append({'formulation': self._issue_formulation_no(),
-                             'recipe': dict(item)})
+                rows.append(self._batch_row(self._issue_formulation_no(),
+                                            item, None))
         return rows
 
-    def add_to_pending_batch(self, recipe):
+    def add_to_pending_batch(self, recipe, note=""):
         """Append one more formulation to the open batch (the repeat of the
-        best) and return the global number it was given."""
+        best) and return the global number it was given. `note` marks what the
+        row is, so the extra formulation is not an unexplained fourth row."""
         rows = list(self.pending_batch or [])
         number = self._issue_formulation_no()
-        rows.append({'formulation': number, 'recipe': dict(recipe)})
+        rows.append(self._batch_row(number, recipe, note))
         self.pending_batch = rows
         if self.pending_batch_no is None:
             self.pending_batch_no = self.next_batch_no()
@@ -2004,23 +2074,72 @@ class FoodOptimizer:
         def _whole(x):
             return isinstance(x, int) and not isinstance(x, bool)
 
+        def _number(x):
+            """A formulation number: whole and at least 1. This app has never
+            issued a 0 or a −1, and a row numbered −1 renders as
+            'Formulation -1' for ever after."""
+            return _whole(x) and x >= 1
+
+        def _left_out(x):
+            """A left-out formulation carries its number, its batch, its
+            amounts and its note. history_frame reads all four on every
+            render, so one missing key would load, save, and then break the
+            All formulations table for good."""
+            return (isinstance(x, dict)
+                    and _number(x.get('formulation'))
+                    and (x.get('batch') is None or _whole(x.get('batch')))
+                    and isinstance(x.get('recipe'), dict)
+                    and isinstance(x.get('note', ""), str))
+
         identity = {
-            'formulation_ids': _whole,
+            'formulation_ids': _number,
             'batch_history': lambda x: x is None or _whole(x),
-            # None is accepted: import_json coerces it to "", so an older
-            # or hand-edited backup with a blank note still restores.
+            # None is accepted as an ELEMENT: import_json coerces it to "",
+            # so an older or hand-edited backup with a blank note restores.
             'notes_history': lambda x: x is None or isinstance(x, str),
-            'skipped': lambda x: isinstance(x, dict),
+            'skipped': _left_out,
         }
         for key, ok in identity.items():
-            if key not in state or state[key] is None:
+            if key not in state:
                 continue
+            # A section that is present but null is refused, not skipped:
+            # import_json iterates it and would raise a TypeError halfway
+            # through, leaving the optimizer wearing half of a bad backup.
             if not isinstance(state[key], list) or not all(ok(i) for i in state[key]):
                 raise ValueError(f"This backup's '{key}' section has the wrong shape.")
         if state.get('next_formulation_no') is not None and not _whole(
                 state['next_formulation_no']):
             raise ValueError(
                 "This backup's 'next_formulation_no' section has the wrong shape.")
+        pending = state.get('pending_batch')
+        if pending is not None and not isinstance(pending, list):
+            raise ValueError("This backup's 'pending_batch' section has the wrong shape.")
+        for item in pending or []:
+            if (isinstance(item, dict) and item.get('formulation') is not None
+                    and not _number(item['formulation'])):
+                raise ValueError(
+                    "This backup's 'pending_batch' section has the wrong shape.")
+        # A formulation's number is permanent and never reissued. A file that
+        # numbers two rows the same breaks that for good — index_of_formulation
+        # finds only the first, so deleting one leaves the others behind — and
+        # a number the counter never reached would be handed out again.
+        stored = [int(n) for n in state.get('formulation_ids') or []]
+        stored += [int(s['formulation']) for s in state.get('skipped') or []]
+        # The open batch is not a third list of formulations: a batch recorded
+        # one sheet at a time keeps its recorded rows, so a pending row may
+        # legitimately carry a number the history already holds. Only repeats
+        # WITHIN the batch are a fault.
+        in_batch = [int(r['formulation']) for r in pending or []
+                    if isinstance(r, dict) and r.get('formulation') is not None]
+        if len(set(stored)) != len(stored) or len(set(in_batch)) != len(in_batch):
+            raise ValueError(
+                "This backup gives two formulations the same number, and a "
+                "formulation number is permanent. It cannot be restored.")
+        counter = state.get('next_formulation_no')
+        if _whole(counter) and any(n >= counter for n in stored + in_batch):
+            raise ValueError(
+                "This backup holds a formulation number its own counter never "
+                "issued. It cannot be restored.")
         ingredients = sum(
             1 for v in state['variables']
             if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'
@@ -2054,8 +2173,12 @@ class FoodOptimizer:
         self.skipped = [dict(s) for s in state.get('skipped', [])]
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
         # A 0.2.x file has no unit at all: it backfills to g rather than
-        # reopening as a project whose amounts mean nothing.
-        self.amount_unit = str(state.get('amount_unit', "") or "") or "g"
+        # reopening as a project whose amounts mean nothing, and says so once
+        # on tab 1. A file that HOLDS a blank unit is a deliberate blank and
+        # is kept — the key's presence, not its truthiness, is the question.
+        self.amount_unit_backfilled = 'amount_unit' not in state
+        self.amount_unit = ("g" if self.amount_unit_backfilled
+                            else str(state.get('amount_unit') or ""))
         self.pending_batch = state.get('pending_batch', None)
         self.pending_batch_no = state.get('pending_batch_no', None)
         self.pending_batch_created = state.get('pending_batch_created', None)
@@ -2070,6 +2193,10 @@ class FoodOptimizer:
                 var['bounds'] = tuple(var['bounds'])
             var.setdefault('category', 'ingredient')
             var.setdefault('active', True)
+            if var['category'] == 'process':
+                # A 0.2.x setting was stored before settings could carry a
+                # unit; blank is what it had, and blank is what it keeps.
+                var.setdefault('unit', "")
 
         for obj in self.objectives:
             obj.setdefault('unit', "")

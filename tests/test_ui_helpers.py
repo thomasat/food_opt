@@ -144,12 +144,14 @@ def test_number_list_reads_as_english():
     assert number_list([7, 8, 9]) == "7, 8 and 9"
 
 
-def test_fmt_amount_trims_and_carries_the_unit():
-    assert fmt_amount(12.5, "g") == "12.5 g"
-    assert fmt_amount(12.0, "g") == "12 g"
-    assert fmt_amount(0.804, "g") == "0.8 g"
-    assert fmt_amount(7.0, "/10") == "7/10"
-    assert fmt_amount(12.5, "") == "12.5"
+def test_fmt_amount_always_shows_two_decimals_with_the_unit():
+    """A weighing sheet is read down the column: 0.30 g, 33.90 g, 68.00 g."""
+    assert fmt_amount(12.5, "g") == "12.50 g"
+    assert fmt_amount(12.0, "g") == "12.00 g"
+    assert fmt_amount(0.804, "g") == "0.80 g"
+    assert fmt_amount(0.3, "g") == "0.30 g"
+    assert fmt_amount(-0.001, "g") == "0.00 g"     # never '-0.00 g'
+    assert fmt_amount(12.5, "") == "12.50"
     assert fmt_amount(None, "g") == ""
 
 

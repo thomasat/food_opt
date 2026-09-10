@@ -5,6 +5,7 @@ import json
 import os
 import pickle
 import tempfile
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -986,7 +987,7 @@ class TestValidateState:
             state[key] = bad
             with pytest.raises(ValueError, match=f"'{key}' section has the wrong shape"):
                 FoodOptimizer.validate_state(state)
-        # Absent (a 0.2.x file) and None are both fine.
+        # Absent is fine: a 0.2.x file has none of these.
         for key in ("formulation_ids", "batch_history", "notes_history",
                     "skipped", "next_formulation_no"):
             state = dict(base)
@@ -996,6 +997,111 @@ class TestValidateState:
         state = dict(base)
         state["batch_history"] = [None, 3]
         FoodOptimizer.validate_state(state)
+
+    def test_a_present_but_null_identity_list_is_refused(self, tmp_path,
+                                                          monkeypatch):
+        """import_json iterates these lists. Skipping the check for a null one
+        let it raise a TypeError halfway through, after project_name,
+        variables and objectives had already been overwritten."""
+        monkeypatch.chdir(tmp_path)
+        base = FoodOptimizer("tmp_null").export_json()
+        for key in ("formulation_ids", "batch_history", "notes_history",
+                    "skipped"):
+            state = dict(base)
+            state[key] = None
+            with pytest.raises(ValueError,
+                               match=f"'{key}' section has the wrong shape"):
+                FoodOptimizer.validate_state(state)
+
+    def test_a_left_out_formulation_needs_all_four_of_its_fields(
+            self, tmp_path, monkeypatch):
+        """history_frame reads formulation, batch, recipe and note on every
+        render. A backup missing one loaded, saved, and then broke the All
+        formulations table for good."""
+        monkeypatch.chdir(tmp_path)
+        base = FoodOptimizer("tmp_skipped").export_json()
+        good = {"formulation": 1, "batch": 1, "recipe": {"Water": 5.0},
+                "note": "Not made"}
+        base["next_formulation_no"] = 2
+        for bad in ({k: v for k, v in good.items() if k != "formulation"},
+                    dict(good, formulation=0),
+                    dict(good, formulation=-1),
+                    dict(good, formulation="one"),
+                    dict(good, batch="1"),
+                    {k: v for k, v in good.items() if k != "recipe"},
+                    dict(good, recipe="Water 5 g"),
+                    dict(good, note=3)):
+            state = dict(base)
+            state["skipped"] = [bad]
+            with pytest.raises(ValueError,
+                               match="'skipped' section has the wrong shape"):
+                FoodOptimizer.validate_state(state)
+        FoodOptimizer.validate_state(dict(base, skipped=[good]))
+        # A note is the one field that may be absent: record_skipped always
+        # writes one, but a hand-edited file without it still renders.
+        FoodOptimizer.validate_state(dict(
+            base, skipped=[{k: v for k, v in good.items() if k != "note"}]))
+
+    def test_a_backup_that_repeats_a_formulation_number_is_refused(
+            self, tmp_path, monkeypatch):
+        """A number is permanent: index_of_formulation finds only the first of
+        two rows numbered 7, so deleting one leaves the others behind."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("tmp_dupes")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0}, {"Taste": 7.0}, formulation_no=7)
+        opt.tell({"Water": 60.0}, {"Taste": 6.0}, formulation_no=8)
+        state = opt.export_json()
+        FoodOptimizer.validate_state(state)              # as exported, fine
+        with pytest.raises(ValueError, match="same number"):
+            FoodOptimizer.validate_state(dict(state, formulation_ids=[7, 7]))
+        # A left-out formulation and a scored one cannot share a number.
+        clash = dict(state)
+        clash["skipped"] = [{"formulation": 7, "batch": 1, "recipe": {},
+                             "note": "Not made"}]
+        with pytest.raises(ValueError, match="same number"):
+            FoodOptimizer.validate_state(clash)
+        # Neither can one batch, twice over.
+        twice = dict(state)
+        twice["pending_batch"] = [{"formulation": 9, "recipe": {"Water": 1.0}},
+                                  {"formulation": 9, "recipe": {"Water": 2.0}}]
+        twice["next_formulation_no"] = 10
+        with pytest.raises(ValueError, match="same number"):
+            FoodOptimizer.validate_state(twice)
+
+    def test_a_batch_recorded_one_sheet_at_a_time_still_restores(
+            self, tmp_path, monkeypatch):
+        """A batch stays open while part of it is recorded, so a pending row
+        legitimately carries a number the history already holds. Refusing
+        that would refuse a backup of every half-recorded batch."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("tmp_partly")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.set_pending_batch([{"Water": 10.0}, {"Water": 20.0}])
+        first = opt.pending_batch[0]
+        opt.tell(first["recipe"], {"Taste": 7.0},
+                 formulation_no=first["formulation"], batch_no=1)
+        assert opt.pending_batch is not None            # the batch stays open
+        FoodOptimizer.validate_state(opt.export_json())
+
+    def test_a_formulation_number_the_counter_never_issued_is_refused(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("tmp_counter")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        state = opt.export_json()
+        with pytest.raises(ValueError, match="never issued"):
+            FoodOptimizer.validate_state(dict(state, next_formulation_no=1))
+        with pytest.raises(ValueError,
+                           match="'formulation_ids' section has the wrong shape"):
+            FoodOptimizer.validate_state(dict(state, formulation_ids=[0]))
+        with pytest.raises(ValueError,
+                           match="'formulation_ids' section has the wrong shape"):
+            FoodOptimizer.validate_state(dict(state, formulation_ids=[-1]))
 
     def test_summary_of_valid_backup(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -1367,11 +1473,22 @@ class TestUnitsAndImportance:
         assert join_unit("7", "") == "7"
 
     def test_goal_line_reads_like_a_label(self):
+        """A '/10' is shown once, on the measurement's own label, so it never
+        follows a number: 'Firmness (/10) · target 7'."""
         from food_bo import goal_line
         assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
-        assert goal_line({"goal": "target", "target": 7, "unit": "/10"}) == "target 7/10"
+        assert goal_line({"goal": "target", "target": 7, "unit": "/10"}) == "target 7"
         assert goal_line({"goal": "min", "unit": "N"}) == "lower is better"
         assert goal_line({"goal": "max", "unit": ""}) == "higher is better"
+
+    def test_a_slash_unit_is_written_once_on_the_label(self):
+        from food_bo import label_with_unit, unit_after_number
+        assert label_with_unit("Firmness", "/10") == "Firmness (/10)"
+        assert label_with_unit("Firmness", "N") == "Firmness"
+        assert label_with_unit("Firmness", "") == "Firmness"
+        assert unit_after_number("/10") == ""
+        assert unit_after_number("N") == "N"
+        assert unit_after_number(None) == ""
 
     def test_amount_unit_and_measurement_unit_persist(self, tmp_path, monkeypatch):
         self._opt(tmp_path, monkeypatch)
@@ -1394,6 +1511,80 @@ class TestUnitsAndImportance:
         opened = FoodOptimizer("legacy2")
         opened.import_json(state)
         assert opened.amount_unit == "g"
+        # ...and the screen says the g was the app's guess, once.
+        assert opened.amount_unit_backfilled is True
+
+    def test_a_unit_cleared_on_purpose_stays_cleared(self, tmp_path, monkeypatch):
+        """A blank unit is a decision — the amounts may be percentages. The
+        default belonged to a MISSING key, not to a blank one, so reopening
+        relabelled such a project grams without a word on screen."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_amount_unit("")
+        assert opt.amount_unit == ""
+        reopened = FoodOptimizer("units")
+        assert reopened.amount_unit == ""
+        assert reopened.amount_unit_backfilled is False
+        # Round-tripping the export keeps the blank too.
+        again = FoodOptimizer("units2")
+        again.import_json(opt.export_json())
+        assert again.amount_unit == ""
+
+    def test_setting_the_unit_answers_the_backfill_notice(self, tmp_path,
+                                                          monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("legacy3")
+        opt.add_ingredient("Water", 0, 100)
+        state = opt.export_json()
+        state.pop("amount_unit")
+        opt.import_json(state)
+        assert opt.amount_unit_backfilled is True
+        opt.set_amount_unit("%")
+        assert opt.amount_unit_backfilled is False
+
+    def test_a_process_setting_carries_its_own_unit(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 160, 200, unit="°C")
+        setting = next(v for v in opt.variables if v.get('category') == 'process')
+        assert setting["unit"] == "°C"
+        # It rides the column header of every table the setting appears in,
+        # and never the project's amount unit.
+        assert opt._amount_column("Cook temperature") == "Cook temperature (°C)"
+        assert opt._amount_column("Pea protein") == "Pea protein (g)"
+        assert FoodOptimizer("units").variables[-1]["unit"] == "°C"
+
+    def test_a_setting_saved_before_units_existed_backfills_to_blank(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 160, 200)
+        state = opt.export_json()
+        for var in state["variables"]:
+            var.pop("unit", None)               # a 0.2.x setting had no unit
+        opened = FoodOptimizer("units_legacy")
+        opened.import_json(state)
+        setting = next(v for v in opened.variables
+                       if v.get('category') == 'process')
+        assert setting["unit"] == ""
+        assert opened._amount_column("Cook temperature") == "Cook temperature"
+
+    def test_recorded_dates_are_the_users_own_date(self, tmp_path, monkeypatch):
+        """Results are stamped in UTC. Slicing the stamp dated a batch
+        recorded at 23:25 as tomorrow, on every row."""
+        from food_bo import local_date
+        assert local_date("2026-09-09T23:25:00+00:00") == (
+            datetime.fromisoformat("2026-09-09T23:25:00+00:00")
+            .astimezone().strftime("%Y-%m-%d"))
+        assert local_date("") == ""
+        assert local_date(None) == ""
+        # Anything unparseable falls back to the first ten characters.
+        assert local_date("not a date at all") == "not a date"
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=1,
+                 batch_no=1)
+        opt.timestamps_history[0] = "2026-09-09T23:25:00+00:00"
+        expected = local_date("2026-09-09T23:25:00+00:00")
+        assert opt.history_frame()["Recorded"].iloc[0] == expected
+        assert expected in opt.history_csv()
 
     def test_the_target_refusal_names_the_scale_in_plain_words(
             self, tmp_path, monkeypatch):
@@ -1438,11 +1629,12 @@ class TestUnitsAndImportance:
         assert opt.importance_share("Firmness") == pytest.approx(0.6)
 
     def test_score_function_line_is_the_spec_sentence(self, tmp_path, monkeypatch):
+        """No sentence about distance from a target: two of the three goals
+        have none, and how closeness works lives in the expander below."""
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.score_function_line() == (
-            "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness closeness. "
-            "Closeness is 1 on target and falls evenly with distance from it; a "
-            "full scale width away scores 0. Every measurement on target scores 2.50."
+            "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness "
+            "closeness. Every measurement at its goal scores 2.50."
         )
 
     def test_update_objective_recomputes_scores_and_keeps_the_open_batch(self, tmp_path, monkeypatch):
@@ -1491,7 +1683,7 @@ class TestUnitsAndImportance:
         rows = opt.closeness_details(0)
         assert [r["name"] for r in rows] == ["Firmness", "Juiciness"]
         assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
-                           "measured": "8 N", "off_by": "2.0 N too high"}
+                           "measured": "8 N", "off_by": "2 N too high"}
         assert rows[1]["measured"] == "not scored"
         assert rows[1]["off_by"] == "not scored"
 
@@ -1505,10 +1697,11 @@ class TestUnitsAndImportance:
         opt.add_objective("Grittiness", 0.5, goal="min", min_val=0, max_val=10, unit="/10")
         opt.tell({"Water": 10.0}, {"Juiciness": 8.0, "Grittiness": 2.0})
         rows = opt.closeness_details(0)
-        assert rows[0] == {"name": "Juiciness", "goal": "Higher is better",
-                           "measured": "8/10", "off_by": "—"}
-        assert rows[1] == {"name": "Grittiness", "goal": "Lower is better",
-                           "measured": "2/10", "off_by": "—"}
+        # The /10 is on the name, once, and never after the number.
+        assert rows[0] == {"name": "Juiciness (/10)", "goal": "Higher is better",
+                           "measured": "8", "off_by": "—"}
+        assert rows[1] == {"name": "Grittiness (/10)", "goal": "Lower is better",
+                           "measured": "2", "off_by": "—"}
 
     def test_closeness_details_says_on_target(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1516,7 +1709,9 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 6.0})
         rows = opt.closeness_details(0)
         assert rows[0]["off_by"] == "On target"
-        assert rows[1]["off_by"] == "1.0 too low"
+        # Measured and Off by are written the same way: 6 and 1, not 6 and 1.0.
+        assert rows[1]["off_by"] == "1 too low"
+        assert rows[1]["measured"] == "6"
 
     def test_closeness_details_on_a_project_with_no_measurements(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1542,6 +1737,17 @@ class TestUnitsAndImportance:
         assert changes[0][1] == pytest.approx(-2.1)
         assert changes[1][0] == "Methylcellulose"
         assert changes[1][1] == pytest.approx(0.8)
+
+    def test_biggest_changes_leaves_process_settings_out(self, tmp_path, monkeypatch):
+        """A setting is not an amount: a cook temperature reported as
+        '+180.00 g' priced an oven in grams, and against a formulation made
+        before the setting existed the change was the whole baseline."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 160, 200, unit="°C")
+        changes = opt.biggest_changes(
+            {"Pea protein": 8.0, "Methylcellulose": 1.8, "Cook temperature": 180.0},
+            {"Pea protein": 10.1, "Methylcellulose": 1.0, "Cook temperature": 0.0})
+        assert [name for name, _ in changes] == ["Pea protein", "Methylcellulose"]
 
     def test_scaled_recipe_scales_amounts_and_leaves_settings_alone(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
