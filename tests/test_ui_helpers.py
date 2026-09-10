@@ -202,10 +202,13 @@ def test_saved_line_shows_the_time_today_and_the_date_before_that():
 
 
 class _FakeOpt:
-    def __init__(self, variables, objectives, pending_batch=None):
+    def __init__(self, variables, objectives, pending_batch=None,
+                 X_history=None, skipped=None):
         self.variables = variables
         self.objectives = objectives
         self.pending_batch = pending_batch
+        self.X_history = X_history or []
+        self.skipped = skipped or []
 
 
 def test_readiness_names_the_one_missing_thing():
@@ -218,12 +221,24 @@ def test_readiness_names_the_one_missing_thing():
 def test_landing_tab_follows_the_spec_rule():
     assert landing_tab(_FakeOpt([], [])) == TAB_SETUP
     ing = [{"name": "Water", "category": "ingredient"}]
+    meas = [{"name": "Firmness", "weight": 1.0}]
     assert landing_tab(_FakeOpt(ing, [])) == TAB_SETUP
-    ready = _FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}])
-    assert landing_tab(ready) == TAB_RESULTS
-    mid = _FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}],
+    # Set up is complete but nothing has been made: the set-up is what there
+    # is to look at, and Results would be an empty tab.
+    assert landing_tab(_FakeOpt(ing, meas)) == TAB_SETUP
+    scored = _FakeOpt(ing, meas, X_history=[[0.5]])
+    assert landing_tab(scored) == TAB_RESULTS
+    # A batch nobody managed to make still counts as results held.
+    left_out = _FakeOpt(ing, meas, skipped=[{"formulation": 1}])
+    assert landing_tab(left_out) == TAB_RESULTS
+    # An unrecorded batch outranks both.
+    mid = _FakeOpt(ing, meas, X_history=[[0.5]],
                    pending_batch=[{"formulation": 1, "recipe": {"Water": 1.0}}])
     assert landing_tab(mid) == TAB_BATCH
+    fresh_batch = _FakeOpt(ing, meas,
+                           pending_batch=[{"formulation": 1,
+                                           "recipe": {"Water": 1.0}}])
+    assert landing_tab(fresh_batch) == TAB_BATCH
 
 
 # The two halves of the move, in the same order as app.py: the pending target

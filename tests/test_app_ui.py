@@ -304,7 +304,9 @@ def test_the_sample_lists_firmness_first_with_its_share(tmp_path, monkeypatch):
     at.run()
     _submit_button(at.main, "Try the sample project").click()
     at.run()
-    assert at.session_state["main_tab"] == "3 · Results"   # set-up is complete
+    # Set up is complete, but nothing has been made yet: the sample opens on
+    # its set-up so the user sees what they are about to make.
+    assert at.session_state["main_tab"] == "1 · Set up"
     table = next(d.value for d in at.dataframe if "Priority" in d.value.columns)
     # A panel score's "/10" is written once, on the measurement's own row,
     # and never after a number.
@@ -491,6 +493,37 @@ def test_opening_a_project_lands_on_the_batch_when_one_is_open(project_with_hist
 def test_opening_a_project_lands_on_results(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
+    at.session_state["_land_on_open"] = True
+    at.run()
+    assert at.session_state["main_tab"] == "3 · Results"
+
+
+def test_opening_a_ready_project_with_no_results_lands_on_set_up(tmp_path,
+                                                                 monkeypatch):
+    """Results would be an empty tab. The set-up is what there is to look at,
+    and confirming it is the step before making anything."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ready")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "ready"
+    at.session_state["_land_on_open"] = True
+    at.run()
+    assert at.session_state["main_tab"] == "1 · Set up"
+
+
+def test_a_project_whose_only_formulation_was_left_out_lands_on_results(
+        tmp_path, monkeypatch):
+    """A left-out formulation is a result the project holds: it has a number,
+    amounts and a note, and tab 3 lists it."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("left_out")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max")
+    opt.record_skipped(1, 1, {"Water": 10.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "left_out"
     at.session_state["_land_on_open"] = True
     at.run()
     assert at.session_state["main_tab"] == "3 · Results"
