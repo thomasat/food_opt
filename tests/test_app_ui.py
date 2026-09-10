@@ -271,25 +271,41 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    # The sidebar now also offers "Try the sample project", so target the
-    # welcome-panel button explicitly (scoped to at.main) to keep this test
-    # about that specific first-run flow.
+    # The sidebar also offers "Try the sample project", so target the
+    # welcome-panel button explicitly (scoped to at.main).
     _submit_button(at.main, "Try the sample project").click()
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
-    # Eight ingredients: enough for a real recipe, few enough to read at a
-    # glance in the results form and the recipe cards.
+    # Eight ingredients: enough for a real formulation, few enough to read at
+    # a glance in the batch table and the printable sheets.
     assert len(opt.variables) == 8
+    assert opt.amount_unit == "g"
     # The sample is the plant-based burger brief for a trained panel: two
-    # intensity scores with targets (7 and 6 out of 10), firmness weighted
-    # more than juiciness.
+    # intensity scores with targets (7 and 6 out of 10), firmness the more
+    # important of the two.
     assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]
     assert all(o["goal"] == "target" for o in opt.objectives)
-    targets = {o["name"]: o["target"] for o in opt.objectives}
-    assert targets == {"Juiciness": 7, "Firmness": 6}
+    assert {o["name"]: o["target"] for o in opt.objectives} == {"Juiciness": 7,
+                                                                "Firmness": 6}
+    assert {o["name"]: o["unit"] for o in opt.objectives} == {"Juiciness": "/10",
+                                                               "Firmness": "/10"}
     weights = {o["name"]: o["weight"] for o in opt.objectives}
     assert weights["Firmness"] > weights["Juiciness"]
+
+
+def test_the_sample_lists_firmness_first_with_its_share(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert at.session_state["main_tab"] == "3 · Results"   # set-up is complete
+    table = next(d.value for d in at.dataframe if "Priority" in d.value.columns)
+    assert list(table["Measurement"]) == ["Firmness", "Juiciness"]
+    assert list(table["Share"]) == ["60%", "40%"]
+    # The panel unit joins tight, so no label reads "target 6 /10".
+    assert list(table["Goal"]) == ["Target 6/10", "Target 7/10"]
 
 
 def test_sample_project_button_reopens_existing_without_recreating(tmp_path, monkeypatch):
@@ -2131,3 +2147,22 @@ def test_undo_takes_a_last_batch_that_was_entirely_left_out(burger):
     assert not at.exception
     reloaded = FoodOptimizer("burger")
     assert reloaded.skipped == [] and reloaded.formulation_ids == [1]
+
+
+def test_the_desktop_bundle_ships_every_module():
+    root = pathlib.Path(APP_PATH).resolve().parent
+    build = (root / "desktop" / "build_dmg.sh").read_text()
+    e2e = (root / "desktop" / "test_e2e.sh").read_text()
+    for module in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
+        assert module in build, module
+        assert module in e2e, module
+
+
+def test_first_run_copy_gives_the_honest_timing():
+    root = pathlib.Path(APP_PATH).resolve().parent
+    for name in ("desktop/FoodOptimizerApp.swift", "desktop/start_here.txt",
+                 "desktop/README.md"):
+        text = (root / name).read_text()
+        for part in ("under a minute", "up to 15"):
+            assert part in text, (name, part)
+        assert "a few minutes, up to 15" not in text, name

@@ -79,7 +79,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"

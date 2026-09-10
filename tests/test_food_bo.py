@@ -826,7 +826,7 @@ class TestActiveSet:
         opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")
         opt_configured._var_by_name("Water")["active"] = False
-        with pytest.raises(ValueError, match="Every variable is inactive"):
+        with pytest.raises(ValueError, match="Everything is paused"):
             opt_configured.ask(n_suggestions=1)
 
     def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
@@ -914,7 +914,7 @@ class TestRemoveIngredient:
 
     def test_rejects_process_parameter(self, opt_configured):
         opt_configured.add_process_parameter("Temp", 100, 200)
-        with pytest.raises(ValueError, match="process parameter"):
+        with pytest.raises(ValueError, match="process setting"):
             opt_configured.remove_ingredient("Temp")
 
     def test_blocks_removing_last_active_variable(self, opt_configured):
@@ -1720,3 +1720,54 @@ class TestParseBatchResultsByFormulation:
         df = pd.DataFrame({"Formulation": [], "Hardness": [], "L*": []})
         with pytest.raises(ValueError, match="no result rows"):
             opt.parse_batch_results(df, opt.pending_batch)
+
+
+import ast
+import pathlib
+import re
+
+_USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
+                        "ui_results.py", "food_bo.py", "storage.py"]
+_BANNED = [
+    re.compile(r"\brecipes?\b", re.I),
+    re.compile(r"\bexperiments?\b", re.I),
+    re.compile(r"\bobjectives?\b", re.I),
+    re.compile(r"\bweight(s|ed)?\b", re.I),
+    re.compile(r"Overall Score"),
+]
+# The one legacy value that must stay spelled the old way: it is the reserved
+# column name a 0.2.x project could collide with.
+_ALLOWED_EXACT = {"Overall Score"}
+
+
+def _prose_constants(path):
+    """Every string literal in a file that reads like a sentence (it contains a
+    space), minus docstrings — those are notes to the next engineer, not
+    screen text."""
+    tree = ast.parse(pathlib.Path(path).read_text())
+    docstrings = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)) and body:
+            first = body[0]
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docstrings.add(id(first.value))
+    return [node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and " " in node.value and id(node) not in docstrings]
+
+
+def test_no_old_vocabulary_reaches_the_user():
+    """recipe → formulation, experiment → formulation, objective →
+    measurement, weight → importance, 'Overall Score' → 'Overall score'."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = []
+    for name in _USER_FACING_SOURCES:
+        for text in _prose_constants(root / name):
+            if text in _ALLOWED_EXACT:
+                continue
+            if any(pattern.search(text) for pattern in _BANNED):
+                offenders.append((name, text))
+    assert offenders == [], offenders

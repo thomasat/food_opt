@@ -218,7 +218,7 @@ class FoodOptimizer:
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
-                other_label = "an ingredient" if other == 'ingredient' else "a process parameter"
+                other_label = "an ingredient" if other == 'ingredient' else "a process setting"
                 raise ValueError(f"{v['name']} already exists as {other_label}.")
         return name
 
@@ -237,8 +237,8 @@ class FoodOptimizer:
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
-                    "Cannot add a variable mid-run: some experiments were recorded "
-                    "without stored recipes. Start a fresh project or re-import history."
+                    "Cannot add this now: some formulations were recorded without their "
+                    "amounts. Start a fresh project or re-import your history."
                 )
             min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
         self.variables.append({
@@ -261,8 +261,9 @@ class FoodOptimizer:
         """
         if self.X_history:
             raise ValueError(
-                "Cannot reload ingredients after experiments have been recorded. "
-                "Use Hard Reset to start a new project, or restore from a backup."
+                "Cannot reload ingredients after results have been recorded. Use "
+                "Manage project > Hard reset to start a new project, or restore from "
+                "a backup."
             )
 
         # Accept any capitalization/whitespace for the required headers, and
@@ -362,13 +363,13 @@ class FoodOptimizer:
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
-                    "Cannot add a variable mid-run: some experiments were recorded "
-                    "without stored recipes. Start a fresh project or re-import history."
+                    "Cannot add this now: some formulations were recorded without their "
+                    "amounts. Start a fresh project or re-import your history."
                 )
             if baseline is None:
                 raise ValueError(
-                    "A process parameter added mid-run needs a baseline (the value "
-                    "used in all prior batches) so past experiments encode correctly."
+                    "A process setting added now needs a baseline (the value used for "
+                    "every formulation already made) so those formulations encode correctly."
                 )
             baseline = float(baseline)
             if not (min_val <= baseline <= max_val):
@@ -406,11 +407,11 @@ class FoodOptimizer:
         history and the model never disagree with the current weights."""
         name = str(name).strip()
         if not name:
-            raise ValueError("Objective name cannot be empty.")
+            raise ValueError("Measurement name cannot be empty.")
         if any(name.lower() == v['name'].lower() for v in self.variables):
             raise ValueError(
                 f"{name} is already the name of an ingredient or process "
-                f"parameter. Choose another name for the measurement."
+                f"setting. Choose another name for the measurement."
             )
         if name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}:
             raise ValueError(
@@ -419,14 +420,14 @@ class FoodOptimizer:
             )
         weight = float(weight)
         if weight <= 0:
-            raise ValueError("Weight must be greater than 0.")
+            raise ValueError("Importance must be greater than 0.")
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
             raise ValueError("Scale lowest must be less than scale highest.")
         if goal == 'target':
             if target is None:
-                raise ValueError("Enter a target value for a 'Hit a target' objective.")
+                raise ValueError("Enter a target value for a 'Hit a target' measurement.")
             target = float(target)
             if not (min_val <= target <= max_val):
                 raise ValueError(
@@ -1006,7 +1007,7 @@ class FoodOptimizer:
     def edit_result(self, index, new_results_dict):
         """Edit a previously saved result and recalculate its utility."""
         if index < 0 or index >= len(self.Y_history):
-            raise IndexError("Result index out of range")
+            raise IndexError("Formulation index out of range")
         if index < len(self.results_history):
             self.results_history[index] = dict(new_results_dict)
         self.Y_history[index] = self._compute_utility(new_results_dict)
@@ -1197,8 +1198,8 @@ class FoodOptimizer:
         """
         if not self.active_variables():
             raise ValueError(
-                "Every variable is inactive — reactivate at least one before "
-                "generating recipes."
+                "Everything is paused — resume at least one ingredient before "
+                "generating formulations."
             )
         bounds_tensor = self._get_bounds()
         dim = bounds_tensor.shape[1]
@@ -1255,8 +1256,8 @@ class FoodOptimizer:
 
         if not results:
             raise ValueError(
-                "No valid recipes found — constraints may be too restrictive. "
-                "Try widening ingredient ranges or relaxing constraints."
+                "No valid formulations found — your limits may be too restrictive. "
+                "Try widening ingredient ranges or relaxing limits."
             )
         return results
 
@@ -1712,14 +1713,14 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
-                f"'{name}' is a process parameter. Use Remove next to the "
-                f"process parameter instead."
+                f"'{name}' is a process setting. Use Remove next to the "
+                f"process setting instead."
             )
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
-                "Cannot remove a variable: some experiments were recorded without "
-                "stored recipes, so the history cannot be rebuilt. Pause it "
-                "instead, or start a fresh project."
+                "Cannot remove this: some formulations were recorded without their "
+                "amounts, so the history cannot be rebuilt. Pause it instead, or "
+                "start a fresh project."
             )
 
         used = [
@@ -1780,7 +1781,7 @@ class FoodOptimizer:
         """Human-readable optimization trajectory for an expert re-query (adaptive
         arm). The app appends the 'available to add' pool (full CSV minus active)."""
         if not self.Y_history:
-            return "No experiments recorded yet."
+            return "No formulations recorded yet."
         best_i = int(np.argmax(self.Y_history))
         active = [v['name'] for v in self.active_variables()]
         inactive = [
@@ -1801,7 +1802,8 @@ class FoodOptimizer:
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
             lines.append(
-                f"{mark} Experiment {i + 1}: score {y:.3f} | {comp} | results: {attrs}"
+                f"{mark} Formulation {self.formulation_ids[i]}: score {y:.3f} | "
+                f"{comp} | results: {attrs}"
             )
         return "\n".join(lines)
 
@@ -1881,10 +1883,9 @@ class FoodOptimizer:
             self.import_json(state)
         except Exception:
             self.load_error = (
-                "This project file is damaged and could not be opened. "
-                "If you have a backup, use Restore from backup; otherwise "
-                "check the FoodOptimizer > backups folder in your home "
-                "folder for a recent copy."
+                "This project file is damaged and could not be opened. If you have a "
+                "backup, use Restore from backup; otherwise check FoodOptimizer > "
+                "backups in your home folder for a recent copy."
             )
             return False
         # Re-save only when the file is behind the current CLASS_VERSION, so an
@@ -1977,7 +1978,7 @@ class FoodOptimizer:
                 "Update the app, then try again."
             )
         if len(state['recipe_history']) != len(state['results_history']):
-            raise ValueError("This backup is inconsistent: recipes and results differ in count.")
+            raise ValueError("This backup is inconsistent: formulations and results differ in count.")
         ingredients = sum(
             1 for v in state['variables']
             if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'
