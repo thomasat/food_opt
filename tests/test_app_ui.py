@@ -3771,3 +3771,104 @@ def test_an_ingredient_named_total_is_refused_on_the_form(burger):
                for e in at.error), [e.value for e in at.error]
     assert [v["name"] for v in FoodOptimizer("burger").variables] == [
         "Pea protein", "Methylcellulose"]
+
+
+# ------------------------------------------------------------------ #
+#  A property limit is a limit on the finished formulation, per 100 g
+# ------------------------------------------------------------------ #
+
+
+@pytest.fixture
+def with_properties(tmp_path, monkeypatch):
+    """A project loaded from a file with a property column, so the limits
+    section has something to limit."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("props")
+    opt.load_ingredients_from_csv(pd.DataFrame({
+        "Name": ["Coconut oil", "Water"],
+        "Min": [0, 20],
+        "Max": [15, 60],
+        "Unit": ["g", "g"],
+        "Fat per 100 g": [99.0, 0.0],
+    }))
+    opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                      min_val=0, max_val=10, unit="N")
+    return opt
+
+
+def test_a_property_limit_says_it_is_per_100_g_of_the_formulation(with_properties):
+    """It used to be a total that grew with the batch, and nothing on screen
+    said which it was."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert any(m.value == "**Limit on the finished formulation**"
+               for m in at.markdown), [m.value for m in at.markdown]
+    assert at.selectbox(key="prop_metric").label == "Property"
+    assert any(c.value == ("Per 100 g of formulation, worked out from your "
+                           "ingredient file's property columns.")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_caption_names_the_unit_the_ingredients_are_in(with_properties):
+    with_properties.set_ingredient_unit("Coconut oil", "ml")
+    with_properties.set_ingredient_unit("Water", "ml")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(c.value.startswith("Per 100 ml of formulation")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_adding_a_property_limit_lists_it_and_keeps_what_was_made(with_properties):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="prop_max").set_value(20.0)
+    at.run()
+    _submit_button(at, "Add a property limit").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == ("Limit added on Fat per 100 g. Formulations "
+                           "already made are kept. The next batch will "
+                           "respect this limit.") for s in at.success), \
+        [s.value for s in at.success]
+    assert any(t.value == "Fat per 100 g: at most 20" for t in at.text), \
+        [t.value for t in at.text]
+    assert FoodOptimizer("props").constraints[0]['max'] == 20.0
+
+
+def test_a_property_limit_is_refused_while_the_units_differ(with_properties):
+    with_properties.set_ingredient_unit("Water", "ml")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="prop_max").set_value(20.0)
+    at.run()
+    _submit_button(at, "Add a property limit").click()
+    at.run()
+    assert not at.exception
+    assert any(e.value == ("A property limit needs all ingredients in one "
+                           "unit. Yours are in g and ml.") for e in at.error), \
+        [e.value for e in at.error]
+    assert FoodOptimizer("props").constraints == []
+
+
+def test_a_limit_from_an_older_version_says_how_it_is_read_now(with_properties):
+    """A 0.2.x file's limit was a total. It is now read per 100 g, which is a
+    different number, so the screen says so once."""
+    with_properties.constraints = [{'metric': "Fat per 100 g", 'min': None,
+                                    'max': 25.0}]
+    with_properties.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert sum(1 for c in at.caption
+               if c.value == ("A limit set before this version is now read "
+                              "per 100 g of formulation.")) == 1, \
+        [c.value for c in at.caption]
+
+
+def test_a_limit_set_now_says_nothing_extra(with_properties):
+    with_properties.add_constraint("Fat per 100 g", max_val=25.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not any("before this version" in c.value for c in at.caption), \
+        [c.value for c in at.caption]

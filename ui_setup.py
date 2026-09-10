@@ -838,7 +838,13 @@ def _limits(opt):
         for props in opt.ingredient_properties.values():
             properties.update(props.keys())
         if properties:
-            st.markdown("**Property limit**")
+            st.markdown("**Limit on the finished formulation**")
+            # Per 100 g of what you make, not a total that grows with the
+            # batch: the same limit then means the same thing at 100 g and at
+            # 10 kg. Written in the unit the ingredients are actually in.
+            st.caption(f"Per 100 {opt.one_amount_unit() or 'g'} of "
+                       "formulation, worked out from your ingredient file's "
+                       "property columns.")
             metric = st.selectbox("Property", sorted(properties), key="prop_metric")
             p1, p2 = st.columns(2)
             with p1:
@@ -863,6 +869,13 @@ def _limits(opt):
         else:
             st.caption("Upload an ingredient CSV with extra columns such as "
                        "Cost or Sodium per 100 g to set property limits.")
+
+        # A limit written before 0.3.0 was a total, and the file does not say
+        # so; the same stored number now means a per-100 g average. Said once,
+        # above the list, and only while such a limit is still there.
+        if any(c.get('basis') != 'per_100' for c in opt.constraints):
+            st.caption(f"A limit set before this version is now read per 100 "
+                       f"{opt.one_amount_unit() or 'g'} of formulation.")
 
         for i, constraint in enumerate(opt.constraints):
             c1, c2 = st.columns([3, 1])

@@ -474,11 +474,13 @@ class TestConstraintChecking:
         assert opt._check_constraints({"Water": 50, "Oil": 10}) is True
 
     def test_property_constraint_fail(self, opt):
+        """Per 100 g of the formulation: 50 g of water at 0 fat and 40 g of
+        oil at 80 fat is 35.6 fat per 100 g, over a limit of 5."""
         df = pd.DataFrame({
             "Name": ["Water", "Oil"],
             "Min": [0, 0],
             "Max": [100, 50],
-            "Fat": [0.0, 0.8],
+            "Fat": [0.0, 80.0],
         })
         opt.load_ingredients_from_csv(df)
         opt.add_constraint("fat", max_val=5)
@@ -493,6 +495,115 @@ class TestConstraintChecking:
         opt = opt_with_ingredients
         opt.add_quantity_constraint(["Water", "Flour"], max_val=50)
         assert opt._check_constraints({"Water": 60, "Flour": 30, "Sugar": 10}) is False
+
+
+# ------------------------------------------------------------------ #
+#  Property limits: per 100 g of the finished formulation
+# ------------------------------------------------------------------ #
+
+
+class TestPropertyLimitsPerHundred:
+    """A property limit reads per 100 g of what you make, not as a total that
+    grows with the batch. Doubling every amount leaves the fat per 100 g where
+    it was, so the same limit means the same thing at 100 g and at 10 kg."""
+
+    def _fatty(self, opt):
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Lean", "Fatty"],
+            "Min": [0, 0],
+            "Max": [100, 100],
+            "Unit": ["g", "g"],
+            "Fat per 100 g": [10.0, 30.0],
+        }))
+        return opt
+
+    def test_a_limit_reads_the_mass_weighted_average(self, opt):
+        """50 g at 10 fat and 50 g at 30 fat is 20 fat per 100 g."""
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        assert opt._check_constraints({"Lean": 50.0, "Fatty": 50.0}) is True
+        opt.add_constraint("Fat per 100 g", max_val=15)
+        assert opt._check_constraints({"Lean": 50.0, "Fatty": 50.0}) is False
+
+    def test_a_limit_does_not_move_with_the_batch_size(self, opt):
+        """The old reading was a total: ten times the batch broke the limit
+        without a formulation changing."""
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        for scale in (0.5, 1.0, 10.0):
+            assert opt._check_constraints({"Lean": 50.0 * scale,
+                                           "Fatty": 50.0 * scale}) is True
+
+    def test_a_minimum_reads_per_100_g_too(self, opt):
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", min_val=25)
+        assert opt._check_constraints({"Lean": 50.0, "Fatty": 50.0}) is False
+        assert opt._check_constraints({"Lean": 10.0, "Fatty": 90.0}) is True
+
+    def test_property_per_100_reports_the_same_number(self, opt):
+        opt = self._fatty(opt)
+        assert opt.property_per_100({"Lean": 50.0, "Fatty": 50.0},
+                                    "Fat per 100 g") == pytest.approx(20.0)
+        assert opt.property_per_100({"Lean": 0.0, "Fatty": 0.0},
+                                    "Fat per 100 g") is None
+
+    def test_ask_only_offers_formulations_inside_the_limit(self, opt):
+        """The optimizer is handed the same limit in its linear form, so what
+        it suggests is what the screen would accept."""
+        opt = self._fatty(opt)
+        opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
+        opt.add_constraint("Fat per 100 g", max_val=15)
+        batch = opt.ask(n_suggestions=3)
+        assert len(batch) == 3
+        for recipe in batch:
+            assert opt.property_per_100(recipe, "Fat per 100 g") <= 15 + 1e-9
+
+    def test_ask_respects_the_limit_once_the_model_is_fitted(self, opt):
+        """The warm path hands BoTorch the constraint instead of filtering."""
+        opt = self._fatty(opt)
+        opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
+        opt.add_constraint("Fat per 100 g", max_val=15)
+        for i in range(6):
+            opt.tell({"Lean": 80.0 - i, "Fatty": 10.0 + i}, {"Taste": float(i)})
+        for recipe in opt.ask(n_suggestions=1):
+            assert opt.property_per_100(recipe, "Fat per 100 g") <= 15 + 1e-6
+
+    def test_a_property_limit_needs_one_unit(self, opt):
+        opt = self._fatty(opt)
+        opt.set_ingredient_unit("Fatty", "ml")
+        with pytest.raises(ValueError, match="all ingredients in one unit"):
+            opt.add_constraint("Fat per 100 g", max_val=25)
+        assert opt.constraints == []
+
+    def test_a_limit_written_before_this_version_is_read_per_100_g(self, opt,
+                                                                   tmp_path):
+        """A 0.2.x file stored the limit without saying what it was a limit
+        on. It opens, and it now means per 100 g — the file says nothing more,
+        so the screen is what tells the user."""
+        opt = self._fatty(opt)
+        state = opt.export_json()
+        state['constraints'] = [{'metric': "Fat per 100 g", 'min': None,
+                                 'max': 25.0}]          # no 'basis' key
+        clone = FoodOptimizer(project_name="old_project")
+        clone.import_json(state)
+        assert clone.constraints[0].get('basis') is None
+        assert clone._check_constraints({"Lean": 50.0, "Fatty": 50.0}) is True
+        assert clone._check_constraints({"Lean": 10.0, "Fatty": 90.0}) is False
+
+    def test_a_new_limit_records_what_it_is_a_limit_on(self, opt):
+        opt = self._fatty(opt)
+        opt.add_constraint("Fat per 100 g", max_val=25)
+        assert opt.constraints[0]['basis'] == 'per_100'
+
+    def test_pausing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
+        """Pausing the only ingredient that carries the fat leaves a minimum
+        nothing can reach."""
+        opt = self._fatty(opt)
+        opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
+        opt.add_constraint("Fat per 100 g", min_val=25)
+        with pytest.raises(ValueError, match="impossible to meet"):
+            opt.deactivate_variable("Fatty")
+        assert opt.active_variables() == opt.variables
 
 
 # ------------------------------------------------------------------ #
@@ -2422,11 +2533,11 @@ class TestRoundTwoFixes:
         assert set(opt.ingredient_properties["Oil"]) == {"Fat per 100 g"}
         # Matching ignores capitals, so a limit written by an older project
         # (which stored the name lower-cased) still finds the column.
-        opt.add_constraint("fat per 100 g", max_val=100.0)
+        opt.add_constraint("fat per 100 g", max_val=10.0)
         assert opt._check_constraints({"Flour": 10.0, "Oil": 1.0}) is True
         assert opt._check_constraints({"Flour": 10.0, "Oil": 2.0}) is False
         # ...and a second limit on the same column replaces the first.
-        opt.add_constraint("Fat per 100 g", max_val=200.0)
+        opt.add_constraint("Fat per 100 g", max_val=20.0)
         assert len(opt.constraints) == 1
 
     def test_the_downloaded_scores_are_the_scores_on_screen(self, tmp_path,

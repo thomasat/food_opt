@@ -657,6 +657,47 @@ class FoodOptimizer:
                 return float(value)
         return 0.0
 
+    def per_amount_text(self):
+        """'per 100 g' — how a limit on the finished formulation reads, in the
+        unit the ingredients are written in."""
+        return "per 100 " + (self.one_amount_unit() or "g")
+
+    def property_per_100(self, recipe_dict, metric):
+        """One property of a finished formulation, per 100 g of it: the
+        mass-weighted average of its ingredients' own per-100 g values. None
+        when the formulation weighs nothing, which has no average.
+
+        A process setting is not part of the mass and takes no part."""
+        total = weighted = 0.0
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            amount = float(recipe_dict.get(var['name'], 0.0) or 0.0)
+            total += amount
+            weighted += amount * self.property_value(var['name'], metric)
+        if total <= 0:
+            return None
+        return weighted / total
+
+    def _property_coeff(self, metric, limit):
+        """The coefficient each variable carries in Σ amount × (property −
+        limit): the per-100 g average rearranged so that it stays linear in
+        the amounts — ≤ 0 is 'at most the limit', ≥ 0 is 'at least'.
+
+        Linear is what BoTorch can be given, and giving the screen the same
+        form is what keeps the two agreeing to the last decimal."""
+        limit = float(limit)
+        names = {v['name'] for v in self.variables
+                 if v.get('category', 'ingredient') == 'ingredient'}
+        return lambda name: ((self.property_value(name, metric) - limit)
+                             if name in names else 0.0)
+
+    def _property_residual(self, recipe_dict, metric, limit):
+        """Σ amount × (property − limit) for one formulation."""
+        coeff = self._property_coeff(metric, limit)
+        return sum(coeff(name) * float(amount or 0.0)
+                   for name, amount in recipe_dict.items())
+
     def ingredient_units(self):
         """Every unit the ingredients are written in, in ingredient order."""
         units = []
@@ -1235,10 +1276,22 @@ class FoodOptimizer:
     # ------------------------------------------------------------------ #
 
     def add_constraint(self, metric, min_val=None, max_val=None):
-        """Add a property-based constraint (e.g. total fat, total sodium).
-        Replaces any existing constraint on the same metric."""
+        """A limit on the finished formulation: one property per 100 g of what
+        you make, worked out as the mass-weighted average of the ingredients'
+        own values. Replaces any existing limit on the same property.
+
+        Per 100 g of formulation, not as a total: a total grew with the batch,
+        so the same formulation passed at 100 g and failed at 1 kg."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
             raise ValueError("Min must be less than Max.")
+        # An average over the amounts, so the amounts must be in one unit:
+        # 25 g of powder and 40 ml of water share no 100 g to be measured per.
+        units = self.ingredient_units()
+        if len(units) > 1:
+            raise ValueError(
+                "A property limit needs all ingredients in one unit. Yours are "
+                "in " + number_list([u or "no unit" for u in units]) + "."
+            )
         # Same property, whatever its capitalisation: two limits on 'Fat' and
         # 'fat' would both be enforced against the same column.
         self.constraints = [c for c in self.constraints
@@ -1248,6 +1301,10 @@ class FoodOptimizer:
             'metric': metric,
             'min': float(min_val) if min_val is not None else None,
             'max': float(max_val) if max_val is not None else None,
+            # What this limit was written to mean. A limit from an older file
+            # has no basis at all, and the screen says once that it is now
+            # read per 100 g.
+            'basis': 'per_100',
         })
         self.save()
 
@@ -1462,30 +1519,36 @@ class FoodOptimizer:
             if var['type'] == 'continuous'
         }
 
-        # Property-based constraints (ingredient_properties * quantity)
+        # Property limits, per 100 g of the finished formulation. The average
+        # Σ a·p / Σ a is not linear, but "at most L" rearranges to the linear
+        # Σ a × (p − L) ≤ 0, which is what BoTorch can be handed. Every
+        # ingredient carries a coefficient, including one with none of the
+        # property at all: adding water is how a formulation is diluted.
         for constr in self.constraints:
             metric = constr['metric']
-            indices, coeffs = [], []
-            offset_lhs = 0.0
-
-            for var_name, idx in var_indices.items():
-                prop_val = self.property_value(var_name, metric)
-                if prop_val != 0:
+            for bound, sense in (('min', 1.0), ('max', -1.0)):
+                if constr[bound] is None:
+                    continue
+                coeff_of = self._property_coeff(metric, constr[bound])
+                indices, coeffs, offset = [], [], 0.0
+                for var_name, idx in var_indices.items():
+                    coeff = coeff_of(var_name)
+                    if coeff == 0:
+                        continue
                     var_def = next(v for v in self.variables if v['name'] == var_name)
-                    v_min, v_max = var_def['bounds']
-                    indices.append(idx)
-                    coeffs.append(prop_val * (v_max - v_min))
-                    offset_lhs += prop_val * v_min
+                    v_min, v_max = float(var_def['bounds'][0]), float(var_def['bounds'][1])
+                    if v_max != v_min:
+                        indices.append(idx)
+                        coeffs.append(sense * coeff * (v_max - v_min))
+                    offset += coeff * v_min
 
-            if not indices:
-                continue
-            t_idx = torch.tensor(indices, dtype=torch.long)
-            t_coeffs = torch.tensor(coeffs, dtype=torch.double)
-
-            if constr['min'] is not None:
-                constraints_list.append((t_idx, t_coeffs, constr['min'] - offset_lhs))
-            if constr['max'] is not None:
-                constraints_list.append((t_idx, -t_coeffs, -(constr['max'] - offset_lhs)))
+                if not indices:
+                    continue
+                constraints_list.append((
+                    torch.tensor(indices, dtype=torch.long),
+                    torch.tensor(coeffs, dtype=torch.double),
+                    -sense * offset,
+                ))
 
         # Quantity constraints (direct sum of ingredient quantities)
         for qc in getattr(self, 'quantity_constraints', []):
@@ -1515,18 +1578,23 @@ class FoodOptimizer:
 
     def _check_constraints(self, recipe_dict):
         """Return True if a recipe satisfies all constraints."""
-        # Property-based constraints
+        # A property limit is read per 100 g of the finished formulation, in
+        # the linear form the optimizer is given: Σ amount × (property − limit).
+        # A tolerance rides on the size of the numbers, so a candidate that
+        # lands exactly on the limit is not rejected by the last bit of a float.
+        scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe_dict.values())
         for constr in self.constraints:
             metric = constr['metric']
-            total_val = 0.0
-            for var_name in self.ingredient_properties:
-                if var_name in recipe_dict:
-                    total_val += (recipe_dict[var_name]
-                                  * self.property_value(var_name, metric))
-            if constr['min'] is not None and total_val < constr['min']:
-                return False
-            if constr['max'] is not None and total_val > constr['max']:
-                return False
+            if constr['min'] is not None:
+                slack = 1e-9 * scale * (1.0 + abs(float(constr['min'])))
+                if self._property_residual(recipe_dict, metric,
+                                           constr['min']) < -slack:
+                    return False
+            if constr['max'] is not None:
+                slack = 1e-9 * scale * (1.0 + abs(float(constr['max'])))
+                if self._property_residual(recipe_dict, metric,
+                                           constr['max']) > slack:
+                    return False
 
         # Quantity constraints
         for qc in getattr(self, 'quantity_constraints', []):
@@ -1961,28 +2029,76 @@ class FoodOptimizer:
                 hi += max(a, b)
         return lo, hi
 
+    def _achievable_property(self, metric, pinned):
+        """The lowest and the highest one property can be per 100 g of the
+        finished formulation, with `pinned` variables held fixed and the rest
+        free within their allowed amounts.
+
+        An average is a ratio, so it is not read off the bounds the way a sum
+        is. It is found by asking of each candidate value whether any
+        formulation sits under it — Σ amount × (property − value) < 0, the
+        same linear form the limit itself takes — and narrowing the answer.
+        Every achievable average lies between the lowest and the highest
+        property value on the shelf, which is where the search starts."""
+        values = [self.property_value(v['name'], metric) for v in self.variables
+                  if v.get('category', 'ingredient') == 'ingredient']
+        if not values:
+            return 0.0, 0.0
+        low, high = min(values), max(values)
+        if high - low <= 1e-12:
+            return low, high
+
+        def span(value):
+            return self._achievable_range(self._property_coeff(metric, value),
+                                          pinned)
+
+        # The lowest achievable average: the smallest value some formulation
+        # can sit under.
+        if span(high)[0] >= 0:
+            lowest = high
+        else:
+            under, over = high, low        # under: reachable, over: not
+            for _ in range(60):
+                mid = (under + over) / 2.0
+                if span(mid)[0] < 0:
+                    under = mid
+                else:
+                    over = mid
+            lowest = under
+        # ...and the highest: the largest value some formulation can sit over.
+        if span(low)[1] <= 0:
+            highest = low
+        else:
+            over, under = low, high
+            for _ in range(60):
+                mid = (over + under) / 2.0
+                if span(mid)[1] > 0:
+                    over = mid
+                else:
+                    under = mid
+            highest = over
+        return lowest, highest
+
     def _assert_constraints_satisfiable(self, pinned):
         """Raise if holding `pinned` ({name: value}) fixed makes any constraint
         unsatisfiable. Pinning an ingredient to 0 can strand a lower bound that
         the ingredient was carrying, which would otherwise surface later as an
         opaque acquisition-optimization failure."""
+        per = self.per_amount_text()
         for constr in self.constraints:
             metric = constr['metric']
-            lo, hi = self._achievable_range(
-                lambda n: self.property_value(n, metric),
-                pinned,
-            )
+            lo, hi = self._achievable_property(metric, pinned)
             if constr['min'] is not None and hi < constr['min']:
                 raise ValueError(
                     f"Pausing these would make the limit on {metric} impossible "
                     f"to meet: the remaining active ingredients can only reach "
-                    f"{hi:.4g} at most. Loosen the limit first."
+                    f"{hi:.4g} {per} at most. Loosen the limit first."
                 )
             if constr['max'] is not None and lo > constr['max']:
                 raise ValueError(
                     f"Pausing these would make the limit on {metric} impossible "
-                    f"to meet: the paused items alone add up to {lo:.4g}. "
-                    f"Loosen the limit first."
+                    f"to meet: the remaining active ingredients cannot get "
+                    f"below {lo:.4g} {per}. Loosen the limit first."
                 )
 
         for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
