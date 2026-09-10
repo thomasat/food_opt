@@ -71,8 +71,9 @@ ditto "$APP_DIR" "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 cp "$DESKTOP_DIR/start_here.txt" "$STAGING/Start Here.txt"
 # No example-data folder: the app's "Try the sample project" button carries
-# the same ingredients plus objectives, and the welcome panel offers the CSV
-# template. One route to the sample keeps first-run instructions unambiguous.
+# the same ingredients plus measurements, and the welcome panel offers the
+# CSV template. One route to the sample keeps first-run instructions
+# unambiguous.
 
 if command -v create-dmg >/dev/null 2>&1; then
   create-dmg \

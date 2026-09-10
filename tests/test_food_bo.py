@@ -955,6 +955,46 @@ class TestValidateState:
         with pytest.raises(ValueError, match="newer version"):
             FoodOptimizer.validate_state(state)
 
+    def test_malformed_formulation_ids_are_rejected(self, tmp_path, monkeypatch):
+        """import_json assigns attributes one by one, so a bad identity list
+        must be caught here — not halfway through the restore."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("tmp_ids")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        state = opt.export_json()
+        state["formulation_ids"] = ["one"]
+        with pytest.raises(ValueError, match="'formulation_ids' section has the wrong shape"):
+            FoodOptimizer.validate_state(state)
+        # The project the restore would have replaced is untouched: the refusal
+        # comes before import_json assigns anything.
+        target = FoodOptimizer("tmp_ids")
+        assert target.formulation_ids == [1] and len(target.X_history) == 1
+
+    def test_the_other_identity_lists_are_type_checked(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        base = FoodOptimizer("tmp_identity").export_json()
+        for key, bad in (("formulation_ids", [1.5]),
+                         ("batch_history", ["1"]),
+                         ("notes_history", [3]),
+                         ("skipped", ["not a dict"]),
+                         ("next_formulation_no", "seven")):
+            state = dict(base)
+            state[key] = bad
+            with pytest.raises(ValueError, match=f"'{key}' section has the wrong shape"):
+                FoodOptimizer.validate_state(state)
+        # Absent (a 0.2.x file) and None are both fine.
+        for key in ("formulation_ids", "batch_history", "notes_history",
+                    "skipped", "next_formulation_no"):
+            state = dict(base)
+            state.pop(key, None)
+            FoodOptimizer.validate_state(state)
+        # A well-formed batch_history may carry None for an imported row.
+        state = dict(base)
+        state["batch_history"] = [None, 3]
+        FoodOptimizer.validate_state(state)
+
     def test_summary_of_valid_backup(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("src")

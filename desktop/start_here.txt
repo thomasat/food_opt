@@ -35,7 +35,7 @@ USING IT DAY TO DAY
   Folder. Need bigger text? View menu > Bigger Text.
 
 YOUR DATA STAYS ON YOUR COMPUTER
-- Your recipes, experiments and results never leave your Mac. The app
+- Your formulations and results never leave your Mac. The app
   does not connect to any website or service, and it collects no
   statistics.
 - Your project files are saved in a folder called FoodOptimizer in your
@@ -47,7 +47,7 @@ YOUR DATA STAYS ON YOUR COMPUTER
 NEED HELP?
 Write to the Food Intelligence Lab at
 https://github.com/thomasat/food_opt/issues. Describe the problem in
-words, and do not attach project files, backups or recipes, because
+words, and do not attach project files, backups or formulations, because
 that page is public.
 
 Attaching the app's technical details file helps us help you. Inside

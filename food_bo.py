@@ -1979,6 +1979,28 @@ class FoodOptimizer:
             )
         if len(state['recipe_history']) != len(state['results_history']):
             raise ValueError("This backup is inconsistent: formulations and results differ in count.")
+        # The 0.3.0 identity lists. They are optional (a 0.2.x file has none),
+        # but a present-and-malformed one must be refused here: import_json
+        # assigns attributes one by one, so a TypeError raised halfway through
+        # would leave the optimizer wearing half of a bad backup.
+        def _whole(x):
+            return isinstance(x, int) and not isinstance(x, bool)
+
+        identity = {
+            'formulation_ids': _whole,
+            'batch_history': lambda x: x is None or _whole(x),
+            'notes_history': lambda x: isinstance(x, str),
+            'skipped': lambda x: isinstance(x, dict),
+        }
+        for key, ok in identity.items():
+            if key not in state or state[key] is None:
+                continue
+            if not isinstance(state[key], list) or not all(ok(i) for i in state[key]):
+                raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+        if state.get('next_formulation_no') is not None and not _whole(
+                state['next_formulation_no']):
+            raise ValueError(
+                "This backup's 'next_formulation_no' section has the wrong shape.")
         ingredients = sum(
             1 for v in state['variables']
             if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'

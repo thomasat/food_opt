@@ -12,7 +12,8 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, confirmation_open, flash, go_to_tab, plural,
+    TAB_BATCH, confirm_action, confirmation_open, flash, go_to_tab,
+    other_confirmation, plural,
     readiness, saved_ok, table_height,
 )
 
@@ -274,6 +275,7 @@ def _change_ingredient_list(opt, storage):
                 "already made will be recorded without it. A copy of the "
                 "project is kept first.",
                 confirm_label="Yes, delete",
+                disabled=other_confirmation("delete_ing"),
             ):
                 batch_no = opt.pending_batch_no
                 try:
@@ -405,7 +407,8 @@ def _rescores(editing, importance, goal, target, lowest, highest):
         return True
     if before_target is not None and moved(before_target, after_target):
         return True
-    return moved(editing['min_val'], lowest) or moved(editing['max_val'], highest)
+    return (moved(editing.get('min_val'), lowest)
+            or moved(editing.get('max_val'), highest))
 
 
 def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
@@ -505,6 +508,7 @@ def _measurements(opt, storage):
                 f"Remove {obj['name']}? Every overall score is recalculated "
                 "without it. A copy of the project is kept first.",
                 confirm_label="Yes, remove",
+                disabled=other_confirmation(f"rm_meas_{obj['name']}"),
             ):
                 _remove_measurement(opt, storage, obj['name'])
 
@@ -590,6 +594,7 @@ def _process_settings(opt, storage):
                     "be recorded without it. A copy of the project is "
                     "kept first.",
                     confirm_label="Yes, remove",
+                    disabled=other_confirmation(f"rm_pp_{i}"),
                 ):
                     batch_no = opt.pending_batch_no
                     try:

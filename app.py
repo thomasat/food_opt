@@ -28,16 +28,37 @@ render_flash()
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 
 
+# Half-typed set-up and batch entries belong to the project they were typed
+# in. Streamlit keeps a widget's value in session state under its key, so
+# without this a measurement name typed in project A reappears in project B's
+# form. Popping a key while its widget is on screen raises, which is why this
+# only ever runs from a handler, before the tabs render.
+_FORM_KEY_PREFIXES = (
+    "meas_",                       # the measurement form, new and per-edit
+    "ing_",                        # ingredient name, min, max
+    "pp_",                         # process setting name, min, max, baseline
+    "qc_",                         # amount limit min, max
+    "tm_",                         # total limit min, max
+)
+_GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
+
+
 def _reset_project_session():
     """Everything a project owns. A key left behind here follows the user into
     the next project — an uploaded sheet offered for import into a project it
-    was never meant for, or a confirmation already half-clicked."""
+    was never meant for, a confirmation already half-clicked, or a half-typed
+    ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
               "scale_total", "results_order", "show_amounts",
-              "correct_formulation", "delete_formulation", "amount_unit"):
+              "correct_formulation", "delete_formulation", "amount_unit",
+              "qty_pick", "batch_size", "repeat_best"):
         st.session_state.pop(k, None)
-    for k in [k for k in st.session_state if k.endswith("__pending")]:
+    for k in [k for k in st.session_state
+              if isinstance(k, str) and (
+                  k.endswith("__pending")
+                  or k.startswith(_FORM_KEY_PREFIXES)
+                  or _GRID_KEY_RE.match(k))]:
         st.session_state.pop(k, None)
 
 
@@ -189,8 +210,11 @@ with st.sidebar:
                     "or its ranges changed since it was generated."
                 )
         # A project that failed to load must never look like an empty success.
+        # The full sentence renders once, in the main body; here it would be
+        # the same paragraph twice on one screen, so the sidebar only points.
         if getattr(opt, "load_error", None):
-            st.error(opt.load_error)
+            st.error("This project file cannot be read. See the message on "
+                     "the right.")
 
         st.divider()
         st.subheader(opt.project_name)

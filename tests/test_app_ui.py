@@ -2166,3 +2166,82 @@ def test_first_run_copy_gives_the_honest_timing():
         for part in ("under a minute", "up to 15"):
             assert part in text, (name, part)
         assert "a few minutes, up to 15" not in text, name
+
+
+def test_a_half_typed_measurement_does_not_follow_you_to_another_project(burger):
+    """Streamlit keeps a widget's value under its key for the whole session, so
+    without a clean-up on switch, project B's form opens holding A's typing."""
+    FoodOptimizer("second").save()              # somewhere to switch to
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.text_input(key="meas_new_name").set_value("Chewiness")
+    at.run()
+    assert at.session_state["meas_new_name"] == "Chewiness"
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == "second"
+    assert at.session_state["meas_new_name"] == ""
+    assert at.text_input(key="meas_new_name").value == ""
+
+
+def test_only_one_confirmation_can_be_armed_on_the_set_up_tab(burger):
+    """Two armed confirmations would put two coloured Yes buttons on one tab,
+    each quietly keeping its own copy of the project."""
+    burger.add_process_parameter("Cook temp", 150, 200)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.checkbox(key="show_delete_ing").check()
+    at.run()
+    # Delete permanently renders first, so arming it is the case that has to
+    # hold within one render: confirmation_open() is read by every later site.
+    arming = ["delete_ing__btn", "rm_meas_Firmness__btn",
+              "rm_meas_Juiciness__btn", "rm_pp_0__btn"]
+    assert all(not at.button(key=k).disabled for k in arming)
+    at.button(key="delete_ing__btn").click()
+    at.run()
+    assert not at.exception
+    assert at.button(key="delete_ing__btn").disabled is False
+    assert all(at.button(key=k).disabled for k in arming[1:]), \
+        [(k, at.button(key=k).disabled) for k in arming]
+    assert _tab_primaries(at, 0) == ["Yes, delete"], _tab_primaries(at, 0)
+
+
+def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
+                                                                    monkeypatch):
+    """Half a sheet on disk under a green 'Batch 1 recorded.' is the worst
+    outcome: the save loop must stop and say so at the first failure."""
+    import storage as storage_backend
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = "2 · Make a batch"
+    at.session_state["_results_upload"] = pd.DataFrame(
+        {"Formulation": [1, 2], "Firmness": [6.0, 4.0],
+         "Juiciness": [7.0, 5.0]})
+    at.run()
+    real_save = at.session_state["optimizer"].storage.save
+    calls = []
+
+    def flaky(name, state):
+        calls.append(name)
+        if len(calls) == 2:
+            raise storage_backend.StorageError(
+                "The disk is full — your last change was NOT saved.")
+        return real_save(name, state)
+
+    at.session_state["optimizer"].storage.save = flaky
+    _submit_button(at, "Save uploaded results").click()
+    at.run()
+    assert not at.exception
+    assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
+    assert not any("recorded" in s.value for s in at.success), \
+        [s.value for s in at.success]
+    # One row reached the disk; the second never did, and the batch stays open.
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [1]
+    assert at.session_state["main_tab"] == "2 · Make a batch"

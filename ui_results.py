@@ -9,9 +9,9 @@ import streamlit as st
 
 import storage as storage_backend
 from ui_helpers import (
-    TAB_BATCH, confirm_action, confirmation_open, flash, fmt_amount, go_to_tab,
-    goal_line, join_unit, open_rows, plural, saved_ok, scale_error,
-    table_height,
+    TAB_BATCH, confirm_action, confirmation_open, flash, fmt_amount, goal_line,
+    go_to_tab, join_unit, open_rows, other_confirmation, plural, saved_ok,
+    scale_error, table_height,
 )
 
 
@@ -256,13 +256,6 @@ def _foot(opt):
         go_to_tab(TAB_BATCH)
 
 
-def _other_confirmation(key):
-    """True while a DIFFERENT confirmation is armed. Two armed at once would
-    put two coloured Yes buttons on the tab, each keeping its own copy, so
-    arming one greys the other's button until it is answered."""
-    return confirmation_open() and not st.session_state.get(f"{key}__pending")
-
-
 def _progress_chart(opt):
     with st.expander("Progress chart"):
         if not opt.Y_history:
@@ -297,7 +290,7 @@ def _undo(opt, storage):
             "undo_batch", "Undo the last batch",
             f"Removes batch {last} and its {plural(count, 'result')}. "
             "A copy is kept first.",
-            confirm_label="Yes, undo", disabled=_other_confirmation("undo_batch"),
+            confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
         ):
             try:
                 storage.archive(opt.project_name, "pre_undo", copy=True)
@@ -335,7 +328,7 @@ def _delete_formulation(opt, storage):
             f"Delete Formulation {choice}? Later formulations keep their "
             "numbers. A copy is kept first.",
             confirm_label="Yes, delete",
-            disabled=_other_confirmation("delete_formulation"),
+            disabled=other_confirmation("delete_formulation"),
         )
         # The select box cannot be cleared by the user once it holds a value.
         # The confirmation brings its own Cancel, so this one steps aside while

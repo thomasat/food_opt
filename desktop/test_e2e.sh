@@ -106,7 +106,8 @@ assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
 # The sample lives in the app (Try the sample project); a second copy on the
 # disk image gave first-run users two routes and two names for one thing.
-assert "dmg has no Example Data folder" test ! -e "$VOL/Example Data"
+# The folder name below is the one 0.1.x shipped: it is asserted absent.
+assert "dmg carries no bundled sample folder" test ! -e "$VOL/Example Data"
 assert "dmg volume holds only app, Applications, Start Here" \
   test "$(find "$VOL" -mindepth 1 -maxdepth 1 -not -name '.*' -exec basename {} \; | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
 
@@ -241,7 +242,7 @@ opt.tell(batch2[0], {"taste": 8.0})
 opt2 = FoodOptimizer("E2E_Smoke")
 assert opt2.load_error is None and len(opt2.X_history) == 2
 assert all(len(x) == 3 for x in opt2.X_history)
-assert opt2.X_history[0][2] == 180.0  # first experiment encoded at baseline
+assert opt2.X_history[0][2] == 180.0  # first formulation encoded at baseline
 print("SMOKE_OK")
 PY
 )"

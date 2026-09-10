@@ -5,7 +5,14 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+from datetime import datetime
+
 import streamlit as st
+
+# join_unit and goal_line live in food_bo (they are pure data formatting and
+# closeness_details needs them too); the tab modules import them from here so
+# there is one import site for screen helpers.
+from food_bo import goal_line, join_unit, number_list  # noqa: F401  (re-exported)
 
 _FLASH_KEY = "_flash_messages"
 
@@ -53,6 +60,13 @@ def confirmation_open():
                if isinstance(k, str) and k.endswith("__pending"))
 
 
+def other_confirmation(key):
+    """True while a DIFFERENT confirmation is armed. Two armed at once would
+    put two coloured Yes buttons on the tab, each keeping its own copy, so
+    arming one greys the other's button until it is answered."""
+    return confirmation_open() and not st.session_state.get(f"{key}__pending")
+
+
 def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
     """Two-step confirmation for an irreversible action.
 
@@ -84,13 +98,6 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
     slot.warning(warning)                  # only on runs where the user has not confirmed
     return False
 
-
-from datetime import datetime
-
-# join_unit and goal_line live in food_bo (they are pure data formatting and
-# closeness_details needs them too); the tab modules import them from here so
-# there is one import site for screen helpers.
-from food_bo import goal_line, join_unit, number_list  # noqa: F401  (re-exported)
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
