@@ -221,6 +221,10 @@ with st.sidebar:
         st.session_state["_loaded_project"] = _recent or existing_projects[0]
         st.session_state["_land_on_open"] = True
 
+    # Assigned before the box is created, which is the one moment Streamlit
+    # allows it: clear_on_submit does not reach a form whose handler ends in
+    # st.rerun(), so the name of the project just created stayed in the box.
+    take_clear("new_project_name", fresh="")
     with st.form("new_project_form", clear_on_submit=True):
         new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
                                  placeholder=wording.NEW_PROJECT_PLACEHOLDER)
@@ -235,6 +239,7 @@ with st.sidebar:
             elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
                 st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
             else:
+                park_clear("new_project_name", "")
                 _open_project(name, create=True)
 
     if existing_projects:
@@ -243,11 +248,16 @@ with st.sidebar:
         # the key does not reach the browser — leaving Open lit over a
         # project that is no longer there.
         take_clear("project_select", fresh=_active)
-        selected = st.selectbox(
-            wording.OPEN_PROJECT_LABEL, existing_projects,
-            index=existing_projects.index(_active) if _active in existing_projects else 0,
-            key="project_select",
-        )
+        # No index=: a widget given BOTH a default and a session-state entry
+        # makes Streamlit print a warning on the page, and every handler that
+        # opens a project assigns this key. The opening value is assigned the
+        # same way instead — and reassigned whenever what it holds is not a
+        # project on disk any more.
+        if st.session_state.get("project_select") not in existing_projects:
+            st.session_state["project_select"] = (
+                _active if _active in existing_projects else existing_projects[0])
+        selected = st.selectbox(wording.OPEN_PROJECT_LABEL, existing_projects,
+                                key="project_select")
         # The one sidebar control that ever lights up, and only while it would
         # do something: choosing a project in the box does not open it.
         _switching = selected != _active
@@ -311,6 +321,7 @@ with st.sidebar:
 
         # Any file name: what is inside decides, not the extension.
         uploaded_json = st.file_uploader(wording.RESTORE_FROM_BACKUP, key="restore_json")
+        st.caption(wording.RESTORE_CAPTION)
         if uploaded_json is not None and st.button(wording.CHECK_THIS_BACKUP):
             try:
                 st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())

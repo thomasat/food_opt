@@ -1382,6 +1382,53 @@ class TestSetupValidation:
         assert opt.quantity_constraints[0]['max'] == 40.0
 
 
+def test_a_name_differing_only_by_case_is_refused(tmp_path, monkeypatch):
+    """Two rows called "Oat flour" and "oat flour" are two rows with one name
+    on every table in the app, and the CSV importer matches columns without
+    regard to case, so the second could never be filled in."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("case")
+    opt.add_ingredient("Oat flour", 0, 50)
+    opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+    with pytest.raises(ValueError, match="Oat flour already exists"):
+        opt.add_ingredient("oat flour", 0, 60)
+    with pytest.raises(ValueError, match="Oat flour already exists"):
+        opt.add_process_parameter("OAT FLOUR", 0, 60)
+    with pytest.raises(ValueError, match="That measurement already exists"):
+        opt.add_objective("firmness", 1.0, goal="max", min_val=0, max_val=10)
+    assert [v['name'] for v in opt.variables] == ["Oat flour"]
+    assert [o['name'] for o in opt.objectives] == ["Firmness"]
+    # The exact spelling is still an edit, not a refusal.
+    opt.add_ingredient("Oat flour", 0, 60)
+    assert opt.variables[0]['bounds'] == (0.0, 60.0)
+
+
+def test_biggest_changes_leaves_out_a_paused_ingredient(tmp_path, monkeypatch):
+    """A paused ingredient is held at one value in every new formulation, so
+    it cannot be a change this batch made."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("paused_changes")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_ingredient("Oil", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 10.0, "Oil": 50.0}, {"Taste": 5.0})
+    opt.deactivate_variable("Oil", value=50.0)
+    changes = opt.biggest_changes({"Water": 12.0, "Oil": 90.0},
+                                  {"Water": 10.0, "Oil": 50.0})
+    assert [name for name, _ in changes] == ["Water"]
+
+
+def test_the_cold_start_prints_nothing_to_the_console(tmp_path, monkeypatch,
+                                                      capsys):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("quiet")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    capsys.readouterr()
+    opt.ask(n_suggestions=1)
+    assert "DEBUG" not in capsys.readouterr().out
+
+
 def test_sample_ingredients_csv_has_readable_names(tmp_path, monkeypatch):
     """The shipped sample CSV (the sample project and the CSV template
     download) must use plain, human-readable ingredient names, since they
@@ -1407,7 +1454,15 @@ def test_sample_ingredients_csv_has_readable_names(tmp_path, monkeypatch):
     sample_names = [v["name"] for v in sample_opt.variables]
     assert len(sample_names) == 8
     assert set(sample_names) <= set(names)
-    assert list(sample.columns) == list(df.columns)
+    # The template's headers are the add form's own words — Name, Lowest,
+    # Highest, Unit — so a reader filling it in is answering the same four
+    # questions the screen asks. data/ingredients.csv is the experiments'
+    # list, not a template, and keeps the lowercase headers those scripts
+    # read by name; the columns are the same columns either way.
+    assert list(sample.columns) == ["Name", "Lowest", "Highest", "Unit",
+                                    "Fat per 100 g", "Sodium per 100 g"]
+    assert [c.lower() for c in df.columns] == [
+        "name", "min", "max", "unit", "fat per 100 g", "sodium per 100 g"]
 
     # The repo's experiments example (used by experiments/, not shipped in
     # the disk image) must still import for the ingredient columns, the same
@@ -2503,7 +2558,7 @@ class TestUnitPerIngredient:
         monkeypatch.chdir(tmp_path)
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         df = pd.read_csv(os.path.join(root, "data", "sample_ingredients.csv"))
-        assert "unit" in df.columns
+        assert "Unit" in df.columns
         opt = FoodOptimizer("template_units")
         opt.load_ingredients_from_csv(df)
         assert {opt.unit_of(v["name"]) for v in opt.variables} == {"g"}
@@ -3001,6 +3056,11 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # "Scales" the verb, in the formulation-total help. The banned word is
+    # the NOUN Scale, which was this app's old name for a measurement's
+    # Range; nothing on screen is called a scale any more.
+    "Scales the sheets you print to this total. The amounts saved with the "
+    "results stay as generated; the proportions are the same.",
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
@@ -3010,8 +3070,7 @@ _ALLOWED_EXACT = {
     "Delete this project",
     "Yes, delete it",
     "Delete **",
-    "**? It has no formulations yet, "
-    "and it leaves this list. ",
+    "**? It has no formulations yet, and it leaves the ",
     "** and its ",
 }
 

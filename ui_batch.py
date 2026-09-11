@@ -291,6 +291,7 @@ def _batch_table(opt):
     # would say why or what to do instead.
     if rows and all(r.get('note') for r in rows):
         st.caption(wording.ONLY_OWN_FORMULATIONS_CAPTION)
+    _scaled_cautions(opt, rows, scale_to)
 
     best_no = best_formulation_no(opt)
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
@@ -317,6 +318,34 @@ def _batch_table(opt):
                     rows[0]['formulation'], best_no, parts))
 
 
+def _scaled_cautions(opt, rows, scale_to):
+    """The amounts on the table, checked against what the project allows.
+
+    A formulation total the generated amounts were never chosen for can push
+    an ingredient past its own Lowest or Highest — and the sheets are printed
+    from these numbers, so the bench weighs out an amount the project says it
+    does not allow. One line per ingredient, however many rows are outside:
+    the fix is the same one every time.
+    """
+    if scale_to is None:
+        return
+    said = set()
+    for row in rows:
+        recipe = opt.scaled_recipe(row['recipe'], scale_to)
+        for var in opt.variables:
+            # Ingredients only: a formulation total scales what you weigh
+            # out, and leaves a cook temperature exactly where it was.
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            name = var['name']
+            if name in said:
+                continue
+            caution = bounds_caution(opt, name, recipe.get(name))
+            if caution:
+                said.add(name)
+                st.caption(caution)
+
+
 def _scale_control(opt, unit, scale_to):
     """The box that rewrites every formulation to a total, and the line under
     it. `unit` is the unit the ingredients share, or None when they differ.
@@ -340,8 +369,10 @@ def _scale_control(opt, unit, scale_to):
         key="scale_total",
         help=wording.BATCH_TOTAL_HELP,
     )
-    if scale_to is not None:
-        st.caption(wording.AMOUNTS_SHOWN_FOR_TOTAL)
+    # No "Amounts shown for this total." under the box: the box holds the
+    # total, the help says what it does, and the line under the two download
+    # buttons names the number the files were written for. Three sentences
+    # for one fact; this was the one that carried nothing of its own.
 
 
 def _sheet_lines(opt, row, scale_to):
@@ -516,7 +547,7 @@ def _record_results(opt):
     ordered = opt.measurements_by_importance()
     st.subheader(wording.RECORD_RESULTS_HEADER)
     st.caption(wording.RECORD_RESULTS_CAPTION)
-    left_out, entered = set(), 0
+    left_out, entered, partly = set(), 0, 0
 
     for row in rows:
         number = row['formulation']
@@ -528,7 +559,7 @@ def _record_results(opt):
         skip = _left_out(number)
         if skip:
             left_out.add(number)
-        has_value = False
+        typed = 0
         cols = None
         for j, obj in enumerate(ordered):
             if j % _PER_ROW == 0:
@@ -547,7 +578,7 @@ def _record_results(opt):
                     placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                     key=_result_key(number, obj['name']), disabled=skip,
                 )
-                has_value = has_value or value is not None
+                typed += value is not None
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
@@ -558,8 +589,14 @@ def _record_results(opt):
         # Last in the row, per spec: the boxes the user came to fill come first.
         st.checkbox(wording.NOT_MADE, key=f"f{number}_leave_out",
                     help=wording.NOT_MADE_HELP)
-        if has_value and not skip:
-            entered += 1
+        if not skip:
+            # Filled in means EVERY measurement has a value. One of three
+            # typed is not a third of a result, and counting it as filled in
+            # told the user the batch was further along than it was.
+            if ordered and typed == len(ordered):
+                entered += 1
+            elif typed:
+                partly += 1
         st.divider()
 
     kept = [r for r in to_record if r['formulation'] not in left_out]
@@ -580,6 +617,8 @@ def _record_results(opt):
     # Nothing here reaches the file until Save results is pressed, which is
     # the tail.
     counter = wording.filled_in_counter(entered, len(kept))
+    if partly:
+        counter += wording.partly_filled_suffix(partly)
     if left_out:
         counter += wording.not_made_counter_suffix(len(left_out))
     st.caption(counter + wording.SAVED_WHEN_SUFFIX)

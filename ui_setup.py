@@ -210,7 +210,8 @@ def _add_variable(opt):
             with prop_cols[j % len(prop_cols)]:
                 st.session_state.setdefault(_prop_key(prop), None)
                 st.number_input(prop, key=_prop_key(prop),
-                               placeholder=wording.NO_VALUE_PLACEHOLDER)
+                                placeholder=wording.NO_VALUE_PLACEHOLDER,
+                                help=wording.PROPERTY_BOX_HELP)
     # Grey: the tab's one coloured button is Continue at the foot.
     if st.button(wording.ADD_VARIABLE_BUTTON, key="add_variable"):
         _add_variable_now(opt, setting, wants_baseline, properties)
@@ -685,6 +686,10 @@ def _measurement_editor(opt, storage, editing):
         name = st.text_input(wording.NAME_LABEL, key=_mkey(None, "name"),
                              placeholder=wording.MEASUREMENT_NAME_PLACEHOLDER)
     else:
+        # The open editor replaces the table's Add expander, so without a
+        # title it was six boxes and a greyed Name, with nothing saying which
+        # measurement Save changes would change.
+        st.markdown(wording.edit_measurement_heading(editing['name']))
         st.session_state.setdefault(_mkey(editing, "name"), editing['name'])
         st.text_input(wording.NAME_LABEL, key=_mkey(editing, "name"), disabled=True)
         name = editing['name']
@@ -703,10 +708,16 @@ def _measurement_editor(opt, storage, editing):
                             format_func=wording.GOAL_LABELS.get,
                             help=wording.GOAL_SELECT_HELP)
 
+    # Shown only for a target, not greyed out: this form is deliberately not
+    # an st.form, so the box can come and go the moment the Goal changes, and
+    # a greyed box asks the reader to work out why it is there at all.
     st.session_state.setdefault(_mkey(editing, "target"),
                                 float((editing or {}).get('target') or 0.0))
-    target = st.number_input(wording.TARGET_LABEL, key=_mkey(editing, "target"),
-                             disabled=(goal != 'target'))
+    if goal == 'target':
+        target = st.number_input(wording.TARGET_LABEL,
+                                 key=_mkey(editing, "target"))
+    else:
+        target = st.session_state.get(_mkey(editing, "target"))
 
     st.markdown(wording.RANGE_HEADING)
     s1, s2 = st.columns(2)

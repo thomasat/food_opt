@@ -306,6 +306,12 @@ class FoodOptimizer:
                 other = v.get('category', 'ingredient')
                 other_label = "an ingredient" if other == 'ingredient' else "a process setting"
                 raise ValueError(f"{v['name']} already exists as {other_label}.")
+        for v in self.variables:
+            # Same name, same category, different capitals. The exact name is
+            # an EDIT (the caller updates the bounds); a second spelling of it
+            # would be a second row, with the same name on every table.
+            if v['name'] != name and v['name'].lower() == name.lower():
+                raise ValueError(wording.name_differs_only_by_case(v['name']))
         return name
 
     def add_ingredient(self, name, min_val, max_val, unit=None):
@@ -557,6 +563,11 @@ class FoodOptimizer:
                 f"{name} is already the name of an ingredient or process "
                 f"setting. Choose another name for the measurement."
             )
+        # Exact name replaces (this method is add-or-replace); a second
+        # spelling of it would be a second measurement with one name.
+        if any(obj['name'] != name and obj['name'].lower() == name.lower()
+               for obj in self.objectives):
+            raise ValueError(wording.MEASUREMENT_EXISTS_ERROR)
         if is_reserved_name(name):
             raise ValueError(
                 f"{name} is a column name Food Optimizer uses for its own "
@@ -1181,6 +1192,11 @@ class FoodOptimizer:
         pairs = []
         for var in self.variables:
             if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            # A paused ingredient is held at one value in every new
+            # formulation, so it cannot be a change this batch made; naming
+            # it as the biggest one pointed at the row nobody moved.
+            if not var.get('active', True):
                 continue
             name = var['name']
             try:
@@ -2011,7 +2027,6 @@ class FoodOptimizer:
         past the points it has already issued, so 3 + 2 lands on the same
         five points as 5 in one go, and a regenerate still differs because
         the formulation numbers have moved on."""
-        print(f"DEBUG: cold start, Sobol design of {n_suggestions}...")
         sobol = SobolEngine(dimension=dim, scramble=True,
                             seed=self._sobol_seed())
         # _ask_seed is the NEXT formulation number, so one less is how many
@@ -2251,7 +2266,8 @@ class FoodOptimizer:
         self._retire_batch_no(batch_no)
         self.save()
 
-    def import_formulation(self, recipe_dict, results_dict, note="Imported"):
+    def import_formulation(self, recipe_dict, results_dict,
+                           note=wording.IMPORTED_NOTE):
         """Record a formulation made before this project existed. It draws the
         next global number, its batch stays blank (it belongs to no batch this
         project generated), and the note says where it came from."""

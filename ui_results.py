@@ -156,6 +156,26 @@ def _best(opt):
     return partial
 
 
+def _amount_format(opt, frame):
+    """How each amount column of the All formulations table is written out:
+    two decimals, because that is the precision a balance works to and what
+    every other table in the app shows — `Show amounts` printed 11.875 beside
+    the bench sheet's 11.88. A process setting is not an amount and keeps
+    fmt_setting's own rule."""
+    settings = {opt._amount_column(v['name']) for v in opt.variables
+                if v.get('category') == 'process'}
+    amounts = {opt._amount_column(v['name']) for v in opt.variables}
+
+    def weighed(value):
+        # A row nobody made may hold no amount for a variable added later.
+        if value is None or pd.isna(value):
+            return ""
+        return fmt_amount(value)
+
+    return {c: (fmt_setting if c in settings else weighed)
+            for c in frame.columns if c in amounts}
+
+
 def _all_formulations(opt, said_partial=False):
     st.markdown(wording.ALL_FORMULATIONS_HEADING)
     o1, o2 = st.columns([2, 1])
@@ -167,7 +187,8 @@ def _all_formulations(opt, said_partial=False):
     with o2:
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
-    st.dataframe(frame, hide_index=True, key="all_formulations",
+    st.dataframe(frame.style.format(_amount_format(opt, frame)),
+                 hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
     # "Overall score" here is a lookup into food_bo's own history_frame
     # schema, not a header this module produces — it stays literal.
@@ -246,9 +267,13 @@ def _amount_boxes(opt, key_of, recipe=None):
                 None if recipe is None else _recorded_amount(var, recipe))
             # The All formulations table's own header, so an amount is typed
             # in the unit that table prints it in.
-            typed[name] = st.number_input(opt._amount_column(name),
-                                          placeholder=f"{low:g}–{high:g}",
-                                          key=key_of(name))
+            typed[name] = st.number_input(
+                opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
+                # Only where the box opens on a recorded amount: on the
+                # typed-in past formulation there is nothing to keep.
+                help=(None if recipe is None
+                      else wording.KEEP_RECORDED_AMOUNT_HELP),
+                key=key_of(name))
     return typed
 
 

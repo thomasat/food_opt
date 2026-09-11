@@ -38,7 +38,8 @@ TAB_RESULTS = "3 · Results"
 # Archived copies are written beside the project's own file, which on the
 # desktop app is the FoodOptimizer folder. Every tab and the sidebar use it,
 # so the sentence exists once.
-COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
+COPY_KEPT = ("A copy is saved in your FoodOptimizer folder first; Restore "
+             "from backup can load it.")
 
 NAME_RULE = ("Use 1 to 64 letters, numbers, spaces, hyphens, underscores or "
             "periods, starting with a letter or number.")
@@ -108,6 +109,8 @@ BACKUP_UNAVAILABLE = ("Backup download is unavailable while the project "
 DOWNLOAD_PROJECT_BACKUP = "Download project backup"
 
 RESTORE_FROM_BACKUP = "Restore from backup"
+RESTORE_CAPTION = ("A project backup (.json) you downloaded earlier. The "
+                   "current project is copied first.")
 CHECK_THIS_BACKUP = "Check this backup"
 BACKUP_UNREADABLE = (
     "This file could not be read as a Food Optimizer backup. "
@@ -158,12 +161,14 @@ YES_DELETE_IT = "Yes, delete it"
 
 
 def delete_project_warning(project_name, held_text=None):
-    """`held_text` is None for an already-empty project."""
+    """`held_text` is None for an already-empty project. The confirmation is
+    inside Manage project, nowhere near the box it is talking about, so "it
+    leaves this list" named neither the project nor the list."""
     if held_text is None:
-        return (f"Delete **{project_name}**? It has no formulations yet, "
-                f"and it leaves this list. " + COPY_KEPT)
-    return (f"Delete **{project_name}** and its {held_text}? It leaves "
-            f"this list. " + COPY_KEPT)
+        return (f"Delete **{project_name}**? It has no formulations yet, and "
+                f"it leaves the {OPEN_PROJECT_LABEL} list. " + COPY_KEPT)
+    return (f"Delete **{project_name}** and its {held_text}? The project "
+            f"leaves the {OPEN_PROJECT_LABEL} list. " + COPY_KEPT)
 
 
 def copy_saved_as(archived):
@@ -287,7 +292,8 @@ ADD_OWN_NO_BATCH_CAPTION = (f"To have generated {FORMULATION}s as well, "
 OWN_NOTE_PLACEHOLDER = "Why you want to try it"
 START_FROM_BEST = "Start from the best so far"
 ADD_TO_THIS_BATCH = f"Add to this {BATCH}"
-ENTER_EVERY_AMOUNT = "Enter every amount."
+ENTER_EVERY_AMOUNT = ("Enter every amount; type 0 for an ingredient you are "
+                      "leaving out.")
 # What the row says when the user typed no reason of their own. The note is
 # part of the record, so a row on the batch table is never blank about what
 # it is.
@@ -348,12 +354,10 @@ def batch_total_label(unit):
 
 
 BATCH_TOTAL_HELP = (
-    "Leave this empty to weigh out the amounts as they were "
-    "generated. Type a total and every formulation is scaled to it, "
-    "on screen and on the sheets you print."
+    "Scales the sheets you print to this total. The amounts saved with the "
+    "results stay as generated; the proportions are the same."
 )
 AS_GENERATED_PLACEHOLDER = "as generated"
-AMOUNTS_SHOWN_FOR_TOTAL = "Amounts shown for this total."
 
 MEASURED_PREFIX = "Measured "
 TOTAL_PREFIX = "Total: "
@@ -434,6 +438,13 @@ def filled_in_counter(entered, kept_n):
 
 def not_made_counter_suffix(n):
     return f" · {n} not made"
+
+
+def partly_filled_suffix(n):
+    """A formulation counts as filled in when EVERY measurement has a value.
+    One of three typed is not a third of a result, and counting it as filled
+    in told the user the batch was further along than it was."""
+    return f" · {n} partly filled"
 
 
 SAVED_WHEN_SUFFIX = " · saved when you press Save results"
@@ -578,6 +589,7 @@ BASELINE_HELP = ("The setting you used for every formulation already made, "
                  "so those results still count.")
 ADD_VARIABLE_BUTTON = "Add ingredient or setting"
 NO_VALUE_PLACEHOLDER = "no value"
+PROPERTY_BOX_HELP = "This ingredient's own value per 100 g."
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
 
@@ -652,7 +664,7 @@ def delete_button(name):
 def delete_variable_warning(name, is_ingredient):
     head = (f"Delete {name} from this project permanently? " if is_ingredient
             else f"Delete {name}? ")
-    return (head + "Formulations already made will be recorded without it. "
+    return (head + "Formulations you already recorded keep their values. "
             + COPY_KEPT)
 
 
@@ -727,6 +739,14 @@ IMPORTANCE_LABEL = "Importance"
 IMPORTANCE_HELP = "Any positive number. 2 counts twice as much as 1."
 MEASUREMENT_EXISTS_ERROR = ("That measurement already exists. Use Edit on "
                             "its row to change it.")
+
+
+def name_differs_only_by_case(stored):
+    """Two rows whose names differ only in capitals are two rows with one
+    name on every table in the app, and the CSV importer matches columns
+    without regard to case, so the second could never be filled in."""
+    return (f"{stored} already exists. Use that spelling to change it, or "
+            "choose another name.")
 ADD_MEASUREMENT_BUTTON = "Add measurement"
 SAVE_CHANGES_BUTTON = "Save changes"
 
@@ -754,6 +774,13 @@ COL_SHARE = "Share of score"
 
 def edit_button(name):
     return f"Edit {name}"
+
+
+def edit_measurement_heading(name):
+    """The open editor's own title. Without it the form was six unlabelled
+    boxes with a greyed Name at the top, and nothing said which measurement
+    Save changes would change."""
+    return f"##### Edit {name}"
 
 
 def delete_measurement_warning(name):
@@ -978,6 +1005,7 @@ def no_formulation_to_correct_caption():
 FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION = ("Formulations that were not made "
                                            "have no result to correct.")
 LEAVE_BLANK_KEEP_VALUE_HELP = "Leave blank to keep the value already recorded."
+KEEP_RECORDED_AMOUNT_HELP = "Leave as is to keep the recorded amount."
 SAVE_CORRECTION_BUTTON = "Save correction"
 
 
@@ -1060,7 +1088,7 @@ UPLOAD_A_CSV = "Upload a CSV"
 # What a formulation made before this project existed is noted as, and what
 # the Note box opens holding. food_bo.import_formulation defaults to the same
 # word, so a row typed in and a row read off a CSV read alike.
-IMPORTED_NOTE = "Imported"
+IMPORTED_NOTE = "Made earlier"
 ADD_THIS_FORMULATION = f"Record this {FORMULATION}"
 
 
@@ -1068,9 +1096,13 @@ def formulation_added(no):
     return f"{FORMULATION_CAP} {no} added."
 
 
+EXTRA_COLUMNS_IGNORED = " Extra columns are ignored."
+
+
 def import_columns_caption(names_text):
     return (f"One row per {FORMULATION} you already made. The columns must "
-            f"match these names exactly: {names_text}.")
+            f"match these names exactly: {names_text}."
+            + EXTRA_COLUMNS_IGNORED)
 
 
 def import_columns_caption_empty():
