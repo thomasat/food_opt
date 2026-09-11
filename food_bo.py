@@ -2102,8 +2102,7 @@ class FoodOptimizer:
         self.pending_batch = rows
         if self.pending_batch_no is None:
             self.pending_batch_no = self.next_batch_no()
-        if self.pending_batch_created is None:
-            self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+        self._date_pending_batch()
         self.save()
         return number
 
@@ -2235,6 +2234,15 @@ class FoodOptimizer:
         highest = max(used) if used else 0
         self.next_formulation_no = max(int(self.next_formulation_no or 1), highest + 1)
 
+    def _date_pending_batch(self):
+        """Stamp the open batch with the day it was opened, once. Both ways a
+        batch opens — ask() through set_pending_batch, and a formulation of
+        the user's own through add_to_pending_batch — come through here, so
+        the date the printable sheets carry is the same one either way, and a
+        row added later never re-dates the batch it joined."""
+        if self.pending_batch_created is None:
+            self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+
     def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):
         """Persist (or clear) the open batch so a user who closes the window
         mid-batch finds their formulations on return. Rows without a number
@@ -2248,8 +2256,7 @@ class FoodOptimizer:
                 self.pending_batch_no = int(batch_no)
             elif self.pending_batch_no is None:
                 self.pending_batch_no = self.next_batch_no()
-            if self.pending_batch_created is None:
-                self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+            self._date_pending_batch()
             if discarded is not None:
                 self.pending_batch_discarded = [int(n) for n in discarded]
             self.pending_batch = rows

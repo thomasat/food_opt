@@ -190,8 +190,10 @@ def _amount_boxes(opt, choice, recipe):
             st.session_state.setdefault(
                 _correct_amount_key(choice, name),
                 float(recipe.get(name, var.get('_absent_value', 0.0))))
+            # The All formulations table's own header, so a corrected amount
+            # is typed in the unit that table prints it in.
             typed[name] = st.number_input(
-                label_with_unit(name, opt.unit_of(name)),
+                opt._amount_column(name),
                 placeholder=f"{low:g}–{high:g}",
                 key=_correct_amount_key(choice, name),
             )
@@ -518,7 +520,7 @@ def _type_in_past(opt):
             name = var['name']
             low, high = (float(b) for b in var['bounds'])
             st.session_state.setdefault(_past_key(name), None)
-            st.number_input(label_with_unit(name, opt.unit_of(name)),
+            st.number_input(opt._amount_column(name),
                             placeholder=f"{low:g}–{high:g}",
                             key=_past_key(name))
     ordered = opt.measurements_by_importance()

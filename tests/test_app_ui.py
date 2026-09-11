@@ -1356,6 +1356,9 @@ def test_own_formulation_starts_a_batch_when_none_is_open(burger):
     at.run()
     assert any(c.value == wording.ADD_OWN_NO_BATCH_CAPTION
                for c in at.caption), [c.value for c in at.caption]
+    # Every typed amount carries its unit, the same header the batch table
+    # prints above that column.
+    assert at.number_input(key="own_Pea protein").label == "Pea protein (g)"
     at.number_input(key="own_Pea protein").set_value(12.0)
     at.number_input(key="own_Methylcellulose").set_value(1.5)
     at.run()
@@ -1566,6 +1569,32 @@ def test_regenerating_names_the_numbers_it_discards(open_batch):
     assert [r["formulation"] for r in reloaded.pending_batch] == [3, 4]
     assert reloaded.pending_batch_no == 1     # the batch keeps its number
     assert any(c.value == wording.batch_discarded_caption("1 and 2")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_regenerating_asks_for_the_generated_rows_only(burger):
+    """A formulation of the user's own is theirs, not a slot the model filled:
+    discarding a batch of three generated rows plus one own asks for three."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                              {"Pea protein": 15.0, "Methylcellulose": 1.5},
+                              {"Pea protein": 20.0, "Methylcellulose": 2.0}])
+    burger.add_to_pending_batch({"Pea protein": 5.0, "Methylcellulose": 0.5},
+                                note=wording.OWN_FORMULATION_NOTE)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    _submit_button(at, "Yes, discard").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert len(reloaded.pending_batch) == 3
+    assert [r["formulation"] for r in reloaded.pending_batch] == [5, 6, 7]
+    assert reloaded.pending_batch_no == 1      # the batch keeps its number
+    # All four numbers retired, the own one included: the whole batch went.
+    assert any(c.value == wording.batch_discarded_caption("1, 2, 3 and 4")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1888,6 +1917,28 @@ def test_a_confirmation_greys_save_results(open_batch):
 
 
 
+def test_a_confirmation_greys_both_add_your_own_buttons(burger):
+    """The expander sits under the batch table but is drawn AFTER the
+    confirmations, so a Yes armed on this very run greys its two buttons —
+    arming does not rerun, and a live button under a warning is a second
+    thing to do."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 12.0, "Methylcellulose": 1.2},
+                              {"Pea protein": 18.0, "Methylcellulose": 2.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
+    assert not _submit_button(at, wording.START_FROM_BEST).disabled
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    assert _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
+    assert _submit_button(at, wording.START_FROM_BEST).disabled
+    assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
+
+
 def _displayed(element):
     """The strings a st.dataframe actually puts on screen. A Styler's number
     formatting rides along in the proto as display values, so this is what the
@@ -2040,8 +2091,11 @@ def test_correcting_amounts_and_a_result_in_one_save(scored, tmp_path):
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
-    # The boxes open on the amounts the row was recorded with.
+    # The boxes open on the amounts the row was recorded with, each labelled
+    # with its own unit.
     assert at.number_input(key="correct_amount_1_Pea protein").value == 10.0
+    assert at.number_input(key="correct_amount_1_Pea protein").label \
+        == "Pea protein (g)"
     at.number_input(key="correct_amount_1_Pea protein").set_value(15.0)
     at.number_input(key="correct_1_Firmness").set_value(6.0)
     at.run()
@@ -2085,6 +2139,7 @@ def test_type_in_a_past_formulation(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert at.text_input(key="past_note").value == "Imported"
+    assert at.number_input(key="past_Pea protein").label == "Pea protein (g)"
     at.number_input(key="past_Pea protein").set_value(12.0)
     at.number_input(key="past_Methylcellulose").set_value(1.2)
     at.number_input(key="past_m_Firmness").set_value(5.0)

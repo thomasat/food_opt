@@ -168,7 +168,12 @@ def _start_from_best(opt, best_no):
         return
     recipe = opt.recipe_history[index]
     for var in opt.active_variables():
-        park_clear(_own_key(var['name']), float(recipe.get(var['name'], 0.0)))
+        # A variable added after that formulation was recorded has no amount
+        # in it. Its box opens EMPTY rather than at zero: zero is an amount
+        # the user never chose, and Add refuses a blank, which is the ask.
+        recorded = recipe.get(var['name'])
+        park_clear(_own_key(var['name']),
+                   None if recorded is None else float(recorded))
     park_clear("own_note", wording.repeat_of_formulation(best_no))
     st.rerun()
 
@@ -216,8 +221,11 @@ def _own_formulation(opt):
             # allowed amounts are the placeholder, and going outside them is
             # a caution on the way in.
             st.session_state.setdefault(_own_key(var['name']), None)
+            # The batch table's own header, so the box asks for the amount in
+            # the unit the table beneath it prints: `Pea protein (g)`, and a
+            # cook temperature in °C rather than in nothing at all.
             st.number_input(
-                label_with_unit(var['name'], opt.unit_of(var['name'])),
+                opt._amount_column(var['name']),
                 placeholder=f"{low:g}–{high:g}",
                 key=_own_key(var['name']),
             )
@@ -457,7 +465,12 @@ def _downloads(opt):
 
     if regenerate:
         batch_no = opt.pending_batch_no
-        n = len(rows)
+        # Only the generated rows are asked for again. A formulation of the
+        # user's own is theirs — it carries a note saying what it is — and
+        # counting it here would quietly ask the model for one more than it
+        # chose last time. A batch of nothing but own rows still regenerates
+        # one, so the button never produces an empty batch.
+        n = max(1, sum(1 for r in rows if not r.get('note')))
         opt.set_pending_batch(None)     # the old numbers retire here
         st.session_state.pop("scale_total", None)
         st.session_state.pop("_results_upload", None)
@@ -681,7 +694,15 @@ def render(opt, storage):
         _own_formulation(opt)
         return
     _batch_table(opt)
-    _own_formulation(opt)
+    # The expander belongs directly under the table, but its two buttons must
+    # know whether `Generate a different batch` has just been armed — and
+    # arming a confirmation does not rerun, so an expander drawn before
+    # _downloads would still offer live buttons on the run that puts the
+    # warning on screen. The container reserves the position instead, exactly
+    # as _downloads does for the bench sheet.
+    slot = st.container()
     _downloads(opt)
+    with slot:
+        _own_formulation(opt)
     _record_results(opt)
     _upload(opt)
