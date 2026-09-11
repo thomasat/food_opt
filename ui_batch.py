@@ -23,6 +23,10 @@ from ui_helpers import (
 # still fits on screen.
 _PER_ROW = 4
 
+# What follows a line on a printable sheet: nothing, a ruled line to write one
+# number on, or a ruled area for the note.
+_PROSE, _RULE, _AREA = "prose", "rule", "area"
+
 
 def _result_key(formulation_no, measurement):
     """The stable key for one measurement of one formulation. Formulation
@@ -276,6 +280,9 @@ def _batch_table(opt):
     unit = opt.one_amount_unit()
     st.markdown(wording.make_these(opt.pending_batch_no, len(rows)))
     scale_to = _scale_to(opt)
+    # Kept with the batch, so tab 3 can still say what the bench weighed out
+    # once the batch is closed. A no-op on a rerun that changed nothing.
+    opt.set_pending_batch_total(scale_to)
     frame = opt.batch_frame(rows, scale_to=scale_to)
     st.dataframe(
         frame.style.format(_amount_format(opt, frame)),
@@ -365,7 +372,7 @@ def _scale_control(opt, unit, scale_to):
     # tab 1, and one word cannot be two things across two tabs.
     st.number_input(
         wording.batch_total_label(unit),
-        min_value=0.0, step=1.0, placeholder=wording.AS_GENERATED_PLACEHOLDER,
+        min_value=0.0, step=1.0, placeholder=wording.BATCH_TOTAL_PLACEHOLDER,
         key="scale_total",
         help=wording.BATCH_TOTAL_HELP,
     )
@@ -376,78 +383,114 @@ def _scale_control(opt, unit, scale_to):
 
 
 def _sheet_lines(opt, row, scale_to):
-    """One printable sheet as a list of plain-text lines. Shared by the on-screen
-    sheets and the downloadable HTML so the two can never drift apart."""
+    """One printable sheet as (text, kind) pairs, kind being what follows the
+    text on paper: nothing, a ruled line to write one number on, or a ruled
+    area for the note. Shared by the in-app preview and the downloadable HTML
+    so the two can never drift apart.
+
+    The rules are drawn in CSS, never typed. A run of underscores wandered out
+    of line the moment a measurement had a longer name than its neighbour, and
+    it is not something a pen can write on straight."""
     recipe = opt.scaled_recipe(row['recipe'], scale_to)
     made_on = opt.pending_batch_created or datetime.now().astimezone().strftime("%Y-%m-%d")
     ingredients = [v for v in opt.variables
                    if v.get('category', 'ingredient') == 'ingredient']
     process = [v for v in opt.variables if v.get('category') == 'process']
-    lines = [f"{opt.project_name} · {made_on}",
-             f"{wording.FORMULATION_CAP} {row['formulation']} · "
-             f"{wording.BATCH} {opt.pending_batch_no}",
-             ""]
+    lines = [(f"{opt.project_name} · {made_on}", _PROSE),
+             (f"{wording.FORMULATION_CAP} {row['formulation']} · "
+              f"{wording.BATCH} {opt.pending_batch_no}", _PROSE),
+             ("", _PROSE)]
     for var in ingredients:
-        lines.append(f"{var['name']}: "
-                     + fmt_amount(recipe.get(var['name'], 0.0),
-                                  opt.unit_of(var['name'])))
+        lines.append((f"{var['name']}: "
+                      + fmt_amount(recipe.get(var['name'], 0.0),
+                                   opt.unit_of(var['name'])), _PROSE))
     if ingredients:
         # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
         # A sheet with nothing to weigh out claims no total at all.
-        lines.append(wording.TOTAL_PREFIX + opt.total_text(recipe))
+        lines.append((wording.TOTAL_PREFIX + opt.total_text(recipe), _PROSE))
     if process:
         if ingredients:
-            lines.append("")      # a blank line only separates two lists
+            lines.append(("", _PROSE))   # a blank line only separates two lists
         for var in process:
             # A setting is not an amount, so it never wears the project's unit
             # and never the two decimals a balance works to.
-            lines.append(f"{var['name']}: "
-                         + fmt_setting(recipe.get(var['name'], 0.0),
-                                       var.get('unit')))
-    lines.append("")
+            lines.append((f"{var['name']}: "
+                          + fmt_setting(recipe.get(var['name'], 0.0),
+                                        var.get('unit')), _PROSE))
+    lines.append(("", _PROSE))
     for obj in opt.measurements_by_importance():
-        lines.append(wording.MEASURED_PREFIX
-                     + f"{label_with_unit(obj['name'], obj.get('unit'))}"
-                     f" · {goal_line(obj)}: ______________________")
-    lines.append("")
+        lines.append((wording.MEASURED_PREFIX
+                      + f"{label_with_unit(obj['name'], obj.get('unit'))}"
+                      f" · {goal_line(obj)}:", _RULE))
+    lines.append(("", _PROSE))
     # A repeat says so on the sheet the technician carries: two sheets with
     # identical amounts and nothing printed to say why is how a formulation
     # gets made twice by mistake.
     note = str(row.get('note') or "").strip()
-    lines.append(wording.note_line(note) if note else wording.NOTE_BLANK_LINE)
-    lines.append(wording.NOT_MADE_CHECKBOX_SHEET)
+    lines.append((wording.note_line(note), _PROSE) if note
+                 else (wording.NOTE_SHEET_LABEL, _AREA))
+    lines.append((wording.NOT_MADE_CHECKBOX_SHEET, _PROSE))
     return lines
+
+
+# Every rule is scoped to .fo-sheet. The preview is injected into the app's
+# own page, where a bare body{} rule would restyle the whole window; the
+# download wraps the same block in a document of its own.
+_SHEET_CSS = (
+    ".fo-sheet{font-family:ui-monospace,Menlo,Consolas,monospace;"
+    "font-size:13px;line-height:1.6;padding:24px 32px;"
+    "page-break-after:always;break-after:page}"
+    ".fo-sheet:last-child{page-break-after:auto;break-after:auto}"
+    ".fo-sheet p{margin:0;white-space:pre-wrap}"
+    # currentColor, so the rules print black on paper and stay visible in
+    # either of the app's themes on screen.
+    ".fo-rule{display:block;height:1.4em;opacity:.5;"
+    "border-bottom:1px solid currentColor}"
+    ".fo-area{display:block;height:4.2em;opacity:.5;border-radius:3px;"
+    "border:1px solid currentColor}"
+)
+
+
+def _sheets_body(opt, scale_to):
+    """Every sheet as one block of HTML, styles included. This is what the
+    preview renders and what the download wraps, so the printed page and the
+    screen can never disagree."""
+    blocks = []
+    for row in opt.pending_batch:
+        parts = []
+        for text, kind in _sheet_lines(opt, row, scale_to):
+            safe = html.escape(text)
+            if kind == _RULE:
+                parts.append(f"<p>{safe}<span class='fo-rule'></span></p>")
+            elif kind == _AREA:
+                parts.append(f"<p>{safe}<span class='fo-area'></span></p>")
+            else:
+                # A blank line is a blank line on paper, and an empty <p>
+                # has no height at all.
+                parts.append(f"<p>{safe or '&nbsp;'}</p>")
+        blocks.append("<div class='fo-sheet'>" + "".join(parts) + "</div>")
+    return f"<style>{_SHEET_CSS}</style>" + "".join(blocks)
 
 
 def _sheets_html(opt, scale_to):
     """Every sheet in one self-contained file, one page each. The in-app
     expander cannot be printed on its own — Cmd-P would take the sidebar and
     the other tabs with it."""
-    blocks = []
-    for row in opt.pending_batch:
-        body = "\n".join(html.escape(line) for line in _sheet_lines(opt, row, scale_to))
-        blocks.append(f"<pre class='sheet'>{body}</pre>")
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<title>{html.escape(opt.project_name)} {wording.BATCH} "
         f"{opt.pending_batch_no}</title>"
-        "<style>"
-        "body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:0}"
-        ".sheet{padding:24px 32px;font-size:13px;line-height:1.6;"
-        "page-break-after:always;break-after:page;white-space:pre-wrap}"
-        ".sheet:last-child{page-break-after:auto;break-after:auto}"
-        "</style></head><body>" + "".join(blocks) + "</body></html>"
+        "<style>body{margin:0}</style></head><body>"
+        + _sheets_body(opt, scale_to) + "</body></html>"
     )
 
 
 def _printable(opt, scale_to):
-    for row in opt.pending_batch:
-        # st.text, not st.markdown: markdown italicises paired underscores and
-        # turns a run of three into a horizontal rule, so a measurement named
-        # L_a_b would silently mangle the sheet.
-        for line in _sheet_lines(opt, row, scale_to):
-            st.text(line)
-        st.divider()
+    # The same HTML the download carries, rather than a text rendering of it:
+    # two renderings of one sheet is two sheets to keep in step, and st.text
+    # cannot draw a line to write on. (st.markdown is still no use here — it
+    # would italicise a measurement named L_a_b.)
+    st.html(_sheets_body(opt, scale_to))
 
 
 def _download_row(opt, scale_to):
@@ -476,7 +519,7 @@ def _download_row(opt, scale_to):
     if scale_to is not None:
         # Both files carry the amounts on screen, so the size they were
         # written for is named directly under the two buttons.
-        st.caption(wording.sheets_use_total_caption(
+        st.caption(wording.sheets_show_total_caption(
             join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")))
     with st.expander(wording.PREVIEW_SHEETS):
         _printable(opt, scale_to)

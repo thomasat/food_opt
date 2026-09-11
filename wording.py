@@ -350,22 +350,31 @@ NEEDS_ONE_UNIT = "A formulation total needs all ingredients in one unit."
 
 
 def batch_total_label(unit):
-    return f"Formulation total ({unit})" if unit else "Formulation total"
+    """The box that says how big to make each formulation. It asks the
+    question the bench asks — how much do I make? — rather than naming a
+    quantity ("Formulation total") the reader then has to decode."""
+    return (f"Make each formulation to ({unit})" if unit
+            else "Make each formulation to")
 
 
 BATCH_TOTAL_HELP = (
-    "Scales the sheets you print to this total. The amounts saved with the "
-    "results stay as generated; the proportions are the same."
+    "The printed sheets scale every formulation to this. Leave blank to use "
+    "the amounts in the table."
 )
-AS_GENERATED_PLACEHOLDER = "as shown in the table"
+# An example, not a description: a blank box means "the amounts in the table",
+# and the help says so once.
+BATCH_TOTAL_PLACEHOLDER = "e.g. 150"
 
 MEASURED_PREFIX = "Measured "
 TOTAL_PREFIX = "Total: "
-NOTE_BLANK_LINE = "Note: ______________________________________________"
+# The label above the ruled area a technician writes the note in. Nothing on
+# a sheet is a run of typed underscores any more: the rules are drawn in CSS,
+# so they stay straight however long the label beside them is.
+NOTE_SHEET_LABEL = f"{NOTE}:"
 
 
 def note_line(note):
-    return f"Note: {note}"
+    return f"{NOTE}: {note}"
 
 
 NOT_MADE_CHECKBOX_SHEET = "Not made [  ]"
@@ -375,8 +384,10 @@ DOWNLOAD_FORMULATION_SHEETS = "Download one sheet per formulation (to print)"
 PREVIEW_SHEETS = "Preview the printed sheets"
 
 
-def sheets_use_total_caption(total_text):
-    return f"Sheets use a formulation total of {total_text}."
+def sheets_show_total_caption(total_text):
+    """'Sheets show each formulation made to 150 g.' — the one line on the
+    tab that names the number the files were written for."""
+    return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
 GENERATE_DIFFERENT_BATCH = f"Generate a different {BATCH}"
@@ -956,6 +967,15 @@ def best_so_far_heading(no, batch_no=None):
 MEASURED_COLUMN = "Measured"
 OFF_BY_COLUMN = "Off by"
 AMOUNTS_TO_MAKE_IT_HEADING = "**Amounts to make it**"
+
+
+def amounts_to_make_it_heading(total_text=""):
+    """'**Amounts to make it (150 g)**' when the batch this formulation was
+    made in was printed to a total, and the plain heading otherwise. The
+    stored amounts are always as generated, so a heading that did not say
+    which of the two numbers was on screen showed a formulation nobody made."""
+    return (f"**Amounts to make it ({total_text})**" if total_text
+            else AMOUNTS_TO_MAKE_IT_HEADING)
 AMOUNT_COLUMN = "Amount"
 NOT_USED_PREFIX = "Not used: "
 

@@ -5,10 +5,12 @@ bug where the backend raises a clean ValueError but the UI fails to catch it
 and shows the user a raw traceback.
 """
 
+import html
 import io
 import json
 import os
 import pathlib
+import re
 import time
 
 import pandas as pd
@@ -1532,7 +1534,7 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
                                    "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
     assert box.value is None                          # empty: as generated
-    assert box.proto.placeholder == "as shown in the table"
+    assert box.proto.placeholder == "e.g. 150"
 
 
 def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
@@ -1546,7 +1548,7 @@ def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
     assert table["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
     # One caption about the total on this tab, not two: it names the number
     # the files were written for, under the files.
-    assert any(c.value == "Sheets use a formulation total of 22 g."
+    assert any(c.value == "Sheets show each formulation made to 22 g."
                for c in at.caption), [c.value for c in at.caption]
     assert not any(c.value == "Amounts shown for this total."
                    for c in at.caption), [c.value for c in at.caption]
@@ -1640,12 +1642,13 @@ def test_the_printable_sheet_names_the_formulation_and_the_trial(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(e.label == "Preview the printed sheets" for e in at.expander)
-    texts = [t.value for t in at.text]
+    texts = _sheet_lines(at)
     assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH} 1" in texts, texts
     assert any(t.startswith("Not made") for t in texts), texts
-    # Underscore rules go through st.text: st.markdown would italicise them and
-    # would mangle a measurement named L_a_b.
+    # The measurement is named and its rule is drawn in CSS beside it; a
+    # typed underscore neither stays in line nor takes a pen.
     assert any("Measured Firmness · target 6 N:" in t for t in texts), texts
+    assert "_" not in _sheet_html(at), _sheet_html(at)
 
 
 def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
@@ -2009,8 +2012,8 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
     assert (at.number_input(key="scale_total").proto.placeholder
-           == "as shown in the table")
-    texts = [t.value for t in at.text]
+           == "e.g. 150")
+    texts = _sheet_lines(at)
     # Two decimals on every line: a sheet is read down the column.
     assert "Pea protein: 20.00 g" in texts, texts     # the sheet, as generated
     assert "Methylcellulose: 1.00 g" in texts, texts
@@ -2026,10 +2029,10 @@ def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == pytest.approx([11.0, 11.0])
     assert table["Pea protein (g)"].iloc[1] == pytest.approx(10.0)
-    assert any(c.value == "Sheets use a formulation total of 11 g."
+    assert any(c.value == "Sheets show each formulation made to 11 g."
                for c in at.caption), [c.value for c in at.caption]
     # Both sheets now carry the same amounts, so the downloads followed.
-    assert [t.value for t in at.text].count("Pea protein: 10.00 g") == 2
+    assert _sheet_lines(at).count("Pea protein: 10.00 g") == 2
     assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] == 20.0
 
 
@@ -3152,7 +3155,7 @@ def test_a_sidebar_cancel_keeps_the_formulation_total_and_the_batch_size(
     at.run()
     at.number_input(key="scale_total").set_value(40.0)
     at.run()
-    assert any(c.value == "Sheets use a formulation total of 40 g."
+    assert any(c.value == "Sheets show each formulation made to 40 g."
                for c in at.caption), [c.value for c in at.caption]
     _submit_button(at, wording.START_OVER_LABEL).click()
     at.run()
@@ -3160,7 +3163,7 @@ def test_a_sidebar_cancel_keeps_the_formulation_total_and_the_batch_size(
     at.run()
     assert not at.exception
     assert at.session_state["scale_total"] == 40.0
-    assert any(c.value == "Sheets use a formulation total of 40 g."
+    assert any(c.value == "Sheets show each formulation made to 40 g."
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -3537,8 +3540,7 @@ def test_a_process_setting_carries_its_own_unit_everywhere(burger):
     at.run()
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert "Cook temperature (°C)" in table.columns, list(table.columns)
-    assert any(t.value == "Cook temperature: 180 °C" for t in at.text), \
-        [t.value for t in at.text]
+    assert "Cook temperature: 180 °C" in _sheet_lines(at), _sheet_lines(at)
 
 
 def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
@@ -3732,8 +3734,7 @@ def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
     shown = _displayed(next(d for d in at.dataframe
                             if "Formulation" in d.value.columns))
     assert shown["Cook temperature (°C)"].iloc[0] == "188.49", shown.to_dict()
-    assert any(t.value == "Cook temperature: 188.49 °C" for t in at.text), \
-        [t.value for t in at.text]
+    assert "Cook temperature: 188.49 °C" in _sheet_lines(at), _sheet_lines(at)
     # ... and on tab 3, once it is recorded.
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0,
                  "Cook temperature": 188.4936},
@@ -3860,7 +3861,7 @@ def test_the_printable_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    lines = [t.value for t in at.text]
+    lines = _sheet_lines(at)
     assert "Pea protein: 10.00 g" in lines, lines
     assert "Water: 40.00 ml" in lines, lines
     assert "Total: 10.00 g · 40.00 ml" in lines, lines
@@ -4003,7 +4004,7 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     assert not any("Scaling needs" in c.value for c in at.caption), \
         [c.value for c in at.caption]
     # The printable sheet lists the settings and claims no total.
-    lines = [t.value for t in at.text]
+    lines = _sheet_lines(at)
     assert "Incubation temperature: 37 °C" in lines, lines
     assert not any(l.startswith("Total") for l in lines), lines
     # Both kinds of limit are about what you weigh out, so the whole section
@@ -4497,10 +4498,12 @@ def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
                                 note=wording.repeat_of_formulation(1))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    lines = [t.value for t in at.text]
+    lines = _sheet_lines(at)
     assert wording.note_line(wording.repeat_of_formulation(1)) in lines, lines
-    # The rows with nothing to say still carry a line to write one on.
-    assert "Note: ______________________________________________" in lines
+    # The rows with nothing to say still carry an area to write one in — a
+    # ruled box drawn in CSS, never a run of typed underscores.
+    assert "Note:" in lines, lines
+    assert _sheet_html(at).count("class='fo-area'") == 1, _sheet_html(at)
 
 
 def test_a_settings_only_project_reads_as_one_section(ferment):
@@ -5574,8 +5577,8 @@ def test_the_formulation_total_help_says_what_it_scales(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").help == (
-        "Scales the sheets you print to this total. The amounts saved with "
-        "the results stay as generated; the proportions are the same.")
+        "The printed sheets scale every formulation to this. Leave blank to "
+        "use the amounts in the table.")
 
 
 def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
@@ -5871,3 +5874,156 @@ def test_both_upload_doors_read_the_same_way(open_batch):
     assert "Upload results CSV" in labels, labels
     assert "Upload formulations CSV" in labels, labels
     assert not any(l == "Results sheet" for l in labels), labels
+
+
+# ------------------------------------------------------------------ #
+#  Tab 2 flow wave: the total each formulation is made to, and a
+#  printable sheet with rules to write on instead of typed underscores.
+# ------------------------------------------------------------------ #
+def _sheet_html(at):
+    """The printable sheets as one string. The in-app preview renders the
+    same HTML the download carries, so there is one thing to read."""
+    return "\n".join(h.proto.body for h in _unknowns(at.main, "html"))
+
+
+def _sheet_lines(at):
+    """The text of every line on the printable sheets, in order, with the
+    ruled write-in spans taken out — what the reader would read aloud."""
+    out = []
+    for raw in re.findall(r"<p>(.*?)</p>", _sheet_html(at), re.S):
+        out.append(html.unescape(re.sub(r"<[^>]*>", "", raw)
+                                 .replace("&nbsp;", "")).strip())
+    return out
+
+
+def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    box = at.number_input(key="scale_total")
+    assert box.label == "Make each formulation to (g)"
+    assert box.proto.placeholder == "e.g. 150"
+    assert box.help == ("The printed sheets scale every formulation to this. "
+                        "Leave blank to use the amounts in the table.")
+    box.set_value(150.0)
+    at.run()
+    assert any(c.value == "Sheets show each formulation made to 150 g."
+               for c in at.caption), [c.value for c in at.caption]
+    # One line about the total, not two.
+    assert sum(1 for c in at.caption if "150 g" in c.value) == 1, \
+        [c.value for c in at.caption]
+
+
+def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f2_Firmness").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_RESULTS).click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.pending_batch_total is None      # the batch closed
+    assert reloaded.batch_total(1) == 150.0
+    # The amounts recorded are still the ones the model was told about.
+    assert reloaded.recipe_history[0]["Pea protein"] == 10.0
+
+
+def test_discarding_the_batch_forgets_the_total(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    _submit_button(at, wording.YES_DISCARD).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").pending_batch_total is None
+
+
+@pytest.fixture
+def made_to_a_total(burger):
+    """Batch 1 recorded after its sheets were printed to 150 g."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=1)
+    burger.set_pending_batch_total(150.0)
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch(None)
+    return burger
+
+
+def test_the_best_is_shown_at_the_total_its_batch_was_made_to(made_to_a_total):
+    """The stored amounts are as generated; the bench weighed out 150 g of
+    them. The heading names the total so the two numbers cannot be confused."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    assert any(m.value == "**Amounts to make it (150 g)**"
+               for m in at.markdown), [m.value for m in at.markdown]
+    table = next(t.value for t in at.table
+                 if wording.AMOUNT_COLUMN in t.value.columns)
+    amounts = dict(zip(table[wording.INGREDIENT_OR_SETTING_LABEL],
+                       table[wording.AMOUNT_COLUMN]))
+    # 10 g and 1 g scale to 150 g in the same proportion.
+    assert amounts["Pea protein"] == "136.36 g", amounts
+    assert amounts["Methylcellulose"] == "13.64 g", amounts
+
+
+def test_a_batch_made_as_generated_still_reads_as_before(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert any(m.value == "**Amounts to make it**" for m in at.markdown), \
+        [m.value for m in at.markdown]
+
+
+def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
+    """The boxes ask for amounts the project allows, and the model was told
+    the recorded ones: starting from 136.36 g of protein would be a repeat of
+    a formulation that was never recorded."""
+    made_to_a_total.set_pending_batch([{"Pea protein": 20.0,
+                                        "Methylcellulose": 2.0}], batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.START_FROM_BEST).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["own_Pea protein"] == 10.0
+    assert at.session_state["own_Methylcellulose"] == 1.0
+
+
+def test_the_printable_sheet_has_rules_to_write_on_not_typed_underscores(
+        open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    body = _sheet_html(at)
+    assert body, "the preview renders no sheet HTML"
+    assert "_" not in body, body
+    lines = _sheet_lines(at)
+    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH} 1" in lines, lines
+    assert "Measured Firmness · target 6 N:" in lines, lines
+    assert "Note:" in lines, lines
+    assert wording.NOT_MADE_CHECKBOX_SHEET in lines, lines
+    # One ruled line per measurement per sheet, and one ruled area per sheet
+    # for the note: two formulations, two measurements each.
+    assert body.count("class='fo-rule'") == 4, body
+    assert body.count("class='fo-area'") == 2, body
+
+
+def test_the_preview_and_the_download_are_the_same_sheets(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    import ui_batch
+    opt = at.session_state["optimizer"]
+    document = ui_batch._sheets_html(opt, None)
+    assert ui_batch._sheets_body(opt, None) in document
+    assert document.startswith("<!doctype html>")
+    assert "_" not in document, document

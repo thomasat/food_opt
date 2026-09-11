@@ -263,6 +263,12 @@ class FoodOptimizer:
         self.pending_batch_no = None  # its batch number
         self.pending_batch_created = None   # ISO date it was generated, for the sheets
         self.pending_batch_discarded = []   # numbers a regenerate retired, for one caption
+        # The total each formulation in the open batch is made to, or None for
+        # "as generated". The amounts stored with a result are always as
+        # generated, so without this the number the bench actually weighed out
+        # was lost the moment the batch closed.
+        self.pending_batch_total = None
+        self.batch_totals = {}        # batch number -> the total it was made to
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
         self.last_saved_at = None  # records successful save time; timezone-aware datetime or None
@@ -2146,6 +2152,13 @@ class FoodOptimizer:
         self.formulation_ids.append(int(formulation_no))
         self.batch_history.append(None if batch_no is None else int(batch_no))
         self.notes_history.append("" if note is None else str(note))
+        # The total the open batch's sheets were printed to belongs with the
+        # batch number, not with the row: the amounts stored are as generated,
+        # and only this says what the bench weighed out. It is written when a
+        # result arrives, because the open batch is cleared straight after.
+        if (batch_no is not None and batch_no == self.pending_batch_no
+                and getattr(self, 'pending_batch_total', None) is not None):
+            self._batch_totals()[int(batch_no)] = float(self.pending_batch_total)
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -2159,6 +2172,7 @@ class FoodOptimizer:
         self.pending_batch_no = None
         self.pending_batch_created = None
         self.pending_batch_discarded = []
+        self.pending_batch_total = None
 
     def _issue_formulation_no(self):
         n = int(self.next_formulation_no)
@@ -2383,6 +2397,10 @@ class FoodOptimizer:
         highest_batch = max(batches) if batches else 0
         self.next_batch_number = max(int(getattr(self, 'next_batch_number', 1)
                                          or 1), highest_batch + 1)
+        # A file written before a batch could carry a total has none, and
+        # none is exactly right: those batches were made as generated.
+        self.pending_batch_total = getattr(self, 'pending_batch_total', None)
+        self._batch_totals()
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
@@ -2392,6 +2410,31 @@ class FoodOptimizer:
         row added later never re-dates the batch it joined."""
         if self.pending_batch_created is None:
             self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+
+    def _batch_totals(self):
+        """The totals by batch number, created for a session object made
+        before they were stored."""
+        totals = getattr(self, 'batch_totals', None)
+        if not isinstance(totals, dict):
+            totals = self.batch_totals = {}
+        return totals
+
+    def batch_total(self, batch_no):
+        """The total batch `batch_no` was made to, or None for as generated."""
+        if batch_no is None:
+            return None
+        return self._batch_totals().get(int(batch_no))
+
+    def set_pending_batch_total(self, total):
+        """Remember the total the open batch is being made to. Writes only on
+        a change: the screen sets this on every rerun, and a save per rerun
+        would bump the file's mtime and make another open window see a false
+        conflict."""
+        value = None if total is None else float(total)
+        if value == getattr(self, 'pending_batch_total', None):
+            return
+        self.pending_batch_total = value
+        self.save()
 
     def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):
         """Persist (or clear) the open batch so a user who closes the window
@@ -2877,6 +2920,9 @@ class FoodOptimizer:
             'pending_batch_no': self.pending_batch_no,
             'pending_batch_created': self.pending_batch_created,
             'pending_batch_discarded': self.pending_batch_discarded,
+            'pending_batch_total': getattr(self, 'pending_batch_total', None),
+            'batch_totals': {str(k): float(v)
+                             for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
             'pending_batch': self.pending_batch,
             'bo_config': self.bo_config,
@@ -2928,6 +2974,13 @@ class FoodOptimizer:
         def _whole(x):
             return isinstance(x, int) and not isinstance(x, bool)
 
+        def _as_int(x):
+            """A JSON object's key is a string; 'two' is not a batch number."""
+            try:
+                return int(x)
+            except (TypeError, ValueError):
+                return None
+
         def _number(x):
             """A formulation number: whole and at least 1. This app has never
             issued a 0 or a −1, and a row numbered −1 renders as
@@ -2972,6 +3025,25 @@ class FoodOptimizer:
                                   or not all(isinstance(n, str) for n in names)):
             raise ValueError(
                 "This backup's 'property_names' section has the wrong shape.")
+        # The total a batch was made to. A bad one would silently rewrite
+        # every amount tab 3 shows for the best formulation.
+        def _total(x):
+            return (isinstance(x, (int, float)) and not isinstance(x, bool)
+                    and float(x) > 0)
+
+        open_total = state.get('pending_batch_total')
+        if open_total is not None and not _total(open_total):
+            raise ValueError(
+                "This backup's 'pending_batch_total' section has the wrong shape.")
+        totals = state.get('batch_totals')
+        if totals is not None and not isinstance(totals, dict):
+            raise ValueError(
+                "This backup's 'batch_totals' section has the wrong shape.")
+        for key, value in (totals or {}).items():
+            if not _whole(key if isinstance(key, int) else _as_int(key)) \
+                    or not _total(value):
+                raise ValueError(
+                    "This backup's 'batch_totals' section has the wrong shape.")
         pending = state.get('pending_batch')
         if pending is not None and not isinstance(pending, list):
             raise ValueError("This backup's 'pending_batch' section has the wrong shape.")
@@ -3069,6 +3141,11 @@ class FoodOptimizer:
         self.pending_batch_discarded = [
             int(n) for n in (state.get('pending_batch_discarded') or [])
         ]
+        stored_total = state.get('pending_batch_total')
+        self.pending_batch_total = (None if stored_total is None
+                                    else float(stored_total))
+        self.batch_totals = {int(k): float(v) for k, v
+                             in (state.get('batch_totals') or {}).items()}
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 

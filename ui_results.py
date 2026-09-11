@@ -15,7 +15,7 @@ import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
-    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab,
+    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit,
     label_with_unit, number_list, open_rows, other_confirmation, park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, take_clear,
@@ -119,9 +119,18 @@ def _best(opt):
         ]), hide_index=True, key="best_off_by",
             height=table_height(len(details)))
 
-    st.markdown(wording.AMOUNTS_TO_MAKE_IT_HEADING)
     recipe = opt.recipe_history[index]
-    st.table(pd.DataFrame(_amount_rows(opt, recipe),
+    # The amounts stored are as generated. When the batch this formulation
+    # came from was printed to a total, the bench weighed out those numbers
+    # instead, and they are the ones to hand back — scaled by the same rule
+    # the sheets used, and with the total named in the heading so the two
+    # cannot be confused. `Start from the best so far` still opens at the
+    # recorded amounts: those are the ones the model was told about.
+    total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
+    shown = opt.scaled_recipe(recipe, total) if total else recipe
+    st.markdown(wording.amounts_to_make_it_heading(
+        join_unit(f"{total:g}", opt.one_amount_unit() or "") if total else ""))
+    st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
     # Ingredients only: a process setting sitting at 0 is a setting, not an

@@ -3064,11 +3064,11 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
-    # "Scales" the verb, in the formulation-total help. The banned word is
-    # the NOUN Scale, which was this app's old name for a measurement's
-    # Range; nothing on screen is called a scale any more.
-    "Scales the sheets you print to this total. The amounts saved with the "
-    "results stay as generated; the proportions are the same.",
+    # "scale" the verb, in the help under `Make each formulation to`. The
+    # banned word is the NOUN Scale, which was this app's old name for a
+    # measurement's Range; nothing on screen is called a scale any more.
+    "The printed sheets scale every formulation to this. Leave blank to use "
+    "the amounts in the table.",
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
@@ -3338,4 +3338,120 @@ class TestPropertiesNamedInTheApp:
             FoodOptimizer.validate_state(state)
         state['property_names'] = None
         # An absent or null list is simply no properties, not a broken file.
+        FoodOptimizer.validate_state(state)
+
+
+class TestTheTotalABatchWasPrintedTo:
+    """The amounts stored with a result are always as generated, so without
+    this the number the bench actually weighed out was lost the moment the
+    batch closed — and tab 3's `Amounts to make it` showed a formulation
+    nobody had ever made."""
+
+    def _opt(self, tmp_path, monkeypatch, name="batch_totals"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_the_open_batchs_total_is_stored_and_survives_a_reload(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.pending_batch_total is None
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}])
+        opt.set_pending_batch_total(150.0)
+        assert FoodOptimizer("batch_totals").pending_batch_total == 150.0
+        # Clearing the box is a value of its own: as generated.
+        opt.set_pending_batch_total(None)
+        assert FoodOptimizer("batch_totals").pending_batch_total is None
+
+    def test_setting_the_same_total_again_writes_nothing(self, tmp_path,
+                                                         monkeypatch):
+        """It is set on every render of the tab, and a write per rerun would
+        bump the file's mtime and make another open window cry conflict."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}])
+        opt.set_pending_batch_total(150.0)
+        saved_at = opt.last_saved_at
+        opt.set_pending_batch_total(150.0)
+        assert opt.last_saved_at == saved_at
+
+    def test_discarding_the_batch_clears_the_total(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}])
+        opt.set_pending_batch_total(150.0)
+        opt.set_pending_batch(None)
+        assert opt.pending_batch_total is None
+        assert FoodOptimizer("batch_totals").pending_batch_total is None
+
+    def test_recording_the_batch_keeps_the_total_under_its_number(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}],
+                              batch_no=4)
+        opt.set_pending_batch_total(150.0)
+        opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=4)
+        opt.set_pending_batch(None)
+        again = FoodOptimizer("batch_totals")
+        assert again.batch_total(4) == 150.0
+        assert again.batch_total(3) is None
+        assert again.batch_total(None) is None
+
+    def test_a_batch_printed_as_generated_stores_no_total(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}],
+                              batch_no=1)
+        opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=1)
+        assert opt.batch_totals == {}
+        assert opt.batch_total(1) is None
+
+    def test_both_totals_round_trip_through_a_backup(self, tmp_path,
+                                                     monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}],
+                              batch_no=2)
+        opt.set_pending_batch_total(150.0)
+        opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=2)
+        state = opt.export_json()
+        assert state['pending_batch_total'] == 150.0
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("restored_totals")
+        fresh.import_json(state)
+        assert fresh.pending_batch_total == 150.0
+        assert fresh.batch_total(2) == 150.0
+
+    def test_a_file_from_before_the_feature_opens_as_generated(self, tmp_path,
+                                                               monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}])
+        state = opt.export_json()
+        state.pop('pending_batch_total', None)
+        state.pop('batch_totals', None)
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("old_file_totals")
+        fresh.import_json(state)
+        assert fresh.pending_batch_total is None
+        assert fresh.batch_totals == {}
+
+    def test_a_malformed_total_is_refused_before_import(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state['pending_batch_total'] = "big"
+        with pytest.raises(ValueError, match="'pending_batch_total' section"):
+            FoodOptimizer.validate_state(state)
+        state['pending_batch_total'] = None
+        state['batch_totals'] = [150.0]
+        with pytest.raises(ValueError, match="'batch_totals' section"):
+            FoodOptimizer.validate_state(state)
+        state['batch_totals'] = {"2": "big"}
+        with pytest.raises(ValueError, match="'batch_totals' section"):
+            FoodOptimizer.validate_state(state)
+        state['batch_totals'] = {"2": 150.0}
         FoodOptimizer.validate_state(state)
