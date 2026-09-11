@@ -298,7 +298,7 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     assert weights["Firmness"] > weights["Juiciness"]
 
 
-def test_the_sample_lists_firmness_first_with_its_share(tmp_path, monkeypatch):
+def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -307,11 +307,10 @@ def test_the_sample_lists_firmness_first_with_its_share(tmp_path, monkeypatch):
     # Set up is complete, but nothing has been made yet: the sample opens on
     # its set-up so the user sees what they are about to make.
     assert at.session_state["main_tab"] == "1 · Set up"
-    table = next(d.value for d in at.dataframe if "Share" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
     # A panel score's "/10" is written once, on the measurement's own row,
     # and never after a number.
     assert list(table["Measurement"]) == ["Firmness (/10)", "Juiciness (/10)"]
-    assert list(table["Share"]) == ["60%", "40%"]
     assert list(table["Goal"]) == ["Target 6", "Target 7"]
     assert list(table["Scale"]) == ["0 to 10", "0 to 10"]
 
@@ -799,16 +798,17 @@ def test_a_unit_typed_with_a_trailing_space_is_saved_once(burger):
     assert not at.exception
 
 
-def test_measurements_table_is_sorted_by_importance_with_shares(burger):
+def test_measurements_table_is_sorted_by_importance(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Share" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
     # No Priority column: it was the row's position in a table already sorted
-    # by importance, which is the same fact written twice.
+    # by importance, which is the same fact written twice. And no Share: it
+    # read w / Σw, which is not a measurement's influence on the score once
+    # any goal is a target.
     assert list(table.columns) == ["Measurement", "Goal", "Scale",
-                                   "Importance", "Share"]
+                                   "Importance"]
     assert list(table["Measurement"]) == ["Firmness", "Juiciness (/10)"]
-    assert list(table["Share"]) == ["60%", "40%"]
     assert list(table["Goal"]) == ["Target 6 N", "Target 7"]
     assert list(table["Scale"]) == ["0 to 10 N", "0 to 10"]
 
@@ -831,13 +831,16 @@ def test_importance_is_a_number_from_a_tenth_to_a_hundred(burger):
     assert not at.slider, [s.label for s in at.slider]
 
 
-def test_the_live_share_line_follows_what_is_typed(burger):
+def test_no_share_line_follows_what_is_typed(burger):
+    """w / Σw is not a measurement's influence on the overall score: a target
+    goal's closeness never spans the full 0 to 1, so two equally weighted
+    measurements are not equally influential. The line is gone."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.text_input(key="meas_new_name").set_value("Chewiness")
     at.number_input(key="meas_new_importance").set_value(2.5)
     at.run()
-    assert any(m.value == "Chewiness: 50% of the overall score" for m in at.markdown), \
+    assert not any("% of the overall score" in m.value for m in at.markdown), \
         [m.value for m in at.markdown]
 
 
@@ -1254,13 +1257,6 @@ def test_a_failed_save_shows_red_and_never_a_green_added(burger):
     assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
     assert not any("Beet juice powder" in m.value for m in at.success), \
         [m.value for m in at.success]
-
-
-def test_the_live_share_line_stays_away_until_a_name_is_typed(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert not any("% of the overall score" in m.value for m in at.markdown), \
-        [m.value for m in at.markdown]
 
 
 def test_the_scale_labels_are_sentence_case(burger):
@@ -3443,10 +3439,13 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     assert not at.exception
     assert any(c.value.startswith("Overall score 1.50 · partial of 2.50 ·")
                for c in at.caption), [c.value for c in at.caption]
-    # ...and one line under it says what a partial score cannot be compared
-    # with, in the same words the All formulations table uses.
-    assert any(c.value == ("Partial scores are missing a measurement and "
-                           "cannot be compared with complete ones.")
+    # ...and one line under it says what the missing measurement costs, in
+    # the same words the All formulations table uses. A dropped measurement
+    # is arithmetically a zero closeness, and the row is fitted at that
+    # depressed score, so the model is taught that region is bad.
+    assert any(c.value == ("Partial scores are missing a measurement, which "
+                           "counts as zero, so they are low and the model "
+                           "treats them that way.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -4197,6 +4196,27 @@ def test_the_tab_has_no_project_wide_unit_box(burger):
         [t.key for t in at.text_input]
 
 
+def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
+    """u = max(0, 1 - |norm - target|) with norm clamped to [0, 1], so the
+    largest attainable distance is max(t, 1 - t): a mid-scale target bottoms
+    out at 0.5 and only a target on a scale end ever reaches 0."""
+    from food_bo import FoodOptimizer as _FO
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = next(e for e in _tab1(at).expander
+                if e.label == "How closeness is worked out")
+    text = " ".join(m.value for m in fold.markdown)
+    assert "a full scale width away scores 0" not in text, text
+    assert ("by one point per full scale width; the lowest score depends on "
+            "how far the target sits from the ends of your scale") in text, text
+    # ...and the claim the bullet now makes is the one the code makes: a
+    # target of 6 on a 0 to 10 scale scores 0.4 closeness at 0, never 0.
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Firmness": 0.0}, formulation_no=1, batch_no=1)
+    reloaded = _FO(burger.project_name)
+    assert float(reloaded.Y_history[0]) == pytest.approx(1.5 * 0.4)
+
+
 def test_the_closeness_fold_says_what_closeness_is(burger):
     """The fold explains closeness; what importance is belongs to the
     Importance field's own tooltip, beside the box it is about."""
@@ -4541,8 +4561,8 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = "3 · Results"
     at.run()
-    sentence = ("Partial scores are missing a measurement and cannot be "
-                "compared with complete ones.")
+    sentence = ("Partial scores are missing a measurement, which counts as "
+                "zero, so they are low and the model treats them that way.")
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.

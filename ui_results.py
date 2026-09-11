@@ -18,8 +18,8 @@ from ui_helpers import (
 
 # Said under a table or a score that holds one, and nowhere else: a partial
 # score is a real number that cannot be compared with a complete one.
-_PARTIAL = ("Partial scores are missing a measurement and cannot be compared "
-            "with complete ones.")
+_PARTIAL = ("Partial scores are missing a measurement, which counts as zero, "
+            "so they are low and the model treats them that way.")
 
 
 def _all_numbers(opt):

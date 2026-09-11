@@ -1050,14 +1050,6 @@ class FoodOptimizer:
         ties in the order they were added."""
         return sorted(self.objectives, key=lambda o: -float(o['weight']))
 
-    def importance_share(self, name):
-        """This measurement's share of the overall score, 0.0 to 1.0."""
-        total = self.utility_ceiling()
-        if total <= 0:
-            return 0.0
-        obj = next((o for o in self.objectives if o['name'] == name), None)
-        return 0.0 if obj is None else float(obj['weight']) / total
-
     def score_function_line(self):
         """The one line under the measurements table that writes the score out."""
         if not self.objectives:
@@ -1864,10 +1856,21 @@ class FoodOptimizer:
         self.set_pending_batch(recipes)
         return recipes
 
+    def _ask_seed(self):
+        """The seed both regimes draw from. It is the next formulation number,
+        NOT the length of the history: numbers are issued at generation and
+        never reissued, so it advances on every generate — including one whose
+        formulations were discarded without a result. Seeding on the history
+        length made `Generate a different batch` hand back the batch it had
+        just discarded, byte for byte, in both the cold and the warm regime.
+        The same project in the same state still generates the same
+        formulations twice: the number has not moved."""
+        return int(self.next_formulation_no)
+
     def _ask_cold_start(self, n_suggestions, bounds_tensor, dim):
         """Generate initial recipes using Sobol sampling."""
         print(f"DEBUG: Cold start (Sobol batch of {n_suggestions})...")
-        sobol = SobolEngine(dimension=dim, scramble=True, seed=len(self.X_history))
+        sobol = SobolEngine(dimension=dim, scramble=True, seed=self._ask_seed())
         pool_norm = sobol.draw(2048).double()
 
         # Pin inactive variables so the Sobol design also lives in X_S.
@@ -1913,7 +1916,7 @@ class FoodOptimizer:
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
         print(f"DEBUG: suggestion step (batch of {n_suggestions})...")
-        torch.manual_seed(len(self.X_history))
+        torch.manual_seed(self._ask_seed())
 
         train_X = torch.tensor(self.X_history, dtype=torch.double)
         train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)

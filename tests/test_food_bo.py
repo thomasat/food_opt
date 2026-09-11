@@ -1432,6 +1432,61 @@ def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
     assert opt.recipe_lines({"Water": 5.0, "Salt": float("nan"), "Sugar": "2", "Oil": None}) == [("Water", 5.0), ("Sugar", 2.0)]
 
 
+class TestARegeneratedBatchIsADifferentBatch:
+    """`Generate a different batch` used to hand back the batch it had just
+    discarded, byte for byte. Both regimes seeded on len(X_history), which a
+    discard before any result leaves exactly where it was. They now seed on
+    next_formulation_no, which advances on every generate."""
+
+    def _opt(self, tmp_path, monkeypatch, name="reseed"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10)
+        return opt
+
+    @staticmethod
+    def _amounts(opt):
+        return [{k: round(float(v), 6) for k, v in r['recipe'].items()}
+                for r in opt.pending_batch]
+
+    def test_cold_start_regenerates_different_formulations(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=3)
+        first = self._amounts(opt)
+        opt.set_pending_batch(None)          # "Yes, discard"
+        opt.ask(n_suggestions=3)
+        assert self._amounts(opt) != first
+
+    def test_the_warm_regime_regenerates_different_formulations(self, tmp_path,
+                                                                monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        for k in range(5):
+            opt.tell({"Water": 10.0 + k, "Pea protein": 20.0 - k},
+                     {"Firmness": 4.0 + 0.3 * k}, formulation_no=k + 1,
+                     batch_no=1)
+        opt.ask(n_suggestions=2)
+        first = self._amounts(opt)
+        opt.set_pending_batch(None)
+        opt.ask(n_suggestions=2)
+        assert self._amounts(opt) != first
+
+    def test_the_same_state_still_generates_the_same_formulations(
+            self, tmp_path, monkeypatch):
+        """Determinism is the point of seeding at all: two sessions opening
+        the same project and pressing Generate see the same formulations."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=3)
+        first = self._amounts(opt)
+        opt.set_pending_batch(None)
+        opt.next_formulation_no = 1          # wind back: the same state again
+        opt.ask(n_suggestions=3)
+        assert self._amounts(opt) == first
+
+
 class TestFormulationIdentity:
     def _opt(self, tmp_path, monkeypatch, name="ident"):
         monkeypatch.chdir(tmp_path)
@@ -1830,7 +1885,6 @@ class TestUnitsAndImportance:
     def test_measurements_are_ordered_by_importance(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         assert [o["name"] for o in opt.measurements_by_importance()] == ["Firmness", "Juiciness"]
-        assert opt.importance_share("Firmness") == pytest.approx(0.6)
 
     def test_score_function_line_is_the_spec_sentence(self, tmp_path, monkeypatch):
         """No sentence about distance from a target: two of the three goals

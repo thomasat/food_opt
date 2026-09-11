@@ -676,8 +676,8 @@ def _limit_label(opt, qc):
 
 def _measurement_editor(opt, storage, editing):
     """The add/edit fields. `editing` is the measurement being changed, or
-    None when adding a new one. No st.form: the live share line has to follow
-    what is typed."""
+    None when adding a new one. No st.form: the Target box greys itself out
+    the moment the goal changes, which a form would defer to its submit."""
     if editing is None:
         st.session_state.setdefault(_mkey(None, "name"), "")
         name = st.text_input("Name", key=_mkey(None, "name"),
@@ -724,15 +724,6 @@ def _measurement_editor(opt, storage, editing):
         key=_mkey(editing, "importance"),
         help="Any positive number. 2 counts twice as much as 1. " + _GLOSS,
     )
-
-    # Only once there is something to name: "This measurement: 40% of the
-    # overall score" on an empty form is a share of nothing.
-    if str(name).strip():
-        others = sum(float(o['weight']) for o in opt.objectives
-                     if o['name'] != name)
-        total = others + float(importance)
-        share = (float(importance) / total * 100.0) if total > 0 else 0.0
-        st.markdown(f"{str(name).strip()}: {share:.0f}% of the overall score")
 
     if editing is None:
         if st.button("Add measurement", key="add_measurement"):
@@ -890,7 +881,6 @@ def _measurements(opt, storage):
         "Goal": _goal_text(o),
         "Scale": _scale_text(o),
         "Importance": float(o['weight']),
-        "Share": f"{opt.importance_share(o['name']) * 100:.0f}%",
     } for o in ordered]), hide_index=True, key="measurement_table",
         height=table_height(len(ordered)))
     for obj in ordered:
@@ -919,7 +909,9 @@ def _measurements(opt, storage):
             "- **Lower is better:** the reverse — the bottom of your scale "
             "scores 1 and the top scores 0.\n"
             "- **Hit a target:** closeness is 1 at the target and falls evenly "
-            "with distance from it; a full scale width away scores 0.\n\n"
+            "with distance, by one point per full scale width; the lowest "
+            "score depends on how far the target sits from the ends of your "
+            "scale.\n\n"
             "Each closeness is multiplied by that measurement's importance, "
             "and the results are added up.\n\n"
             "Closeness is a measurement's normalised score between 0 and 1."
