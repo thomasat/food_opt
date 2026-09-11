@@ -1056,8 +1056,10 @@ class FoodOptimizer:
         """This measurement's importance as a fraction of the sum, in
         [0, 1]. Reads as the measurement's share of the score, not of a
         target's distance: two of the three goals have no target."""
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        if obj is None:
+            raise ValueError(f"No measurement named {name}.")
         total = sum(float(o['weight']) for o in self.objectives)
-        obj = next(o for o in self.objectives if o['name'] == name)
         return float(obj['weight']) / total if total else 0.0
 
     def share_text(self, name):

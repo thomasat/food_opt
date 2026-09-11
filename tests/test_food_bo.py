@@ -1943,6 +1943,11 @@ class TestUnitsAndImportance:
         assert opt.share_text("Firmness") == "60 %"
         assert opt.share_text("Juiciness") == "40 %"
 
+    def test_share_of_score_names_the_missing_measurement(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="No measurement named Saltiness"):
+            opt.share_of_score("Saltiness")
+
     def test_food_bo_join_unit_agrees_with_ui_helpers(self):
         import ui_helpers
         from food_bo import join_unit
@@ -2824,8 +2829,13 @@ _SWIFT_NOT_PROSE = ("font-weight",)
 
 _SINGLE_WORDS = re.compile(
     # 'ranges', not 'range': Range is the measurement's own column header.
+    # 'share', not the two-word "Share of score": a bare one-word "Share"
+    # column header is still banned, and the prose pattern above only
+    # catches Share when it is NOT followed by "of score" — a single-word
+    # literal never has room for that trailing phrase, so it needs its own
+    # ban here.
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
-    r"|priority|trials?|kind|scales?|remove|remake)$", re.I)
+    r"|priority|trials?|kind|scales?|remove|remake|share)$", re.I)
 
 
 def _how_it_works():
