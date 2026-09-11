@@ -267,7 +267,7 @@ at = AppTest.from_file(
 at.session_state["_loaded_project"] = "UI_Check"
 at.run()
 assert not at.exception, at.exception
-# One form adds both kinds: Kind picks which, and a setting added mid-run
+# One form adds both types: Type picks which, and a setting added mid-run
 # asks for the baseline the formulations already made were run at.
 at.radio(key="var_kind").set_value("Process setting")
 at.run()

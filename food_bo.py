@@ -36,15 +36,15 @@ from storage import LocalStorage, StorageError
 # a variable with one of these names would silently overwrite that column.
 RESERVED_VARIABLE_NAMES = {
     "Experiment", "Date", "Overall Score", "Recipe",
-    "Formulation", "Batch", "Overall score", "Note", "Recorded", "Best",
-    "Total",
+    "Formulation", "Batch", "Trial", "Overall score", "Note", "Recorded",
+    "Best", "Total",
 }
 
-# The batch table's own total column carries the unit it is summing —
+# The trial table's own total column carries the unit it is summing —
 # 'Total (g)', 'Total (ml)' — so an ingredient named 'Total (g)' collides with
 # it just as plainly as one named 'Total'. Two columns of the same name break
-# the batch table outright and put the batch total on the sheet where that
-# ingredient's own amount belongs.
+# the trial table outright and put the formulation total on the sheet where
+# that ingredient's own amount belongs.
 _TOTAL_COLUMN_RE = re.compile(r"^total(\s*\(.*\))?$", re.IGNORECASE)
 
 
@@ -89,7 +89,7 @@ def label_with_unit(name, unit):
 
 
 def outside_message(name, value, low, high, unit, what, tail=""):
-    """'Firmness 12 N is outside your scale of 0 to 10 N.' — the one builder
+    """'Firmness 12 N is outside your range of 0 to 10 N.' — the one builder
     for every out-of-bounds line, so a measurement typed into the grid, one
     read off an uploaded sheet and an amount imported from a CSV are refused
     in the same words. `what` names the bounds, `tail` is any sentence that
@@ -104,7 +104,7 @@ def outside_message(name, value, low, high, unit, what, tail=""):
 def local_date(ts):
     """The date a stored moment fell on where the user is standing. Results
     are stamped in UTC, so slicing the first ten characters off the stamp
-    dated a batch recorded at 23:25 as tomorrow."""
+    dated a trial recorded at 23:25 as tomorrow."""
     if not isinstance(ts, str) or not ts:
         return ""
     try:
@@ -354,8 +354,8 @@ class FoodOptimizer:
         """
         if self.X_history:
             raise ValueError(
-                "Cannot reload ingredients after results have been recorded. Use "
-                "Manage project > Empty this project to start over, or restore "
+                "Cannot reload ingredients after results have been recorded. "
+                "Use Manage project > Start this project over, or restore "
                 "from a backup."
             )
 
@@ -555,14 +555,14 @@ class FoodOptimizer:
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
-            raise ValueError("Scale lowest must be less than scale highest.")
+            raise ValueError("Range lowest must be less than range highest.")
         if goal == 'target':
             if target is None:
                 raise ValueError("Enter a target value for a 'Hit a target' measurement.")
             target = float(target)
             if not (min_val <= target <= max_val):
                 raise ValueError(
-                    f"Target {target:g} must be between the scale's lowest "
+                    f"Target {target:g} must be between the range's lowest "
                     f"and highest ({min_val:g} to {max_val:g})."
                 )
         else:
@@ -936,7 +936,7 @@ class FoodOptimizer:
 
     def one_amount_unit(self):
         """The unit every ingredient shares, or None when they differ. What
-        the screen asks before offering to scale a batch to a total, and what
+        the screen asks before offering to scale a trial to a total, and what
         an amount limit needs: adding 25 g of powder to 40 ml of water gives
         a number of nothing."""
         units = self.ingredient_units()
@@ -1023,7 +1023,7 @@ class FoodOptimizer:
         min_val = float(merged.get('min_val', 0.0))
         max_val = float(merged.get('max_val', 10.0))
         if min_val >= max_val:
-            raise ValueError("Scale lowest must be less than scale highest.")
+            raise ValueError("Range lowest must be less than range highest.")
         goal = merged.get('goal', 'max')
         if goal == 'target':
             if merged.get('target') is None:
@@ -1031,7 +1031,7 @@ class FoodOptimizer:
             target = float(merged['target'])
             if not (min_val <= target <= max_val):
                 raise ValueError(
-                    f"Target {target:g} must be between the scale's lowest "
+                    f"Target {target:g} must be between the range's lowest "
                     f"and highest ({min_val:g} to {max_val:g})."
                 )
         else:
@@ -1071,7 +1071,7 @@ class FoodOptimizer:
 
         Off by is only meaningful against a target. A 'higher is better'
         measurement has no target, so quoting its distance from the top of the
-        scale would read a good result as a failure; those rows show '—'.
+        range would read a good result as a failure; those rows show '—'.
         No formulation at `index` (None, negative, or past the end) returns
         an empty list rather than wrapping around or raising."""
         if index is None or index < 0:
@@ -1201,8 +1201,8 @@ class FoodOptimizer:
     def history_frame(self, order="Best first", include_amounts=False):
         """Every formulation — scored and left out — as the All formulations
         table shows them. `order` is 'Best first', 'Newest first' or
-        'Batch order'. Batch is a string in every row: a project that predates
-        batches has blanks, and a mixed int/blank column renders inconsistently."""
+        'Trial order'. Trial is a string in every row: a project that predates
+        trials has blanks, and a mixed int/blank column renders inconsistently."""
         objs = self.measurements_by_importance()
         best_i = self.best_index()
         rows = []
@@ -1213,7 +1213,7 @@ class FoodOptimizer:
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 "Best": "★" if i == best_i else "",
-                "Batch": "" if batch is None else str(int(batch)),
+                "Trial": "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
@@ -1237,7 +1237,7 @@ class FoodOptimizer:
                 # A row nobody made has no score to be best; saying so in the
                 # Best column is what stops it reading as the worst.
                 "Best": "not made",
-                "Batch": "" if batch is None else str(int(batch)),
+                "Trial": "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
@@ -1251,7 +1251,7 @@ class FoodOptimizer:
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
-        columns = (["Best", "Batch", "Formulation"]
+        columns = (["Best", "Trial", "Formulation"]
                    + [self._measurement_column(o) for o in objs]
                    + ["Overall score", "Recorded", "Note"])
         if include_amounts:
@@ -1261,7 +1261,7 @@ class FoodOptimizer:
         df = pd.DataFrame(rows)
         if order == "Newest first":
             df = df.sort_values("_seq", ascending=False)
-        elif order == "Batch order":
+        elif order == "Trial order":
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
         else:
             df = df.sort_values(["_score", "_seq"], ascending=[False, True])
@@ -1272,7 +1272,7 @@ class FoodOptimizer:
         column per ingredient and setting carrying its own unit, and the total
         of the ingredients — one number while they share a unit, `340.00 g ·
         60.00 ml` when they do not. `scale_to` rewrites it for a different
-        batch size — display only, the stored formulation never changes."""
+        formulation total — display only, the stored row never changes."""
         total_col = self.total_column()
         # The total closes the amounts you weigh out, so it sits with them,
         # before the settings you dial in — the order the sheet is filled in.
@@ -1324,7 +1324,7 @@ class FoodOptimizer:
         amounts to weigh out with their units in the headers and rounded as
         the screen rounds them, the same total the screen shows, one blank
         column per measurement, and a Note column. Its columns run in the
-        order the batch table's do, so the sheet reads like the screen.
+        order the trial table's do, so the sheet reads like the screen.
         `scale_to` must match what the screen shows, or the lab weighs out
         amounts nobody saw.
 
@@ -1363,11 +1363,11 @@ class FoodOptimizer:
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
     def parse_batch_results(self, df, batch):
-        """Match an uploaded results sheet to the open batch.
+        """Match an uploaded results sheet to the open trial.
 
         The sheet needs a Formulation column holding the global numbers from
-        the downloaded batch sheet. `Recipe` and `Experiment` are accepted as
-        legacy headers and read as 1-based positions in the batch. Every
+        the downloaded bench sheet. `Recipe` and `Experiment` are accepted as
+        legacy headers and read as 1-based positions in the trial. Every
         measurement needs its own column — an absent column is refused
         outright (a typo'd header would otherwise silently drop that
         measurement from every row). A blank cell in a column that IS present
@@ -1387,7 +1387,7 @@ class FoodOptimizer:
         else:
             raise ValueError(
                 "The sheet needs a Formulation column with the numbers from "
-                "the downloaded batch sheet."
+                "the downloaded bench sheet."
             )
         col_for, missing = {}, []
         for obj in self.objectives:
@@ -1401,7 +1401,7 @@ class FoodOptimizer:
         note_col = norm.get("note")
         if len(df) == 0:
             raise ValueError("The sheet has no result rows.")
-        in_batch = ", ".join(str(n) for n in numbers)
+        in_trial = ", ".join(str(n) for n in numbers)
         parsed, seen = [], set()
         for _, sheet_row in df.iterrows():
             raw_no = sheet_row[key_col]
@@ -1415,14 +1415,14 @@ class FoodOptimizer:
             if legacy:
                 if not (1 <= number <= len(rows)):
                     raise ValueError(
-                        f"Formulation {number} is not in batch "
-                        f"{self.pending_batch_no} (it has {in_batch})."
+                        f"Formulation {number} is not in trial "
+                        f"{self.pending_batch_no} (it has {in_trial})."
                     )
                 number = numbers[number - 1]
             elif number not in numbers:
                 raise ValueError(
-                    f"Formulation {number} is not in batch "
-                    f"{self.pending_batch_no} (it has {in_batch})."
+                    f"Formulation {number} is not in trial "
+                    f"{self.pending_batch_no} (it has {in_trial})."
                 )
             if number in seen:
                 raise ValueError(
@@ -1446,8 +1446,8 @@ class FoodOptimizer:
                     raise ValueError(outside_message(
                         f"Formulation {number} {name}", val,
                         obj['min_val'], obj['max_val'], obj.get('unit'),
-                        "your scale",
-                        " Widen the scale in Set up, or check the value."))
+                        "your range",
+                        " Widen the range in Set up, or check the value."))
                 results[name] = val
             if not results:
                 raise ValueError(
@@ -1464,7 +1464,7 @@ class FoodOptimizer:
 
     def history_csv(self):
         """Every scored formulation as CSV, with the plain column names
-        'Import past formulations from a CSV' expects, plus Formulation, Batch
+        'Import past formulations from a CSV' expects, plus Formulation, Trial
         and Note. Skipped (Not made) formulations carry no results at all, so
         they are left out entirely: a blank measurement cell would be refused
         by the importer's own "these columns have blank cells" check, and a
@@ -1481,7 +1481,7 @@ class FoodOptimizer:
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 "Formulation": int(self.formulation_ids[i]),
-                "Batch": "" if batch is None else int(batch),
+                "Trial": "" if batch is None else int(batch),
                 "Recorded": local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
@@ -1552,7 +1552,7 @@ class FoodOptimizer:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
             raise ValueError(
-                "Amount limits add amounts, so these ingredients need one "
+                "A limit adds amounts, so these ingredients need one "
                 "unit; " + self.unit_fix_sentence(list(ingredients)))
         ingredient_set = set(ingredients)
         self.quantity_constraints = [
@@ -1566,10 +1566,10 @@ class FoodOptimizer:
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None):
-        """The amount limit over every ingredient — what the one Amount limit
-        control writes when its picker is left on All ingredients.
+        """The limit over every ingredient — what the one Limit on chosen
+        ingredients control writes when its picker is left on All ingredients.
 
-        Refused in the same words as any other amount limit while the
+        Refused in the same words as any other such limit while the
         ingredients are not all in one unit: the refusal names the ingredient
         to re-enter and the unit to enter it in, which is the same answer
         whether the group is two ingredients or all of them."""
@@ -1869,7 +1869,7 @@ class FoodOptimizer:
 
     def _ask_cold_start(self, n_suggestions, bounds_tensor, dim):
         """Generate initial recipes using Sobol sampling."""
-        print(f"DEBUG: Cold start (Sobol batch of {n_suggestions})...")
+        print(f"DEBUG: cold start, Sobol design of {n_suggestions}...")
         sobol = SobolEngine(dimension=dim, scramble=True, seed=self._ask_seed())
         pool_norm = sobol.draw(2048).double()
 
@@ -1915,7 +1915,7 @@ class FoodOptimizer:
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
-        print(f"DEBUG: suggestion step (batch of {n_suggestions})...")
+        print(f"DEBUG: suggestion step, q={n_suggestions}...")
         torch.manual_seed(self._ask_seed())
 
         train_X = torch.tensor(self.X_history, dtype=torch.double)
@@ -2125,7 +2125,7 @@ class FoodOptimizer:
         Refused while a batch is open: taking that batch down as a side effect
         would retire numbers the user never asked to discard."""
         if self.pending_batch is not None:
-            raise ValueError("Record or discard the open batch first.")
+            raise ValueError("Record or discard the open trial first.")
         last = self.last_batch_no()
         if last is None:
             return None
@@ -2424,14 +2424,14 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
-                f"'{name}' is a process setting. Use Remove next to the "
+                f"'{name}' is a process setting. Use Delete next to the "
                 f"process setting instead."
             )
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
-                "Cannot remove this: some formulations were recorded without their "
-                "amounts, so the history cannot be rebuilt. Pause it instead, or "
-                "start a fresh project."
+                "Cannot delete this: some formulations were recorded without "
+                "their amounts, so the history cannot be rebuilt. Pause it "
+                "instead, or start a fresh project."
             )
 
         used = [
@@ -2446,13 +2446,13 @@ class FoodOptimizer:
             word = "Formulation" if len(numbers) == 1 else "Formulations"
             raise ValueError(
                 f"'{name}' was used in {word} {number_list(numbers)}, so it "
-                f"cannot be removed. Tick 'Remove even if it was used' to "
+                f"cannot be deleted. Tick 'Delete even if it was used' to "
                 f"discard that information."
             )
 
         remaining = [v for v in self.variables if v['name'] != name]
         if not any(v.get('active', True) for v in remaining):
-            raise ValueError("Cannot remove the last active variable.")
+            raise ValueError("Cannot delete the last active variable.")
 
         self.variables = remaining
         self.ingredient_properties.pop(name, None)

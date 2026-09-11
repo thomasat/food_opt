@@ -225,7 +225,7 @@ class TestObjectiveValidation:
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="must be between the scale"):
+        with pytest.raises(ValueError, match="must be between the range"):
             opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
 
     def test_blank_name_rejected(self, tmp_path, monkeypatch):
@@ -265,7 +265,7 @@ def test_history_frame_names_formulations_not_experiments(tmp_path, monkeypatch)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     opt.tell({"Water": 20.0}, {"Taste": 8.0})
     df = opt.history_frame(order="Newest first")
-    assert list(df.columns[:3]) == ["Best", "Batch", "Formulation"]
+    assert list(df.columns[:3]) == ["Best", "Trial", "Formulation"]
     assert list(df["Formulation"]) == [2, 1]
     assert "Taste" in df.columns
     assert len(df["Recorded"].iloc[0]) == 10
@@ -325,7 +325,7 @@ def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    for col in ["Formulation", "Batch", "Recorded", "Overall score", "Water",
+    for col in ["Formulation", "Trial", "Recorded", "Overall score", "Water",
                 "Taste", "Note"]:
         assert col in df.columns
     assert df["Taste"].iloc[0] == 3.0
@@ -1083,7 +1083,7 @@ class TestRemoveIngredient:
         opt_configured.tell(
             {"Water": 50.0, "Flour": 20.0, "Sugar": 0.0}, {"Taste": 7.0}
         )
-        with pytest.raises(ValueError, match="cannot be removed"):
+        with pytest.raises(ValueError, match="cannot be deleted"):
             opt_configured.remove_ingredient("Flour")
 
     def test_allows_never_used_ingredient(self, opt_configured):
@@ -1433,7 +1433,7 @@ def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
 
 
 class TestARegeneratedBatchIsADifferentBatch:
-    """`Generate a different batch` used to hand back the batch it had just
+    """`Generate a different trial` used to hand back the batch it had just
     discarded, byte for byte. Both regimes seeded on len(X_history), which a
     discard before any result leaves exactly where it was. They now seed on
     next_formulation_no, which advances on every generate."""
@@ -1518,7 +1518,7 @@ class TestFormulationIdentity:
     def test_discarded_numbers_are_never_reissued(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.ask(n_suggestions=3)
-        opt.set_pending_batch(None)          # "Generate a different batch"
+        opt.set_pending_batch(None)          # "Generate a different trial"
         opt.ask(n_suggestions=2)
         assert [r["formulation"] for r in opt.pending_batch] == [4, 5]
         assert opt.pending_batch_no == 1     # the batch keeps its number
@@ -1605,7 +1605,7 @@ class TestFormulationIdentity:
         opt.record_skipped(2, 1, {"Water": 20.0})
         opt.tell({"Water": 30.0}, {"Firmness": 6.0}, formulation_no=3, batch_no=2)
         opt.record_skipped(4, 2, {"Water": 40.0})
-        opt.rewind_to(0)                     # keep batch 1's one scored row
+        opt.rewind_to(0)                     # keep trial 1's one scored row
         assert opt.formulation_ids == [1]
         assert [s['formulation'] for s in opt.skipped] == [2]
         assert opt.last_batch_no() == 1
@@ -1640,7 +1640,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.ask(n_suggestions=2)
-        with pytest.raises(ValueError, match="Record or discard the open batch first."):
+        with pytest.raises(ValueError, match="Record or discard the open trial first."):
             opt.undo_last_batch()
         assert opt.pending_batch is not None
         assert opt.formulation_ids == [1]
@@ -1651,7 +1651,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.set_pending_batch([])
-        with pytest.raises(ValueError, match="Record or discard the open batch first."):
+        with pytest.raises(ValueError, match="Record or discard the open trial first."):
             opt.undo_last_batch()
 
     def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
@@ -1845,25 +1845,25 @@ class TestUnitsAndImportance:
         assert opt.history_frame()["Recorded"].iloc[0] == expected
         assert expected in opt.history_csv()
 
-    def test_the_target_refusal_names_the_scale_in_plain_words(
+    def test_the_target_refusal_names_the_range_in_plain_words(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between the scale's "
+        assert str(add.value) == ("Target 99 must be between the range's "
                                   "lowest and highest (0 to 10).")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between the scale's "
+        assert str(edit.value) == ("Target 99 must be between the range's "
                                    "lowest and highest (0 to 10).")
 
-    def test_a_backwards_scale_is_refused_in_the_tab_s_words(
+    def test_a_backwards_range_is_refused_in_the_tab_s_words(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == "Scale lowest must be less than scale highest."
+        assert str(e.value) == "Range lowest must be less than range highest."
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1873,14 +1873,14 @@ class TestUnitsAndImportance:
             opt.remove_ingredient("Pea protein")
         assert str(one.value) == (
             "'Pea protein' was used in Formulation 3, so it cannot be "
-            "removed. Tick 'Remove even if it was used' to discard that "
+            "deleted. Tick 'Delete even if it was used' to discard that "
             "information."
         )
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 0.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=5, batch_no=1)
         with pytest.raises(ValueError) as two:
             opt.remove_ingredient("Pea protein")
-        assert "used in Formulations 3 and 5, so it cannot be removed" in str(two.value)
+        assert "used in Formulations 3 and 5, so it cannot be deleted" in str(two.value)
 
     def test_measurements_are_ordered_by_importance(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1930,7 +1930,7 @@ class TestUnitsAndImportance:
     def test_reserved_column_names_are_refused(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("reserved2")
-        for bad in ("Formulation", "Batch", "Overall score", "Note", "Recorded", "Best"):
+        for bad in ("Formulation", "Trial", "Overall score", "Note", "Recorded", "Best"):
             with pytest.raises(ValueError, match="column name Food Optimizer uses"):
                 opt.add_ingredient(bad, 0, 10)
 
@@ -2031,23 +2031,23 @@ class TestUnitsAndImportance:
                  note="best yet")
         opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
         df = opt.history_frame()
-        assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
+        assert list(df.columns) == ["Best", "Trial", "Formulation", "Firmness (N)",
                                     "Juiciness", "Overall score", "Recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
         # A row nobody made has no score to be best, and says so.
         assert list(df["Best"]) == ["★", "", "not made"]
-        assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
+        assert list(df["Trial"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
         assert df["Note"].iloc[2] == "Not made"
         assert df["Overall score"].iloc[2] == ""
 
-    def test_history_frame_batch_column_is_all_strings_on_a_mixed_project(self, tmp_path, monkeypatch):
+    def test_history_frame_trial_column_is_all_strings_on_a_mixed_project(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                  {"Firmness": 6.0, "Juiciness": 7.0})            # no batch (imported)
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, batch_no=1)
-        assert set(opt.history_frame()["Batch"]) == {"", "1"}
+        assert set(opt.history_frame()["Trial"]) == {"", "1"}
 
     def test_history_frame_marks_a_partial_score(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2062,7 +2062,7 @@ class TestUnitsAndImportance:
                  {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=2, batch_no=1)
         assert list(opt.history_frame(order="Best first")["Formulation"]) == [1, 2]
         assert list(opt.history_frame(order="Newest first")["Formulation"]) == [2, 1]
-        assert list(opt.history_frame(order="Batch order")["Formulation"]) == [2, 1]
+        assert list(opt.history_frame(order="Trial order")["Formulation"]) == [2, 1]
 
     def test_history_frame_amounts_carry_the_unit(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2078,11 +2078,11 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=4, batch_no=2,
                  note="ok")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
-        for col in ("Formulation", "Batch", "Recorded", "Overall score",
+        for col in ("Formulation", "Trial", "Recorded", "Overall score",
                     "Pea protein", "Firmness", "Note"):
             assert col in df.columns
         assert df["Formulation"].iloc[0] == 4
-        assert df["Batch"].iloc[0] == 2
+        assert df["Trial"].iloc[0] == 2
 
     def test_history_csv_omits_not_made_rows_but_keeps_partial_rows(self, tmp_path, monkeypatch):
         """A Not-made row has no results at all, so exporting it would fail the
@@ -2306,14 +2306,14 @@ class TestUnitPerIngredient:
         # what.
         with pytest.raises(
                 ValueError,
-                match=r"Amount limits add amounts, so these ingredients need "
+                match=r"A limit adds amounts, so these ingredients need "
                       r"one unit; enter Water in g instead of ml\."):
             opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
         # All ingredients is the same limit over every one of them, refused
         # in the same words.
         with pytest.raises(
                 ValueError,
-                match=r"Amount limits add amounts, so these ingredients need "
+                match=r"A limit adds amounts, so these ingredients need "
                       r"one unit; enter Water in g instead of ml\."):
             opt.add_total_mass_constraint(max_val=400)
         assert opt.quantity_constraints == []
@@ -2507,11 +2507,11 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError, match=r"Missing columns: L\*"):
             opt.parse_batch_results(df, opt.pending_batch)
 
-    def test_a_number_outside_the_batch_names_the_batch(self, tmp_path, monkeypatch):
+    def test_a_number_outside_the_trial_names_the_trial(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
         with pytest.raises(ValueError,
-                           match=r"Formulation 11 is not in batch 3 \(it has 7, 8, 9\)\."):
+                           match=r"Formulation 11 is not in trial 3 \(it has 7, 8, 9\)\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
@@ -2532,13 +2532,13 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError, match="Formulation 7 has no measurements filled in"):
             opt.parse_batch_results(df, opt.pending_batch)
 
-    def test_out_of_scale_value(self, tmp_path, monkeypatch):
+    def test_out_of_range_value(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0], "L*": [140.0]})
-        with pytest.raises(ValueError, match=r"outside your scale of 0 to 100"):
+        with pytest.raises(ValueError, match=r"outside your range of 0 to 100"):
             opt.parse_batch_results(df, opt.pending_batch)
 
-    def test_the_out_of_scale_refusal_follows_the_unit_rule(self, tmp_path,
+    def test_the_out_of_range_refusal_follows_the_unit_rule(self, tmp_path,
                                                             monkeypatch):
         """A value read off an uploaded sheet is refused in exactly the words
         the results grid uses: a "/10" on the label, never after a number."""
@@ -2548,14 +2548,14 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError) as with_unit:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
-            "Formulation 7 Hardness 12 N is outside your scale of 0 to 10 N. "
-            "Widen the scale in Set up, or check the value.")
+            "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
+            "Widen the range in Set up, or check the value.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
-            "Formulation 7 Hardness 12 is outside your scale of 0 to 10. "
-            "Widen the scale in Set up, or check the value.")
+            "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
+            "Widen the range in Set up, or check the value.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2594,7 +2594,11 @@ _BANNED = [
     re.compile(r"\bexperiments?\b", re.I),
     re.compile(r"\bobjectives?\b", re.I),
     re.compile(r"\bweight(s|ed)?\b", re.I),
-    re.compile(r"\brange(s|d)?\b", re.I),
+    # Range is the measurement's own word from 0.3.0 ("outside your range of
+    # 0 to 10 N"); the plural only ever named an ingredient's allowed
+    # amounts, which is what that is called.
+    re.compile(r"\branges\b", re.I),
+    re.compile(r"\branged\b", re.I),
     re.compile(r"\brewind(s|ing)?\b", re.I),
     re.compile(r"\balgorithm\b", re.I),
     # "Food Optimizer" is the product's name and stays; nothing else on screen
@@ -2605,15 +2609,29 @@ _BANNED = [
     # Lowest/Highest for the ends of a range (Min and Max survive only as
     # column headers an ingredient CSV may carry); Remove for anything taken
     # out of a project, with Delete kept for the project itself; Not made for
-    # a formulation nobody made; Batch size for the total a batch is written
+    # a formulation nobody made; Formulation total for the total a batch is written
     # to; and no Priority column beside the importance it was a rank of.
     re.compile(r"\bMin\b"),
     re.compile(r"\bMax\b"),
     re.compile(r"\bhard reset\b", re.I),
     re.compile(r"\bleave (it )?out\b", re.I),
-    re.compile(r"\bdelet(e|es|ed|ing)\b", re.I),
     re.compile(r"\bscale each formulation\b", re.I),
     re.compile(r"\btotal amount\b", re.I),
+    # The wording wave (2026-09-10): the words a formulation team uses, one
+    # per concept. A batch is one mix of one formulation at the bench, so the
+    # set of formulations issued together is a TRIAL; Delete replaces Remove
+    # everywhere (they were the same act under two verbs, and Delete no
+    # longer belongs to the project alone); Type replaces Kind; Range
+    # replaces Scale for a measurement; Repeat replaces Remake; and Share is
+    # gone outright. Stored field names keep their old spelling — batch_history
+    # and pending_batch never reach a screen — and an underscore is a word
+    # character, so \bbatch\b never matches one.
+    re.compile(r"\bbatch(es)?\b", re.I),
+    re.compile(r"\bscales?\b", re.I),
+    re.compile(r"\bKind\b"),
+    re.compile(r"\bRemove\b"),
+    re.compile(r"\bRemake\b"),
+    re.compile(r"\bShare\b"),
 ]
 
 class TestRoundTwoFixes:
@@ -2718,9 +2736,9 @@ _ALLOWED_EXACT = {
     # whole job is to name the word behind importance for a reader who wants
     # it.
     "Importance is the weight of each measurement in the overall score.",
-    # "Delete" belongs to the project and to nothing else, so these are the
-    # only sentences that may carry it — the sidebar's own confirmation, its
-    # button, and what it says afterwards.
+    # "Delete" is now the app's one verb for taking something out, so it is
+    # no longer restricted; these entries stay because the sidebar's
+    # sentences are assembled from fragments the scan sees one at a time.
     "Delete this project",
     "Yes, delete it",
     "Delete **",
@@ -2737,22 +2755,33 @@ _ALLOWED_PREFIXES = ("Delete **", "Deleted ")
 _ALLOWED_SINGLE_WORDS = {
     # Legacy CSV column headers an import still accepts, and the reserved
     # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES).
-    "Recipe", "Experiment",
+    "Recipe", "Experiment", "Batch",
     # The ingredient file's own column headers. The boxes on screen say
     # Lowest and Highest; a sheet may head its columns either way, and the
     # loader reads both.
     "Min", "Max", "min", "max", "lowest", "highest",
     # Stored field names and JSON keys. The spec keeps the stored spelling of
     # importance ('weight') and of a formulation's amounts ('recipe').
-    "recipe", "experiment", "experiments", "objectives", "weight",
+    "recipe", "experiment", "experiments", "objectives", "weight", "batch",
 }
 # Fragments removed from the Swift wrapper before it is scanned: CSS property
 # names inside the setup page's inline styles, not prose.
 _SWIFT_NOT_PROSE = ("font-weight",)
 
 _SINGLE_WORDS = re.compile(
-    r"^(recipes?|experiments?|objectives?|weights?|ranges?|rewind|pruned"
-    r"|priority|delete)$", re.I)
+    # 'ranges', not 'range': Range is the measurement's own column header.
+    r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
+    r"|priority|batch(es)?|kind|scales?|remove|remake|share)$", re.I)
+
+
+def _how_it_works():
+    """The one collapsed expander that maps the app's words to the
+    optimization concepts. It is the single place variable, objective,
+    weight and constraint are allowed to be said, so it is read from the
+    source rather than copied here: a bullet reworded in the app cannot
+    quietly fall out of the allowance."""
+    from ui_setup import HOW_IT_WORKS
+    return set(HOW_IT_WORKS)
 
 
 def _string_constants(path):
@@ -2786,14 +2815,18 @@ def _single_word_constants(path):
 
 def test_no_old_vocabulary_reaches_the_user():
     """recipe → formulation, experiment → formulation, objective →
-    measurement, weight → importance, range → allowed amounts (an instrument's
-    range is the one exception), rewind → undo, and nothing on screen mentions
-    an algorithm or optimization. 'Overall Score' → 'Overall score'."""
+    measurement, weight → importance, ranges → allowed amounts (a
+    measurement's own Range is the one exception), rewind → undo, batch →
+    trial, Kind → Type, Scale → Range, Remove → Delete, Remake → Repeat,
+    Share → gone, and nothing on screen mentions an algorithm or
+    optimization. 'Overall Score' → 'Overall score'. The one exemption is
+    the How it works expander, which exists to say these words once."""
     root = pathlib.Path(__file__).resolve().parent.parent
+    allowed = _ALLOWED_EXACT | _how_it_works()
     offenders = []
     for name in _USER_FACING_SOURCES:
         for text in _prose_constants(root / name):
-            if text in _ALLOWED_EXACT or text.startswith(_ALLOWED_PREFIXES):
+            if text in allowed or text.startswith(_ALLOWED_PREFIXES):
                 continue
             if any(pattern.search(text) for pattern in _BANNED):
                 offenders.append((name, text))

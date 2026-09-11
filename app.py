@@ -33,14 +33,14 @@ _FLASH_BOX = render_flash()
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 
 
-# Half-typed set-up and batch entries belong to the project they were typed
+# Half-typed set-up and trial entries belong to the project they were typed
 # in. Streamlit keeps a widget's value in session state under its key, so
 # without this a measurement name typed in project A reappears in project B's
 # form. Popping a key while its widget is on screen raises, which is why this
 # only ever runs from a handler, before the tabs render.
 _FORM_KEY_PREFIXES = (
     "meas_",                       # the measurement form, new and per-edit
-    "var_",                        # the one add form: name, kind, lowest,
+    "var_",                        # the one add form: name, type, lowest,
                                    # highest, unit, baseline, and the picker
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
@@ -57,7 +57,7 @@ _FORM_KEY_PREFIXES = (
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
-# What each box on the set-up and batch forms holds in a project nobody has
+# What each box on the set-up and trial forms holds in a project nobody has
 # typed in yet. Popping a widget's key does NOT empty it: the widget is still
 # mounted in the browser and posts its old value straight back, which carried
 # a half-typed ingredient into the next project and offered to add it there.
@@ -175,12 +175,12 @@ def _held(opt):
 
 
 def _batch_line(opt):
-    """The one line under the title on tabs 1 and 2 once a batch exists."""
+    """The one line under the title on tabs 1 and 2 once a trial exists."""
     if opt.pending_batch:
-        return f"Batch {opt.pending_batch_no} · {len(open_rows(opt))} to make"
-    last = opt.last_batch_no()   # counts a batch whose rows were all left out
+        return f"Trial {opt.pending_batch_no} · {len(open_rows(opt))} to make"
+    last = opt.last_batch_no()   # counts a trial whose rows were all left out
     if last is not None:
-        return f"Batch {last} · recorded"
+        return f"Trial {last} · recorded"
     return None
 
 
@@ -392,14 +392,14 @@ with st.sidebar:
 
         with st.expander("Manage project"):
             if confirm_action(
-                "hard_reset", "Empty this project",
+                "hard_reset", "Start this project over",
                 (f"Start **{opt.project_name}** over? It becomes empty. "
                  + COPY_KEPT
                  if not _held(opt) else
                  f"Start **{opt.project_name}** over? Its "
                  f"{plural(_held(opt), 'formulation')} and set-up go, and the "
                  f"project becomes empty. " + COPY_KEPT),
-                confirm_label="Yes, empty it",
+                confirm_label="Yes, start over",
                 disabled=other_confirmation("hard_reset"),
             ):
                 _target = opt.project_name
@@ -425,7 +425,8 @@ with st.sidebar:
                         st.session_state["_land_on_open"] = True
                         st.rerun()
 
-            # Same shape as Empty this project, but the project leaves the list. The
+            # Same shape as Start this project over, but the project leaves the
+            # list. The
             # file is renamed to an archive copy, never erased.
             if confirm_action(
                 "delete_project", "Delete this project",
@@ -480,9 +481,10 @@ render_flash(_FLASH_BOX)
 if opt is None:
     st.markdown("## Create your first project")
     st.markdown(
-        "1. **Name a project** in the sidebar and click Create project.\n"
+        "1. **Name a project** and click Create project.\n"
         "2. **Add ingredients** and the measurements you will record.\n"
-        "3. **Make a batch**, make the formulations, and record the results."
+        "3. **Make a trial**, weigh out the formulations, and record what "
+        "you measured."
     )
     wc1, wc2 = st.columns(2)
     with wc1:
@@ -505,8 +507,8 @@ if getattr(st.session_state.optimizer, "load_error", None):
         "To protect the original file, editing is paused. In the sidebar on "
         "the left you can: restore a backup you downloaded earlier "
         "(Restore from backup), or start this project over "
-        "(Manage project › Empty this project — a copy of the damaged file is "
-        "saved first)."
+        "(Manage project › Start this project over — a copy of the damaged "
+        "file is saved first)."
     )
     st.stop()
 
@@ -531,16 +533,16 @@ if getattr(st.session_state.optimizer, "save_error", None):
             st.rerun()
 
 
-# A batch generated before the ingredient list changed cannot be made. This
-# lives in the main body, not the sidebar: the notice is about the batch the
+# A trial generated before the ingredient list changed cannot be made. This
+# lives in the main body, not the sidebar: the notice is about the trial the
 # user is looking at, and so is the red banner when the discard fails to save.
 _opt = st.session_state.optimizer
 if getattr(_opt, "pending_batch", None):
     _var_names = {v['name'] for v in _opt.variables}
     try:
         # Ingredients only. A measurement is what you will score, not what you
-        # weigh out, so removing or editing one leaves every formulation in the
-        # batch perfectly makeable.
+        # weigh out, so deleting or editing one leaves every formulation in the
+        # trial perfectly makeable.
         _batch_ok = all(set(r['recipe']) == _var_names for r in _opt.pending_batch)
     except (TypeError, AttributeError, KeyError):
         _batch_ok = False           # malformed backup rows; treat as a mismatch
@@ -551,7 +553,7 @@ if getattr(_opt, "pending_batch", None):
         # the end-of-script check at the foot of this file is for.
         if saved_ok(_opt):
             flash("info",
-                  "The open batch was discarded because the ingredient list or "
+                  "The open trial was discarded because the ingredient list or "
                   "its allowed amounts changed since it was generated.")
             render_flash(_FLASH_BOX)   # this run, above the tabs
 
@@ -562,8 +564,8 @@ if getattr(_opt, "pending_batch", None):
 
 
 # The landing rule. This is one of the six places allowed to change tabs (the
-# other five are go_to_tab's callers: Continue to make a batch, Back to set up,
-# Save results, Save uploaded results, Start the next batch), and it fires only
+# other five are go_to_tab's callers: Next: make a trial, Back to set up,
+# Save results, Save uploaded results, Start the next trial), and it fires only
 # on the run that follows opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
@@ -586,8 +588,8 @@ tab_setup, tab_batch, tab_results = st.tabs(
 _line = _batch_line(_opt)
 
 with tab_setup:
-    # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
-    # directly above "Batch 1 · make these 3 formulations" saying it again.
+    # Tab 1 only: tab 2 carries the trial's own heading, and the line sat
+    # directly above "Trial 1 · make these 3 formulations" saying it again.
     if _line:
         st.caption(_line)
     ui_setup.render(_opt, STORAGE)

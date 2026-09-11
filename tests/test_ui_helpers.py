@@ -173,12 +173,12 @@ def test_join_unit_and_goal_line_are_re_exported():
     assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
 
 
-def test_scale_error_names_the_value_the_scale_and_the_fix():
+def test_scale_error_names_the_value_the_range_and_the_fix():
     obj = {"name": "Firmness", "min_val": 0.0, "max_val": 10.0, "unit": "N"}
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your scale of 0 to 10 N. Widen the scale in "
+        "Firmness 12 N is outside your range of 0 to 10 N. Widen the range in "
         "Set up, or check the value."
     )
 
@@ -285,7 +285,7 @@ def test_go_to_tab_switches_the_open_tab():
     at.run()
     at.button[0].click()
     at.run()
-    assert at.session_state["main_tab"] == "2 · Make a batch"
+    assert at.session_state["main_tab"] == "2 · Make a trial"
 
 
 def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
@@ -295,7 +295,7 @@ def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
     at.run()
     at.button[0].click()
     at.run()
-    assert at.session_state["_pending_tab"] == "2 · Make a batch"
+    assert at.session_state["_pending_tab"] == "2 · Make a trial"
     assert "main_tab" not in at.session_state
 
 

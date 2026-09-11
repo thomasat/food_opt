@@ -47,7 +47,7 @@ def render_flash(box=None):
     Generate).
 
     Pass the container back to drain messages queued LATER in the same run —
-    the sidebar runs after this point and can discard an unmakeable batch,
+    the sidebar runs after this point and can discard an unmakeable trial,
     and that notice belongs above the tabs on this run, not the next one.
     """
     box = st.container() if box is None else box
@@ -151,14 +151,14 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
-TAB_BATCH = "2 · Make a batch"
+TAB_BATCH = "2 · Make a trial"
 TAB_RESULTS = "3 · Results"
 
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from six handlers only: Continue to make a batch,
-    Back to set up, Save results, Save uploaded results, Start the next batch,
+    tabs, and it is called from six handlers only: Next: make a trial,
+    Back to set up, Save results, Save uploaded results, Start the next trial,
     and opening a project. A set-up edit, Generate, a correction or a plain
     rerun must never call it, and neither must a handler whose write failed.
 
@@ -172,7 +172,7 @@ def go_to_tab(label):
 
 
 def open_rows(opt):
-    """Rows of the open batch that have not been recorded yet. Three screens
+    """Rows of the open trial that have not been recorded yet. Three screens
     count them — the line under the title, the result grid on tab 2 and the
     foot of tab 3 — and they must agree."""
     recorded = {int(i) for i in opt.formulation_ids}
@@ -205,7 +205,7 @@ def fmt_setting(value, unit=""):
     value. A setting is dialled in, not weighed: at most two decimals, and no
     trailing zeros, because 188.494 is a precision no oven dial has and
     180.00 is a precision nobody typed. Every screen that shows a setting —
-    the batch table, the printable sheets, the amounts table — goes through
+    the trial table, the printable sheets, the amounts table — goes through
     here, so the three always agree."""
     if value is None:
         return ""
@@ -216,17 +216,17 @@ def fmt_setting(value, unit=""):
 
 
 def scale_error(obj, value):
-    """The refusal for a measured value outside its scale, or '' when it fits.
-    Results are never clamped: a firmness of 12 on a 0-10 scale is either a
-    typo or a scale that is too narrow, and silently storing 10 hides both."""
+    """The refusal for a measured value outside its range, or '' when it fits.
+    Results are never clamped: a firmness of 12 on a 0-10 range is either a
+    typo or a range that is too narrow, and silently storing 10 hides both."""
     if value is None:
         return ""
     low, high = float(obj['min_val']), float(obj['max_val'])
     if low <= float(value) <= high:
         return ""
     return outside_message(obj['name'], value, low, high, obj.get('unit'),
-                           "your scale",
-                           " Widen the scale in Set up, or check the value.")
+                           "your range",
+                           " Widen the range in Set up, or check the value.")
 
 
 def bounds_warning(name, value, low, high, unit):
@@ -338,7 +338,7 @@ def readiness(opt):
 
 
 def landing_tab(opt):
-    """Where opening a project lands: set-up while it is incomplete, the batch
+    """Where opening a project lands: set-up while it is incomplete, the trial
     while one is unrecorded, set-up again while nothing has been made, and
     results once the project holds some.
 

@@ -1,8 +1,8 @@
-"""Tab 2 · Make a batch: generate formulations, make them, record results.
+"""Tab 2 · Make a trial: generate formulations, make them, record results.
 
 Nothing here fits a model or writes to disk on a plain rerun, and the result
 grid deliberately avoids st.form so `Save results` can light up the moment
-every kept row has a value. What the screen shows, the batch sheet and the
+every kept row has a value. What the screen shows, the bench sheet and the
 printable sheets show too: all three go through `scaled_recipe`.
 """
 import html
@@ -26,7 +26,7 @@ _PER_ROW = 4
 def _result_key(formulation_no, measurement):
     """The stable key for one measurement of one formulation. Formulation
     numbers are global and never reissued, so these keys never collide across
-    batches and never need clearing."""
+    trials and never need clearing."""
     return f"f{formulation_no}_{measurement}"
 
 
@@ -59,7 +59,7 @@ def _scale_to(opt):
 def _any_value_typed(opt):
     """True once a result has been typed into a row that is still being kept.
     A row nobody made is skipped: a disabled number_input still returns its stored
-    value, which would flip the batch sheet grey on a tick."""
+    value, which would flip the bench sheet grey on a tick."""
     for row in open_rows(opt):
         number = row['formulation']
         if _left_out(number):
@@ -94,19 +94,19 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
     if repeat and best_no is not None:
         index = opt.index_of_formulation(best_no)
         if index is not None:
-            # Named on the batch table and carried into the stored result: an
+            # Named on the trial table and carried into the stored result: an
             # unexplained extra row is not a repeat, it is a mystery.
             opt.add_to_pending_batch(opt.recipe_history[index],
                                      note=f"Repeat of Formulation {best_no}")
     if batch_no is not None or discarded is not None:
-        # A regenerated batch keeps its number and says which numbers retired.
+        # A regenerated trial keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
                               discarded=discarded)
     st.session_state.pop("_results_upload", None)
     st.session_state.pop("scale_total", None)
     if not saved_ok(opt):
         return
-    flash("success", f"Batch {opt.pending_batch_no} is ready to make.")
+    flash("success", f"Trial {opt.pending_batch_no} is ready to make.")
     st.rerun()   # a rerun, never a tab move: Generate keeps you here
 
 
@@ -115,20 +115,20 @@ def _no_batch(opt):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
     st.session_state.setdefault("batch_size", 3)
-    size = st.number_input("New formulations in this batch", min_value=1,
+    size = st.number_input("New formulations in this trial", min_value=1,
                            max_value=10, step=1, key="batch_size")
     best_no = best_formulation_no(opt)
     repeat = False
     if best_no is not None:
         repeat = st.checkbox(
-            f"Remake Formulation {best_no} (best so far) in this batch",
+            f"Repeat Formulation {best_no} (best so far)",
             key="repeat_best",
-            help="Checks the best result again alongside the new "
-                 "formulations.",
+            help="A second reading of the same formulation, alongside the "
+                 "new ones.",
         )
     n = int(size)
     # The repeat is a formulation the user will have to make, so the button
-    # counts it: ticking the box on a batch of three makes four.
+    # counts it: ticking the box on a trial of three makes four.
     making = n + (1 if repeat else 0)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
@@ -139,13 +139,13 @@ def _no_batch(opt):
         _generate(opt, n, repeat, best_no)
     if len(opt.X_history) < 5:
         st.caption("The first few formulations spread across the amounts you "
-                   "allowed; later batches aim closer to your targets.")
+                   "allowed; later trials aim closer to your targets.")
     else:
-        st.caption("Each batch aims closer to your targets.")
+        st.caption("Each trial aims closer to your targets.")
 
 
 def _amount_format(opt, frame):
-    """How each column of the batch table is written out: two decimals for the
+    """How each column of the trial table is written out: two decimals for the
     amounts and the total, because that is the precision a balance works to,
     and fmt_setting for a process setting, because a cook temperature is
     neither an amount nor 180.00 nor 188.494. The column header already
@@ -163,7 +163,7 @@ def _amount_format(opt, frame):
 def _batch_table(opt):
     rows = opt.pending_batch
     unit = opt.one_amount_unit()
-    st.markdown(f"**Batch {opt.pending_batch_no} · make "
+    st.markdown(f"**Trial {opt.pending_batch_no} · make "
                 f"{'this' if len(rows) == 1 else 'these'} "
                 f"{plural(len(rows), 'formulation')}**")
     scale_to = _scale_to(opt)
@@ -182,7 +182,7 @@ def _batch_table(opt):
         index = opt.index_of_formulation(best_no)
         if index is not None:
             # Against the amounts on the table above, not the ones underneath
-            # them: while the batch is scaled to a total, a change read off
+            # them: while the trial is scaled to a total, a change read off
             # the generated amounts is a number nothing on screen shows. The
             # formulation it compares is scaled to that same total.
             changes = opt.biggest_changes(
@@ -196,7 +196,7 @@ def _batch_table(opt):
                     f"{fmt_amount(abs(delta), opt.unit_of(name))}"
                     for name, delta in changes
                 )
-                # Named: the line reads one row of the batch, so a batch of
+                # Named: the line reads one row of the trial, so a trial of
                 # three must not sound as though it describes all of them.
                 st.caption(f"Biggest changes in Formulation "
                            f"{rows[0]['formulation']} from Formulation "
@@ -215,18 +215,18 @@ def _scale_control(opt, unit, scale_to):
     if not opt.has_ingredients():
         return
     if unit is None:
-        st.caption("A batch size needs all ingredients in one unit.")
+        st.caption("A formulation total needs all ingredients in one unit.")
         return
     st.session_state.setdefault("scale_total", None)
-    # "Batch size", not "Scale": Scale is the measurement's scale on tab 1,
-    # and one word cannot be two things across two tabs.
+    # "Formulation total", not "Range": Range is the measurement's range on
+    # tab 1, and one word cannot be two things across two tabs.
     st.number_input(
-        f"Batch size ({unit})" if unit else "Batch size",
+        f"Formulation total ({unit})" if unit else "Formulation total",
         min_value=0.0, step=1.0, placeholder="as generated",
         key="scale_total",
         help="Leave this empty to weigh out the amounts as they were "
-             "generated. Type a total and every formulation is rewritten "
-             "to it, on screen and in both downloads.",
+             "generated. Type a total and every formulation is scaled to it, "
+             "on screen and on the sheets you print.",
     )
     if scale_to is not None:
         st.caption("Amounts shown for this total.")
@@ -241,7 +241,7 @@ def _sheet_lines(opt, row, scale_to):
                    if v.get('category', 'ingredient') == 'ingredient']
     process = [v for v in opt.variables if v.get('category') == 'process']
     lines = [f"{opt.project_name} · {made_on}",
-             f"Formulation {row['formulation']} · batch {opt.pending_batch_no}",
+             f"Formulation {row['formulation']} · trial {opt.pending_batch_no}",
              ""]
     for var in ingredients:
         lines.append(f"{var['name']}: "
@@ -266,8 +266,8 @@ def _sheet_lines(opt, row, scale_to):
                      f" · {goal_line(obj)}: ______________________")
     lines.append("")
     # A repeat says so on the sheet the technician carries: two sheets with
-    # identical amounts and nothing printed to say why is how a batch gets
-    # made twice by mistake.
+    # identical amounts and nothing printed to say why is how a formulation
+    # gets made twice by mistake.
     note = str(row.get('note') or "").strip()
     lines.append(f"Note: {note}" if note else
                  "Note: ______________________________________________")
@@ -285,7 +285,7 @@ def _sheets_html(opt, scale_to):
         blocks.append(f"<pre class='sheet'>{body}</pre>")
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{html.escape(opt.project_name)} batch {opt.pending_batch_no}</title>"
+        f"<title>{html.escape(opt.project_name)} trial {opt.pending_batch_no}</title>"
         "<style>"
         "body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:0}"
         ".sheet{padding:24px 32px;font-size:13px;line-height:1.6;"
@@ -307,16 +307,16 @@ def _printable(opt, scale_to):
 
 def _download_row(opt, scale_to):
     rows = opt.pending_batch
-    # The batch sheet is the lit thing until the first result is typed, and it
+    # The bench sheet is the lit thing until the first result is typed, and it
     # steps aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
 
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
-            "Download batch sheet (CSV)",
+            "Download the bench sheet (CSV)",
             data=opt.batch_csv(rows, scale_to=scale_to),
-            file_name=f"{opt.project_name} batch {opt.pending_batch_no}.csv",
+            file_name=f"{opt.project_name} trial {opt.pending_batch_no}.csv",
             mime="text/csv", key="download_batch_sheet",
             type="primary" if lit else "secondary",
             use_container_width=True,
@@ -325,13 +325,13 @@ def _download_row(opt, scale_to):
         st.download_button(
             "Download formulation sheets (to print)",
             data=_sheets_html(opt, scale_to),
-            file_name=f"{opt.project_name} batch {opt.pending_batch_no} sheets.html",
+            file_name=f"{opt.project_name} trial {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
         )
     if scale_to is not None:
         # Both files carry the amounts on screen, so the size they were
         # written for is named directly under the two buttons.
-        st.caption("Sheets use a batch size of "
+        st.caption("Sheets use a formulation total of "
                    + join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")
                    + ".")
     with st.expander("Preview formulation sheets"):
@@ -343,14 +343,14 @@ def _downloads(opt):
     scale_to = _scale_to(opt)
     numbers = [r['formulation'] for r in rows]
 
-    # The downloads belong above `Generate a different batch`, but the question
+    # The downloads belong above `Generate a different trial`, but the question
     # has to be asked first: arming a confirmation does not rerun, so a download
     # rendered before it would still be coloured on the run that puts the
     # warning on screen. The container reserves the position instead.
     slot = st.container()
     regenerate = confirm_action(
-        "regenerate", "Generate a different batch",
-        f"Batch {opt.pending_batch_no} (Formulations "
+        "regenerate", "Generate a different trial",
+        f"Trial {opt.pending_batch_no} (Formulations "
         f"{', '.join(str(n) for n in numbers)}) will be discarded. "
         "Those numbers will not be used again.",
         confirm_label="Yes, discard",
@@ -368,7 +368,7 @@ def _downloads(opt):
 
 
 def _recorded_row(opt, number, ordered):
-    """The read-only line a formulation gets once its results are in — a batch
+    """The read-only line a formulation gets once its results are in — a trial
     recorded one sheet at a time reopens here with those rows already done. The
     note is part of the record, so it is shown with the numbers rather than
     being kept for tab 3."""
@@ -416,7 +416,7 @@ def _record_results(opt):
                 cols = st.columns(min(_PER_ROW, len(ordered) - j))
             with cols[j % _PER_ROW]:
                 # No min_value/max_value: clamping turns a 12 N reading into a
-                # silent 10 N. Out-of-scale values are refused on save instead.
+                # silent 10 N. Out-of-range values are refused on save instead.
                 # The box opens empty from session state rather than from a
                 # `value=`, which Streamlit warns about once a project switch
                 # has assigned the key.
@@ -455,18 +455,18 @@ def _record_results(opt):
     if st.button("Save results", type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
         _save_results(opt, kept, left_out, to_record)
-    # What the button under it does is written on the button; the line only
-    # counts what is in.
-    counter = f"Results for {entered} of {plural(len(kept), 'formulation')}"
+    # The line counts what is still to record, and says when it is written:
+    # nothing here reaches the file until Save results is pressed.
+    counter = f"{entered} of {len(kept)} to record"
     if left_out:
         counter += f" · {len(left_out)} not made"
-    st.caption(counter)
+    st.caption(counter + " · saved when you press Save results")
 
 
 def _save_results(opt, kept, left_out, to_record):
     batch_no = opt.pending_batch_no
-    # Check every value against its scale before writing anything: a half-saved
-    # batch is worse than a refused one.
+    # Check every value against its range before writing anything: a
+    # half-saved trial is worse than a refused one.
     typed = {}
     for row in kept:
         number = row['formulation']
@@ -508,13 +508,13 @@ def _save_results(opt, kept, left_out, to_record):
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
-    flash("success", f"Batch {batch_no} recorded.")
+    flash("success", f"Trial {batch_no} recorded.")
     go_to_tab(TAB_RESULTS)
 
 
 def _upload(opt):
     with st.expander("Or upload results from a CSV"):
-        st.caption("Download the batch sheet above, fill in one column per "
+        st.caption("Download the bench sheet above, fill in one column per "
                    "measurement, and upload it here. Rows are matched by "
                    "Formulation number.")
         sheet_file = st.file_uploader(
@@ -559,20 +559,20 @@ def _upload(opt):
             st.session_state.pop("_results_upload", None)
             left = open_rows(opt)
             if left:
-                # Rows still to record: the batch stays open, numbers and all,
-                # so the whole-batch sentence would be a lie.
+                # Rows still to record: the trial stays open, numbers and all,
+                # so the whole-trial sentence would be a lie.
                 flash("success",
                       f"Recorded {len(parsed)} of {len(opt.pending_batch)} "
-                      f"formulations in batch {batch_no} · "
+                      f"formulations in trial {batch_no} · "
                       f"{len(left)} to make.")
                 st.rerun()
             opt.set_pending_batch(None)
             st.session_state.pop("scale_total", None)
             if not saved_ok(opt):
                 # A move would rerun past app.py's end-of-script check and
-                # hide it, and the batch is still open on disk.
+                # hide it, and the trial is still open on disk.
                 return
-            flash("success", f"Batch {batch_no} recorded.")
+            flash("success", f"Trial {batch_no} recorded.")
             go_to_tab(TAB_RESULTS)
 
 

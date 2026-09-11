@@ -1,9 +1,9 @@
 """Tab 1 · Set up: what the project can vary and what will be measured.
 
-One column, in the order a formulator fills it in: what you can vary — the
-ingredients and the process settings together — then the measurements, then
-the optional sections. Exactly one coloured button lives here — `Continue to
-make a batch` at the foot.
+One column, in the order a formulator fills it in: the ingredients and the
+process settings together, then the measurements, then the optional
+sections. Exactly one coloured button lives here — `Next: make a trial` at
+the foot.
 """
 import json
 import os
@@ -29,20 +29,47 @@ GOAL_LABELS = {
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
 
-_LIMIT_KEPT = ("Formulations already made are kept. The next batch will "
+_LIMIT_KEPT = ("Formulations already made are kept. The next trial will "
                "respect this limit.")
 
-# food_bo drops the open batch inside add_ingredient, deactivate_variable,
+# food_bo drops the open trial inside add_ingredient, deactivate_variable,
 # add_process_parameter and friends, so app.py's makeability check never sees
 # the mismatch. Every handler here that can change the ingredient list, a
 # process setting or an allowed amount says so itself.
-_BATCH_DISCARDED = ("The open batch was discarded because the ingredient list "
+_BATCH_DISCARDED = ("The open trial was discarded because the ingredient list "
                     "or its allowed amounts changed since it was generated.")
 
-# The one sentence on any screen that says "weight": the tail of the
-# Importance field's tooltip, which is there to join the word the tab uses to
-# the one a statistician would.
-_GLOSS = "Importance is the weight of each measurement in the overall score."
+# The one collapsed expander that maps the words on this tab to the words a
+# specialist would use. Every optimization term the app otherwise refuses to
+# say — variable, objective, weight, constraint — is said here and only here,
+# one line each, so the mapping exists exactly once. The vocabulary guard
+# reads this list by name and allows what is in it.
+HOW_IT_WORKS = [
+    "Ingredients and process settings are the variables; measurements with "
+    "their goals are the objectives.",
+    "Importance is each measurement's weight; closeness is its score between "
+    "0 and 1 (1 at the goal).",
+    "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
+    "so the top of your range scores 1 and the bottom scores 0.",
+    "Lower is better: the reverse — the bottom of your range scores 1 and the "
+    "top scores 0.",
+    "Hit a target: closeness is 1 at the target and falls evenly with "
+    "distance, by one point per full range; the lowest score depends on how "
+    "far the target sits from the ends of your range.",
+    "The overall score is the weighted sum of closeness. The model learns "
+    "this one number, so changing an importance or a range re-scores every "
+    "past formulation.",
+    "Limits are hard constraints applied when formulations are generated; an "
+    "ingredient with no value for a property counts as containing none.",
+    "The first five formulations are spread across the allowed amounts; later "
+    "trials are chosen together from what the results suggest, some to test "
+    "an idea rather than beat the best.",
+    "A repeat is a second reading of one formulation; it teaches the model "
+    "how noisy your measurements are.",
+]
+# Which of the nine lines above are the three goal lines nested under the
+# second bullet, rather than bullets of their own.
+_HOW_IT_WORKS_NESTED = (2, 3, 4)
 
 
 # ------------------------------------------------------------------ #
@@ -54,7 +81,7 @@ def _unit_suffix(unit):
 
 
 def _note_discarded_batch(opt, batch_no_before):
-    """Flash the notice when the write just now retired the open batch."""
+    """Flash the notice when the write just now retired the open trial."""
     if batch_no_before is not None and opt.pending_batch_no is None:
         flash("info", _BATCH_DISCARDED)
 
@@ -68,7 +95,7 @@ def _goal_text(obj):
     return GOAL_LABELS.get(obj['goal'], obj['goal'])
 
 
-def _scale_text(obj):
+def _range_text(obj):
     return join_unit(f"{float(obj['min_val']):g} to {float(obj['max_val']):g}",
                      unit_after_number(obj.get('unit')))
 
@@ -110,7 +137,7 @@ KIND_SETTING = "Process setting"
 
 
 def _scaled_now(opt):
-    """The total the open batch is scaled to, or None. Only a real scaling
+    """The total the open trial is scaled to, or None. Only a real scaling
     counts: the box is not even offered while the ingredients differ in unit."""
     if opt.one_amount_unit() is None:
         return None
@@ -121,8 +148,8 @@ def _scaled_now(opt):
 
 
 def _unscaled_tail(opt, before, before_unit):
-    """The sentence a unit change owes the open batch when it has just split
-    the ingredients across units: scaling needs one unit, so the batch is back
+    """The sentence a unit change owes the open trial when it has just split
+    the ingredients across units: scaling needs one unit, so the trial is back
     to as-generated. Empties the box too — a number left in it would go on
     quietly meaning nothing."""
     if before is None or opt.one_amount_unit() is not None:
@@ -130,23 +157,20 @@ def _unscaled_tail(opt, before, before_unit):
     st.session_state.pop("scale_total", None)
     if opt.pending_batch_no is None:
         return ""
-    return (f"Batch {opt.pending_batch_no} is no longer shown at a batch "
-            "size of " + join_unit(f"{before:g}", before_unit)
-            + "; a batch size needs all ingredients in one unit.")
+    return (f"Trial {opt.pending_batch_no} is no longer shown at a "
+            "formulation total of " + join_unit(f"{before:g}", before_unit)
+            + "; a formulation total needs all ingredients in one unit.")
 
 
 def _variables(opt, storage):
-    """What you can vary: the ingredients and the process settings, in one
-    open section. The form first, then one table of everything, then one row
+    """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
     of controls, with the file upload folded away beneath.
 
     They were four places — an Ingredients subheader with its own uploader, a
     Change the ingredient list expander, a Process settings expander and an
     Ingredients fold — which asked the same question ('what changes between
     formulations?') in four different shapes."""
-    st.subheader("What you can vary")
-    st.caption("Ingredients and process settings you will change between "
-               "formulations.")
+    st.subheader("Ingredients and process settings")
     _add_variable(opt)
     _variable_table(opt)
     if getattr(opt, "amount_unit_backfilled", False):
@@ -162,14 +186,14 @@ def _variables(opt, storage):
 
 
 def _add_variable(opt):
-    """One form for both kinds. Kind is a radio rather than two forms: an
+    """One form for both types. Type is a radio rather than two forms: an
     ingredient and a setting are the same four answers — what it is called,
     how low, how high, and in what."""
     mid_run = bool(opt.X_history)
     st.session_state.setdefault("var_kind", KIND_INGREDIENT)
     kind = st.session_state["var_kind"]
     setting = kind == KIND_SETTING
-    # The unit box opens on what that kind is written in: g for an ingredient,
+    # The unit box opens on what that type is written in: g for an ingredient,
     # blank for a setting, because a cook temperature is never 175 g. Assigned
     # before the box is created, which is the one moment Streamlit allows it.
     if st.session_state.get("_var_kind_shown") != kind:
@@ -184,7 +208,7 @@ def _add_variable(opt):
                       placeholder=("e.g. Cook temperature" if setting
                                    else "e.g. Water"))
     with cols[1]:
-        st.radio("Kind", [KIND_INGREDIENT, KIND_SETTING], key="var_kind",
+        st.radio("Type", [KIND_INGREDIENT, KIND_SETTING], key="var_kind",
                  horizontal=True,
                  help="Ingredients are weighed into the formulation and count "
                       "towards its total. Process settings, such as "
@@ -216,7 +240,7 @@ def _add_variable(opt):
         with cols[5]:
             st.session_state.setdefault("var_base", None)
             st.number_input(
-                "Setting used so far", key="var_base", placeholder="required",
+                "Baseline", key="var_base", placeholder="required",
                 help="The setting you used for every formulation already "
                      "made, so those results still count.",
             )
@@ -342,7 +366,7 @@ def _variable_table(opt):
     any_paused = any(not v.get('active', True) for v in rows)
     any_baseline = any(v.get('_absent_value') is not None for v in rows)
     frame = pd.DataFrame([{
-        "Kind": (KIND_INGREDIENT if v.get('category', 'ingredient') == 'ingredient'
+        "Type": (KIND_INGREDIENT if v.get('category', 'ingredient') == 'ingredient'
                  else KIND_SETTING),
         "Name": v['name'],
         "Lowest": float(v['bounds'][0]),
@@ -351,9 +375,9 @@ def _variable_table(opt):
         # (g)" over a row measured in ml was a lie, and the water really is
         # in ml.
         "Unit": opt.unit_of(v['name']),
-        **({"Used so far": (fmt_setting(v.get('_absent_value'),
-                                       opt.unit_of(v['name']))
-                           if v.get('_absent_value') is not None else "")}
+        **({"Baseline": (fmt_setting(v.get('_absent_value'),
+                                     opt.unit_of(v['name']))
+                         if v.get('_absent_value') is not None else "")}
            if any_baseline else {}),
         **({"Status": ("active" if v.get('active', True)
                        else f"paused · held at {_held_at(opt, v)}")}
@@ -368,7 +392,7 @@ def _variable_table(opt):
 
 
 def _disarm_other_removals(pick):
-    """An armed Remove belongs to the row it was armed on. Changing the pick
+    """An armed Delete belongs to the row it was armed on. Changing the pick
     would otherwise leave a confirmation armed with nothing on screen to
     answer it, and the tab's Continue greyed behind it for ever."""
     armed = armed_confirmation()
@@ -379,7 +403,7 @@ def _disarm_other_removals(pick):
 
 def _variable_controls(opt, storage):
     """One row for everything you can do to a row of the table: pause it or
-    resume it, set its unit, remove it."""
+    resume it, set its unit, delete it."""
     rows = _ordered_variables(opt)
     if not rows:
         return
@@ -474,8 +498,8 @@ def _pause_or_resume(opt, var, pick):
     if st.button("Pause", key="pause_var", disabled=alone,
                  help=("At least two ingredients or settings must stay active "
                        "before one can be paused." if alone else
-                       "Held out of new formulations, with every result "
-                       "already recorded kept.")):
+                       "New formulations will not use it. Results already "
+                       "recorded are kept.")):
         try:
             opt.deactivate_variable(pick)
         except ValueError as e:
@@ -489,7 +513,7 @@ def _pause_or_resume(opt, var, pick):
 
 def _set_unit_now(opt, pick, typed):
     """Change one row's unit, ingredient or process setting. Nothing is
-    rescored and the open batch stands: a unit is how a number is written,
+    rescored and the open trial stands: a unit is how a number is written,
     not the number."""
     if not str(typed).strip():
         # A blank box looks like a no-op and is not one: it would rewrite the
@@ -514,7 +538,7 @@ def _set_unit_now(opt, pick, typed):
         said = (f"{pick} is now written in {written}. The {held} not converted."
                 if written else f"{pick} is shown without a unit.")
         # Scaling needs one unit, and this change may have taken it away; the
-        # batch is back to as-generated, so say so.
+        # trial is back to as-generated, so say so.
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{said} {tail}" if tail else said)
         # An amount limit is a sum, and this change may have left one adding
@@ -527,17 +551,17 @@ def _set_unit_now(opt, pick, typed):
 
 
 def _remove_variable(opt, storage, pick, is_ingredient):
-    """Remove one row for good. Always confirmed, always copied first, history
-    or not: a removal is a removal and the user is told the same thing every
+    """Delete one row for good. Always confirmed, always copied first, history
+    or not: a deletion is a deletion and the user is told the same thing every
     time."""
     key = f"rm_var_{pick}"
-    warning = (f"Remove {pick} from this project permanently? " if is_ingredient
-               else f"Remove {pick}? ")
+    warning = (f"Delete {pick} from this project permanently? " if is_ingredient
+               else f"Delete {pick}? ")
     confirmed = confirm_action(
-        key, f"Remove {pick}",
+        key, f"Delete {pick}",
         warning + "Formulations already made will be recorded without it. "
                 + COPY_KEPT,
-        confirm_label="Yes, remove",
+        confirm_label="Yes, delete",
         disabled=other_confirmation(key),
     )
     # Read here, before the tick box below is cleared: the run that confirms
@@ -547,16 +571,16 @@ def _remove_variable(opt, storage, pick, is_ingredient):
              and st.session_state.get(f"{key}__pending"))
     # The tick box is drawn AFTER confirm_action, because the click that arms
     # the confirmation is only recorded inside it: asking first showed the box
-    # one click late. It is rarely needed and only ever seen while a removal
-    # is armed — removing an ingredient that was used above 0 would rewrite
+    # one click late. It is rarely needed and only ever seen while a deletion
+    # is armed — deleting an ingredient that was used above 0 would rewrite
     # formulations nobody made.
     if armed and is_ingredient:
-        st.caption("Removing takes it out of every formulation already made; "
+        st.caption("Deleting takes it out of every formulation already made; "
                    "pausing keeps the data.")
-        st.checkbox("Remove even if it was used (discards that information)",
+        st.checkbox("Delete even if it was used (discards that information)",
                     key="delete_ing_force")
     elif not armed:
-        # Never carried into the next removal, or the next project: a tick
+        # Never carried into the next deletion, or the next project: a tick
         # left behind is one click away from discarding real results.
         st.session_state.pop("delete_ing_force", None)
     if confirmed:
@@ -571,7 +595,7 @@ def _remove_variable(opt, storage, pick, is_ingredient):
             st.error(str(e))
         else:
             if saved_ok(opt):
-                flash("success", f"Removed {pick}.")
+                flash("success", f"Deleted {pick}.")
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
 
@@ -641,7 +665,7 @@ def _upload_ingredients(opt):
 
 
 def _flash_removed_limits(opt, removed):
-    """Name every amount limit an edit just emptied of meaning, one line
+    """Name every ingredient limit an edit just emptied of meaning, one line
     each. Three edits can do it — a unit set on one ingredient, a new default
     unit, a reloaded ingredient file — and all three say it the same way."""
     for qc in removed:
@@ -649,7 +673,7 @@ def _flash_removed_limits(opt, removed):
             # A property limit is an average over the amounts, so it is the
             # ingredients as a whole that stopped sharing a unit — there is no
             # list of its own to name.
-            flash("warning", f"The limit on {qc['metric']} was removed because "
+            flash("warning", f"The limit on {qc['metric']} was deleted because "
                              "the ingredients no longer share a unit.")
             continue
         label = _limit_label(opt, qc)
@@ -657,14 +681,14 @@ def _flash_removed_limits(opt, removed):
             gone = qc.get('missing') or []
             who = (f"{number_list(gone)} are no longer ingredients"
                    if len(gone) > 1 else f"{gone[0]} is no longer an ingredient")
-            flash("warning", f"The limit on {label} was removed because {who}.")
+            flash("warning", f"The limit on {label} was deleted because {who}.")
         else:
-            flash("warning", f"The limit on {label} was removed because those "
+            flash("warning", f"The limit on {label} was deleted because those "
                              "ingredients no longer share a unit.")
 
 
 def _limit_label(opt, qc):
-    """How one amount limit is named on screen — 'All ingredients' or
+    """How one ingredient limit is named on screen — 'All ingredients' or
     'Water + Oil'. The list under Limits and the line that reports a limit
     removed both read from here, so they name it alike."""
     names = [v['name'] for v in opt.variables
@@ -705,30 +729,30 @@ def _measurement_editor(opt, storage, editing):
     target = st.number_input("Target", key=_mkey(editing, "target"),
                              disabled=(goal != 'target'))
 
-    st.markdown("**Scale**")
+    st.markdown("**Range**")
     s1, s2 = st.columns(2)
     with s1:
         st.session_state.setdefault(_mkey(editing, "min"),
                                     float((editing or {}).get('min_val', 0.0)))
-        lowest = st.number_input("Lowest possible", key=_mkey(editing, "min"))
+        lowest = st.number_input("Lowest measurable", key=_mkey(editing, "min"))
     with s2:
         st.session_state.setdefault(_mkey(editing, "max"),
                                     float((editing or {}).get('max_val', 10.0)))
-        highest = st.number_input("Highest possible", key=_mkey(editing, "max"))
-    st.caption("The ends of your scale, not the values you expect.")
+        highest = st.number_input("Highest measurable", key=_mkey(editing, "max"))
+    st.caption("The ends of your range, not the values you expect.")
 
     st.session_state.setdefault(_mkey(editing, "importance"),
                                 float((editing or {}).get('weight', 1.0)))
     importance = st.number_input(
         "Importance", min_value=0.1, max_value=100.0, step=0.1,
         key=_mkey(editing, "importance"),
-        help="Any positive number. 2 counts twice as much as 1. " + _GLOSS,
+        help="Any positive number. 2 counts twice as much as 1.",
     )
 
     if editing is None:
         if st.button("Add measurement", key="add_measurement"):
             # add_objective REPLACES a measurement of the same name, which
-            # would silently overwrite its goal, target and scale and rescore
+            # would silently overwrite its goal, target and range and rescore
             # every result with no copy kept. Editing is a different door.
             if any(str(name).strip().lower() == o['name'].lower()
                    for o in opt.objectives):
@@ -773,7 +797,7 @@ def _measurement_editor(opt, storage, editing):
 def _rescores(editing, importance, goal, target, lowest, highest):
     """True when this edit changes how every stored result scores. Importance
     is not the only such field: the goal, the target and either end of the
-    scale all feed closeness, so all of them recalculate the history."""
+    range all feed closeness, so all of them recalculate the history."""
     def moved(before, after):
         return abs(float(after) - float(before)) > 1e-9
     if moved(editing['weight'], importance):
@@ -848,7 +872,7 @@ def _remove_measurement(opt, storage, name):
     if not saved_ok(opt):
         return
     after = best_formulation_no(opt)
-    sentence = f"{name} removed." + (" Every overall score was recalculated."
+    sentence = f"{name} deleted." + (" Every overall score was recalculated."
                                      if opt.Y_history else "")
     move = best_move_sentence(before, after)
     flash("success", f"{sentence} {move}".strip())
@@ -879,7 +903,7 @@ def _measurements(opt, storage):
         # sorted by importance, which is the same fact written twice.
         "Measurement": label_with_unit(o['name'], o.get('unit')),
         "Goal": _goal_text(o),
-        "Scale": _scale_text(o),
+        "Range": _range_text(o),
         "Importance": float(o['weight']),
     } for o in ordered]), hide_index=True, key="measurement_table",
         height=table_height(len(ordered)))
@@ -891,31 +915,20 @@ def _measurements(opt, storage):
                 st.rerun()
         with e2:
             if confirm_action(
-                f"rm_meas_{obj['name']}", f"Remove {obj['name']}",
-                f"Remove {obj['name']}? Every overall score is recalculated "
+                f"rm_meas_{obj['name']}", f"Delete {obj['name']}",
+                f"Delete {obj['name']}? Every overall score is recalculated "
                 "without it. " + COPY_KEPT,
-                confirm_label="Yes, remove",
+                confirm_label="Yes, delete",
                 disabled=other_confirmation(f"rm_meas_{obj['name']}"),
             ):
                 _remove_measurement(opt, storage, obj['name'])
 
     st.caption(opt.score_function_line())
 
-    with st.expander("How closeness is worked out"):
-        st.markdown(
-            "- **Higher is better:** closeness = (measured − lowest) ÷ "
-            "(highest − lowest), so the top of your scale scores 1 and the "
-            "bottom scores 0.\n"
-            "- **Lower is better:** the reverse — the bottom of your scale "
-            "scores 1 and the top scores 0.\n"
-            "- **Hit a target:** closeness is 1 at the target and falls evenly "
-            "with distance, by one point per full scale width; the lowest "
-            "score depends on how far the target sits from the ends of your "
-            "scale.\n\n"
-            "Each closeness is multiplied by that measurement's importance, "
-            "and the results are added up.\n\n"
-            "Closeness is a measurement's normalised score between 0 and 1."
-        )
+    with st.expander("How it works"):
+        st.markdown("\n".join(
+            ("    - " if i in _HOW_IT_WORKS_NESTED else "- ") + line
+            for i, line in enumerate(HOW_IT_WORKS)))
     return editing is not None
 
 
@@ -942,27 +955,28 @@ def _add_property(opt):
             else:
                 if saved_ok(opt):
                     flash("success", f"Added {added}. Give each ingredient a "
-                                     "value for it in What you can vary.")
+                                     "value for it in Ingredients and "
+                                     "process settings.")
                     park_clear("prop_new", "")
                     st.rerun()
 
 
 def _property_list(opt, storage, properties):
-    """Every property, with a Remove that names what goes with it."""
+    """Every property, with a Delete that names what goes with it."""
     for prop in properties:
         limits = sum(1 for c in opt.constraints
                      if str(c['metric']).strip().lower() == prop.lower())
         key = f"rm_prop_{prop}"
-        head = (f"Remove {prop} and its {plural(limits, 'limit')}? "
-                if limits else f"Remove {prop}? ")
+        head = (f"Delete {prop} and its {plural(limits, 'limit')}? "
+                if limits else f"Delete {prop}? ")
         c1, c2 = st.columns([3, 1])
         with c1:
             st.text(prop)
         with c2:
             confirmed = confirm_action(
-                key, f"Remove {prop}",
-                head + "Ingredient values for it are removed too. " + COPY_KEPT,
-                confirm_label="Yes, remove", disabled=other_confirmation(key),
+                key, f"Delete {prop}",
+                head + "Ingredient values for it go too. " + COPY_KEPT,
+                confirm_label="Yes, delete", disabled=other_confirmation(key),
             )
         if confirmed:
             try:
@@ -974,18 +988,18 @@ def _property_list(opt, storage, properties):
                 if saved_ok(opt):
                     gone = (f" Its {plural(len(removed), 'limit')} went with it."
                             if removed else "")
-                    flash("success", f"Removed {prop}.{gone}")
+                    flash("success", f"Deleted {prop}.{gone}")
                     st.rerun()
 
 
 def _property_limits(opt, storage):
-    """Limits on the finished formulation, and the properties they are written
+    """The finished-product limit, and the properties it is written
     against. Ingredients only: a property is a value each ingredient carries,
     and a process setting is weighed into nothing."""
-    st.markdown("**Limit on the finished formulation**")
-    # Per 100 g of what you make, not a total that grows with the batch: the
-    # same limit then means the same thing at 100 g and at 10 kg. Written in
-    # the unit the ingredients are actually in.
+    st.markdown("**Finished-product limit**")
+    # Per 100 g of what you make, not a total that grows with the formulation:
+    # the same limit then means the same thing at 100 g and at 10 kg. Written
+    # in the unit the ingredients are actually in.
     unit = opt.one_amount_unit()
     if unit is None:
         # The ingredients differ, so there is no 100 of anything yet, and the
@@ -993,14 +1007,15 @@ def _property_limits(opt, storage):
         st.caption("Per 100 g of formulation once every ingredient is in one "
                    "mass unit.")
     else:
-        st.caption(f"Per 100 {unit or 'g'} of formulation, worked out from "
-                   "each ingredient's value for it.")
+        st.caption(f"Per 100 {unit or 'g'} of formulation, from each "
+                   "ingredient's property values.")
     _add_property(opt)
     properties = opt.properties()
     if not properties:
         return
     _property_list(opt, storage, properties)
-    metric = st.selectbox("Property", properties, key="prop_metric")
+    metric = st.selectbox("Ingredient property", properties,
+                          key="prop_metric")
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
@@ -1073,12 +1088,12 @@ def _limits(opt, storage):
             with c2:
                 # The line beside it names the limit; the button says
                 # what it takes out, not which one.
-                if st.button("Remove limit", key=f"rm_constr_{i}"):
+                if st.button("Delete limit", key=f"rm_constr_{i}"):
                     metric = constraint['metric']
                     opt.remove_constraint(i)
                     if saved_ok(opt):
-                        flash("success", f"Limit on {metric} removed. The next "
-                                         "batch is no longer held to it.")
+                        flash("success", f"Limit on {metric} deleted. The next "
+                                         "trial is no longer held to it.")
                         st.rerun()
 
         names = [v['name'] for v in opt.variables
@@ -1088,7 +1103,7 @@ def _limits(opt, storage):
         # group limit whose picker, with every ingredient ticked, wrote
         # exactly what the second control wrote. The picker's empty state is
         # now every ingredient, which is the common case and reads as one.
-        st.markdown("**Amount limit**")
+        st.markdown("**Limit on chosen ingredients**")
         picked = st.multiselect("Ingredients to limit together", names,
                                 key="qty_pick", placeholder="All ingredients")
         q1, q2 = st.columns(2)
@@ -1121,7 +1136,7 @@ def _limits(opt, storage):
 
         for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
             label = _limit_label(opt, qc)
-            # An amount limit sums ingredients that share a unit, so the
+            # A limit sums ingredients that share a unit, so the
             # limit is written in it: "at most 400 g", never a bare 400.
             limited = {opt.unit_of(n) for n in qc['ingredients']}
             qc_unit = limited.pop() if len(limited) == 1 else ""
@@ -1133,12 +1148,12 @@ def _limits(opt, storage):
             with l1:
                 st.text(f"{label}: {' and '.join(bounds)}")
             with l2:
-                if st.button("Remove limit", key=f"rm_qc_{i}"):
+                if st.button("Delete limit", key=f"rm_qc_{i}"):
                     opt.remove_quantity_constraint(i)
                     if saved_ok(opt):
                         # No .lower(): ingredient names are names.
-                        flash("success", f"Limit on {label} removed. The next "
-                                         "batch is no longer held to it.")
+                        flash("success", f"Limit on {label} deleted. The next "
+                                         "trial is no longer held to it.")
                         st.rerun()
 
 
@@ -1214,7 +1229,7 @@ def _foot(opt, editing=False):
     # measurement editor is the same case: Save changes is the lit one, and
     # Continue would leave the tab and throw the edit away.
     lit = ready and not confirmation_open() and not editing
-    if st.button("Continue to make a batch",
+    if st.button("Next: make a trial",
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
         go_to_tab(TAB_BATCH)

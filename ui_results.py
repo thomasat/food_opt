@@ -1,7 +1,7 @@
 """Tab 3 · Results: the best formulation, every formulation, corrections.
 
-The one coloured button is at the foot: `Start the next batch`, or `Back to
-batch N` while a batch is still unrecorded. Everything destructive is behind a
+The one coloured button is at the foot: `Start the next trial`, or `Back to
+trial N` while a trial is still unrecorded. Everything destructive is behind a
 confirmation that keeps a copy first and says so — once, in the confirmation.
 """
 import pandas as pd
@@ -60,9 +60,9 @@ def _number(cell):
         return None
 
 
-def _range_warning(opt, name, value):
+def _bounds_caution(opt, name, value):
     """The line for an imported amount outside what the project allows, or
-    '' when it fits. Built by the same helper that refuses an out-of-scale
+    '' when it fits. Built by the same helper that refuses an out-of-range
     measurement, so the two sentences read alike.
     It is a warning, not a refusal: the amount is a fact about work already
     done, and the model learns more from it than from a blank."""
@@ -74,22 +74,22 @@ def _range_warning(opt, name, value):
 
 
 def _progress_line(opt):
-    last = opt.last_batch_no()   # counts a batch nobody managed to make
+    last = opt.last_batch_no()   # counts a trial nobody managed to make
     if last is None or not opt.Y_history:
         return ""
     earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
                if b != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
-        # "Batch 1 recorded."; saying it again four lines lower is the same
+        # "Trial 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
     best_now = max(float(y) for y in opt.Y_history)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
-        return (f"Batch {last} recorded · best improved "
+        return (f"Trial {last} recorded · best improved "
                 f"{best_before:.2f} → {best_now:.2f}")
-    return f"Batch {last} recorded · no improvement."
+    return f"Trial {last} recorded · no improvement."
 
 
 def _best(opt):
@@ -103,7 +103,7 @@ def _best(opt):
     batch = opt.batch_history[index]
     heading = f"Best so far: Formulation {number}"
     if batch is not None:
-        heading += f" (batch {batch})"
+        heading += f" (trial {batch})"
     st.subheader(heading)
     line = _progress_line(opt)
     if line:
@@ -140,8 +140,9 @@ def _best(opt):
     partial = any(o['name'] not in scored for o in opt.objectives)
     st.caption(f"Overall score {float(opt.Y_history[index]):.2f}"
                + (" · partial" if partial else "")
-               + f" of {ceiling:.2f} · {ceiling:.2f} is every measurement on "
-               "target · not comparable across projects.")
+               + f" of {ceiling:.2f} · every measurement on target. Scores "
+               "compare only within this project, and only until you change "
+               "an importance or a range.")
     if partial:
         st.caption(_PARTIAL)
     return partial
@@ -152,7 +153,7 @@ def _all_formulations(opt, said_partial=False):
     o1, o2 = st.columns([2, 1])
     with o1:
         order = st.selectbox("Sort",
-                             ["Best first", "Newest first", "Batch order"],
+                             ["Best first", "Newest first", "Trial order"],
                              key="results_order")
     with o2:
         show_amounts = st.toggle("Show amounts", key="show_amounts")
@@ -207,7 +208,7 @@ def _correct(opt):
             cols = st.columns(min(4, len(ordered) - j))
         with cols[j % 4]:
             # No clamping here either: the same reading refused on tab 2 must
-            # be refusable here, not silently pulled back to the scale end.
+            # be refusable here, not silently pulled back to the range end.
             typed[obj['name']] = st.number_input(
                 f"{label_with_unit(obj['name'], obj.get('unit'))} · "
                 f"{goal_line(obj)}",
@@ -304,19 +305,19 @@ def _save_correction(opt, storage, pending):
 
 
 def _foot_label(opt):
-    """What the foot of this tab offers. An open batch outranks everything:
-    the work to do is the batch on the bench, and every other screen already
+    """What the foot of this tab offers. An open trial outranks everything:
+    the work to do is the trial on the bench, and every other screen already
     says so in these words."""
     if opt.pending_batch:
-        return (f"Back to batch {opt.pending_batch_no} · "
+        return (f"Back to trial {opt.pending_batch_no} · "
                 f"{len(open_rows(opt))} to record")
-    return "Start the next batch"
+    return "Start the next trial"
 
 
 def _foot(opt, correcting=False):
     label = _foot_label(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
-    # answering it is the one thing to do; the next batch can wait a click.
+    # answering it is the one thing to do; the next trial can wait a click.
     # An open correction row is the same case: Save correction is the lit one.
     lit = not confirmation_open() and not correcting
     if st.button(label, type="primary" if lit else "secondary",
@@ -341,41 +342,40 @@ def _progress_chart(opt):
 
 def _remove_batch_or_formulation(opt, storage):
     """One section for both ways a formulation leaves the project: the whole
-    of the last batch, or one formulation. They were two expanders, and the
+    of the last trial, or one formulation. They were two expanders, and the
     first was a heading and a button with the same words, so clicking the
-    heading read as having undone the batch."""
-    with st.expander("Remove a batch or a formulation"):
+    heading read as having deleted the trial."""
+    with st.expander("Delete a trial or a formulation"):
         _undo(opt, storage)
         st.divider()
         _remove_formulation(opt, storage)
 
 
 def _undo(opt, storage):
-    # Left-out formulations count: a batch nobody managed to make is still
-    # the last batch, and undoing must not reach past it.
+    # Left-out formulations count: a trial nobody managed to make is still
+    # the last trial, and deleting must not reach past it.
     last = opt.last_batch_no()
     if last is None:
         if opt.X_history or opt.skipped:
-            st.caption("These formulations were recorded before batches "
-                       "existed, so there is no batch to undo. You can "
-                       "remove one formulation at a time below.")
+            st.caption("Trials were not recorded before this version. You "
+                       "can delete one formulation at a time below.")
         else:
-            st.caption("No batch to undo yet.")
+            st.caption("No trial to delete yet.")
         return
     if opt.pending_batch:
-        st.caption("Record or discard the open batch first.")
-        st.button("Undo the last batch", disabled=True, key="undo_batch__btn")
+        st.caption("Record or discard the open trial first.")
+        st.button("Delete the last trial", disabled=True, key="undo_batch__btn")
         return
     count = sum(1 for b in opt.batch_history if b == last)
     count += sum(1 for s in opt.skipped if s.get('batch') == last)
     # Said once, in the confirmation: a caption above it repeats it.
     if confirm_action(
-        "undo_batch", "Undo the last batch",
+        "undo_batch", "Delete the last trial",
         # Formulations, not results: one of them may never have been made
         # and have no result at all, and formulation is the app's noun.
-        f"Removes batch {last} and its {plural(count, 'formulation')}. "
+        f"Deletes trial {last} and its {plural(count, 'formulation')}. "
         + COPY_KEPT,
-        confirm_label="Yes, undo", disabled=other_confirmation("undo_batch"),
+        confirm_label="Yes, delete", disabled=other_confirmation("undo_batch"),
     ):
         try:
             storage.archive(opt.project_name, "pre_undo", copy=True)
@@ -385,7 +385,7 @@ def _undo(opt, storage):
             try:
                 opt.undo_last_batch()
             except ValueError as e:
-                # The open batch appeared between the click and the
+                # The open trial appeared between the click and the
                 # confirmation: say why, do not take it down as well.
                 st.error(str(e))
                 return
@@ -393,26 +393,26 @@ def _undo(opt, storage):
                 return
             st.session_state.pop("scale_total", None)
             st.session_state.pop("_results_upload", None)
-            flash("success", f"Batch {last} removed. " + COPY_KEPT)
+            flash("success", f"Trial {last} deleted. " + COPY_KEPT)
             st.rerun()
 
 
 def _remove_formulation(opt, storage):
     numbers = _all_numbers(opt)
     if not numbers:
-        st.caption("No formulation to remove yet.")
+        st.caption("No formulation to delete yet.")
         return
     take_clear("delete_formulation")
-    choice = st.selectbox("Formulation to remove", numbers, index=None,
+    choice = st.selectbox("Formulation to delete", numbers, index=None,
                           placeholder="Formulation",
                           key="delete_formulation")
     if choice is None:
         return
     go = confirm_action(
-        "delete_formulation", f"Remove Formulation {choice}",
-        f"Remove Formulation {choice}? Later formulations keep their "
+        "delete_formulation", f"Delete Formulation {choice}",
+        f"Delete Formulation {choice}? Later formulations keep their "
         "numbers. " + COPY_KEPT,
-        confirm_label="Yes, remove",
+        confirm_label="Yes, delete",
         disabled=other_confirmation("delete_formulation"),
     )
     # The select box cannot be cleared by the user once it holds a value.
@@ -432,7 +432,7 @@ def _remove_formulation(opt, storage):
             if not saved_ok(opt):
                 return
             clear_selection("delete_formulation")
-            flash("success", f"Formulation {choice} removed. " + COPY_KEPT)
+            flash("success", f"Formulation {choice} deleted. " + COPY_KEPT)
             st.rerun()
 
 
@@ -482,7 +482,7 @@ def _import(opt):
         if not st.button("Import all rows", key="import_rows"):
             return
         # Nothing is recorded until the whole file has been read: a reading
-        # outside its scale is a typo or a scale that is too narrow, and it
+        # outside its range is a typo or a range that is too narrow, and it
         # would otherwise arrive as the best formulation in the project.
         cautions = []
         for position, (_, row) in enumerate(rows.iterrows(), start=1):
@@ -492,14 +492,14 @@ def _import(opt):
                     st.error(f"Row {position}: {problem}")
                     return
             for name in variables:
-                caution = _range_warning(opt, name, _number(row[name]))
+                caution = _bounds_caution(opt, name, _number(row[name]))
                 if caution:
                     cautions.append(f"Row {position}: {caution}")
         imported, failure = 0, None
         try:
             for _, row in rows.iterrows():
                 # A blank measurement is a partial result here too, exactly as
-                # it is in the results grid and in an uploaded batch sheet.
+                # it is in the results grid and in an uploaded bench sheet.
                 results = {name: float(row[name]) for name in measurements
                            if not pd.isna(row[name])}
                 opt.import_formulation(
@@ -528,17 +528,17 @@ def _import(opt):
 def render(opt, storage):
     if not opt.X_history and not opt.skipped:
         st.markdown("No results yet.")
-        # A project with no ingredients cannot make a batch: sending the user
+        # A project with no ingredients cannot make a trial: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
-        # And a batch already on the bench is not a first batch to make: the
-        # foot of every other screen calls it "Back to batch 1 · 3 to record".
+        # And a trial already on the bench is not a first trial to make: the
+        # foot of every other screen calls it "Back to trial 1 · 3 to record".
         ready, _ = readiness(opt)
         if not ready:
             label, target = "Set up this project", TAB_SETUP
         elif opt.pending_batch:
             label, target = _foot_label(opt), TAB_BATCH
         else:
-            label, target = "Make your first batch", TAB_BATCH
+            label, target = "Make your first trial", TAB_BATCH
         lit = not confirmation_open()
         if st.button(label, type="primary" if lit else "secondary",
                      disabled=not lit, key="first_batch") and lit:
