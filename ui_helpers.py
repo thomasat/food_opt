@@ -180,11 +180,17 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
 # correction, and the `Whole batch` pick on tab 3 blanked the "already made"
 # form directly beneath it.
 _TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
-# The one tab-form box whose key fits none of those prefixes: the radio that
-# chooses between typing a past formulation in and reading one off a CSV.
-# Named rather than swept in by prefix, because `add_past_formulation` beside
-# it is a BUTTON, and a button's value cannot be assigned at all.
-_TAB_FORM_KEYS = ("add_past_mode",)
+# The tab-form boxes whose keys fit none of those prefixes: the radio that
+# chooses between typing a past formulation in and reading one off a CSV, the
+# formulation total the open batch is shown and printed at, and how many
+# formulations the next Generate will ask for. Named rather than swept in by
+# prefix, because `add_past_formulation` beside the radio is a BUTTON, and a
+# button's value cannot be assigned at all.
+#
+# Losing the formulation total is not a blank box: the batch table and the
+# sheets silently go back to as-generated, and the bench weighs out different
+# numbers from the ones that were on screen a click ago.
+_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size")
 _GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
 
 

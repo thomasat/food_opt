@@ -2078,7 +2078,6 @@ class FoodOptimizer:
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
-        print(f"DEBUG: suggestion step, q={n_suggestions}...")
         torch.manual_seed(self._ask_seed())
 
         train_X = torch.tensor(self.X_history, dtype=torch.double)

@@ -1418,14 +1418,22 @@ def test_biggest_changes_leaves_out_a_paused_ingredient(tmp_path, monkeypatch):
     assert [name for name, _ in changes] == ["Water"]
 
 
-def test_the_cold_start_prints_nothing_to_the_console(tmp_path, monkeypatch,
-                                                      capsys):
+def test_generating_prints_nothing_to_the_console(tmp_path, monkeypatch,
+                                                 capsys):
+    """Cold and warm alike: a desktop user has no console to read, and the
+    launcher's log is for the launcher."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("quiet")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     capsys.readouterr()
     opt.ask(n_suggestions=1)
+    assert "DEBUG" not in capsys.readouterr().out
+    for i in range(5):
+        opt.tell({"Water": 10.0 * i}, {"Taste": 3.0 + i})
+    opt.set_pending_batch(None)
+    capsys.readouterr()
+    opt.ask(n_suggestions=1)             # warm now: len(X_history) >= 5
     assert "DEBUG" not in capsys.readouterr().out
 
 

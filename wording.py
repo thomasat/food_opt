@@ -1141,6 +1141,15 @@ def imported(text):
     return f"Imported {text}."
 
 
+def rows_with_nothing_measured(rows_text, many):
+    """The tail on the import flash. A formulation nobody made is in the
+    downloaded file — it has a number, its amounts and its note — but it has
+    no result to teach the model, so it is left where it is rather than
+    stopping the whole import."""
+    return (f" {rows_text} with nothing measured were left out." if many
+            else f" {rows_text} with nothing measured was left out.")
+
+
 SET_UP_THIS_PROJECT_BUTTON = "Set up this project"
 MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {BATCH}"
 ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "

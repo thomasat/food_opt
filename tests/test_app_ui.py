@@ -3112,6 +3112,94 @@ def test_a_sidebar_cancel_leaves_every_tab_form_as_it_was(scored_open_batch,
     assert at.session_state["correct_1_Firmness"] == 3.0
 
 
+def test_a_sidebar_cancel_keeps_the_formulation_total_and_the_batch_size(
+        open_batch):
+    """Losing the formulation total is not a blank box: the batch table and
+    the printed sheets silently go back to as-generated, and the bench weighs
+    out different numbers from the ones that were on screen a click ago."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="scale_total").set_value(40.0)
+    at.run()
+    assert any(c.value == "Sheets use a formulation total of 40 g."
+               for c in at.caption), [c.value for c in at.caption]
+    _submit_button(at, wording.START_OVER_LABEL).click()
+    at.run()
+    _submit_button(at, wording.CANCEL).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["scale_total"] == 40.0
+    assert any(c.value == "Sheets use a formulation total of 40 g."
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_a_sidebar_cancel_keeps_how_many_formulations_to_generate(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="batch_size").set_value(7)
+    at.run()
+    _submit_button(at, wording.DELETE_PROJECT_LABEL).click()
+    at.run()
+    _submit_button(at, wording.CANCEL).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["batch_size"] == 7
+    assert _submit_button(at, wording.generate_button_label(7)).label == \
+        wording.generate_button_label(7)
+
+
+def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
+    """`Download all formulations (CSV)` carries the formulations nobody made
+    — they have a number, their amounts and their note. They have no result
+    to teach the model, so the import leaves them out and says so, rather
+    than stopping at the first one and saving half the file."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 1.5},
+                {"Firmness": 5.0}, formulation_no=2, batch_no=1)   # partial
+    burger.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 2.0})
+    burger.record_skipped(4, 1, {"Pea protein": 16.0, "Methylcellulose": 2.5})
+    downloaded = pd.read_csv(io.StringIO(FoodOptimizer("burger").history_csv()))
+    assert len(downloaded) == 4
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["_import_rows"] = downloaded
+    at.run()
+    _submit_button(at, "Import all rows").click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    assert any(m.value == ("Imported 2 formulations. 2 rows with nothing "
+                           "measured were left out.")
+               for m in at.success), [m.value for m in at.success]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [1, 2, 5, 6]
+    assert reloaded.recipe_history[2]["Pea protein"] == 10.0
+    assert reloaded.results_history[3] == {"Firmness": 5.0}     # partial kept
+
+
+def test_one_row_with_nothing_measured_is_said_in_the_singular(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["_import_rows"] = pd.DataFrame({
+        "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
+        "Juiciness": [6.0, None], "Firmness": [5.0, None],
+    })
+    at.run()
+    _submit_button(at, "Import all rows").click()
+    at.run()
+    assert not at.exception
+    assert any(m.value == ("Imported 1 formulation. 1 row with nothing "
+                           "measured was left out.")
+               for m in at.success), [m.value for m in at.success]
+
+
 def test_the_open_batchs_recorded_rows_are_not_offered_for_deletion(scored):
     """A batch recorded one sheet at a time keeps its recorded rows while the
     batch stays open. Deleting one took the result and put the row straight

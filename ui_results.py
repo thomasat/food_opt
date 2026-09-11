@@ -758,13 +758,21 @@ def _import(opt):
             caution = bounds_caution(opt, name, _number(row[col_for[name]]))
             if caution:
                 cautions.append(wording.row_error(position, caution))
-    imported, failure = 0, None
+    imported, nothing_measured, failure, reached = 0, 0, None, 0
     try:
-        for _, row in rows.iterrows():
+        for position, (_, row) in enumerate(rows.iterrows(), start=1):
+            reached = position
             # A blank measurement is a partial result here too, exactly as
             # it is in the results grid and in an uploaded bench sheet.
             results = {name: float(row[col_for[name]]) for name in measurements
                        if not pd.isna(row[col_for[name]])}
+            if not results:
+                # A formulation nobody made: `Download all formulations`
+                # includes those rows, amounts and note and all, and they
+                # have no result to teach the model. Left out, and counted,
+                # rather than stopping a file that is otherwise importable.
+                nothing_measured += 1
+                continue
             opt.import_formulation(
                 {name: float(row[col_for[name]]) for name in variables},
                 results)
@@ -776,13 +784,19 @@ def _import(opt):
     except (ValueError, TypeError) as e:
         failure = e
     if failure is not None:
-        message = wording.stopped_at_row(imported + 1, failure)
+        # The file's own row number, not a count: rows can now be skipped,
+        # and "Stopped at row 3" has to name the row the reader can look at.
+        message = wording.stopped_at_row(reached, failure)
         if imported:
             message += wording.rows_before_saved(plural(imported, wording.ROW))
         st.error(message)
         return
     st.session_state.pop("_import_rows", None)
-    flash("success", wording.imported(plural(imported, wording.FORMULATION)))
+    said = wording.imported(plural(imported, wording.FORMULATION))
+    if nothing_measured:
+        said += wording.rows_with_nothing_measured(
+            plural(nothing_measured, wording.ROW), nothing_measured > 1)
+    flash("success", said)
     for caution in cautions:
         flash("warning", caution)
     st.rerun()
