@@ -2609,7 +2609,7 @@ import pathlib
 import re
 
 _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
-                        "ui_results.py", "food_bo.py", "storage.py"]
+                        "ui_results.py", "food_bo.py", "storage.py", "wording.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]

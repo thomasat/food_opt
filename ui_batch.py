@@ -11,10 +11,11 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+import wording
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, confirm_action,
     confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
-    join_unit, label_with_unit, number_list, open_rows, plural, readiness,
+    join_unit, label_with_unit, number_list, open_rows, readiness,
     saved_ok, scale_error, table_height, unit_after_number,
 )
 
@@ -71,14 +72,14 @@ def _any_value_typed(opt):
 
 
 def _incomplete(missing):
-    st.button("Generate formulations", disabled=True, key="generate")
+    st.button(wording.GENERATE_FORMULATIONS_DISABLED, disabled=True, key="generate")
     st.caption(missing)
-    if st.button("Back to set up", key="back_to_setup"):
+    if st.button(wording.BACK_TO_SETUP, key="back_to_setup"):
         go_to_tab(TAB_SETUP)
 
 
 def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
-    with st.spinner("Choosing the next formulations…"):
+    with st.spinner(wording.GENERATING_SPINNER):
         try:
             opt.ask(n_suggestions=int(n))
         except ValueError as e:
@@ -86,10 +87,7 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
             return
         except Exception:
             # A raw traceback is a dead end for a nontechnical user.
-            st.error("The app could not choose formulations this time. Try "
-                     "again with fewer formulations. If it keeps happening, "
-                     "loosen any limits you added recently, or open "
-                     "Help › Get Help.")
+            st.error(wording.GENERATE_FAILED)
             return
     if repeat and best_no is not None:
         index = opt.index_of_formulation(best_no)
@@ -97,7 +95,7 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
             # Named on the trial table and carried into the stored result: an
             # unexplained extra row is not a repeat, it is a mystery.
             opt.add_to_pending_batch(opt.recipe_history[index],
-                                     note=f"Repeat of Formulation {best_no}")
+                                     note=wording.repeat_of_formulation(best_no))
     if batch_no is not None or discarded is not None:
         # A regenerated trial keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
@@ -106,7 +104,7 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
     st.session_state.pop("scale_total", None)
     if not saved_ok(opt):
         return
-    flash("success", f"Trial {opt.pending_batch_no} is ready to make.")
+    flash("success", wording.batch_ready(opt.pending_batch_no))
     st.rerun()   # a rerun, never a tab move: Generate keeps you here
 
 
@@ -115,16 +113,15 @@ def _no_batch(opt):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
     st.session_state.setdefault("batch_size", 3)
-    size = st.number_input("New formulations in this trial", min_value=1,
+    size = st.number_input(wording.NEW_FORMULATIONS_IN_BATCH, min_value=1,
                            max_value=10, step=1, key="batch_size")
     best_no = best_formulation_no(opt)
     repeat = False
     if best_no is not None:
         repeat = st.checkbox(
-            f"Repeat Formulation {best_no} (best so far)",
+            wording.repeat_checkbox_label(best_no),
             key="repeat_best",
-            help="A second reading of the same formulation, alongside the "
-                 "new ones.",
+            help=wording.REPEAT_HELP,
         )
     n = int(size)
     # The repeat is a formulation the user will have to make, so the button
@@ -133,16 +130,14 @@ def _no_batch(opt):
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
-    if st.button(f"Generate {making} formulations",
+    if st.button(wording.generate_button_label(making),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n, repeat, best_no)
     if len(opt.X_history) < 5:
-        st.caption("The first five formulations are spread across the "
-                   "allowed amounts; later trials aim closer to your "
-                   "targets.")
+        st.caption(wording.FIRST_FIVE_SPREAD)
     else:
-        st.caption("Each trial aims closer to your targets.")
+        st.caption(wording.EACH_BATCH_AIMS_CLOSER)
 
 
 def _amount_format(opt, frame):
@@ -155,8 +150,8 @@ def _amount_format(opt, frame):
                 if v.get('category') == 'process'}
     # A total across several units is already written out ("10.00 g · 40.00
     # ml"); formatting a string as a number would raise.
-    skip = {"Formulation", "Note"} | {c for c in frame.columns
-                                      if frame[c].dtype == object}
+    skip = {wording.FORMULATION_CAP, wording.NOTE} | {
+        c for c in frame.columns if frame[c].dtype == object}
     return {c: (fmt_setting if c in settings else "{:.2f}")
             for c in frame.columns if c not in skip}
 
@@ -164,9 +159,7 @@ def _amount_format(opt, frame):
 def _batch_table(opt):
     rows = opt.pending_batch
     unit = opt.one_amount_unit()
-    st.markdown(f"**Trial {opt.pending_batch_no} · make "
-                f"{'this' if len(rows) == 1 else 'these'} "
-                f"{plural(len(rows), 'formulation')}**")
+    st.markdown(wording.make_these(opt.pending_batch_no, len(rows)))
     scale_to = _scale_to(opt)
     frame = opt.batch_frame(rows, scale_to=scale_to)
     st.dataframe(
@@ -175,8 +168,8 @@ def _batch_table(opt):
     )
     _scale_control(opt, unit, scale_to)
     if opt.pending_batch_discarded:
-        st.caption(f"Formulations {number_list(opt.pending_batch_discarded)} "
-                   "were discarded and their numbers will not be used again.")
+        st.caption(wording.batch_discarded_caption(
+            number_list(opt.pending_batch_discarded)))
 
     best_no = best_formulation_no(opt)
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
@@ -199,9 +192,8 @@ def _batch_table(opt):
                 )
                 # Named: the line reads one row of the trial, so a trial of
                 # three must not sound as though it describes all of them.
-                st.caption(f"Biggest changes in Formulation "
-                           f"{rows[0]['formulation']} from Formulation "
-                           f"{best_no}: {parts}.")
+                st.caption(wording.biggest_changes_caption(
+                    rows[0]['formulation'], best_no, parts))
 
 
 def _scale_control(opt, unit, scale_to):
@@ -216,21 +208,19 @@ def _scale_control(opt, unit, scale_to):
     if not opt.has_ingredients():
         return
     if unit is None:
-        st.caption("A formulation total needs all ingredients in one unit.")
+        st.caption(wording.NEEDS_ONE_UNIT)
         return
     st.session_state.setdefault("scale_total", None)
     # "Formulation total", not "Range": Range is the measurement's range on
     # tab 1, and one word cannot be two things across two tabs.
     st.number_input(
-        f"Formulation total ({unit})" if unit else "Formulation total",
-        min_value=0.0, step=1.0, placeholder="as generated",
+        wording.batch_total_label(unit),
+        min_value=0.0, step=1.0, placeholder=wording.AS_GENERATED_PLACEHOLDER,
         key="scale_total",
-        help="Leave this empty to weigh out the amounts as they were "
-             "generated. Type a total and every formulation is scaled to it, "
-             "on screen and on the sheets you print.",
+        help=wording.BATCH_TOTAL_HELP,
     )
     if scale_to is not None:
-        st.caption("Amounts shown for this total.")
+        st.caption(wording.AMOUNTS_SHOWN_FOR_TOTAL)
 
 
 def _sheet_lines(opt, row, scale_to):
@@ -242,7 +232,8 @@ def _sheet_lines(opt, row, scale_to):
                    if v.get('category', 'ingredient') == 'ingredient']
     process = [v for v in opt.variables if v.get('category') == 'process']
     lines = [f"{opt.project_name} · {made_on}",
-             f"Formulation {row['formulation']} · trial {opt.pending_batch_no}",
+             f"{wording.FORMULATION_CAP} {row['formulation']} · "
+             f"{wording.BATCH} {opt.pending_batch_no}",
              ""]
     for var in ingredients:
         lines.append(f"{var['name']}: "
@@ -251,7 +242,7 @@ def _sheet_lines(opt, row, scale_to):
     if ingredients:
         # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
         # A sheet with nothing to weigh out claims no total at all.
-        lines.append("Total: " + opt.total_text(recipe))
+        lines.append(wording.TOTAL_PREFIX + opt.total_text(recipe))
     if process:
         if ingredients:
             lines.append("")      # a blank line only separates two lists
@@ -263,16 +254,16 @@ def _sheet_lines(opt, row, scale_to):
                                        var.get('unit')))
     lines.append("")
     for obj in opt.measurements_by_importance():
-        lines.append(f"Measured {label_with_unit(obj['name'], obj.get('unit'))}"
+        lines.append(wording.MEASURED_PREFIX
+                     + f"{label_with_unit(obj['name'], obj.get('unit'))}"
                      f" · {goal_line(obj)}: ______________________")
     lines.append("")
     # A repeat says so on the sheet the technician carries: two sheets with
     # identical amounts and nothing printed to say why is how a formulation
     # gets made twice by mistake.
     note = str(row.get('note') or "").strip()
-    lines.append(f"Note: {note}" if note else
-                 "Note: ______________________________________________")
-    lines.append("Not made [  ]")
+    lines.append(wording.note_line(note) if note else wording.NOTE_BLANK_LINE)
+    lines.append(wording.NOT_MADE_CHECKBOX_SHEET)
     return lines
 
 
@@ -286,7 +277,8 @@ def _sheets_html(opt, scale_to):
         blocks.append(f"<pre class='sheet'>{body}</pre>")
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{html.escape(opt.project_name)} trial {opt.pending_batch_no}</title>"
+        f"<title>{html.escape(opt.project_name)} {wording.BATCH} "
+        f"{opt.pending_batch_no}</title>"
         "<style>"
         "body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:0}"
         ".sheet{padding:24px 32px;font-size:13px;line-height:1.6;"
@@ -315,7 +307,7 @@ def _download_row(opt, scale_to):
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
-            "Download the bench sheet (CSV)",
+            wording.DOWNLOAD_BENCH_SHEET,
             data=opt.batch_csv(rows, scale_to=scale_to),
             file_name=f"{opt.project_name} trial {opt.pending_batch_no}.csv",
             mime="text/csv", key="download_batch_sheet",
@@ -324,7 +316,7 @@ def _download_row(opt, scale_to):
         )
     with d2:
         st.download_button(
-            "Download formulation sheets (to print)",
+            wording.DOWNLOAD_FORMULATION_SHEETS,
             data=_sheets_html(opt, scale_to),
             file_name=f"{opt.project_name} trial {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
@@ -332,10 +324,9 @@ def _download_row(opt, scale_to):
     if scale_to is not None:
         # Both files carry the amounts on screen, so the size they were
         # written for is named directly under the two buttons.
-        st.caption("Sheets use a formulation total of "
-                   + join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")
-                   + ".")
-    with st.expander("Preview formulation sheets"):
+        st.caption(wording.sheets_use_total_caption(
+            join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")))
+    with st.expander(wording.PREVIEW_SHEETS):
         _printable(opt, scale_to)
 
 
@@ -350,11 +341,10 @@ def _downloads(opt):
     # warning on screen. The container reserves the position instead.
     slot = st.container()
     regenerate = confirm_action(
-        "regenerate", "Generate a different trial",
-        f"Trial {opt.pending_batch_no} (Formulations "
-        f"{', '.join(str(n) for n in numbers)}) will be discarded. "
-        "Those numbers will not be used again.",
-        confirm_label="Yes, discard",
+        "regenerate", wording.GENERATE_DIFFERENT_BATCH,
+        wording.regenerate_warning(opt.pending_batch_no,
+                                   ", ".join(str(n) for n in numbers)),
+        confirm_label=wording.YES_DISCARD,
     )
     with slot:
         _download_row(opt, scale_to)
@@ -382,12 +372,12 @@ def _recorded_row(opt, number, ordered):
         for o in ordered if o['name'] in results
     )
     if any(o['name'] not in results for o in ordered):
-        line = f"{line} · partial" if line else "partial"
+        line = wording.recorded_line_partial(line)
     note = (opt.notes_history[index] if index is not None
             and index < len(opt.notes_history) else "")
     if note:
-        line = f"{line} · Note: {note}" if line else f"Note: {note}"
-    st.caption(line or "recorded")
+        line = wording.recorded_line_note(line, note)
+    st.caption(line or wording.RECORDED_FALLBACK)
 
 
 def _record_results(opt):
@@ -395,14 +385,13 @@ def _record_results(opt):
     to_record = open_rows(opt)
     open_numbers = {r['formulation'] for r in to_record}
     ordered = opt.measurements_by_importance()
-    st.subheader("Record results")
-    st.caption("Enter your panel mean. Leave a measurement blank if it could "
-               "not be scored.")
+    st.subheader(wording.RECORD_RESULTS_HEADER)
+    st.caption(wording.RECORD_RESULTS_CAPTION)
     left_out, entered = set(), 0
 
     for row in rows:
         number = row['formulation']
-        st.markdown(f"**Formulation {number}**")
+        st.markdown(wording.formulation_heading(number))
         if number not in open_numbers:
             _recorded_row(opt, number, ordered)
             st.divider()
@@ -436,10 +425,10 @@ def _record_results(opt):
         # Never disabled: why a formulation was not made is the only record
         # of what went wrong, and a Note that greys out on the tick can only
         # be typed by someone who knew to type it first.
-        st.text_input("Note", key=f"f{number}_note")
+        st.text_input(wording.NOTE, key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox("Not made", key=f"f{number}_leave_out",
-                    help="Type why in Note; it is kept with the formulation.")
+        st.checkbox(wording.NOT_MADE_LABEL, key=f"f{number}_leave_out",
+                    help=wording.NOT_MADE_HELP)
         if has_value and not skip:
             entered += 1
         st.divider()
@@ -451,9 +440,9 @@ def _record_results(opt):
         for r in kept
     )
     if to_record and not kept:
-        st.info("Nothing to save — at least one formulation needs results.")
+        st.info(wording.NOTHING_TO_SAVE)
     lit = ready and not confirmation_open()
-    if st.button("Save results", type="primary" if lit else "secondary",
+    if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
         _save_results(opt, kept, left_out, to_record)
     # "filled in", not "to record": this counts the rows that HAVE a value,
@@ -461,10 +450,10 @@ def _record_results(opt):
     # ("Back to trial 2 · 2 to record"). One word could not mean both.
     # Nothing here reaches the file until Save results is pressed, which is
     # the tail.
-    counter = f"{entered} of {len(kept)} filled in"
+    counter = wording.filled_in_counter(entered, len(kept))
     if left_out:
-        counter += f" · {len(left_out)} not made"
-    st.caption(counter + " · saved when you press Save results")
+        counter += wording.not_made_counter_suffix(len(left_out))
+    st.caption(counter + wording.SAVED_WHEN_SUFFIX)
 
 
 def _save_results(opt, kept, left_out, to_record):
@@ -491,7 +480,7 @@ def _save_results(opt, kept, left_out, to_record):
             opt.tell(row['recipe'], typed[number], formulation_no=number,
                      batch_no=batch_no, note=note)
         except (ValueError, TypeError) as e:
-            st.error(f"Could not save these results: {e}")
+            st.error(wording.could_not_save(e))
             return
         if not saved_ok(opt):
             return
@@ -505,35 +494,33 @@ def _save_results(opt, kept, left_out, to_record):
             # formulations row for a formulation nobody made said nothing
             # about not having been made.
             opt.record_skipped(number, batch_no, row['recipe'],
-                               note=f"Not made · {note}" if note else "Not made")
+                               note=(wording.not_made_with_note(note) if note
+                                     else wording.NOT_MADE_NOTE_PREFIX))
     opt.set_pending_batch(None)
     st.session_state.pop("scale_total", None)
     st.session_state.pop("_results_upload", None)
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
-    flash("success", f"Trial {batch_no} recorded.")
+    flash("success", wording.batch_recorded_flash(batch_no))
     go_to_tab(TAB_RESULTS)
 
 
 def _upload(opt):
-    with st.expander("Or upload results from a CSV"):
-        st.caption("Download the bench sheet above, fill in one column per "
-                   "measurement, and upload it here. Rows are matched by "
-                   "Formulation number.")
+    with st.expander(wording.UPLOAD_EXPANDER):
+        st.caption(wording.UPLOAD_HELP_CAPTION)
         sheet_file = st.file_uploader(
-            "Upload results CSV", type=["csv"],
+            wording.UPLOAD_RESULTS_CSV, type=["csv"],
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
             key=f"results_csv_{opt.project_name}")
-        if sheet_file is not None and st.button("Check this file",
+        if sheet_file is not None and st.button(wording.CHECK_THIS_FILE,
                                                 key="check_sheet"):
             try:
                 st.session_state["_results_upload"] = pd.read_csv(sheet_file)
             except Exception:
                 st.session_state.pop("_results_upload", None)
-                st.error("This file could not be read as a CSV. If it came "
-                         "from Excel, use File > Save As and pick CSV format.")
+                st.error(wording.CSV_UNREADABLE)
         sheet = st.session_state.get("_results_upload")
         if sheet is None:
             return
@@ -543,10 +530,10 @@ def _upload(opt):
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
             return
-        st.info(f"Found results for {len(parsed)} of "
-                f"{len(opt.pending_batch)} formulations: "
-                + ", ".join(f"Formulation {no}" for no, _, _ in parsed) + ".")
-        if st.button("Save uploaded results", key="save_uploaded"):
+        st.info(wording.upload_found_caption(
+            len(parsed), len(opt.pending_batch),
+            ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed)))
+        if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
             try:
@@ -558,17 +545,15 @@ def _upload(opt):
                     if not saved_ok(opt):
                         return
             except (ValueError, TypeError, KeyError) as e:
-                st.error(f"Could not save these results: {e}")
+                st.error(wording.could_not_save(e))
                 return
             st.session_state.pop("_results_upload", None)
             left = open_rows(opt)
             if left:
                 # Rows still to record: the trial stays open, numbers and all,
                 # so the whole-trial sentence would be a lie.
-                flash("success",
-                      f"Recorded {len(parsed)} of {len(opt.pending_batch)} "
-                      f"formulations in trial {batch_no} · "
-                      f"{len(left)} to make.")
+                flash("success", wording.upload_partial_flash(
+                    len(parsed), len(opt.pending_batch), batch_no, len(left)))
                 st.rerun()
             opt.set_pending_batch(None)
             st.session_state.pop("scale_total", None)
@@ -576,7 +561,7 @@ def _upload(opt):
                 # A move would rerun past app.py's end-of-script check and
                 # hide it, and the trial is still open on disk.
                 return
-            flash("success", f"Trial {batch_no} recorded.")
+            flash("success", wording.batch_recorded_flash(batch_no))
             go_to_tab(TAB_RESULTS)
 
 

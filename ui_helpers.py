@@ -9,6 +9,7 @@ from datetime import datetime
 
 import streamlit as st
 
+import wording
 # join_unit and goal_line live in food_bo (they are pure data formatting and
 # closeness_details needs them too); the tab modules import them from here so
 # there is one import site for screen helpers.
@@ -16,14 +17,12 @@ from food_bo import (  # noqa: F401  (re-exported)
     goal_line, join_unit, label_with_unit, number_list, outside_message,
     unit_after_number,
 )
+# Every word below lives in wording.py; these three names stay importable
+# from here because ui_setup.py, ui_results.py and app.py already do
+# `from ui_helpers import TAB_BATCH` and the like.
+from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
 _FLASH_KEY = "_flash_messages"
-
-# The one sentence any screen says about the copy an irreversible action keeps.
-# Archived copies are written beside the project's own file, which on the
-# desktop app is the FoodOptimizer folder. Every tab and the sidebar import it
-# from here, so the sentence exists once.
-COPY_KEPT = "A copy is saved in your FoodOptimizer folder first."
 
 
 def flash(kind, message):
@@ -109,7 +108,8 @@ def other_confirmation(key):
     return (armed is not None and armed != key) or restore_armed()
 
 
-def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
+def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
+                   disabled=False):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -137,7 +137,7 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
         confirmed = st.button(confirm_label, key=f"{key}__yes", type="primary",
                               use_container_width=True)
     with c2:
-        if st.button("Cancel", key=f"{key}__no", use_container_width=True):
+        if st.button(wording.CANCEL, key=f"{key}__no", use_container_width=True):
             st.session_state[pending_key] = False
             st.session_state.pop(ARMED_KEY, None)
             st.rerun()
@@ -147,12 +147,6 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
         return True
     slot.warning(warning)                  # only on runs where the user has not confirmed
     return False
-
-
-# The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
-TAB_SETUP = "1 · Set up"
-TAB_BATCH = "2 · Make a trial"
-TAB_RESULTS = "3 · Results"
 
 
 def go_to_tab(label):
@@ -225,8 +219,7 @@ def scale_error(obj, value):
     if low <= float(value) <= high:
         return ""
     return outside_message(obj['name'], value, low, high, obj.get('unit'),
-                           "your range",
-                           " Widen the range in Set up, or check the value.")
+                           wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
 
 
 def bounds_warning(name, value, low, high, unit):
@@ -236,7 +229,7 @@ def bounds_warning(name, value, low, high, unit):
         return ""
     if float(low) <= float(value) <= float(high):
         return ""
-    return outside_message(name, value, low, high, unit, "its allowed amounts")
+    return outside_message(name, value, low, high, unit, wording.ALLOWED_AMOUNTS)
 
 
 def table_height(n_rows, max_rows=12):
@@ -254,7 +247,7 @@ def saved_line(saved_at):
         when = f"{saved_at:%H:%M}"
     else:
         when = saved_at.strftime("%d %b %H:%M").lstrip("0")
-    return f"Saved {when} · automatically, to this Mac"
+    return wording.saved_line(when)
 
 
 def clear_selection(key):
@@ -319,7 +312,7 @@ def best_move_sentence(before, after):
     """'Best moved from Formulation 3 to Formulation 7.' or '' when it stayed."""
     if before is None or after is None or before == after:
         return ""
-    return f"Best moved from Formulation {before} to Formulation {after}."
+    return wording.best_moved(before, after)
 
 
 def readiness(opt):
@@ -331,9 +324,9 @@ def readiness(opt):
     dose and weighs nothing out; holding it incomplete until it listed an
     ingredient asked it to invent one."""
     if not opt.variables:
-        return False, "Add at least one ingredient or process setting."
+        return False, wording.NEED_A_VARIABLE
     if not opt.objectives:
-        return False, "Add at least one measurement."
+        return False, wording.NEED_A_MEASUREMENT
     return True, ""
 
 

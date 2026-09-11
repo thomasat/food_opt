@@ -15,6 +15,7 @@ import pyarrow as pa
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import wording
 from food_bo import FoodOptimizer
 
 APP_PATH = os.path.join(os.path.dirname(__file__), "..", "app.py")
@@ -306,7 +307,7 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     at.run()
     # Set up is complete, but nothing has been made yet: the sample opens on
     # its set-up so the user sees what they are about to make.
-    assert at.session_state["main_tab"] == "1 · Set up"
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
     table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
     # A panel score's "/10" is written once, on the measurement's own row,
     # and never after a number.
@@ -467,7 +468,7 @@ def test_tabs_are_the_loop_in_order(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["1 · Set up", "2 · Make a trial", "3 · Results"]
+    assert [t.label for t in at.tabs] == [wording.TAB_SETUP, wording.TAB_BATCH, wording.TAB_RESULTS]
 
 
 def test_opening_a_project_lands_on_set_up_when_it_is_incomplete(tmp_path, monkeypatch):
@@ -477,7 +478,7 @@ def test_opening_a_project_lands_on_set_up_when_it_is_incomplete(tmp_path, monke
     at.session_state["_loaded_project"] = "bare"
     at.session_state["_land_on_open"] = True
     at.run()
-    assert at.session_state["main_tab"] == "1 · Set up"
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
 
 
 def test_opening_a_project_lands_on_the_trial_when_one_is_open(project_with_history):
@@ -486,7 +487,7 @@ def test_opening_a_project_lands_on_the_trial_when_one_is_open(project_with_hist
     at.session_state["_loaded_project"] = "my_project"
     at.session_state["_land_on_open"] = True
     at.run()
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 def test_opening_a_project_lands_on_results(project_with_history):
@@ -494,7 +495,7 @@ def test_opening_a_project_lands_on_results(project_with_history):
     at.session_state["_loaded_project"] = "my_project"
     at.session_state["_land_on_open"] = True
     at.run()
-    assert at.session_state["main_tab"] == "3 · Results"
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
 
 
 def test_opening_a_ready_project_with_no_results_lands_on_set_up(tmp_path,
@@ -509,7 +510,7 @@ def test_opening_a_ready_project_with_no_results_lands_on_set_up(tmp_path,
     at.session_state["_loaded_project"] = "ready"
     at.session_state["_land_on_open"] = True
     at.run()
-    assert at.session_state["main_tab"] == "1 · Set up"
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
 
 
 def test_a_project_whose_only_formulation_was_left_out_lands_on_results(
@@ -525,16 +526,16 @@ def test_a_project_whose_only_formulation_was_left_out_lands_on_results(
     at.session_state["_loaded_project"] = "left_out"
     at.session_state["_land_on_open"] = True
     at.run()
-    assert at.session_state["main_tab"] == "3 · Results"
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
 
 
 def test_a_plain_rerun_never_moves_the_tab(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
-    at.session_state["main_tab"] = "1 · Set up"
+    at.session_state["main_tab"] = wording.TAB_SETUP
     at.run()
     at.run()
-    assert at.session_state["main_tab"] == "1 · Set up"
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
 
 
 def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history, tmp_path):
@@ -731,7 +732,7 @@ def test_the_trial_line_counts_what_is_left_to_make(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
     at.run()
-    assert any(c.value == "Trial 1 · 2 to make" for c in at.caption), \
+    assert any(c.value == wording.batch_line_open(1, 2) for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -865,7 +866,7 @@ def test_continue_is_lit_and_moves_to_the_trial_tab(burger):
     button.click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 def test_set_up_has_exactly_one_coloured_button(burger):
@@ -913,7 +914,7 @@ def test_changing_importance_keeps_a_copy_and_reports_the_move(burger, tmp_path)
                 {"Juiciness": 0.0, "Firmness": 7.0}, formulation_no=7, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "1 · Set up"
+    at.session_state["main_tab"] = wording.TAB_SETUP
     at.run()
     _submit_button(at, "Edit Firmness").click()
     at.run()
@@ -928,7 +929,7 @@ def test_changing_importance_keeps_a_copy_and_reports_the_move(burger, tmp_path)
     assert note == ("Firmness importance changed to 2.0. Every overall score "
                     "was recalculated. Best moved from Formulation 3 to "
                     "Formulation 7. A copy is saved in your FoodOptimizer folder first.")
-    assert at.session_state["main_tab"] == "1 · Set up"   # a set-up edit never moves
+    assert at.session_state["main_tab"] == wording.TAB_SETUP   # a set-up edit never moves
 
 
 def test_editing_a_measurement_leaves_the_open_batch_alone(burger):
@@ -980,8 +981,7 @@ def test_adding_an_ingredient_does_discard_the_open_trial(burger):
     assert FoodOptimizer("burger").pending_batch is None
     # food_bo drops the batch inside add_ingredient, so app.py's makeability
     # check never sees a mismatch: the handler has to say so itself.
-    assert any("The open trial was discarded because the ingredient list or "
-               "its allowed amounts changed since it was generated." == i.value
+    assert any(wording.batch_discarded_notice() == i.value
                for i in at.info), [i.value for i in at.info]
 
 
@@ -1170,7 +1170,7 @@ def test_a_pause_that_discards_the_trial_says_so(burger):
     at.run()
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
-    assert any("The open trial was discarded" in i.value for i in at.info), \
+    assert any(f"The open {wording.BATCH} was discarded" in i.value for i in at.info), \
         [i.value for i in at.info]
 
 
@@ -1307,7 +1307,7 @@ def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
     # Pin the project so the landing rule does not fire, and seed the tab:
     # st.tabs(key=) does not write session_state on render.
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     _submit_button(at, "Generate 3 formulations").click()
     at.run()
@@ -1315,7 +1315,7 @@ def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
     reloaded = FoodOptimizer("burger")
     assert [r["formulation"] for r in reloaded.pending_batch] == [1, 2, 3]
     assert reloaded.pending_batch_no == 1
-    assert at.session_state["main_tab"] == "2 · Make a trial"   # never auto-moves
+    assert at.session_state["main_tab"] == wording.TAB_BATCH   # never auto-moves
 
 
 def test_the_getting_started_sentence_changes_after_five_results(burger):
@@ -1327,15 +1327,14 @@ def test_the_getting_started_sentence_changes_after_five_results(burger):
     from ui_setup import HOW_IT_WORKS
     opening = "The first five formulations are spread across the allowed amounts"
     assert any(line.startswith(opening) for line in HOW_IT_WORKS), HOW_IT_WORKS
-    assert any(c.value == (opening + "; later trials aim closer to your "
-                           "targets.") for c in at.caption), \
+    assert any(c.value == wording.FIRST_FIVE_SPREAD for c in at.caption), \
         [c.value for c in at.caption]
     for i in range(5):
         burger.tell({"Pea protein": 5.0 + i, "Methylcellulose": 1.0},
                     {"Juiciness": 6.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == "Each trial aims closer to your targets."
+    assert any(c.value == wording.EACH_BATCH_AIMS_CLOSER
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1353,14 +1352,14 @@ def test_repeat_of_the_best_is_offered_and_adds_one_formulation(burger):
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.label == "Repeat Formulation 1 (best so far)" for c in at.checkbox), \
+    assert any(c.label == wording.repeat_checkbox_label(1) for c in at.checkbox), \
         [c.label for c in at.checkbox]
     at.checkbox(key="repeat_best").check()
     at.number_input(key="batch_size").set_value(2)
     at.run()
     # The button counts the repeat: two new formulations plus the repeat is
     # three to make, and the box asks for NEW formulations.
-    assert any(n.label == "New formulations in this trial"
+    assert any(n.label == wording.NEW_FORMULATIONS_IN_BATCH
                for n in at.number_input), [n.label for n in at.number_input]
     _submit_button(at, "Generate 3 formulations").click()
     at.run()
@@ -1372,16 +1371,16 @@ def test_repeat_of_the_best_is_offered_and_adds_one_formulation(burger):
     assert reloaded.pending_batch[-1]["recipe"] == {"Pea protein": 10.0,
                                                     "Methylcellulose": 1.0}
     # And the extra row says what it is, on the table and in its note box.
-    assert reloaded.pending_batch[-1]["note"] == "Repeat of Formulation 1"
+    assert reloaded.pending_batch[-1]["note"] == wording.repeat_of_formulation(1)
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(table["Note"]) == ["", "", "Repeat of Formulation 1"]
-    assert at.session_state["f4_note"] == "Repeat of Formulation 1"
+    assert list(table["Note"]) == ["", "", wording.repeat_of_formulation(1)]
+    assert at.session_state["f4_note"] == wording.repeat_of_formulation(1)
 
 
 def test_the_trial_table_carries_units_and_a_total(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(m.value == "**Trial 1 · make these 2 formulations**"
+    assert any(m.value == wording.make_these(1, 2)
                for m in at.markdown), [m.value for m in at.markdown]
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
@@ -1412,9 +1411,8 @@ def test_biggest_changes_line_appears_from_batch_two(burger):
                              batch_no=2)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Biggest changes in Formulation 2 from "
-                           "Formulation 1: "
-                           "Pea protein −2.10 g, Methylcellulose +0.80 g.")
+    assert any(c.value == wording.biggest_changes_caption(
+                   2, 1, "Pea protein −2.10 g, Methylcellulose +0.80 g")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1449,10 +1447,9 @@ def test_leaving_a_row_out_does_not_grey_the_bench_sheet(open_batch):
 def test_regenerating_names_the_numbers_it_discards(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Generate a different trial").click()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
-    assert any(w.value == ("Trial 1 (Formulations 1, 2) will be discarded. "
-                           "Those numbers will not be used again.")
+    assert any(w.value == wording.regenerate_warning(1, "1, 2")
                for w in at.warning), [w.value for w in at.warning]
     _submit_button(at, "Yes, discard").click()
     at.run()
@@ -1460,8 +1457,7 @@ def test_regenerating_names_the_numbers_it_discards(open_batch):
     reloaded = FoodOptimizer("burger")
     assert [r["formulation"] for r in reloaded.pending_batch] == [3, 4]
     assert reloaded.pending_batch_no == 1     # the batch keeps its number
-    assert any(c.value == ("Formulations 1 and 2 were discarded and their "
-                           "numbers will not be used again.")
+    assert any(c.value == wording.batch_discarded_caption("1 and 2")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1470,7 +1466,7 @@ def test_the_printable_sheet_names_the_formulation_and_the_trial(open_batch):
     at.run()
     assert any(e.label == "Preview formulation sheets" for e in at.expander)
     texts = [t.value for t in at.text]
-    assert "Formulation 1 · trial 1" in texts, texts
+    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH} 1" in texts, texts
     assert any(t.startswith("Not made") for t in texts), texts
     # Underscore rules go through st.text: st.markdown would italicise them and
     # would mangle a measurement named L_a_b.
@@ -1566,7 +1562,7 @@ def test_the_counter_and_the_foot_do_not_contradict_each_other(open_batch):
                for c in at.caption), [c.value for c in at.caption]
     # Nothing is saved yet, so both open rows are still to record, and both
     # other screens say so in those words.
-    assert any(c.value == "Trial 1 · 2 to make" for c in at.caption), \
+    assert any(c.value == wording.batch_line_open(1, 2) for c in at.caption), \
         [c.value for c in at.caption]
     assert _submit_button(at, "Back to trial 1 · 2 to record").label == \
         "Back to trial 1 · 2 to record"
@@ -1590,7 +1586,7 @@ def test_the_counter_counts_kept_rows_only(open_batch):
 def test_saving_records_partials_notes_and_moves_to_results(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.number_input(key="f1_Juiciness").set_value(7.0)
@@ -1606,7 +1602,7 @@ def test_saving_records_partials_notes_and_moves_to_results(open_batch):
     assert reloaded.notes_history[0] == "held together"
     assert reloaded.results_history[1] == {"Firmness": 2.0}
     assert reloaded.pending_batch is None
-    assert at.session_state["main_tab"] == "3 · Results"
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
     # A real save also puts the saved line in the sidebar and no backup nag.
     assert any("automatically, to this Mac" in c.value for c in at.sidebar.caption), \
         [c.value for c in at.sidebar.caption]
@@ -1618,7 +1614,7 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
     check and hide the fact that nothing was written."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.number_input(key="f2_Firmness").set_value(4.0)
@@ -1629,7 +1625,7 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
     _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
     assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
 
 
@@ -1640,7 +1636,7 @@ def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.session_state["_results_upload"] = pd.DataFrame(
         {"Formulation": [1, 2], "Firmness": [6.0, 4.0],
          "Juiciness": [7.0, 5.0]})
@@ -1662,7 +1658,7 @@ def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch
     assert any("NOT saved" in e.value for e in at.error), [e.value for e in at.error]
     assert not any("recorded" in s.value for s in at.success), \
         [s.value for s in at.success]
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
     assert FoodOptimizer("burger").pending_batch is not None
 
 
@@ -1718,12 +1714,13 @@ def test_uploading_a_sheet_matches_global_formulation_numbers(open_batch):
     the uploader handler does."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.session_state["_results_upload"] = pd.DataFrame(
         {"Formulation": [2], "Firmness": [6.0], "Juiciness": [7.0],
          "Note": ["from the sheet"]})
     at.run()
-    assert any("Formulation 2" in i.value for i in at.info), [i.value for i in at.info]
+    assert any(f"{wording.FORMULATION_CAP} 2" in i.value for i in at.info), \
+        [i.value for i in at.info]
     _submit_button(at, "Save uploaded results").click()
     at.run()
     assert not at.exception
@@ -1731,7 +1728,7 @@ def test_uploading_a_sheet_matches_global_formulation_numbers(open_batch):
     assert reloaded.formulation_ids == [2]
     assert reloaded.notes_history == ["from the sheet"]
     assert [r["formulation"] for r in reloaded.pending_batch] == [1, 2]
-    assert at.session_state["main_tab"] == "2 · Make a trial"   # one row still open
+    assert at.session_state["main_tab"] == wording.TAB_BATCH   # one row still open
 
 
 def test_a_stale_upload_is_cleared_by_hard_reset(open_batch, tmp_path):
@@ -1761,7 +1758,7 @@ def test_a_confirmation_takes_the_colour_from_the_bench_sheet(open_batch):
     at.run()
     assert _unknown(at.main, "download_button",
                     "Download the bench sheet (CSV)").proto.type == "primary"
-    _submit_button(at, "Generate a different trial").click()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
                     "Download the bench sheet (CSV)").proto.type == "secondary"
@@ -1775,7 +1772,7 @@ def test_a_confirmation_greys_save_results(open_batch):
     at.number_input(key="f2_Firmness").set_value(4.0)
     at.run()
     assert _tab_primaries(at, 1) == ["Save results"], _tab_primaries(at, 1)
-    _submit_button(at, "Generate a different trial").click()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     save = _submit_button(at, "Save results")
     assert save.disabled and save.proto.type == "secondary"
@@ -1841,7 +1838,7 @@ def test_a_one_formulation_trial_reads_as_one(burger):
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(m.value == "**Trial 1 · make this 1 formulation**"
+    assert any(m.value == wording.make_these(1, 1)
                for m in at.markdown), [m.value for m in at.markdown]
 
 
@@ -1891,7 +1888,7 @@ def test_results_empty_state_offers_the_first_trial_and_the_import(burger):
     import must not hide behind the empty state."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert any(m.value == "No results yet." for m in at.markdown), \
         [m.value for m in at.markdown]
@@ -1901,7 +1898,7 @@ def test_results_empty_state_offers_the_first_trial_and_the_import(burger):
     assert button.proto.type == "primary"
     button.click()
     at.run()
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 def test_best_heading_off_by_table_and_score_caption(scored):
@@ -1941,7 +1938,7 @@ def test_the_first_batch_is_not_announced_twice_on_one_screen(scored):
     and there is nothing to compare a first batch with anyway."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert not any(c.value == "Trial 1 recorded." for c in at.caption), \
+    assert not any(c.value == wording.batch_recorded_flash(1) for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -1996,7 +1993,7 @@ def test_download_all_formulations_is_grey(scored):
 def test_correcting_a_result_reports_the_change_and_the_move(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
@@ -2011,7 +2008,7 @@ def test_correcting_a_result_reports_the_change_and_the_move(scored):
     assert note == ("Formulation 1 Firmness corrected 1 N → 6 N. Best moved "
                     "from Formulation 2 to Formulation 1. A copy is saved "
                     "in your FoodOptimizer folder first.")
-    assert at.session_state["main_tab"] == "3 · Results"    # no auto-move
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS    # no auto-move
 
 
 def test_a_correction_can_be_closed_again(scored):
@@ -2082,13 +2079,13 @@ def test_results_renders_when_the_last_measurement_is_gone(scored):
 def test_results_foot_starts_the_next_trial(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     button = _submit_button(at, "Start the next trial")
     assert button.proto.type == "primary"
     button.click()
     at.run()
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 def test_results_foot_points_back_at_an_unrecorded_trial(scored):
@@ -2122,7 +2119,7 @@ def test_the_results_foot_steps_aside_for_a_confirmation(scored):
 def test_the_empty_state_button_steps_aside_for_a_confirmation(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     _submit_button(at, "Start this project over").click()
     at.run()
@@ -2385,7 +2382,7 @@ def test_the_last_trial_line_counts_a_trial_that_was_entirely_left_out(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "Trial 2 · recorded" for c in at.caption), \
+    assert any(c.value == wording.batch_line_recorded(2) for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -2394,8 +2391,7 @@ def test_a_stale_trial_is_reported_above_the_tabs_not_in_the_sidebar(open_batch,
     """The notice is about the batch the user is looking at, so it belongs in
     the fixed message container above the tabs."""
     import json
-    notice = ("The open trial was discarded because the ingredient list or "
-              "its allowed amounts changed since it was generated.")
+    notice = wording.batch_discarded_notice()
     state = json.loads((tmp_path / "burger.pkl").read_text())
     for row in state["pending_batch"]:
         row["recipe"].pop("Methylcellulose")
@@ -2435,7 +2431,7 @@ def test_advanced_and_limit_forms_do_not_follow_you_to_another_project(burger):
 def test_a_correction_keeps_a_copy_first_and_says_so(scored, tmp_path):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
@@ -2458,7 +2454,7 @@ def test_a_no_op_correction_says_so_and_keeps_no_copy(scored, tmp_path):
     was kept — or keep one."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
@@ -2477,7 +2473,7 @@ def test_a_confirmation_takes_the_colour_from_save_correction(scored):
     same run, which is why the button row is drawn last."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
@@ -2500,7 +2496,7 @@ def test_a_confirmation_takes_the_colour_from_save_correction(scored):
 def test_save_correction_is_the_one_lit_action_while_the_row_is_open(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert _tab_primaries(at, 2) == ["Start the next trial"], _tab_primaries(at, 2)
     at.selectbox(key="correct_formulation").set_value(1)
@@ -2559,7 +2555,7 @@ def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.session_state["_results_upload"] = pd.DataFrame(
         {"Formulation": [1, 2], "Firmness": [6.0, 4.0],
          "Juiciness": [7.0, 5.0]})
@@ -2584,7 +2580,7 @@ def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
     # One row reached the disk; the second never did, and the batch stays open.
     reloaded = FoodOptimizer("burger")
     assert reloaded.formulation_ids == [1]
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 # ------------------------------------------------------------------ #
@@ -2597,11 +2593,11 @@ def test_the_line_under_the_title_is_on_tab_one_only(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "Trial 1 · 2 to make" for c in at.tabs[0].caption), \
+    assert any(c.value == wording.batch_line_open(1, 2) for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
-    assert not any(c.value == "Trial 1 · 2 to make" for c in at.tabs[1].caption), \
+    assert not any(c.value == wording.batch_line_open(1, 2) for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
-    assert any(m.value == "**Trial 1 · make these 2 formulations**"
+    assert any(m.value == wording.make_these(1, 2)
                for m in at.tabs[1].markdown)
 
 
@@ -2665,14 +2661,14 @@ def test_the_empty_results_button_sends_an_unready_project_to_set_up(tmp_path,
     FoodOptimizer("empty").save()
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "empty"
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not any(b.label == "Make your first trial" for b in at.button), \
         _labels(at)
     _submit_button(at, "Set up this project").click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == "1 · Set up"
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
 
 
 def test_a_project_saved_before_units_existed_says_the_g_is_a_guess(tmp_path,
@@ -2818,16 +2814,16 @@ def test_a_partly_uploaded_sheet_says_what_it_recorded(open_batch):
     nobody had done."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.session_state["_results_upload"] = pd.DataFrame(
         {"Formulation": [2], "Firmness": [6.0], "Juiciness": [7.0]})
     at.run()
     _submit_button(at, "Save uploaded results").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Recorded 1 of 2 formulations in trial 1 · 1 to make."
+    assert any(s.value == wording.upload_partial_flash(1, 2, 1, 1)
                for s in at.success), [s.value for s in at.success]
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
     assert FoodOptimizer("burger").pending_batch is not None
 
 
@@ -2871,7 +2867,7 @@ def test_the_result_grid_does_not_follow_you_to_another_project(open_batch):
     FoodOptimizer("second").save()
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     at.number_input(key="f1_Firmness").set_value(9.0)
     at.text_input(key="f1_note").set_value("half typed")
@@ -2901,7 +2897,7 @@ def test_emptying_the_forms_raises_no_widget_warning_on_screen(open_batch):
     FoodOptimizer("second").save()
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["main_tab"] = "2 · Make a trial"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     at.number_input(key="f1_Firmness").set_value(9.0)
     at.number_input(key="scale_total").set_value(50.0)
@@ -3056,7 +3052,7 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").label == \
-        "Formulation total (g)"
+        wording.batch_total_label("g")
 
 
 def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
@@ -3089,8 +3085,8 @@ def test_the_biggest_changes_line_uses_each_ingredients_unit(mixed_units):
     at.run()
     line = next((c.value for c in at.caption
                  if c.value.startswith("Biggest changes")), "")
-    assert line == ("Biggest changes in Formulation 2 from Formulation 1: "
-                    "Water +10.00 ml, Pea protein +2.00 g."), line
+    assert line == wording.biggest_changes_caption(
+        2, 1, "Water +10.00 ml, Pea protein +2.00 g"), line
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -3248,7 +3244,7 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == "3 · Results"
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
     assert any(h.value == "Best so far: Formulation 1 (trial 1)"
                for h in at.subheader), [h.value for h in at.subheader]
     table = next(t.value for t in at.table
@@ -3455,7 +3451,7 @@ def test_a_newly_recorded_correction_carries_its_unit(burger):
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
                 batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
@@ -3474,7 +3470,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Firmness": 6.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
     # "· partial" follows the ceiling, and nothing after it claims the
@@ -3549,7 +3545,7 @@ def test_the_tab_three_foot_never_offers_a_first_trial_over_an_open_one(burger):
                               {"Pea protein": 20.0, "Methylcellulose": 2.0},
                               {"Pea protein": 5.0, "Methylcellulose": 0.5}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
     assert _tab_primaries(at, 2) == ["Back to trial 1 · 3 to record"], \
@@ -3567,8 +3563,8 @@ def test_the_biggest_changes_line_reads_the_amounts_on_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     # As generated, the only change is +20.00 g of protein.
-    assert any(c.value == ("Biggest changes in Formulation 2 from "
-                           "Formulation 1: Pea protein +20.00 g.")
+    assert any(c.value == wording.biggest_changes_caption(
+                   2, 1, "Pea protein +20.00 g")
                for c in at.caption), [c.value for c in at.caption]
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
@@ -3576,8 +3572,8 @@ def test_the_biggest_changes_line_reads_the_amounts_on_the_table(burger):
     # the line reads the table: the reference is scaled to the same total.
     line = next((c.value for c in at.caption
                  if c.value.startswith("Biggest changes")), "")
-    assert line == ("Biggest changes in Formulation 2 from Formulation 1: "
-                    "Pea protein +5.00 g, Methylcellulose −5.00 g."), line
+    assert line == wording.biggest_changes_caption(
+        2, 1, "Pea protein +5.00 g, Methylcellulose −5.00 g"), line
 
 
 def _uploader_keys(at):
@@ -3706,11 +3702,11 @@ def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
     burger.set_pending_batch([{"Pea protein": 20.0, "Methylcellulose": 2.0}],
                              batch_no=2)
     burger.add_to_pending_batch({"Pea protein": 10.0, "Methylcellulose": 1.0},
-                                note="Repeat of Formulation 1")
+                                note=wording.repeat_of_formulation(1))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     lines = [t.value for t in at.text]
-    assert "Note: Repeat of Formulation 1" in lines, lines
+    assert wording.note_line(wording.repeat_of_formulation(1)) in lines, lines
     # The rows with nothing to say still carry a line to write one on.
     assert "Note: ______________________________________________" in lines
 
@@ -4607,7 +4603,7 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Firmness": 6.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     sentence = ("Partial scores are missing a measurement, which counts as "
                 "zero, so they are low and the model treats them that way.")
@@ -4618,7 +4614,7 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=2,
                 batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = "3 · Results"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]

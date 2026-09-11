@@ -10,9 +10,10 @@ import storage as storage_backend
 import ui_batch
 import ui_results
 import ui_setup
+import wording
 from food_bo import FoodOptimizer
 from ui_helpers import (
-    ARMED_KEY, COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
+    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, render_flash,
     saved_line, saved_ok, take_clear,
@@ -23,8 +24,8 @@ STORAGE = storage_backend.LocalStorage()
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
 
-st.set_page_config(page_title="Food Optimizer", layout="wide")
-st.title("Food Optimizer")
+st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
+st.title(wording.APP_TITLE)
 # The container the flash messages live in. The sidebar below runs later and
 # can queue one of its own, so it is drained a second time once the sidebar
 # has had its say — into this same slot, above the tabs.
@@ -138,7 +139,8 @@ def _open_project(name, create=False, made=False):
     # project, the box another, and Open lit over the project just abandoned.
     clear_selection("project_select")
     flash("success",
-          f"Created {name}." if (create or made) else f"Opened {name}.")
+          wording.project_created(name) if (create or made)
+          else wording.project_opened(name))
     st.rerun()
 
 
@@ -159,7 +161,7 @@ def _open_sample_project():
             _sample.add_objective("Firmness", 1.5, goal="target", target=6,
                                   min_val=0, max_val=10, unit="/10")
         except ValueError as e:
-            st.error(f"The sample project could not be created: {e}")
+            st.error(wording.sample_project_failed(e))
         else:
             if _sample.save_error:
                 st.error(_sample.save_error)
@@ -177,10 +179,10 @@ def _held(opt):
 def _batch_line(opt):
     """The one line under the title on tabs 1 and 2 once a trial exists."""
     if opt.pending_batch:
-        return f"Trial {opt.pending_batch_no} · {len(open_rows(opt))} to make"
+        return wording.batch_line_open(opt.pending_batch_no, len(open_rows(opt)))
     last = opt.last_batch_no()   # counts a trial whose rows were all left out
     if last is not None:
-        return f"Trial {last} · recorded"
+        return wording.batch_line_recorded(last)
     return None
 
 
@@ -189,7 +191,7 @@ def _batch_line(opt):
 # ================================================================== #
 
 with st.sidebar:
-    st.subheader("Projects")
+    st.subheader(wording.PROJECTS_HEADER)
 
     try:
         existing_projects = STORAGE.list_projects()
@@ -208,20 +210,18 @@ with st.sidebar:
         st.session_state["_land_on_open"] = True
 
     with st.form("new_project_form", clear_on_submit=True):
-        new_name = st.text_input("New project name", key="new_project_name",
-                                 placeholder="e.g. Oat cookie v2")
+        new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
+                                 placeholder=wording.NEW_PROJECT_PLACEHOLDER)
         # Grey: the sidebar never competes with the tab's one lit button, and
         # this one is on screen long before there is a name to create.
-        if st.form_submit_button("Create project"):
+        if st.form_submit_button(wording.CREATE_PROJECT):
             name = new_name.strip()
             if not _NAME_RE.fullmatch(name):
-                st.error("Use 1 to 64 letters, numbers, spaces, hyphens, underscores or "
-                         "periods, starting with a letter or number.")
+                st.error(wording.NAME_RULE)
             elif name in existing_projects:
-                st.error(f"A project named {name} already exists. Open it below.")
+                st.error(wording.name_taken(name))
             elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                st.error("That name is already used by a project or an archived copy. "
-                         "Choose another.")
+                st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
             else:
                 _open_project(name, create=True)
 
@@ -232,7 +232,7 @@ with st.sidebar:
         # project that is no longer there.
         take_clear("project_select", fresh=_active)
         selected = st.selectbox(
-            "Open project", existing_projects,
+            wording.OPEN_PROJECT_LABEL, existing_projects,
             index=existing_projects.index(_active) if _active in existing_projects else 0,
             key="project_select",
         )
@@ -248,11 +248,8 @@ with st.sidebar:
     # sidebar shows it only once at least one project exists.
     if existing_projects and os.path.exists(_SAMPLE_CSV):
         if st.button(
-            "Try the sample project", key="sample_project_sidebar",
-            help="Opens a ready-made plant-based burger project with eight "
-                 "ingredients and two trained-panel scores, Juiciness and "
-                 "Firmness, each with a target intensity, so you can explore "
-                 "before setting up your own.",
+            wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
+            help=wording.TRY_SAMPLE_HELP,
         ):
             _open_sample_project()
 
@@ -273,8 +270,7 @@ with st.sidebar:
         # The full sentence renders once, in the main body; here it would be
         # the same paragraph twice on one screen, so the sidebar only points.
         if getattr(opt, "load_error", None):
-            st.error("This project could not be opened. See the message "
-                     "on the right.")
+            st.error(wording.PROJECT_LOAD_ERROR_SIDEBAR_NOTE)
 
         st.divider()
         st.subheader(opt.project_name)
@@ -292,61 +288,48 @@ with st.sidebar:
         if getattr(opt, "load_error", None):
             # Never offer a "backup" of a project that failed to load — it
             # would be an empty file wearing the project's name.
-            st.caption(
-                "Backup download is unavailable while the project file "
-                "cannot be read."
-            )
+            st.caption(wording.BACKUP_UNAVAILABLE)
         else:
             st.download_button(
-                "Download project backup",
+                wording.DOWNLOAD_PROJECT_BACKUP,
                 data=json.dumps(opt.export_json(), indent=2),
                 file_name=f"{opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
                 mime="application/json",
             )
 
         # Any file name: what is inside decides, not the extension.
-        uploaded_json = st.file_uploader("Restore from backup", key="restore_json")
-        if uploaded_json is not None and st.button("Check this backup"):
+        uploaded_json = st.file_uploader(wording.RESTORE_FROM_BACKUP, key="restore_json")
+        if uploaded_json is not None and st.button(wording.CHECK_THIS_BACKUP):
             try:
                 st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
             except ValueError:
                 st.session_state.pop("_restore_candidate", None)
-                st.error(
-                    "This file could not be read as a Food Optimizer backup. "
-                    "If you have another copy, try that one; recent copies are "
-                    "saved in your FoodOptimizer folder."
-                )
+                st.error(wording.BACKUP_UNREADABLE)
 
         candidate = st.session_state.get("_restore_candidate")
         if candidate is not None:
             try:
                 summary = FoodOptimizer.validate_state(candidate)
             except ValueError as e:
-                st.error(
-                    f"{e} Recent copies of your own projects are saved in "
-                    "your FoodOptimizer folder."
-                )
+                st.error(f"{e}{wording.RECENT_COPIES_HINT}")
                 st.session_state.pop("_restore_candidate", None)
             else:
                 # Both halves count the same way — scored and left out — or
                 # replacing a project with its own backup reads as losing one.
                 # A settings-only project is named by its settings: "0
                 # ingredients" alone described a fully set-up project as empty.
-                _holds = [plural(summary['formulations'], 'formulation'),
-                          plural(summary['ingredients'], 'ingredient')]
+                _holds = [plural(summary['formulations'], wording.FORMULATION),
+                          plural(summary['ingredients'], wording.INGREDIENT)]
                 if summary['settings']:
-                    _holds.append(plural(summary['settings'], 'process setting'))
-                st.warning(
-                    f"This backup contains project **{summary['name']}** with "
-                    + ", ".join(_holds[:-1]) + f" and {_holds[-1]}. Replace "
-                    f"**{opt.project_name}** "
-                    f"({plural(_held(opt), 'formulation')})? " + COPY_KEPT
-                )
+                    _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
+                st.warning(wording.restore_backup_warning(
+                    summary['name'], _holds, opt.project_name,
+                    plural(_held(opt), wording.FORMULATION)))
                 rc1, rc2 = st.columns(2)
                 with rc1:
                     # A confirmation is the one thing to do while it is on
                     # screen, so it is lit — like every confirm_action.
-                    if st.button("Yes, replace", type="primary",
+                    if st.button(wording.YES_REPLACE, type="primary",
                                  use_container_width=True):
                         # Constructing FoodOptimizer below would re-stamp the
                         # shared _seen entry from the current file, so the
@@ -366,8 +349,7 @@ with st.sidebar:
                             except storage_backend.StorageError as e:
                                 st.error(str(e))
                             except Exception:
-                                st.error("This backup could not be applied. Your "
-                                         "current project was not changed.")
+                                st.error(wording.BACKUP_APPLY_FAILED)
                                 st.session_state.pop("_restore_candidate", None)
                             else:
                                 if new_opt.save_error:
@@ -376,30 +358,23 @@ with st.sidebar:
                                     st.session_state.optimizer = new_opt
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
-                                    _done = (
-                                        f"Restored "
-                                        f"{plural(len(new_opt.X_history), 'formulation')} "
-                                        f"into {new_opt.project_name}."
-                                    )
-                                    if archived:
-                                        _done += f" A copy was saved as {archived}."
-                                    flash("success", _done)
+                                    flash("success", wording.restored_flash(
+                                        plural(len(new_opt.X_history), wording.FORMULATION),
+                                        new_opt.project_name, archived))
                                     st.rerun()
                 with rc2:
-                    if st.button("Cancel", use_container_width=True, key="restore_cancel"):
+                    if st.button(wording.CANCEL, use_container_width=True, key="restore_cancel"):
                         st.session_state.pop("_restore_candidate", None)
                         st.rerun()
 
-        with st.expander("Manage project"):
+        with st.expander(wording.MANAGE_PROJECT):
             if confirm_action(
-                "hard_reset", "Start this project over",
-                (f"Start **{opt.project_name}** over? It becomes empty. "
-                 + COPY_KEPT
+                "hard_reset", wording.START_OVER_LABEL,
+                (wording.start_over_warning(opt.project_name)
                  if not _held(opt) else
-                 f"Start **{opt.project_name}** over? Its "
-                 f"{plural(_held(opt), 'formulation')} and set-up go, and the "
-                 f"project becomes empty. " + COPY_KEPT),
-                confirm_label="Yes, start over",
+                 wording.start_over_warning(
+                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                confirm_label=wording.YES_START_OVER,
                 disabled=other_confirmation("hard_reset"),
             ):
                 _target = opt.project_name
@@ -419,7 +394,7 @@ with st.sidebar:
                         st.error(_fresh.save_error)
                     else:
                         if archived:
-                            flash("info", f"A copy was saved as {archived}.")
+                            flash("info", wording.copy_saved_as(archived))
                         _reset_project_session()
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
@@ -429,14 +404,12 @@ with st.sidebar:
             # list. The
             # file is renamed to an archive copy, never erased.
             if confirm_action(
-                "delete_project", "Delete this project",
-                (f"Delete **{opt.project_name}**? It has no formulations yet, "
-                 f"and it leaves this list. " + COPY_KEPT
+                "delete_project", wording.DELETE_PROJECT_LABEL,
+                (wording.delete_project_warning(opt.project_name)
                  if not _held(opt) else
-                 f"Delete **{opt.project_name}** and its "
-                 f"{plural(_held(opt), 'formulation')}? It leaves this list. "
-                 + COPY_KEPT),
-                confirm_label="Yes, delete it",
+                 wording.delete_project_warning(
+                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                confirm_label=wording.YES_DELETE_IT,
                 disabled=other_confirmation("delete_project"),
             ):
                 _target = opt.project_name
@@ -445,11 +418,7 @@ with st.sidebar:
                 except storage_backend.StorageError as e:
                     st.error(str(e))
                 else:
-                    if archived:
-                        flash("info", f"Deleted {_target}. A copy was saved "
-                                      f"as {archived}.")
-                    else:
-                        flash("info", f"Deleted {_target}.")
+                    flash("info", wording.project_deleted_flash(_target, archived))
                     _reset_project_session()
                     st.session_state.pop("_loaded_project", None)
                     clear_selection("project_select")   # parked: see above
@@ -462,7 +431,7 @@ with st.sidebar:
             # is lit: an armed confirmation's Yes is the one coloured button in
             # the sidebar until it is answered.
             if st.button(
-                "Open",
+                wording.OPEN_BUTTON,
                 type=("primary" if _switching and not confirmation_open()
                       else "secondary"),
                 disabled=not _switching,
@@ -479,21 +448,16 @@ render_flash(_FLASH_BOX)
 # ================================================================== #
 
 if opt is None:
-    st.markdown("## Create your first project")
-    st.markdown(
-        "1. **Name a project** and click Create project.\n"
-        "2. **Add ingredients** and the measurements you will record.\n"
-        "3. **Make a trial**, weigh out the formulations, and record what "
-        "you measured."
-    )
+    st.markdown(wording.WELCOME_HEADER)
+    st.markdown(wording.welcome_steps())
     wc1, wc2 = st.columns(2)
     with wc1:
-        if os.path.exists(_SAMPLE_CSV) and st.button("Try the sample project", type="primary"):
+        if os.path.exists(_SAMPLE_CSV) and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
             _open_sample_project()
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             with open(_SAMPLE_CSV, "rb") as f:
-                st.download_button("Download CSV template", data=f.read(),
+                st.download_button(wording.DOWNLOAD_CSV_TEMPLATE, data=f.read(),
                                    file_name="ingredients_template.csv", mime="text/csv")
     st.stop()
 
@@ -503,13 +467,7 @@ if opt is None:
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
-    st.info(
-        "To protect the original file, editing is paused. In the sidebar on "
-        "the left you can: restore a backup you downloaded earlier "
-        "(Restore from backup), or start this project over "
-        "(Manage project › Start this project over — a copy of the damaged "
-        "file is saved first)."
-    )
+    st.info(wording.project_load_error_info())
     st.stop()
 
 _save_banner_shown = False
@@ -517,19 +475,19 @@ if getattr(st.session_state.optimizer, "save_error", None):
     _err_opt = st.session_state.optimizer
     _save_banner_shown = True
     st.error(_err_opt.save_error)
-    st.warning("**Your last change was not saved.** Download a backup now, then click Reload project.")
+    st.warning(wording.SAVE_ERROR_WARNING)
     b1, b2 = st.columns(2)
     with b1:
-        st.download_button("Download backup",
+        st.download_button(wording.DOWNLOAD_BACKUP,
                            data=json.dumps(_err_opt.export_json(), indent=2),
                            file_name=f"{_err_opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
                            mime="application/json", use_container_width=True,
                            key="download_after_save_error")
     with b2:
-        if st.button("Reload project", key="reload_after_save_error", use_container_width=True):
+        if st.button(wording.RELOAD_PROJECT, key="reload_after_save_error", use_container_width=True):
             st.session_state.pop("optimizer", None)
             st.session_state.pop("current_batch", None)
-            flash("info", "Project reloaded from the latest saved copy.")
+            flash("info", wording.PROJECT_RELOADED)
             st.rerun()
 
 
@@ -552,9 +510,7 @@ if getattr(_opt, "pending_batch", None):
         # arrives after the banner above has rendered, which is exactly what
         # the end-of-script check at the foot of this file is for.
         if saved_ok(_opt):
-            flash("info",
-                  "The open trial was discarded because the ingredient list or "
-                  "its allowed amounts changed since it was generated.")
+            flash("info", wording.batch_discarded_notice())
             render_flash(_FLASH_BOX)   # this run, above the tabs
 
 

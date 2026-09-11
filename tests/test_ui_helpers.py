@@ -125,6 +125,7 @@ def test_confirm_action_cancel():
 
 import pytest
 
+import wording
 from ui_helpers import (
     TAB_BATCH, TAB_RESULTS, TAB_SETUP, fmt_amount, goal_line, join_unit,
     landing_tab, number_list, plural, readiness, saved_line, scale_error,
@@ -133,8 +134,8 @@ from ui_helpers import (
 
 
 def test_plural_uses_real_grammar():
-    assert plural(0, "formulation") == "0 formulations"
-    assert plural(1, "formulation") == "1 formulation"
+    assert plural(0, wording.FORMULATION) == f"0 {wording.FORMULATION}s"
+    assert plural(1, wording.FORMULATION) == f"1 {wording.FORMULATION}"
     assert plural(3, "result") == "3 results"
 
 
@@ -285,7 +286,7 @@ def test_go_to_tab_switches_the_open_tab():
     at.run()
     at.button[0].click()
     at.run()
-    assert at.session_state["main_tab"] == "2 · Make a trial"
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
 
 
 def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
@@ -295,7 +296,7 @@ def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
     at.run()
     at.button[0].click()
     at.run()
-    assert at.session_state["_pending_tab"] == "2 · Make a trial"
+    assert at.session_state["_pending_tab"] == wording.TAB_BATCH
     assert "main_tab" not in at.session_state
 
 
@@ -334,3 +335,69 @@ def test_take_clear_is_a_no_op_when_nothing_asked_for_it():
     at.run()
     at.run()
     assert at.session_state["pick"] == 3
+
+
+# wording.py holds every screen string of app.py, ui_helpers.py and
+# ui_batch.py by now, so no bare English text should still be passed
+# directly to an st.* call: positional arguments, and the label=/help=/
+# placeholder=/body=/caption= keywords, must come from wording (a constant,
+# a wording.fn(...) call, or a variable already built from one) rather than
+# a literal typed at the call site.
+_WORDING_HELD_FILES = ("app.py", "ui_helpers.py", "ui_batch.py")
+_CHECKED_KWARGS = {"label", "help", "placeholder", "body", "caption"}
+
+
+def _literal_texts(node):
+    """The literal (non-interpolated) text chunks `node` would contribute if
+    it were the argument actually handed to an st.* call: a plain string, the
+    fixed chunks of an f-string (never the {expr} parts — those are data, not
+    prose), and both sides of a `+` or a ternary, recursively."""
+    import ast
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        yield node.value
+    elif isinstance(node, ast.JoinedStr):
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                yield value.value
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        yield from _literal_texts(node.left)
+        yield from _literal_texts(node.right)
+    elif isinstance(node, ast.IfExp):
+        yield from _literal_texts(node.body)
+        yield from _literal_texts(node.orelse)
+
+
+def _stray_literals(path):
+    import ast
+    import pathlib
+    tree = ast.parse(pathlib.Path(path).read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.value.id == "st"):
+            continue
+        # st.form's one positional argument is the form's own key -- exactly
+        # like a key= kwarg elsewhere, never text the user reads.
+        if func.attr == "form":
+            continue
+        args = list(node.args)
+        args += [kw.value for kw in node.keywords if kw.arg in _CHECKED_KWARGS]
+        for arg in args:
+            for text in _literal_texts(arg):
+                if text != "" and any(c.isalpha() for c in text):
+                    offenders.append((path.name, getattr(arg, "lineno", "?"), text))
+    return offenders
+
+
+@pytest.mark.parametrize("name", _WORDING_HELD_FILES)
+def test_wording_holds_no_stray_literals(name):
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = _stray_literals(root / name)
+    assert offenders == [], (
+        f"screen text found outside wording.py in {name}:\n" +
+        "\n".join(f"  {f}:{ln}: {t!r}" for f, ln, t in offenders)
+    )
