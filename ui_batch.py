@@ -138,8 +138,9 @@ def _no_batch(opt):
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n, repeat, best_no)
     if len(opt.X_history) < 5:
-        st.caption("The first few formulations spread across the amounts you "
-                   "allowed; later trials aim closer to your targets.")
+        st.caption("The first five formulations are spread across the "
+                   "allowed amounts; later trials aim closer to your "
+                   "targets.")
     else:
         st.caption("Each trial aims closer to your targets.")
 
@@ -455,9 +456,12 @@ def _record_results(opt):
     if st.button("Save results", type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
         _save_results(opt, kept, left_out, to_record)
-    # The line counts what is still to record, and says when it is written:
-    # nothing here reaches the file until Save results is pressed.
-    counter = f"{entered} of {len(kept)} to record"
+    # "filled in", not "to record": this counts the rows that HAVE a value,
+    # and every other screen uses "to record" for the rows that do not
+    # ("Back to trial 2 · 2 to record"). One word could not mean both.
+    # Nothing here reaches the file until Save results is pressed, which is
+    # the tail.
+    counter = f"{entered} of {len(kept)} filled in"
     if left_out:
         counter += f" · {len(left_out)} not made"
     st.caption(counter + " · saved when you press Save results")

@@ -15,6 +15,10 @@ import shutil
 from datetime import datetime
 
 
+# pre_rewind and pre_undo are no longer written — the acts they named are
+# now Delete, which archives as pre_delete — but a project archived by an
+# earlier version still wears them, and a copy that stops reading as a copy
+# would reappear in the project list.
 ARCHIVE_SUFFIX_RE = re.compile(
     r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit|pre_undo)(_\d+)?$"
 )

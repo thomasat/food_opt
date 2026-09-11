@@ -1474,6 +1474,32 @@ class TestARegeneratedBatchIsADifferentBatch:
         opt.ask(n_suggestions=2)
         assert self._amounts(opt) != first
 
+    def test_the_seed_source_survives_a_reload(self, tmp_path, monkeypatch):
+        """next_formulation_no is persisted, so a project closed and reopened
+        generates what the session that closed it would have. Seeding on
+        anything held only in memory would make Generate depend on how long
+        the window had been open."""
+        opt = self._opt(tmp_path, monkeypatch, name="reseed_reload")
+        opt.ask(n_suggestions=3)
+        first = self._amounts(opt)
+        opt.set_pending_batch(None)
+        after_discard = int(opt.next_formulation_no)
+
+        reloaded = FoodOptimizer("reseed_reload")
+        assert int(reloaded.next_formulation_no) == after_discard
+        reloaded.ask(n_suggestions=3)
+        second = self._amounts(reloaded)
+        assert second != first          # a different trial, as the label says
+
+        # ...and a third session in that same state repeats the second's work
+        # exactly, rather than wandering.
+        reloaded.set_pending_batch(None)
+        reloaded.next_formulation_no = after_discard
+        reloaded.save()
+        again = FoodOptimizer("reseed_reload")
+        again.ask(n_suggestions=3)
+        assert self._amounts(again) == second
+
     def test_the_same_state_still_generates_the_same_formulations(
             self, tmp_path, monkeypatch):
         """Determinism is the point of seeding at all: two sessions opening
@@ -2732,10 +2758,6 @@ _ALLOWED_EXACT = {
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
-    # The one permitted "weight": the tail of the Importance tooltip, whose
-    # whole job is to name the word behind importance for a reader who wants
-    # it.
-    "Importance is the weight of each measurement in the overall score.",
     # "Delete" is now the app's one verb for taking something out, so it is
     # no longer restricted; these entries stay because the sidebar's
     # sentences are assembled from fragments the scan sees one at a time.

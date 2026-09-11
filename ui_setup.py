@@ -61,9 +61,10 @@ HOW_IT_WORKS = [
     "past formulation.",
     "Limits are hard constraints applied when formulations are generated; an "
     "ingredient with no value for a property counts as containing none.",
-    "The first five formulations are spread across the allowed amounts; later "
-    "trials are chosen together from what the results suggest, some to test "
-    "an idea rather than beat the best.",
+    "The first five formulations are spread across the allowed amounts; "
+    "later trials are chosen together — one set, chosen jointly, the "
+    "optimizer's batch — from what the results suggest, some to test an idea "
+    "rather than beat the best.",
     "A repeat is a second reading of one formulation; it teaches the model "
     "how noisy your measurements are.",
 ]
@@ -411,7 +412,8 @@ def _variable_controls(opt, storage):
     widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
-        pick = st.selectbox("Ingredient or setting", [v['name'] for v in rows],
+        pick = st.selectbox("Ingredient or process setting",
+                            [v['name'] for v in rows],
                             key="var_pick")
     var = opt._var_by_name(pick)
     is_ingredient = var.get('category', 'ingredient') == 'ingredient'

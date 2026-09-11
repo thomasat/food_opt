@@ -44,7 +44,8 @@ def _amount_rows(opt, recipe):
             return fmt_setting(value, opt.unit_of(name))
         return fmt_amount(value, opt.unit_of(name))
 
-    return [{"Ingredient or setting": name, "Amount": amount(name, value)}
+    return [{"Ingredient or process setting": name,
+             "Amount": amount(name, value)}
             for name, value in ingredients + settings]
 
 
@@ -125,7 +126,7 @@ def _best(opt):
     st.markdown("**Amounts to make it**")
     recipe = opt.recipe_history[index]
     st.table(pd.DataFrame(_amount_rows(opt, recipe),
-                          columns=["Ingredient or setting", "Amount"]))
+                          columns=["Ingredient or process setting", "Amount"]))
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
     unused = [v['name'] for v in opt.variables
@@ -138,12 +139,15 @@ def _best(opt):
     # missing one measurement is not the same number as a full one.
     scored = opt.results_history[index] if index < len(opt.results_history) else {}
     partial = any(o['name'] not in scored for o in opt.objectives)
+    # What the ceiling MEANS is said once, under the measurements table on
+    # Set up ("Every measurement at its goal scores 2.50."). Repeating it
+    # here read as a claim about the formulation on screen — false whenever
+    # it is off target, and flatly contradictory beside "· partial".
     st.caption(f"Overall score {float(opt.Y_history[index]):.2f} "
                f"of {ceiling:.2f}"
                + (" · partial" if partial else "")
-               + " · every measurement on target. Scores compare only within "
-               "this project, and only until you change an importance or a "
-               "range.")
+               + ". Scores compare only within this project, and only until "
+               "you change an importance or a range.")
     if partial:
         st.caption(_PARTIAL)
     return partial
@@ -379,7 +383,7 @@ def _undo(opt, storage):
         confirm_label="Yes, delete", disabled=other_confirmation("undo_batch"),
     ):
         try:
-            storage.archive(opt.project_name, "pre_undo", copy=True)
+            storage.archive(opt.project_name, "pre_delete", copy=True)
         except storage_backend.StorageError as e:
             st.error(str(e))
         else:

@@ -1321,9 +1321,14 @@ def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
 def test_the_getting_started_sentence_changes_after_five_results(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("The first few formulations spread across the "
-                           "amounts you allowed; later trials aim closer to "
-                           "your targets.") for c in at.caption), \
+    # Word for word the opening of How it works bullet 5: the same fact
+    # cannot be two sentences, and "the first five" is the number ask() uses
+    # (n_init_random).
+    from ui_setup import HOW_IT_WORKS
+    opening = "The first five formulations are spread across the allowed amounts"
+    assert any(line.startswith(opening) for line in HOW_IT_WORKS), HOW_IT_WORKS
+    assert any(c.value == (opening + "; later trials aim closer to your "
+                           "targets.") for c in at.caption), \
         [c.value for c in at.caption]
     for i in range(5):
         burger.tell({"Pea protein": 5.0 + i, "Methylcellulose": 1.0},
@@ -1534,7 +1539,10 @@ def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _submit_button(at, "Save results").disabled
-    assert any(c.value == ("1 of 2 to record · saved when you press "
+    # "filled in", not "to record": every other screen uses "to record" for
+    # the rows that still have no value ("Back to trial 1 · 2 to record"),
+    # and this line counts the opposite — the rows that have one.
+    assert any(c.value == ("1 of 2 filled in · saved when you press "
                            "Save results")
                for c in at.caption), [c.value for c in at.caption]
     at.number_input(key="f2_Juiciness").set_value(4.0)
@@ -1544,13 +1552,36 @@ def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
     assert _tab_primaries(at, 1) == ["Save results"], _tab_primaries(at, 1)
 
 
+def test_the_counter_and_the_foot_do_not_contradict_each_other(open_batch):
+    """`to record` means a row with no value yet, everywhere it is written:
+    the foot of tab 3 and the line under the title both use it that way. The
+    results line counts the opposite — the rows that HAVE a value — so it
+    says `filled in` instead. Saying `1 of 2 to record` beside `2 to record`
+    put two different meanings on one screen."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    assert any(c.value.startswith("1 of 2 filled in")
+               for c in at.caption), [c.value for c in at.caption]
+    # Nothing is saved yet, so both open rows are still to record, and both
+    # other screens say so in those words.
+    assert any(c.value == "Trial 1 · 2 to make" for c in at.caption), \
+        [c.value for c in at.caption]
+    assert _submit_button(at, "Back to trial 1 · 2 to record").label == \
+        "Back to trial 1 · 2 to record"
+    assert not any("to record" in c.value and "filled in" not in c.value
+                   and c.value.startswith(("1 of", "2 of"))
+                   for c in at.caption), [c.value for c in at.caption]
+
+
 def test_the_counter_counts_kept_rows_only(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.checkbox(key="f2_leave_out").check()
     at.run()
-    assert any(c.value == ("1 of 1 to record · 1 not made · saved when you "
+    assert any(c.value == ("1 of 1 filled in · 1 not made · saved when you "
                            "press Save results")
                for c in at.caption), [c.value for c in at.caption]
     assert not _submit_button(at, "Save results").disabled
@@ -1883,10 +1914,13 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     assert off_by["Off by"].iloc[0] == "2 N too high"
     assert off_by["Off by"].iloc[1] == "On target"
     assert any(m.value == "**Amounts to make it**" for m in at.markdown)
-    assert any(c.value == ("Overall score 2.20 of 2.50 · every measurement "
-                           "on target. Scores compare only within this "
-                           "project, and only until you change an importance "
-                           "or a range.") for c in at.caption), \
+    # The best here is 2 N off target, so a caption saying "every
+    # measurement on target" would be a false claim about the formulation
+    # the table above it is describing. What the ceiling means is said once,
+    # on Set up. The whole caption, word for word:
+    assert any(c.value == ("Overall score 2.20 of 2.50. Scores compare only "
+                           "within this project, and only until you change "
+                           "an importance or a range.") for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -2121,7 +2155,10 @@ def test_delete_the_last_trial_says_it_once_and_keeps_a_copy(scored, tmp_path):
     _submit_button(at, "Yes, delete").click()
     at.run()
     assert not at.exception
-    assert (tmp_path / "burger_pre_undo.pkl").exists()
+    # pre_delete, like every other Delete: the act is not called undo any
+    # more. pre_undo stays readable by is_archive_name for older copies.
+    assert (tmp_path / "burger_pre_delete.pkl").exists()
+    assert not (tmp_path / "burger_pre_undo.pkl").exists()
     reloaded = FoodOptimizer("burger")
     assert reloaded.X_history == [] and reloaded.skipped == []
     assert reloaded.next_formulation_no == 4      # 1, 2 and 3 retire
@@ -2197,9 +2234,9 @@ def test_the_best_amounts_table_carries_each_rows_own_unit(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(t.value for t in at.table
-                 if "Ingredient or setting" in t.value.columns)
-    assert list(table.columns) == ["Ingredient or setting", "Amount"]
-    names = list(table["Ingredient or setting"])
+                 if "Ingredient or process setting" in t.value.columns)
+    assert list(table.columns) == ["Ingredient or process setting", "Amount"]
+    names = list(table["Ingredient or process setting"])
     assert names == ["Pea protein", "Methylcellulose", "Cook temperature"], names
     amounts = dict(zip(names, table["Amount"]))
     # Two decimals on an amount, and a setting is not an amount.
@@ -2920,8 +2957,8 @@ def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(t.value for t in at.table
-                 if "Ingredient or setting" in t.value.columns)
-    amounts = dict(zip(table["Ingredient or setting"], table["Amount"]))
+                 if "Ingredient or process setting" in t.value.columns)
+    amounts = dict(zip(table["Ingredient or process setting"], table["Amount"]))
     assert amounts["Cook temperature"] == "188.49 °C", amounts
 
 
@@ -3062,8 +3099,8 @@ def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(t.value for t in at.table
-                 if "Ingredient or setting" in t.value.columns)
-    amounts = dict(zip(table["Ingredient or setting"], table["Amount"]))
+                 if "Ingredient or process setting" in t.value.columns)
+    amounts = dict(zip(table["Ingredient or process setting"], table["Amount"]))
     assert amounts == {"Water": "40.00 ml", "Pea protein": "10.00 g"}
 
 
@@ -3215,8 +3252,8 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     assert any(h.value == "Best so far: Formulation 1 (trial 1)"
                for h in at.subheader), [h.value for h in at.subheader]
     table = next(t.value for t in at.table
-                 if "Ingredient or setting" in t.value.columns)
-    shown = dict(zip(table["Ingredient or setting"], table["Amount"]))
+                 if "Ingredient or process setting" in t.value.columns)
+    shown = dict(zip(table["Ingredient or process setting"], table["Amount"]))
     assert set(shown) == {"Incubation temperature", "Incubation time"}
     assert shown["Incubation temperature"].endswith(" °C"), shown
     assert not any(c.value.startswith("Not used:") for c in at.caption), \
@@ -3440,7 +3477,11 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     at.session_state["main_tab"] = "3 · Results"
     at.run()
     assert not at.exception
-    assert any(c.value.startswith("Overall score 1.50 of 2.50 · partial ·")
+    # "· partial" follows the ceiling, and nothing after it claims the
+    # measurements were on target — one of them was never scored at all.
+    assert any(c.value == ("Overall score 1.50 of 2.50 · partial. Scores "
+                           "compare only within this project, and only until "
+                           "you change an importance or a range.")
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
@@ -3476,7 +3517,7 @@ def test_the_set_unit_picker_is_not_called_a_measurement(burger):
     """It picks the row the controls act on, not what to measure."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.selectbox(key="var_pick").label == "Ingredient or setting"
+    assert at.selectbox(key="var_pick").label == "Ingredient or process setting"
 
 
 def test_pausing_speaks_for_settings_as_well_as_ingredients(ferment):
