@@ -37,7 +37,7 @@ chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
 # theory.py is deliberately not bundled: nothing in the app imports it, and
 # it needs matplotlib, which left requirements.txt with the deploy cleanup.
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 mkdir -p "$APP_DIR/Contents/Resources/data"
