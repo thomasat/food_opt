@@ -754,6 +754,10 @@ def _import(opt):
             if problem:
                 st.error(wording.row_error(position, problem))
                 return
+        if all(pd.isna(row[col_for[name]]) for name in measurements):
+            # Left out below (nothing measured): no caution for a row that
+            # is never recorded.
+            continue
         for name in variables:
             caution = bounds_caution(opt, name, _number(row[col_for[name]]))
             if caution:
@@ -816,12 +820,12 @@ def _edit_past(opt, storage):
         pending = _correct(opt)
         st.divider()
         st.markdown(wording.DELETE_FORMULATIONS_HEADING)
-        # Reserved, and filled below once the form under it has been drawn.
         # Two things in the delete part rerun without touching the disk — the
-        # `Whole batch` pick, which fills the list beside it, and taking a
-        # stale confirmation down — and Streamlit discards the session-state
-        # entry of every widget the run did not create, so either one blanked
-        # the half-typed formulation in the form beneath.
+        # `Add a whole batch to the list` pick and taking a stale confirmation
+        # down — and Streamlit discards the session-state entry of every
+        # widget the run did not create. Each of them calls
+        # preserve_tab_forms() first so the half-typed formulation in the
+        # form beneath survives (a reserved container left stale buttons).
         _delete_formulations(opt, storage)
         st.divider()
         st.markdown(wording.ADD_PAST_FORMULATION_HEADING)
