@@ -14,10 +14,10 @@ import storage as storage_backend
 import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
-    bounds_caution, clear_selection, confirm_action, confirmation_open, flash,
-    fmt_amount, fmt_setting, goal_line, go_to_tab, label_with_unit,
-    number_list, open_rows, other_confirmation, park_clear, plural, readiness,
-    saved_ok, scale_error, table_height, take_clear,
+    bounds_caution, clear_selection, confirm_action, confirmation_open,
+    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab,
+    label_with_unit, number_list, open_rows, other_confirmation, park_clear,
+    plural, readiness, saved_ok, scale_error, table_height, take_clear,
 )
 
 
@@ -169,18 +169,54 @@ def _correct_amount_key(no, name):
     return f"correct_amount_{no}_{name}"
 
 
-def _amount_boxes(opt, choice, recipe):
-    """One box per variable, opened at the amount the row was recorded with.
+def _correct_measurement_key(no, name):
+    return f"correct_{no}_{name}"
+
+
+def _past_key(name):
+    """The amount box for one variable under `Add a formulation you already
+    made`; `past_m_` is its measurement. Both prefixes are what app.py
+    empties on a project switch."""
+    return f"past_{name}"
+
+
+def _past_measurement_key(name):
+    return f"past_m_{name}"
+
+
+def _in_fours(items):
+    """Each item beside the column to draw it in, four to a row. Both forms
+    in this section lay their boxes out this way — the correction's and the
+    typed-in past formulation's — and a grid that wrapped differently in one
+    of them would read as a different kind of form."""
+    cols = None
+    for j, item in enumerate(items):
+        if j % 4 == 0:
+            cols = st.columns(min(4, len(items) - j))
+        yield item, cols[j % 4]
+
+
+def _recorded_amount(var, recipe):
+    """What a past formulation holds for one variable.
+
+    A row older than the ingredient has no key for it at all, and the model
+    already reads that row at the variable's absent value — `_encode` fills
+    the same blank the same way. So that, not None, is both what the box
+    opens on and what a change is measured against: seeding from one and
+    comparing against the other made every untouched row look corrected."""
+    return float(recipe.get(var['name'], var.get('_absent_value', 0.0)))
+
+
+def _amount_boxes(opt, key_of, recipe=None):
+    """One number box per variable, keyed by `key_of(name)`. With a recipe the
+    boxes open on what that row recorded; without one they open blank.
 
     A formulation is corrected as often for what went into the bowl — a
     misread balance, a line transposed off the bench sheet — as for what came
     off the panel, and until now only the measurements could be fixed."""
     typed = {}
-    cols = None
-    for j, var in enumerate(opt.variables):
-        if j % 4 == 0:
-            cols = st.columns(min(4, len(opt.variables) - j))
-        with cols[j % 4]:
+    for var, col in _in_fours(opt.variables):
+        with col:
             name = var['name']
             low, high = (float(b) for b in var['bounds'])
             # No min_value/max_value: an amount outside what the project
@@ -188,36 +224,35 @@ def _amount_boxes(opt, choice, recipe):
             # quietly record a formulation nobody made. It is a caution on
             # the way out, exactly as an imported amount is.
             st.session_state.setdefault(
-                _correct_amount_key(choice, name),
-                float(recipe.get(name, var.get('_absent_value', 0.0))))
-            # The All formulations table's own header, so a corrected amount
-            # is typed in the unit that table prints it in.
-            typed[name] = st.number_input(
-                opt._amount_column(name),
-                placeholder=f"{low:g}–{high:g}",
-                key=_correct_amount_key(choice, name),
-            )
+                key_of(name),
+                None if recipe is None else _recorded_amount(var, recipe))
+            # The All formulations table's own header, so an amount is typed
+            # in the unit that table prints it in.
+            typed[name] = st.number_input(opt._amount_column(name),
+                                          placeholder=f"{low:g}–{high:g}",
+                                          key=key_of(name))
     return typed
 
 
-def _measurement_boxes(opt, choice, ordered, current):
+def _measurement_boxes(ordered, key_of, current=None):
+    """One number box per measurement, by importance. With `current` the boxes
+    open on what was recorded and a blank keeps it; without, a blank is a
+    measurement nobody took and the row is stored partial."""
     typed = {}
-    cols = None
-    for j, obj in enumerate(ordered):
-        if j % 4 == 0:
-            cols = st.columns(min(4, len(ordered) - j))
-        with cols[j % 4]:
+    for obj, col in _in_fours(ordered):
+        with col:
+            name = obj['name']
+            recorded = None if current is None else current.get(name)
+            st.session_state.setdefault(
+                key_of(name), None if recorded is None else float(recorded))
             # No clamping here either: the same reading refused on tab 2 must
             # be refusable here, not silently pulled back to the range end.
-            typed[obj['name']] = st.number_input(
-                f"{label_with_unit(obj['name'], obj.get('unit'))} · "
-                f"{goal_line(obj)}",
-                value=(float(current[obj['name']])
-                       if current.get(obj['name']) is not None else None),
+            typed[name] = st.number_input(
+                f"{label_with_unit(name, obj.get('unit'))} · {goal_line(obj)}",
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
-                help=wording.LEAVE_BLANK_KEEP_VALUE_HELP,
-                key=f"correct_{choice}_{obj['name']}",
-            )
+                help=(None if current is None
+                      else wording.LEAVE_BLANK_KEEP_VALUE_HELP),
+                key=key_of(name))
     return typed
 
 
@@ -253,21 +288,25 @@ def _correct(opt):
     if index is None:
         return None
     recipe = opt.recipe_history[index]
-    amounts = _amount_boxes(opt, choice, recipe)
+    amounts = _amount_boxes(opt, lambda name: _correct_amount_key(choice, name),
+                            recipe)
     ordered = opt.measurements_by_importance()
     current = opt.results_history[index]
-    typed = _measurement_boxes(opt, choice, ordered, current)
+    typed = _measurement_boxes(
+        ordered, lambda name: _correct_measurement_key(choice, name), current)
     return {"choice": choice, "index": index, "ordered": ordered,
             "current": current, "typed": typed, "recipe": recipe,
             "amounts": amounts, "slot": st.container()}
 
 
 def _close_correction(opt, choice):
-    """Forget what was typed into this row's amount boxes. They are gone from
-    the screen on the next run, so popping is enough — nothing is mounted in
-    the browser to post the old value back."""
+    """Forget what was typed into this row's boxes. They are gone from the
+    screen on the next run, so popping is enough — nothing is mounted in the
+    browser to post the old value back."""
     for var in opt.variables:
         st.session_state.pop(_correct_amount_key(choice, var['name']), None)
+    for obj in opt.objectives:
+        st.session_state.pop(_correct_measurement_key(choice, obj['name']), None)
     clear_selection("correct_formulation")
 
 
@@ -296,12 +335,16 @@ def _save_correction(opt, storage, pending):
     # copy is kept, and what was typed stays on screen to be finished.
     recipe = dict(pending['recipe'])
     amount_changes = []
-    for name, value in pending['amounts'].items():
+    for var in opt.variables:
+        name = var['name']
+        value = pending['amounts'].get(name)
         if value is None:
             st.error(wording.ENTER_EVERY_AMOUNT)
             return
-        was = pending['recipe'].get(name)
-        if was is None or abs(float(was) - float(value)) > 1e-9:
+        # Against the same value the box was seeded with, so a row older than
+        # the ingredient is not reported as corrected for having been looked
+        # at — and does not get a copy of the project kept for nothing.
+        if abs(_recorded_amount(var, pending['recipe']) - float(value)) > 1e-9:
             amount_changes.append(name)
         recipe[name] = float(value)
     for obj in ordered:
@@ -414,6 +457,15 @@ def _formulations_of_batch(opt, batch_no):
     return sorted(numbers)
 
 
+def _disarm_delete():
+    """Take the delete confirmation down when the selection that raised it is
+    gone, and redraw. Without the redraw the sidebar and the other two tabs —
+    already drawn this run, behind the armed flag — stay grey until the next
+    click, and the button that would clear it is one of the grey ones."""
+    if disarm("delete_formulations"):
+        st.rerun()
+
+
 def _delete_formulations(opt, storage):
     """Any number of formulations, recorded or not made, behind one
     confirmation.
@@ -425,6 +477,7 @@ def _delete_formulations(opt, storage):
     is confirmed."""
     numbers = _all_numbers(opt)
     if not numbers:
+        _disarm_delete()
         st.caption(wording.no_formulation_to_delete_caption())
         return
     c1, c2 = st.columns([2, 1])
@@ -449,6 +502,9 @@ def _delete_formulations(opt, storage):
         clear_selection("delete_whole_batch")
         st.rerun()
     if not picked:
+        # The list the question was asked about is empty, so the question is
+        # gone from the screen with nothing left to answer it.
+        _disarm_delete()
         return
     chosen = sorted(int(n) for n in picked)
     if len(chosen) == 1:
@@ -473,24 +529,16 @@ def _delete_formulations(opt, storage):
     opt.delete_formulations(chosen)
     if not saved_ok(opt):
         return
-    # A scaled table and an uploaded bench sheet both name formulations that
-    # may have just left the project.
-    st.session_state.pop("scale_total", None)
-    st.session_state.pop("_results_upload", None)
+    # A scaled table and a parsed bench sheet both name formulations that may
+    # have just left the project — but only rows already RECORDED are in the
+    # list above, never the open batch's, so an open batch keeps both: its
+    # sheet was read for formulations this delete cannot have touched.
+    if not opt.pending_batch:
+        st.session_state.pop("scale_total", None)
+        st.session_state.pop("_results_upload", None)
     park_clear("delete_formulations", [])
     flash("success", done)
     st.rerun()
-
-
-def _past_key(name):
-    """The amount box for one variable under `Add a formulation you already
-    made`; `past_m_` is its measurement. Both prefixes are what app.py
-    empties on a project switch."""
-    return f"past_{name}"
-
-
-def _past_measurement_key(name):
-    return f"past_m_{name}"
 
 
 def _add_past(opt):
@@ -512,31 +560,16 @@ def _type_in_past(opt):
     if not opt.variables:
         st.caption(wording.import_columns_caption_empty())
         return
-    cols = None
-    for j, var in enumerate(opt.variables):
-        if j % 4 == 0:
-            cols = st.columns(min(4, len(opt.variables) - j))
-        with cols[j % 4]:
-            name = var['name']
-            low, high = (float(b) for b in var['bounds'])
-            st.session_state.setdefault(_past_key(name), None)
-            st.number_input(opt._amount_column(name),
-                            placeholder=f"{low:g}–{high:g}",
-                            key=_past_key(name))
+    # Every variable, paused ones included: this formulation was made, and it
+    # was made with some amount of each. Tab 2's own-formulation form pins a
+    # paused variable to the value generated formulations hold it at, because
+    # that one is a new formulation under today's set — this one is a fact
+    # about work already done.
+    _amount_boxes(opt, _past_key)
     ordered = opt.measurements_by_importance()
-    cols = None
-    for j, obj in enumerate(ordered):
-        if j % 4 == 0:
-            cols = st.columns(min(4, len(ordered) - j))
-        with cols[j % 4]:
-            st.session_state.setdefault(_past_measurement_key(obj['name']), None)
-            # A blank measurement is a partial result here too, exactly as it
-            # is in the results grid and in an imported CSV.
-            st.number_input(
-                f"{label_with_unit(obj['name'], obj.get('unit'))} · "
-                f"{goal_line(obj)}",
-                placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
-                key=_past_measurement_key(obj['name']))
+    # A blank measurement is a partial result here, exactly as it is in the
+    # results grid and in an imported CSV.
+    _measurement_boxes(ordered, _past_measurement_key)
     st.session_state.setdefault("past_note", wording.IMPORTED_NOTE)
     st.text_input(wording.NOTE, key="past_note")
     # Secondary: the foot's Start the next batch is this tab's coloured

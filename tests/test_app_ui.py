@@ -2521,6 +2521,95 @@ def test_delete_several_formulations_with_one_confirmation(scored, tmp_path):
                for s in at.success), [s.value for s in at.success]
 
 
+def test_emptying_the_delete_list_takes_the_question_down(scored):
+    """A confirmation is armed by one click and answered on a later run, so
+    emptying the list it was asked about left the armed flag set with nothing
+    on screen to answer it — and every coloured button in the app grey behind
+    a question the user could no longer reach."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="delete_formulations").set_value([1, 2])
+    at.run()
+    _submit_button(at, wording.delete_formulations_button("2 formulations")).click()
+    at.run()
+    assert _tab_primaries(at, 2) == ["Yes, delete"], _tab_primaries(at, 2)
+    at.multiselect(key="delete_formulations").set_value([])
+    at.run()
+    assert not at.exception
+    # On this run, not the next one: the button that would have cleared it
+    # was one of the grey ones.
+    assert _tab_primaries(at, 2) == [wording.START_NEXT_BATCH], _tab_primaries(at, 2)
+    assert _tab_primaries(at, 0) and _tab_primaries(at, 1), \
+        (_tab_primaries(at, 0), _tab_primaries(at, 1))
+    assert not _submit_button(at.sidebar, wording.START_OVER_LABEL).disabled
+    assert "delete_formulations__pending" not in at.session_state
+    assert FoodOptimizer("burger").formulation_ids == [1, 2]   # nothing gone
+
+
+def test_deleting_a_formulation_leaves_an_open_batch_alone(scored):
+    """The list only ever offers recorded and not-made numbers, so a delete
+    here cannot reach the batch on the bench — and must not take it down as a
+    side effect the way `Delete the last batch` could."""
+    scored.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}],
+                             batch_no=2)
+    open_no = int(scored.pending_batch[0]["formulation"])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert str(open_no) not in at.multiselect(key="delete_formulations").options
+    at.multiselect(key="delete_formulations").set_value([1])
+    at.run()
+    _submit_button(at, wording.delete_formulation_button(1)).click()
+    at.run()
+    _submit_button(at, "Yes, delete").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.formulation_ids == [2]
+    assert [r["formulation"] for r in reloaded.pending_batch] == [open_no]
+    assert reloaded.pending_batch_no == 2
+
+
+def test_a_delete_keeps_the_open_batchs_uploaded_sheet(scored):
+    """A parsed bench sheet belongs to the OPEN batch, whose rows are not in
+    the delete list at all; throwing it away made the user upload it again."""
+    scored.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}],
+                             batch_no=2)
+    sheet = pd.DataFrame({"Formulation": [int(scored.pending_batch[0]["formulation"])],
+                          "Firmness": [6.0], "Juiciness": [7.0]})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_results_upload"] = sheet
+    at.run()
+    at.multiselect(key="delete_formulations").set_value([1])
+    at.run()
+    _submit_button(at, wording.delete_formulation_button(1)).click()
+    at.run()
+    _submit_button(at, "Yes, delete").click()
+    at.run()
+    assert not at.exception
+    assert "_results_upload" in at.session_state
+    assert list(at.session_state["_results_upload"]["Firmness"]) == [6.0]
+
+
+def test_correcting_a_row_older_than_an_ingredient_says_unchanged(scored, tmp_path):
+    """An ingredient added after a formulation was recorded has no entry in
+    that row's amounts. The box opens at the value the model already reads it
+    at, so saving an untouched row writes nothing — and must not claim a
+    correction, or keep a copy of the project for one."""
+    scored.add_ingredient("Oat fibre", 0, 10)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    assert at.number_input(key="correct_amount_1_Oat fibre").value == 0.0
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == wording.formulation_unchanged(1) for s in at.success), \
+        [s.value for s in at.success]
+    assert not (tmp_path / "burger_pre_edit.pkl").exists(), \
+        [f.name for f in tmp_path.glob("*.pkl")]
+
+
 def test_deleting_one_formulation_keeps_later_numbers(scored, tmp_path):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

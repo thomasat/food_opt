@@ -112,6 +112,58 @@ def test_two_arming_clicks_in_one_run_leave_exactly_one_armed():
     assert not at.button(key="last__btn").disabled
 
 
+DISARM_SCRIPT = """
+import streamlit as st
+from ui_helpers import confirm_action, disarm, other_confirmation
+if st.session_state.get("gone"):
+    # The control the question belongs to is off the screen; only its own
+    # call site may take the question down with it.
+    st.session_state["took"] = disarm("del")
+else:
+    confirm_action("del", "Delete thing", "Really delete?",
+                   confirm_label="Yes, delete")
+confirm_action("other", "Arm other", "Really other?",
+               disabled=other_confirmation("other"))
+"""
+
+
+def test_disarm_takes_down_a_question_whose_control_left_the_screen():
+    """A confirmation armed on a picker that is then emptied left the armed
+    key set with no Cancel anywhere, and every coloured button in the app
+    grey behind a question nobody could answer."""
+    at = AppTest.from_string(DISARM_SCRIPT)
+    at.run()
+    _btn(at, "Delete thing").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "del"
+    assert at.button(key="other__btn").disabled
+    at.session_state["gone"] = True
+    at.run()
+    assert at.session_state["took"] is True
+    assert "_armed_confirmation" not in at.session_state
+    assert "del__pending" not in at.session_state
+    assert not at.button(key="other__btn").disabled
+    # Nothing to take down a second time, and it says so.
+    at.run()
+    assert at.session_state["took"] is False
+
+
+def test_disarm_leaves_another_sites_question_alone():
+    """Disarming somebody else's confirmation would take a Yes off the screen
+    while the user was reading it."""
+    at = AppTest.from_string(DISARM_SCRIPT)
+    at.run()
+    _btn(at, "Arm other").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "other"
+    at.session_state["gone"] = True
+    at.run()
+    assert at.session_state["took"] is False
+    assert at.session_state["_armed_confirmation"] == "other"
+    assert [b.label for b in at.button if b.proto.type == "primary"] \
+        == ["Yes, continue"]
+
+
 def test_confirm_action_cancel():
     at = AppTest.from_string(CONFIRM_SCRIPT)
     at.run()

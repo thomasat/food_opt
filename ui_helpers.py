@@ -108,6 +108,24 @@ def other_confirmation(key):
     return (armed is not None and armed != key) or restore_armed()
 
 
+def disarm(key):
+    """Take down a confirmation whose question has gone off screen, and say
+    whether there was one. Call it from the SAME call site that armed it.
+
+    A confirmation is armed by one click and answered on a later run, so the
+    control it belongs to has to still be on screen to draw its Cancel. Empty
+    the picker it was armed on — or change the row — and ARMED_KEY stays set
+    with nothing anywhere to answer it: every coloured button in the app goes
+    grey behind a question the user cannot reach. Only the armed key's own
+    site may do this; disarming another's would take a Yes off the screen
+    while the user was reading it."""
+    if armed_confirmation() != key:
+        return False
+    st.session_state.pop(f"{key}__pending", None)
+    st.session_state.pop(ARMED_KEY, None)
+    return True
+
+
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
                    disabled=False):
     """Two-step confirmation for an irreversible action.

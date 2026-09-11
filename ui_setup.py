@@ -14,11 +14,11 @@ import streamlit as st
 import storage as storage_backend
 import wording
 from ui_helpers import (
-    ARMED_KEY, COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
-    best_move_sentence, confirm_action, confirmation_open, flash, fmt_amount,
-    fmt_setting, go_to_tab, join_unit, label_with_unit, number_list,
-    other_confirmation, park_clear, plural, readiness, saved_ok, table_height,
-    unit_after_number,
+    COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
+    best_move_sentence, confirm_action, confirmation_open, disarm, flash,
+    fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
+    number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
+    table_height, unit_after_number,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -351,8 +351,7 @@ def _disarm_other_removals(pick):
     answer it, and the tab's Continue greyed behind it for ever."""
     armed = armed_confirmation()
     if armed and armed.startswith("rm_var_") and armed != f"rm_var_{pick}":
-        st.session_state.pop(f"{armed}__pending", None)
-        st.session_state.pop(ARMED_KEY, None)
+        disarm(armed)
 
 
 def _variable_controls(opt, storage):
