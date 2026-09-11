@@ -320,7 +320,7 @@ def _correct(opt):
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
     choice = st.selectbox(wording.CORRECT_WHICH_LABEL, numbers, index=None,
-                          placeholder=wording.FORMULATION_CAP,
+                          placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
                           key="correct_formulation")
     if opt.skipped:
         # The picker offers fewer numbers than All formulations lists, and
@@ -540,13 +540,13 @@ def _delete_formulations(opt, storage):
     with c1:
         take_clear("delete_formulations")
         picked = st.multiselect(wording.FORMULATIONS_TO_DELETE_LABEL, numbers,
-                                placeholder=wording.FORMULATION_CAP,
+                                placeholder=wording.CHOOSE_MANY_PLACEHOLDER,
                                 key="delete_formulations")
     with c2:
         batches = _batch_numbers(opt)
         take_clear("delete_whole_batch")
         batch = st.selectbox(wording.WHOLE_BATCH_LABEL, batches, index=None,
-                             placeholder=wording.BATCH_CAP,
+                             placeholder=wording.CHOOSE_A_BATCH_PLACEHOLDER,
                              disabled=not batches, key="delete_whole_batch")
     if batch is not None:
         # A shortcut into the list beside it, never a delete of its own. The

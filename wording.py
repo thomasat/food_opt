@@ -289,7 +289,7 @@ FORMULATIONS_TO_GENERATE = "Formulations to generate"
 ADD_OWN_EXPANDER = f"Add a {FORMULATION} of your own"
 ADD_OWN_NO_BATCH_CAPTION = (f"To have generated {FORMULATION}s as well, "
                             "generate first, then add your own.")
-OWN_NOTE_PLACEHOLDER = "Why you want to try it"
+OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
 START_FROM_BEST = "Start from the best so far"
 ADD_TO_THIS_BATCH = f"Add to this {BATCH}"
 ENTER_EVERY_AMOUNT = ("Enter every amount; type 0 for an ingredient you are "
@@ -357,7 +357,7 @@ BATCH_TOTAL_HELP = (
     "Scales the sheets you print to this total. The amounts saved with the "
     "results stay as generated; the proportions are the same."
 )
-AS_GENERATED_PLACEHOLDER = "as generated"
+AS_GENERATED_PLACEHOLDER = "as shown in the table"
 
 MEASURED_PREFIX = "Measured "
 TOTAL_PREFIX = "Total: "
@@ -370,9 +370,9 @@ def note_line(note):
 
 NOT_MADE_CHECKBOX_SHEET = "Not made [  ]"
 
-DOWNLOAD_BENCH_SHEET = "Download the bench sheet (CSV)"
-DOWNLOAD_FORMULATION_SHEETS = "Download formulation sheets (to print)"
-PREVIEW_SHEETS = "Preview formulation sheets"
+DOWNLOAD_BENCH_SHEET = "Download the batch to fill in (CSV)"
+DOWNLOAD_FORMULATION_SHEETS = "Download one sheet per formulation (to print)"
+PREVIEW_SHEETS = "Preview the printed sheets"
 
 
 def sheets_use_total_caption(total_text):
@@ -582,13 +582,15 @@ NEW_INGREDIENT_FIXED_LOW_HELP = ("A new ingredient starts at 0 in every "
                                  "formulation already made, so its lowest "
                                  "is fixed at 0 for now.")
 UNIT_LABEL = "Unit"
-VARIABLE_UNIT_PLACEHOLDER = "°C, min, %"
+INGREDIENT_UNIT_PLACEHOLDER = "e.g. g"
+SETTING_UNIT_PLACEHOLDER = "e.g. °C"
 BASELINE_LABEL = "Baseline"
-BASELINE_REQUIRED_PLACEHOLDER = "required"
+BASELINE_ADD_LABEL = f"{BASELINE_LABEL} (required)"
+BASELINE_PLACEHOLDER = "e.g. 180"
 BASELINE_HELP = ("The setting you used for every formulation already made, "
                  "so those results still count.")
 ADD_VARIABLE_BUTTON = "Add ingredient or setting"
-NO_VALUE_PLACEHOLDER = "no value"
+NO_VALUE_PLACEHOLDER = "0 if blank"
 PROPERTY_BOX_HELP = "This ingredient's own value per 100 g."
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
@@ -726,7 +728,7 @@ ALL_INGREDIENTS_LABEL = "All ingredients"
 ALL_INGREDIENTS_LOWER = "all ingredients"
 
 MEASUREMENT_NAME_PLACEHOLDER = "e.g. Firmness"
-MEASUREMENT_UNIT_PLACEHOLDER = "e.g. N"
+MEASUREMENT_UNIT_PLACEHOLDER = "e.g. N or /10"
 GOAL_LABEL = "Goal"
 GOAL_SELECT_HELP = ("Whether you want this measurement higher, lower, or "
                     "at a target.")
@@ -790,7 +792,7 @@ def delete_measurement_warning(name):
 
 HOW_IT_WORKS_EXPANDER = "How it works"
 
-ADD_PROPERTY_LABEL = "Add a property, such as Sodium per 100 g"
+ADD_PROPERTY_LABEL = "Add a property"
 ADD_PROPERTY_PLACEHOLDER = "e.g. Sodium mg per 100 g"
 ADD_PROPERTY_BUTTON = "Add property"
 
@@ -996,6 +998,7 @@ EDIT_PAST_FORMULATIONS_EXPANDER = f"Edit past {FORMULATION}s"
 
 CORRECT_A_FORMULATION_HEADING = f"##### Correct a {FORMULATION}"
 CORRECT_WHICH_LABEL = f"{FORMULATION_CAP} to correct"
+CHOOSE_A_FORMULATION_PLACEHOLDER = f"Choose a {FORMULATION}"
 
 
 def no_formulation_to_correct_caption():
@@ -1043,9 +1046,11 @@ def batch_open_record_first_caption():
 
 DELETE_FORMULATIONS_HEADING = f"##### Delete {FORMULATION}s"
 FORMULATIONS_TO_DELETE_LABEL = f"{FORMULATION_CAP}s to delete"
+CHOOSE_MANY_PLACEHOLDER = "Choose one or more"
 # The quick pick beside the list: one batch's formulations, recorded and not
 # made alike, dropped into the selection to be looked over before deleting.
 WHOLE_BATCH_LABEL = f"Add a whole {BATCH} to the list"
+CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {BATCH}"
 
 
 def no_formulation_to_delete_caption():

@@ -189,13 +189,14 @@ def _add_variable(opt):
     with cols[4]:
         st.session_state.setdefault("var_unit", opt.amount_unit or "")
         st.text_input(wording.UNIT_LABEL, key="var_unit",
-                     placeholder=wording.VARIABLE_UNIT_PLACEHOLDER)
+                     placeholder=(wording.SETTING_UNIT_PLACEHOLDER if setting
+                                  else wording.INGREDIENT_UNIT_PLACEHOLDER))
     if wants_baseline:
         with cols[5]:
             st.session_state.setdefault("var_base", None)
             st.number_input(
-                wording.BASELINE_LABEL, key="var_base",
-                placeholder=wording.BASELINE_REQUIRED_PLACEHOLDER,
+                wording.BASELINE_ADD_LABEL, key="var_base",
+                placeholder=wording.BASELINE_PLACEHOLDER,
                 help=wording.BASELINE_HELP,
             )
     # One box per property, on their own row: a property is an ingredient's

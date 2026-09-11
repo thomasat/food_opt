@@ -835,6 +835,13 @@ def test_importance_is_a_number_from_a_tenth_to_a_hundred(burger):
     assert not at.slider, [s.label for s in at.slider]
 
 
+def test_the_new_measurement_unit_box_placeholder_gives_two_examples(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert (at.text_input(key="meas_new_unit").proto.placeholder
+           == "e.g. N or /10")
+
+
 def test_no_share_line_follows_what_is_typed(burger):
     """w / Σw is not a measurement's influence on the overall score: a target
     goal's closeness never spans the full 0 to 1, so two equally weighted
@@ -1029,6 +1036,15 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
         uploader.proto.help
     assert any(c.value.startswith("A CSV with the columns Name, Lowest, Highest")
                for c in at.caption), [c.value for c in at.caption]
+def test_the_unit_box_placeholder_matches_ingredient_or_setting(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.text_input(key="var_unit").proto.placeholder == "e.g. g"
+    at.radio(key="var_kind").set_value("Process setting")
+    at.run()
+    assert at.text_input(key="var_unit").proto.placeholder == "e.g. °C"
+
+
 def test_manual_add_ingredient_and_the_mid_run_minimum_notice(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0})
@@ -1414,6 +1430,19 @@ def test_own_formulation_joins_the_open_batch(burger):
                for s in at.success), [s.value for s in at.success]
 
 
+def test_the_own_formulation_note_placeholder_gives_an_example(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="batch_size").set_value(2)
+    at.run()
+    _submit_button(at, "Generate 2 formulations").click()
+    at.run()
+    assert (at.text_input(key="own_note").proto.placeholder
+           == "e.g. Repeat of 4 with more salt")
+
+
 def test_start_from_the_best_prefills_and_notes_the_repeat(burger):
     """The old Repeat checkbox is now two clicks: fill the boxes from the best
     formulation, then add it. The note says which formulation it repeats."""
@@ -1503,7 +1532,7 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
                                    "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
     assert box.value is None                          # empty: as generated
-    assert box.proto.placeholder == "as generated"
+    assert box.proto.placeholder == "as shown in the table"
 
 
 def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
@@ -1540,15 +1569,15 @@ def test_both_downloads_are_offered_and_only_the_bench_sheet_is_lit(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the bench sheet (CSV)").proto.type == "primary"
+                    "Download the batch to fill in (CSV)").proto.type == "primary"
     assert _unknown(at.main, "download_button",
-                    "Download formulation sheets (to print)").proto.type == "secondary"
+                    "Download one sheet per formulation (to print)").proto.type == "secondary"
     # The download IS the coloured thing here, and it is the only one.
-    assert _tab_primaries(at, 1) == ["Download the bench sheet (CSV)"], _tab_primaries(at, 1)
+    assert _tab_primaries(at, 1) == ["Download the batch to fill in (CSV)"], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the bench sheet (CSV)").proto.type == "secondary"
+                    "Download the batch to fill in (CSV)").proto.type == "secondary"
 
 
 def test_leaving_a_row_out_does_not_grey_the_bench_sheet(open_batch):
@@ -1561,7 +1590,7 @@ def test_leaving_a_row_out_does_not_grey_the_bench_sheet(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the bench sheet (CSV)").proto.type == "primary"
+                    "Download the batch to fill in (CSV)").proto.type == "primary"
 
 
 def test_regenerating_names_the_numbers_it_discards(open_batch):
@@ -1610,7 +1639,7 @@ def test_regenerating_asks_for_the_generated_rows_only(burger):
 def test_the_printable_sheet_names_the_formulation_and_the_trial(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(e.label == "Preview formulation sheets" for e in at.expander)
+    assert any(e.label == "Preview the printed sheets" for e in at.expander)
     texts = [t.value for t in at.text]
     assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH} 1" in texts, texts
     assert any(t.startswith("Not made") for t in texts), texts
@@ -1918,11 +1947,11 @@ def test_a_confirmation_takes_the_colour_from_the_bench_sheet(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the bench sheet (CSV)").proto.type == "primary"
+                    "Download the batch to fill in (CSV)").proto.type == "primary"
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the bench sheet (CSV)").proto.type == "secondary"
+                    "Download the batch to fill in (CSV)").proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -1979,7 +2008,8 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     at.run()
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
-    assert at.number_input(key="scale_total").proto.placeholder == "as generated"
+    assert (at.number_input(key="scale_total").proto.placeholder
+           == "as shown in the table")
     texts = [t.value for t in at.text]
     # Two decimals on every line: a sheet is read down the column.
     assert "Pea protein: 20.00 g" in texts, texts     # the sheet, as generated
@@ -3545,7 +3575,7 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     assert not any("Upload an ingredient CSV with extra columns" in c.value
                    for c in at.caption), [c.value for c in at.caption]
     assert at.text_input(key="prop_new").label == \
-        "Add a property, such as Sodium per 100 g"
+        "Add a property"
     # Nothing to limit yet, so no property picker and no limit button.
     assert "prop_metric" not in [b.key for b in at.selectbox]
     assert "Add property limit" not in _labels(at)
@@ -4742,7 +4772,9 @@ def test_the_baseline_box_belongs_to_a_setting_added_mid_run(burger):
     assert not [n for n in at.number_input if n.key == "var_base"]
     at.radio(key="var_kind").set_value("Process setting")
     at.run()
-    assert at.number_input(key="var_base").label == "Baseline"
+    box = at.number_input(key="var_base")
+    assert box.label == "Baseline (required)"
+    assert box.proto.placeholder == "e.g. 180"
     at.text_input(key="var_name").set_value("Cook temperature")
     at.run()
     _submit_button(at, "Add ingredient or setting").click()
@@ -5086,7 +5118,7 @@ def test_a_property_is_named_on_the_limits_section_and_the_box_empties(burger):
     project typed in by hand could not limit sodium at all."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _prop_name_box(at).label == "Add a property, such as Sodium per 100 g"
+    assert _prop_name_box(at).label == "Add a property"
     _prop_name_box(at).set_value("Sodium per 100 g")
     at.run()
     next(b for b in at.button if b.key == "add_property").click()
@@ -5398,9 +5430,9 @@ def test_the_two_downloads_on_the_trial_name_their_format(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     names = [b.label for b in _unknowns(at.main, "download_button")]
-    assert "Download the bench sheet (CSV)" in names, names
-    assert "Download formulation sheets (to print)" in names, names
-    assert any(e.label == "Preview formulation sheets" for e in at.expander), \
+    assert "Download the batch to fill in (CSV)" in names, names
+    assert "Download one sheet per formulation (to print)" in names, names
+    assert any(e.label == "Preview the printed sheets" for e in at.expander), \
         [e.label for e in at.expander]
 
 
@@ -5496,7 +5528,7 @@ def test_the_correction_picker_says_what_picking_one_does(scored):
     at.run()
     picker = at.selectbox(key="correct_formulation")
     assert picker.label == "Formulation to correct"
-    assert picker.proto.placeholder == wording.FORMULATION_CAP
+    assert picker.proto.placeholder == wording.CHOOSE_A_FORMULATION_PLACEHOLDER
 
 
 def test_the_third_part_of_edit_past_says_record_not_add(scored):
@@ -5515,8 +5547,17 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert at.selectbox(key="delete_whole_batch").label == \
-        "Add a whole batch to the list"
+    picker = at.selectbox(key="delete_whole_batch")
+    assert picker.label == "Add a whole batch to the list"
+    assert picker.proto.placeholder == "Choose a batch"
+
+
+def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert (at.multiselect(key="delete_formulations").proto.placeholder
+           == "Choose one or more")
 
 
 def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
@@ -5563,8 +5604,11 @@ def test_the_add_ingredient_rows_property_boxes_say_what_they_hold(burger):
     burger.add_property("Fat per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="var_prop_Fat per 100 g").help == \
-        "This ingredient's own value per 100 g."
+    box = at.number_input(key="var_prop_Fat per 100 g")
+    assert box.help == "This ingredient's own value per 100 g."
+    # A blank property value counts as 0 in a finished-product limit, so the
+    # placeholder says that rather than the opposite ("no value").
+    assert box.proto.placeholder == "0 if blank"
 
 
 def test_the_target_box_is_only_there_for_a_target(burger):
