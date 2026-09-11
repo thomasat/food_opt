@@ -138,11 +138,12 @@ def _best(opt):
     # missing one measurement is not the same number as a full one.
     scored = opt.results_history[index] if index < len(opt.results_history) else {}
     partial = any(o['name'] not in scored for o in opt.objectives)
-    st.caption(f"Overall score {float(opt.Y_history[index]):.2f}"
+    st.caption(f"Overall score {float(opt.Y_history[index]):.2f} "
+               f"of {ceiling:.2f}"
                + (" · partial" if partial else "")
-               + f" of {ceiling:.2f} · every measurement on target. Scores "
-               "compare only within this project, and only until you change "
-               "an importance or a range.")
+               + " · every measurement on target. Scores compare only within "
+               "this project, and only until you change an importance or a "
+               "range.")
     if partial:
         st.caption(_PARTIAL)
     return partial

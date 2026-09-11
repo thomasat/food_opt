@@ -1104,7 +1104,7 @@ def test_a_new_limit_says_past_formulations_are_kept(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="qc_max").set_value(400.0)
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     assert any("Formulations already made are kept. The next trial will respect "
@@ -1117,7 +1117,7 @@ def test_a_limit_that_excludes_everything_made_so_far_warns(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="qc_max").set_value(5.0)     # the one formulation is 22 g
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     assert any(w.value == "No formulation you have made fits this limit."
@@ -3073,7 +3073,7 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     at.multiselect(key="qty_pick").select("Pea protein")
     at.multiselect(key="qty_pick").select("Water")
     at.number_input(key="qc_max").set_value(50.0)
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == ["A limit adds amounts, so these ingredients need one unit; enter Water in g instead of ml."]
@@ -3186,7 +3186,8 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     # Both kinds of limit are about what you weigh out, so the whole section
     # is gone: a setting's own Lowest and Highest are its bounds.
     assert [e.label for e in at.expander if e.label == "Limits (optional)"] == []
-    assert [b.label for b in at.button if b.label == "Add amount limit"] == []
+    assert [b.label for b in at.button
+            if b.label == "Add ingredient limit"] == []
     assert [b.label for b in at.button if b.label == "Add property limit"] == []
 
 
@@ -3365,7 +3366,7 @@ def test_a_limit_on_all_ingredients_is_refused_in_words_the_screen_can_obey(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="qc_max").set_value(300.0)
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
@@ -3439,7 +3440,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     at.session_state["main_tab"] = "3 · Results"
     at.run()
     assert not at.exception
-    assert any(c.value.startswith("Overall score 1.50 · partial of 2.50 ·")
+    assert any(c.value.startswith("Overall score 1.50 of 2.50 · partial ·")
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
@@ -4474,12 +4475,12 @@ def test_one_amount_limit_control_covers_every_group_and_the_total(burger):
     assert picker.proto.placeholder == "All ingredients"
     assert at.number_input(key="qc_min").label == "At least (g)"
     assert at.number_input(key="qc_max").label == "At most (g)"
-    # One button, not three: there is no second amount-limit control.
+    # One button, not three: there is no second ingredient-limit control.
     assert [b.label for b in at.button
-            if "amount limit" in b.label] == ["Add amount limit"]
+            if "ingredient limit" in b.label] == ["Add ingredient limit"]
     # Left alone, the picker limits the whole formulation.
     at.number_input(key="qc_max").set_value(100.0)
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     saved = FoodOptimizer("burger")
@@ -4491,7 +4492,7 @@ def test_one_amount_limit_control_covers_every_group_and_the_total(burger):
     at.multiselect(key="qty_pick").select("Pea protein")
     at.number_input(key="qc_max").set_value(50.0)
     at.run()
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
     lines = [t.value for t in at.text]
@@ -4502,7 +4503,7 @@ def test_one_amount_limit_control_covers_every_group_and_the_total(burger):
 def test_an_amount_limit_needs_a_number(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Add amount limit").click()
+    _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert [e.value for e in at.error] == ["Enter a lowest, a highest, or both."]
     assert FoodOptimizer("burger").quantity_constraints == []

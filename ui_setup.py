@@ -1117,7 +1117,7 @@ def _limits(opt, storage):
                             placeholder="no limit", key="qc_max")
         # No "Set a maximum" tick box: a blank field already means no limit,
         # and a box the user forgot to tick silently threw their number away.
-        if st.button("Add amount limit", key="add_amount_limit"):
+        if st.button("Add ingredient limit", key="add_amount_limit"):
             low, high = st.session_state["qc_min"], st.session_state["qc_max"]
             if low is None and high is None:
                 st.error("Enter a lowest, a highest, or both.")
