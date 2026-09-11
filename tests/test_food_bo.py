@@ -2802,7 +2802,7 @@ def _how_it_works():
     weight and constraint are allowed to be said, so it is read from the
     source rather than copied here: a bullet reworded in the app cannot
     quietly fall out of the allowance."""
-    from ui_setup import HOW_IT_WORKS
+    from wording import HOW_IT_WORKS
     return set(HOW_IT_WORKS)
 
 

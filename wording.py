@@ -16,6 +16,8 @@ FORMULATION_CAP = "Formulation"
 # site, so the word is spelled once.
 INGREDIENT = "ingredient"
 PROCESS_SETTING = "process setting"
+LIMIT = "limit"
+ROW = "row"
 
 # "Note" is both a table column header (food_bo's own dataframes carry the
 # same header) and a form field label; one spelling serves both.
@@ -434,3 +436,582 @@ SAVE_UPLOADED_RESULTS = "Save uploaded results"
 def upload_partial_flash(parsed_n, total_n, batch_no, left_n):
     return (f"Recorded {parsed_n} of {total_n} formulations in {BATCH} "
             f"{batch_no} · {left_n} to make.")
+
+
+# ------------------------------------------------------------------ #
+# Tab 1 · Set up: ingredients and process settings, measurements,
+# limits, advanced (ui_setup.py).
+# ------------------------------------------------------------------ #
+KIND_INGREDIENT = "Ingredient"
+KIND_SETTING = "Process setting"
+
+GOAL_LABELS = {
+    "max": "Higher is better",
+    "min": "Lower is better",
+    "target": "Hit a target",
+}
+
+
+def target_value(value):
+    """'Target 6' — the Goal column's cell text for a target measurement."""
+    return f"Target {float(value):g}"
+
+
+def range_text(low, high):
+    """'0 to 10' — the Range column's cell text, before its unit."""
+    return f"{float(low):g} to {float(high):g}"
+
+
+LIMIT_KEPT = (f"Formulations already made are kept. The next {BATCH} will "
+             "respect this limit.")
+NO_FORMULATION_FITS_LIMIT = "No formulation you have made fits this limit."
+
+
+def unscaled_tail(batch_no, total_text):
+    """Scaling needs one unit, and a unit change may have just taken it away:
+    the open trial is back to as-generated, and only this sentence says so."""
+    return (f"{BATCH_CAP} {batch_no} is no longer shown at a formulation "
+            f"total of {total_text}; a formulation total needs all "
+            "ingredients in one unit.")
+
+# The one collapsed expander that maps the words on this tab to the words a
+# specialist would use. Every optimization term the app otherwise refuses to
+# say — variable, objective, weight, constraint — is said here and only here,
+# one line each, so the mapping exists exactly once. The vocabulary guard
+# reads this list by name and allows what is in it.
+HOW_IT_WORKS = [
+    "Ingredients and process settings are the variables; measurements with "
+    "their goals are the objectives.",
+    "Importance is each measurement's weight; closeness is its score between "
+    "0 and 1 (1 at the goal).",
+    "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
+    "so the top of your range scores 1 and the bottom scores 0.",
+    "Lower is better: the reverse — the bottom of your range scores 1 and the "
+    "top scores 0.",
+    "Hit a target: closeness is 1 at the target and falls evenly with "
+    "distance, by one point per full range; the lowest score depends on how "
+    "far the target sits from the ends of your range.",
+    "The overall score is the weighted sum of closeness. The model learns "
+    "this one number, so changing an importance or a range re-scores every "
+    "past formulation.",
+    "Limits are hard constraints applied when formulations are generated; an "
+    "ingredient with no value for a property counts as containing none.",
+    "The first five formulations are spread across the allowed amounts; "
+    "later trials are chosen together — one set, chosen jointly, the "
+    "optimizer's batch — from what the results suggest, some to test an idea "
+    "rather than beat the best.",
+    "A repeat is a second reading of one formulation; it teaches the model "
+    "how noisy your measurements are.",
+]
+# Which of the nine lines above are the three goal lines nested under the
+# second bullet, rather than bullets of their own.
+HOW_IT_WORKS_NESTED = (2, 3, 4)
+
+VARIABLES_HEADER = "Ingredients and process settings"
+
+
+def made_before_units_caption(unit):
+    return (f"Made before units were recorded; amounts are in {unit}. Set "
+            "each unit below if that is wrong.")
+
+
+UPLOAD_INGREDIENTS_EXPANDER = "Or upload an ingredients CSV"
+
+NAME_LABEL = "Name"
+SETTING_NAME_PLACEHOLDER = "e.g. Cook temperature"
+INGREDIENT_NAME_PLACEHOLDER = "e.g. Water"
+TYPE_LABEL = "Type"
+VARIABLE_TYPE_HELP = ("Ingredients are weighed into the formulation and "
+                      "count towards its total. Process settings, such as "
+                      "temperature or time, are dialled in.")
+LOWEST_LABEL = "Lowest"
+HIGHEST_LABEL = "Highest"
+NEW_INGREDIENT_FIXED_LOW_HELP = ("A new ingredient starts at 0 in every "
+                                 "formulation already made, so its lowest "
+                                 "is fixed at 0 for now.")
+UNIT_LABEL = "Unit"
+VARIABLE_UNIT_PLACEHOLDER = "°C, min, %"
+BASELINE_LABEL = "Baseline"
+BASELINE_REQUIRED_PLACEHOLDER = "required"
+BASELINE_HELP = ("The setting you used for every formulation already made, "
+                 "so those results still count.")
+ADD_VARIABLE_BUTTON = "Add ingredient or setting"
+NO_VALUE_PLACEHOLDER = "no value"
+ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
+                      "formulation already made.")
+
+
+def added(name):
+    return f"Added {name}."
+
+
+STATUS_LABEL = "Status"
+ACTIVE_STATUS = "active"
+
+
+def paused_status(held_text):
+    return f"paused · held at {held_text}"
+
+
+INGREDIENT_OR_SETTING_LABEL = "Ingredient or process setting"
+NEW_UNIT_LABEL = "New unit"
+SET_UNIT_BUTTON = "Set unit"
+SET_PROPERTY_VALUES_BUTTON = "Set property values"
+ONLY_INGREDIENT_HAS_PROPERTIES = "Only an ingredient carries property values."
+
+
+def values_for_caption(name):
+    return f"Values for {name}. Leave a box empty for no value."
+
+
+SAVE_VALUES_BUTTON = "Save values"
+CLOSE_BUTTON = "Close"
+
+
+def property_values_saved(name):
+    return f"Property values saved for {name}."
+
+
+RESUME_BUTTON = "Resume"
+RESUME_HELP = "Put it back into new formulations."
+PAUSE_BUTTON = "Pause"
+PAUSE_DISABLED_HELP = ("At least two ingredients or settings must stay "
+                       "active before one can be paused.")
+PAUSE_HELP = ("New formulations will not use it. Results already recorded "
+             "are kept.")
+
+
+def resumed(name):
+    return f"Resumed {name}."
+
+
+def paused(name):
+    return f"Paused {name}."
+
+
+UNIT_REQUIRED_ERROR = "A unit is required; use g if the amount is a mass."
+
+
+def unit_changed(name, written, is_ingredient):
+    """What changed is how the number is written, not the number: nothing is
+    converted and nothing is rescored, and only this sentence says so."""
+    held = "amounts were" if is_ingredient else "value was"
+    if written:
+        return f"{name} is now written in {written}. The {held} not converted."
+    return f"{name} is shown without a unit."
+
+
+YES_DELETE = "Yes, delete"
+
+
+def delete_button(name):
+    return f"Delete {name}"
+
+
+def delete_variable_warning(name, is_ingredient):
+    head = (f"Delete {name} from this project permanently? " if is_ingredient
+            else f"Delete {name}? ")
+    return (head + "Formulations already made will be recorded without it. "
+            + COPY_KEPT)
+
+
+DELETE_VS_PAUSE_CAPTION = ("Deleting takes it out of every formulation "
+                           "already made; pausing keeps the data.")
+DELETE_EVEN_IF_USED_CHECKBOX = ("Delete even if it was used (discards that "
+                                "information)")
+
+
+def deleted(name):
+    return f"Deleted {name}."
+
+
+REPLACE_INGREDIENTS_BUTTON = "Replace ingredients"
+LOAD_INGREDIENTS_BUTTON = "Load ingredients"
+INGREDIENTS_CSV_CAPTION = ("A CSV with the columns Name, Lowest, Highest "
+                           "and, optionally, Unit. Extra columns become "
+                           "properties you can set limits on.")
+UPLOAD_INGREDIENTS_CSV_LABEL = "Upload ingredients CSV"
+
+
+def blank_unit_cell_help(unit):
+    return f"A blank Unit cell is in {unit}."
+
+
+CSV_UNREADABLE_RETRY = ("This file could not be read as a CSV. If it came "
+                        "from Excel, use File > Save As and pick CSV "
+                        "format, then try again.")
+FILE_ALREADY_LOADED_CAPTION = ("This file is already loaded. Choose another "
+                               "to replace the ingredient list.")
+
+
+def loaded(what):
+    return f"Loaded {what}."
+
+
+def property_limit_removed(metric):
+    """A property limit is an average over the amounts, so it is the
+    ingredients as a whole that stopped sharing a unit."""
+    return (f"The limit on {metric} was deleted because the ingredients no "
+            "longer share a unit.")
+
+
+def no_longer_ingredients(names_text, many):
+    return (f"{names_text} are no longer ingredients" if many
+            else f"{names_text} is no longer an ingredient")
+
+
+def quantity_limit_removed_missing(label, who):
+    return f"The limit on {label} was deleted because {who}."
+
+
+def quantity_limit_removed_unit_mismatch(label):
+    return (f"The limit on {label} was deleted because those ingredients "
+            "no longer share a unit.")
+
+
+ALL_INGREDIENTS_LABEL = "All ingredients"
+ALL_INGREDIENTS_LOWER = "all ingredients"
+
+MEASUREMENT_NAME_PLACEHOLDER = "e.g. Firmness"
+MEASUREMENT_UNIT_PLACEHOLDER = "e.g. N"
+GOAL_LABEL = "Goal"
+GOAL_SELECT_HELP = ("Whether you want this measurement higher, lower, or "
+                    "at a target.")
+TARGET_LABEL = "Target"
+RANGE_HEADING = "**Range**"
+LOWEST_MEASURABLE_LABEL = "Lowest measurable"
+HIGHEST_MEASURABLE_LABEL = "Highest measurable"
+RANGE_HINT_CAPTION = "The ends of your range, not the values you expect."
+IMPORTANCE_LABEL = "Importance"
+IMPORTANCE_HELP = "Any positive number. 2 counts twice as much as 1."
+MEASUREMENT_EXISTS_ERROR = ("That measurement already exists. Use Edit on "
+                            "its row to change it.")
+ADD_MEASUREMENT_BUTTON = "Add measurement"
+SAVE_CHANGES_BUTTON = "Save changes"
+
+RECALCULATED_SUFFIX = " Every overall score was recalculated."
+
+
+def importance_changed(name, value):
+    return f"{name} importance changed to {float(value):.1f}."
+
+
+def updated(name):
+    return f"Updated {name}."
+
+
+def measurement_deleted(name):
+    return f"{name} deleted."
+
+
+MEASUREMENTS_HEADER = "Measurements and targets"
+ADD_A_MEASUREMENT_EXPANDER = "Add a measurement"
+MEASUREMENT_COLUMN = "Measurement"
+RANGE_COLUMN = "Range"
+
+
+def edit_button(name):
+    return f"Edit {name}"
+
+
+def delete_measurement_warning(name):
+    return (f"Delete {name}? Every overall score is recalculated without "
+            "it. " + COPY_KEPT)
+
+
+HOW_IT_WORKS_EXPANDER = "How it works"
+
+ADD_PROPERTY_LABEL = "Add a property, such as Sodium per 100 g"
+ADD_PROPERTY_PLACEHOLDER = "e.g. Sodium mg per 100 g"
+ADD_PROPERTY_BUTTON = "Add property"
+
+
+def property_added(name):
+    return (f"Added {name}. Give each ingredient a value for it in "
+            f"{VARIABLES_HEADER}.")
+
+
+def delete_property_warning(name, limits_text):
+    head = (f"Delete {name} and its {limits_text}? " if limits_text
+            else f"Delete {name}? ")
+    return head + "Ingredient values for it go too. " + COPY_KEPT
+
+
+def property_deleted(name, gone_text=""):
+    return f"Deleted {name}.{gone_text}"
+
+
+def limit_went_with_it(limits_text):
+    return f" Its {limits_text} went with it."
+
+
+FINISHED_PRODUCT_LIMIT_HEADING = "**Finished-product limit**"
+PER_100G_UNRESOLVED_CAPTION = ("Per 100 g of formulation once every "
+                               "ingredient is in one mass unit.")
+
+
+def per_100_caption(unit):
+    return (f"Per 100 {unit} of formulation, from each ingredient's "
+            "property values.")
+
+
+INGREDIENT_PROPERTY_LABEL = "Ingredient property"
+AT_LEAST_LABEL = "At least"
+AT_MOST_LABEL = "At most"
+NO_LIMIT_PLACEHOLDER = "no limit"
+ADD_PROPERTY_LIMIT_BUTTON = "Add property limit"
+ENTER_LOWEST_HIGHEST_ERROR = "Enter a lowest, a highest, or both."
+
+
+def limit_added_on(who):
+    return f"Limit added on {who}."
+
+
+def limit_gap_tail(name, many):
+    """' · Water has no value and counts as 0.' — the ingredients a limit is
+    silently reading as zeroes."""
+    return (f" · {name} have no value and count as 0." if many
+            else f" · {name} has no value and counts as 0.")
+
+
+LIMITS_EXPANDER = "Limits (optional)"
+LIMITS_CAPTION = ("Limits hold every new formulation to an amount you weigh "
+                  "out or a property of your ingredients. Measurements are "
+                  "aimed at with targets, not limited.")
+
+
+def old_limit_basis_caption(unit):
+    return (f"A limit set before this version is now read per 100 {unit} "
+            "of formulation.")
+
+
+def at_least(value):
+    return f"at least {value:g}"
+
+
+def at_most(value):
+    return f"at most {value:g}"
+
+
+DELETE_LIMIT_BUTTON = "Delete limit"
+
+
+def limit_deleted(who):
+    return f"Limit on {who} deleted. The next {BATCH} is no longer held to it."
+
+
+LIMIT_ON_CHOSEN_INGREDIENTS_HEADING = "**Limit on chosen ingredients**"
+INGREDIENTS_TO_LIMIT_LABEL = "Ingredients to limit together"
+ADD_INGREDIENT_LIMIT_BUTTON = "Add ingredient limit"
+
+HOW_FORMULATIONS_CHOSEN_EXPANDER = "How formulations are chosen (advanced)"
+STANDARD_VS_EXPERT_CAPTION = ("Standard uses tested defaults and fits most "
+                              "projects. Expert-selected lets a specialist "
+                              "set the model's kernel, prior, noise "
+                              "handling and acquisition once at the start.")
+HOW_FORMULATIONS_CHOSEN_LABEL = "How formulations are chosen"
+STANDARD_DEFAULT_OPTION = "Standard (default)"
+EXPERT_SELECTED_OPTION = "Expert-selected"
+REVERT_TO_STANDARD_BUTTON = "Revert to standard settings"
+USING_DEFAULT_MODEL_SETTINGS = "Using default model settings."
+KERNEL_LABEL = "Kernel"
+LENGTHSCALE_PRIOR_LABEL = "Lengthscale prior"
+NOISE_LABEL = "Noise"
+ACQUISITION_LABEL = "Acquisition"
+FIXED_TINY_NOISE_CAPTION = ("`fixed_tiny` noise suits a deterministic "
+                            "measurement, not a sensory panel — keep "
+                            "`default` unless you have a specific reason.")
+APPLY_EXPERT_SETTINGS_BUTTON = "Apply expert settings"
+MODEL_SETTINGS_UPDATED = "Model settings updated."
+PASTE_EXPERT_SETTINGS_CHECKBOX = "Or paste expert settings as JSON"
+EXPERT_SETTINGS_JSON_LABEL = "Expert settings JSON"
+APPLY_PASTED_SETTINGS_BUTTON = "Apply pasted settings"
+
+
+def invalid_json(e):
+    return f"Invalid JSON: {e}"
+
+
+IN_USE_PREFIX = "In use: "
+
+NEXT_MAKE_BATCH_BUTTON = f"Next: make a {BATCH}"
+
+
+# ------------------------------------------------------------------ #
+# Tab 3 · Results: the best formulation, every formulation, corrections
+# (ui_results.py).
+# ------------------------------------------------------------------ #
+PARTIAL_SCORES_CAPTION = ("Partial scores are missing a measurement, which "
+                          "counts as zero, so they are low and the model "
+                          "treats them that way.")
+
+
+def batch_recorded_progress(no, before, now):
+    return (f"{BATCH_CAP} {no} recorded · best improved "
+            f"{before:.2f} → {now:.2f}")
+
+
+def batch_recorded_no_improvement(no):
+    return f"{BATCH_CAP} {no} recorded · no improvement."
+
+
+def best_so_far_heading(no, batch_no=None):
+    heading = f"Best so far: {FORMULATION_CAP} {no}"
+    if batch_no is not None:
+        heading += f" ({BATCH} {batch_no})"
+    return heading
+
+
+MEASURED_COLUMN = "Measured"
+OFF_BY_COLUMN = "Off by"
+AMOUNTS_TO_MAKE_IT_HEADING = "**Amounts to make it**"
+AMOUNT_COLUMN = "Amount"
+NOT_USED_PREFIX = "Not used: "
+
+
+def overall_score_caption(score, ceiling, partial):
+    return (f"Overall score {score:.2f} of {ceiling:.2f}"
+            + (" · partial" if partial else "")
+            + ". Scores compare only within this project, and only until "
+            "you change an importance or a range.")
+
+
+ALL_FORMULATIONS_HEADING = "**All formulations**"
+SORT_LABEL = "Sort"
+SHOW_AMOUNTS_TOGGLE = "Show amounts"
+DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (CSV)"
+DOWNLOAD_ALL_FORMULATIONS_HELP = ("Amounts are unitless in this file so it "
+                                  "can be imported back; units are shown on "
+                                  "screen. Formulations that were not made "
+                                  "are not included.")
+
+CORRECT_A_RESULT_LABEL = "Correct a result"
+FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION = ("Formulations that were not made "
+                                           "have no result to correct.")
+ADD_MEASUREMENT_BEFORE_CORRECTING_INFO = ("Add a measurement in Set up "
+                                          "before correcting a result.")
+LEAVE_BLANK_KEEP_VALUE_HELP = "Leave blank to keep the value already recorded."
+SAVE_CORRECTION_BUTTON = "Save correction"
+ENTER_VALUE_AT_LEAST_ONE_ERROR = "Enter a value for at least one measurement."
+
+
+def formulation_unchanged(no):
+    return f"{FORMULATION_CAP} {no} is unchanged."
+
+
+def formulation_corrected(no, name, was_text, now_text):
+    return f"{FORMULATION_CAP} {no} {name} corrected {was_text} → {now_text}."
+
+
+def formulation_recorded_as(no, name, now_text):
+    return f"{FORMULATION_CAP} {no} {name} recorded as {now_text}."
+
+
+def back_to_batch_label(no, n):
+    return f"Back to {BATCH} {no} · {n} to record"
+
+
+START_NEXT_BATCH = f"Start the next {BATCH}"
+
+PROGRESS_CHART_EXPANDER = "Progress chart"
+NO_RESULTS_YET = "No results yet."
+OVERALL_SCORE_COLUMN = "Overall score"
+BEST_SO_FAR_COLUMN = "Best so far"
+PROGRESS_CHART_CAPTION = ("Each formulation's overall score, and the best "
+                          "so far. When the top line stops rising, you are "
+                          "close to the best this ingredient list can do.")
+
+DELETE_BATCH_OR_FORMULATION_EXPANDER = f"Delete a {BATCH} or a {FORMULATION}"
+BATCH_NOT_RECORDED_BEFORE_VERSION_CAPTION = (
+    "Trials were not recorded before this version. You can delete one "
+    "formulation at a time below.")
+
+
+def no_batch_to_delete_caption():
+    return f"No {BATCH} to delete yet."
+
+
+def batch_open_record_first_caption():
+    return f"Record or discard the open {BATCH} first."
+
+
+DELETE_LAST_BATCH_BUTTON = f"Delete the last {BATCH}"
+
+
+def delete_last_batch_warning(no, formulations_text):
+    return f"Deletes {BATCH} {no} and its {formulations_text}. " + COPY_KEPT
+
+
+def batch_deleted(no):
+    return f"{BATCH_CAP} {no} deleted. " + COPY_KEPT
+
+
+FORMULATION_TO_DELETE_LABEL = f"{FORMULATION_CAP} to delete"
+
+
+def no_formulation_to_delete_caption():
+    return f"No {FORMULATION} to delete yet."
+
+
+def delete_formulation_button(no):
+    return f"Delete {FORMULATION_CAP} {no}"
+
+
+def delete_formulation_warning(no):
+    return (f"Delete {FORMULATION_CAP} {no}? Later formulations keep their "
+            "numbers. " + COPY_KEPT)
+
+
+def formulation_deleted(no):
+    return f"{FORMULATION_CAP} {no} deleted. " + COPY_KEPT
+
+
+IMPORT_FORMULATIONS_EXPANDER = f"Import past {FORMULATION}s from a CSV"
+
+
+def import_columns_caption(names_text):
+    return (f"One row per {FORMULATION} you already made. The columns must "
+            f"match these names exactly: {names_text}.")
+
+
+def import_columns_caption_empty():
+    return (f"One row per {FORMULATION} you already made. Add ingredients "
+            "and measurements first; the columns must match their names "
+            "exactly.")
+
+
+UPLOAD_FORMULATIONS_CSV_LABEL = f"Upload {FORMULATION}s CSV"
+
+
+def missing_columns(names_text):
+    return f"Missing columns: {names_text}"
+
+
+def blank_amount_columns(names_text):
+    return f"These amount columns have blank cells: {names_text}"
+
+
+IMPORT_ALL_ROWS_BUTTON = "Import all rows"
+
+
+def row_error(position, problem):
+    return f"Row {position}: {problem}"
+
+
+def stopped_at_row(row_no, failure):
+    return f"Stopped at row {row_no}: {failure}"
+
+
+def rows_before_saved(rows_text):
+    return f" The {rows_text} before it were imported and saved."
+
+
+def imported(text):
+    return f"Imported {text}."
+
+
+SET_UP_THIS_PROJECT_BUTTON = "Set up this project"
+MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {BATCH}"
+ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
+                                "formulations again. Nothing recorded has "
+                                "been lost.")

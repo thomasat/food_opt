@@ -343,7 +343,8 @@ def test_take_clear_is_a_no_op_when_nothing_asked_for_it():
 # placeholder=/body=/caption= keywords, must come from wording (a constant,
 # a wording.fn(...) call, or a variable already built from one) rather than
 # a literal typed at the call site.
-_WORDING_HELD_FILES = ("app.py", "ui_helpers.py", "ui_batch.py")
+_WORDING_HELD_FILES = ("app.py", "ui_helpers.py", "ui_batch.py",
+                       "ui_setup.py", "ui_results.py")
 _CHECKED_KWARGS = {"label", "help", "placeholder", "body", "caption"}
 
 
