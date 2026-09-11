@@ -72,21 +72,29 @@ _FORM_FRESH = {
     "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
     "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
     "meas_new_importance": 1.0,
-    "qty_pick": [],
+    "qty_pick": [], "delete_formulations": [],
     "batch_size": 3, "scale_total": None, "own_note": "",
+    # Tab 3's "Add a formulation you already made": the note box opens
+    # holding the word an imported row is marked with, and the radio opens
+    # on the typed-in half.
+    "past_note": wording.IMPORTED_NOTE, "add_past_mode": wording.TYPE_IT_IN,
 }
 # The boxes whose empty value is None: the select boxes, and the add form's
 # unit box, which empties to the newly opened project's own default (app.py
 # passes it to drain_clears; it is not known here).
-_FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_formulation",
+_FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
                          "var_unit")
 
 # The boxes whose names are the project's own, so they cannot be listed in
 # _FORM_FRESH above: one per property on the add form (var_prop_<name>), one
-# per property in the Set property values editor (setprop_<row>_<name>), and
-# one per variable in tab 2's "Add a formulation of your own" (own_<name> —
-# its own_note box is named in _FORM_FRESH, and is parked before this).
-_PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_")
+# per property in the Set property values editor (setprop_<row>_<name>), one
+# per variable in tab 2's "Add a formulation of your own" (own_<name> — its
+# own_note box is named in _FORM_FRESH, and is parked before this), one per
+# amount in tab 3's correction row (correct_amount_<no>_<name>), and one per
+# amount and measurement in tab 3's typed-in past formulation (past_<name>
+# and past_m_<name>; past_note is named in _FORM_FRESH and parked first).
+_PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_",
+                          "correct_amount_", "past_")
 
 
 def _grid_fresh(key):

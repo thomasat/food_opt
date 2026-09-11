@@ -1,4 +1,7 @@
-"""Tab 3 · Results: the best formulation, every formulation, corrections.
+"""Tab 3 · Results: the best formulation, every formulation, and one
+collapsed section — `Edit past formulations` — for every way the record is
+fixed after the fact: a correction, a deletion, and a formulation made before
+this project existed, typed in or read off a CSV.
 
 The one coloured button is at the foot: `Start the next batch`, or `Back to
 batch N` while a batch is still unrecorded. Everything destructive is behind a
@@ -12,9 +15,9 @@ import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open, flash,
-    fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit, label_with_unit,
-    open_rows, other_confirmation, plural, readiness, saved_ok, scale_error,
-    table_height, take_clear, unit_after_number,
+    fmt_amount, fmt_setting, goal_line, go_to_tab, label_with_unit,
+    number_list, open_rows, other_confirmation, park_clear, plural, readiness,
+    saved_ok, scale_error, table_height, take_clear,
 )
 
 
@@ -159,35 +162,43 @@ def _all_formulations(opt, said_partial=False):
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
 
 
-def _correct(opt):
-    """The correction row: the select box and the boxes to retype. Returns the
-    open correction, or None — the foot reads that and steps aside, because
-    `Save correction` is the one lit action until the row is answered.
+def _correct_amount_key(no, name):
+    """The box for one amount under `Correct a formulation`. The
+    correct_amount_ prefix is what app.py empties on a project switch, so a
+    half-typed correction never follows the user into the next project."""
+    return f"correct_amount_{no}_{name}"
 
-    Its button row is only RESERVED here. Arming a confirmation in one of the
-    sections below does not rerun, so a Save correction drawn now would still
-    be coloured on the very run that puts a Yes beside it; render() fills the
-    slot once the confirmations have had their say."""
-    numbers = [int(n) for n in opt.formulation_ids]
-    if not numbers:
-        return None
-    take_clear("correct_formulation")
-    choice = st.selectbox(wording.CORRECT_A_RESULT_LABEL, numbers, index=None,
-                          placeholder=wording.FORMULATION_CAP, key="correct_formulation")
-    if opt.skipped:
-        # The picker offers fewer numbers than All formulations lists, and
-        # the reason is not visible from the box.
-        st.caption(wording.FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION)
-    if choice is None:
-        return None
-    index = opt.index_of_formulation(choice)
-    if index is None:
-        return None
-    ordered = opt.measurements_by_importance()
-    if not ordered:
-        st.info(wording.ADD_MEASUREMENT_BEFORE_CORRECTING_INFO)
-        return None
-    current = opt.results_history[index]
+
+def _amount_boxes(opt, choice, recipe):
+    """One box per variable, opened at the amount the row was recorded with.
+
+    A formulation is corrected as often for what went into the bowl — a
+    misread balance, a line transposed off the bench sheet — as for what came
+    off the panel, and until now only the measurements could be fixed."""
+    typed = {}
+    cols = None
+    for j, var in enumerate(opt.variables):
+        if j % 4 == 0:
+            cols = st.columns(min(4, len(opt.variables) - j))
+        with cols[j % 4]:
+            name = var['name']
+            low, high = (float(b) for b in var['bounds'])
+            # No min_value/max_value: an amount outside what the project
+            # allows is a fact about work already done, and clamping it would
+            # quietly record a formulation nobody made. It is a caution on
+            # the way out, exactly as an imported amount is.
+            st.session_state.setdefault(
+                _correct_amount_key(choice, name),
+                float(recipe.get(name, var.get('_absent_value', 0.0))))
+            typed[name] = st.number_input(
+                label_with_unit(name, opt.unit_of(name)),
+                placeholder=f"{low:g}–{high:g}",
+                key=_correct_amount_key(choice, name),
+            )
+    return typed
+
+
+def _measurement_boxes(opt, choice, ordered, current):
     typed = {}
     cols = None
     for j, obj in enumerate(ordered):
@@ -205,8 +216,57 @@ def _correct(opt):
                 help=wording.LEAVE_BLANK_KEEP_VALUE_HELP,
                 key=f"correct_{choice}_{obj['name']}",
             )
+    return typed
+
+
+def _correct(opt):
+    """The correction row: the select box, the amounts the formulation was
+    really made with, and the measurements to retype. Returns the open
+    correction, or None — the foot reads that and steps aside, because
+    `Save correction` is the one lit action until the row is answered.
+
+    Its button row is only RESERVED here. Arming a confirmation in one of the
+    sections below does not rerun, so a Save correction drawn now would still
+    be coloured on the very run that puts a Yes beside it; render() fills the
+    slot once the confirmations have had their say."""
+    numbers = [int(n) for n in opt.formulation_ids]
+    if not numbers:
+        # Not "No results yet.": that sentence is already the whole screen
+        # above this section on a project holding nothing.
+        st.caption(wording.no_formulation_to_correct_caption())
+        return None
+    take_clear("correct_formulation")
+    # The box names what it holds; the heading above it says what picking one
+    # does, so a second "Correct a ..." on the label said it twice.
+    choice = st.selectbox(wording.FORMULATION_CAP, numbers, index=None,
+                          placeholder=wording.FORMULATION_CAP,
+                          key="correct_formulation")
+    if opt.skipped:
+        # The picker offers fewer numbers than All formulations lists, and
+        # the reason is not visible from the box.
+        st.caption(wording.FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION)
+    if choice is None:
+        return None
+    index = opt.index_of_formulation(choice)
+    if index is None:
+        return None
+    recipe = opt.recipe_history[index]
+    amounts = _amount_boxes(opt, choice, recipe)
+    ordered = opt.measurements_by_importance()
+    current = opt.results_history[index]
+    typed = _measurement_boxes(opt, choice, ordered, current)
     return {"choice": choice, "index": index, "ordered": ordered,
-            "current": current, "typed": typed, "slot": st.container()}
+            "current": current, "typed": typed, "recipe": recipe,
+            "amounts": amounts, "slot": st.container()}
+
+
+def _close_correction(opt, choice):
+    """Forget what was typed into this row's amount boxes. They are gone from
+    the screen on the next run, so popping is enough — nothing is mounted in
+    the browser to post the old value back."""
+    for var in opt.variables:
+        st.session_state.pop(_correct_amount_key(choice, var['name']), None)
+    clear_selection("correct_formulation")
 
 
 def _save_correction(opt, storage, pending):
@@ -226,13 +286,22 @@ def _save_correction(opt, storage, pending):
     with b2:
         # The select box cannot be cleared by the user once it holds a value.
         if st.button(wording.CLOSE_BUTTON, key="done_correcting", use_container_width=True):
-            clear_selection("correct_formulation")
+            _close_correction(opt, choice)
             st.rerun()
     if not save:
         return
-    if not any(v is not None for v in typed.values()):
-        st.error(wording.ENTER_VALUE_AT_LEAST_ONE_ERROR)
-        return
+    # Amounts first, and a blank one is a refusal: nothing is written, no
+    # copy is kept, and what was typed stays on screen to be finished.
+    recipe = dict(pending['recipe'])
+    amount_changes = []
+    for name, value in pending['amounts'].items():
+        if value is None:
+            st.error(wording.ENTER_EVERY_AMOUNT)
+            return
+        was = pending['recipe'].get(name)
+        if was is None or abs(float(was) - float(value)) > 1e-9:
+            amount_changes.append(name)
+        recipe[name] = float(value)
     for obj in ordered:
         problem = scale_error(obj, typed[obj['name']])
         if problem:
@@ -249,9 +318,9 @@ def _save_correction(opt, storage, pending):
             continue
         was = final.get(obj['name'])
         if was is None or abs(float(was) - float(value)) > 1e-9:
-            changes.append((obj['name'], was, float(value)))
+            changes.append(obj['name'])
         final[obj['name']] = float(value)
-    if not changes:
+    if not changes and not amount_changes:
         # Nothing to write, so nothing to copy first, and nothing to claim.
         flash("success", wording.formulation_unchanged(choice))
         st.rerun()
@@ -263,30 +332,30 @@ def _save_correction(opt, storage, pending):
     except storage_backend.StorageError as e:
         st.error(str(e))
         return
-    opt.edit_result(index, final)
-    if not saved_ok(opt):
-        return
+    if amount_changes:
+        # The encoded row goes with the amounts, or the model keeps steering
+        # the next batch towards a formulation nobody made.
+        opt.edit_amounts(index, recipe)
+        if not saved_ok(opt):
+            return
+    if changes:
+        opt.edit_result(index, final)
+        if not saved_ok(opt):
+            return
     after = best_formulation_no(opt)
-    # Every number wears its unit: 66 could be °C or a panel score, and this
-    # sentence is the only confirmation that the right one was typed.
-    units = {o['name']: unit_after_number(o.get('unit')) for o in ordered}
-
-    def _n(name, value):
-        return join_unit(f"{float(value):g}", units.get(name, ""))
-
-    sentences = [
-        wording.formulation_corrected(choice, name, _n(name, was), _n(name, now))
-        for name, was, now in changes if was is not None
-    ]
-    sentences += [
-        wording.formulation_recorded_as(choice, name, _n(name, now))
-        for name, was, now in changes if was is None
-    ]
+    # One sentence for the whole correction: a row can change its amounts and
+    # its measurements in one save, and naming every number that moved made a
+    # flash longer than the table above it.
+    sentences = [wording.formulation_corrected(choice)]
     move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
     sentences.append(COPY_KEPT)
+    cautions = [c for c in (bounds_caution(opt, name, recipe[name])
+                            for name in amount_changes) if c]
     flash("success", " ".join(sentences))
+    for caution in cautions:
+        flash("warning", caution)
     st.rerun()
 
 
@@ -323,179 +392,301 @@ def _progress_chart(opt):
         st.caption(wording.PROGRESS_CHART_CAPTION)
 
 
-def _remove_batch_or_formulation(opt, storage):
-    """One section for both ways a formulation leaves the project: the whole
-    of the last batch, or one formulation. They were two expanders, and the
-    first was a heading and a button with the same words, so clicking the
-    heading read as having deleted the batch."""
-    with st.expander(wording.DELETE_BATCH_OR_FORMULATION_EXPANDER):
-        _undo(opt, storage)
-        st.divider()
-        _remove_formulation(opt, storage)
+def _batch_numbers(opt):
+    """Every batch this project still holds, in order. A batch nobody managed
+    to make counts: its formulations have numbers, and this is the only place
+    they can be taken out together."""
+    seen = {int(b) for b in opt.batch_history if b is not None}
+    seen |= {int(s['batch']) for s in opt.skipped if s.get('batch') is not None}
+    return sorted(seen)
 
 
-def _undo(opt, storage):
-    # Left-out formulations count: a batch nobody managed to make is still
-    # the last batch, and deleting must not reach past it.
-    last = opt.last_batch_no()
-    if last is None:
-        if opt.X_history or opt.skipped:
-            st.caption(wording.BATCH_NOT_RECORDED_BEFORE_VERSION_CAPTION)
-        else:
-            st.caption(wording.no_batch_to_delete_caption())
-        return
-    if opt.pending_batch:
-        st.caption(wording.batch_open_record_first_caption())
-        st.button(wording.DELETE_LAST_BATCH_BUTTON, disabled=True, key="undo_batch__btn")
-        return
-    count = sum(1 for b in opt.batch_history if b == last)
-    count += sum(1 for s in opt.skipped if s.get('batch') == last)
-    # Said once, in the confirmation: a caption above it repeats it.
-    if confirm_action(
-        "undo_batch", wording.DELETE_LAST_BATCH_BUTTON,
-        # Formulations, not results: one of them may never have been made
-        # and have no result at all, and formulation is the app's noun.
-        wording.delete_last_batch_warning(last, plural(count, wording.FORMULATION)),
-        confirm_label=wording.YES_DELETE, disabled=other_confirmation("undo_batch"),
-    ):
-        try:
-            storage.archive(opt.project_name, "pre_delete", copy=True)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-        else:
-            try:
-                opt.undo_last_batch()
-            except ValueError as e:
-                # The open batch appeared between the click and the
-                # confirmation: say why, do not take it down as well.
-                st.error(str(e))
-                return
-            if not saved_ok(opt):
-                return
-            st.session_state.pop("scale_total", None)
-            st.session_state.pop("_results_upload", None)
-            flash("success", wording.batch_deleted(last))
-            st.rerun()
+def _formulations_of_batch(opt, batch_no):
+    """Every number that batch issued and the project still holds, recorded
+    and not made alike."""
+    numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history)
+               if b is not None and int(b) == int(batch_no)]
+    numbers += [int(s['formulation']) for s in opt.skipped
+                if s.get('batch') is not None
+                and int(s['batch']) == int(batch_no)]
+    return sorted(numbers)
 
 
-def _remove_formulation(opt, storage):
+def _delete_formulations(opt, storage):
+    """Any number of formulations, recorded or not made, behind one
+    confirmation.
+
+    `Delete the last batch` was a button of its own that could only ever
+    reach the last one, and it named what it would take only in the
+    confirmation. `Whole batch` fills the list instead, so what is about to
+    go is on screen — and can be added to or taken back out — before anything
+    is confirmed."""
     numbers = _all_numbers(opt)
     if not numbers:
         st.caption(wording.no_formulation_to_delete_caption())
         return
-    take_clear("delete_formulation")
-    choice = st.selectbox(wording.FORMULATION_TO_DELETE_LABEL, numbers, index=None,
-                          placeholder=wording.FORMULATION_CAP,
-                          key="delete_formulation")
-    if choice is None:
-        return
-    go = confirm_action(
-        "delete_formulation", wording.delete_formulation_button(choice),
-        wording.delete_formulation_warning(choice),
-        confirm_label=wording.YES_DELETE,
-        disabled=other_confirmation("delete_formulation"),
-    )
-    # The select box cannot be cleared by the user once it holds a value.
-    # The confirmation brings its own Cancel, so this one steps aside while
-    # that is on screen rather than showing the word twice.
-    if (not st.session_state.get("delete_formulation__pending")
-            and st.button(wording.CLOSE_BUTTON, key="cancel_delete_formulation")):
-        clear_selection("delete_formulation")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        take_clear("delete_formulations")
+        picked = st.multiselect(wording.FORMULATIONS_TO_DELETE_LABEL, numbers,
+                                placeholder=wording.FORMULATION_CAP,
+                                key="delete_formulations")
+    with c2:
+        batches = _batch_numbers(opt)
+        take_clear("delete_whole_batch")
+        batch = st.selectbox(wording.WHOLE_BATCH_LABEL, batches, index=None,
+                             placeholder=wording.BATCH_CAP,
+                             disabled=not batches, key="delete_whole_batch")
+    if batch is not None:
+        # A shortcut into the list beside it, never a delete of its own. The
+        # widget already exists on this run, so the filled selection is
+        # parked and assigned before the box is drawn again.
+        park_clear("delete_formulations",
+                   sorted(set(int(n) for n in picked)
+                          | set(_formulations_of_batch(opt, batch))))
+        clear_selection("delete_whole_batch")
         st.rerun()
-    if go:
-        try:
-            storage.archive(opt.project_name, "pre_delete", copy=True)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-        else:
-            opt.delete_formulation(choice)
-            if not saved_ok(opt):
-                return
-            clear_selection("delete_formulation")
-            flash("success", wording.formulation_deleted(choice))
-            st.rerun()
+    if not picked:
+        return
+    chosen = sorted(int(n) for n in picked)
+    if len(chosen) == 1:
+        label = wording.delete_formulation_button(chosen[0])
+        question = wording.delete_formulation_warning(chosen[0])
+        done = wording.formulation_deleted(chosen[0])
+    else:
+        label = wording.delete_formulations_button(
+            plural(len(chosen), wording.FORMULATION))
+        question = wording.delete_formulations_warning(number_list(chosen))
+        done = wording.formulations_deleted(number_list(chosen))
+    # Said once, in the confirmation: a caption above it repeats it.
+    if not confirm_action("delete_formulations", label, question,
+                          confirm_label=wording.YES_DELETE,
+                          disabled=other_confirmation("delete_formulations")):
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    opt.delete_formulations(chosen)
+    if not saved_ok(opt):
+        return
+    # A scaled table and an uploaded bench sheet both name formulations that
+    # may have just left the project.
+    st.session_state.pop("scale_total", None)
+    st.session_state.pop("_results_upload", None)
+    park_clear("delete_formulations", [])
+    flash("success", done)
+    st.rerun()
+
+
+def _past_key(name):
+    """The amount box for one variable under `Add a formulation you already
+    made`; `past_m_` is its measurement. Both prefixes are what app.py
+    empties on a project switch."""
+    return f"past_{name}"
+
+
+def _past_measurement_key(name):
+    return f"past_m_{name}"
+
+
+def _add_past(opt):
+    """A formulation made before this project existed: typed in, or read off
+    a CSV. Both land through import_formulation, so both carry no batch and
+    the same note, and the CSV is no longer a section of its own that had to
+    be found before past work could be entered at all."""
+    mode = st.radio(wording.ADD_PAST_FORMULATION_LABEL,
+                    [wording.TYPE_IT_IN, wording.UPLOAD_A_CSV],
+                    horizontal=True, label_visibility="collapsed",
+                    key="add_past_mode")
+    if mode == wording.UPLOAD_A_CSV:
+        _import(opt)
+    else:
+        _type_in_past(opt)
+
+
+def _type_in_past(opt):
+    if not opt.variables:
+        st.caption(wording.import_columns_caption_empty())
+        return
+    cols = None
+    for j, var in enumerate(opt.variables):
+        if j % 4 == 0:
+            cols = st.columns(min(4, len(opt.variables) - j))
+        with cols[j % 4]:
+            name = var['name']
+            low, high = (float(b) for b in var['bounds'])
+            st.session_state.setdefault(_past_key(name), None)
+            st.number_input(label_with_unit(name, opt.unit_of(name)),
+                            placeholder=f"{low:g}–{high:g}",
+                            key=_past_key(name))
+    ordered = opt.measurements_by_importance()
+    cols = None
+    for j, obj in enumerate(ordered):
+        if j % 4 == 0:
+            cols = st.columns(min(4, len(ordered) - j))
+        with cols[j % 4]:
+            st.session_state.setdefault(_past_measurement_key(obj['name']), None)
+            # A blank measurement is a partial result here too, exactly as it
+            # is in the results grid and in an imported CSV.
+            st.number_input(
+                f"{label_with_unit(obj['name'], obj.get('unit'))} · "
+                f"{goal_line(obj)}",
+                placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
+                key=_past_measurement_key(obj['name']))
+    st.session_state.setdefault("past_note", wording.IMPORTED_NOTE)
+    st.text_input(wording.NOTE, key="past_note")
+    # Secondary: the foot's Start the next batch is this tab's coloured
+    # button, and answering an armed confirmation outranks both.
+    if st.button(wording.ADD_THIS_FORMULATION, key="add_past_formulation",
+                 disabled=confirmation_open()):
+        _add_typed_past(opt, ordered)
+
+
+def _add_typed_past(opt, ordered):
+    recipe = {}
+    for var in opt.variables:
+        value = st.session_state.get(_past_key(var['name']))
+        if value is None:
+            # No rerun: the refusal stays on screen beside the boxes, and what
+            # was typed stays in them to be finished.
+            st.error(wording.ENTER_EVERY_AMOUNT)
+            return
+        recipe[var['name']] = float(value)
+    results = {}
+    for obj in ordered:
+        value = st.session_state.get(_past_measurement_key(obj['name']))
+        problem = scale_error(obj, value)
+        if problem:
+            st.error(problem)
+            return
+        if value is not None:
+            results[obj['name']] = float(value)
+    note = str(st.session_state.get("past_note") or "").strip()
+    try:
+        opt.import_formulation(recipe, results, note or wording.IMPORTED_NOTE)
+    except (ValueError, TypeError) as e:
+        st.error(str(e))
+        return
+    if not saved_ok(opt):
+        return
+    # A caution, never a refusal: an amount outside what the project allows is
+    # a fact about work already done, and the model learns from it.
+    cautions = [c for c in (bounds_caution(opt, name, value)
+                            for name, value in recipe.items()) if c]
+    number = int(opt.formulation_ids[-1])
+    for var in opt.variables:
+        park_clear(_past_key(var['name']), None)
+    for obj in ordered:
+        park_clear(_past_measurement_key(obj['name']), None)
+    park_clear("past_note", wording.IMPORTED_NOTE)
+    flash("success", wording.formulation_added(number))
+    for caution in cautions:
+        flash("warning", caution)
+    st.rerun()
 
 
 def _import(opt):
-    with st.expander(wording.IMPORT_FORMULATIONS_EXPANDER):
-        variables = [v['name'] for v in opt.variables]
-        # By importance, as every other list of measurements on every tab.
-        measurements = [o['name'] for o in opt.measurements_by_importance()]
-        if variables or measurements:
-            st.caption(wording.import_columns_caption(
-                ", ".join(variables + measurements)))
-        else:
-            st.caption(wording.import_columns_caption_empty())
-        uploaded = st.file_uploader(
-            wording.UPLOAD_FORMULATIONS_CSV_LABEL, type=["csv"],
-            # Per project: an uploader cannot be emptied from session state,
-            # so a shared key offered the next project this one's file.
-            key=f"import_csv_{opt.project_name}")
-        # The parse is behind a button, as it is on tab 2: reading the file on
-        # every rerun left the sheet on screen after it had been imported, and
-        # a second click on Import recorded every row twice.
-        if uploaded is not None and st.button(wording.CHECK_THIS_FILE,
-                                              key="check_import"):
-            try:
-                st.session_state["_import_rows"] = pd.read_csv(uploaded)
-            except Exception:
-                st.session_state.pop("_import_rows", None)
-                st.error(wording.CSV_UNREADABLE_RETRY)
-        rows = st.session_state.get("_import_rows")
-        if rows is None:
-            return
-        st.dataframe(rows, hide_index=True)
-        missing = [c for c in variables + measurements if c not in rows.columns]
-        if missing:
-            st.error(wording.missing_columns(", ".join(missing)))
-            return
-        blank_amounts = [c for c in variables if rows[c].isna().any()]
-        if blank_amounts:
-            st.error(wording.blank_amount_columns(", ".join(blank_amounts)))
-            return
-        if not st.button(wording.IMPORT_ALL_ROWS_BUTTON, key="import_rows"):
-            return
-        # Nothing is recorded until the whole file has been read: a reading
-        # outside its range is a typo or a range that is too narrow, and it
-        # would otherwise arrive as the best formulation in the project.
-        cautions = []
-        for position, (_, row) in enumerate(rows.iterrows(), start=1):
-            for obj in opt.objectives:
-                problem = scale_error(obj, _number(row[obj['name']]))
-                if problem:
-                    st.error(wording.row_error(position, problem))
-                    return
-            for name in variables:
-                caution = bounds_caution(opt, name, _number(row[name]))
-                if caution:
-                    cautions.append(wording.row_error(position, caution))
-        imported, failure = 0, None
+    variables = [v['name'] for v in opt.variables]
+    # By importance, as every other list of measurements on every tab.
+    measurements = [o['name'] for o in opt.measurements_by_importance()]
+    if variables or measurements:
+        st.caption(wording.import_columns_caption(
+            ", ".join(variables + measurements)))
+    else:
+        st.caption(wording.import_columns_caption_empty())
+    uploaded = st.file_uploader(
+        wording.UPLOAD_FORMULATIONS_CSV_LABEL, type=["csv"],
+        # Per project: an uploader cannot be emptied from session state,
+        # so a shared key offered the next project this one's file.
+        key=f"import_csv_{opt.project_name}")
+    # The parse is behind a button, as it is on tab 2: reading the file on
+    # every rerun left the sheet on screen after it had been imported, and
+    # a second click on Import recorded every row twice.
+    if uploaded is not None and st.button(wording.CHECK_THIS_FILE,
+                                          key="check_import"):
         try:
-            for _, row in rows.iterrows():
-                # A blank measurement is a partial result here too, exactly as
-                # it is in the results grid and in an uploaded bench sheet.
-                results = {name: float(row[name]) for name in measurements
-                           if not pd.isna(row[name])}
-                opt.import_formulation(
-                    {name: float(row[name]) for name in variables}, results)
-                # Stop at the first row that did not reach the disk rather than
-                # reporting a whole file as imported.
-                if not saved_ok(opt):
-                    return
-                imported += 1
-        except (ValueError, TypeError) as e:
-            failure = e
-        if failure is not None:
-            message = wording.stopped_at_row(imported + 1, failure)
-            if imported:
-                message += wording.rows_before_saved(plural(imported, wording.ROW))
-            st.error(message)
-            return
-        st.session_state.pop("_import_rows", None)
-        flash("success", wording.imported(plural(imported, wording.FORMULATION)))
-        for caution in cautions:
-            flash("warning", caution)
-        st.rerun()
+            st.session_state["_import_rows"] = pd.read_csv(uploaded)
+        except Exception:
+            st.session_state.pop("_import_rows", None)
+            st.error(wording.CSV_UNREADABLE_RETRY)
+    rows = st.session_state.get("_import_rows")
+    if rows is None:
+        return
+    st.dataframe(rows, hide_index=True)
+    missing = [c for c in variables + measurements if c not in rows.columns]
+    if missing:
+        st.error(wording.missing_columns(", ".join(missing)))
+        return
+    blank_amounts = [c for c in variables if rows[c].isna().any()]
+    if blank_amounts:
+        st.error(wording.blank_amount_columns(", ".join(blank_amounts)))
+        return
+    if not st.button(wording.IMPORT_ALL_ROWS_BUTTON, key="import_rows"):
+        return
+    # Nothing is recorded until the whole file has been read: a reading
+    # outside its range is a typo or a range that is too narrow, and it
+    # would otherwise arrive as the best formulation in the project.
+    cautions = []
+    for position, (_, row) in enumerate(rows.iterrows(), start=1):
+        for obj in opt.objectives:
+            problem = scale_error(obj, _number(row[obj['name']]))
+            if problem:
+                st.error(wording.row_error(position, problem))
+                return
+        for name in variables:
+            caution = bounds_caution(opt, name, _number(row[name]))
+            if caution:
+                cautions.append(wording.row_error(position, caution))
+    imported, failure = 0, None
+    try:
+        for _, row in rows.iterrows():
+            # A blank measurement is a partial result here too, exactly as
+            # it is in the results grid and in an uploaded bench sheet.
+            results = {name: float(row[name]) for name in measurements
+                       if not pd.isna(row[name])}
+            opt.import_formulation(
+                {name: float(row[name]) for name in variables}, results)
+            # Stop at the first row that did not reach the disk rather than
+            # reporting a whole file as imported.
+            if not saved_ok(opt):
+                return
+            imported += 1
+    except (ValueError, TypeError) as e:
+        failure = e
+    if failure is not None:
+        message = wording.stopped_at_row(imported + 1, failure)
+        if imported:
+            message += wording.rows_before_saved(plural(imported, wording.ROW))
+        st.error(message)
+        return
+    st.session_state.pop("_import_rows", None)
+    flash("success", wording.imported(plural(imported, wording.FORMULATION)))
+    for caution in cautions:
+        flash("warning", caution)
+    st.rerun()
+
+
+def _edit_past(opt, storage):
+    """`Edit past formulations`: one collapsed section for every way the
+    record is fixed after the fact. Returns the open correction, or None —
+    the foot above it reads that and steps aside.
+
+    The three parts were three controls of their own, and the only way to
+    enter work done before the project existed hid inside the third."""
+    if not (opt.X_history or opt.skipped or opt.variables):
+        return None
+    with st.expander(wording.EDIT_PAST_FORMULATIONS_EXPANDER):
+        st.markdown(wording.CORRECT_A_FORMULATION_HEADING)
+        pending = _correct(opt)
+        st.divider()
+        st.markdown(wording.DELETE_FORMULATIONS_HEADING)
+        _delete_formulations(opt, storage)
+        st.divider()
+        st.markdown(wording.ADD_PAST_FORMULATION_HEADING)
+        _add_past(opt)
+    return pending
 
 
 def render(opt, storage):
@@ -516,15 +707,16 @@ def render(opt, storage):
         if st.button(label, type="primary" if lit else "secondary",
                      disabled=not lit, key="first_batch") and lit:
             go_to_tab(target)
-        # A fresh project is exactly when someone imports past work.
-        _import(opt)
+        # A fresh project is exactly when someone enters past work: there is
+        # nothing yet to correct or delete, but the section is where both the
+        # typed formulation and the CSV live.
+        _edit_past(opt, storage)
         return
     if not opt.objectives:
         st.info(wording.ADD_MEASUREMENT_RESCORE_INFO)
     said_partial = _best(opt)
     st.divider()
     _all_formulations(opt, said_partial)
-    pending = _correct(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
     # confirmation armed by a click in one of the collapsed sections below it
@@ -533,8 +725,7 @@ def render(opt, storage):
     foot = st.container()
     st.divider()
     _progress_chart(opt)
-    _remove_batch_or_formulation(opt, storage)
-    _import(opt)
+    pending = _edit_past(opt, storage)
     with foot:
         _foot(opt, pending is not None)
     if pending is not None:

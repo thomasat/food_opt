@@ -1653,8 +1653,22 @@ class FoodOptimizer:
         self.Y_history[index] = self._compute_utility(new_results_dict)
         self.save()
 
-    def delete_result(self, index):
-        """Delete one formulation. Later formulations keep their numbers."""
+    def edit_amounts(self, index, recipe_dict):
+        """Correct the amounts a past formulation was actually made with.
+
+        The encoded row goes with them: the model reads X_history, so a
+        recipe fixed on screen and left un-encoded would keep steering the
+        next batch towards a formulation nobody made."""
+        if index < 0 or index >= len(self.recipe_history):
+            raise IndexError("There is no formulation at that position.")
+        self.recipe_history[index] = dict(recipe_dict)
+        self.X_history[index] = self._encode(recipe_dict)
+        self.save()
+
+    def _drop_result(self, index):
+        """Take one scored formulation out of every parallel history. No save:
+        the caller decides when the file is written, so several deletions can
+        share one."""
         if index < 0 or index >= len(self.X_history):
             raise IndexError("There is no formulation at that position.")
         self.X_history.pop(index)
@@ -1664,6 +1678,10 @@ class FoodOptimizer:
                     self.batch_history, self.notes_history):
             if index < len(lst):
                 lst.pop(index)
+
+    def delete_result(self, index):
+        """Delete one formulation. Later formulations keep their numbers."""
+        self._drop_result(index)
         self.save()
 
     def rewind_to(self, index):
@@ -2132,6 +2150,30 @@ class FoodOptimizer:
             self.save()
             return True
         return False
+
+    def delete_formulations(self, numbers):
+        """Delete several formulations by number, recorded or not made, in one
+        save. Returns how many went.
+
+        The scored rows go highest position first: every list here is
+        parallel, so deleting position 1 before position 3 would shift the
+        row out from under the second delete and take a formulation nobody
+        picked."""
+        wanted = {int(n) for n in numbers}
+        positions = sorted(
+            (i for i in (self.index_of_formulation(n) for n in wanted)
+             if i is not None), reverse=True)
+        gone = 0
+        for index in positions:
+            self._drop_result(index)
+            gone += 1
+        before = len(self.skipped)
+        self.skipped = [s for s in self.skipped
+                        if int(s['formulation']) not in wanted]
+        gone += before - len(self.skipped)
+        if gone:
+            self.save()
+        return gone
 
     def last_batch_no(self):
         """The highest batch number in the recorded history. Left-out

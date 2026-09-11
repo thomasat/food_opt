@@ -1753,6 +1753,63 @@ class TestFormulationIdentity:
         assert reloaded.pending_batch_no == 1
 
 
+    def test_edit_amounts_reencodes_the_row_and_saves(self, tmp_path, monkeypatch):
+        """A correction to the amounts is not a note: the model reads
+        X_history, so the row has to be encoded again or the project keeps
+        scoring a formulation nobody made."""
+        opt = self._opt(tmp_path, monkeypatch, name="editamounts")
+        opt.add_ingredient("Pea protein", 0, 25)
+        opt.tell({"Water": 20.0, "Pea protein": 10.0}, {"Firmness": 5.0},
+                 formulation_no=1, batch_no=1)
+        before = list(opt.X_history[0])
+        opt.edit_amounts(0, {"Water": 20.0, "Pea protein": 12.0})
+        assert opt.recipe_history[0] == {"Water": 20.0, "Pea protein": 12.0}
+        assert opt.X_history[0] != before
+        assert opt.X_history[0] == opt._encode({"Water": 20.0,
+                                                "Pea protein": 12.0})
+        reloaded = FoodOptimizer("editamounts")
+        assert reloaded.recipe_history[0]["Pea protein"] == 12.0
+        assert reloaded.X_history[0] == opt.X_history[0]
+
+    def test_edit_amounts_refuses_a_position_that_is_not_there(self, tmp_path,
+                                                               monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="editamounts2")
+        with pytest.raises(IndexError):
+            opt.edit_amounts(0, {"Water": 1.0})
+
+    def test_delete_formulations_takes_recorded_and_not_made_rows_in_one_save(
+            self, tmp_path, monkeypatch):
+        """Three numbers, one of them never made, and one write to the disk:
+        deleting row by row saved four times and, done in the wrong order,
+        deleted the wrong rows as the positions shifted."""
+        opt = self._opt(tmp_path, monkeypatch, name="delmany")
+        for n in (1, 2, 3):
+            opt.tell({"Water": 10.0 * n}, {"Firmness": 5.0},
+                     formulation_no=n, batch_no=1, note=f"n{n}")
+        opt.record_skipped(4, 1, {"Water": 40.0})
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0}, formulation_no=5, batch_no=2)
+        saves = []
+        real_save = opt.save
+        opt.save = lambda *a, **k: saves.append(1) or real_save(*a, **k)
+        gone = opt.delete_formulations([1, 4, 3])
+        assert gone == 3
+        assert len(saves) == 1, saves
+        opt.save = real_save
+        assert opt.formulation_ids == [2, 5]
+        assert opt.notes_history == ["n2", ""]
+        assert opt.skipped == []
+        assert len(opt.X_history) == len(opt.Y_history) == 2
+        reloaded = FoodOptimizer("delmany")
+        assert reloaded.formulation_ids == [2, 5]
+
+    def test_delete_formulations_ignores_a_number_it_does_not_hold(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="delmany2")
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
+        assert opt.delete_formulations([9]) == 0
+        assert opt.formulation_ids == [1]
+
+
 class TestUnitsAndImportance:
     def _opt(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

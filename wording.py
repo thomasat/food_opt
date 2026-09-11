@@ -902,26 +902,37 @@ DOWNLOAD_ALL_FORMULATIONS_HELP = ("Amounts are unitless in this file so it "
                                   "screen. Formulations that were not made "
                                   "are not included.")
 
-CORRECT_A_RESULT_LABEL = "Correct a result"
+# ---------------------------------------------------------------- #
+# `Edit past formulations`: one collapsed section for every way the
+# record is fixed after the fact. It replaced three separate controls
+# — a correction picker, a delete section and an import expander —
+# the last of which hid the only way to enter work done before the
+# project existed.
+# ---------------------------------------------------------------- #
+EDIT_PAST_FORMULATIONS_EXPANDER = f"Edit past {FORMULATION}s"
+
+CORRECT_A_FORMULATION_HEADING = f"##### Correct a {FORMULATION}"
+
+
+def no_formulation_to_correct_caption():
+    return f"No {FORMULATION} to correct yet."
+
+
 FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION = ("Formulations that were not made "
                                            "have no result to correct.")
-ADD_MEASUREMENT_BEFORE_CORRECTING_INFO = ("Add a measurement in Set up "
-                                          "before correcting a result.")
 LEAVE_BLANK_KEEP_VALUE_HELP = "Leave blank to keep the value already recorded."
 SAVE_CORRECTION_BUTTON = "Save correction"
-ENTER_VALUE_AT_LEAST_ONE_ERROR = "Enter a value for at least one measurement."
 
 
 def formulation_unchanged(no):
     return f"{FORMULATION_CAP} {no} is unchanged."
 
 
-def formulation_corrected(no, name, was_text, now_text):
-    return f"{FORMULATION_CAP} {no} {name} corrected {was_text} → {now_text}."
-
-
-def formulation_recorded_as(no, name, now_text):
-    return f"{FORMULATION_CAP} {no} {name} recorded as {now_text}."
+def formulation_corrected(no):
+    """One sentence for the whole correction. A row can now change its
+    amounts and its measurements in one save, and naming every number that
+    moved made a flash longer than the table it described."""
+    return f"{FORMULATION_CAP} {no} corrected."
 
 
 def back_to_batch_label(no, n):
@@ -938,32 +949,18 @@ PROGRESS_CHART_CAPTION = ("Each formulation's overall score, and the best "
                           "so far. When the top line stops rising, you are "
                           "close to the best this ingredient list can do.")
 
-DELETE_BATCH_OR_FORMULATION_EXPANDER = f"Delete a {BATCH} or a {FORMULATION}"
-BATCH_NOT_RECORDED_BEFORE_VERSION_CAPTION = (
-    f"{BATCH_CAP}es were not recorded before this version. You can delete one "
-    "formulation at a time below.")
-
-
-def no_batch_to_delete_caption():
-    return f"No {BATCH} to delete yet."
-
-
 def batch_open_record_first_caption():
+    """food_bo.undo_last_batch's refusal. No screen reaches it any more —
+    the Delete the last batch button retired with this section — but the
+    method stays for its tests and it still has to speak English."""
     return f"Record or discard the open {BATCH} first."
 
 
-DELETE_LAST_BATCH_BUTTON = f"Delete the last {BATCH}"
-
-
-def delete_last_batch_warning(no, formulations_text):
-    return f"Deletes {BATCH} {no} and its {formulations_text}. " + COPY_KEPT
-
-
-def batch_deleted(no):
-    return f"{BATCH_CAP} {no} deleted. " + COPY_KEPT
-
-
-FORMULATION_TO_DELETE_LABEL = f"{FORMULATION_CAP} to delete"
+DELETE_FORMULATIONS_HEADING = f"##### Delete {FORMULATION}s"
+FORMULATIONS_TO_DELETE_LABEL = f"{FORMULATION_CAP}s to delete"
+# The quick pick beside the list: one batch's formulations, recorded and not
+# made alike, dropped into the selection to be looked over before deleting.
+WHOLE_BATCH_LABEL = f"Whole {BATCH}"
 
 
 def no_formulation_to_delete_caption():
@@ -974,16 +971,41 @@ def delete_formulation_button(no):
     return f"Delete {FORMULATION_CAP} {no}"
 
 
+def delete_formulations_button(formulations_text):
+    return f"Delete {formulations_text}"
+
+
 def delete_formulation_warning(no):
     return (f"Delete {FORMULATION_CAP} {no}? Later formulations keep their "
             "numbers. " + COPY_KEPT)
+
+
+def delete_formulations_warning(numbers_text):
+    return (f"Delete {FORMULATION_CAP}s {numbers_text}? Later formulations "
+            "keep their numbers. " + COPY_KEPT)
 
 
 def formulation_deleted(no):
     return f"{FORMULATION_CAP} {no} deleted. " + COPY_KEPT
 
 
-IMPORT_FORMULATIONS_EXPANDER = f"Import past {FORMULATION}s from a CSV"
+def formulations_deleted(numbers_text):
+    return f"{FORMULATION_CAP}s {numbers_text} deleted. " + COPY_KEPT
+
+
+ADD_PAST_FORMULATION_LABEL = f"Add a {FORMULATION} you already made"
+ADD_PAST_FORMULATION_HEADING = "##### " + ADD_PAST_FORMULATION_LABEL
+TYPE_IT_IN = "Type it in"
+UPLOAD_A_CSV = "Upload a CSV"
+# What a formulation made before this project existed is noted as, and what
+# the Note box opens holding. food_bo.import_formulation defaults to the same
+# word, so a row typed in and a row read off a CSV read alike.
+IMPORTED_NOTE = "Imported"
+ADD_THIS_FORMULATION = f"Add this {FORMULATION}"
+
+
+def formulation_added(no):
+    return f"{FORMULATION_CAP} {no} added."
 
 
 def import_columns_caption(names_text):
