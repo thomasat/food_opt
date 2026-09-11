@@ -487,7 +487,9 @@ HOW_IT_WORKS = [
     "top scores 0.",
     "Hit a target: closeness is 1 at the target and falls evenly with "
     "distance, by one point per full range; the lowest score depends on how "
-    "far the target sits from the ends of your range.",
+    "far the target sits from the ends of your range. Because of that "
+    "floor, a measurement with a target pulls on the score a little less "
+    "than its share says.",
     "The overall score is the weighted sum of closeness. The model learns "
     "this one number, so changing an importance or a range re-scores every "
     "past formulation.",
@@ -705,6 +707,7 @@ MEASUREMENTS_HEADER = "Measurements and targets"
 ADD_A_MEASUREMENT_EXPANDER = "Add a measurement"
 MEASUREMENT_COLUMN = "Measurement"
 RANGE_COLUMN = "Range"
+COL_SHARE = "Share of score"
 
 
 def edit_button(name):

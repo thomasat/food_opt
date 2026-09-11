@@ -848,6 +848,7 @@ def _measurements(opt, storage):
         wording.GOAL_LABEL: _goal_text(o),
         wording.RANGE_COLUMN: _range_text(o),
         wording.IMPORTANCE_LABEL: float(o['weight']),
+        wording.COL_SHARE: opt.share_text(o['name']),
     } for o in ordered]), hide_index=True, key="measurement_table",
         height=table_height(len(ordered)))
     for obj in ordered:

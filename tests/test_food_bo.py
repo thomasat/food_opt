@@ -1912,14 +1912,26 @@ class TestUnitsAndImportance:
         opt = self._opt(tmp_path, monkeypatch)
         assert [o["name"] for o in opt.measurements_by_importance()] == ["Firmness", "Juiciness"]
 
-    def test_score_function_line_is_the_spec_sentence(self, tmp_path, monkeypatch):
+    def test_score_line_carries_the_shares(self, tmp_path, monkeypatch):
         """No sentence about distance from a target: two of the three goals
         have none, and how closeness works lives in the expander below."""
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.score_function_line() == (
-            "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness "
-            "closeness. Every measurement at its goal scores 2.50."
+            "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
+            "Juiciness closeness. Every measurement at its goal scores 2.50."
         )
+
+    def test_share_of_score_sums_to_one_and_reads_as_whole_percent(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.share_of_score("Firmness") == pytest.approx(0.6)
+        assert opt.share_of_score("Juiciness") == pytest.approx(0.4)
+        assert opt.share_text("Firmness") == "60 %"
+        assert opt.share_text("Juiciness") == "40 %"
+
+    def test_food_bo_join_unit_agrees_with_ui_helpers(self):
+        import ui_helpers
+        from food_bo import join_unit
+        assert join_unit(60, "%") == ui_helpers.join_unit(60, "%") == "60 %"
 
     def test_update_objective_recomputes_scores_and_keeps_the_open_batch(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2647,7 +2659,9 @@ _BANNED = [
     # per concept. Delete replaces Remove everywhere (they were the same act
     # under two verbs, and Delete no longer belongs to the project alone);
     # Type replaces Kind; Range replaces Scale for a measurement; Repeat
-    # replaces Remake; and Share is gone outright.
+    # replaces Remake; and Share was gone outright, back when it was a bare
+    # column whose meaning was unclear. It now returns as "Share of score",
+    # which says what it is a share of, so only a bare "Share" is banned.
     #
     # The batch wording wave (2026-09-10): the owner's team calls a round of
     # formulations a BATCH, so TRIAL — the old name for that same set — is
@@ -2658,7 +2672,7 @@ _BANNED = [
     re.compile(r"\bKind\b"),
     re.compile(r"\bRemove\b"),
     re.compile(r"\bRemake\b"),
-    re.compile(r"\bShare\b"),
+    re.compile(r"\bShare\b(?! of score)"),
 ]
 
 class TestRoundTwoFixes:
@@ -2796,7 +2810,7 @@ _SWIFT_NOT_PROSE = ("font-weight",)
 _SINGLE_WORDS = re.compile(
     # 'ranges', not 'range': Range is the measurement's own column header.
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
-    r"|priority|trials?|kind|scales?|remove|remake|share)$", re.I)
+    r"|priority|trials?|kind|scales?|remove|remake)$", re.I)
 
 
 def _how_it_works():
@@ -2843,9 +2857,10 @@ def test_no_old_vocabulary_reaches_the_user():
     measurement, weight → importance, ranges → allowed amounts (a
     measurement's own Range is the one exception), rewind → undo, trial →
     batch, Kind → Type, Scale → Range, Remove → Delete, Remake → Repeat,
-    Share → gone, and nothing on screen mentions an algorithm or
-    optimization. 'Overall Score' → 'Overall score'. The one exemption is
-    the How it works expander, which exists to say these words once."""
+    a bare Share → gone (it now returns only as "Share of score"), and
+    nothing on screen mentions an algorithm or optimization. 'Overall
+    Score' → 'Overall score'. The one exemption is the How it works
+    expander, which exists to say these words once."""
     root = pathlib.Path(__file__).resolve().parent.parent
     allowed = _ALLOWED_EXACT | _how_it_works()
     offenders = []

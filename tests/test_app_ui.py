@@ -804,22 +804,21 @@ def test_measurements_table_is_sorted_by_importance(burger):
     at.run()
     table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
     # No Priority column: it was the row's position in a table already sorted
-    # by importance, which is the same fact written twice. And no Share: it
-    # read w / Σw, which is not a measurement's influence on the score once
-    # any goal is a target.
+    # by importance, which is the same fact written twice.
     assert list(table.columns) == ["Measurement", "Goal", "Range",
-                                   "Importance"]
+                                   "Importance", "Share of score"]
     assert list(table["Measurement"]) == ["Firmness", "Juiciness (/10)"]
     assert list(table["Goal"]) == ["Target 6 N", "Target 7"]
     assert list(table["Range"]) == ["0 to 10 N", "0 to 10"]
+    assert list(table["Share of score"]) == ["60 %", "40 %"]
 
 
 def test_the_score_function_is_written_out_under_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(c.value == (
-        "Overall score = 1.5 × Firmness closeness + 1.0 × Juiciness "
-        "closeness. Every measurement at its goal scores 2.50."
+        "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
+        "Juiciness closeness. Every measurement at its goal scores 2.50."
     ) for c in at.caption), [c.value for c in at.caption]
     # How closeness works is said once, in the expander, per goal.
     assert not any("falls evenly with distance" in c.value for c in at.caption)

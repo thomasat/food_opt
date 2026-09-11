@@ -137,10 +137,11 @@ def goal_line(obj):
 
 
 def _fmt_weight(w):
-    """'1.0', '1.5', '2.25' — an importance always shows a decimal, so the
-    written-out score function reads as arithmetic, not as a rank."""
-    txt = f"{float(w):.2f}".rstrip("0")
-    return txt + "0" if txt.endswith(".") else txt
+    """'1', '1.5', '2.25' — a whole importance drops its decimal now that
+    its share of the score sits right beside it in parentheses; anything
+    with a fraction still shows one."""
+    txt = f"{float(w):.2f}".rstrip("0").rstrip(".")
+    return txt
 
 
 # --------------------------------------------------------------------------- #
@@ -1051,12 +1052,27 @@ class FoodOptimizer:
         ties in the order they were added."""
         return sorted(self.objectives, key=lambda o: -float(o['weight']))
 
+    def share_of_score(self, name):
+        """This measurement's importance as a fraction of the sum, in
+        [0, 1]. Reads as the measurement's share of the score, not of a
+        target's distance: two of the three goals have no target."""
+        total = sum(float(o['weight']) for o in self.objectives)
+        obj = next(o for o in self.objectives if o['name'] == name)
+        return float(obj['weight']) / total if total else 0.0
+
+    def share_text(self, name):
+        """'60 %' — this measurement's share of the score, as a whole
+        percent."""
+        return join_unit(f"{round(100 * self.share_of_score(name)):d}", "%")
+
     def score_function_line(self):
-        """The one line under the measurements table that writes the score out."""
+        """The one line under the measurements table that writes the score
+        out, each importance beside its share of the total."""
         if not self.objectives:
             return ""
         terms = " + ".join(
-            f"{_fmt_weight(o['weight'])} × {o['name']} closeness"
+            f"{_fmt_weight(o['weight'])} ({self.share_text(o['name'])}) "
+            f"× {o['name']} closeness"
             for o in self.measurements_by_importance()
         )
         # How closeness is worked out belongs in the expander below this
