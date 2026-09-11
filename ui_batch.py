@@ -427,7 +427,7 @@ def _record_results(opt):
         # be typed by someone who knew to type it first.
         st.text_input(wording.NOTE, key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox(wording.NOT_MADE_LABEL, key=f"f{number}_leave_out",
+        st.checkbox(wording.NOT_MADE, key=f"f{number}_leave_out",
                     help=wording.NOT_MADE_HELP)
         if has_value and not skip:
             entered += 1
@@ -495,7 +495,7 @@ def _save_results(opt, kept, left_out, to_record):
             # about not having been made.
             opt.record_skipped(number, batch_no, row['recipe'],
                                note=(wording.not_made_with_note(note) if note
-                                     else wording.NOT_MADE_NOTE_PREFIX))
+                                     else wording.NOT_MADE))
     opt.set_pending_batch(None)
     st.session_state.pop("scale_total", None)
     st.session_state.pop("_results_upload", None)

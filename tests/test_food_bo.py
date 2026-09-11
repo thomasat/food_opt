@@ -2767,6 +2767,15 @@ _ALLOWED_EXACT = {
     "**? It has no formulations yet, "
     "and it leaves this list. ",
     "** and its ",
+    # The How it works bullet that names the trial/batch is an f-string built
+    # from BATCH (wording.HOW_IT_WORKS), so the scan sees its static half —
+    # everything after the {BATCH} interpolation — as its own fragment. It
+    # says "the optimizer's batch" on purpose, naming the internal word for
+    # the same How it works exemption HOW_IT_WORKS already carries as a
+    # whole; this is that same exemption, just split by the f-string.
+    "s are chosen together — one set, chosen jointly, the optimizer's batch "
+    "— from what the results suggest, some to test an idea rather than beat "
+    "the best.",
 }
 
 # Fragments of the sidebar's delete-the-project sentences (they are f-strings,

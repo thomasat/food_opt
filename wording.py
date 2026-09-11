@@ -287,7 +287,7 @@ def generate_button_label(n):
 
 FIRST_FIVE_SPREAD = (
     "The first five formulations are spread across the "
-    "allowed amounts; later trials aim closer to your "
+    f"allowed amounts; later {BATCH}s aim closer to your "
     "targets."
 )
 EACH_BATCH_AIMS_CLOSER = f"Each {BATCH} aims closer to your targets."
@@ -376,7 +376,7 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
-NOT_MADE_LABEL = "Not made"
+NOT_MADE = "Not made"
 NOT_MADE_HELP = "Type why in Note; it is kept with the formulation."
 
 NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
@@ -398,9 +398,6 @@ SAVED_WHEN_SUFFIX = " · saved when you press Save results"
 
 def could_not_save(e):
     return f"Could not save these results: {e}"
-
-
-NOT_MADE_NOTE_PREFIX = "Not made"
 
 
 def not_made_with_note(note):
@@ -497,7 +494,7 @@ HOW_IT_WORKS = [
     "Limits are hard constraints applied when formulations are generated; an "
     "ingredient with no value for a property counts as containing none.",
     "The first five formulations are spread across the allowed amounts; "
-    "later trials are chosen together — one set, chosen jointly, the "
+    f"later {BATCH}s are chosen together — one set, chosen jointly, the "
     "optimizer's batch — from what the results suggest, some to test an idea "
     "rather than beat the best.",
     "A repeat is a second reading of one formulation; it teaches the model "
@@ -923,7 +920,7 @@ PROGRESS_CHART_CAPTION = ("Each formulation's overall score, and the best "
 
 DELETE_BATCH_OR_FORMULATION_EXPANDER = f"Delete a {BATCH} or a {FORMULATION}"
 BATCH_NOT_RECORDED_BEFORE_VERSION_CAPTION = (
-    "Trials were not recorded before this version. You can delete one "
+    f"{BATCH_CAP}s were not recorded before this version. You can delete one "
     "formulation at a time below.")
 
 
