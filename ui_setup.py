@@ -679,8 +679,8 @@ def _limit_label(opt, qc):
 
 def _measurement_editor(opt, storage, editing):
     """The add/edit fields. `editing` is the measurement being changed, or
-    None when adding a new one. No st.form: the Target box greys itself out
-    the moment the goal changes, which a form would defer to its submit."""
+    None when adding a new one. No st.form: the Target box comes and goes the
+    moment the goal changes, which a form would defer to its submit."""
     if editing is None:
         st.session_state.setdefault(_mkey(None, "name"), "")
         name = st.text_input(wording.NAME_LABEL, key=_mkey(None, "name"),
