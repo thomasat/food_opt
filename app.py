@@ -15,8 +15,8 @@ from food_bo import FoodOptimizer
 from ui_helpers import (
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
-    open_rows, other_confirmation, park_clear, plural, render_flash,
-    saved_line, saved_ok, take_clear,
+    open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
+    render_flash, saved_line, saved_ok, take_clear,
 )
 
 STORAGE = storage_backend.LocalStorage()
@@ -377,6 +377,9 @@ with st.sidebar:
                 with rc2:
                     if st.button(wording.CANCEL, use_container_width=True, key="restore_cancel"):
                         st.session_state.pop("_restore_candidate", None)
+                        # This rerun never reaches the tabs; without this the
+                        # forms on them would come back empty.
+                        preserve_tab_forms()
                         st.rerun()
 
         with st.expander(wording.MANAGE_PROJECT):
@@ -388,6 +391,7 @@ with st.sidebar:
                      opt.project_name, plural(_held(opt), wording.FORMULATION))),
                 confirm_label=wording.YES_START_OVER,
                 disabled=other_confirmation("hard_reset"),
+                preserve=True,
             ):
                 _target = opt.project_name
                 try:
@@ -423,6 +427,7 @@ with st.sidebar:
                      opt.project_name, plural(_held(opt), wording.FORMULATION))),
                 confirm_label=wording.YES_DELETE_IT,
                 disabled=other_confirmation("delete_project"),
+                preserve=True,
             ):
                 _target = opt.project_name
                 try:

@@ -218,8 +218,12 @@ PROJECT_RELOADED = "Project reloaded from the latest saved copy."
 
 
 def batch_discarded_notice():
-    return (f"The open {BATCH} was discarded because the ingredient list or "
-            "its allowed amounts changed since it was generated.")
+    """An own formulation was never generated, and pausing a variable
+    discards the batch too, so neither "generated" nor the ingredient list
+    alone can name what happened."""
+    return (f"The open {BATCH} was discarded because the ingredient list, a "
+            "paused ingredient or setting, or the allowed amounts changed "
+            "since it was made.")
 
 
 def project_created(name):
@@ -312,6 +316,15 @@ def make_these(no, n):
     word = FORMULATION if n == 1 else FORMULATION + "s"
     return (f"**{BATCH_CAP} {no} · make "
             f"{'this' if n == 1 else 'these'} {n} {word}**")
+
+
+# Every row in the batch is one the user added by hand, so there is no
+# Generate control on the screen and nothing else would say why.
+ONLY_OWN_FORMULATIONS_CAPTION = (
+    "This batch holds only your own formulations. To have generated ones as "
+    f"well, discard it with Generate a different {BATCH}, then generate "
+    "first."
+)
 
 
 def batch_discarded_caption(numbers_text):
@@ -831,6 +844,14 @@ KERNEL_LABEL = "Kernel"
 LENGTHSCALE_PRIOR_LABEL = "Lengthscale prior"
 NOISE_LABEL = "Noise"
 ACQUISITION_LABEL = "Acquisition"
+# The four option lists. They are the specialist's own vocabulary rather than
+# prose, but they are still words on screen, and food_bo.validate_bo_config
+# checks a stored config against these same lists — one list each, read from
+# here, so a name added to a box cannot be refused by the loader.
+KERNEL_OPTIONS = ["matern52", "matern32", "rbf", "linear", "poly2"]
+LENGTHSCALE_PRIOR_OPTIONS = ["default", "long", "short"]
+NOISE_OPTIONS = ["default", "low", "fixed_tiny"]
+ACQUISITION_OPTIONS = ["qlognei", "qlogei", "qucb"]
 FIXED_TINY_NOISE_CAPTION = ("`fixed_tiny` noise suits a deterministic "
                             "measurement, not a sensory panel — keep "
                             "`default` unless you have a specific reason.")
@@ -891,16 +912,20 @@ def overall_score_caption(score, ceiling, partial):
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
 SORT_LABEL = "Sort"
-# Also matched exactly in food_bo.history_frame(order=...) — a protocol
-# between that module and this one, not display prose that happens to
-# repeat; both import it from here so the two never drift apart.
+# The three options, in the order the box offers them. Each is also matched
+# exactly in food_bo.history_frame(order=...) — a protocol between that
+# module and this one, not display prose that happens to repeat — so both
+# read them from here and the two can never drift apart.
+SORT_BEST_FIRST = "Best first"
+SORT_NEWEST_FIRST = "Newest first"
 SORT_BATCH_ORDER = f"{BATCH_CAP} order"
+SORT_OPTIONS = [SORT_BEST_FIRST, SORT_NEWEST_FIRST, SORT_BATCH_ORDER]
 SHOW_AMOUNTS_TOGGLE = "Show amounts"
 DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (CSV)"
-DOWNLOAD_ALL_FORMULATIONS_HELP = ("Amounts are unitless in this file so it "
-                                  "can be imported back; units are shown on "
-                                  "screen. Formulations that were not made "
-                                  "are not included.")
+DOWNLOAD_ALL_FORMULATIONS_HELP = ("One row per formulation, with the same "
+                                  "units the screen shows. Formulations "
+                                  "nobody made are included, with their "
+                                  "measurements blank.")
 
 # ---------------------------------------------------------------- #
 # `Edit past formulations`: one collapsed section for every way the

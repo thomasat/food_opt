@@ -319,16 +319,19 @@ def _variable_table(opt):
     # setting that has one.
     any_paused = any(not v.get('active', True) for v in rows)
     any_baseline = any(v.get('_absent_value') is not None for v in rows)
+    # The three headers are the add form's own labels, so the table and the
+    # boxes above it name the same four answers with the same four words.
     frame = pd.DataFrame([{
-        "Type": (KIND_INGREDIENT if v.get('category', 'ingredient') == 'ingredient'
-                 else KIND_SETTING),
-        "Name": v['name'],
+        wording.TYPE_LABEL: (KIND_INGREDIENT
+                             if v.get('category', 'ingredient') == 'ingredient'
+                             else KIND_SETTING),
+        wording.NAME_LABEL: v['name'],
         wording.LOWEST_LABEL: float(v['bounds'][0]),
         wording.HIGHEST_LABEL: float(v['bounds'][1]),
         # Plain Lowest and Highest with a Unit column of their own: "Lowest
         # (g)" over a row measured in ml was a lie, and the water really is
         # in ml.
-        "Unit": opt.unit_of(v['name']),
+        wording.UNIT_LABEL: opt.unit_of(v['name']),
         **({wording.BASELINE_LABEL: (fmt_setting(v.get('_absent_value'),
                                      opt.unit_of(v['name']))
                          if v.get('_absent_value') is not None else "")}
@@ -1112,16 +1115,16 @@ def _advanced(opt):
             b1, b2 = st.columns(2)
             with b1:
                 kernel = st.selectbox(wording.KERNEL_LABEL,
-                                      ["matern52", "matern32", "rbf", "linear", "poly2"],
+                                      wording.KERNEL_OPTIONS,
                                       key="bo_kernel")
                 prior = st.selectbox(wording.LENGTHSCALE_PRIOR_LABEL,
-                                     ["default", "long", "short"],
+                                     wording.LENGTHSCALE_PRIOR_OPTIONS,
                                      key="bo_prior")
             with b2:
-                noise = st.selectbox(wording.NOISE_LABEL, ["default", "low", "fixed_tiny"],
-                                     key="bo_noise")
+                noise = st.selectbox(wording.NOISE_LABEL,
+                                     wording.NOISE_OPTIONS, key="bo_noise")
                 acq = st.selectbox(wording.ACQUISITION_LABEL,
-                                   ["qlognei", "qlogei", "qucb"],
+                                   wording.ACQUISITION_OPTIONS,
                                    key="bo_acq")
             st.caption(wording.FIXED_TINY_NOISE_CAPTION)
             if st.button(wording.APPLY_EXPERT_SETTINGS_BUTTON, key="bo_apply"):

@@ -1,6 +1,8 @@
 """Tests for ui_helpers: the two UI patterns every destructive/saving action uses."""
 from streamlit.testing.v1 import AppTest
 
+import wording
+
 FLASH_SCRIPT = """
 import streamlit as st
 from ui_helpers import flash, render_flash
@@ -404,7 +406,13 @@ def _literal_texts(node):
     """The literal (non-interpolated) text chunks `node` would contribute if
     it were the argument actually handed to an st.* call: a plain string, the
     fixed chunks of an f-string (never the {expr} parts — those are data, not
-    prose), and both sides of a `+` or a ternary, recursively."""
+    prose), both sides of a `+` or a ternary, every element of a list and
+    every key of a dict, recursively.
+
+    The list and the dict are here because the two commonest screen texts
+    that are not a label are a select box's options and a table's column
+    headers, and both arrive as a literal collection rather than as the
+    argument itself."""
     import ast
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         yield node.value
@@ -418,6 +426,15 @@ def _literal_texts(node):
     elif isinstance(node, ast.IfExp):
         yield from _literal_texts(node.body)
         yield from _literal_texts(node.orelse)
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        for element in node.elts:
+            yield from _literal_texts(element)
+    elif isinstance(node, ast.Dict):
+        # Keys only: a dict handed to an st.* call is a table's row, and the
+        # words the reader sees are its column headers.
+        for key in node.keys:
+            if key is not None:
+                yield from _literal_texts(key)
 
 
 def _stray_literals(path):
@@ -443,6 +460,31 @@ def _stray_literals(path):
                 if text != "" and any(c.isalpha() for c in text):
                     offenders.append((path.name, getattr(arg, "lineno", "?"), text))
     return offenders
+
+
+def test_the_discarded_notice_names_every_way_a_batch_is_discarded():
+    """An own formulation was never generated, and pausing an ingredient
+    discards the batch too — so "since it was generated" named neither the
+    row nor the edit in the two commonest cases."""
+    notice = wording.batch_discarded_notice()
+    assert "generated" not in notice, notice
+    assert "paused ingredient or setting" in notice, notice
+    assert notice.endswith("changed since it was made."), notice
+
+
+def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():
+    """A select box's options and a table's column headers are the two
+    commonest screen texts that are not the argument itself, and the guard
+    used to walk straight past both."""
+    import ast
+    tree = ast.parse('st.selectbox(LABEL, ["Best first", wording.X])\n'
+                     'st.table([{"Type": a, wording.NAME: b}])\n')
+    args = [node.args[1] if len(node.args) > 1 else node.args[0]
+            for node in ast.walk(tree) if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and getattr(node.func.value, "id", None) == "st"]
+    found = [t for arg in args for t in _literal_texts(arg)]
+    assert found == ["Best first", "Type"], found
 
 
 @pytest.mark.parametrize("name", _WORDING_HELD_FILES)

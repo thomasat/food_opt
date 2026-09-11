@@ -152,10 +152,12 @@ def _fmt_weight(w):
 #  start (not per iteration): the GP's lengthscale/noise VALUES still refit from
 #  data each iteration via MLE; only the structural config is fixed a priori.
 # --------------------------------------------------------------------------- #
-_KERNELS = {"matern52", "matern32", "rbf", "linear", "poly2"}
-_LENGTHSCALE = {"default", "long", "short"}
-_NOISE = {"default", "low", "fixed_tiny"}
-_ACQ = {"qlognei", "qlogei", "qucb"}
+# The same four lists the expert boxes on Set up offer, read from wording so
+# a value the screen can pick can never be one the loader refuses.
+_KERNELS = set(wording.KERNEL_OPTIONS)
+_LENGTHSCALE = set(wording.LENGTHSCALE_PRIOR_OPTIONS)
+_NOISE = set(wording.NOISE_OPTIONS)
+_ACQ = set(wording.ACQUISITION_OPTIONS)
 _LS_PRIORS = {"default": (3.0, 6.0), "long": (3.0, 1.0), "short": (3.0, 12.0)}
 DEFAULT_BO_CONFIG = {
     "kernel": "matern52", "lengthscale_prior": "default",
@@ -244,6 +246,11 @@ class FoodOptimizer:
         self.skipped = []             # generated but never scored: dicts with
                                       # formulation / batch / recipe / note
         self.next_formulation_no = 1
+        # The same rule for batches: a batch number is permanent. Deriving it
+        # from the batches still on file handed batch 2's number to the next
+        # batch as soon as batch 2 was deleted, so two different sets of
+        # formulations wore one number in the same project's records.
+        self.next_batch_number = 1
         # One unit for every amount in the project. Grams is the default a
         # food scientist expects; a blank unit made every amount ambiguous.
         self.amount_unit = "g"
@@ -1062,10 +1069,36 @@ class FoodOptimizer:
         total = sum(float(o['weight']) for o in self.objectives)
         return float(obj['weight']) / total if total else 0.0
 
+    def share_percents(self):
+        """Every measurement's share of the score as whole percents that add
+        up to 100, keyed by name.
+
+        Largest remainder, not one round() each: three equally important
+        measurements are 33.33 % apiece, and rounding them one at a time put
+        "33 %" three times in a column headed Share of score — a column the
+        reader adds up. The odd point goes to the measurement the screens
+        list first, so the table reads top-heavy rather than arbitrarily."""
+        ordered = self.measurements_by_importance()
+        if not ordered:
+            return {}
+        exact = [100 * self.share_of_score(o['name']) for o in ordered]
+        whole = [int(v) for v in exact]          # floor: every share is >= 0
+        left = 100 - sum(whole)
+        # Biggest fraction first; a tie goes to the one listed first.
+        order = sorted(range(len(ordered)),
+                       key=lambda i: (-(exact[i] - whole[i]), i))
+        for i in order[:max(0, left)]:
+            whole[i] += 1
+        return {o['name']: whole[i] for i, o in enumerate(ordered)}
+
     def share_text(self, name):
         """'60 %' — this measurement's share of the score, as a whole
         percent."""
-        return join_unit(f"{round(100 * self.share_of_score(name)):d}", "%")
+        shares = self.share_percents()
+        if name not in shares:
+            # Keeps share_of_score's own refusal for an unknown name.
+            self.share_of_score(name)
+        return join_unit(f"{shares[name]:d}", "%")
 
     def score_function_line(self):
         """The one line under the measurements table that writes the score
@@ -1217,7 +1250,8 @@ class FoodOptimizer:
         return {self._amount_column(v['name']): recipe.get(v['name'])
                 for v in self.variables}
 
-    def history_frame(self, order="Best first", include_amounts=False):
+    def history_frame(self, order=wording.SORT_BEST_FIRST,
+                      include_amounts=False):
         """Every formulation — scored and left out — as the All formulations
         table shows them. `order` is 'Best first', 'Newest first' or
         wording.SORT_BATCH_ORDER's value. Batch is a string in every row: a
@@ -1279,7 +1313,7 @@ class FoodOptimizer:
         if not rows:
             return pd.DataFrame(columns=columns)
         df = pd.DataFrame(rows)
-        if order == "Newest first":
+        if order == wording.SORT_NEWEST_FIRST:
             df = df.sort_values("_seq", ascending=False)
         elif order == wording.SORT_BATCH_ORDER:
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
@@ -1483,22 +1517,32 @@ class FoodOptimizer:
         return parsed
 
     def history_csv(self):
-        """Every scored formulation as CSV, with the plain column names
-        'Import past formulations from a CSV' expects, plus Formulation, Batch
-        and Note. Skipped (Not made) formulations carry no results at all, so
-        they are left out entirely: a blank measurement cell would be refused
-        by the importer's own "these columns have blank cells" check, and a
-        formulation that was never made has nothing to import.
+        """Every formulation the project holds as CSV — the ones with results
+        and the ones nobody made — with the identity columns (Formulation,
+        Batch, Recorded, Overall score) and the Note.
+
+        Amount and measurement columns carry their own units, exactly as the
+        All formulations table and the bench sheet write them: a file whose
+        "Water" column meant millilitres while the screen said "Water (ml)"
+        was the one place in the app an amount had no unit on it. Measurements
+        run by importance, as they do on every screen.
+
+        A formulation nobody made is here too, with its amounts, its note and
+        blank measurement cells: it has a number and it is part of the record,
+        and leaving it out made the file disagree with the table it was
+        downloaded from.
 
         Amount columns come from the re-encoded history (as history_frame
         does), not raw recipe_history: an ingredient added mid-project is
         backfilled to 0 in X_history for earlier rows, while recipe_history is
         never backfilled and would export a blank there.
         """
+        objs = self.measurements_by_importance()
         rows = []
         for i, x in enumerate(self.X_history):
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
+            results = self.results_history[i] if i < len(self.results_history) else {}
             row = {
                 "Formulation": int(self.formulation_ids[i]),
                 wording.BATCH_CAP: "" if batch is None else int(batch),
@@ -1507,11 +1551,30 @@ class FoodOptimizer:
                 # 2.625 where the table says 2.62 reads as a third number.
                 "Overall score": round(float(self.Y_history[i]), 2),
             }
-            row.update(self._decode(x))
-            row.update(self.results_history[i] if i < len(self.results_history) else {})
+            row.update(self._amount_columns(self._decode(x)))
+            for obj in objs:
+                row[self._measurement_column(obj)] = results.get(obj['name'])
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             rows.append(row)
-        return pd.DataFrame(rows).to_csv(index=False)
+        for left_out in self.skipped:
+            batch = left_out.get('batch')
+            row = {
+                "Formulation": int(left_out['formulation']),
+                wording.BATCH_CAP: "" if batch is None else int(batch),
+                "Recorded": "",
+                "Overall score": "",
+            }
+            row.update(self._amount_columns(left_out.get('recipe', {})))
+            for obj in objs:
+                row[self._measurement_column(obj)] = None
+            row["Note"] = left_out.get('note') or wording.NOT_MADE
+            rows.append(row)
+        columns = (["Formulation", wording.BATCH_CAP, "Recorded",
+                    "Overall score"]
+                   + [self._amount_column(v['name']) for v in self.variables]
+                   + [self._measurement_column(o) for o in objs]
+                   + ["Note"])
+        return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
@@ -1868,12 +1931,19 @@ class FoodOptimizer:
     #  Core Loop: Ask / Tell
     # ------------------------------------------------------------------ #
 
-    def ask(self, n_suggestions=1, n_init_random=5):
+    def ask(self, n_suggestions=1, n_init_random=5, batch_no=None,
+            discarded=None):
         """Suggest the next batch of recipes to try.
 
         Inactive variables (see deactivate_variable) are held at their frozen
         value: the search runs over the active set only, while the surrogate
         still sees every past observation.
+
+        `batch_no` is for `Generate a different batch`, which keeps the number
+        the batch it replaces was wearing; `discarded` are the formulation
+        numbers that regenerate retired, for the one caption that says so.
+        Passing the number HERE rather than re-stamping the batch afterwards
+        is what stops a regenerate spending a batch number nobody ever saw.
         """
         if not self.active_variables():
             raise ValueError(
@@ -1891,7 +1961,7 @@ class FoodOptimizer:
             recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
 
         # Numbers are issued here, at generation, and never reissued.
-        self.set_pending_batch(recipes)
+        self.set_pending_batch(recipes, batch_no=batch_no, discarded=discarded)
         return recipes
 
     def _ask_seed(self):
@@ -2011,6 +2081,8 @@ class FoodOptimizer:
             self._retire_formulation_no(formulation_no)
         if batch_no is None:
             batch_no = self.pending_batch_no
+        else:
+            self._retire_batch_no(batch_no)
 
         self.X_history.append(self._encode(recipe_dict))
         self.Y_history.append(self._compute_utility(kept))
@@ -2044,12 +2116,24 @@ class FoodOptimizer:
         self.next_formulation_no = max(int(self.next_formulation_no), int(no) + 1)
 
     def next_batch_no(self):
-        """The number the next batch will carry: one past the highest in use."""
-        seen = [int(b) for b in self.batch_history if b is not None]
-        seen += [int(s['batch']) for s in self.skipped if s.get('batch') is not None]
-        if self.pending_batch_no is not None:
-            seen.append(int(self.pending_batch_no))
-        return (max(seen) + 1) if seen else 1
+        """The number the next batch will carry. It is stored and only ever
+        goes up, exactly as next_formulation_no does: read off the batches
+        still on file, it came back down the moment one was deleted, and the
+        next batch generated then reused a number the project's own records
+        had already spent."""
+        return int(self.next_batch_number)
+
+    def _issue_batch_no(self):
+        n = int(self.next_batch_number)
+        self.next_batch_number = n + 1
+        return n
+
+    def _retire_batch_no(self, no):
+        """Make sure a batch number handed in from outside can never be
+        issued again."""
+        if no is None:
+            return
+        self.next_batch_number = max(int(self.next_batch_number), int(no) + 1)
 
     def _batch_rows(self, batch):
         """Read a batch in either shape without issuing numbers: the stored
@@ -2101,7 +2185,7 @@ class FoodOptimizer:
         rows.append(self._batch_row(number, recipe, note))
         self.pending_batch = rows
         if self.pending_batch_no is None:
-            self.pending_batch_no = self.next_batch_no()
+            self.pending_batch_no = self._issue_batch_no()
         self._date_pending_batch()
         self.save()
         return number
@@ -2124,6 +2208,7 @@ class FoodOptimizer:
             'note': str(note) if note else "Not made",
         })
         self._retire_formulation_no(formulation_no)
+        self._retire_batch_no(batch_no)
         self.save()
 
     def import_formulation(self, recipe_dict, results_dict, note="Imported"):
@@ -2233,6 +2318,16 @@ class FoodOptimizer:
                  if isinstance(r, dict) and 'formulation' in r]
         highest = max(used) if used else 0
         self.next_formulation_no = max(int(self.next_formulation_no or 1), highest + 1)
+        # The batch counter, the same way: a file from before it was stored
+        # carries no number, so it starts one past the highest batch in it.
+        batches = [int(b) for b in self.batch_history if b is not None]
+        batches += [int(s['batch']) for s in self.skipped
+                    if s.get('batch') is not None]
+        if self.pending_batch_no is not None:
+            batches.append(int(self.pending_batch_no))
+        highest_batch = max(batches) if batches else 0
+        self.next_batch_number = max(int(getattr(self, 'next_batch_number', 1)
+                                         or 1), highest_batch + 1)
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
@@ -2253,9 +2348,12 @@ class FoodOptimizer:
         else:
             rows = self._number_batch(batch_or_none)
             if batch_no is not None:
+                # A regenerate keeps its own number; the counter still has to
+                # know it is spent.
                 self.pending_batch_no = int(batch_no)
+                self._retire_batch_no(batch_no)
             elif self.pending_batch_no is None:
-                self.pending_batch_no = self.next_batch_no()
+                self.pending_batch_no = self._issue_batch_no()
             self._date_pending_batch()
             if discarded is not None:
                 self.pending_batch_discarded = [int(n) for n in discarded]
@@ -2719,6 +2817,7 @@ class FoodOptimizer:
             'notes_history': self.notes_history,
             'skipped': self.skipped,
             'next_formulation_no': self.next_formulation_no,
+            'next_batch_number': self.next_batch_number,
             'pending_batch_no': self.pending_batch_no,
             'pending_batch_created': self.pending_batch_created,
             'pending_batch_discarded': self.pending_batch_discarded,
@@ -2890,6 +2989,12 @@ class FoodOptimizer:
                               for t in state.get('notes_history', [])]
         self.skipped = [dict(s) for s in state.get('skipped', [])]
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
+        # A file written before batch numbers were stored has none; it is
+        # computed from the batches the file holds, in _backfill_identity.
+        try:
+            self.next_batch_number = int(state.get('next_batch_number') or 1)
+        except (TypeError, ValueError):
+            self.next_batch_number = 1
         # A 0.2.x file has no unit at all: it backfills to g rather than
         # reopening as a project whose amounts mean nothing, and says so once
         # on tab 1. A file that HOLDS a blank unit is a deliberate blank and
@@ -2940,6 +3045,6 @@ class FoodOptimizer:
         self._backfill_identity()
         self.pending_batch = self._number_batch(self.pending_batch)
         if self.pending_batch and self.pending_batch_no is None:
-            self.pending_batch_no = self.next_batch_no()
+            self.pending_batch_no = self._issue_batch_no()
         if self.pending_batch_no is not None:
             self.pending_batch_no = int(self.pending_batch_no)

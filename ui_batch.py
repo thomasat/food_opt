@@ -81,7 +81,12 @@ def _incomplete(missing):
 def _generate(opt, n, batch_no=None, discarded=None):
     with st.spinner(wording.GENERATING_SPINNER):
         try:
-            opt.ask(n_suggestions=int(n))
+            # A regenerated batch keeps its number and says which numbers
+            # retired, and ask() is told both before it opens the batch: a
+            # batch renumbered afterwards had already spent the number it was
+            # opened with, so the batch AFTER a regenerate skipped one.
+            opt.ask(n_suggestions=int(n), batch_no=batch_no,
+                    discarded=discarded)
         except ValueError as e:
             st.error(str(e))
             return
@@ -89,10 +94,6 @@ def _generate(opt, n, batch_no=None, discarded=None):
             # A raw traceback is a dead end for a nontechnical user.
             st.error(wording.GENERATE_FAILED)
             return
-    if batch_no is not None or discarded is not None:
-        # A regenerated batch keeps its number and says which numbers retired.
-        opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
-                              discarded=discarded)
     st.session_state.pop("_results_upload", None)
     st.session_state.pop("scale_total", None)
     if not saved_ok(opt):
@@ -284,6 +285,12 @@ def _batch_table(opt):
     if opt.pending_batch_discarded:
         st.caption(wording.batch_discarded_caption(
             number_list(opt.pending_batch_discarded)))
+    # Only a formulation of the user's own carries a note when the batch is
+    # opened; a generated row has none. With no generated row in it there is
+    # no Generate control anywhere on this screen, and nothing else on it
+    # would say why or what to do instead.
+    if rows and all(r.get('note') for r in rows):
+        st.caption(wording.ONLY_OWN_FORMULATIONS_CAPTION)
 
     best_no = best_formulation_no(opt)
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
@@ -694,15 +701,22 @@ def render(opt, storage):
         _own_formulation(opt)
         return
     _batch_table(opt)
-    # The expander belongs directly under the table, but its two buttons must
-    # know whether `Generate a different batch` has just been armed — and
+    # The expander belongs directly under the table, but it is drawn LAST of
+    # the three, into a container that holds its position.
+    #
+    # Two reasons, and both are bugs the order fixes. Its two buttons must
+    # know whether `Generate a different batch` has just been armed, and
     # arming a confirmation does not rerun, so an expander drawn before
     # _downloads would still offer live buttons on the run that puts the
-    # warning on screen. The container reserves the position instead, exactly
-    # as _downloads does for the bench sheet.
+    # warning on screen. And both buttons end in st.rerun(): Streamlit
+    # discards the session-state entry of every widget the run did not
+    # create, so an `Add to this batch` that reruns before the result grid
+    # exists took every measurement, note and Not-made tick already typed
+    # into the open batch with it. _record_results goes first; the expander
+    # fills the slot above it afterwards.
     slot = st.container()
     _downloads(opt)
+    _record_results(opt)
     with slot:
         _own_formulation(opt)
-    _record_results(opt)
     _upload(opt)

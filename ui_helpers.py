@@ -5,6 +5,7 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import re
 from datetime import datetime
 
 import streamlit as st
@@ -127,7 +128,7 @@ def disarm(key):
 
 
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
-                   disabled=False):
+                   disabled=False, preserve=False):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -136,7 +137,9 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     where the user has not just confirmed, so the confirming run's element
     tree carries no warning). Returns True only on the run in which the user
     clicks the confirm button; the caller then performs the action, flashes
-    a message, and reruns. `key` must be unique per call site.
+    a message, and reruns. `key` must be unique per call site. `preserve` is
+    for a confirmation drawn in the SIDEBAR: its Cancel reruns before the tabs
+    are drawn, which would otherwise empty every form on them.
     """
     pending_key = f"{key}__pending"
     if st.button(button_label, key=f"{key}__btn", disabled=disabled):
@@ -158,6 +161,9 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
         if st.button(wording.CANCEL, key=f"{key}__no", use_container_width=True):
             st.session_state[pending_key] = False
             st.session_state.pop(ARMED_KEY, None)
+            if preserve:
+                # A sidebar confirmation: this rerun never reaches the tabs.
+                preserve_tab_forms()
             st.rerun()
     if confirmed:
         st.session_state[pending_key] = False
@@ -165,6 +171,33 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
         return True
     slot.warning(warning)                  # only on runs where the user has not confirmed
     return False
+
+
+# The tab forms a rerun would otherwise throw away. Streamlit discards the
+# session-state entry of every widget a run did not create, so a control that
+# reruns from ABOVE one of these forms empties it: a Cancel in the sidebar
+# (which runs before all three tabs) blanked the result grid and the open
+# correction, and the `Whole batch` pick on tab 3 blanked the "already made"
+# form directly beneath it.
+_TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
+# The one tab-form box whose key fits none of those prefixes: the radio that
+# chooses between typing a past formulation in and reading one off a CSV.
+# Named rather than swept in by prefix, because `add_past_formulation` beside
+# it is a BUTTON, and a button's value cannot be assigned at all.
+_TAB_FORM_KEYS = ("add_past_mode",)
+_GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
+
+
+def preserve_tab_forms():
+    """Park every tab-form box at the value it is holding, so the next run
+    puts it back. Call immediately before an st.rerun() raised anywhere above
+    one of those forms. Parked, not merely left alone: an assignment made
+    before the widget is created is the one way a value reaches the browser
+    again."""
+    for key in [k for k in st.session_state if isinstance(k, str)]:
+        if (key.startswith(_TAB_FORM_PREFIXES) or key in _TAB_FORM_KEYS
+                or _GRID_KEY_RE.match(key)):
+            park_clear(key, st.session_state[key])
 
 
 def go_to_tab(label):

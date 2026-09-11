@@ -318,16 +318,20 @@ def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
     assert list(df["Formulation"]) == [1]
 
 
-def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
+def test_history_csv_carries_the_units_the_screen_shows(tmp_path, monkeypatch):
+    """The amount columns are headed exactly as the All formulations table
+    and the bench sheet head them. A bare "Water" column whose numbers were
+    millilitres was the one place in the app an amount had no unit on it."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("csv")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    for col in ["Formulation", "Batch", "Recorded", "Overall score", "Water",
-                "Taste", "Note"]:
-        assert col in df.columns
+    for col in ["Formulation", "Batch", "Recorded", "Overall score",
+                "Water (g)", "Taste", "Note"]:
+        assert col in df.columns, list(df.columns)
+    assert "Water" not in df.columns
     assert df["Taste"].iloc[0] == 3.0
 
 
@@ -341,9 +345,9 @@ def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):
     opt.add_ingredient("Honey", 0, 30)
     import io
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    assert "Honey" in df.columns
+    assert "Honey (g)" in df.columns, list(df.columns)
     assert len(df) == 2
-    assert df["Honey"].notna().all()
+    assert df["Honey (g)"].notna().all()
 
 
 # ------------------------------------------------------------------ #
@@ -1542,12 +1546,67 @@ class TestFormulationIdentity:
         assert [r["formulation"] for r in opt.pending_batch] == [4, 5, 6]
 
     def test_discarded_numbers_are_never_reissued(self, tmp_path, monkeypatch):
+        """`Generate a different batch` as the screen does it: the old rows'
+        numbers retire, and the batch keeps the number it was wearing — which
+        is why ask() is told that number rather than being renumbered after
+        it has already opened a batch of its own."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.ask(n_suggestions=3)
         opt.set_pending_batch(None)          # "Generate a different batch"
-        opt.ask(n_suggestions=2)
+        opt.ask(n_suggestions=2, batch_no=1, discarded=[1, 2, 3])
         assert [r["formulation"] for r in opt.pending_batch] == [4, 5]
         assert opt.pending_batch_no == 1     # the batch keeps its number
+        # And no batch number was spent behind the user's back: the batch
+        # after this one is 2, not 3.
+        assert opt.next_batch_no() == 2
+
+    def test_a_batch_number_is_never_reissued_after_a_delete(self, tmp_path,
+                                                              monkeypatch):
+        """Two different sets of formulations must never wear one batch
+        number in one project's records. The counter was read off the
+        batches still on file, so deleting batch 2 handed its number
+        straight back to the next batch generated."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=1)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0}, formulation_no=1,
+                 batch_no=1)
+        opt.set_pending_batch(None)
+        opt.ask(n_suggestions=1)
+        assert opt.pending_batch_no == 2
+        opt.tell({"Water": 20.0}, {"Firmness": 5.0}, formulation_no=2,
+                 batch_no=2)
+        opt.set_pending_batch(None)
+        opt.delete_formulations([2])          # batch 2 leaves the project
+        assert opt.last_batch_no() == 1       # nothing of batch 2 remains
+        opt.ask(n_suggestions=1)
+        assert opt.pending_batch_no == 3
+
+    def test_a_batch_number_survives_a_reload(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ask(n_suggestions=1)
+        opt.set_pending_batch(None)
+        again = FoodOptimizer(opt.project_name)
+        again.ask(n_suggestions=1)
+        assert again.pending_batch_no == 2
+
+    def test_a_file_written_before_batch_numbers_were_stored_continues(
+            self, tmp_path, monkeypatch):
+        """A 60ed1d7-era file has no next_batch_number at all. It must open
+        and go on from one past the highest batch it holds, exactly as a
+        0.2.x file does for formulation numbers."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0}, formulation_no=1,
+                 batch_no=1)
+        opt.tell({"Water": 20.0}, {"Firmness": 5.0}, formulation_no=2,
+                 batch_no=2)
+        state = opt.export_json()
+        del state['next_batch_number']
+        assert 'next_batch_number' not in state
+        old = FoodOptimizer(opt.project_name)
+        old.import_json(state)
+        assert old.next_batch_no() == 3
+        old.ask(n_suggestions=1)
+        assert old.pending_batch_no == 3
 
     def test_set_pending_batch_remembers_what_was_discarded(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2000,6 +2059,26 @@ class TestUnitsAndImportance:
         assert opt.share_text("Firmness") == "60 %"
         assert opt.share_text("Juiciness") == "40 %"
 
+    def test_the_shares_add_up_to_a_hundred(self, tmp_path, monkeypatch):
+        """Share of score is a column the reader adds up. Rounding each
+        share on its own put "33 %" against three equally important
+        measurements, which is 99."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("thirds")
+        opt.add_ingredient("Water", 0, 100)
+        for name in ("Firmness", "Juiciness", "Colour"):
+            opt.add_objective(name, 1.0, goal="max", min_val=0, max_val=10)
+        shares = [opt.share_text(o['name'])
+                  for o in opt.measurements_by_importance()]
+        assert shares == ["34 %", "33 %", "33 %"], shares
+        assert sum(opt.share_percents().values()) == 100
+        # Seven equal measurements: 14.28 % apiece, so six get the point.
+        opt2 = FoodOptimizer("sevenths")
+        opt2.add_ingredient("Water", 0, 100)
+        for i in range(7):
+            opt2.add_objective(f"M{i}", 1.0, goal="max", min_val=0, max_val=10)
+        assert sum(opt2.share_percents().values()) == 100
+
     def test_share_of_score_names_the_missing_measurement(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError, match="No measurement named Saltiness"):
@@ -2194,31 +2273,38 @@ class TestUnitsAndImportance:
                  note="ok")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
         for col in ("Formulation", "Batch", "Recorded", "Overall score",
-                    "Pea protein", "Firmness", "Note"):
-            assert col in df.columns
+                    "Pea protein (g)", "Firmness (N)", "Note"):
+            assert col in df.columns, list(df.columns)
         assert df["Formulation"].iloc[0] == 4
         assert df["Batch"].iloc[0] == 2
 
-    def test_history_csv_omits_not_made_rows_but_keeps_partial_rows(self, tmp_path, monkeypatch):
-        """A Not-made row has no results at all, so exporting it would fail the
-        importer's own 'these columns have blank cells' check for every
-        measurement column in the sheet — it carries nothing to import, so it
-        is left out. A partially scored row genuinely has one result and is
-        kept, blank cell and all."""
+    def test_history_csv_holds_every_formulation_the_project_holds(
+            self, tmp_path, monkeypatch):
+        """The file is downloaded from the All formulations table, so it says
+        what that table says: a row nobody made has a number, its amounts and
+        its note, and only its measurements are blank. Leaving it out made the
+        file disagree with the screen it came from. Measurements run by
+        importance, as they do everywhere else."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=1, batch_no=1)
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
                  {"Firmness": 5.0}, formulation_no=2, batch_no=1)   # partial: no Juiciness
-        opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
+        opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0},
+                           note="Not made · burner failed")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
-        var_names = [v['name'] for v in opt.variables]
-        obj_names = [o['name'] for o in opt.objectives]
-        required = var_names + obj_names
-        assert [c for c in required if c not in df.columns] == []   # the importer's own column check
-        assert list(df["Formulation"]) == [1, 2]        # formulation 3 (Not made) is gone
-        assert df["Firmness"].iloc[1] == 5.0
+        assert list(df["Formulation"]) == [1, 2, 3]
+        assert df["Firmness (N)"].iloc[1] == 5.0
         assert pd.isna(df["Juiciness"].iloc[1])
+        # The left-out row: amounts and note, no measurements, no score.
+        assert df["Pea protein (g)"].iloc[2] == 14.0
+        assert df["Note"].iloc[2] == "Not made · burner failed"
+        assert pd.isna(df["Firmness (N)"].iloc[2])
+        assert pd.isna(df["Juiciness"].iloc[2])
+        # Firmness is the more important of the two, so it comes first.
+        columns = list(df.columns)
+        assert (columns.index("Firmness (N)")
+                < columns.index("Juiciness"))
 
     def test_batch_frame_is_the_make_these_table(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

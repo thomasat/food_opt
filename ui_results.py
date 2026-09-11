@@ -17,7 +17,8 @@ from ui_helpers import (
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab,
     label_with_unit, number_list, open_rows, other_confirmation, park_clear,
-    plural, readiness, saved_ok, scale_error, table_height, take_clear,
+    plural, preserve_tab_forms, readiness, saved_ok, scale_error,
+    table_height, take_clear,
 )
 
 
@@ -26,6 +27,19 @@ def _all_numbers(opt):
     numbers = [int(n) for n in opt.formulation_ids]
     numbers += [int(s['formulation']) for s in opt.skipped]
     return sorted(numbers)
+
+
+def _deletable_numbers(opt):
+    """The numbers this section may offer, which is every number the project
+    holds except the open batch's own.
+
+    A batch recorded one sheet at a time keeps its recorded rows while the
+    batch stays open. Deleting one of those took the result but left the row
+    on tab 2's grid, waiting to be recorded all over again — a delete that
+    put work back on the bench."""
+    open_numbers = {int(r['formulation']) for r in (opt.pending_batch or [])
+                    if isinstance(r, dict) and 'formulation' in r}
+    return [n for n in _all_numbers(opt) if n not in open_numbers]
 
 
 def _amount_rows(opt, recipe):
@@ -137,14 +151,9 @@ def _all_formulations(opt, said_partial=False):
     st.markdown(wording.ALL_FORMULATIONS_HEADING)
     o1, o2 = st.columns([2, 1])
     with o1:
-        # "Best first" and "Newest first" are also compared, verbatim, inside
-        # food_bo.history_frame — they are a protocol with that module, not
-        # display prose, so they stay literal here. The third option names
-        # the batch, so it comes from wording (food_bo imports the same
-        # constant) rather than repeating the word as its own literal.
-        order = st.selectbox(wording.SORT_LABEL,
-                             ["Best first", "Newest first",
-                              wording.SORT_BATCH_ORDER],
+        # The three options are a protocol with food_bo.history_frame, which
+        # compares them verbatim; both modules read the one list in wording.
+        order = st.selectbox(wording.SORT_LABEL, wording.SORT_OPTIONS,
                              key="results_order")
     with o2:
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
@@ -440,9 +449,13 @@ def _progress_chart(opt):
 def _batch_numbers(opt):
     """Every batch this project still holds, in order. A batch nobody managed
     to make counts: its formulations have numbers, and this is the only place
-    they can be taken out together."""
+    they can be taken out together.
+
+    The open batch is not offered: its rows are still on the bench, and the
+    list beside this box cannot hold them."""
     seen = {int(b) for b in opt.batch_history if b is not None}
     seen |= {int(s['batch']) for s in opt.skipped if s.get('batch') is not None}
+    seen.discard(opt.pending_batch_no)
     return sorted(seen)
 
 
@@ -463,6 +476,10 @@ def _disarm_delete():
     already drawn this run, behind the armed flag — stay grey until the next
     click, and the button that would clear it is one of the grey ones."""
     if disarm("delete_formulations"):
+        # This section is drawn above `Add a formulation you already made`,
+        # so the redraw would otherwise take the half-typed formulation in it
+        # with it: Streamlit discards every widget the run did not reach.
+        preserve_tab_forms()
         st.rerun()
 
 
@@ -475,7 +492,7 @@ def _delete_formulations(opt, storage):
     confirmation. `Whole batch` fills the list instead, so what is about to
     go is on screen — and can be added to or taken back out — before anything
     is confirmed."""
-    numbers = _all_numbers(opt)
+    numbers = _deletable_numbers(opt)
     if not numbers:
         _disarm_delete()
         st.caption(wording.no_formulation_to_delete_caption())
@@ -496,10 +513,15 @@ def _delete_formulations(opt, storage):
         # A shortcut into the list beside it, never a delete of its own. The
         # widget already exists on this run, so the filled selection is
         # parked and assigned before the box is drawn again.
+        offered = set(numbers)
         park_clear("delete_formulations",
-                   sorted(set(int(n) for n in picked)
-                          | set(_formulations_of_batch(opt, batch))))
+                   sorted((set(int(n) for n in picked)
+                           | set(_formulations_of_batch(opt, batch)))
+                          & offered))
         clear_selection("delete_whole_batch")
+        # Nothing has been deleted: this rerun only fills the list beside the
+        # box. The form below it must survive it (see _disarm_delete).
+        preserve_tab_forms()
         st.rerun()
     if not picked:
         # The list the question was asked about is empty, so the question is
@@ -530,13 +552,15 @@ def _delete_formulations(opt, storage):
     if not saved_ok(opt):
         return
     # A scaled table and a parsed bench sheet both name formulations that may
-    # have just left the project — but only rows already RECORDED are in the
-    # list above, never the open batch's, so an open batch keeps both: its
-    # sheet was read for formulations this delete cannot have touched.
+    # have just left the project — but the open batch's own rows are never in
+    # the list above (see _deletable_numbers), so an open batch keeps both:
+    # its sheet was read for formulations this delete cannot have touched.
     if not opt.pending_batch:
         st.session_state.pop("scale_total", None)
         st.session_state.pop("_results_upload", None)
     park_clear("delete_formulations", [])
+    # The form below this section is not what the user just deleted from.
+    preserve_tab_forms()
     flash("success", done)
     st.rerun()
 
@@ -622,6 +646,27 @@ def _add_typed_past(opt, ordered):
     st.rerun()
 
 
+def _import_columns(opt, rows):
+    """Which column of the uploaded file holds each variable and each
+    measurement, and which of them the file has no column for at all.
+
+    Two spellings are accepted per name: the bare one the caption lists, and
+    the one the downloaded All formulations file heads it with, which carries
+    the unit — `Water (ml)`. Anything else in the file is ignored."""
+    col_for, missing = {}, []
+    headed = [(v['name'], opt._amount_column(v['name'])) for v in opt.variables]
+    headed += [(o['name'], opt._measurement_column(o))
+               for o in opt.measurements_by_importance()]
+    for name, with_unit in headed:
+        if name in rows.columns:
+            col_for[name] = name
+        elif with_unit in rows.columns:
+            col_for[name] = with_unit
+        else:
+            missing.append(name)
+    return col_for, missing
+
+
 def _import(opt):
     variables = [v['name'] for v in opt.variables]
     # By importance, as every other list of measurements on every tab.
@@ -650,11 +695,11 @@ def _import(opt):
     if rows is None:
         return
     st.dataframe(rows, hide_index=True)
-    missing = [c for c in variables + measurements if c not in rows.columns]
+    col_for, missing = _import_columns(opt, rows)
     if missing:
         st.error(wording.missing_columns(", ".join(missing)))
         return
-    blank_amounts = [c for c in variables if rows[c].isna().any()]
+    blank_amounts = [c for c in variables if rows[col_for[c]].isna().any()]
     if blank_amounts:
         st.error(wording.blank_amount_columns(", ".join(blank_amounts)))
         return
@@ -666,12 +711,12 @@ def _import(opt):
     cautions = []
     for position, (_, row) in enumerate(rows.iterrows(), start=1):
         for obj in opt.objectives:
-            problem = scale_error(obj, _number(row[obj['name']]))
+            problem = scale_error(obj, _number(row[col_for[obj['name']]]))
             if problem:
                 st.error(wording.row_error(position, problem))
                 return
         for name in variables:
-            caution = bounds_caution(opt, name, _number(row[name]))
+            caution = bounds_caution(opt, name, _number(row[col_for[name]]))
             if caution:
                 cautions.append(wording.row_error(position, caution))
     imported, failure = 0, None
@@ -679,10 +724,11 @@ def _import(opt):
         for _, row in rows.iterrows():
             # A blank measurement is a partial result here too, exactly as
             # it is in the results grid and in an uploaded bench sheet.
-            results = {name: float(row[name]) for name in measurements
-                       if not pd.isna(row[name])}
+            results = {name: float(row[col_for[name]]) for name in measurements
+                       if not pd.isna(row[col_for[name]])}
             opt.import_formulation(
-                {name: float(row[name]) for name in variables}, results)
+                {name: float(row[col_for[name]]) for name in variables},
+                results)
             # Stop at the first row that did not reach the disk rather than
             # reporting a whole file as imported.
             if not saved_ok(opt):
@@ -717,6 +763,12 @@ def _edit_past(opt, storage):
         pending = _correct(opt)
         st.divider()
         st.markdown(wording.DELETE_FORMULATIONS_HEADING)
+        # Reserved, and filled below once the form under it has been drawn.
+        # Two things in the delete part rerun without touching the disk — the
+        # `Whole batch` pick, which fills the list beside it, and taking a
+        # stale confirmation down — and Streamlit discards the session-state
+        # entry of every widget the run did not create, so either one blanked
+        # the half-typed formulation in the form beneath.
         _delete_formulations(opt, storage)
         st.divider()
         st.markdown(wording.ADD_PAST_FORMULATION_HEADING)
