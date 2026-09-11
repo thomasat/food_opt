@@ -1282,7 +1282,7 @@ def test_the_ingredient_table_has_no_status_column_until_something_is_paused(bur
 
 @pytest.fixture
 def open_batch(burger):
-    """Trial 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
+    """Batch 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
                               {"Pea protein": 20.0, "Methylcellulose": 2.0}])
     return burger
@@ -1342,7 +1342,7 @@ def test_only_one_batch_at_a_time_is_said_where_it_helps(open_batch):
     plainly open."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert not any(c.value == "Only one trial is open at a time."
+    assert not any(c.value == "Only one batch is open at a time."
                    for c in at.caption), [c.value for c in at.caption]
 
 
@@ -1535,7 +1535,7 @@ def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
     at.run()
     assert _submit_button(at, "Save results").disabled
     # "filled in", not "to record": every other screen uses "to record" for
-    # the rows that still have no value ("Back to trial 1 · 2 to record"),
+    # the rows that still have no value ("Back to batch 1 · 2 to record"),
     # and this line counts the opposite — the rows that have one.
     assert any(c.value == ("1 of 2 filled in · saved when you press "
                            "Save results")
@@ -1630,7 +1630,7 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
 
 def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch):
     """Twin of the typed path: closing the batch is a write like any other, and
-    a green "Trial 1 recorded." over a batch still open on disk is a lie."""
+    a green "Batch 1 recorded." over a batch still open on disk is a lie."""
     import storage as storage_backend
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -1870,7 +1870,7 @@ def test_a_recorded_row_shows_its_note(open_batch):
 
 @pytest.fixture
 def scored(burger):
-    """Two recorded formulations in trial 1 and one left out, so the results
+    """Two recorded formulations in batch 1 and one left out, so the results
     screens have a best, a progress line and a left-out row to show."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 1.0},
@@ -1932,7 +1932,7 @@ def test_not_used_lists_ingredients_only(scored):
 
 
 def test_the_first_batch_is_not_announced_twice_on_one_screen(scored):
-    """Saving flashes "Trial 1 recorded." above the tabs. A caption under the
+    """Saving flashes "Batch 1 recorded." above the tabs. A caption under the
     heading saying the same thing is the same sentence twice on one screen,
     and there is nothing to compare a first batch with anyway."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -1960,7 +1960,7 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
-    assert list(table.columns) == ["Best", "Trial", "Formulation", "Firmness (N)",
+    assert list(table.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
                                    "Juiciness (/10)", "Overall score", "Recorded",
                                    "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
@@ -1969,7 +1969,7 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     assert table["Note"].iloc[2] == "Not made"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
-                                                         "Trial order"]
+                                                         "Batch order"]
 
 
 def test_show_amounts_adds_the_amount_columns(scored):
@@ -2370,8 +2370,8 @@ def test_first_run_copy_gives_the_honest_timing():
 
 
 def test_the_last_trial_line_counts_a_trial_that_was_entirely_left_out(burger):
-    """Nobody managed to make trial 2, but it is still the last batch: the line
-    under the title must not fall back to trial 1."""
+    """Nobody managed to make batch 2, but it is still the last batch: the line
+    under the title must not fall back to batch 1."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0},
                 formulation_no=1, batch_no=1)
@@ -2545,7 +2545,7 @@ def test_only_one_confirmation_can_be_armed_on_the_set_up_tab(burger):
 
 def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
                                                                     monkeypatch):
-    """Half a sheet on disk under a green 'Trial 1 recorded.' is the worst
+    """Half a sheet on disk under a green 'Batch 1 recorded.' is the worst
     outcome: the save loop must stop and say so at the first failure."""
     import storage as storage_backend
 
@@ -2585,7 +2585,7 @@ def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
 
 def test_the_line_under_the_title_is_on_tab_one_only(open_batch):
     """Tab 2 carries the batch's own heading. The caption sat directly above
-    `Trial 1 · make these 2 formulations`, saying the same thing twice."""
+    `Batch 1 · make these 2 formulations`, saying the same thing twice."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
@@ -2639,7 +2639,7 @@ def test_every_confirmation_counts_the_left_out_formulations(scored):
 
 
 def test_save_changes_is_the_lit_action_while_a_measurement_is_open(burger):
-    """Next: make a trial would leave the tab and throw the edit away,
+    """Next: make a batch would leave the tab and throw the edit away,
     exactly as tab 3's correction row already refuses to let happen."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

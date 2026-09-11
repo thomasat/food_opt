@@ -1,4 +1,4 @@
-"""Tab 2 · Make a trial: generate formulations, make them, record results.
+"""Tab 2 · Make a batch: generate formulations, make them, record results.
 
 Nothing here fits a model or writes to disk on a plain rerun, and the result
 grid deliberately avoids st.form so `Save results` can light up the moment
@@ -27,7 +27,7 @@ _PER_ROW = 4
 def _result_key(formulation_no, measurement):
     """The stable key for one measurement of one formulation. Formulation
     numbers are global and never reissued, so these keys never collide across
-    trials and never need clearing."""
+    batches and never need clearing."""
     return f"f{formulation_no}_{measurement}"
 
 
@@ -92,12 +92,12 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
     if repeat and best_no is not None:
         index = opt.index_of_formulation(best_no)
         if index is not None:
-            # Named on the trial table and carried into the stored result: an
+            # Named on the batch table and carried into the stored result: an
             # unexplained extra row is not a repeat, it is a mystery.
             opt.add_to_pending_batch(opt.recipe_history[index],
                                      note=wording.repeat_of_formulation(best_no))
     if batch_no is not None or discarded is not None:
-        # A regenerated trial keeps its number and says which numbers retired.
+        # A regenerated batch keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
                               discarded=discarded)
     st.session_state.pop("_results_upload", None)
@@ -125,7 +125,7 @@ def _no_batch(opt):
         )
     n = int(size)
     # The repeat is a formulation the user will have to make, so the button
-    # counts it: ticking the box on a trial of three makes four.
+    # counts it: ticking the box on a batch of three makes four.
     making = n + (1 if repeat else 0)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
@@ -141,7 +141,7 @@ def _no_batch(opt):
 
 
 def _amount_format(opt, frame):
-    """How each column of the trial table is written out: two decimals for the
+    """How each column of the batch table is written out: two decimals for the
     amounts and the total, because that is the precision a balance works to,
     and fmt_setting for a process setting, because a cook temperature is
     neither an amount nor 180.00 nor 188.494. The column header already
@@ -176,7 +176,7 @@ def _batch_table(opt):
         index = opt.index_of_formulation(best_no)
         if index is not None:
             # Against the amounts on the table above, not the ones underneath
-            # them: while the trial is scaled to a total, a change read off
+            # them: while the batch is scaled to a total, a change read off
             # the generated amounts is a number nothing on screen shows. The
             # formulation it compares is scaled to that same total.
             changes = opt.biggest_changes(
@@ -190,7 +190,7 @@ def _batch_table(opt):
                     f"{fmt_amount(abs(delta), opt.unit_of(name))}"
                     for name, delta in changes
                 )
-                # Named: the line reads one row of the trial, so a trial of
+                # Named: the line reads one row of the batch, so a batch of
                 # three must not sound as though it describes all of them.
                 st.caption(wording.biggest_changes_caption(
                     rows[0]['formulation'], best_no, parts))
@@ -309,7 +309,7 @@ def _download_row(opt, scale_to):
         st.download_button(
             wording.DOWNLOAD_BENCH_SHEET,
             data=opt.batch_csv(rows, scale_to=scale_to),
-            file_name=f"{opt.project_name} trial {opt.pending_batch_no}.csv",
+            file_name=f"{opt.project_name} {wording.BATCH} {opt.pending_batch_no}.csv",
             mime="text/csv", key="download_batch_sheet",
             type="primary" if lit else "secondary",
             use_container_width=True,
@@ -318,7 +318,7 @@ def _download_row(opt, scale_to):
         st.download_button(
             wording.DOWNLOAD_FORMULATION_SHEETS,
             data=_sheets_html(opt, scale_to),
-            file_name=f"{opt.project_name} trial {opt.pending_batch_no} sheets.html",
+            file_name=f"{opt.project_name} {wording.BATCH} {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
         )
     if scale_to is not None:
@@ -335,7 +335,7 @@ def _downloads(opt):
     scale_to = _scale_to(opt)
     numbers = [r['formulation'] for r in rows]
 
-    # The downloads belong above `Generate a different trial`, but the question
+    # The downloads belong above `Generate a different batch`, but the question
     # has to be asked first: arming a confirmation does not rerun, so a download
     # rendered before it would still be coloured on the run that puts the
     # warning on screen. The container reserves the position instead.
@@ -359,7 +359,7 @@ def _downloads(opt):
 
 
 def _recorded_row(opt, number, ordered):
-    """The read-only line a formulation gets once its results are in — a trial
+    """The read-only line a formulation gets once its results are in — a batch
     recorded one sheet at a time reopens here with those rows already done. The
     note is part of the record, so it is shown with the numbers rather than
     being kept for tab 3."""
@@ -447,7 +447,7 @@ def _record_results(opt):
         _save_results(opt, kept, left_out, to_record)
     # "filled in", not "to record": this counts the rows that HAVE a value,
     # and every other screen uses "to record" for the rows that do not
-    # ("Back to trial 2 · 2 to record"). One word could not mean both.
+    # ("Back to batch 2 · 2 to record"). One word could not mean both.
     # Nothing here reaches the file until Save results is pressed, which is
     # the tail.
     counter = wording.filled_in_counter(entered, len(kept))
@@ -459,7 +459,7 @@ def _record_results(opt):
 def _save_results(opt, kept, left_out, to_record):
     batch_no = opt.pending_batch_no
     # Check every value against its range before writing anything: a
-    # half-saved trial is worse than a refused one.
+    # half-saved batch is worse than a refused one.
     typed = {}
     for row in kept:
         number = row['formulation']
@@ -550,8 +550,8 @@ def _upload(opt):
             st.session_state.pop("_results_upload", None)
             left = open_rows(opt)
             if left:
-                # Rows still to record: the trial stays open, numbers and all,
-                # so the whole-trial sentence would be a lie.
+                # Rows still to record: the batch stays open, numbers and all,
+                # so the whole-batch sentence would be a lie.
                 flash("success", wording.upload_partial_flash(
                     len(parsed), len(opt.pending_batch), batch_no, len(left)))
                 st.rerun()
@@ -559,7 +559,7 @@ def _upload(opt):
             st.session_state.pop("scale_total", None)
             if not saved_ok(opt):
                 # A move would rerun past app.py's end-of-script check and
-                # hide it, and the trial is still open on disk.
+                # hide it, and the batch is still open on disk.
                 return
             flash("success", wording.batch_recorded_flash(batch_no))
             go_to_tab(TAB_RESULTS)

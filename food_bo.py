@@ -30,6 +30,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
 
 from storage import LocalStorage, StorageError
+import wording
 
 
 # Column names history_frame() (and any future export) reserves for itself;
@@ -40,10 +41,10 @@ RESERVED_VARIABLE_NAMES = {
     "Best", "Total",
 }
 
-# The trial table's own total column carries the unit it is summing —
+# The batch table's own total column carries the unit it is summing —
 # 'Total (g)', 'Total (ml)' — so an ingredient named 'Total (g)' collides with
 # it just as plainly as one named 'Total'. Two columns of the same name break
-# the trial table outright and put the formulation total on the sheet where
+# the batch table outright and put the formulation total on the sheet where
 # that ingredient's own amount belongs.
 _TOTAL_COLUMN_RE = re.compile(r"^total(\s*\(.*\))?$", re.IGNORECASE)
 
@@ -104,7 +105,7 @@ def outside_message(name, value, low, high, unit, what, tail=""):
 def local_date(ts):
     """The date a stored moment fell on where the user is standing. Results
     are stamped in UTC, so slicing the first ten characters off the stamp
-    dated a trial recorded at 23:25 as tomorrow."""
+    dated a batch recorded at 23:25 as tomorrow."""
     if not isinstance(ts, str) or not ts:
         return ""
     try:
@@ -936,7 +937,7 @@ class FoodOptimizer:
 
     def one_amount_unit(self):
         """The unit every ingredient shares, or None when they differ. What
-        the screen asks before offering to scale a trial to a total, and what
+        the screen asks before offering to scale a batch to a total, and what
         an amount limit needs: adding 25 g of powder to 40 ml of water gives
         a number of nothing."""
         units = self.ingredient_units()
@@ -945,7 +946,7 @@ class FoodOptimizer:
         return units[0] if len(units) == 1 else None
 
     def unit_totals(self, recipe):
-        """The batch size per unit: [(unit, total), ...] in ingredient order.
+        """The formulation total per unit: [(unit, total), ...] in ingredient order.
         A total that added grams to millilitres was a number of nothing."""
         totals, order = {}, []
         for var in self.variables:
@@ -1137,12 +1138,12 @@ class FoodOptimizer:
         return pairs[:n]
 
     def ingredient_total(self, recipe):
-        """The batch size: process settings are not amounts and are excluded."""
+        """The formulation total: process settings are not amounts and are excluded."""
         return sum(float(recipe.get(v['name'], 0.0)) for v in self.variables
                    if v.get('category', 'ingredient') == 'ingredient')
 
     def scaled_recipe(self, recipe, scale_to=None):
-        """The same formulation written for a different batch size. Every
+        """The same formulation written for a different formulation total. Every
         screen, sheet and download that shows a scaled amount goes through
         this, so what is printed always equals what is displayed."""
         if scale_to is None:
@@ -1201,8 +1202,9 @@ class FoodOptimizer:
     def history_frame(self, order="Best first", include_amounts=False):
         """Every formulation — scored and left out — as the All formulations
         table shows them. `order` is 'Best first', 'Newest first' or
-        'Trial order'. Trial is a string in every row: a project that predates
-        trials has blanks, and a mixed int/blank column renders inconsistently."""
+        wording.SORT_BATCH_ORDER's value. Batch is a string in every row: a
+        project that predates batches has blanks, and a mixed int/blank
+        column renders inconsistently."""
         objs = self.measurements_by_importance()
         best_i = self.best_index()
         rows = []
@@ -1213,7 +1215,7 @@ class FoodOptimizer:
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 "Best": "★" if i == best_i else "",
-                "Trial": "" if batch is None else str(int(batch)),
+                wording.BATCH_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
@@ -1237,7 +1239,7 @@ class FoodOptimizer:
                 # A row nobody made has no score to be best; saying so in the
                 # Best column is what stops it reading as the worst.
                 "Best": "not made",
-                "Trial": "" if batch is None else str(int(batch)),
+                wording.BATCH_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
@@ -1251,7 +1253,7 @@ class FoodOptimizer:
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
-        columns = (["Best", "Trial", "Formulation"]
+        columns = (["Best", wording.BATCH_CAP, "Formulation"]
                    + [self._measurement_column(o) for o in objs]
                    + ["Overall score", "Recorded", "Note"])
         if include_amounts:
@@ -1261,7 +1263,7 @@ class FoodOptimizer:
         df = pd.DataFrame(rows)
         if order == "Newest first":
             df = df.sort_values("_seq", ascending=False)
-        elif order == "Trial order":
+        elif order == wording.SORT_BATCH_ORDER:
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
         else:
             df = df.sort_values(["_score", "_seq"], ascending=[False, True])
@@ -1324,7 +1326,7 @@ class FoodOptimizer:
         amounts to weigh out with their units in the headers and rounded as
         the screen rounds them, the same total the screen shows, one blank
         column per measurement, and a Note column. Its columns run in the
-        order the trial table's do, so the sheet reads like the screen.
+        order the batch table's do, so the sheet reads like the screen.
         `scale_to` must match what the screen shows, or the lab weighs out
         amounts nobody saw.
 
@@ -1363,11 +1365,11 @@ class FoodOptimizer:
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
     def parse_batch_results(self, df, batch):
-        """Match an uploaded results sheet to the open trial.
+        """Match an uploaded results sheet to the open batch.
 
         The sheet needs a Formulation column holding the global numbers from
         the downloaded bench sheet. `Recipe` and `Experiment` are accepted as
-        legacy headers and read as 1-based positions in the trial. Every
+        legacy headers and read as 1-based positions in the batch. Every
         measurement needs its own column — an absent column is refused
         outright (a typo'd header would otherwise silently drop that
         measurement from every row). A blank cell in a column that IS present
@@ -1401,7 +1403,7 @@ class FoodOptimizer:
         note_col = norm.get("note")
         if len(df) == 0:
             raise ValueError("The sheet has no result rows.")
-        in_trial = ", ".join(str(n) for n in numbers)
+        in_batch = ", ".join(str(n) for n in numbers)
         parsed, seen = [], set()
         for _, sheet_row in df.iterrows():
             raw_no = sheet_row[key_col]
@@ -1415,14 +1417,14 @@ class FoodOptimizer:
             if legacy:
                 if not (1 <= number <= len(rows)):
                     raise ValueError(
-                        f"Formulation {number} is not in trial "
-                        f"{self.pending_batch_no} (it has {in_trial})."
+                        f"Formulation {number} is not in batch "
+                        f"{self.pending_batch_no} (it has {in_batch})."
                     )
                 number = numbers[number - 1]
             elif number not in numbers:
                 raise ValueError(
-                    f"Formulation {number} is not in trial "
-                    f"{self.pending_batch_no} (it has {in_trial})."
+                    f"Formulation {number} is not in batch "
+                    f"{self.pending_batch_no} (it has {in_batch})."
                 )
             if number in seen:
                 raise ValueError(
@@ -1464,7 +1466,7 @@ class FoodOptimizer:
 
     def history_csv(self):
         """Every scored formulation as CSV, with the plain column names
-        'Import past formulations from a CSV' expects, plus Formulation, Trial
+        'Import past formulations from a CSV' expects, plus Formulation, Batch
         and Note. Skipped (Not made) formulations carry no results at all, so
         they are left out entirely: a blank measurement cell would be refused
         by the importer's own "these columns have blank cells" check, and a
@@ -1481,7 +1483,7 @@ class FoodOptimizer:
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 "Formulation": int(self.formulation_ids[i]),
-                "Trial": "" if batch is None else int(batch),
+                wording.BATCH_CAP: "" if batch is None else int(batch),
                 "Recorded": local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
@@ -2125,7 +2127,7 @@ class FoodOptimizer:
         Refused while a batch is open: taking that batch down as a side effect
         would retire numbers the user never asked to discard."""
         if self.pending_batch is not None:
-            raise ValueError("Record or discard the open trial first.")
+            raise ValueError(wording.batch_open_record_first_caption())
         last = self.last_batch_no()
         if last is None:
             return None

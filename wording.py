@@ -2,13 +2,13 @@
 the tests read this module too."""
 
 # ------------------------------------------------------------------ #
-# Concepts. Today the set of formulations issued together is called a
-# "trial" on screen; a future wave flips these two constants to
-# "batch"/"Batch", and because every trial-naming sentence below is built
-# from them, that flip is a one-line change.
+# Concepts. The set of formulations issued together is called a "batch"
+# on screen — the word the owner's formulation team already uses for a
+# round of formulations. Every batch-naming sentence below is built from
+# these two constants, so a name change is a one-line edit.
 # ------------------------------------------------------------------ #
-BATCH = "trial"
-BATCH_CAP = "Trial"
+BATCH = "batch"
+BATCH_CAP = "Batch"
 FORMULATION = "formulation"
 FORMULATION_CAP = "Formulation"
 
@@ -198,7 +198,7 @@ DOWNLOAD_CSV_TEMPLATE = "Download CSV template"
 
 
 # ------------------------------------------------------------------ #
-# Load-error / save-error banners, and the discarded-trial notice.
+# Load-error / save-error banners, and the discarded-batch notice.
 # ------------------------------------------------------------------ #
 def project_load_error_info():
     return (
@@ -235,19 +235,19 @@ def sample_project_failed(err):
 
 
 def batch_line_open(no, n):
-    """The one line under the title on tabs 1 and 2 once a trial exists and
+    """The one line under the title on tabs 1 and 2 once a batch exists and
     still has rows to make."""
     return f"{BATCH_CAP} {no} · {n} to make"
 
 
 def batch_line_recorded(no):
-    """Same line, once every row of that trial has been recorded (or left
+    """Same line, once every row of that batch has been recorded (or left
     out)."""
     return f"{BATCH_CAP} {no} · recorded"
 
 
 # ------------------------------------------------------------------ #
-# Tab 2 · Make a trial: generate, the trial table, downloads, record
+# Tab 2 · Make a batch: generate, the batch table, downloads, record
 # results, upload results.
 # ------------------------------------------------------------------ #
 GENERATE_FORMULATIONS_DISABLED = "Generate formulations"
@@ -287,14 +287,14 @@ def generate_button_label(n):
 
 FIRST_FIVE_SPREAD = (
     "The first five formulations are spread across the "
-    f"allowed amounts; later {BATCH}s aim closer to your "
+    f"allowed amounts; later {BATCH}es aim closer to your "
     "targets."
 )
 EACH_BATCH_AIMS_CLOSER = f"Each {BATCH} aims closer to your targets."
 
 
 def make_these(no, n):
-    """'Trial 1 · make this 1 formulation' / '... make these 3
+    """'Batch 1 · make this 1 formulation' / '... make these 3
     formulations'."""
     word = FORMULATION if n == 1 else FORMULATION + "s"
     return (f"**{BATCH_CAP} {no} · make "
@@ -466,7 +466,7 @@ NO_FORMULATION_FITS_LIMIT = "No formulation you have made fits this limit."
 
 def unscaled_tail(batch_no, total_text):
     """Scaling needs one unit, and a unit change may have just taken it away:
-    the open trial is back to as-generated, and only this sentence says so."""
+    the open batch is back to as-generated, and only this sentence says so."""
     return (f"{BATCH_CAP} {batch_no} is no longer shown at a formulation "
             f"total of {total_text}; a formulation total needs all "
             "ingredients in one unit.")
@@ -494,9 +494,9 @@ HOW_IT_WORKS = [
     "Limits are hard constraints applied when formulations are generated; an "
     "ingredient with no value for a property counts as containing none.",
     "The first five formulations are spread across the allowed amounts; "
-    f"later {BATCH}s are chosen together — one set, chosen jointly, the "
-    "optimizer's batch — from what the results suggest, some to test an idea "
-    "rather than beat the best.",
+    f"later {BATCH}es are chosen jointly — one set, chosen together from "
+    "what the results suggest, some to test an idea rather than beat the "
+    "best.",
     "A repeat is a second reading of one formulation; it teaches the model "
     "how noisy your measurements are.",
 ]
@@ -875,6 +875,10 @@ def overall_score_caption(score, ceiling, partial):
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
 SORT_LABEL = "Sort"
+# Also matched exactly in food_bo.history_frame(order=...) — a protocol
+# between that module and this one, not display prose that happens to
+# repeat; both import it from here so the two never drift apart.
+SORT_BATCH_ORDER = f"{BATCH_CAP} order"
 SHOW_AMOUNTS_TOGGLE = "Show amounts"
 DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (CSV)"
 DOWNLOAD_ALL_FORMULATIONS_HELP = ("Amounts are unitless in this file so it "
@@ -920,7 +924,7 @@ PROGRESS_CHART_CAPTION = ("Each formulation's overall score, and the best "
 
 DELETE_BATCH_OR_FORMULATION_EXPANDER = f"Delete a {BATCH} or a {FORMULATION}"
 BATCH_NOT_RECORDED_BEFORE_VERSION_CAPTION = (
-    f"{BATCH_CAP}s were not recorded before this version. You can delete one "
+    f"{BATCH_CAP}es were not recorded before this version. You can delete one "
     "formulation at a time below.")
 
 

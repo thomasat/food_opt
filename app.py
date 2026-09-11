@@ -34,7 +34,7 @@ _FLASH_BOX = render_flash()
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 
 
-# Half-typed set-up and trial entries belong to the project they were typed
+# Half-typed set-up and batch entries belong to the project they were typed
 # in. Streamlit keeps a widget's value in session state under its key, so
 # without this a measurement name typed in project A reappears in project B's
 # form. Popping a key while its widget is on screen raises, which is why this
@@ -58,7 +58,7 @@ _FORM_KEY_PREFIXES = (
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
-# What each box on the set-up and trial forms holds in a project nobody has
+# What each box on the set-up and batch forms holds in a project nobody has
 # typed in yet. Popping a widget's key does NOT empty it: the widget is still
 # mounted in the browser and posts its old value straight back, which carried
 # a half-typed ingredient into the next project and offered to add it there.
@@ -177,10 +177,10 @@ def _held(opt):
 
 
 def _batch_line(opt):
-    """The one line under the title on tabs 1 and 2 once a trial exists."""
+    """The one line under the title on tabs 1 and 2 once a batch exists."""
     if opt.pending_batch:
         return wording.batch_line_open(opt.pending_batch_no, len(open_rows(opt)))
-    last = opt.last_batch_no()   # counts a trial whose rows were all left out
+    last = opt.last_batch_no()   # counts a batch whose rows were all left out
     if last is not None:
         return wording.batch_line_recorded(last)
     return None
@@ -491,8 +491,8 @@ if getattr(st.session_state.optimizer, "save_error", None):
             st.rerun()
 
 
-# A trial generated before the ingredient list changed cannot be made. This
-# lives in the main body, not the sidebar: the notice is about the trial the
+# A batch generated before the ingredient list changed cannot be made. This
+# lives in the main body, not the sidebar: the notice is about the batch the
 # user is looking at, and so is the red banner when the discard fails to save.
 _opt = st.session_state.optimizer
 if getattr(_opt, "pending_batch", None):
@@ -500,7 +500,7 @@ if getattr(_opt, "pending_batch", None):
     try:
         # Ingredients only. A measurement is what you will score, not what you
         # weigh out, so deleting or editing one leaves every formulation in the
-        # trial perfectly makeable.
+        # batch perfectly makeable.
         _batch_ok = all(set(r['recipe']) == _var_names for r in _opt.pending_batch)
     except (TypeError, AttributeError, KeyError):
         _batch_ok = False           # malformed backup rows; treat as a mismatch
@@ -520,8 +520,8 @@ if getattr(_opt, "pending_batch", None):
 
 
 # The landing rule. This is one of the six places allowed to change tabs (the
-# other five are go_to_tab's callers: Next: make a trial, Back to set up,
-# Save results, Save uploaded results, Start the next trial), and it fires only
+# other five are go_to_tab's callers: Next: make a batch, Back to set up,
+# Save results, Save uploaded results, Start the next batch), and it fires only
 # on the run that follows opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
@@ -544,8 +544,8 @@ tab_setup, tab_batch, tab_results = st.tabs(
 _line = _batch_line(_opt)
 
 with tab_setup:
-    # Tab 1 only: tab 2 carries the trial's own heading, and the line sat
-    # directly above "Trial 1 · make these 3 formulations" saying it again.
+    # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
+    # directly above "Batch 1 · make these 3 formulations" saying it again.
     if _line:
         st.caption(_line)
     ui_setup.render(_opt, STORAGE)

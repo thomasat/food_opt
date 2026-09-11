@@ -46,7 +46,7 @@ def render_flash(box=None):
     Generate).
 
     Pass the container back to drain messages queued LATER in the same run —
-    the sidebar runs after this point and can discard an unmakeable trial,
+    the sidebar runs after this point and can discard an unmakeable batch,
     and that notice belongs above the tabs on this run, not the next one.
     """
     box = st.container() if box is None else box
@@ -151,8 +151,8 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from six handlers only: Next: make a trial,
-    Back to set up, Save results, Save uploaded results, Start the next trial,
+    tabs, and it is called from six handlers only: Next: make a batch,
+    Back to set up, Save results, Save uploaded results, Start the next batch,
     and opening a project. A set-up edit, Generate, a correction or a plain
     rerun must never call it, and neither must a handler whose write failed.
 
@@ -166,7 +166,7 @@ def go_to_tab(label):
 
 
 def open_rows(opt):
-    """Rows of the open trial that have not been recorded yet. Three screens
+    """Rows of the open batch that have not been recorded yet. Three screens
     count them — the line under the title, the result grid on tab 2 and the
     foot of tab 3 — and they must agree."""
     recorded = {int(i) for i in opt.formulation_ids}
@@ -199,7 +199,7 @@ def fmt_setting(value, unit=""):
     value. A setting is dialled in, not weighed: at most two decimals, and no
     trailing zeros, because 188.494 is a precision no oven dial has and
     180.00 is a precision nobody typed. Every screen that shows a setting —
-    the trial table, the printable sheets, the amounts table — goes through
+    the batch table, the printable sheets, the amounts table — goes through
     here, so the three always agree."""
     if value is None:
         return ""
@@ -331,7 +331,7 @@ def readiness(opt):
 
 
 def landing_tab(opt):
-    """Where opening a project lands: set-up while it is incomplete, the trial
+    """Where opening a project lands: set-up while it is incomplete, the batch
     while one is unrecorded, set-up again while nothing has been made, and
     results once the project holds some.
 

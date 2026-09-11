@@ -2,7 +2,7 @@
 
 One column, in the order a formulator fills it in: the ingredients and the
 process settings together, then the measurements, then the optional
-sections. Exactly one coloured button lives here — `Next: make a trial` at
+sections. Exactly one coloured button lives here — `Next: make a batch` at
 the foot.
 """
 import json
@@ -40,7 +40,7 @@ def _unit_suffix(unit):
 
 
 def _note_discarded_batch(opt, batch_no_before):
-    """Flash the notice when the write just now retired the open trial."""
+    """Flash the notice when the write just now retired the open batch."""
     if batch_no_before is not None and opt.pending_batch_no is None:
         flash("info", wording.batch_discarded_notice())
 
@@ -96,7 +96,7 @@ KIND_SETTING = wording.KIND_SETTING
 
 
 def _scaled_now(opt):
-    """The total the open trial is scaled to, or None. Only a real scaling
+    """The total the open batch is scaled to, or None. Only a real scaling
     counts: the box is not even offered while the ingredients differ in unit."""
     if opt.one_amount_unit() is None:
         return None
@@ -107,8 +107,8 @@ def _scaled_now(opt):
 
 
 def _unscaled_tail(opt, before, before_unit):
-    """The sentence a unit change owes the open trial when it has just split
-    the ingredients across units: scaling needs one unit, so the trial is back
+    """The sentence a unit change owes the open batch when it has just split
+    the ingredients across units: scaling needs one unit, so the batch is back
     to as-generated. Empties the box too — a number left in it would go on
     quietly meaning nothing."""
     if before is None or opt.one_amount_unit() is not None:
@@ -467,7 +467,7 @@ def _pause_or_resume(opt, var, pick):
 
 def _set_unit_now(opt, pick, typed):
     """Change one row's unit, ingredient or process setting. Nothing is
-    rescored and the open trial stands: a unit is how a number is written,
+    rescored and the open batch stands: a unit is how a number is written,
     not the number."""
     if not str(typed).strip():
         # A blank box looks like a no-op and is not one: it would rewrite the
@@ -490,7 +490,7 @@ def _set_unit_now(opt, pick, typed):
         is_ingredient = var.get('category', 'ingredient') == 'ingredient'
         said = wording.unit_changed(pick, written, is_ingredient)
         # Scaling needs one unit, and this change may have taken it away; the
-        # trial is back to as-generated, so say so.
+        # batch is back to as-generated, so say so.
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{said} {tail}" if tail else said)
         # An amount limit is a sum, and this change may have left one adding

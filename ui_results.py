@@ -1,7 +1,7 @@
 """Tab 3 · Results: the best formulation, every formulation, corrections.
 
-The one coloured button is at the foot: `Start the next trial`, or `Back to
-trial N` while a trial is still unrecorded. Everything destructive is behind a
+The one coloured button is at the foot: `Start the next batch`, or `Back to
+batch N` while a batch is still unrecorded. Everything destructive is behind a
 confirmation that keeps a copy first and says so — once, in the confirmation.
 """
 import pandas as pd
@@ -71,14 +71,14 @@ def _bounds_caution(opt, name, value):
 
 
 def _progress_line(opt):
-    last = opt.last_batch_no()   # counts a trial nobody managed to make
+    last = opt.last_batch_no()   # counts a batch nobody managed to make
     if last is None or not opt.Y_history:
         return ""
     earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
                if b != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
-        # "Trial 1 recorded."; saying it again four lines lower is the same
+        # "Batch 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
     best_now = max(float(y) for y in opt.Y_history)
@@ -147,11 +147,14 @@ def _all_formulations(opt, said_partial=False):
     st.markdown(wording.ALL_FORMULATIONS_HEADING)
     o1, o2 = st.columns([2, 1])
     with o1:
-        # The three option strings are also compared, verbatim, inside
+        # "Best first" and "Newest first" are also compared, verbatim, inside
         # food_bo.history_frame — they are a protocol with that module, not
-        # display prose, so they stay literal here.
+        # display prose, so they stay literal here. The third option names
+        # the batch, so it comes from wording (food_bo imports the same
+        # constant) rather than repeating the word as its own literal.
         order = st.selectbox(wording.SORT_LABEL,
-                             ["Best first", "Newest first", "Trial order"],
+                             ["Best first", "Newest first",
+                              wording.SORT_BATCH_ORDER],
                              key="results_order")
     with o2:
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
@@ -301,8 +304,8 @@ def _save_correction(opt, storage, pending):
 
 
 def _foot_label(opt):
-    """What the foot of this tab offers. An open trial outranks everything:
-    the work to do is the trial on the bench, and every other screen already
+    """What the foot of this tab offers. An open batch outranks everything:
+    the work to do is the batch on the bench, and every other screen already
     says so in these words."""
     if opt.pending_batch:
         return wording.back_to_batch_label(opt.pending_batch_no, len(open_rows(opt)))
@@ -312,7 +315,7 @@ def _foot_label(opt):
 def _foot(opt, correcting=False):
     label = _foot_label(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
-    # answering it is the one thing to do; the next trial can wait a click.
+    # answering it is the one thing to do; the next batch can wait a click.
     # An open correction row is the same case: Save correction is the lit one.
     lit = not confirmation_open() and not correcting
     if st.button(label, type="primary" if lit else "secondary",
@@ -335,9 +338,9 @@ def _progress_chart(opt):
 
 def _remove_batch_or_formulation(opt, storage):
     """One section for both ways a formulation leaves the project: the whole
-    of the last trial, or one formulation. They were two expanders, and the
+    of the last batch, or one formulation. They were two expanders, and the
     first was a heading and a button with the same words, so clicking the
-    heading read as having deleted the trial."""
+    heading read as having deleted the batch."""
     with st.expander(wording.DELETE_BATCH_OR_FORMULATION_EXPANDER):
         _undo(opt, storage)
         st.divider()
@@ -345,8 +348,8 @@ def _remove_batch_or_formulation(opt, storage):
 
 
 def _undo(opt, storage):
-    # Left-out formulations count: a trial nobody managed to make is still
-    # the last trial, and deleting must not reach past it.
+    # Left-out formulations count: a batch nobody managed to make is still
+    # the last batch, and deleting must not reach past it.
     last = opt.last_batch_no()
     if last is None:
         if opt.X_history or opt.skipped:
@@ -376,7 +379,7 @@ def _undo(opt, storage):
             try:
                 opt.undo_last_batch()
             except ValueError as e:
-                # The open trial appeared between the click and the
+                # The open batch appeared between the click and the
                 # confirmation: say why, do not take it down as well.
                 st.error(str(e))
                 return
@@ -511,10 +514,10 @@ def _import(opt):
 def render(opt, storage):
     if not opt.X_history and not opt.skipped:
         st.markdown(wording.NO_RESULTS_YET)
-        # A project with no ingredients cannot make a trial: sending the user
+        # A project with no ingredients cannot make a batch: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
-        # And a trial already on the bench is not a first trial to make: the
-        # foot of every other screen calls it "Back to trial 1 · 3 to record".
+        # And a batch already on the bench is not a first batch to make: the
+        # foot of every other screen calls it "Back to batch 1 · 3 to record".
         ready, _ = readiness(opt)
         if not ready:
             label, target = wording.SET_UP_THIS_PROJECT_BUTTON, TAB_SETUP

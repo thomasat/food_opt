@@ -265,7 +265,7 @@ def test_history_frame_names_formulations_not_experiments(tmp_path, monkeypatch)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     opt.tell({"Water": 20.0}, {"Taste": 8.0})
     df = opt.history_frame(order="Newest first")
-    assert list(df.columns[:3]) == ["Best", "Trial", "Formulation"]
+    assert list(df.columns[:3]) == ["Best", "Batch", "Formulation"]
     assert list(df["Formulation"]) == [2, 1]
     assert "Taste" in df.columns
     assert len(df["Recorded"].iloc[0]) == 10
@@ -325,7 +325,7 @@ def test_history_csv_roundtrips_through_importer_columns(tmp_path, monkeypatch):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    for col in ["Formulation", "Trial", "Recorded", "Overall score", "Water",
+    for col in ["Formulation", "Batch", "Recorded", "Overall score", "Water",
                 "Taste", "Note"]:
         assert col in df.columns
     assert df["Taste"].iloc[0] == 3.0
@@ -1433,7 +1433,7 @@ def test_recipe_lines_ignores_nan_and_non_numeric(tmp_path, monkeypatch):
 
 
 class TestARegeneratedBatchIsADifferentBatch:
-    """`Generate a different trial` used to hand back the batch it had just
+    """`Generate a different batch` used to hand back the batch it had just
     discarded, byte for byte. Both regimes seeded on len(X_history), which a
     discard before any result leaves exactly where it was. They now seed on
     next_formulation_no, which advances on every generate."""
@@ -1489,7 +1489,7 @@ class TestARegeneratedBatchIsADifferentBatch:
         assert int(reloaded.next_formulation_no) == after_discard
         reloaded.ask(n_suggestions=3)
         second = self._amounts(reloaded)
-        assert second != first          # a different trial, as the label says
+        assert second != first          # a different batch, as the label says
 
         # ...and a third session in that same state repeats the second's work
         # exactly, rather than wandering.
@@ -1544,7 +1544,7 @@ class TestFormulationIdentity:
     def test_discarded_numbers_are_never_reissued(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.ask(n_suggestions=3)
-        opt.set_pending_batch(None)          # "Generate a different trial"
+        opt.set_pending_batch(None)          # "Generate a different batch"
         opt.ask(n_suggestions=2)
         assert [r["formulation"] for r in opt.pending_batch] == [4, 5]
         assert opt.pending_batch_no == 1     # the batch keeps its number
@@ -1631,7 +1631,7 @@ class TestFormulationIdentity:
         opt.record_skipped(2, 1, {"Water": 20.0})
         opt.tell({"Water": 30.0}, {"Firmness": 6.0}, formulation_no=3, batch_no=2)
         opt.record_skipped(4, 2, {"Water": 40.0})
-        opt.rewind_to(0)                     # keep trial 1's one scored row
+        opt.rewind_to(0)                     # keep batch 1's one scored row
         assert opt.formulation_ids == [1]
         assert [s['formulation'] for s in opt.skipped] == [2]
         assert opt.last_batch_no() == 1
@@ -1666,7 +1666,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.ask(n_suggestions=2)
-        with pytest.raises(ValueError, match="Record or discard the open trial first."):
+        with pytest.raises(ValueError, match="Record or discard the open batch first."):
             opt.undo_last_batch()
         assert opt.pending_batch is not None
         assert opt.formulation_ids == [1]
@@ -1677,7 +1677,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.set_pending_batch([])
-        with pytest.raises(ValueError, match="Record or discard the open trial first."):
+        with pytest.raises(ValueError, match="Record or discard the open batch first."):
             opt.undo_last_batch()
 
     def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
@@ -1956,7 +1956,7 @@ class TestUnitsAndImportance:
     def test_reserved_column_names_are_refused(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("reserved2")
-        for bad in ("Formulation", "Trial", "Overall score", "Note", "Recorded", "Best"):
+        for bad in ("Formulation", "Batch", "Overall score", "Note", "Recorded", "Best"):
             with pytest.raises(ValueError, match="column name Food Optimizer uses"):
                 opt.add_ingredient(bad, 0, 10)
 
@@ -2057,12 +2057,12 @@ class TestUnitsAndImportance:
                  note="best yet")
         opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
         df = opt.history_frame()
-        assert list(df.columns) == ["Best", "Trial", "Formulation", "Firmness (N)",
+        assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
                                     "Juiciness", "Overall score", "Recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
         # A row nobody made has no score to be best, and says so.
         assert list(df["Best"]) == ["★", "", "not made"]
-        assert list(df["Trial"]) == ["1", "1", "1"]        # one type, always
+        assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
         assert df["Note"].iloc[2] == "Not made"
         assert df["Overall score"].iloc[2] == ""
@@ -2073,7 +2073,7 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 7.0})            # no batch (imported)
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, batch_no=1)
-        assert set(opt.history_frame()["Trial"]) == {"", "1"}
+        assert set(opt.history_frame()["Batch"]) == {"", "1"}
 
     def test_history_frame_marks_a_partial_score(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2088,7 +2088,7 @@ class TestUnitsAndImportance:
                  {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=2, batch_no=1)
         assert list(opt.history_frame(order="Best first")["Formulation"]) == [1, 2]
         assert list(opt.history_frame(order="Newest first")["Formulation"]) == [2, 1]
-        assert list(opt.history_frame(order="Trial order")["Formulation"]) == [2, 1]
+        assert list(opt.history_frame(order="Batch order")["Formulation"]) == [2, 1]
 
     def test_history_frame_amounts_carry_the_unit(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2104,11 +2104,11 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=4, batch_no=2,
                  note="ok")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
-        for col in ("Formulation", "Trial", "Recorded", "Overall score",
+        for col in ("Formulation", "Batch", "Recorded", "Overall score",
                     "Pea protein", "Firmness", "Note"):
             assert col in df.columns
         assert df["Formulation"].iloc[0] == 4
-        assert df["Trial"].iloc[0] == 2
+        assert df["Batch"].iloc[0] == 2
 
     def test_history_csv_omits_not_made_rows_but_keeps_partial_rows(self, tmp_path, monkeypatch):
         """A Not-made row has no results at all, so exporting it would fail the
@@ -2537,7 +2537,7 @@ class TestParseBatchResultsByFormulation:
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
         with pytest.raises(ValueError,
-                           match=r"Formulation 11 is not in trial 3 \(it has 7, 8, 9\)\."):
+                           match=r"Formulation 11 is not in batch 3 \(it has 7, 8, 9\)\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
@@ -2644,15 +2644,16 @@ _BANNED = [
     re.compile(r"\bscale each formulation\b", re.I),
     re.compile(r"\btotal amount\b", re.I),
     # The wording wave (2026-09-10): the words a formulation team uses, one
-    # per concept. A batch is one mix of one formulation at the bench, so the
-    # set of formulations issued together is a TRIAL; Delete replaces Remove
-    # everywhere (they were the same act under two verbs, and Delete no
-    # longer belongs to the project alone); Type replaces Kind; Range
-    # replaces Scale for a measurement; Repeat replaces Remake; and Share is
-    # gone outright. Stored field names keep their old spelling — batch_history
-    # and pending_batch never reach a screen — and an underscore is a word
-    # character, so \bbatch\b never matches one.
-    re.compile(r"\bbatch(es)?\b", re.I),
+    # per concept. Delete replaces Remove everywhere (they were the same act
+    # under two verbs, and Delete no longer belongs to the project alone);
+    # Type replaces Kind; Range replaces Scale for a measurement; Repeat
+    # replaces Remake; and Share is gone outright.
+    #
+    # The batch wording wave (2026-09-10): the owner's team calls a round of
+    # formulations a BATCH, so TRIAL — the old name for that same set — is
+    # banned in its place. Stored field names keep their old spelling —
+    # batch_history and pending_batch never reach a screen.
+    re.compile(r"\btrials?\b", re.I),
     re.compile(r"\bscales?\b", re.I),
     re.compile(r"\bKind\b"),
     re.compile(r"\bRemove\b"),
@@ -2767,15 +2768,6 @@ _ALLOWED_EXACT = {
     "**? It has no formulations yet, "
     "and it leaves this list. ",
     "** and its ",
-    # The How it works bullet that names the trial/batch is an f-string built
-    # from BATCH (wording.HOW_IT_WORKS), so the scan sees its static half —
-    # everything after the {BATCH} interpolation — as its own fragment. It
-    # says "the optimizer's batch" on purpose, naming the internal word for
-    # the same How it works exemption HOW_IT_WORKS already carries as a
-    # whole; this is that same exemption, just split by the f-string.
-    "s are chosen together — one set, chosen jointly, the optimizer's batch "
-    "— from what the results suggest, some to test an idea rather than beat "
-    "the best.",
 }
 
 # Fragments of the sidebar's delete-the-project sentences (they are f-strings,
@@ -2785,15 +2777,17 @@ _ALLOWED_PREFIXES = ("Delete **", "Deleted ")
 # Single-word literals that are internal machinery, never screen text.
 _ALLOWED_SINGLE_WORDS = {
     # Legacy CSV column headers an import still accepts, and the reserved
-    # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES).
-    "Recipe", "Experiment", "Batch",
+    # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES,
+    # which keeps Trial reserved too: a project stored before this wording
+    # wave may carry that column).
+    "Recipe", "Experiment", "Trial",
     # The ingredient file's own column headers. The boxes on screen say
     # Lowest and Highest; a sheet may head its columns either way, and the
     # loader reads both.
     "Min", "Max", "min", "max", "lowest", "highest",
     # Stored field names and JSON keys. The spec keeps the stored spelling of
     # importance ('weight') and of a formulation's amounts ('recipe').
-    "recipe", "experiment", "experiments", "objectives", "weight", "batch",
+    "recipe", "experiment", "experiments", "objectives", "weight",
 }
 # Fragments removed from the Swift wrapper before it is scanned: CSS property
 # names inside the setup page's inline styles, not prose.
@@ -2802,7 +2796,7 @@ _SWIFT_NOT_PROSE = ("font-weight",)
 _SINGLE_WORDS = re.compile(
     # 'ranges', not 'range': Range is the measurement's own column header.
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
-    r"|priority|batch(es)?|kind|scales?|remove|remake|share)$", re.I)
+    r"|priority|trials?|kind|scales?|remove|remake|share)$", re.I)
 
 
 def _how_it_works():
@@ -2847,8 +2841,8 @@ def _single_word_constants(path):
 def test_no_old_vocabulary_reaches_the_user():
     """recipe → formulation, experiment → formulation, objective →
     measurement, weight → importance, ranges → allowed amounts (a
-    measurement's own Range is the one exception), rewind → undo, batch →
-    trial, Kind → Type, Scale → Range, Remove → Delete, Remake → Repeat,
+    measurement's own Range is the one exception), rewind → undo, trial →
+    batch, Kind → Type, Scale → Range, Remove → Delete, Remake → Repeat,
     Share → gone, and nothing on screen mentions an algorithm or
     optimization. 'Overall Score' → 'Overall score'. The one exemption is
     the How it works expander, which exists to say these words once."""
