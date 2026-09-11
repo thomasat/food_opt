@@ -274,7 +274,7 @@ def batch_ready(no):
     return f"{BATCH_CAP} {no} is ready to make."
 
 
-NEW_FORMULATIONS_IN_BATCH = f"New formulations in this {BATCH}"
+FORMULATIONS_TO_GENERATE = "Formulations to generate"
 
 
 # The expander under the Generate row (and under the batch table once one is
@@ -302,11 +302,14 @@ def generate_button_label(n):
     return f"Generate {n} formulations"
 
 
-FIRST_FIVE_SPREAD = (
-    "The first five formulations are spread across the "
-    f"allowed amounts; later {BATCH}es aim closer to your "
-    "targets."
-)
+# The one clause that says what the opening does. The caption under
+# Generate and the How it works bullet both start with it, word for word,
+# and then say what happens afterwards in their own register — the same
+# fact cannot be two sentences.
+SPREAD_CLAUSE = ("Until five formulations have results, new ones are spread "
+                 "across the allowed amounts")
+FIRST_FIVE_SPREAD = (SPREAD_CLAUSE
+                     + f"; after that, {BATCH}es aim closer to your targets.")
 EACH_BATCH_AIMS_CLOSER = f"Each {BATCH} aims closer to your targets."
 
 
@@ -385,8 +388,21 @@ YES_DISCARD = "Yes, discard"
 RECORDED_FALLBACK = "recorded"
 
 
-def recorded_line_partial(line):
-    return f"{line} · partial" if line else "partial"
+# What a row is missing, named. "· partial" told the reader a word rather
+# than which measurement nobody took, on a screen that had room for the
+# name.
+NOT_MEASURED = "not measured"
+
+
+def not_measured_tail(names_text):
+    """' · Juiciness not measured' — `names_text` is one name or a
+    number_list of several."""
+    return f" · {names_text} {NOT_MEASURED}"
+
+
+def recorded_line_partial(line, names_text):
+    tail = not_measured_tail(names_text)
+    return f"{line}{tail}" if line else tail.lstrip(" ·").lstrip()
 
 
 def recorded_line_note(line, note):
@@ -394,8 +410,9 @@ def recorded_line_note(line, note):
 
 
 RECORD_RESULTS_HEADER = "Record results"
-RECORD_RESULTS_CAPTION = ("Enter your panel mean. Leave a measurement "
-                          "blank if it could not be scored.")
+RECORD_RESULTS_CAPTION = ("One number per measurement; the panel mean where "
+                          "a panel scored it. Leave blank if it was not "
+                          "measured.")
 
 
 def formulation_heading(no):
@@ -521,10 +538,9 @@ HOW_IT_WORKS = [
     "past formulation.",
     "Limits are hard constraints applied when formulations are generated; an "
     "ingredient with no value for a property counts as containing none.",
-    "The first five formulations are spread across the allowed amounts; "
-    f"later {BATCH}es are chosen jointly — one set, chosen together from "
-    "what the results suggest, some to test an idea rather than beat the "
-    "best.",
+    SPREAD_CLAUSE + f"; after that, {BATCH}es are chosen jointly — one set, "
+    "chosen together from what the results suggest, some to test an idea "
+    "rather than beat the best.",
     "A formulation of your own counts like any other; making the best one "
     "again teaches the model how noisy your measurements are.",
 ]
@@ -786,7 +802,11 @@ AT_LEAST_LABEL = "At least"
 AT_MOST_LABEL = "At most"
 NO_LIMIT_PLACEHOLDER = "no limit"
 ADD_PROPERTY_LIMIT_BUTTON = "Add property limit"
-ENTER_LOWEST_HIGHEST_ERROR = "Enter a lowest, a highest, or both."
+# The two limit forms ask for At least and At most, so their refusals name
+# those two boxes. (The ingredient form's own Lowest/Highest keeps its own.)
+ENTER_LOWEST_HIGHEST_ERROR = (f"Enter {AT_LEAST_LABEL.lower()}, "
+                              f"{AT_MOST_LABEL.lower()}, or both.")
+LIMIT_BOUNDS_ORDER_ERROR = f"{AT_LEAST_LABEL} must be less than {AT_MOST_LABEL}."
 
 
 def limit_added_on(who):
@@ -819,7 +839,15 @@ def at_most(value):
     return f"at most {value:g}"
 
 
-DELETE_LIMIT_BUTTON = "Delete limit"
+def delete_limit_button(who):
+    """'Delete limit on Fat per 100 g'. A bare `Delete limit` was drawn once
+    per limit, identically, with nothing on the button to say which."""
+    return f"Delete {LIMIT} on {who}"
+
+
+def delete_limit_warning(who):
+    return (f"Delete the {LIMIT} on {who}? The next {BATCH} is no longer "
+            f"held to it. " + COPY_KEPT)
 
 
 def limit_deleted(who):
@@ -875,9 +903,9 @@ NEXT_MAKE_BATCH_BUTTON = f"Next: make a {BATCH}"
 # Tab 3 · Results: the best formulation, every formulation, corrections
 # (ui_results.py).
 # ------------------------------------------------------------------ #
-PARTIAL_SCORES_CAPTION = ("Partial scores are missing a measurement, which "
-                          "counts as zero, so they are low and the model "
-                          "treats them that way.")
+PARTIAL_SCORES_CAPTION = ("A score missing a measurement counts that "
+                          "measurement as zero, so it is low, and the model "
+                          "treats it that way.")
 
 
 def batch_recorded_progress(no, before, now):
@@ -903,11 +931,14 @@ AMOUNT_COLUMN = "Amount"
 NOT_USED_PREFIX = "Not used: "
 
 
-def overall_score_caption(score, ceiling, partial):
+def overall_score_caption(score, ceiling, missing_text=""):
+    """`missing_text` names the measurements nobody took, or is empty. A goal
+    re-scores every formulation exactly as an importance or a range does, so
+    it is named here with them."""
     return (f"Overall score {score:.2f} of {ceiling:.2f}"
-            + (" · partial" if partial else "")
+            + (not_measured_tail(missing_text) if missing_text else "")
             + ". Scores compare only within this project, and only until "
-            "you change an importance or a range.")
+            "you change an importance, a goal or a range.")
 
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
@@ -937,6 +968,7 @@ DOWNLOAD_ALL_FORMULATIONS_HELP = ("One row per formulation, with the same "
 EDIT_PAST_FORMULATIONS_EXPANDER = f"Edit past {FORMULATION}s"
 
 CORRECT_A_FORMULATION_HEADING = f"##### Correct a {FORMULATION}"
+CORRECT_WHICH_LABEL = f"{FORMULATION_CAP} to correct"
 
 
 def no_formulation_to_correct_caption():
@@ -970,9 +1002,9 @@ PROGRESS_CHART_EXPANDER = "Progress chart"
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
 BEST_SO_FAR_COLUMN = "Best so far"
-PROGRESS_CHART_CAPTION = ("Each formulation's overall score, and the best "
-                          "so far. When the top line stops rising, you are "
-                          "close to the best this ingredient list can do.")
+PROGRESS_CHART_CAPTION = ("The top line only rises. A few flat "
+                          f"{BATCH}es are normal; a long flat stretch "
+                          "suggests this ingredient list is near its limit.")
 
 def batch_open_record_first_caption():
     """food_bo.undo_last_batch's refusal. No screen reaches it any more —
@@ -985,7 +1017,7 @@ DELETE_FORMULATIONS_HEADING = f"##### Delete {FORMULATION}s"
 FORMULATIONS_TO_DELETE_LABEL = f"{FORMULATION_CAP}s to delete"
 # The quick pick beside the list: one batch's formulations, recorded and not
 # made alike, dropped into the selection to be looked over before deleting.
-WHOLE_BATCH_LABEL = f"Whole {BATCH}"
+WHOLE_BATCH_LABEL = f"Add a whole {BATCH} to the list"
 
 
 def no_formulation_to_delete_caption():
@@ -1018,7 +1050,10 @@ def formulations_deleted(numbers_text):
     return f"{FORMULATION_CAP}s {numbers_text} deleted. " + COPY_KEPT
 
 
-ADD_PAST_FORMULATION_LABEL = f"Add a {FORMULATION} you already made"
+# Record, not Add: Add puts a formulation into the open batch, to be made.
+# This one was made already, and the two doors sat one tab apart wearing the
+# same verb.
+ADD_PAST_FORMULATION_LABEL = f"Record a {FORMULATION} you already made"
 ADD_PAST_FORMULATION_HEADING = "##### " + ADD_PAST_FORMULATION_LABEL
 TYPE_IT_IN = "Type it in"
 UPLOAD_A_CSV = "Upload a CSV"
@@ -1026,7 +1061,7 @@ UPLOAD_A_CSV = "Upload a CSV"
 # the Note box opens holding. food_bo.import_formulation defaults to the same
 # word, so a row typed in and a row read off a CSV read alike.
 IMPORTED_NOTE = "Imported"
-ADD_THIS_FORMULATION = f"Add this {FORMULATION}"
+ADD_THIS_FORMULATION = f"Record this {FORMULATION}"
 
 
 def formulation_added(no):

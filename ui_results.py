@@ -132,16 +132,25 @@ def _best(opt):
     if unused:
         st.caption(wording.NOT_USED_PREFIX + ", ".join(unused))
     ceiling = opt.utility_ceiling()
-    # "· partial", exactly as the All formulations row writes it: a score
-    # missing one measurement is not the same number as a full one.
-    scored = opt.results_history[index] if index < len(opt.results_history) else {}
-    partial = any(o['name'] not in scored for o in opt.objectives)
+    # The measurements nobody took, named exactly as the All formulations
+    # row names them: a score missing one is not the same number as a full
+    # one, and the reader should not have to go and find out which.
+    recorded = opt.results_history[index] if index < len(opt.results_history) else {}
+    unmeasured = [o['name'] for o in opt.measurements_by_importance()
+                  if o['name'] not in recorded]
+    partial = bool(unmeasured)
     # What the ceiling MEANS is said once, under the measurements table on
     # Set up ("Every measurement at its goal scores 2.50."). Repeating it
     # here read as a claim about the formulation on screen — false whenever
-    # it is off target, and flatly contradictory beside "· partial".
-    st.caption(wording.overall_score_caption(
-        float(opt.Y_history[index]), ceiling, partial))
+    # it is off target, and flatly contradictory beside the missing ones.
+    #
+    # With every measurement deleted the ceiling is 0, and "Overall score
+    # 0.00 of 0.00" is a sentence about nothing; the banner at the top of
+    # the tab already says what to do about it.
+    if ceiling > 0:
+        st.caption(wording.overall_score_caption(
+            float(opt.Y_history[index]), ceiling,
+            number_list(unmeasured) if unmeasured else ""))
     if partial:
         st.caption(wording.PARTIAL_SCORES_CAPTION)
     return partial
@@ -162,7 +171,7 @@ def _all_formulations(opt, said_partial=False):
                  height=table_height(len(frame), max_rows=20))
     # "Overall score" here is a lookup into food_bo's own history_frame
     # schema, not a header this module produces — it stays literal.
-    if not said_partial and any("· partial" in str(v)
+    if not said_partial and any(wording.NOT_MEASURED in str(v)
                                 for v in frame["Overall score"]):
         st.caption(wording.PARTIAL_SCORES_CAPTION)
     st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON, data=opt.history_csv(),
@@ -282,9 +291,10 @@ def _correct(opt):
         st.caption(wording.no_formulation_to_correct_caption())
         return None
     take_clear("correct_formulation")
-    # The box names what it holds; the heading above it says what picking one
-    # does, so a second "Correct a ..." on the label said it twice.
-    choice = st.selectbox(wording.FORMULATION_CAP, numbers, index=None,
+    # The label says what picking one DOES; the placeholder says what the box
+    # holds. A bare "Formulation" on both left the reader to infer the verb
+    # from a heading three rows up.
+    choice = st.selectbox(wording.CORRECT_WHICH_LABEL, numbers, index=None,
                           placeholder=wording.FORMULATION_CAP,
                           key="correct_formulation")
     if opt.skipped:
@@ -427,7 +437,11 @@ def _foot(opt, correcting=False):
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; the next batch can wait a click.
     # An open correction row is the same case: Save correction is the lit one.
-    lit = not confirmation_open() and not correcting
+    #
+    # And a project that cannot make a batch — every measurement deleted, say
+    # — must not offer a lit button to a tab holding a greyed Generate.
+    ready, _ = readiness(opt)
+    lit = ready and not confirmation_open() and not correcting
     if st.button(label, type="primary" if lit else "secondary",
                  disabled=not lit, key="foot_batch") and lit:
         go_to_tab(TAB_BATCH)

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -251,6 +252,9 @@ class FoodOptimizer:
         # batch as soon as batch 2 was deleted, so two different sets of
         # formulations wore one number in the same project's records.
         self.next_batch_number = 1
+        # The scramble the space-filling opening is drawn from, fixed once
+        # per project (see _sobol_seed). None means "derive it from the name".
+        self.sobol_seed = None
         # One unit for every amount in the project. Grams is the default a
         # food scientist expects; a blank unit made every amount ambiguous.
         self.amount_unit = "g"
@@ -1146,8 +1150,9 @@ class FoodOptimizer:
             raw = results.get(obj['name'])
             if raw is None:
                 rows.append({'name': name, 'goal': goal_text,
-                             'measured': "not scored",
-                             'off_by': "not scored" if is_target else "—"})
+                             'measured': wording.NOT_MEASURED,
+                             'off_by': (wording.NOT_MEASURED if is_target
+                                        else "—")})
                 continue
             val = float(raw)
             measured = join_unit(f"{val:g}", unit)
@@ -1262,7 +1267,7 @@ class FoodOptimizer:
         rows = []
         for i in range(len(self.X_history)):
             results = self.results_history[i] if i < len(self.results_history) else {}
-            partial = any(o['name'] not in results for o in objs)
+            unmeasured = [o['name'] for o in objs if o['name'] not in results]
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
@@ -1275,11 +1280,14 @@ class FoodOptimizer:
             }
             for obj in objs:
                 row[self._measurement_column(obj)] = results.get(obj['name'])
-            # '2.30 · partial', in the separator the rest of the app reads
-            # a list with: a partial score is missing a measurement and is not
-            # the same number as a complete one.
-            row["Overall score"] = (f"{float(self.Y_history[i]):.2f}"
-                                    + (" · partial" if partial else ""))
+            # '2.30 · Juiciness not measured', in the separator the rest of
+            # the app reads a list with. The measurement is NAMED: a score
+            # missing one is not the same number as a complete one, and
+            # "partial" made the reader go and find out which.
+            row["Overall score"] = (
+                f"{float(self.Y_history[i]):.2f}"
+                + (wording.not_measured_tail(number_list(unmeasured))
+                   if unmeasured else ""))
             row["Recorded"] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
@@ -1288,9 +1296,10 @@ class FoodOptimizer:
         for k, s in enumerate(self.skipped):
             batch = s.get('batch')
             row = {
-                # A row nobody made has no score to be best; saying so in the
-                # Best column is what stops it reading as the worst.
-                "Best": "not made",
+                # Best is a star or nothing. "not made" belongs in the Note
+                # column, which already carries it, and a Best column with
+                # words in it read as a third kind of score.
+                "Best": "",
                 wording.BATCH_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
@@ -1301,7 +1310,7 @@ class FoodOptimizer:
                 row[self._measurement_column(obj)] = None
             row["Overall score"] = ""
             row["Recorded"] = ""
-            row["Note"] = s.get('note') or "Not made"
+            row["Note"] = s.get('note') or wording.NOT_MADE
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
@@ -1588,7 +1597,7 @@ class FoodOptimizer:
         Per 100 g of formulation, not as a total: a total grew with the batch,
         so the same formulation passed at 100 g and failed at 1 kg."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError("Lowest must be less than Highest.")
+            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
         # An average over the amounts, so the amounts must be in one unit:
         # 25 g of powder and 40 ml of water share no 100 g to be measured per.
         units = self.ingredient_units()
@@ -1630,7 +1639,7 @@ class FoodOptimizer:
             max_val: Maximum allowed sum (or None for no upper bound).
         """
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError("Lowest must be less than Highest.")
+            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
         # A limit is a sum, and a sum across units is a number of nothing:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
@@ -1975,10 +1984,41 @@ class FoodOptimizer:
         formulations twice: the number has not moved."""
         return int(self.next_formulation_no)
 
+    def _sobol_seed(self):
+        """The scramble this project's space-filling design is drawn from.
+        Fixed once per project, and stored: a seed derived from anything that
+        moves would give the project a different sequence every time it is
+        asked for one.
+
+        A file written before the seed was stored has none, so it is derived
+        from the project's own name — deterministic, and the same on every
+        machine that opens the file."""
+        seed = getattr(self, 'sobol_seed', None)
+        if seed is None:
+            digest = hashlib.sha256(str(self.project_name).encode('utf-8'))
+            seed = int(digest.hexdigest()[:8], 16)
+            self.sobol_seed = seed
+        return int(seed)
+
     def _ask_cold_start(self, n_suggestions, bounds_tensor, dim):
-        """Generate initial recipes using Sobol sampling."""
+        """The space-filling opening: the next points of ONE Sobol sequence.
+
+        Not a fresh sequence per call. A scrambled Sobol design is only
+        space-filling as a whole, and reseeding it on every generate made
+        five formulations asked for as 3 then 2 five points from two
+        unrelated scrambles — clustered exactly where the caption promised
+        they would not be. The project draws one sequence and fast-forwards
+        past the points it has already issued, so 3 + 2 lands on the same
+        five points as 5 in one go, and a regenerate still differs because
+        the formulation numbers have moved on."""
         print(f"DEBUG: cold start, Sobol design of {n_suggestions}...")
-        sobol = SobolEngine(dimension=dim, scramble=True, seed=self._ask_seed())
+        sobol = SobolEngine(dimension=dim, scramble=True,
+                            seed=self._sobol_seed())
+        # _ask_seed is the NEXT formulation number, so one less is how many
+        # points of this sequence the project has already spent.
+        already = max(0, int(self._ask_seed()) - 1)
+        if already:
+            sobol.fast_forward(already)
         pool_norm = sobol.draw(2048).double()
 
         # Pin inactive variables so the Sobol design also lives in X_S.
@@ -2818,6 +2858,7 @@ class FoodOptimizer:
             'skipped': self.skipped,
             'next_formulation_no': self.next_formulation_no,
             'next_batch_number': self.next_batch_number,
+            'sobol_seed': getattr(self, 'sobol_seed', None),
             'pending_batch_no': self.pending_batch_no,
             'pending_batch_created': self.pending_batch_created,
             'pending_batch_discarded': self.pending_batch_discarded,
@@ -2995,6 +3036,11 @@ class FoodOptimizer:
             self.next_batch_number = int(state.get('next_batch_number') or 1)
         except (TypeError, ValueError):
             self.next_batch_number = 1
+        try:
+            stored_seed = state.get('sobol_seed')
+            self.sobol_seed = None if stored_seed is None else int(stored_seed)
+        except (TypeError, ValueError):
+            self.sobol_seed = None
         # A 0.2.x file has no unit at all: it backfills to g rather than
         # reopening as a project whose amounts mean nothing, and says so once
         # on tab 1. A file that HOLDS a blank unit is a deliberate blank and

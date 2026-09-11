@@ -1366,7 +1366,10 @@ class TestSetupValidation:
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_ingredient("Sugar", 0, 100)
         opt.add_ingredient("Honey", 0, 100)
-        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
+        # The limit form's own two boxes, named: it has no Lowest or Highest
+        # on it — those belong to the ingredient above.
+        with pytest.raises(ValueError,
+                           match="At least must be less than At most"):
             opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
 
     def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
@@ -1477,6 +1480,66 @@ class TestARegeneratedBatchIsADifferentBatch:
         opt.set_pending_batch(None)
         opt.ask(n_suggestions=2)
         assert self._amounts(opt) != first
+
+    def test_a_split_cold_start_is_the_same_five_points(self, tmp_path,
+                                                        monkeypatch):
+        """The caption promises five formulations spread across the allowed
+        amounts. A fresh scramble per call gave 3 + 2 five points from two
+        unrelated sequences — clustered exactly where the caption said they
+        would not be. One sequence per project, fast-forwarded past what it
+        has already issued, so a batch split makes no difference."""
+        split = self._opt(tmp_path, monkeypatch, name="cold_split")
+        split.ask(n_suggestions=3)
+        first_three = self._amounts(split)
+        split.tell({"Water": first_three[0]["Water"]}, {"Firmness": 6.0},
+                   formulation_no=1, batch_no=1)
+        split.tell({"Water": first_three[1]["Water"]}, {"Firmness": 6.0},
+                   formulation_no=2, batch_no=1)
+        split.tell({"Water": first_three[2]["Water"]}, {"Firmness": 6.0},
+                   formulation_no=3, batch_no=1)
+        split.set_pending_batch(None)
+        split.ask(n_suggestions=2)
+        split_five = first_three + self._amounts(split)
+
+        whole = self._opt(tmp_path, monkeypatch, name="cold_split")
+        # Same project name, so the same scramble; a clean counter, so the
+        # sequence starts at its first point.
+        whole.storage._seen.pop("cold_split", None)
+        whole.X_history, whole.Y_history = [], []
+        whole.recipe_history, whole.results_history = [], []
+        whole.formulation_ids, whole.batch_history = [], []
+        whole.notes_history, whole.timestamps_history = [], []
+        whole.next_formulation_no = 1
+        whole.pending_batch = None
+        whole.pending_batch_no = None
+        whole.ask(n_suggestions=5)
+        assert self._amounts(whole) == split_five
+
+    def test_a_regenerated_cold_start_still_differs(self, tmp_path,
+                                                    monkeypatch):
+        """One sequence per project, but the numbers have moved on, so
+        `Generate a different batch` really is a different batch."""
+        opt = self._opt(tmp_path, monkeypatch, name="cold_regen")
+        opt.ask(n_suggestions=3)
+        first = self._amounts(opt)
+        opt.set_pending_batch(None)
+        opt.ask(n_suggestions=3)
+        assert self._amounts(opt) != first
+
+    def test_the_sobol_seed_is_fixed_and_stored(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="cold_seed")
+        opt.ask(n_suggestions=1)
+        seed = opt.sobol_seed
+        assert isinstance(seed, int)
+        assert FoodOptimizer("cold_seed").sobol_seed == seed
+        # A file written before the seed was stored derives one from the
+        # project's own name, so it is the same on every machine.
+        state = opt.export_json()
+        del state['sobol_seed']
+        old = FoodOptimizer("cold_seed")
+        old.import_json(state)
+        assert old.sobol_seed is None
+        assert old._sobol_seed() == seed
 
     def test_the_seed_source_survives_a_reload(self, tmp_path, monkeypatch):
         """next_formulation_no is persisted, so a project closed and reopened
@@ -2136,8 +2199,10 @@ class TestUnitsAndImportance:
         assert [r["name"] for r in rows] == ["Firmness", "Juiciness"]
         assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
                            "measured": "8 N", "off_by": "2 N too high"}
-        assert rows[1]["measured"] == "not scored"
-        assert rows[1]["off_by"] == "not scored"
+        # "measured", not "scored": the column is headed Measured, and a
+        # panel score is one kind of measurement among several.
+        assert rows[1]["measured"] == "not measured"
+        assert rows[1]["off_by"] == "not measured"
 
     def test_closeness_details_leaves_off_by_blank_for_higher_and_lower(self, tmp_path, monkeypatch):
         """A 'higher is better' measurement has no target, so an off-by number
@@ -2228,8 +2293,8 @@ class TestUnitsAndImportance:
         assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
                                     "Juiciness", "Overall score", "Recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
-        # A row nobody made has no score to be best, and says so.
-        assert list(df["Best"]) == ["★", "", "not made"]
+        # Best is a star or nothing; the Note column carries "Not made".
+        assert list(df["Best"]) == ["★", "", ""]
         assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
         assert df["Note"].iloc[2] == "Not made"
@@ -2246,7 +2311,10 @@ class TestUnitsAndImportance:
     def test_history_frame_marks_a_partial_score(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Pea protein": 10.0, "Methylcellulose": 1.0}, {"Firmness": 6.0})
-        assert opt.history_frame()["Overall score"].iloc[0].endswith("· partial")
+        # Named, not "partial": the reader should not have to work out which
+        # measurement is missing from a row that has room to say.
+        assert opt.history_frame()["Overall score"].iloc[0] == \
+            "1.50 · Juiciness not measured"
 
     def test_history_frame_orders(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

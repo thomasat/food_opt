@@ -1325,8 +1325,11 @@ def test_the_getting_started_sentence_changes_after_five_results(burger):
     # cannot be two sentences, and "the first five" is the number ask() uses
     # (n_init_random).
     from ui_setup import HOW_IT_WORKS
-    opening = "The first five formulations are spread across the allowed amounts"
+    opening = wording.SPREAD_CLAUSE
+    assert opening == ("Until five formulations have results, new ones are "
+                       "spread across the allowed amounts"), opening
     assert any(line.startswith(opening) for line in HOW_IT_WORKS), HOW_IT_WORKS
+    assert wording.FIRST_FIVE_SPREAD.startswith(opening)
     assert any(c.value == wording.FIRST_FIVE_SPREAD for c in at.caption), \
         [c.value for c in at.caption]
     for i in range(5):
@@ -1482,7 +1485,7 @@ def test_no_repeat_checkbox_remains(burger):
     assert not any(c.label.startswith("Repeat") for c in at.checkbox), \
         [c.label for c in at.checkbox]
     # The box still asks for NEW formulations, and the button counts them.
-    assert any(n.label == wording.NEW_FORMULATIONS_IN_BATCH
+    assert any(n.label == wording.FORMULATIONS_TO_GENERATE
                for n in at.number_input), [n.label for n in at.number_input]
     assert any(b.label == "Generate 3 formulations" for b in at.button), \
         _labels(at)
@@ -1620,8 +1623,10 @@ def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(ope
     labels = [n.label for n in at.number_input]
     assert (labels.index("Firmness · target 6 N")
             < labels.index("Juiciness (/10) · target 7"))
-    assert any(c.value == ("Enter your panel mean. Leave a measurement blank if "
-                           "it could not be scored.") for c in at.caption)
+    assert any(c.value == ("One number per measurement; the panel mean where "
+                           "a panel scored it. Leave blank if it was not "
+                           "measured.") for c in at.caption), \
+        [c.value for c in at.caption]
 
 
 def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
@@ -2258,8 +2263,8 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # on Set up. The whole caption, word for word:
     assert any(c.value == ("Overall score 2.20 of 2.50. Scores compare only "
                            "within this project, and only until you change "
-                           "an importance or a range.") for c in at.caption), \
-        [c.value for c in at.caption]
+                           "an importance, a goal or a range.")
+               for c in at.caption), [c.value for c in at.caption]
 
 
 def test_not_used_lists_ingredients_only(scored):
@@ -2306,8 +2311,9 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
                                    "Juiciness (/10)", "Overall score", "Recorded",
                                    "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
-    # A row nobody made has no score to be best, and says so in that column.
-    assert list(table["Best"]) == ["★", "", "not made"]
+    # Best is a star or nothing. That a row was never made is said in the
+    # Note column, which is where a fact about the row belongs.
+    assert list(table["Best"]) == ["★", "", ""]
     assert table["Note"].iloc[2] == "Not made"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
@@ -4125,19 +4131,18 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
-    # "· partial" follows the ceiling, and nothing after it claims the
-    # measurements were on target — one of them was never scored at all.
-    assert any(c.value == ("Overall score 1.50 of 2.50 · partial. Scores "
-                           "compare only within this project, and only until "
-                           "you change an importance or a range.")
+    # The missing measurement is NAMED after the ceiling, and nothing after
+    # it claims the measurements were on target.
+    assert any(c.value == ("Overall score 1.50 of 2.50 · Juiciness not "
+                           "measured. Scores compare only within this "
+                           "project, and only until you change an "
+                           "importance, a goal or a range.")
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
     # is arithmetically a zero closeness, and the row is fitted at that
     # depressed score, so the model is taught that region is bad.
-    assert any(c.value == ("Partial scores are missing a measurement, which "
-                           "counts as zero, so they are low and the model "
-                           "treats them that way.")
+    assert any(c.value == wording.PARTIAL_SCORES_CAPTION
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -5194,7 +5199,7 @@ def test_an_amount_limit_needs_a_number(burger):
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
-    assert [e.value for e in at.error] == ["Enter a lowest, a highest, or both."]
+    assert [e.value for e in at.error] == ["Enter at least, at most, or both."]
     assert FoodOptimizer("burger").quantity_constraints == []
 
 
@@ -5257,8 +5262,10 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    sentence = ("Partial scores are missing a measurement, which counts as "
-                "zero, so they are low and the model treats them that way.")
+    sentence = wording.PARTIAL_SCORES_CAPTION
+    assert sentence == ("A score missing a measurement counts that "
+                        "measurement as zero, so it is low, and the model "
+                        "treats it that way."), sentence
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.
@@ -5309,10 +5316,113 @@ def test_every_delete_on_set_up_names_what_it_takes_out(burger):
     assert "Delete Pea protein" in labels, labels        # the control row
     assert "Delete Fat per 100 g" in labels, labels      # the property list
     assert "Delete Firmness" in labels, labels           # the measurement
-    # A limit line already names the limit beside it, so its button says only
-    # what it takes out.
-    assert labels.count("Delete limit") == 2, labels
+    # A limit's Delete names the limit too: two of them, drawn identically,
+    # left the reader counting rows to work out which was which.
+    assert "Delete limit on Fat per 100 g" in labels, labels
+    assert "Delete limit on Pea protein" in labels, labels
+    assert labels.count("Delete limit") == 0, labels
     assert "Delete" not in labels, labels
+
+
+def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
+    """It was the one destructive button in the app with no question and no
+    copy behind it — and two of them, drawn identically, sat side by side."""
+    burger.add_property("Fat per 100 g")
+    burger.add_constraint("Fat per 100 g", max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, "Delete limit on Fat per 100 g").click()
+    at.run()
+    assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
+                           "batch is no longer held to it. " + wording.COPY_KEPT)
+               for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").constraints != []   # not yet
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").constraints == []
+    assert (tmp_path / "burger_pre_delete.pkl").exists(), \
+        [f.name for f in tmp_path.glob("*.pkl")]
+    assert any(s.value == "Limit on Fat per 100 g deleted. The next batch is "
+                          "no longer held to it." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_an_ingredient_limits_delete_names_the_ingredients(burger):
+    burger.add_ingredient("Water", 0, 60)      # so the pair is not all of them
+    burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
+                                   max_val=20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = _labels(at)
+    assert "Delete limit on Pea protein + Methylcellulose" in labels, labels
+
+
+def test_a_limit_over_every_ingredient_is_named_all_ingredients(burger):
+    burger.add_total_mass_constraint(max_val=30)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert "Delete limit on all ingredients" in _labels(at), _labels(at)
+
+
+def test_the_foot_of_results_steps_aside_when_no_batch_can_be_made(burger):
+    """Every measurement deleted: the project holds results but cannot
+    generate, so a lit button would lead to a tab holding a greyed
+    Generate."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.remove_objective("Juiciness")
+    burger.remove_objective("Firmness")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    foot = _submit_button(at, wording.START_NEXT_BATCH)
+    assert foot.proto.type == "secondary" and foot.disabled
+    # And the score caption is suppressed: "0.00 of 0.00" is a sentence
+    # about nothing, and the banner above already says what to do.
+    assert not any(c.value.startswith("Overall score ") for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_the_correction_picker_says_what_picking_one_does(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    picker = at.selectbox(key="correct_formulation")
+    assert picker.label == "Formulation to correct"
+    assert picker.proto.placeholder == wording.FORMULATION_CAP
+
+
+def test_the_third_part_of_edit_past_says_record_not_add(scored):
+    """Add puts a formulation into the open batch, to be made; this one was
+    made already, and the two doors wore the same verb."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert any(m.value == "##### Record a formulation you already made"
+               for m in at.markdown), [m.value for m in at.markdown]
+    assert "Record this formulation" in _labels(at), _labels(at)
+    assert "Add this formulation" not in _labels(at), _labels(at)
+
+
+def test_the_whole_batch_pick_says_what_it_does(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert at.selectbox(key="delete_whole_batch").label == \
+        "Add a whole batch to the list"
+
+
+def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert any(c.value == ("The top line only rises. A few flat batches are "
+                           "normal; a long flat stretch suggests this "
+                           "ingredient list is near its limit.")
+               for c in at.caption), [c.value for c in at.caption]
 
 
 def test_the_control_rows_delete_follows_the_pick(burger):

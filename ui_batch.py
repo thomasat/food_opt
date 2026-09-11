@@ -107,7 +107,7 @@ def _no_batch(opt):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
     st.session_state.setdefault("batch_size", 3)
-    size = st.number_input(wording.NEW_FORMULATIONS_IN_BATCH, min_value=1,
+    size = st.number_input(wording.FORMULATIONS_TO_GENERATE, min_value=1,
                            max_value=10, step=1, key="batch_size")
     n = int(size)
     # While a confirmation is armed its "Yes" is the one coloured button, and
@@ -497,8 +497,11 @@ def _recorded_row(opt, number, ordered):
                   unit_after_number(o.get('unit')))
         for o in ordered if o['name'] in results
     )
-    if any(o['name'] not in results for o in ordered):
-        line = wording.recorded_line_partial(line)
+    unmeasured = [o['name'] for o in ordered if o['name'] not in results]
+    if unmeasured:
+        # Named, not "partial": the row has room to say which measurement
+        # nobody took, and the reader would otherwise have to go and look.
+        line = wording.recorded_line_partial(line, number_list(unmeasured))
     note = (opt.notes_history[index] if index is not None
             and index < len(opt.notes_history) else "")
     if note:

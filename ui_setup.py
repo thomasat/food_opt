@@ -633,6 +633,38 @@ def _flash_removed_limits(opt, removed):
             flash("warning", wording.quantity_limit_removed_unit_mismatch(label))
 
 
+def _limit_who(opt, qc):
+    """How one ingredient limit is named inside a sentence — 'all
+    ingredients' or 'Water + Oil'. The same list _limit_label heads the row
+    with, in the register a sentence needs."""
+    if _limit_label(opt, qc) == wording.ALL_INGREDIENTS_LABEL:
+        return wording.ALL_INGREDIENTS_LOWER
+    return " + ".join(qc['ingredients'])
+
+
+def _delete_limit(opt, storage, key, who, remove):
+    """One limit's Delete: named, confirmed and copied first, exactly as
+    every other Delete in the app is.
+
+    It was a bare `Delete limit`, drawn once per limit with nothing on it to
+    say which, and it removed the limit on the click — the only destructive
+    button in the app with no question and no copy behind it."""
+    if not confirm_action(key, wording.delete_limit_button(who),
+                          wording.delete_limit_warning(who),
+                          confirm_label=wording.YES_DELETE,
+                          disabled=other_confirmation(key)):
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    remove()
+    if saved_ok(opt):
+        flash("success", wording.limit_deleted(who))
+        st.rerun()
+
+
 def _limit_label(opt, qc):
     """How one ingredient limit is named on screen — 'All ingredients' or
     'Water + Oil'. The list under Limits and the line that reports a limit
@@ -1024,14 +1056,9 @@ def _limits(opt, storage):
                 st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
                         + _limit_gap_tail(opt, constraint['metric']))
             with c2:
-                # The line beside it names the limit; the button says
-                # what it takes out, not which one.
-                if st.button(wording.DELETE_LIMIT_BUTTON, key=f"rm_constr_{i}"):
-                    metric = constraint['metric']
-                    opt.remove_constraint(i)
-                    if saved_ok(opt):
-                        flash("success", wording.limit_deleted(metric))
-                        st.rerun()
+                _delete_limit(opt, storage, f"rm_constr_{i}",
+                              constraint['metric'],
+                              lambda i=i: opt.remove_constraint(i))
 
         names = [v['name'] for v in opt.variables
                  if v.get('category', 'ingredient') == 'ingredient']
@@ -1085,12 +1112,8 @@ def _limits(opt, storage):
             with l1:
                 st.text(f"{label}: {' and '.join(bounds)}")
             with l2:
-                if st.button(wording.DELETE_LIMIT_BUTTON, key=f"rm_qc_{i}"):
-                    opt.remove_quantity_constraint(i)
-                    if saved_ok(opt):
-                        # No .lower(): ingredient names are names.
-                        flash("success", wording.limit_deleted(label))
-                        st.rerun()
+                _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
+                              lambda i=i: opt.remove_quantity_constraint(i))
 
 
 def _advanced(opt):
