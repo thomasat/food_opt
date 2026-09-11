@@ -11,7 +11,7 @@ import storage as storage_backend
 import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
-    bounds_warning, clear_selection, confirm_action, confirmation_open, flash,
+    bounds_caution, clear_selection, confirm_action, confirmation_open, flash,
     fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit, label_with_unit,
     open_rows, other_confirmation, plural, readiness, saved_ok, scale_error,
     table_height, take_clear, unit_after_number,
@@ -55,19 +55,6 @@ def _number(cell):
         return float(cell)
     except (TypeError, ValueError):
         return None
-
-
-def _bounds_caution(opt, name, value):
-    """The line for an imported amount outside what the project allows, or
-    '' when it fits. Built by the same helper that refuses an out-of-range
-    measurement, so the two sentences read alike.
-    It is a warning, not a refusal: the amount is a fact about work already
-    done, and the model learns more from it than from a blank."""
-    var = next((v for v in opt.variables if v['name'] == name), None)
-    if var is None or value is None:
-        return ""
-    low, high = (float(b) for b in var['bounds'])
-    return bounds_warning(name, value, low, high, opt.unit_of(name))
 
 
 def _progress_line(opt):
@@ -479,7 +466,7 @@ def _import(opt):
                     st.error(wording.row_error(position, problem))
                     return
             for name in variables:
-                caution = _bounds_caution(opt, name, _number(row[name]))
+                caution = bounds_caution(opt, name, _number(row[name]))
                 if caution:
                     cautions.append(wording.row_error(position, caution))
         imported, failure = 0, None

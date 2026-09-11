@@ -13,9 +13,9 @@ import streamlit as st
 
 import wording
 from ui_helpers import (
-    TAB_RESULTS, TAB_SETUP, best_formulation_no, confirm_action,
+    TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
     confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
-    join_unit, label_with_unit, number_list, open_rows, readiness,
+    join_unit, label_with_unit, number_list, open_rows, park_clear, readiness,
     saved_ok, scale_error, table_height, unit_after_number,
 )
 
@@ -78,7 +78,7 @@ def _incomplete(missing):
         go_to_tab(TAB_SETUP)
 
 
-def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
+def _generate(opt, n, batch_no=None, discarded=None):
     with st.spinner(wording.GENERATING_SPINNER):
         try:
             opt.ask(n_suggestions=int(n))
@@ -89,13 +89,6 @@ def _generate(opt, n, repeat, best_no, batch_no=None, discarded=None):
             # A raw traceback is a dead end for a nontechnical user.
             st.error(wording.GENERATE_FAILED)
             return
-    if repeat and best_no is not None:
-        index = opt.index_of_formulation(best_no)
-        if index is not None:
-            # Named on the batch table and carried into the stored result: an
-            # unexplained extra row is not a repeat, it is a mystery.
-            opt.add_to_pending_batch(opt.recipe_history[index],
-                                     note=wording.repeat_of_formulation(best_no))
     if batch_no is not None or discarded is not None:
         # A regenerated batch keeps its number and says which numbers retired.
         opt.set_pending_batch(opt.pending_batch, batch_no=batch_no,
@@ -115,29 +108,142 @@ def _no_batch(opt):
     st.session_state.setdefault("batch_size", 3)
     size = st.number_input(wording.NEW_FORMULATIONS_IN_BATCH, min_value=1,
                            max_value=10, step=1, key="batch_size")
-    best_no = best_formulation_no(opt)
-    repeat = False
-    if best_no is not None:
-        repeat = st.checkbox(
-            wording.repeat_checkbox_label(best_no),
-            key="repeat_best",
-            help=wording.REPEAT_HELP,
-        )
     n = int(size)
-    # The repeat is a formulation the user will have to make, so the button
-    # counts it: ticking the box on a batch of three makes four.
-    making = n + (1 if repeat else 0)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
-    if st.button(wording.generate_button_label(making),
+    if st.button(wording.generate_button_label(n),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
-        _generate(opt, n, repeat, best_no)
+        _generate(opt, n)
     if len(opt.X_history) < 5:
         st.caption(wording.FIRST_FIVE_SPREAD)
     else:
         st.caption(wording.EACH_BATCH_AIMS_CLOSER)
+
+
+def _own_key(name):
+    """The box for one variable under `Add a formulation of your own`. The
+    own_ prefix is what app.py empties on a project switch, so a half-typed
+    formulation never follows the user into the next project."""
+    return f"own_{name}"
+
+
+def _own_recipe(opt):
+    """What the boxes hold, or None while any of them is empty.
+
+    A paused variable is pinned exactly as a generated formulation pins it
+    (opt._frozen_value), so the stored amounts name every variable the
+    project has — which is what the batch table, the sheets and tell() all
+    expect. Inventing a second rule here would put one formulation's paused
+    ingredient at a different amount from its neighbour's in the same batch.
+    """
+    recipe = {}
+    for var in opt.active_variables():
+        value = st.session_state.get(_own_key(var['name']))
+        if value is None:
+            return None
+        recipe[var['name']] = float(value)
+    for var in opt.inactive_variables():
+        recipe[var['name']] = opt._frozen_value(var)
+    return recipe
+
+
+def _clear_own(opt):
+    """Empty the form for the next one. Popping a widget key does not reach
+    the browser — the mounted box posts its old value straight back — so each
+    is parked and assigned before the boxes are drawn again."""
+    for var in opt.active_variables():
+        park_clear(_own_key(var['name']), None)
+    park_clear("own_note", "")
+
+
+def _start_from_best(opt, best_no):
+    """Fill the boxes from the best formulation so far, and say in the note
+    what the row is. Assigning the keys here would raise — the boxes already
+    exist on this run — so the values are parked and land before they are
+    drawn on the next one."""
+    index = opt.index_of_formulation(best_no)
+    if index is None:
+        return
+    recipe = opt.recipe_history[index]
+    for var in opt.active_variables():
+        park_clear(_own_key(var['name']), float(recipe.get(var['name'], 0.0)))
+    park_clear("own_note", wording.repeat_of_formulation(best_no))
+    st.rerun()
+
+
+def _add_own(opt):
+    recipe = _own_recipe(opt)
+    if recipe is None:
+        # No rerun: the refusal stays on screen beside the boxes, and what
+        # was typed stays in them to be finished.
+        st.error(wording.ENTER_EVERY_AMOUNT)
+        return
+    note = str(st.session_state.get("own_note") or "").strip()
+    number = opt.add_to_pending_batch(recipe, note or wording.OWN_FORMULATION_NOTE)
+    if not saved_ok(opt):
+        return
+    # A caution, never a refusal: an amount outside what the project allows is
+    # still a formulation the user means to make, and the model learns from it.
+    cautions = [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
+                            for v in opt.active_variables()) if c]
+    _clear_own(opt)
+    flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
+    for caution in cautions:
+        flash("warning", caution)
+    st.rerun()
+
+
+def _own_formulation(opt):
+    """`Add a formulation of your own`: the formulation the scientist wants to
+    try, added to the batch beside the generated ones. It replaced the Repeat
+    checkbox, which could only ever repeat the best one — `Start from the best
+    so far` does that in one click and leaves the amounts editable.
+
+    Both buttons are secondary. One button per tab is the coloured one:
+    Generate before a batch is open, Save results once it is.
+    """
+    with st.expander(wording.ADD_OWN_EXPANDER):
+        if not opt.pending_batch:
+            # Adding one with nothing open opens the batch, so the order
+            # matters: generated formulations can only join it first.
+            st.caption(wording.ADD_OWN_NO_BATCH_CAPTION)
+        for var in opt.active_variables():
+            low, high = (float(b) for b in var['bounds'])
+            # No min_value/max_value: clamping would turn a deliberate 30 g
+            # into a silent 25, exactly as it would a measured value. The
+            # allowed amounts are the placeholder, and going outside them is
+            # a caution on the way in.
+            st.session_state.setdefault(_own_key(var['name']), None)
+            st.number_input(
+                label_with_unit(var['name'], opt.unit_of(var['name'])),
+                placeholder=f"{low:g}–{high:g}",
+                key=_own_key(var['name']),
+            )
+        st.session_state.setdefault("own_note", "")
+        # The note is why this formulation is worth a place in the batch; it
+        # rides onto the table, the sheet and the stored result.
+        st.text_input(wording.NOTE, placeholder=wording.OWN_NOTE_PLACEHOLDER,
+                      key="own_note")
+        # While a confirmation is armed, answering it is the one thing to do.
+        blocked = confirmation_open()
+        best_no = best_formulation_no(opt)
+        if best_no is None:
+            add = st.button(wording.ADD_TO_THIS_BATCH, key="add_own_formulation",
+                            disabled=blocked)
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button(wording.START_FROM_BEST, key="start_from_best",
+                             disabled=blocked, use_container_width=True):
+                    _start_from_best(opt, best_no)
+            with c2:
+                add = st.button(wording.ADD_TO_THIS_BATCH,
+                                key="add_own_formulation", disabled=blocked,
+                                use_container_width=True)
+        if add:
+            _add_own(opt)
 
 
 def _amount_format(opt, frame):
@@ -355,7 +461,7 @@ def _downloads(opt):
         opt.set_pending_batch(None)     # the old numbers retire here
         st.session_state.pop("scale_total", None)
         st.session_state.pop("_results_upload", None)
-        _generate(opt, n, False, None, batch_no=batch_no, discarded=numbers)
+        _generate(opt, n, batch_no=batch_no, discarded=numbers)
 
 
 def _recorded_row(opt, number, ordered):
@@ -572,8 +678,10 @@ def render(opt, storage):
         return
     if not opt.pending_batch:
         _no_batch(opt)
+        _own_formulation(opt)
         return
     _batch_table(opt)
+    _own_formulation(opt)
     _downloads(opt)
     _record_results(opt)
     _upload(opt)

@@ -73,7 +73,7 @@ _FORM_FRESH = {
     "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
     "meas_new_importance": 1.0,
     "qty_pick": [],
-    "batch_size": 3, "repeat_best": False, "scale_total": None,
+    "batch_size": 3, "scale_total": None, "own_note": "",
 }
 # The boxes whose empty value is None: the select boxes, and the add form's
 # unit box, which empties to the newly opened project's own default (app.py
@@ -81,9 +81,12 @@ _FORM_FRESH = {
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_formulation",
                          "var_unit")
 
-# The property boxes: one per property on the add form (var_prop_<name>) and
-# one per property in the Set property values editor (setprop_<row>_<name>).
-_PROPERTY_BOX_PREFIXES = ("var_prop_", "setprop_")
+# The boxes whose names are the project's own, so they cannot be listed in
+# _FORM_FRESH above: one per property on the add form (var_prop_<name>), one
+# per property in the Set property values editor (setprop_<row>_<name>), and
+# one per variable in tab 2's "Add a formulation of your own" (own_<name> —
+# its own_note box is named in _FORM_FRESH, and is parked before this).
+_PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_")
 
 
 def _grid_fresh(key):
@@ -109,9 +112,10 @@ def _reset_project_session():
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
-        elif k.startswith(_PROPERTY_BOX_PREFIXES):
-            # One box per property: the names are the project's own, so they
-            # are parked by prefix rather than listed in _FORM_FRESH.
+        elif k.startswith(_PER_NAME_BOX_PREFIXES):
+            # One box per property, and one per variable: the names are the
+            # project's own, so they are parked by prefix rather than listed
+            # in _FORM_FRESH.
             park_clear(k, None)
         elif k in _FORM_EMPTIES_TO_NONE:
             clear_selection(k)

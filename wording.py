@@ -273,12 +273,25 @@ def batch_ready(no):
 NEW_FORMULATIONS_IN_BATCH = f"New formulations in this {BATCH}"
 
 
-def repeat_checkbox_label(no):
-    return f"Repeat {FORMULATION_CAP} {no} (best so far)"
+# The expander under the Generate row (and under the batch table once one is
+# open): a formulation the scientist chose, added to the batch beside the
+# generated ones. It replaced the Repeat checkbox, which could only ever
+# repeat the best.
+ADD_OWN_EXPANDER = f"Add a {FORMULATION} of your own"
+ADD_OWN_NO_BATCH_CAPTION = (f"To have generated {FORMULATION}s as well, "
+                            "generate first, then add your own.")
+OWN_NOTE_PLACEHOLDER = "Why you want to try it"
+START_FROM_BEST = "Start from the best so far"
+ADD_TO_THIS_BATCH = f"Add to this {BATCH}"
+ENTER_EVERY_AMOUNT = "Enter every amount."
+# What the row says when the user typed no reason of their own. The note is
+# part of the record, so a row on the batch table is never blank about what
+# it is.
+OWN_FORMULATION_NOTE = f"Own {FORMULATION}"
 
 
-REPEAT_HELP = ("A second reading of the same formulation, alongside the "
-               "new ones.")
+def own_formulation_added(no, batch_no):
+    return f"{FORMULATION_CAP} {no} added to {BATCH} {batch_no}."
 
 
 def generate_button_label(n):
@@ -499,8 +512,8 @@ HOW_IT_WORKS = [
     f"later {BATCH}es are chosen jointly — one set, chosen together from "
     "what the results suggest, some to test an idea rather than beat the "
     "best.",
-    "A repeat is a second reading of one formulation; it teaches the model "
-    "how noisy your measurements are.",
+    "A formulation of your own counts like any other; making the best one "
+    "again teaches the model how noisy your measurements are.",
 ]
 # Which of the nine lines above are the three goal lines nested under the
 # second bullet, rather than bullets of their own.

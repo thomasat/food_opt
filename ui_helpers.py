@@ -232,6 +232,22 @@ def bounds_warning(name, value, low, high, unit):
     return outside_message(name, value, low, high, unit, wording.ALLOWED_AMOUNTS)
 
 
+def bounds_caution(opt, name, value):
+    """The line for an amount outside what the project allows, or '' when it
+    fits. Built by the same helper that refuses an out-of-range measurement,
+    so the two sentences read alike.
+
+    It is a warning, not a refusal, wherever it is shown: an imported amount
+    is a fact about work already done, and a formulation of the user's own is
+    a formulation they mean to make. Both teach the model more than a blank.
+    """
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    if var is None or value is None:
+        return ""
+    low, high = (float(b) for b in var['bounds'])
+    return bounds_warning(name, value, low, high, opt.unit_of(name))
+
+
 def table_height(n_rows, max_rows=12):
     """Pixel height that shows up to max_rows rows of a st.dataframe without an
     inner scrollbar (35 px per row plus the header). Zero rows still get one
@@ -301,9 +317,9 @@ def drain_clears(fresh=None):
 
 
 def best_formulation_no(opt):
-    """The number of the best formulation, or None. Three tabs name it — the
-    repeat checkbox, the biggest-changes line and every 'Best moved' sentence —
-    and they must all mean the same formulation."""
+    """The number of the best formulation, or None. Three tabs name it —
+    `Start from the best so far`, the biggest-changes line and every 'Best
+    moved' sentence — and they must all mean the same formulation."""
     i = opt.best_index()
     return None if i is None else int(opt.formulation_ids[i])
 

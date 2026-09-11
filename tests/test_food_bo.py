@@ -1565,6 +1565,21 @@ class TestFormulationIdentity:
         assert issued == 3
         assert opt.pending_batch[-1] == {"formulation": 3, "recipe": {"Water": 42.0}}
 
+    def test_add_to_pending_batch_opens_a_batch_when_none_is_open(
+            self, tmp_path, monkeypatch):
+        """A formulation of your own can be the first one in a batch: nothing
+        is open, so it opens one, numbers it, and dates it for the sheets."""
+        opt = self._opt(tmp_path, monkeypatch)
+        issued = opt.add_to_pending_batch({"Water": 42.0}, note="Own formulation")
+        assert issued == 1
+        assert opt.pending_batch_no == 1
+        assert len(opt.pending_batch_created) == 10      # an ISO date
+        reloaded = FoodOptimizer(opt.project_name)
+        assert reloaded.pending_batch == [{"formulation": 1,
+                                           "recipe": {"Water": 42.0},
+                                           "note": "Own formulation"}]
+        assert reloaded.pending_batch_no == 1
+
     def test_tell_records_formulation_batch_and_note(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.ask(n_suggestions=2)

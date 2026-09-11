@@ -2069,15 +2069,21 @@ class FoodOptimizer:
         return rows
 
     def add_to_pending_batch(self, recipe, note=""):
-        """Append one more formulation to the open batch (the repeat of the
-        best) and return the global number it was given. `note` marks what the
-        row is, so the extra formulation is not an unexplained fourth row."""
+        """Append one more formulation to the open batch (a formulation of the
+        user's own) and return the global number it was given. `note` marks
+        what the row is, so the extra formulation is not an unexplained row.
+
+        With no batch open this opens one, exactly as ask() does: a
+        formulation of your own can be the first in a batch, and the date it
+        was opened on is what the printable sheets carry."""
         rows = list(self.pending_batch or [])
         number = self._issue_formulation_no()
         rows.append(self._batch_row(number, recipe, note))
         self.pending_batch = rows
         if self.pending_batch_no is None:
             self.pending_batch_no = self.next_batch_no()
+        if self.pending_batch_created is None:
+            self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
         self.save()
         return number
 

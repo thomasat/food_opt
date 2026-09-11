@@ -1345,34 +1345,142 @@ def test_only_one_batch_at_a_time_is_said_where_it_helps(open_batch):
                    for c in at.caption), [c.value for c in at.caption]
 
 
-def test_repeat_of_the_best_is_offered_and_adds_one_formulation(burger):
-    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
-                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+def test_own_formulation_starts_a_batch_when_none_is_open(burger):
+    """A formulation the scientist chose is a formulation like any other: it
+    opens the batch when nothing is open, and draws the next number."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert any(c.label == wording.repeat_checkbox_label(1) for c in at.checkbox), \
-        [c.label for c in at.checkbox]
-    at.checkbox(key="repeat_best").check()
-    at.number_input(key="batch_size").set_value(2)
+    assert any(c.value == wording.ADD_OWN_NO_BATCH_CAPTION
+               for c in at.caption), [c.value for c in at.caption]
+    at.number_input(key="own_Pea protein").set_value(12.0)
+    at.number_input(key="own_Methylcellulose").set_value(1.5)
     at.run()
-    # The button counts the repeat: two new formulations plus the repeat is
-    # three to make, and the box asks for NEW formulations.
-    assert any(n.label == wording.NEW_FORMULATIONS_IN_BATCH
-               for n in at.number_input), [n.label for n in at.number_input]
-    _submit_button(at, "Generate 3 formulations").click()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
     at.run()
     assert not at.exception
     reloaded = FoodOptimizer("burger")
-    assert len(reloaded.pending_batch) == 3
-    # Numbers 1 is taken, so the new ones start at 2 and never repeat it.
-    assert [r["formulation"] for r in reloaded.pending_batch] == [2, 3, 4]
+    assert len(reloaded.pending_batch) == 1
+    assert reloaded.pending_batch[0]["formulation"] == 1
+    assert reloaded.pending_batch[0]["recipe"] == {"Pea protein": 12.0,
+                                                   "Methylcellulose": 1.5}
+    assert reloaded.pending_batch[0]["note"] == wording.OWN_FORMULATION_NOTE
+    assert reloaded.pending_batch_no == 1
+    assert len(reloaded.pending_batch_created) == 10        # an ISO date
+    assert any(s.value == "Formulation 1 added to batch 1."
+               for s in at.success), [s.value for s in at.success]
+    # The boxes empty again, so the next one is typed into a clean form.
+    assert at.session_state["own_Pea protein"] is None
+    assert at.session_state["own_note"] == ""
+
+
+def test_own_formulation_joins_the_open_batch(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="batch_size").set_value(2)
+    at.run()
+    _submit_button(at, "Generate 2 formulations").click()
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(12.0)
+    at.number_input(key="own_Methylcellulose").set_value(1.5)
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert [r["formulation"] for r in reloaded.pending_batch] == [1, 2, 3]
+    assert reloaded.pending_batch[-1]["recipe"] == {"Pea protein": 12.0,
+                                                    "Methylcellulose": 1.5}
+    assert reloaded.pending_batch_no == 1
+    # The table above says three, and the row says what it is.
+    assert any(m.value == wording.make_these(1, 3)
+               for m in at.markdown), [m.value for m in at.markdown]
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(table["Note"]) == ["", "", wording.OWN_FORMULATION_NOTE]
+    assert any(s.value == "Formulation 3 added to batch 1."
+               for s in at.success), [s.value for s in at.success]
+
+
+def test_start_from_the_best_prefills_and_notes_the_repeat(burger):
+    """The old Repeat checkbox is now two clicks: fill the boxes from the best
+    formulation, then add it. The note says which formulation it repeats."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.START_FROM_BEST).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["own_Pea protein"] == 10.0
+    assert at.session_state["own_Methylcellulose"] == 1.0
+    assert at.session_state["own_note"] == wording.repeat_of_formulation(1)
+    assert at.number_input(key="own_Pea protein").value == 10.0
+    # ...and adding it carries that note onto the batch.
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
     assert reloaded.pending_batch[-1]["recipe"] == {"Pea protein": 10.0,
                                                     "Methylcellulose": 1.0}
-    # And the extra row says what it is, on the table and in its note box.
     assert reloaded.pending_batch[-1]["note"] == wording.repeat_of_formulation(1)
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(table["Note"]) == ["", "", wording.repeat_of_formulation(1)]
-    assert at.session_state["f4_note"] == wording.repeat_of_formulation(1)
+
+
+def test_blank_amount_is_refused(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(12.0)   # the other is blank
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert any(e.value == wording.ENTER_EVERY_AMOUNT
+               for e in at.error), [e.value for e in at.error]
+    # Nothing opened, and what was typed is still there to finish.
+    assert not FoodOptimizer("burger").pending_batch
+    assert at.session_state["own_Pea protein"] == 12.0
+
+
+def test_an_own_amount_outside_the_allowed_ones_is_a_caution(burger):
+    """A formulation the user means to make is never refused for being
+    outside the allowed amounts; the caution says so and the row is kept."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(40.0)      # allowed: 0-25
+    at.number_input(key="own_Methylcellulose").set_value(1.0)
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert any("Pea protein 40 g is outside its allowed amounts of 0 to 25 g."
+               == w.value for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 40.0
+
+
+def test_no_repeat_checkbox_remains(burger):
+    """The checkbox is retired: a formulation of your own does that job, and
+    says so in its note."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not any(c.label.startswith("Repeat") for c in at.checkbox), \
+        [c.label for c in at.checkbox]
+    # The box still asks for NEW formulations, and the button counts them.
+    assert any(n.label == wording.NEW_FORMULATIONS_IN_BATCH
+               for n in at.number_input), [n.label for n in at.number_input]
+    assert any(b.label == "Generate 3 formulations" for b in at.button), \
+        _labels(at)
 
 
 def test_the_trial_table_carries_units_and_a_total(open_batch):
