@@ -138,8 +138,12 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     tree carries no warning). Returns True only on the run in which the user
     clicks the confirm button; the caller then performs the action, flashes
     a message, and reruns. `key` must be unique per call site. `preserve` is
-    for a confirmation drawn in the SIDEBAR: its Cancel reruns before the tabs
-    are drawn, which would otherwise empty every form on them.
+    for a confirmation whose Cancel reruns ABOVE one of the tab forms — a
+    sidebar one, whose rerun never reaches the tabs at all, and tab 2's
+    `Generate a different batch`, which is asked before the result grid is
+    drawn into its reserved slot. Streamlit discards the session-state entry
+    of every widget a run did not create, so without it the Cancel empties
+    the sheet the user has already half-recorded.
     """
     pending_key = f"{key}__pending"
     if st.button(button_label, key=f"{key}__btn", disabled=disabled):
@@ -162,7 +166,8 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
             st.session_state[pending_key] = False
             st.session_state.pop(ARMED_KEY, None)
             if preserve:
-                # A sidebar confirmation: this rerun never reaches the tabs.
+                # This rerun happens above one of the tab forms; park what
+                # they hold so the next run puts it back.
                 preserve_tab_forms()
             st.rerun()
     if confirmed:

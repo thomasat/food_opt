@@ -3356,8 +3356,11 @@ class TestTheTotalABatchWasPrintedTo:
         opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
         return opt
 
-    def test_the_open_batchs_total_is_stored_and_survives_a_reload(
+    def test_the_open_batchs_total_is_stored_and_read_back(
             self, tmp_path, monkeypatch):
+        """The model's half of it. That the SCREEN opens at the stored number
+        is tab 2's claim, and test_the_stored_total_opens_the_box_in_a_new_
+        session in tests/test_app_ui.py makes it."""
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.pending_batch_total is None
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}])
@@ -3455,3 +3458,46 @@ class TestTheTotalABatchWasPrintedTo:
             FoodOptimizer.validate_state(state)
         state['batch_totals'] = {"2": 150.0}
         FoodOptimizer.validate_state(state)
+
+    def test_a_batch_with_no_rows_left_forgets_its_total(self, tmp_path,
+                                                         monkeypatch):
+        """A batch number never comes back, so a total left behind could only
+        ever be read against a batch nobody can see."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0},
+                               {"Pea protein": 20.0, "Water": 10.0}],
+                              batch_no=1)
+        opt.set_pending_batch_total(150.0)
+        opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=1)
+        opt.tell({"Pea protein": 20.0, "Water": 10.0}, {"Firmness": 7.0},
+                 formulation_no=2, batch_no=1)
+        opt.set_pending_batch(None)
+        assert opt.batch_total(1) == 150.0
+        # One row of the batch goes: the batch is still there, so is its total.
+        opt.delete_formulations([1])
+        assert opt.batch_total(1) == 150.0
+        opt.delete_formulations([2])
+        assert opt.batch_total(1) is None
+        assert FoodOptimizer("batch_totals").batch_totals == {}
+
+    def test_undoing_a_batch_forgets_its_total(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}],
+                              batch_no=1)
+        opt.set_pending_batch_total(150.0)
+        opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=1)
+        opt.set_pending_batch(None)
+        assert opt.undo_last_batch() == (1, 1)
+        assert opt.batch_total(1) is None
+        assert FoodOptimizer("batch_totals").batch_totals == {}
+
+    def test_the_total_is_written_out_the_same_way_wherever_it_is_read(
+            self, tmp_path, monkeypatch):
+        """Tab 2's caption and tab 3's heading name the same number, so the
+        number is written out in one place."""
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.batch_total_text(150.0) == "150 g"
+        assert opt.batch_total_text(12.5) == "12.5 g"
+        assert opt.batch_total_text(None) == ""

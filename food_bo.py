@@ -996,6 +996,15 @@ class FoodOptimizer:
         shown = [(u, t) for u, t in groups if round(float(t), 2) != 0] or groups[:1]
         return " · ".join(join_unit(f"{float(t):.2f}", u) for u, t in shown)
 
+    def batch_total_text(self, total):
+        """'150 g' — the total a batch is made to, written out. Tab 2's
+        caption under the downloads and tab 3's `Amounts to make it` heading
+        name the same number, so it is written in one place. Blank for a
+        batch made as generated, which has no total to name."""
+        if total is None:
+            return ""
+        return join_unit(f"{float(total):g}", self.one_amount_unit() or "")
+
     def has_ingredients(self):
         """True when anything is weighed out. A project of process settings
         alone — incubation temperature, time, culture dose — has no amounts,
@@ -2325,8 +2334,24 @@ class FoodOptimizer:
                         if int(s['formulation']) not in wanted]
         gone += before - len(self.skipped)
         if gone:
+            self._prune_batch_totals()
             self.save()
         return gone
+
+    def _prune_batch_totals(self):
+        """Forget the total of a batch that has no rows left. A batch number
+        is never reissued, so a total left behind could only ever be read
+        against a batch nobody can see any more."""
+        totals = self._batch_totals()
+        if not totals:
+            return
+        live = {int(b) for b in self.batch_history if b is not None}
+        live |= {int(s['batch']) for s in self.skipped
+                 if s.get('batch') is not None}
+        if self.pending_batch_no is not None:
+            live.add(int(self.pending_batch_no))
+        for no in [n for n in totals if n not in live]:
+            del totals[no]
 
     def last_batch_no(self):
         """The highest batch number in the recorded history. Left-out
@@ -2362,6 +2387,7 @@ class FoodOptimizer:
         self.batch_history = [self.batch_history[i] for i in keep]
         removed += sum(1 for s in self.skipped if s.get('batch') == last)
         self.skipped = [s for s in self.skipped if s.get('batch') != last]
+        self._prune_batch_totals()
         self.save()
         return last, removed
 

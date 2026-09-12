@@ -356,7 +356,8 @@ def biggest_changes_caption(row_no, best_no, parts):
             f"{FORMULATION_CAP} {best_no}: {parts}.")
 
 
-NEEDS_ONE_UNIT = "A formulation total needs all ingredients in one unit."
+NEEDS_ONE_UNIT = ("Making each formulation to a total needs all "
+                  "ingredients in one unit.")
 
 
 def batch_total_label(unit):

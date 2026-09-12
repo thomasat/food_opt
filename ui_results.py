@@ -15,7 +15,7 @@ import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
-    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab, join_unit,
+    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab,
     label_with_unit, number_list, open_rows, other_confirmation, park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, take_clear,
@@ -128,8 +128,7 @@ def _best(opt):
     # recorded amounts: those are the ones the model was told about.
     total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
     shown = opt.scaled_recipe(recipe, total) if total else recipe
-    st.markdown(wording.amounts_to_make_it_heading(
-        join_unit(f"{total:g}", opt.one_amount_unit() or "") if total else ""))
+    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))

@@ -41,6 +41,47 @@ def _left_out(formulation_no):
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
 
 
+# The (project, batch) this session has already opened the total box for.
+# After that an empty box means the user emptied it, which is a value of its
+# own and must reach the file.
+_SEEDED_TOTAL = "_scale_total_seeded"
+
+
+def _seed_scale_total(opt):
+    """Open the box at the total its batch is stored with.
+
+    A session that did not type the number knows nothing about it — a
+    reopened window, a project switched back to — and drew an empty box. The
+    empty box then wrote its own blank over the saved total on the very first
+    render, taking `batch_totals` down with it once results were in.
+
+    Seeded once per batch per session, and keyed by project and batch number
+    because a project switch parks the box empty rather than popping it: the
+    key is there, holding None, when the next project arrives. Assigning a
+    widget's key is legal here and nowhere later — this runs before the box
+    is created."""
+    mark = (opt.project_name, opt.pending_batch_no)
+    if st.session_state.get(_SEEDED_TOTAL) == mark:
+        return
+    st.session_state[_SEEDED_TOTAL] = mark
+    stored = getattr(opt, 'pending_batch_total', None)
+    if stored is not None and opt.one_amount_unit() is not None:
+        st.session_state["scale_total"] = float(stored)
+
+
+def _store_total(opt, scale_to):
+    """Keep what the box holds with the batch, so a reopened window and tab 3
+    both still know what the bench weighed out.
+
+    A blank is written only when there was a box to blank. A project that
+    weighs nothing out never draws one, and a value left behind in its
+    session must not be read as the user clearing a total they were never
+    shown."""
+    if scale_to is None and not opt.has_ingredients():
+        return
+    opt.set_pending_batch_total(scale_to)
+
+
 def _scale_to(opt):
     """The total every formulation is scaled to, or None while the box is empty
     — and always None while the ingredients are not all in one unit, because
@@ -292,7 +333,6 @@ def _batch_table(opt, scale_to):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-    _scaled_cautions(opt, rows, scale_to)
 
     best_no = best_formulation_no(opt)
     if (opt.pending_batch_no or 0) > 1 and best_no is not None:
@@ -519,7 +559,11 @@ def _downloads(opt, scale_to):
         # Both files carry the amounts on screen, so the size they were
         # written for is named directly under them.
         st.caption(wording.sheets_show_total_caption(
-            join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")))
+            opt.batch_total_text(scale_to)))
+    # The total is what pushed an amount out of what the project allows, so
+    # the line reads under the box that did it rather than under a table two
+    # steps above.
+    _scaled_cautions(opt, rows, scale_to)
 
 
 def _preview(opt, scale_to):
@@ -789,10 +833,11 @@ def render(opt, storage):
         return
 
     rows = opt.pending_batch
+    _seed_scale_total(opt)
     scale_to = _scale_to(opt)
     # Kept with the batch, so tab 3 can still say what the bench weighed out
     # once the batch is closed. A no-op on a rerun that changed nothing.
-    opt.set_pending_batch_total(scale_to)
+    _store_total(opt, scale_to)
 
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)
@@ -817,6 +862,10 @@ def render(opt, storage):
         wording.regenerate_warning(opt.pending_batch_no,
                                    ", ".join(str(n) for n in numbers)),
         confirm_label=wording.YES_DISCARD,
+        # The question is asked above the grid, so its Cancel reruns before
+        # the grid exists: without this it emptied every measurement, note
+        # and Not-made tick the sheet already carried.
+        preserve=True,
     )
 
     with print_slot:

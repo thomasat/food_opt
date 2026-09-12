@@ -3830,7 +3830,8 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
-    assert any(c.value == "A formulation total needs all ingredients in one unit."
+    assert any(c.value == ("Making each formulation to a total needs all "
+                           "ingredients in one unit.")
                for c in at.caption), [c.value for c in at.caption]
     # ... and it comes back the moment they do share one.
     mixed_units.set_ingredient_unit("Water", "g")
@@ -6234,3 +6235,127 @@ def test_the_getting_started_caption_is_the_bullet_word_for_word(burger):
     at.run()
     assert any(c.value == line for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 1: the stored total opens the box, and a Cancel keeps
+#  what was typed into the grid.
+# ------------------------------------------------------------------ #
+def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
+    """A reopened window knows nothing of what was typed. The box has to open
+    at the total the batch is stored with — an empty box on that first render
+    wrote its own blank straight over the saved number."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+
+    fresh = AppTest.from_file(APP_PATH, default_timeout=180)
+    fresh.session_state["_loaded_project"] = "burger"
+    fresh.session_state["main_tab"] = wording.TAB_BATCH
+    fresh.run()
+    assert not fresh.exception
+    assert fresh.number_input(key="scale_total").value == 150.0
+    table = next(d.value for d in fresh.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
+    assert any(c.value == "Sheets show each formulation made to 150 g."
+               for c in fresh.caption), [c.value for c in fresh.caption]
+    # ...and nothing about that render touched the file.
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+
+
+def test_clearing_the_box_still_reaches_the_file(open_batch):
+    """The seeding must not undo a deliberate clear: an empty box is a value
+    of its own, and it means the amounts in the table."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    # An emptied box comes back as 0, the box's own floor, and 0 is what
+    # "as generated" has always meant here.
+    at.number_input(key="scale_total").set_value(0.0)
+    at.run()
+    assert not at.exception
+    # The seeding must not put 150 back: the box holds what the user left in
+    # it, the table is back to as-generated, and the file agrees.
+    assert at.number_input(key="scale_total").value == 0.0
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([11.0, 22.0])
+    assert FoodOptimizer("burger").pending_batch_total is None
+
+
+def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
+        open_batch):
+    """Two projects, two open batches, two totals. A switch parks the box
+    empty, so the arriving project has to fill it from its own record."""
+    other = FoodOptimizer("second")
+    other.set_amount_unit("g")
+    other.add_ingredient("Flour", 0, 100)
+    other.add_objective("Crunch", 1.0, goal="max", min_val=0, max_val=10)
+    other.set_pending_batch([{"Flour": 10.0}])
+    other.set_pending_batch_total(80.0)
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    _submit_button(at.sidebar, wording.OPEN_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value == 80.0
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("second").pending_batch_total == 80.0
+
+
+def test_cancelling_the_discard_keeps_what_was_typed_into_the_grid(open_batch):
+    """The question is asked above the grid, so its Cancel reruns before the
+    grid exists — and Streamlit discards the session-state entry of every
+    widget a run did not create. A Cancel that empties the sheet you have
+    already half-recorded is worse than no Cancel at all."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f1_Juiciness").set_value(7.0)
+    at.text_input(key="f1_note").set_value("looked good")
+    at.number_input(key="f2_Firmness").set_value(4.0)
+    at.number_input(key="f2_Juiciness").set_value(5.0)
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    _submit_button(at, wording.CANCEL).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["f1_Firmness"] == 6.0
+    assert at.session_state["f1_Juiciness"] == 7.0
+    assert at.session_state["f1_note"] == "looked good"
+    assert at.session_state["f2_Firmness"] == 4.0
+    assert at.session_state["scale_total"] == 150.0
+    # A second run to read the settled screen: the tree AppTest hands back
+    # after a click that ends in st.rerun() is the interrupted run's, which
+    # still carries the Yes the Cancel was answering.
+    at.run()
+    assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
+    assert wording.YES_DISCARD not in _labels(at), _labels(at)
+
+
+def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
+    """The total is what pushed the amount out of range, so the line belongs
+    with the box, not under a table three steps above it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(200.0)
+    at.run()
+    order = _tab_flow(at)
+    caution = next(t for t in order if "outside its allowed amounts" in t)
+    assert (_first(order, wording.batch_total_label("g"))
+            < order.index(caution)
+            < _first(order, wording.STEP_RECORD_HEADING)), order
