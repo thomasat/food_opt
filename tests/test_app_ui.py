@@ -6439,3 +6439,29 @@ def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
     at.run()                                   # and it stays cleared
     assert at.number_input(key="scale_total").value == 0.0
     assert FoodOptimizer("burger").pending_batch_total is None
+
+
+def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
+    """The clear must come AFTER preserve_tab_forms(): that call parks every
+    tab-form key at its live value, scale_total included, so a blank parked
+    first would be overwritten by the old total and the box would keep it."""
+    opt = burger
+    for i in range(4):
+        opt.import_formulation({"Pea protein": 5.0 + i, "Methylcellulose": 0.5},
+                               {"Juiciness": 6.0, "Firmness": 5.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    at.session_state["scale_total"] = 150.0     # a value left in the session
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    numbers = at.multiselect(key="delete_formulations").options
+    at.multiselect(key="delete_formulations").select(numbers[0])
+    at.run()
+    _submit_button(at, wording.delete_formulation_button(int(numbers[0]))).click()
+    at.run()
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    at.run()                       # the delete handler reruns
+    assert not at.exception
+    assert at.session_state["scale_total"] is None, at.session_state["scale_total"]

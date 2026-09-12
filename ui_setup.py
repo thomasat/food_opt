@@ -15,7 +15,8 @@ import storage as storage_backend
 import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
-    best_move_sentence, confirm_action, confirmation_open, disarm, flash,
+    best_move_sentence, clear_scale_total, confirm_action, confirmation_open,
+    disarm, flash,
     fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
     number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
     table_height, unit_after_number,
@@ -114,7 +115,7 @@ def _unscaled_tail(opt, before, before_unit):
     quietly meaning nothing."""
     if before is None or opt.one_amount_unit() is not None:
         return ""
-    st.session_state.pop("scale_total", None)
+    clear_scale_total()
     if opt.pending_batch_no is None:
         return ""
     total_text = join_unit(f"{before:g}", before_unit)

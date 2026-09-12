@@ -510,10 +510,11 @@ def test_the_total_box_is_parked_empty_rather_than_popped():
     from ui_helpers import clear_scale_total
 
     root = pathlib.Path(__file__).resolve().parent.parent
-    for name in ("ui_batch.py", "ui_results.py"):
+    for name in ("app.py", "ui_setup.py", "ui_batch.py", "ui_results.py"):
         text = (root / name).read_text()
         assert 'pop("scale_total"' not in text, name
-        assert "clear_scale_total()" in text, name
+    for name in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
+        assert "clear_scale_total()" in (root / name).read_text(), name
 
     # And what it parks is the empty box, for drain_clears to assign before
     # the box is drawn again.
