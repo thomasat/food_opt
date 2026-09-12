@@ -276,7 +276,11 @@ def repeat_of_formulation(no):
 
 
 def batch_ready(no):
-    return f"{BATCH_CAP} {no} is ready to make."
+    """The flash a freshly generated batch lands on. It names the two steps
+    that follow, in the order the screen puts them: a batch that is "ready"
+    and nothing more left the reader looking for what to do with it."""
+    return (f"{BATCH_CAP} {no} is ready to make. Print the sheets, then "
+            "record the results below when you have them.")
 
 
 FORMULATIONS_TO_GENERATE = "Formulations to generate"
@@ -308,15 +312,21 @@ def generate_button_label(n):
     return f"Generate {n} formulations"
 
 
-# The one clause that says what the opening does. The caption under
-# Generate and the How it works bullet both start with it, word for word,
-# and then say what happens afterwards in their own register — the same
-# fact cannot be two sentences.
-SPREAD_CLAUSE = ("Until five formulations have results, new ones are spread "
-                 "across the allowed amounts")
-FIRST_FIVE_SPREAD = (SPREAD_CLAUSE
-                     + f"; after that, {BATCH}es aim closer to your targets.")
-EACH_BATCH_AIMS_CLOSER = f"Each {BATCH} aims closer to your targets."
+# The one line that says how formulations are chosen. It is the third How it
+# works bullet and, word for word, the caption under Generate — before and
+# after the fifth formulation alike. Two captions for the two halves of one
+# rule made a reader who had seen only one of them think there were two.
+HOW_CHOSEN = ("Until five formulations have results, new ones are spread out "
+              f"to learn the space. After that, each {BATCH} aims closer to "
+              "your targets.")
+
+
+# The open batch reads as the three steps of the work, each headed with its
+# number. Step 1 takes no count of its own: the title directly above it
+# already says how many formulations there are.
+STEP_MAKE_HEADING = f"##### 1 · Make the {FORMULATION}s"
+STEP_PRINT_HEADING = "##### 2 · Print the sheets"
+STEP_RECORD_HEADING = "##### 3 · Record the results"
 
 
 def make_these(no, n):
@@ -424,7 +434,6 @@ def recorded_line_note(line, note):
     return f"{line} · Note: {note}" if line else f"Note: {note}"
 
 
-RECORD_RESULTS_HEADER = "Record results"
 RECORD_RESULTS_CAPTION = ("One number per measurement; the panel mean where "
                           "a panel scored it. Leave blank if it was not "
                           "measured.")
@@ -542,10 +551,19 @@ def unscaled_tail(batch_no, total_text):
 # one line each, so the mapping exists exactly once. The vocabulary guard
 # reads this list by name and allows what is in it.
 HOW_IT_WORKS = [
-    "Ingredients and process settings are the variables; measurements with "
-    "their goals are the objectives.",
-    "Importance is each measurement's weight; closeness is its score between "
-    "0 and 1 (1 at the goal).",
+    "Ingredients and settings are what the model varies; measurements and "
+    "goals are what it aims for.",
+    "Importance says how much each measurement counts. Closeness is a 0 to 1 "
+    "score for how near a result is to its goal.",
+    HOW_CHOSEN,
+    "Limits are hard rules the model never breaks.",
+]
+
+# The fold directly under it, for the reader who wants the arithmetic. The
+# four lines above raise the question — what is closeness, exactly? — and
+# this answers it; nine bullets in one fold answered it before anyone asked.
+HOW_CLOSENESS_EXPANDER = "How closeness is calculated"
+HOW_CLOSENESS = [
     "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
     "so the top of your range scores 1 and the bottom scores 0.",
     "Lower is better: the reverse — the bottom of your range scores 1 and the "
@@ -555,20 +573,12 @@ HOW_IT_WORKS = [
     "far the target sits from the ends of your range. Because of that "
     "floor, a measurement with a target pulls on the score a little less "
     "than its share says.",
-    "The overall score is the weighted sum of closeness. The model learns "
-    "this one number, so changing an importance or a range re-scores every "
-    "past formulation.",
-    "Limits are hard constraints applied when formulations are generated; an "
-    "ingredient with no value for a property counts as containing none.",
-    SPREAD_CLAUSE + f"; after that, {BATCH}es are chosen jointly — one set, "
-    "chosen together from what the results suggest, some to test an idea "
-    "rather than beat the best.",
+    "The model learns the one overall score, so changing an importance, a "
+    "goal or a range re-scores every past formulation.",
+    "An ingredient with no value for a property counts as containing none.",
     "A formulation of your own counts like any other; making the best one "
     "again teaches the model how noisy your measurements are.",
 ]
-# Which of the nine lines above are the three goal lines nested under the
-# second bullet, rather than bullets of their own.
-HOW_IT_WORKS_NESTED = (2, 3, 4)
 
 VARIABLES_HEADER = "Ingredients and process settings"
 

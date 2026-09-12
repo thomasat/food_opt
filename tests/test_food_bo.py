@@ -3117,13 +3117,13 @@ _SINGLE_WORDS = re.compile(
 
 
 def _how_it_works():
-    """The one collapsed expander that maps the app's words to the
-    optimization concepts. It is the single place variable, objective,
-    weight and constraint are allowed to be said, so it is read from the
+    """The two collapsed folds that explain the app in the words a specialist
+    would use: How it works and, under it, How closeness is calculated. They
+    are the only place a banned word may be said, so they are read from the
     source rather than copied here: a bullet reworded in the app cannot
     quietly fall out of the allowance."""
-    from wording import HOW_IT_WORKS
-    return set(HOW_IT_WORKS)
+    from wording import HOW_CLOSENESS, HOW_IT_WORKS
+    return set(HOW_IT_WORKS) | set(HOW_CLOSENESS)
 
 
 def _string_constants(path):

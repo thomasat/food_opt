@@ -1338,27 +1338,21 @@ def test_generate_opens_a_numbered_batch_and_stays_on_the_tab(burger):
     assert at.session_state["main_tab"] == wording.TAB_BATCH   # never auto-moves
 
 
-def test_the_getting_started_sentence_changes_after_five_results(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    # Word for word the opening of How it works bullet 5: the same fact
-    # cannot be two sentences, and "the first five" is the number ask() uses
-    # (n_init_random).
+def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
+    """Word for word How it works bullet 3, and the number in it is the one
+    ask() uses (n_init_random). The caption's two regimes are one sentence
+    now; test_the_getting_started_caption_is_the_bullet_word_for_word shows
+    it does not change after the fifth result."""
     from ui_setup import HOW_IT_WORKS
-    opening = wording.SPREAD_CLAUSE
-    assert opening == ("Until five formulations have results, new ones are "
-                       "spread across the allowed amounts"), opening
-    assert any(line.startswith(opening) for line in HOW_IT_WORKS), HOW_IT_WORKS
-    assert wording.FIRST_FIVE_SPREAD.startswith(opening)
-    assert any(c.value == wording.FIRST_FIVE_SPREAD for c in at.caption), \
-        [c.value for c in at.caption]
-    for i in range(5):
-        burger.tell({"Pea protein": 5.0 + i, "Methylcellulose": 1.0},
-                    {"Juiciness": 6.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == wording.EACH_BATCH_AIMS_CLOSER
-               for c in at.caption), [c.value for c in at.caption]
+    assert wording.HOW_CHOSEN == (
+        "Until five formulations have results, new ones are spread out to "
+        "learn the space. After that, each batch aims closer to your "
+        "targets."), wording.HOW_CHOSEN
+    assert wording.HOW_CHOSEN in HOW_IT_WORKS, HOW_IT_WORKS
+    assert any(c.value == wording.HOW_CHOSEN for c in at.caption), \
+        [c.value for c in at.caption]
 
 
 def test_only_one_batch_at_a_time_is_said_where_it_helps(open_batch):
@@ -4705,7 +4699,8 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # restated the heading it now wears.
     labels = [e.label for e in _tab1(at).expander]
     assert labels == ["Or upload an ingredients CSV", "Add a measurement",
-                      "How it works", "Limits (optional)",
+                      "How it works", "How closeness is calculated",
+                      "Limits (optional)",
                       "How formulations are chosen (advanced)"], labels
 
 
@@ -5038,7 +5033,8 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     from food_bo import FoodOptimizer as _FO
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander if e.label == "How it works")
+    fold = next(e for e in _tab1(at).expander
+                if e.label == "How closeness is calculated")
     text = " ".join(m.value for m in fold.markdown)
     assert "a full range away scores 0" not in text, text
     assert ("by one point per full range; the lowest score depends on how "
@@ -5051,12 +5047,13 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     assert float(reloaded.Y_history[0]) == pytest.approx(1.5 * 0.4)
 
 
-def test_how_it_works_maps_every_word_to_its_concept(burger):
-    """The one expander allowed to say variable, objective, weight and
-    constraint. It is collapsed, it sits under the measurements table, and it
-    is the only place the mapping is written — the Importance tooltip used to
-    carry half of it, and the closeness fold the other half."""
-    from ui_setup import HOW_IT_WORKS
+def test_how_it_works_says_what_the_model_does_in_four_lines(burger):
+    """It is collapsed, it sits under the measurements table, and it says
+    what the model varies, what it aims for, how the next batch is chosen and
+    what it will never break — four lines, no arithmetic. The arithmetic is
+    the fold directly beneath, which is the one place a banned word is
+    said."""
+    from ui_setup import HOW_CLOSENESS, HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     fold = next(e for e in _tab1(at).expander if e.label == "How it works")
@@ -5064,12 +5061,14 @@ def test_how_it_works_maps_every_word_to_its_concept(burger):
     text = "\n".join(m.value for m in fold.markdown)
     for line in HOW_IT_WORKS:
         assert line in text, line
-    # Nine lines: six bullets, with the three goal lines nested under the
-    # second. Three of them carry the words the rest of the app refuses.
-    assert len(HOW_IT_WORKS) == 9
-    assert "the variables" in text and "the objectives" in text
-    assert "weight" in text and "hard constraints" in text
-    # ...and the Importance tooltip no longer says the same thing lower down.
+    assert len(HOW_IT_WORKS) == 4
+    assert "the model varies" in text and "aims for" in text
+    assert "hard rules the model never breaks" in text
+    # Nothing here is arithmetic, and nothing here says a specialist's word.
+    assert "closeness =" not in text, text
+    assert "share" not in text.lower(), text
+    assert any("its share says" in line for line in HOW_CLOSENESS), HOW_CLOSENESS
+    # ...and the Importance tooltip does not say the same thing lower down.
     assert at.number_input(key="meas_new_importance").help == (
         "Any positive number. 2 counts twice as much as 1.")
 
@@ -6027,3 +6026,211 @@ def test_the_preview_and_the_download_are_the_same_sheets(open_batch):
     assert ui_batch._sheets_body(opt, None) in document
     assert document.startswith("<!doctype html>")
     assert "_" not in document, document
+
+
+# ------------------------------------------------------------------ #
+#  Tab 2 in work order: make, print, record — with the folded extras
+#  after Save and `Generate a different batch` last of all.
+# ------------------------------------------------------------------ #
+def _tab_flow(at, index=1):
+    """Everything with a name on one tab, top to bottom: headings, captions,
+    tables, widgets, buttons and expanders, in the order a reader meets them.
+    Nested children follow their parent, so an expander's contents stay where
+    the expander is."""
+    out = []
+
+    def named(node):
+        proto = getattr(node, "proto", None)
+        for attr in ("label", "value", "body"):
+            text = getattr(node, attr, None)
+            if not isinstance(text, str):
+                text = getattr(proto, attr, None)
+            if isinstance(text, str) and text:
+                return text
+        return ""
+
+    def walk(node):
+        children = getattr(node, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for child in children:
+            text = named(child)
+            if text:
+                out.append(text)
+            walk(child)
+
+    walk(at.tabs[index])
+    return out
+
+
+def _first(order, text):
+    assert text in order, (text, order)
+    return order.index(text)
+
+
+def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
+    """Make them, print the sheets, record what you measured. The screen is
+    in that order, and each step says which one it is."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    order = _tab_flow(at)
+    assert (_first(order, wording.make_these(1, 2))
+            < _first(order, wording.STEP_MAKE_HEADING)
+            < _first(order, wording.STEP_PRINT_HEADING)
+            < _first(order, wording.STEP_RECORD_HEADING)), order
+    # Step 1 is the table; step 2 the two downloads and the total box; step 3
+    # the grid, the counter and Save results.
+    assert (_first(order, wording.STEP_MAKE_HEADING)
+            < _first(order, wording.DOWNLOAD_BENCH_SHEET)
+            < _first(order, wording.batch_total_label("g"))
+            < _first(order, wording.STEP_RECORD_HEADING)
+            < _first(order, wording.formulation_heading(1))
+            < _first(order, "0 of 2 filled in · saved when you press Save results")
+            < _first(order, wording.SAVE_RESULTS)), order
+    # The three folded extras come after Save, in one order, and the one
+    # button that throws the batch away is last on the screen.
+    assert (_first(order, wording.SAVE_RESULTS)
+            < _first(order, wording.ADD_OWN_EXPANDER)
+            < _first(order, wording.PREVIEW_SHEETS)
+            < _first(order, wording.UPLOAD_EXPANDER)
+            < _first(order, wording.GENERATE_DIFFERENT_BATCH)), order
+    assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
+    # Step 1 carries no count of its own: the title above it already has one.
+    assert wording.STEP_MAKE_HEADING == "##### 1 · Make the formulations"
+    assert wording.STEP_PRINT_HEADING == "##### 2 · Print the sheets"
+    assert wording.STEP_RECORD_HEADING == "##### 3 · Record the results"
+
+
+def test_the_ready_flash_says_what_to_do_next(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.generate_button_label(3)).click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == ("Batch 1 is ready to make. Print the sheets, then "
+                           "record the results below when you have them.")
+               for s in at.success), [s.value for s in at.success]
+
+
+def test_arming_the_discard_still_greys_everything_above_it(open_batch):
+    """`Generate a different batch` renders last now, so the question has to
+    be asked before the downloads and the grid are drawn into their reserved
+    slots — arming a confirmation does not rerun."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f2_Firmness").set_value(4.0)
+    at.run()
+    assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    assert _tab_primaries(at, 1) == [wording.YES_DISCARD], _tab_primaries(at, 1)
+    assert _submit_button(at, wording.SAVE_RESULTS).disabled
+    assert _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
+    assert _unknown(at.main, "download_button",
+                    wording.DOWNLOAD_BENCH_SHEET).proto.type == "secondary"
+    # The warning is still on screen, above the Yes.
+    assert any(w.value == wording.regenerate_warning(1, "1, 2")
+               for w in at.warning), [w.value for w in at.warning]
+
+
+def test_adding_your_own_formulation_keeps_what_was_typed_into_the_grid(
+        scored_open_batch):
+    """The expander reruns, and Streamlit discards the session-state entry of
+    every widget the run did not create. It renders after the grid now, so
+    the grid exists by the time Add reruns."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="f4_Firmness").set_value(5.0)
+    at.text_input(key="f4_note").set_value("second try")
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(15.0)
+    at.number_input(key="own_Methylcellulose").set_value(1.5)
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["f4_Firmness"] == 5.0
+    assert at.session_state["f4_note"] == "second try"
+    # The row that was just added has no result in it yet, so nothing is lit:
+    # the bench sheet stepped aside when the first value was typed, and Save
+    # waits for every kept row. Filling the new row lights it again.
+    assert _tab_primaries(at, 1) == [], _tab_primaries(at, 1)
+    at.number_input(key="f5_Firmness").set_value(7.0)
+    at.run()
+    assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
+
+
+def test_how_it_works_is_four_lines(burger):
+    """One bullet per thing the model does. The formulas moved to a fold of
+    their own: they answered a question the first four raise."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert wording.HOW_IT_WORKS == [
+        "Ingredients and settings are what the model varies; measurements "
+        "and goals are what it aims for.",
+        "Importance says how much each measurement counts. Closeness is a "
+        "0 to 1 score for how near a result is to its goal.",
+        "Until five formulations have results, new ones are spread out to "
+        "learn the space. After that, each batch aims closer to your targets.",
+        "Limits are hard rules the model never breaks.",
+    ], wording.HOW_IT_WORKS
+    fold = next(e for e in _tab1(at).expander
+                if e.label == wording.HOW_IT_WORKS_EXPANDER)
+    assert not fold.proto.expanded
+    text = "\n".join(m.value for m in fold.markdown)
+    for line in wording.HOW_IT_WORKS:
+        assert f"- {line}" in text, line     # four flat bullets, none nested
+    assert not hasattr(wording, "HOW_IT_WORKS_NESTED")
+
+
+def test_the_closeness_formulas_are_one_fold_below(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = [e.label for e in _tab1(at).expander]
+    assert labels.index(wording.HOW_CLOSENESS_EXPANDER) == \
+        labels.index(wording.HOW_IT_WORKS_EXPANDER) + 1, labels
+    assert wording.HOW_CLOSENESS_EXPANDER == "How closeness is calculated"
+    fold = next(e for e in _tab1(at).expander
+                if e.label == wording.HOW_CLOSENESS_EXPANDER)
+    assert not fold.proto.expanded
+    text = "\n".join(m.value for m in fold.markdown)
+    for line in wording.HOW_CLOSENESS:
+        assert line in text, line
+    # The three goals, the floor and the share it costs, the re-scoring, a
+    # blank property, and what a repeat teaches the model.
+    joined = " ".join(wording.HOW_CLOSENESS)
+    assert "Higher is better" in joined and "Lower is better" in joined
+    assert "Hit a target" in joined
+    assert ("by one point per full range; the lowest score depends on how "
+            "far the target sits from the ends of your range") in joined
+    assert "a little less than its share says" in joined
+    assert ("The model learns the one overall score, so changing an "
+            "importance, a goal or a range re-scores every past "
+            "formulation.") in joined
+    assert "counts as containing none" in joined
+    assert "how noisy your measurements are" in joined
+
+
+def test_the_getting_started_caption_is_the_bullet_word_for_word(burger):
+    """The same fact cannot be two sentences, and it cannot be two captions
+    either: one line covers both sides of the fifth formulation."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    line = wording.HOW_IT_WORKS[2]
+    assert any(c.value == line for c in at.tabs[1].caption), \
+        [c.value for c in at.tabs[1].caption]
+    for i in range(5):
+        burger.tell({"Pea protein": 5.0 + i, "Methylcellulose": 1.0},
+                    {"Juiciness": 6.0, "Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert any(c.value == line for c in at.tabs[1].caption), \
+        [c.value for c in at.tabs[1].caption]

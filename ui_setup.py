@@ -26,9 +26,10 @@ _SAMPLE_CSV = os.path.join(
 
 # The one collapsed expander that maps the words on this tab to the words a
 # specialist would use, and the tuple marking its three nested goal lines,
-# both live in wording.py; importable from here too, since HOW_IT_WORKS is
-# read by name from tests/test_food_bo.py's vocabulary guard.
-from wording import HOW_IT_WORKS, HOW_IT_WORKS_NESTED  # noqa: E402,F401
+# both live in wording.py; importable from here too, since HOW_IT_WORKS and
+# HOW_CLOSENESS are read by name from tests/test_food_bo.py's vocabulary
+# guard — they are the two folds allowed to say the specialist words.
+from wording import HOW_CLOSENESS, HOW_IT_WORKS  # noqa: E402,F401
 
 
 # ------------------------------------------------------------------ #
@@ -914,10 +915,13 @@ def _measurements(opt, storage):
 
     st.caption(opt.score_function_line())
 
+    # Four flat bullets, then the arithmetic behind the second one folded
+    # directly beneath: one fold of nine bullets answered a question most
+    # readers never asked, in the middle of the four that say what happens.
     with st.expander(wording.HOW_IT_WORKS_EXPANDER):
-        st.markdown("\n".join(
-            ("    - " if i in HOW_IT_WORKS_NESTED else "- ") + line
-            for i, line in enumerate(HOW_IT_WORKS)))
+        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
+    with st.expander(wording.HOW_CLOSENESS_EXPANDER):
+        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
     return editing is not None
 
 

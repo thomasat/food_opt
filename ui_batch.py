@@ -121,10 +121,10 @@ def _no_batch(opt):
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
-    if len(opt.X_history) < 5:
-        st.caption(wording.FIRST_FIVE_SPREAD)
-    else:
-        st.caption(wording.EACH_BATCH_AIMS_CLOSER)
+    # One line for both sides of the fifth formulation, word for word the
+    # How it works bullet. Two captions for the two halves of one rule left
+    # a reader who had only seen one of them thinking there were two.
+    st.caption(wording.HOW_CHOSEN)
 
 
 def _own_key(name):
@@ -275,29 +275,23 @@ def _amount_format(opt, frame):
             for c in frame.columns if c not in skip}
 
 
-def _batch_table(opt):
+def _title(opt):
+    """The batch's own heading, and the notice a regenerate owes the numbers
+    it retired. Both are about the batch as a whole, so they come before the
+    first step rather than inside it."""
+    st.markdown(wording.make_these(opt.pending_batch_no, len(opt.pending_batch)))
+    if opt.pending_batch_discarded:
+        st.caption(wording.batch_discarded_caption(
+            number_list(opt.pending_batch_discarded)))
+
+
+def _batch_table(opt, scale_to):
     rows = opt.pending_batch
-    unit = opt.one_amount_unit()
-    st.markdown(wording.make_these(opt.pending_batch_no, len(rows)))
-    scale_to = _scale_to(opt)
-    # Kept with the batch, so tab 3 can still say what the bench weighed out
-    # once the batch is closed. A no-op on a rerun that changed nothing.
-    opt.set_pending_batch_total(scale_to)
     frame = opt.batch_frame(rows, scale_to=scale_to)
     st.dataframe(
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-    _scale_control(opt, unit, scale_to)
-    if opt.pending_batch_discarded:
-        st.caption(wording.batch_discarded_caption(
-            number_list(opt.pending_batch_discarded)))
-    # Only a formulation of the user's own carries a note when the batch is
-    # opened; a generated row has none. With no generated row in it there is
-    # no Generate control anywhere on this screen, and nothing else on it
-    # would say why or what to do instead.
-    if rows and all(r.get('note') for r in rows):
-        st.caption(wording.ONLY_OWN_FORMULATIONS_CAPTION)
     _scaled_cautions(opt, rows, scale_to)
 
     best_no = best_formulation_no(opt)
@@ -493,7 +487,9 @@ def _printable(opt, scale_to):
     st.html(_sheets_body(opt, scale_to))
 
 
-def _download_row(opt, scale_to):
+def _downloads(opt, scale_to):
+    """Step 2: the two files to print, the total they are written to, and the
+    one line that names it."""
     rows = opt.pending_batch
     # The bench sheet is the lit thing until the first result is typed, and it
     # steps aside while a confirmation is waiting for an answer.
@@ -516,46 +512,33 @@ def _download_row(opt, scale_to):
             file_name=f"{opt.project_name} {wording.BATCH} {opt.pending_batch_no} sheets.html",
             mime="text/html", key="download_sheets", use_container_width=True,
         )
+    # The box belongs with the files it changes, not with the table: the
+    # table shows what it does, the sheets are what it is for.
+    _scale_control(opt, opt.one_amount_unit(), scale_to)
     if scale_to is not None:
         # Both files carry the amounts on screen, so the size they were
-        # written for is named directly under the two buttons.
+        # written for is named directly under them.
         st.caption(wording.sheets_show_total_caption(
             join_unit(f"{scale_to:g}", opt.one_amount_unit() or "")))
+
+
+def _preview(opt, scale_to):
     with st.expander(wording.PREVIEW_SHEETS):
         _printable(opt, scale_to)
 
 
-def _downloads(opt):
-    rows = opt.pending_batch
-    scale_to = _scale_to(opt)
-    numbers = [r['formulation'] for r in rows]
-
-    # The downloads belong above `Generate a different batch`, but the question
-    # has to be asked first: arming a confirmation does not rerun, so a download
-    # rendered before it would still be coloured on the run that puts the
-    # warning on screen. The container reserves the position instead.
-    slot = st.container()
-    regenerate = confirm_action(
-        "regenerate", wording.GENERATE_DIFFERENT_BATCH,
-        wording.regenerate_warning(opt.pending_batch_no,
-                                   ", ".join(str(n) for n in numbers)),
-        confirm_label=wording.YES_DISCARD,
-    )
-    with slot:
-        _download_row(opt, scale_to)
-
-    if regenerate:
-        batch_no = opt.pending_batch_no
-        # Only the generated rows are asked for again. A formulation of the
-        # user's own is theirs — it carries a note saying what it is — and
-        # counting it here would quietly ask the model for one more than it
-        # chose last time. A batch of nothing but own rows still regenerates
-        # one, so the button never produces an empty batch.
-        n = max(1, sum(1 for r in rows if not r.get('note')))
-        opt.set_pending_batch(None)     # the old numbers retire here
-        st.session_state.pop("scale_total", None)
-        st.session_state.pop("_results_upload", None)
-        _generate(opt, n, batch_no=batch_no, discarded=numbers)
+def _regenerate(opt, rows, numbers):
+    batch_no = opt.pending_batch_no
+    # Only the generated rows are asked for again. A formulation of the
+    # user's own is theirs — it carries a note saying what it is — and
+    # counting it here would quietly ask the model for one more than it
+    # chose last time. A batch of nothing but own rows still regenerates
+    # one, so the button never produces an empty batch.
+    n = max(1, sum(1 for r in rows if not r.get('note')))
+    opt.set_pending_batch(None)     # the old numbers retire here
+    st.session_state.pop("scale_total", None)
+    st.session_state.pop("_results_upload", None)
+    _generate(opt, n, batch_no=batch_no, discarded=numbers)
 
 
 def _recorded_row(opt, number, ordered):
@@ -588,7 +571,6 @@ def _record_results(opt):
     to_record = open_rows(opt)
     open_numbers = {r['formulation'] for r in to_record}
     ordered = opt.measurements_by_importance()
-    st.subheader(wording.RECORD_RESULTS_HEADER)
     st.caption(wording.RECORD_RESULTS_CAPTION)
     left_out, entered, partly = set(), 0, 0
 
@@ -650,21 +632,21 @@ def _record_results(opt):
     )
     if to_record and not kept:
         st.info(wording.NOTHING_TO_SAVE)
-    lit = ready and not confirmation_open()
-    if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
-                 disabled=not lit, key="save_results") and lit:
-        _save_results(opt, kept, left_out, to_record)
     # "filled in", not "to record": this counts the rows that HAVE a value,
     # and every other screen uses "to record" for the rows that do not
     # ("Back to batch 2 · 2 to record"). One word could not mean both.
-    # Nothing here reaches the file until Save results is pressed, which is
-    # the tail.
+    # Nothing here reaches the file until Save results is pressed, and the
+    # line says so directly above the button that does it.
     counter = wording.filled_in_counter(entered, len(kept))
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
         counter += wording.not_made_counter_suffix(len(left_out))
     st.caption(counter + wording.SAVED_WHEN_SUFFIX)
+    lit = ready and not confirmation_open()
+    if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
+                 disabled=not lit, key="save_results") and lit:
+        _save_results(opt, kept, left_out, to_record)
 
 
 def _save_results(opt, kept, left_out, to_record):
@@ -777,6 +759,26 @@ def _upload(opt):
 
 
 def render(opt, storage):
+    """The open batch reads as the work: make these formulations, print the
+    sheets, record what you measured — each step headed with its number, the
+    three folded extras after Save, and the one button that throws the batch
+    away last of all.
+
+    The screen is DRAWN out of that order on purpose, and both reasons are
+    bugs the order fixes.
+
+    Arming a confirmation does not rerun. `Generate a different batch` now
+    renders last, so a download or a Save button drawn before the arming
+    click would still be coloured on the run that puts the warning on screen.
+    Every step below the table reserves its position in a container; the
+    question is asked first, then the slots are filled.
+
+    And `Add to this batch` and `Start from the best so far` both end in
+    st.rerun(), while Streamlit discards the session-state entry of every
+    widget the run did not create — so an expander that reruns before the
+    result grid exists took every measurement, note and Not-made tick
+    already typed into the open batch with it. The grid is filled first.
+    """
     ready, missing = readiness(opt)
     if not ready:
         _incomplete(missing)
@@ -785,23 +787,48 @@ def render(opt, storage):
         _no_batch(opt)
         _own_formulation(opt)
         return
-    _batch_table(opt)
-    # The expander belongs directly under the table, but it is drawn LAST of
-    # the three, into a container that holds its position.
-    #
-    # Two reasons, and both are bugs the order fixes. Its two buttons must
-    # know whether `Generate a different batch` has just been armed, and
-    # arming a confirmation does not rerun, so an expander drawn before
-    # _downloads would still offer live buttons on the run that puts the
-    # warning on screen. And both buttons end in st.rerun(): Streamlit
-    # discards the session-state entry of every widget the run did not
-    # create, so an `Add to this batch` that reruns before the result grid
-    # exists took every measurement, note and Not-made tick already typed
-    # into the open batch with it. _record_results goes first; the expander
-    # fills the slot above it afterwards.
-    slot = st.container()
-    _downloads(opt)
-    _record_results(opt)
-    with slot:
+
+    rows = opt.pending_batch
+    scale_to = _scale_to(opt)
+    # Kept with the batch, so tab 3 can still say what the bench weighed out
+    # once the batch is closed. A no-op on a rerun that changed nothing.
+    opt.set_pending_batch_total(scale_to)
+
+    _title(opt)
+    st.markdown(wording.STEP_MAKE_HEADING)
+    _batch_table(opt, scale_to)
+    st.markdown(wording.STEP_PRINT_HEADING)
+    print_slot = st.container()
+    st.markdown(wording.STEP_RECORD_HEADING)
+    record_slot = st.container()
+    own_slot = st.container()
+    preview_slot = st.container()
+    upload_slot = st.container()
+
+    # Only a formulation of the user's own carries a note when the batch is
+    # opened; a generated row has none. With no generated row in it there is
+    # no Generate control anywhere on this screen, and this is the button
+    # that gets one back — so the line sits directly above it.
+    if rows and all(r.get('note') for r in rows):
+        st.caption(wording.ONLY_OWN_FORMULATIONS_CAPTION)
+    numbers = [r['formulation'] for r in rows]
+    regenerate = confirm_action(
+        "regenerate", wording.GENERATE_DIFFERENT_BATCH,
+        wording.regenerate_warning(opt.pending_batch_no,
+                                   ", ".join(str(n) for n in numbers)),
+        confirm_label=wording.YES_DISCARD,
+    )
+
+    with print_slot:
+        _downloads(opt, scale_to)
+    with record_slot:
+        _record_results(opt)
+    with own_slot:
         _own_formulation(opt)
-    _upload(opt)
+    with preview_slot:
+        _preview(opt, scale_to)
+    with upload_slot:
+        _upload(opt)
+
+    if regenerate:
+        _regenerate(opt, rows, numbers)
