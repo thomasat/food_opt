@@ -15,8 +15,9 @@ import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
-    disarm, flash, fmt_amount, fmt_setting, goal_line, go_to_tab,
-    label_with_unit, number_list, open_rows, other_confirmation, park_clear,
+    clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
+    go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
+    park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, take_clear,
 )
@@ -598,16 +599,19 @@ def _delete_formulations(opt, storage):
     opt.delete_formulations(chosen)
     if not saved_ok(opt):
         return
+    park_clear("delete_formulations", [])
+    # The form below this section is not what the user just deleted from.
+    preserve_tab_forms()
     # A scaled table and a parsed bench sheet both name formulations that may
     # have just left the project — but the open batch's own rows are never in
     # the list above (see _deletable_numbers), so an open batch keeps both:
     # its sheet was read for formulations this delete cannot have touched.
+    #
+    # After preserve_tab_forms, never before: that parks the box at what it
+    # is still holding, which would put the old total straight back.
     if not opt.pending_batch:
-        st.session_state.pop("scale_total", None)
+        clear_scale_total()
         st.session_state.pop("_results_upload", None)
-    park_clear("delete_formulations", [])
-    # The form below this section is not what the user just deleted from.
-    preserve_tab_forms()
     flash("success", done)
     st.rerun()
 

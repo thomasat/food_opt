@@ -348,6 +348,22 @@ def park_clear(key, value):
     st.session_state[f"_clear_{key}"] = ("value", value)
 
 
+def clear_scale_total():
+    """Empty tab 2's `Make each formulation to` box for the next batch.
+
+    Parked, not popped. Popping a widget's key does not reach the browser —
+    the mounted box posts its old value straight back — so a regenerated
+    batch came up re-scaled to the total the batch before it was made to,
+    and the sheets were printed for it. The parked value lands before the
+    box is drawn again (drain_clears).
+
+    Call it AFTER preserve_tab_forms() wherever both are used: that parks
+    every tab form at what it is still holding, which would put the old
+    total back.
+    """
+    park_clear("scale_total", None)
+
+
 def take_clear(key, fresh=None):
     """Honour a pending clear. Call immediately BEFORE the widget is created.
     `fresh` is what a plain clear_selection should leave behind when the right

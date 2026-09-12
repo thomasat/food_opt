@@ -15,7 +15,8 @@ import wording
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
     confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
-    join_unit, label_with_unit, number_list, open_rows, park_clear, readiness,
+    clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
+    park_clear, readiness,
     saved_ok, scale_error, table_height, unit_after_number,
 )
 
@@ -47,24 +48,35 @@ def _left_out(formulation_no):
 _SEEDED_TOTAL = "_scale_total_seeded"
 
 
+def _seed_mark(opt, total):
+    """What the box is up to date with: whose batch it belongs to AND the
+    number stored on it. The batch's identity alone was not enough — the
+    stored total can change under a session that has already rendered that
+    same batch (Restore from backup, Reload project after a save error,
+    reopening a project whose new batch is number 1 again), and the seed was
+    skipped every time."""
+    return (opt.project_name, opt.pending_batch_no, total)
+
+
 def _seed_scale_total(opt):
     """Open the box at the total its batch is stored with.
 
     A session that did not type the number knows nothing about it — a
-    reopened window, a project switched back to — and drew an empty box. The
-    empty box then wrote its own blank over the saved total on the very first
-    render, taking `batch_totals` down with it once results were in.
+    reopened window, a project switched back to, a backup just restored — and
+    drew an empty box. The empty box then wrote its own blank over the saved
+    total on the very first render, taking `batch_totals` down with it once
+    results were in.
 
-    Seeded once per batch per session, and keyed by project and batch number
-    because a project switch parks the box empty rather than popping it: the
-    key is there, holding None, when the next project arrives. Assigning a
+    Keyed rather than done once: a project switch parks the box empty rather
+    than popping it, so the key is there holding None when the next project
+    arrives, and `setdefault` would have passed straight over it. Assigning a
     widget's key is legal here and nowhere later — this runs before the box
     is created."""
-    mark = (opt.project_name, opt.pending_batch_no)
+    stored = getattr(opt, 'pending_batch_total', None)
+    mark = _seed_mark(opt, stored)
     if st.session_state.get(_SEEDED_TOTAL) == mark:
         return
     st.session_state[_SEEDED_TOTAL] = mark
-    stored = getattr(opt, 'pending_batch_total', None)
     if stored is not None and opt.one_amount_unit() is not None:
         st.session_state["scale_total"] = float(stored)
 
@@ -76,10 +88,16 @@ def _store_total(opt, scale_to):
     A blank is written only when there was a box to blank. A project that
     weighs nothing out never draws one, and a value left behind in its
     session must not be read as the user clearing a total they were never
-    shown."""
+    shown.
+
+    The mark is re-stamped afterwards: with the stored number in it, the
+    session's own write would otherwise read as a total that changed
+    somewhere else, and the next run would fill a deliberately emptied box
+    back in."""
     if scale_to is None and not opt.has_ingredients():
         return
     opt.set_pending_batch_total(scale_to)
+    st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, scale_to)
 
 
 def _scale_to(opt):
@@ -140,7 +158,7 @@ def _generate(opt, n, batch_no=None, discarded=None):
             st.error(wording.GENERATE_FAILED)
             return
     st.session_state.pop("_results_upload", None)
-    st.session_state.pop("scale_total", None)
+    clear_scale_total()
     if not saved_ok(opt):
         return
     flash("success", wording.batch_ready(opt.pending_batch_no))
@@ -580,7 +598,7 @@ def _regenerate(opt, rows, numbers):
     # one, so the button never produces an empty batch.
     n = max(1, sum(1 for r in rows if not r.get('note')))
     opt.set_pending_batch(None)     # the old numbers retire here
-    st.session_state.pop("scale_total", None)
+    clear_scale_total()
     st.session_state.pop("_results_upload", None)
     _generate(opt, n, batch_no=batch_no, discarded=numbers)
 
@@ -734,7 +752,7 @@ def _save_results(opt, kept, left_out, to_record):
                                note=(wording.not_made_with_note(note) if note
                                      else wording.NOT_MADE))
     opt.set_pending_batch(None)
-    st.session_state.pop("scale_total", None)
+    clear_scale_total()
     st.session_state.pop("_results_upload", None)
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
@@ -793,7 +811,7 @@ def _upload(opt):
                     len(parsed), len(opt.pending_batch), batch_no, len(left)))
                 st.rerun()
             opt.set_pending_batch(None)
-            st.session_state.pop("scale_total", None)
+            clear_scale_total()
             if not saved_ok(opt):
                 # A move would rerun past app.py's end-of-script check and
                 # hide it, and the batch is still open on disk.

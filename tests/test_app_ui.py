@@ -6359,3 +6359,83 @@ def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
     assert (_first(order, wording.batch_total_label("g"))
             < order.index(caution)
             < _first(order, wording.STEP_RECORD_HEADING)), order
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 2: a total that changed under the session — a restore, a
+#  reload — still opens the box.
+# ------------------------------------------------------------------ #
+def _burger_donor(name, total=None):
+    """A backup of a project shaped like burger, with its own open batch."""
+    donor = FoodOptimizer(name)
+    donor.set_amount_unit("g")
+    donor.add_ingredient("Pea protein", 0, 25)
+    donor.add_ingredient("Methylcellulose", 0, 3)
+    donor.add_objective("Juiciness", 1.0, goal="target", target=7,
+                        min_val=0, max_val=10, unit="/10")
+    donor.add_objective("Firmness", 1.5, goal="target", target=6,
+                        min_val=0, max_val=10, unit="N")
+    donor.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                             {"Pea protein": 20.0, "Methylcellulose": 2.0}],
+                            batch_no=1)
+    if total is not None:
+        donor.set_pending_batch_total(total)
+    return donor.export_json()
+
+
+def test_a_restored_total_opens_a_box_the_session_had_seen_empty(open_batch):
+    """The session had already rendered batch 1 with no total, so a seed
+    keyed on the project and the batch number alone was skipped — and the
+    empty box then wrote itself over the 150 the restore had just put there."""
+    state = _burger_donor("donor_total", total=150.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert at.number_input(key="scale_total").value is None
+    at.session_state["_restore_candidate"] = state
+    at.run()
+    _submit_button(at, wording.YES_REPLACE).click()
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
+
+
+def test_a_reloaded_total_opens_a_box_the_session_had_seen_empty(open_batch):
+    """Reload project re-reads the file under a session that had already
+    rendered the same batch number. The box has to follow what came back."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert at.number_input(key="scale_total").value is None
+    # The file says 150 now; this session never saw it typed.
+    FoodOptimizer("burger").set_pending_batch_total(150.0)
+    at.session_state["optimizer"].save_error = (
+        "The server could not be reached — your last change was NOT saved.")
+    at.run()
+    _submit_button(at, wording.RELOAD_PROJECT).click()
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
+
+
+def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
+        open_batch):
+    """The mark carries the stored value, so it has to be re-stamped after
+    every write of the session's own — otherwise a deliberate clear reads as
+    a total that changed somewhere else, and the box fills itself back in."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="scale_total").set_value(150.0)
+    at.run()
+    at.number_input(key="scale_total").set_value(0.0)
+    at.run()
+    at.run()                                   # and it stays cleared
+    assert at.number_input(key="scale_total").value == 0.0
+    assert FoodOptimizer("burger").pending_batch_total is None

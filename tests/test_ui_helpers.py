@@ -496,3 +496,41 @@ def test_wording_holds_no_stray_literals(name):
         f"screen text found outside wording.py in {name}:\n" +
         "\n".join(f"  {f}:{ln}: {t!r}" for f, ln, t in offenders)
     )
+
+
+def test_the_total_box_is_parked_empty_rather_than_popped():
+    """Popping a widget's key does not reach the browser: the mounted box
+    posts its old value straight back, so a regenerated batch came up
+    re-scaled to the total the batch before it was made to. AppTest has no
+    mounted widget and cannot see the difference, so the rule is read off the
+    source — every site that empties the box goes through clear_scale_total.
+    """
+    import pathlib
+    import streamlit as st
+    from ui_helpers import clear_scale_total
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("ui_batch.py", "ui_results.py"):
+        text = (root / name).read_text()
+        assert 'pop("scale_total"' not in text, name
+        assert "clear_scale_total()" in text, name
+
+    # And what it parks is the empty box, for drain_clears to assign before
+    # the box is drawn again.
+    at = AppTest.from_string(
+        "import streamlit as st\n"
+        "from ui_helpers import clear_scale_total, drain_clears\n"
+        "st.session_state['scale_total'] = 150.0\n"
+        "clear_scale_total()\n"
+        "st.write(str(sorted(k for k in st.session_state "
+        "if str(k).startswith('_clear_'))))\n"
+        "st.write(str(st.session_state['scale_total']))\n"
+        "drain_clears()\n"
+        "st.write(str(st.session_state['scale_total']))\n"
+    )
+    at.run()
+    assert not at.exception
+    written = [m.value for m in at.markdown]
+    assert "_clear_scale_total" in written[0], written
+    assert written[1] == "150.0", written    # parked, not popped
+    assert written[2] == "None", written     # and assigned on the way out
