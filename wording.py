@@ -62,6 +62,21 @@ ALLOWED_AMOUNTS = "its allowed amounts"
 WIDEN_RANGE_HINT = " Widen the range in Set up, or check the value."
 
 
+def scaled_amounts_caution(total_text, names_text, many=False):
+    """'At 150 g, Pea protein isolate, Water and Wheat gluten are outside
+    their allowed amounts.' — the one line for a formulation total that
+    pushes amounts past what the project allows.
+
+    One sentence, however many ingredients and however many formulations are
+    outside: the fix is the same one every time, and a caption per ingredient
+    per row buried the step below it under eight lines of raw numbers. The
+    total is named because the total is what did it.
+    """
+    return (f"At {total_text}, {names_text} "
+            + ("are outside their allowed amounts." if many
+               else f"is outside {ALLOWED_AMOUNTS}."))
+
+
 def saved_line(when):
     """'Saved 14:32 · automatically, to this Mac' — `when` is the already
     formatted time or date+time."""

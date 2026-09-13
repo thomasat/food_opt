@@ -16,8 +16,8 @@ from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
     confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, readiness,
-    saved_ok, scale_error, table_height, unit_after_number,
+    park_clear, readiness, saved_ok, scale_error, scaled_caution,
+    table_height, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -380,29 +380,14 @@ def _batch_table(opt, scale_to):
 def _scaled_cautions(opt, rows, scale_to):
     """The amounts on the table, checked against what the project allows.
 
-    A formulation total the generated amounts were never chosen for can push
-    an ingredient past its own Lowest or Highest — and the sheets are printed
-    from these numbers, so the bench weighs out an amount the project says it
-    does not allow. One line per ingredient, however many rows are outside:
-    the fix is the same one every time.
+    ONE line, however many ingredients on however many rows are outside: the
+    total is what did it, and the fix is the same one every time. A caption
+    per ingredient per row put eight lines of raw numbers between the box and
+    the step below it, and said nothing the one line does not.
     """
-    if scale_to is None:
-        return
-    said = set()
-    for row in rows:
-        recipe = opt.scaled_recipe(row['recipe'], scale_to)
-        for var in opt.variables:
-            # Ingredients only: a formulation total scales what you weigh
-            # out, and leaves a cook temperature exactly where it was.
-            if var.get('category', 'ingredient') != 'ingredient':
-                continue
-            name = var['name']
-            if name in said:
-                continue
-            caution = bounds_caution(opt, name, recipe.get(name))
-            if caution:
-                said.add(name)
-                st.caption(caution)
+    caution = scaled_caution(opt, [row['recipe'] for row in rows], scale_to)
+    if caution:
+        st.caption(caution)
 
 
 def _scale_control(opt, unit, scale_to):
@@ -482,6 +467,12 @@ def _sheet_lines(opt, row, scale_to):
     lines.append((wording.note_line(note), _PROSE) if note
                  else (wording.NOTE_SHEET_LABEL, _AREA))
     lines.append((wording.NOT_MADE_CHECKBOX_SHEET, _PROSE))
+    # The sheet leaves the app, and it is what the amounts are weighed out
+    # from: a caution that lived only on screen was not on the page in the
+    # technician's hand. Same sentence, last line, one per sheet.
+    caution = scaled_caution(opt, [row['recipe']], scale_to)
+    if caution:
+        lines.append((caution, _PROSE))
     return lines
 
 
@@ -648,6 +639,7 @@ def _record_results(opt):
             left_out.add(number)
         typed = 0
         cols = None
+        outside = []
         for j, obj in enumerate(ordered):
             if j % _PER_ROW == 0:
                 cols = st.columns(min(_PER_ROW, len(ordered) - j))
@@ -666,6 +658,16 @@ def _record_results(opt):
                     key=_result_key(number, obj['name']), disabled=skip,
                 )
                 typed += value is not None
+                if not skip:
+                    problem = scale_error(obj, value)
+                    if problem:
+                        outside.append(problem)
+        # Said as it is typed, under the boxes it was typed into: Save is
+        # grey until every row has a value, so a reading outside its range
+        # was refused only on a press the user could not make — and the grey
+        # button explained nothing. Save still refuses it, in these words.
+        for problem in outside:
+            st.caption(problem)
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])

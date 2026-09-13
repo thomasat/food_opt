@@ -310,6 +310,35 @@ def bounds_caution(opt, name, value):
     return bounds_warning(name, value, low, high, opt.unit_of(name))
 
 
+def scaled_caution(opt, recipes, total):
+    """The one line naming every ingredient whose amount falls outside what
+    the project allows once these formulations are made to `total`, or "" when
+    they all fit.
+
+    The stored amounts were chosen inside the project's own Lowest and
+    Highest; a formulation total they were never chosen for scales them past
+    it, and the sheets are printed from those numbers — so the bench weighs
+    out an amount the project says it does not allow. Tab 2's box, tab 3's
+    amounts table and the printed sheet all say so in these words, from here,
+    so the three can never drift apart.
+    """
+    if total is None:
+        return ""
+    scaled = [opt.scaled_recipe(recipe, total) for recipe in recipes]
+    # Project order, not the order the rows happen to be in: the names read
+    # as they are listed everywhere else on screen.
+    names = [var['name'] for var in opt.variables
+             if var.get('category', 'ingredient') == 'ingredient'
+             # Ingredients only: a formulation total scales what you weigh
+             # out, and leaves a cook temperature exactly where it was.
+             and any(bounds_caution(opt, var['name'], recipe.get(var['name']))
+                     for recipe in scaled)]
+    if not names:
+        return ""
+    return wording.scaled_amounts_caution(opt.batch_total_text(total),
+                                          number_list(names), len(names) > 1)
+
+
 def table_height(n_rows, max_rows=12):
     """Pixel height that shows up to max_rows rows of a st.dataframe without an
     inner scrollbar (35 px per row plus the header). Zero rows still get one

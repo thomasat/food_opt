@@ -19,7 +19,7 @@ from ui_helpers import (
     go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
-    table_height, take_clear,
+    scaled_caution, table_height, take_clear,
 )
 
 
@@ -133,6 +133,12 @@ def _best(opt):
     st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
+    # The amounts above are the ones the bench weighed out, so the same line
+    # tab 2 shows under the box belongs under the table that shows them: it
+    # is the total, not the formulation, that pushed them out.
+    caution = scaled_caution(opt, [recipe], total)
+    if caution:
+        st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
     unused = [v['name'] for v in opt.variables
@@ -454,6 +460,10 @@ def _save_correction(opt, storage, pending):
     flash("success", " ".join(sentences))
     for caution in cautions:
         flash("warning", caution)
+    # The correction is done, so the row closes itself exactly as Close
+    # closes it. Left open, its lit Save correction stayed the one coloured
+    # thing on the tab and the foot had no next action to offer.
+    _close_correction(opt, choice)
     st.rerun()
 
 
@@ -789,9 +799,16 @@ def _import(opt):
                 # rather than stopping a file that is otherwise importable.
                 nothing_measured += 1
                 continue
+            # The file's own Note column, when it has one: a round trip of
+            # `Download all formulations (CSV)` otherwise turned every note
+            # in the project into "Made earlier". A blank cell still means
+            # the row came from before this project, and says so.
+            note = ""
+            if "Note" in rows.columns and not pd.isna(row["Note"]):
+                note = str(row["Note"]).strip()
             opt.import_formulation(
                 {name: float(row[col_for[name]]) for name in variables},
-                results)
+                results, note=note or wording.IMPORTED_NOTE)
             # Stop at the first row that did not reach the disk rather than
             # reporting a whole file as imported.
             if not saved_ok(opt):

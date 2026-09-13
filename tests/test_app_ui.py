@@ -5590,16 +5590,15 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
     at.number_input(key="scale_total").set_value(200.0)
     at.run()
     assert not at.exception
-    cautions = [c.value for c in at.caption
-                if "outside its allowed amounts" in c.value]
-    # One line per ingredient, however many of the batch's rows are outside.
-    assert len(cautions) == 2, cautions
-    assert [c.split()[0] for c in cautions] == ["Pea", "Methylcellulose"], \
-        cautions
+    cautions = [c.value for c in at.caption if "allowed amounts" in c.value]
+    # ONE line, however many ingredients on however many of the batch's rows
+    # are outside: the total did it, and the fix is the same one every time.
+    assert cautions == ["At 200 g, Pea protein and Methylcellulose are "
+                        "outside their allowed amounts."], cautions
     # And none at all while the batch is shown as generated.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
-    assert not any("outside its allowed amounts" in c.value
+    assert not any("allowed amounts" in c.value
                    for c in at.caption), [c.value for c in at.caption]
 
 
@@ -5908,9 +5907,13 @@ def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
     at.run()
     assert any(c.value == "Sheets show each formulation made to 150 g."
                for c in at.caption), [c.value for c in at.caption]
-    # One line about the total, not two.
-    assert sum(1 for c in at.caption if "150 g" in c.value) == 1, \
-        [c.value for c in at.caption]
+    # One line about what the sheets hold, not two. The caution under it
+    # names the total as well, because the total is what pushed those
+    # amounts out of what the project allows.
+    assert [c.value for c in at.caption if "150 g" in c.value] == [
+        "Sheets show each formulation made to 150 g.",
+        "At 150 g, Pea protein and Methylcellulose are outside their "
+        "allowed amounts."], [c.value for c in at.caption]
 
 
 def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
@@ -6043,7 +6046,13 @@ def _tab_flow(at, index=1):
     def named(node):
         proto = getattr(node, "proto", None)
         for attr in ("label", "value", "body"):
-            text = getattr(node, attr, None)
+            # A widget whose value was never set raises rather than returning
+            # None (tab 3's uploader is one), and it has no words on it
+            # either way.
+            try:
+                text = getattr(node, attr, None)
+            except Exception:
+                text = None
             if not isinstance(text, str):
                 text = getattr(proto, attr, None)
             if isinstance(text, str) and text:
@@ -6355,7 +6364,7 @@ def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
     at.number_input(key="scale_total").set_value(200.0)
     at.run()
     order = _tab_flow(at)
-    caution = next(t for t in order if "outside its allowed amounts" in t)
+    caution = next(t for t in order if "allowed amounts" in t)
     assert (_first(order, wording.batch_total_label("g"))
             < order.index(caution)
             < _first(order, wording.STEP_RECORD_HEADING)), order
@@ -6465,3 +6474,159 @@ def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
     at.run()                       # the delete handler reruns
     assert not at.exception
     assert at.session_state["scale_total"] is None, at.session_state["scale_total"]
+
+
+# ------------------------------------------------------------------ #
+#  Fixes from the browser run: one caution for the scaled amounts on
+#  every surface, an honest restore count, an out-of-range result said
+#  as it is typed, a picker that clears itself, and notes that survive
+#  a CSV round trip.
+# ------------------------------------------------------------------ #
+def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
+    """One line under the box, not one line per ingredient per row: the fix
+    is the same one every time, and eight captions of raw floats buried the
+    Record step under them."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(200.0)
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.caption if "allowed amounts" in c.value]
+    assert said == ["At 200 g, Pea protein and Methylcellulose are outside "
+                    "their allowed amounts."], said
+
+
+def test_the_scaled_caution_is_singular_for_one_ingredient(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(30.0)
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.caption if "allowed amounts" in c.value]
+    assert said == ["At 30 g, Pea protein is outside its allowed "
+                    "amounts."], said
+
+
+def test_the_best_says_when_its_own_total_pushes_an_amount_out(made_to_a_total):
+    """Tab 3 shows the best at the total its batch was made to, so it is the
+    same warning about the same numbers — in the same words, under the table
+    that shows them."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    caution = ("At 150 g, Pea protein and Methylcellulose are outside their "
+               "allowed amounts.")
+    order = _tab_flow(at, 2)
+    assert order.count(caution) == 1, order
+    assert (_first(order, wording.amounts_to_make_it_heading("150 g"))
+            < order.index(caution)), order
+
+
+def test_every_printed_sheet_ends_with_the_caution(open_batch):
+    """The sheet is what the bench weighs out from, and it leaves the app: a
+    caution only on screen is not on the page in the technician's hand."""
+    import re as _re
+
+    import ui_batch
+    caution = ("At 200 g, Pea protein and Methylcellulose are outside their "
+               "allowed amounts.")
+    printed = ui_batch._sheets_html(open_batch, 200.0)
+    blocks = printed.split("<div class='fo-sheet'>")[1:]
+    assert len(blocks) == 2, printed
+    for block in blocks:
+        lines = _re.findall(r"<p>(.*?)</p>", block)
+        assert lines[-1] == caution, lines
+    # A batch made as generated has nothing to caution about.
+    assert "allowed amounts" not in ui_batch._sheets_html(open_batch, None)
+
+
+def test_the_restore_flash_counts_the_rows_nobody_made_too(project_with_history,
+                                                           tmp_path):
+    """The preview counts scored and not made alike; a flash that counted
+    only the scored ones reported losing formulations the restore had just
+    put back."""
+    donor = FoodOptimizer("donor_counts")
+    donor.add_ingredient("Flour", 0, 100)
+    donor.add_objective("Crunch", 1.0, goal="max", min_val=0, max_val=10)
+    for i in range(5):
+        donor.tell({"Flour": 10.0 * i}, {"Crunch": 5.0})
+    donor.record_skipped(6, 1, {"Flour": 20.0})
+    donor.record_skipped(7, 1, {"Flour": 30.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.session_state["_restore_candidate"] = donor.export_json()
+    at.run()
+    assert any("7 formulations" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    _submit_button(at, wording.YES_REPLACE).click()
+    at.run()
+    assert not at.exception
+    assert any("Restored 7 formulations" in s.value for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
+    """Save greys until every row has a value, so an out-of-range reading
+    left the button grey with nothing to explain it. The refusal on Save
+    stays; this is the same sentence, said as it is typed."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(12.0)
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.caption if "outside your range" in c.value]
+    assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
+                    " Widen the range in Set up, or check the value."], said
+    order = _tab_flow(at)
+    assert (order.index(said[0])
+            < _first(order, wording.formulation_heading(2))), order
+    save = _submit_button(at, wording.SAVE_RESULTS)
+    assert save.disabled and save.proto.type == "secondary"
+
+
+def test_the_picker_clears_after_a_saved_correction(scored):
+    """A correction that stayed open kept the tab's lit button on Save
+    correction, so the foot of the tab had no next action to offer."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    at.number_input(key="correct_1_Firmness").set_value(6.0)
+    at.run()
+    _submit_button(at, wording.SAVE_CORRECTION_BUTTON).click()
+    at.run()
+    at.run()        # the settled screen, after the rerun the save asked for
+    assert not at.exception
+    assert at.session_state["correct_formulation"] is None
+    assert _tab_primaries(at, 2) == [wording.START_NEXT_BATCH], \
+        _tab_primaries(at, 2)
+
+
+def test_a_note_survives_a_csv_round_trip(burger):
+    """`Download all formulations (CSV)` writes the Note column; an importer
+    that ignored it turned every note in the file into `Made earlier`."""
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 1.2},
+                {"Juiciness": 6.0, "Firmness": 5.0}, formulation_no=1,
+                batch_no=1, note="from the 2024 bench book")
+    burger.tell({"Pea protein": 14.0, "Methylcellulose": 1.4},
+                {"Juiciness": 6.5, "Firmness": 5.5}, formulation_no=2,
+                batch_no=1)                                   # no note at all
+    downloaded = pd.read_csv(io.StringIO(FoodOptimizer("burger").history_csv()))
+    assert "Note" in downloaded.columns, list(downloaded.columns)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["_import_rows"] = downloaded
+    at.run()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.notes_history == ["from the 2024 bench book", "",
+                                      "from the 2024 bench book",
+                                      wording.IMPORTED_NOTE], \
+        reloaded.notes_history

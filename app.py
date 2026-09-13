@@ -381,8 +381,14 @@ with st.sidebar:
                                     st.session_state.optimizer = new_opt
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
+                                    # Counted exactly as the preview above
+                                    # counts it — scored and not made alike.
+                                    # A flash that counted only the scored
+                                    # rows reported restoring fewer
+                                    # formulations than the file had just
+                                    # put back.
                                     flash("success", wording.restored_flash(
-                                        plural(len(new_opt.X_history), wording.FORMULATION),
+                                        plural(_held(new_opt), wording.FORMULATION),
                                         new_opt.project_name, archived))
                                     st.rerun()
                 with rc2:
