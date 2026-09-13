@@ -12,9 +12,16 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime
 
 
-ARCHIVE_SUFFIX_RE = re.compile(r"_(archived|deleted|pre_rewind|pre_restore|pre_delete)(_\d+)?$")
+# pre_rewind and pre_undo are no longer written — the acts they named are
+# now Delete, which archives as pre_delete — but a project archived by an
+# earlier version still wears them, and a copy that stops reading as a copy
+# would reappear in the project list.
+ARCHIVE_SUFFIX_RE = re.compile(
+    r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit|pre_undo)(_\d+)?$"
+)
 
 
 def is_archive_name(name):
@@ -69,6 +76,17 @@ class LocalStorage:
     def exists(self, name):
         return os.path.exists(self._path(name))
 
+    def saved_at(self, name):
+        """When the project file was last written, or None if there is no file.
+        FoodOptimizer.last_saved_at only records saves made in this session, so
+        a user who opens a project and changes nothing has no time to show; the
+        file's own modification time is that missing fact."""
+        try:
+            stamp = os.stat(self._path(name)).st_mtime
+        except (FileNotFoundError, OSError):
+            return None
+        return datetime.fromtimestamp(stamp).astimezone()
+
     def load(self, name):
         seen = self.__dict__.setdefault("_seen", {})
         try:
@@ -79,7 +97,7 @@ class LocalStorage:
         except OSError:
             raise StorageError(
                 "This project file could not be opened. It may have been "
-                "moved or deleted."
+                "moved, renamed or removed."
             )
         seen[name] = self._stamp(name)
         try:
@@ -91,9 +109,9 @@ class LocalStorage:
             raise StorageError(
                 "This project file is damaged, or was saved by an early version "
                 "of Food Optimizer, and could not be opened. If you have a "
-                "backup, use Restore from backup; otherwise check the "
-                "FoodOptimizer > backups folder in your home folder for a "
-                "recent copy. An early-version file can be converted by opening "
+                "backup, use Restore from backup; otherwise look in your "
+                "FoodOptimizer folder for a recent copy. An early-version "
+                "file can be converted by opening "
                 "it in the version of Food Optimizer that created it and "
                 "downloading a backup."
             )

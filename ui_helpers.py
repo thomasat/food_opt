@@ -5,7 +5,23 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import re
+from datetime import datetime
+
 import streamlit as st
+
+import wording
+# join_unit and goal_line live in food_bo (they are pure data formatting and
+# closeness_details needs them too); the tab modules import them from here so
+# there is one import site for screen helpers.
+from food_bo import (  # noqa: F401  (re-exported)
+    goal_line, join_unit, label_with_unit, number_list, outside_message,
+    unit_after_number,
+)
+# Every word below lives in wording.py; these three names stay importable
+# from here because ui_setup.py, ui_results.py and app.py already do
+# `from ui_helpers import TAB_BATCH` and the like.
+from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
 _FLASH_KEY = "_flash_messages"
 
@@ -20,23 +36,99 @@ def flash(kind, message):
     st.session_state.setdefault(_FLASH_KEY, []).append((kind, message))
 
 
-def render_flash():
-    """Show and clear queued messages. Call once, near the top of app.py.
+def render_flash(box=None):
+    """Show and clear queued messages, and return the container they went into.
 
     The messages always render inside one container, so the page keeps the
     same shape whether or not a message is showing. Rendering them as bare
     top-level elements shifted everything below by one slot on the run that
     cleared them, which made the browser rebuild the tabs and drop the user
     back to the first tab (seen right after opening a project and clicking
-    Generate recipes).
+    Generate).
+
+    Pass the container back to drain messages queued LATER in the same run —
+    the sidebar runs after this point and can discard an unmakeable batch,
+    and that notice belongs above the tabs on this run, not the next one.
     """
-    box = st.container()
+    box = st.container() if box is None else box
     with box:
         for kind, message in st.session_state.pop(_FLASH_KEY, []):
             getattr(st, kind)(message)
+    return box
 
 
-def confirm_action(key, button_label, warning, confirm_label="Yes, continue", disabled=False):
+def saved_ok(opt):
+    """True when the write that just ran reached the file. A green 'Added ...'
+    over a change that never saved is a lie, so every handler asks first."""
+    if getattr(opt, "save_error", None):
+        st.error(opt.save_error)
+        return False
+    return True
+
+
+ARMED_KEY = "_armed_confirmation"
+
+
+def armed_confirmation():
+    """The key of the one confirmation that is armed, or None.
+
+    One key rather than a scan of every `{key}__pending` flag. A scan answers
+    differently depending on where in the script it is asked from — a flag is
+    only set once its own confirm_action has run — so two confirmations could
+    end up armed on one frame, each with its own coloured Yes and its own
+    copy of the project. This key is the single answer everything reads."""
+    return st.session_state.get(ARMED_KEY)
+
+
+RESTORE_KEY = "_restore_candidate"
+
+
+def restore_armed():
+    """True while a checked backup is waiting for `Yes, replace`.
+
+    Restore is the one confirmation that is not a confirm_action: it is drawn
+    by hand in the sidebar because it has a file to read and a summary to
+    show first. It is still a confirmation — it replaces the project and keeps
+    a copy — so it counts as one everywhere ARMED_KEY does, and the rest of
+    the app dims behind it."""
+    return st.session_state.get(RESTORE_KEY) is not None
+
+
+def confirmation_open():
+    """True while a confirmation is armed. Its "Yes" is the lit button, and
+    a tab never shows two coloured buttons at once, so every tab's own primary
+    steps aside while one is on screen."""
+    return armed_confirmation() is not None or restore_armed()
+
+
+def other_confirmation(key):
+    """True while a DIFFERENT confirmation is armed. Two armed at once would
+    put two coloured Yes buttons on the tab, each keeping its own copy, so
+    arming one greys the other's button until it is answered."""
+    armed = armed_confirmation()
+    return (armed is not None and armed != key) or restore_armed()
+
+
+def disarm(key):
+    """Take down a confirmation whose question has gone off screen, and say
+    whether there was one. Call it from the SAME call site that armed it.
+
+    A confirmation is armed by one click and answered on a later run, so the
+    control it belongs to has to still be on screen to draw its Cancel. Empty
+    the picker it was armed on — or change the row — and ARMED_KEY stays set
+    with nothing anywhere to answer it: every coloured button in the app goes
+    grey behind a question the user cannot reach. Only the armed key's own
+    site may do this; disarming another's would take a Yes off the screen
+    while the user was reading it."""
+    if armed_confirmation() != key:
+        return False
+    st.session_state.pop(f"{key}__pending", None)
+    st.session_state.pop(ARMED_KEY, None)
+    return True
+
+
+def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
+                   disabled=False, preserve=False):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -45,12 +137,24 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
     where the user has not just confirmed, so the confirming run's element
     tree carries no warning). Returns True only on the run in which the user
     clicks the confirm button; the caller then performs the action, flashes
-    a message, and reruns. `key` must be unique per call site.
+    a message, and reruns. `key` must be unique per call site. `preserve` is
+    for a confirmation whose Cancel reruns ABOVE one of the tab forms — a
+    sidebar one, whose rerun never reaches the tabs at all, and tab 2's
+    `Generate a different batch`, which is asked before the result grid is
+    drawn into its reserved slot. Streamlit discards the session-state entry
+    of every widget a run did not create, so without it the Cancel empties
+    the sheet the user has already half-recorded.
     """
     pending_key = f"{key}__pending"
     if st.button(button_label, key=f"{key}__btn", disabled=disabled):
-        st.session_state[pending_key] = True
-    if not st.session_state.get(pending_key):
+        # One at a time. A click that arrives while another confirmation is
+        # armed — a second click in the same frame, or a click already in
+        # flight against a button this frame draws greyed — is ignored rather
+        # than lighting a second Yes beside the first.
+        if armed_confirmation() in (None, key):
+            st.session_state[ARMED_KEY] = key
+            st.session_state[pending_key] = True
+    if armed_confirmation() != key or not st.session_state.get(pending_key):
         return False
     slot = st.empty()                      # reserves the position above the buttons
     c1, c2 = st.columns(2)
@@ -58,11 +162,312 @@ def confirm_action(key, button_label, warning, confirm_label="Yes, continue", di
         confirmed = st.button(confirm_label, key=f"{key}__yes", type="primary",
                               use_container_width=True)
     with c2:
-        if st.button("Cancel", key=f"{key}__no", use_container_width=True):
+        if st.button(wording.CANCEL, key=f"{key}__no", use_container_width=True):
             st.session_state[pending_key] = False
+            st.session_state.pop(ARMED_KEY, None)
+            if preserve:
+                # This rerun happens above one of the tab forms; park what
+                # they hold so the next run puts it back.
+                preserve_tab_forms()
             st.rerun()
     if confirmed:
         st.session_state[pending_key] = False
+        st.session_state.pop(ARMED_KEY, None)
         return True
     slot.warning(warning)                  # only on runs where the user has not confirmed
     return False
+
+
+# The tab forms a rerun would otherwise throw away. Streamlit discards the
+# session-state entry of every widget a run did not create, so a control that
+# reruns from ABOVE one of these forms empties it: a Cancel in the sidebar
+# (which runs before all three tabs) blanked the result grid and the open
+# correction, and the `Whole batch` pick on tab 3 blanked the "already made"
+# form directly beneath it.
+_TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
+# The tab-form boxes whose keys fit none of those prefixes: the radio that
+# chooses between typing a past formulation in and reading one off a CSV, the
+# formulation total the open batch is shown and printed at, and how many
+# formulations the next Generate will ask for. Named rather than swept in by
+# prefix, because `add_past_formulation` beside the radio is a BUTTON, and a
+# button's value cannot be assigned at all.
+#
+# Losing the formulation total is not a blank box: the batch table and the
+# sheets silently go back to as-generated, and the bench weighs out different
+# numbers from the ones that were on screen a click ago.
+_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size")
+_GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
+
+
+def preserve_tab_forms():
+    """Park every tab-form box at the value it is holding, so the next run
+    puts it back. Call immediately before an st.rerun() raised anywhere above
+    one of those forms. Parked, not merely left alone: an assignment made
+    before the widget is created is the one way a value reaches the browser
+    again."""
+    for key in [k for k in st.session_state if isinstance(k, str)]:
+        if (key.startswith(_TAB_FORM_PREFIXES) or key in _TAB_FORM_KEYS
+                or _GRID_KEY_RE.match(key)):
+            park_clear(key, st.session_state[key])
+
+
+def go_to_tab(label):
+    """Move to another tab and rerun. This is the ONLY way the app changes
+    tabs, and it is called from six handlers only: Next: make a batch,
+    Back to set up, Save results, Save uploaded results, Start the next batch,
+    and opening a project. A set-up edit, Generate, a correction or a plain
+    rerun must never call it, and neither must a handler whose write failed.
+
+    The move is deferred: the tabs widget already exists on this run, so
+    assigning its key now would raise, and a write the frontend never asked
+    for is ignored anyway. We park the target in "_pending_tab" and rerun;
+    app.py drains it into "main_tab" BEFORE st.tabs renders, which is the one
+    moment the widget takes a value from session state."""
+    st.session_state["_pending_tab"] = label
+    st.rerun()
+
+
+def open_rows(opt):
+    """Rows of the open batch that have not been recorded yet. Three screens
+    count them — the line under the title, the result grid on tab 2 and the
+    foot of tab 3 — and they must agree."""
+    recorded = {int(i) for i in opt.formulation_ids}
+    return [r for r in (opt.pending_batch or [])
+            if r['formulation'] not in recorded]
+
+
+def plural(n, word):
+    """'1 formulation', '3 formulations' — never '1 formulation(s)'."""
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def fmt_amount(value, unit="", decimals=2):
+    """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
+
+    Always two decimals. A weighing sheet that mixes '0.3 g', '33.9 g' and
+    '11.88 g' cannot be read down the column, and 0.30 g is the precision a
+    balance works to. A process setting is not an amount and does not come
+    through here: a cook temperature is 180 °C, never 180.00 °C."""
+    if value is None:
+        return ""
+    txt = f"{float(value):.{decimals}f}"
+    if float(txt) == 0:
+        txt = f"{0.0:.{decimals}f}"     # never '-0.00'
+    return join_unit(txt, unit)
+
+
+def fmt_setting(value, unit=""):
+    """A process setting as prose: '188.49 °C', '180 °C', '' for a missing
+    value. A setting is dialled in, not weighed: at most two decimals, and no
+    trailing zeros, because 188.494 is a precision no oven dial has and
+    180.00 is a precision nobody typed. Every screen that shows a setting —
+    the batch table, the printable sheets, the amounts table — goes through
+    here, so the three always agree."""
+    if value is None:
+        return ""
+    txt = f"{float(value):.2f}".rstrip("0").rstrip(".")
+    if txt in ("", "-0"):
+        txt = "0"
+    return join_unit(txt, unit)
+
+
+def scale_error(obj, value):
+    """The refusal for a measured value outside its range, or '' when it fits.
+    Results are never clamped: a firmness of 12 on a 0-10 range is either a
+    typo or a range that is too narrow, and silently storing 10 hides both."""
+    if value is None:
+        return ""
+    low, high = float(obj['min_val']), float(obj['max_val'])
+    if low <= float(value) <= high:
+        return ""
+    return outside_message(obj['name'], value, low, high, obj.get('unit'),
+                           wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
+
+
+def bounds_warning(name, value, low, high, unit):
+    """The caution for an amount outside what the project allows, or '' when it
+    fits. Same builder as scale_error, so the two lines never drift apart."""
+    if value is None:
+        return ""
+    if float(low) <= float(value) <= float(high):
+        return ""
+    return outside_message(name, value, low, high, unit, wording.ALLOWED_AMOUNTS)
+
+
+def bounds_caution(opt, name, value):
+    """The line for an amount outside what the project allows, or '' when it
+    fits. Built by the same helper that refuses an out-of-range measurement,
+    so the two sentences read alike.
+
+    It is a warning, not a refusal, wherever it is shown: an imported amount
+    is a fact about work already done, and a formulation of the user's own is
+    a formulation they mean to make. Both teach the model more than a blank.
+    """
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    if var is None or value is None:
+        return ""
+    low, high = (float(b) for b in var['bounds'])
+    return bounds_warning(name, value, low, high, opt.unit_of(name))
+
+
+def scaled_caution(opt, recipes, total):
+    """The one line naming every ingredient whose amount falls outside what
+    the project allows once these formulations are made to `total`, or "" when
+    they all fit.
+
+    The stored amounts were chosen inside the project's own Lowest and
+    Highest; a formulation total they were never chosen for scales them past
+    it, and the sheets are printed from those numbers — so the bench weighs
+    out an amount the project says it does not allow. Tab 2's box, tab 3's
+    amounts table and the printed sheet all say so in these words, from here,
+    so the three can never drift apart.
+    """
+    if total is None:
+        return ""
+    scaled = [opt.scaled_recipe(recipe, total) for recipe in recipes]
+    # Project order, not the order the rows happen to be in: the names read
+    # as they are listed everywhere else on screen.
+    names = [var['name'] for var in opt.variables
+             if var.get('category', 'ingredient') == 'ingredient'
+             # Ingredients only: a formulation total scales what you weigh
+             # out, and leaves a cook temperature exactly where it was.
+             and any(bounds_caution(opt, var['name'], recipe.get(var['name']))
+                     for recipe in scaled)]
+    if not names:
+        return ""
+    return wording.scaled_amounts_caution(opt.batch_total_text(total),
+                                          number_list(names), len(names) > 1)
+
+
+def table_height(n_rows, max_rows=12):
+    """Pixel height that shows up to max_rows rows of a st.dataframe without an
+    inner scrollbar (35 px per row plus the header). Zero rows still get one
+    row's height, so an empty table is not a sliver."""
+    return 38 + 35 * max(1, min(int(n_rows), max_rows)) + 2
+
+
+def saved_line(saved_at):
+    """'Saved 14:32 · automatically, to this Mac', carrying the date when the
+    last save was not today."""
+    now = datetime.now().astimezone()
+    if saved_at.date() == now.date():
+        when = f"{saved_at:%H:%M}"
+    else:
+        when = saved_at.strftime("%d %b %H:%M").lstrip("0")
+    return wording.saved_line(when)
+
+
+def clear_selection(key):
+    """Ask for a select box to be emptied on the NEXT run.
+
+    Popping a widget's key does not reach the browser: it keeps the old value
+    and sends it back with the next click, so a row closed by Close reopened
+    under the user's finger and swallowed that click. Assigning None instead is
+    refused once the widget exists on this run. So the request is parked here
+    and honoured by take_clear() just before the widget is created."""
+    st.session_state[f"_clear_{key}"] = True
+
+
+def park_clear(key, value):
+    """Same request, for a box that empties to something other than None: a
+    text box to "", a tick box to False, a number box to the value it opens
+    with. This is what makes a project switch really empty the set-up and
+    result forms in the browser — popping the key alone leaves the mounted
+    widget to post its old value straight back."""
+    st.session_state[f"_clear_{key}"] = ("value", value)
+
+
+def clear_scale_total():
+    """Empty tab 2's `Make each formulation to` box for the next batch.
+
+    Parked, not popped. Popping a widget's key does not reach the browser —
+    the mounted box posts its old value straight back — so a regenerated
+    batch came up re-scaled to the total the batch before it was made to,
+    and the sheets were printed for it. The parked value lands before the
+    box is drawn again (drain_clears).
+
+    Call it AFTER preserve_tab_forms() wherever both are used: that parks
+    every tab form at what it is still holding, which would put the old
+    total back.
+    """
+    park_clear("scale_total", None)
+
+
+def take_clear(key, fresh=None):
+    """Honour a pending clear. Call immediately BEFORE the widget is created.
+    `fresh` is what a plain clear_selection should leave behind when the right
+    empty value is only known here (the amount-unit box holds the newly opened
+    project's unit)."""
+    parked = st.session_state.pop(f"_clear_{key}", None)
+    if parked is None:
+        return
+    if isinstance(parked, tuple) and parked and parked[0] == "value":
+        st.session_state[key] = parked[1]
+    else:
+        st.session_state[key] = fresh
+
+
+def drain_clears(fresh=None):
+    """Honour every parked clear, at the one moment in a run when it is legal:
+    the previous run's widgets are gone and this run's have not been created
+    yet. app.py calls this once, just before the tabs render, which is what
+    makes a project switch really empty the forms in the browser.
+
+    `fresh` names the value for a plain clear_selection where only the caller
+    knows it (the amount-unit box holds the newly opened project's unit).
+    """
+    fresh = fresh or {}
+    for key in [k for k in st.session_state
+                if isinstance(k, str) and k.startswith("_clear_")]:
+        name = key[len("_clear_"):]
+        take_clear(name, fresh.get(name))
+
+
+def best_formulation_no(opt):
+    """The number of the best formulation, or None. Three tabs name it —
+    `Start from the best so far`, the biggest-changes line and every 'Best
+    moved' sentence — and they must all mean the same formulation."""
+    i = opt.best_index()
+    return None if i is None else int(opt.formulation_ids[i])
+
+
+def best_move_sentence(before, after):
+    """'Best moved from Formulation 3 to Formulation 7.' or '' when it stayed."""
+    if before is None or after is None or before == after:
+        return ""
+    return wording.best_moved(before, after)
+
+
+def readiness(opt):
+    """(ready, the missing item named) for the foot button on tab 1 and the
+    Generate button on tab 2. Ready means something to vary — an ingredient
+    OR a process setting — and at least one measurement.
+
+    A fermentation project varies incubation temperature, time and culture
+    dose and weighs nothing out; holding it incomplete until it listed an
+    ingredient asked it to invent one."""
+    if not opt.variables:
+        return False, wording.NEED_A_VARIABLE
+    if not opt.objectives:
+        return False, wording.NEED_A_MEASUREMENT
+    return True, ""
+
+
+def landing_tab(opt):
+    """Where opening a project lands: set-up while it is incomplete, the batch
+    while one is unrecorded, set-up again while nothing has been made, and
+    results once the project holds some.
+
+    A project with no formulations sent the user to an empty Results tab, and
+    the sample project skipped its own set-up entirely. Confirming the set-up
+    is the step before making anything, so that is where those land. A
+    formulation nobody made counts as one the project holds: it has a
+    number, its amounts and a note, and tab 3 lists it."""
+    ready, _ = readiness(opt)
+    if not ready:
+        return TAB_SETUP
+    if opt.pending_batch:
+        return TAB_BATCH
+    if not opt.X_history and not opt.skipped:
+        return TAB_SETUP
+    return TAB_RESULTS

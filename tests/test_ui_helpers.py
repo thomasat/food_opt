@@ -1,6 +1,8 @@
 """Tests for ui_helpers: the two UI patterns every destructive/saving action uses."""
 from streamlit.testing.v1 import AppTest
 
+import wording
+
 FLASH_SCRIPT = """
 import streamlit as st
 from ui_helpers import flash, render_flash
@@ -66,6 +68,104 @@ def test_confirm_action_needs_two_clicks():
     assert not any("Really delete?" in w.value for w in at.warning)
 
 
+TWO_CONFIRM_SCRIPT = """
+import streamlit as st
+from ui_helpers import confirm_action, other_confirmation
+for key in ("first", "last"):
+    if confirm_action(key, f"Arm {key}", f"Really {key}?",
+                      confirm_label=f"Yes, {key}",
+                      disabled=other_confirmation(key)):
+        st.session_state[f"{key}_done"] = True
+"""
+
+
+def test_arming_the_first_site_greys_the_last_one_on_the_same_frame():
+    """The gap a scan of `{key}__pending` flags left open: the flag is set at
+    the point in the script where its own confirm_action runs, so anything
+    drawn before it answered 'nothing is armed'. One key answers everywhere."""
+    at = AppTest.from_string(TWO_CONFIRM_SCRIPT)
+    at.run()
+    assert not at.button(key="first__btn").disabled
+    assert not at.button(key="last__btn").disabled
+    _btn(at, "Arm first").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "first"
+    assert at.button(key="last__btn").disabled
+    assert not at.button(key="first__btn").disabled
+    assert [b.label for b in at.button if b.proto.type == "primary"] == ["Yes, first"]
+
+
+def test_two_arming_clicks_in_one_run_leave_exactly_one_armed():
+    """Both buttons were live on the frame the user clicked, so both clicks
+    arrive together. The second must be dropped, not light a second Yes."""
+    at = AppTest.from_string(TWO_CONFIRM_SCRIPT)
+    at.run()
+    _btn(at, "Arm first").click()
+    _btn(at, "Arm last").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "first"
+    assert [b.label for b in at.button if b.proto.type == "primary"] == ["Yes, first"]
+    assert [w.value for w in at.warning] == ["Really first?"]
+    # Answering the one that is armed frees the other.
+    _btn(at, "Cancel").click()
+    at.run()
+    at.run()
+    assert "_armed_confirmation" not in at.session_state
+    assert not at.button(key="last__btn").disabled
+
+
+DISARM_SCRIPT = """
+import streamlit as st
+from ui_helpers import confirm_action, disarm, other_confirmation
+if st.session_state.get("gone"):
+    # The control the question belongs to is off the screen; only its own
+    # call site may take the question down with it.
+    st.session_state["took"] = disarm("del")
+else:
+    confirm_action("del", "Delete thing", "Really delete?",
+                   confirm_label="Yes, delete")
+confirm_action("other", "Arm other", "Really other?",
+               disabled=other_confirmation("other"))
+"""
+
+
+def test_disarm_takes_down_a_question_whose_control_left_the_screen():
+    """A confirmation armed on a picker that is then emptied left the armed
+    key set with no Cancel anywhere, and every coloured button in the app
+    grey behind a question nobody could answer."""
+    at = AppTest.from_string(DISARM_SCRIPT)
+    at.run()
+    _btn(at, "Delete thing").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "del"
+    assert at.button(key="other__btn").disabled
+    at.session_state["gone"] = True
+    at.run()
+    assert at.session_state["took"] is True
+    assert "_armed_confirmation" not in at.session_state
+    assert "del__pending" not in at.session_state
+    assert not at.button(key="other__btn").disabled
+    # Nothing to take down a second time, and it says so.
+    at.run()
+    assert at.session_state["took"] is False
+
+
+def test_disarm_leaves_another_sites_question_alone():
+    """Disarming somebody else's confirmation would take a Yes off the screen
+    while the user was reading it."""
+    at = AppTest.from_string(DISARM_SCRIPT)
+    at.run()
+    _btn(at, "Arm other").click()
+    at.run()
+    assert at.session_state["_armed_confirmation"] == "other"
+    at.session_state["gone"] = True
+    at.run()
+    assert at.session_state["took"] is False
+    assert at.session_state["_armed_confirmation"] == "other"
+    assert [b.label for b in at.button if b.proto.type == "primary"] \
+        == ["Yes, continue"]
+
+
 def test_confirm_action_cancel():
     at = AppTest.from_string(CONFIRM_SCRIPT)
     at.run()
@@ -75,3 +175,363 @@ def test_confirm_action_cancel():
     at.run()
     assert at.session_state["done"] == 0
     assert not any("Really delete?" in w.value for w in at.warning)
+
+
+import pytest
+
+import wording
+from ui_helpers import (
+    TAB_BATCH, TAB_RESULTS, TAB_SETUP, fmt_amount, goal_line, join_unit,
+    landing_tab, number_list, plural, readiness, saved_line, scale_error,
+    table_height,
+)
+
+
+def test_plural_uses_real_grammar():
+    assert plural(0, wording.FORMULATION) == f"0 {wording.FORMULATION}s"
+    assert plural(1, wording.FORMULATION) == f"1 {wording.FORMULATION}"
+    assert plural(3, "result") == "3 results"
+
+
+def test_number_list_reads_as_english():
+    assert number_list([1]) == "1"
+    assert number_list([1, 2]) == "1 and 2"
+    assert number_list([7, 8, 9]) == "7, 8 and 9"
+
+
+def test_fmt_amount_always_shows_two_decimals_with_the_unit():
+    """A weighing sheet is read down the column: 0.30 g, 33.90 g, 68.00 g."""
+    assert fmt_amount(12.5, "g") == "12.50 g"
+    assert fmt_amount(12.0, "g") == "12.00 g"
+    assert fmt_amount(0.804, "g") == "0.80 g"
+    assert fmt_amount(0.3, "g") == "0.30 g"
+    assert fmt_amount(-0.001, "g") == "0.00 g"     # never '-0.00 g'
+    assert fmt_amount(12.5, "") == "12.50"
+    assert fmt_amount(None, "g") == ""
+
+
+def test_fmt_setting_rounds_a_dial_to_what_a_dial_can_hold():
+    """188.494 °C is a precision no oven has, and 180.00 °C is one nobody
+    typed. Two decimals at most, trailing zeros stripped."""
+    from ui_helpers import fmt_setting
+    assert fmt_setting(188.4936, "°C") == "188.49 °C"
+    assert fmt_setting(180.0, "°C") == "180 °C"
+    assert fmt_setting(12.5, "min") == "12.5 min"
+    assert fmt_setting(0.0, "°C") == "0 °C"
+    assert fmt_setting(-0.001, "°C") == "0 °C"
+    assert fmt_setting(180.0, "") == "180"
+    assert fmt_setting(None, "°C") == ""
+
+
+def test_join_unit_and_goal_line_are_re_exported():
+    assert join_unit("7", "/10") == "7/10"
+    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
+
+
+def test_scale_error_names_the_value_the_range_and_the_fix():
+    obj = {"name": "Firmness", "min_val": 0.0, "max_val": 10.0, "unit": "N"}
+    assert scale_error(obj, 6.0) == ""
+    assert scale_error(obj, None) == ""
+    assert scale_error(obj, 12.0) == (
+        "Firmness 12 N is outside your range of 0 to 10 N. Widen the range in "
+        "Set up, or check the value."
+    )
+
+
+def test_table_height_grows_with_rows_and_stops_at_the_cap():
+    assert table_height(1) == 75
+    assert table_height(3) == 145
+    assert table_height(0) == table_height(1)          # never a zero-height table
+    assert table_height(50, max_rows=12) == table_height(12, max_rows=12)
+
+
+def test_saved_line_shows_the_time_today_and_the_date_before_that():
+    from datetime import datetime, timedelta
+    now = datetime.now().astimezone()
+    today = now.replace(hour=14, minute=32)
+    assert saved_line(today) == "Saved 14:32 · automatically, to this Mac"
+    earlier = today - timedelta(days=3)
+    line = saved_line(earlier)
+    assert line.startswith("Saved ") and line.endswith("· automatically, to this Mac")
+    assert earlier.strftime("%b") in line
+
+
+class _FakeOpt:
+    def __init__(self, variables, objectives, pending_batch=None,
+                 X_history=None, skipped=None):
+        self.variables = variables
+        self.objectives = objectives
+        self.pending_batch = pending_batch
+        self.X_history = X_history or []
+        self.skipped = skipped or []
+
+
+def test_readiness_names_the_one_missing_thing():
+    assert readiness(_FakeOpt([], [])) == (
+        False, "Add at least one ingredient or process setting.")
+    ing = [{"name": "Water", "category": "ingredient"}]
+    assert readiness(_FakeOpt(ing, [])) == (False, "Add at least one measurement.")
+    assert readiness(_FakeOpt(ing, [{"name": "Firmness", "weight": 1.0}])) == (True, "")
+
+
+def test_a_project_of_process_settings_alone_is_ready():
+    """A fermentation project varies incubation temperature, time and culture
+    dose and weighs nothing out. It is a project, not an incomplete one."""
+    setting = [{"name": "Incubation temperature", "category": "process"}]
+    meas = [{"name": "Acidity", "weight": 1.0}]
+    assert readiness(_FakeOpt(setting, [])) == (
+        False, "Add at least one measurement.")
+    assert readiness(_FakeOpt(setting, meas)) == (True, "")
+    # ...and the landing rule reads it the same way: complete, nothing made
+    # yet, so it opens on its set-up.
+    assert landing_tab(_FakeOpt(setting, meas)) == TAB_SETUP
+    assert landing_tab(_FakeOpt(setting, meas, X_history=[[0.5]])) == TAB_RESULTS
+
+
+def test_landing_tab_follows_the_spec_rule():
+    assert landing_tab(_FakeOpt([], [])) == TAB_SETUP
+    ing = [{"name": "Water", "category": "ingredient"}]
+    meas = [{"name": "Firmness", "weight": 1.0}]
+    assert landing_tab(_FakeOpt(ing, [])) == TAB_SETUP
+    # Set up is complete but nothing has been made: the set-up is what there
+    # is to look at, and Results would be an empty tab.
+    assert landing_tab(_FakeOpt(ing, meas)) == TAB_SETUP
+    scored = _FakeOpt(ing, meas, X_history=[[0.5]])
+    assert landing_tab(scored) == TAB_RESULTS
+    # A batch nobody managed to make still counts as results held.
+    left_out = _FakeOpt(ing, meas, skipped=[{"formulation": 1}])
+    assert landing_tab(left_out) == TAB_RESULTS
+    # An unrecorded batch outranks both.
+    mid = _FakeOpt(ing, meas, X_history=[[0.5]],
+                   pending_batch=[{"formulation": 1, "recipe": {"Water": 1.0}}])
+    assert landing_tab(mid) == TAB_BATCH
+    fresh_batch = _FakeOpt(ing, meas,
+                           pending_batch=[{"formulation": 1,
+                                           "recipe": {"Water": 1.0}}])
+    assert landing_tab(fresh_batch) == TAB_BATCH
+
+
+# The two halves of the move, in the same order as app.py: the pending target
+# is drained into the widget key BEFORE st.tabs, and on_change="rerun" is what
+# binds that key to the frontend at all.
+GO_TO_TAB_SCRIPT = """
+import streamlit as st
+from ui_helpers import TAB_BATCH, TAB_SETUP, TAB_RESULTS, go_to_tab
+if "_pending_tab" in st.session_state:
+    st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
+st.tabs([TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab",
+        on_change="rerun")
+if st.button("go"):
+    go_to_tab(TAB_BATCH)
+st.write(f"tab={st.session_state.get('main_tab')}")
+"""
+
+# go_to_tab on its own, with no tabs widget to drain it: what it leaves behind.
+GO_TO_TAB_ALONE_SCRIPT = """
+import streamlit as st
+from ui_helpers import TAB_BATCH, go_to_tab
+if st.button("go"):
+    go_to_tab(TAB_BATCH)
+"""
+
+
+def test_go_to_tab_switches_the_open_tab():
+    at = AppTest.from_string(GO_TO_TAB_SCRIPT)
+    at.run()
+    at.button[0].click()
+    at.run()
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
+
+
+def test_go_to_tab_defers_the_target_instead_of_writing_the_widget_key():
+    """The tabs widget already exists when a handler runs, so go_to_tab must
+    not touch its key: it parks the target for the next run to drain."""
+    at = AppTest.from_string(GO_TO_TAB_ALONE_SCRIPT)
+    at.run()
+    at.button[0].click()
+    at.run()
+    assert at.session_state["_pending_tab"] == wording.TAB_BATCH
+    assert "main_tab" not in at.session_state
+
+
+# A select box that a button empties. Popping the widget's key does not reach
+# the browser, so the clear is parked and honoured before the widget is built.
+CLEAR_SELECTION_SCRIPT = """
+import streamlit as st
+from ui_helpers import clear_selection, take_clear
+take_clear("pick")
+st.selectbox("Pick", [1, 2, 3], index=None, key="pick")
+if st.button("Done"):
+    clear_selection("pick")
+    st.rerun()
+"""
+
+
+def test_clear_selection_empties_the_box_on_the_next_run():
+    at = AppTest.from_string(CLEAR_SELECTION_SCRIPT)
+    at.run()
+    at.selectbox(key="pick").set_value(2)
+    at.run()
+    assert at.session_state["pick"] == 2
+    at.button[0].click()
+    at.run()
+    # Assigned, not popped: an assignment is sent to the browser, so the value
+    # cannot come back with the next click.
+    assert at.session_state["pick"] is None
+    assert "_clear_pick" not in at.session_state
+    assert at.selectbox(key="pick").value is None
+
+
+def test_take_clear_is_a_no_op_when_nothing_asked_for_it():
+    at = AppTest.from_string(CLEAR_SELECTION_SCRIPT)
+    at.run()
+    at.selectbox(key="pick").set_value(3)
+    at.run()
+    at.run()
+    assert at.session_state["pick"] == 3
+
+
+# wording.py holds every screen string of app.py, ui_helpers.py and
+# ui_batch.py by now, so no bare English text should still be passed
+# directly to an st.* call: positional arguments, and the label=/help=/
+# placeholder=/body=/caption= keywords, must come from wording (a constant,
+# a wording.fn(...) call, or a variable already built from one) rather than
+# a literal typed at the call site.
+_WORDING_HELD_FILES = ("app.py", "ui_helpers.py", "ui_batch.py",
+                       "ui_setup.py", "ui_results.py")
+_CHECKED_KWARGS = {"label", "help", "placeholder", "body", "caption"}
+
+
+def _literal_texts(node):
+    """The literal (non-interpolated) text chunks `node` would contribute if
+    it were the argument actually handed to an st.* call: a plain string, the
+    fixed chunks of an f-string (never the {expr} parts — those are data, not
+    prose), both sides of a `+` or a ternary, every element of a list and
+    every key of a dict, recursively.
+
+    The list and the dict are here because the two commonest screen texts
+    that are not a label are a select box's options and a table's column
+    headers, and both arrive as a literal collection rather than as the
+    argument itself."""
+    import ast
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        yield node.value
+    elif isinstance(node, ast.JoinedStr):
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                yield value.value
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        yield from _literal_texts(node.left)
+        yield from _literal_texts(node.right)
+    elif isinstance(node, ast.IfExp):
+        yield from _literal_texts(node.body)
+        yield from _literal_texts(node.orelse)
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        for element in node.elts:
+            yield from _literal_texts(element)
+    elif isinstance(node, ast.Dict):
+        # Keys only: a dict handed to an st.* call is a table's row, and the
+        # words the reader sees are its column headers.
+        for key in node.keys:
+            if key is not None:
+                yield from _literal_texts(key)
+
+
+def _stray_literals(path):
+    import ast
+    import pathlib
+    tree = ast.parse(pathlib.Path(path).read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.value.id == "st"):
+            continue
+        # st.form's one positional argument is the form's own key -- exactly
+        # like a key= kwarg elsewhere, never text the user reads.
+        if func.attr == "form":
+            continue
+        args = list(node.args)
+        args += [kw.value for kw in node.keywords if kw.arg in _CHECKED_KWARGS]
+        for arg in args:
+            for text in _literal_texts(arg):
+                if text != "" and any(c.isalpha() for c in text):
+                    offenders.append((path.name, getattr(arg, "lineno", "?"), text))
+    return offenders
+
+
+def test_the_discarded_notice_names_every_way_a_batch_is_discarded():
+    """An own formulation was never generated, and pausing an ingredient
+    discards the batch too — so "since it was generated" named neither the
+    row nor the edit in the two commonest cases."""
+    notice = wording.batch_discarded_notice()
+    assert "generated" not in notice, notice
+    assert "paused ingredient or setting" in notice, notice
+    assert notice.endswith("changed since it was made."), notice
+
+
+def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():
+    """A select box's options and a table's column headers are the two
+    commonest screen texts that are not the argument itself, and the guard
+    used to walk straight past both."""
+    import ast
+    tree = ast.parse('st.selectbox(LABEL, ["Best first", wording.X])\n'
+                     'st.table([{"Type": a, wording.NAME: b}])\n')
+    args = [node.args[1] if len(node.args) > 1 else node.args[0]
+            for node in ast.walk(tree) if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and getattr(node.func.value, "id", None) == "st"]
+    found = [t for arg in args for t in _literal_texts(arg)]
+    assert found == ["Best first", "Type"], found
+
+
+@pytest.mark.parametrize("name", _WORDING_HELD_FILES)
+def test_wording_holds_no_stray_literals(name):
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = _stray_literals(root / name)
+    assert offenders == [], (
+        f"screen text found outside wording.py in {name}:\n" +
+        "\n".join(f"  {f}:{ln}: {t!r}" for f, ln, t in offenders)
+    )
+
+
+def test_the_total_box_is_parked_empty_rather_than_popped():
+    """Popping a widget's key does not reach the browser: the mounted box
+    posts its old value straight back, so a regenerated batch came up
+    re-scaled to the total the batch before it was made to. AppTest has no
+    mounted widget and cannot see the difference, so the rule is read off the
+    source — every site that empties the box goes through clear_scale_total.
+    """
+    import pathlib
+    import streamlit as st
+    from ui_helpers import clear_scale_total
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("app.py", "ui_setup.py", "ui_batch.py", "ui_results.py"):
+        text = (root / name).read_text()
+        assert 'pop("scale_total"' not in text, name
+    for name in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
+        assert "clear_scale_total()" in (root / name).read_text(), name
+
+    # And what it parks is the empty box, for drain_clears to assign before
+    # the box is drawn again.
+    at = AppTest.from_string(
+        "import streamlit as st\n"
+        "from ui_helpers import clear_scale_total, drain_clears\n"
+        "st.session_state['scale_total'] = 150.0\n"
+        "clear_scale_total()\n"
+        "st.write(str(sorted(k for k in st.session_state "
+        "if str(k).startswith('_clear_'))))\n"
+        "st.write(str(st.session_state['scale_total']))\n"
+        "drain_clears()\n"
+        "st.write(str(st.session_state['scale_total']))\n"
+    )
+    at.run()
+    assert not at.exception
+    written = [m.value for m in at.markdown]
+    assert "_clear_scale_total" in written[0], written
+    assert written[1] == "150.0", written    # parked, not popped
+    assert written[2] == "None", written     # and assigned on the way out

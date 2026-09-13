@@ -6,10 +6,10 @@ Design spec: `docs/superpowers/specs/2026-08-13-desktop-packaging-design.md`.
 ## Build
 
 ```bash
-./desktop/build_dmg.sh 0.1.0        # version is the only argument
+./desktop/build_dmg.sh 0.3.0        # version is the only argument
 ```
 
-Output: `desktop/dist/FoodOptimizer-0.1.0.dmg`. Unsigned builds print a
+Output: `desktop/dist/FoodOptimizer-0.3.0.dmg`. Unsigned builds print a
 loud warning and are for internal testing only — never send one to a
 recipient.
 
@@ -25,7 +25,7 @@ with `swiftc`, so the build machine needs the Xcode Command Line Tools
 ```
 
 Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
-(deleted afterward); it never touches your real environment.
+(removed afterward); it never touches your real environment.
 
 ## Signing + notarization (required before distributing)
 
@@ -46,7 +46,7 @@ Then every distribution build:
 ```bash
 export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
 export NOTARY_PROFILE=foodopt-notary
-./desktop/build_dmg.sh 0.1.0
+./desktop/build_dmg.sh 0.3.0
 ```
 
 ## Updating dependencies
@@ -104,8 +104,9 @@ Notes:
 > Food Optimizer runs on Macs with an Apple chip (M1 or later — any Mac
 > from late 2020 onward) on macOS 13 Ventura or newer, and needs about
 > 6 GB of free disk space. The first launch needs an internet connection
-> for a one-time setup that downloads about 1 GB and usually takes a few
-> minutes, up to 15 on a slow connection; after that it works fully offline.
+> for a one-time setup that downloads about 1 GB. On a good connection this
+> takes under a minute; on a slow office network up to 15 minutes. After that it
+> works fully offline.
 > Your data never leaves your computer.
 
 ## Testing an unsigned build on another Mac
@@ -124,7 +125,7 @@ xattr -d com.apple.quarantine ~/Downloads/FoodOptimizer-X.Y.Z.dmg
 ```
 
 (No output = success. If the app was already copied to /Applications from
-a quarantined mount, delete it and drag it again from the cleaned image.)
+a quarantined mount, remove it and drag it again from the cleaned image.)
 
 Real recipients must never need this: signing + notarization removes the
 warnings entirely, and the checklist below gates distribution on that.
@@ -149,8 +150,8 @@ warnings entirely, and the checklist below gates distribution on that.
    backup (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
 6. UI walkthrough: click "Try the sample project" (eight ingredients,
-   Juiciness and Firmness), request a suggestion batch, log a result,
-   confirm the `.pkl` appears in `~/FoodOptimizer/`.
+   Juiciness and Firmness), go to Make a batch and generate one, record
+   a result, confirm the `.pkl` appears in `~/FoodOptimizer/`.
 7. Quit, relaunch: fast start, project still listed and loads.
 8. Wi-Fi off on a set-up machine: works fully offline.
 9. Wi-Fi off on a fresh machine: plain-language "needs internet once"

@@ -1,9 +1,9 @@
-name,min,max,Fat per 100 g,Sodium per 100 g
-Pea protein isolate,0,25,2.0,800
-Wheat gluten,0,15,1.8,30
-Coconut oil,0,15,99.0,0
-Potato starch,0,8,0.1,10
-Methylcellulose,0,3,0.0,50
-Beet juice powder,0,2,0.0,150
-Salt,0,3,0.0,39000
-Water,20,60,0.0,0
+Name,Lowest,Highest,Unit,Fat per 100 g,Sodium per 100 g
+Pea protein isolate,0,25,g,2.0,800
+Wheat gluten,0,15,g,1.8,30
+Coconut oil,0,15,g,99.0,0
+Potato starch,0,8,g,0.1,10
+Methylcellulose,0,3,g,0.0,50
+Beet juice powder,0,2,g,0.0,150
+Salt,0,3,g,0.0,39000
+Water,20,60,g,0.0,0
