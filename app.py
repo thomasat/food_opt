@@ -539,12 +539,13 @@ if getattr(_opt, "pending_batch", None):
     except (TypeError, AttributeError, KeyError):
         _batch_ok = False           # malformed backup rows; treat as a mismatch
     if not _batch_ok:
+        _discarded_no = _opt.pending_batch_no
         _opt.set_pending_batch(None)
         # Only claimed once the discard reached the file. A failed write here
         # arrives after the banner above has rendered, which is exactly what
         # the end-of-script check at the foot of this file is for.
         if saved_ok(_opt):
-            flash("info", wording.batch_discarded_notice())
+            flash("info", wording.batch_discarded_notice(_discarded_no))
             render_flash(_FLASH_BOX)   # this run, above the tabs
 
 

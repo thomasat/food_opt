@@ -284,10 +284,6 @@ def _amount_boxes(opt, key_of, recipe=None):
             # in the unit that table prints it in.
             typed[name] = st.number_input(
                 opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
-                # Only where the box opens on a recorded amount: on the
-                # typed-in past formulation there is nothing to keep.
-                help=(None if recipe is None
-                      else wording.KEEP_RECORDED_AMOUNT_HELP),
                 key=key_of(name))
     return typed
 
@@ -308,8 +304,6 @@ def _measurement_boxes(ordered, key_of, current=None):
             typed[name] = st.number_input(
                 f"{label_with_unit(name, obj.get('unit'))} · {goal_line(obj)}",
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
-                help=(None if current is None
-                      else wording.LEAVE_BLANK_KEEP_VALUE_HELP),
                 key=key_of(name))
     return typed
 
@@ -347,6 +341,9 @@ def _correct(opt):
     if index is None:
         return None
     recipe = opt.recipe_history[index]
+    # Said once, above every box on the form: the boxes open pre-filled, so a
+    # per-box "leave blank" described a state the reader was not in.
+    st.caption(wording.CORRECTION_CAPTION)
     amounts = _amount_boxes(opt, lambda name: _correct_amount_key(choice, name),
                             recipe)
     ordered = opt.measurements_by_importance()
@@ -593,7 +590,8 @@ def _delete_formulations(opt, storage):
         done = wording.formulation_deleted(chosen[0])
     else:
         label = wording.delete_formulations_button(
-            plural(len(chosen), wording.FORMULATION))
+            f"{wording.FORMULATION_CAP}s {number_list(chosen)}"
+            if len(chosen) <= 3 else plural(len(chosen), wording.FORMULATION))
         question = wording.delete_formulations_warning(number_list(chosen))
         done = wording.formulations_deleted(number_list(chosen))
     # Said once, in the confirmation: a caption above it repeats it.

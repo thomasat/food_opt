@@ -2175,7 +2175,8 @@ class TestUnitsAndImportance:
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.score_function_line() == (
             "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
-            "Juiciness closeness. Every measurement at its goal scores 2.50."
+            "Juiciness closeness. A formulation that hits every goal "
+            "scores 2.50."
         )
 
     def test_share_of_score_sums_to_one_and_reads_as_whole_percent(self, tmp_path, monkeypatch):
@@ -3064,11 +3065,6 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
-    # "scale" the verb, in the help under `Make each formulation to`. The
-    # banned word is the NOUN Scale, which was this app's old name for a
-    # measurement's Range; nothing on screen is called a scale any more.
-    "The printed sheets scale every formulation to this. Leave blank to use "
-    "the amounts in the table.",
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
@@ -3078,7 +3074,7 @@ _ALLOWED_EXACT = {
     "Delete this project",
     "Yes, delete it",
     "Delete **",
-    "**? It has no formulations yet, and it leaves the ",
+    "**? It has no formulations yet. ",
     "** and its ",
 }
 

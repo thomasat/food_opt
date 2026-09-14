@@ -42,9 +42,11 @@ def _unit_suffix(unit):
 
 
 def _note_discarded_batch(opt, batch_no_before):
-    """Flash the notice when the write just now retired the open batch."""
+    """Flash the notice when the write just now retired the open batch. The
+    batch is named: the notice lands above the tabs, away from the table it
+    is about."""
     if batch_no_before is not None and opt.pending_batch_no is None:
-        flash("info", wording.batch_discarded_notice())
+        flash("info", wording.batch_discarded_notice(batch_no_before))
 
 
 def _goal_text(obj):
@@ -213,7 +215,7 @@ def _add_variable(opt):
             with prop_cols[j % len(prop_cols)]:
                 st.session_state.setdefault(_prop_key(prop), None)
                 st.number_input(prop, key=_prop_key(prop),
-                                placeholder=wording.NO_VALUE_PLACEHOLDER,
+                                placeholder=wording.PROPERTY_PLACEHOLDER,
                                 help=wording.PROPERTY_BOX_HELP)
     # Grey: the tab's one coloured button is Continue at the foot.
     if st.button(wording.ADD_VARIABLE_BUTTON, key="add_variable"):
@@ -395,7 +397,8 @@ def _variable_controls(opt, storage):
         with cols[5]:
             # Disabled rather than hidden for a setting: a control that comes
             # and goes as the pick changes reads as a fault in the app.
-            if st.button(wording.SET_PROPERTY_VALUES_BUTTON, key="set_props",
+            label = wording.set_properties_button(number_list(properties))
+            if st.button(label, key="set_props",
                          disabled=not is_ingredient,
                          help=(wording.ONLY_INGREDIENT_HAS_PROPERTIES
                                if not is_ingredient else None)):
@@ -416,25 +419,26 @@ def _pkey(pick, prop):
 
 
 def _property_value_editor(opt, pick, properties):
-    """One box per property for the picked ingredient, opened by Set property
-    values. Blank means no value, which counts as 0 in the per-100 average —
+    """One box per property for the picked ingredient, opened by the button
+    that names them. A box left empty counts as 0 in the per-100 average —
     and every limit on that property names the ingredients it is reading as
     zeroes."""
-    st.caption(wording.values_for_caption(pick))
+    st.caption(wording.properties_for_caption(number_list(properties), pick))
     boxes = st.columns(min(4, len(properties)))
     for j, prop in enumerate(properties):
         with boxes[j % len(boxes)]:
             st.session_state.setdefault(_pkey(pick, prop), None)
             st.number_input(prop, key=_pkey(pick, prop),
-                           placeholder=wording.NO_VALUE_PLACEHOLDER)
+                           placeholder=wording.PROPERTY_PLACEHOLDER)
     b1, b2 = st.columns(2)
     with b1:
-        if st.button(wording.SAVE_VALUES_BUTTON, key="save_props", use_container_width=True):
+        if st.button(wording.SAVE_BUTTON, key="save_props", use_container_width=True):
             for prop in properties:
                 opt.set_property_value(pick, prop,
                                        st.session_state.get(_pkey(pick, prop)))
             if saved_ok(opt):
-                flash("success", wording.property_values_saved(pick))
+                flash("success", wording.properties_saved(
+                    number_list(properties), pick))
                 st.session_state.pop("_props_for", None)
                 st.rerun()
     with b2:
@@ -708,8 +712,7 @@ def _measurement_editor(opt, storage, editing):
                                     (editing or {}).get('goal', "max"))
         goal = st.selectbox(wording.GOAL_LABEL, list(wording.GOAL_LABELS),
                             key=_mkey(editing, "goal"),
-                            format_func=wording.GOAL_LABELS.get,
-                            help=wording.GOAL_SELECT_HELP)
+                            format_func=wording.GOAL_LABELS.get)
 
     # Shown only for a target, not greyed out: this form is deliberately not
     # an st.form, so the box can come and go the moment the Goal changes, and

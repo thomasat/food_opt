@@ -249,10 +249,11 @@ def test_saved_line_shows_the_time_today_and_the_date_before_that():
     from datetime import datetime, timedelta
     now = datetime.now().astimezone()
     today = now.replace(hour=14, minute=32)
-    assert saved_line(today) == "Saved 14:32 · automatically, to this Mac"
+    assert saved_line(today) == "Saved automatically at 14:32, on this Mac"
     earlier = today - timedelta(days=3)
     line = saved_line(earlier)
-    assert line.startswith("Saved ") and line.endswith("· automatically, to this Mac")
+    assert line.startswith("Saved automatically at ")
+    assert line.endswith(", on this Mac")
     assert earlier.strftime("%b") in line
 
 
@@ -462,14 +463,16 @@ def _stray_literals(path):
     return offenders
 
 
-def test_the_discarded_notice_names_every_way_a_batch_is_discarded():
-    """An own formulation was never generated, and pausing an ingredient
-    discards the batch too — so "since it was generated" named neither the
-    row nor the edit in the two commonest cases."""
-    notice = wording.batch_discarded_notice()
+def test_the_discarded_notice_names_the_batch_and_what_to_do_next():
+    """Three edits lead here — the ingredient list, a paused ingredient or
+    setting, the allowed amounts — and naming all three in one subordinate
+    clause was unreadable on one pass and still never said what to do. The
+    batch is named because the notice lands above the tabs."""
+    notice = wording.batch_discarded_notice(2)
+    assert notice == ("Batch 2 was discarded: your set-up changed after it "
+                      "was made. Generate a new one."), notice
     assert "generated" not in notice, notice
-    assert "paused ingredient or setting" in notice, notice
-    assert notice.endswith("changed since it was made."), notice
+    assert wording.batch_discarded_notice().startswith("The open batch")
 
 
 def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():
@@ -535,3 +538,69 @@ def test_the_total_box_is_parked_empty_rather_than_popped():
     assert "_clear_scale_total" in written[0], written
     assert written[1] == "150.0", written    # parked, not popped
     assert written[2] == "None", written     # and assigned on the way out
+
+
+# ------------------------------------------------------------------ #
+#  Copy wave (2026-09-13): the sentences whose SHAPE changed, not just
+#  their words. Each of these decides between two forms, so each has a
+#  test of its own.
+# ------------------------------------------------------------------ #
+def test_the_scaled_caution_names_the_ingredients_only_while_it_can():
+    """Eight names in one sentence is a list nobody reads, and this sentence
+    is printed on the sheet the technician weighs from — so above three the
+    line counts them instead, and either way it says what to do next."""
+    named = wording.scaled_amounts_caution("150 g", names_text="Water",
+                                           n_outside=1, n_total=8)
+    assert named == ("At 150 g, Water goes past its allowed amounts. Print at "
+                     "a smaller total, or widen them in Set up.")
+    two = wording.scaled_amounts_caution("150 g", names_text="Water and Salt",
+                                         n_outside=2, n_total=8)
+    assert two.startswith("At 150 g, Water and Salt go past their allowed "
+                          "amounts.")
+    counted = wording.scaled_amounts_caution("150 g", n_outside=8, n_total=8)
+    assert counted == ("At 150 g, 8 of 8 ingredients go past their allowed "
+                       "amounts. Print at a smaller total, or widen them in "
+                       "Set up.")
+
+
+def test_the_property_controls_name_the_properties_they_set():
+    """"Set property values" said the developer's word for the thing twice
+    and the thing itself never. The button, the caption and the flash all
+    name the properties the project actually has."""
+    assert wording.set_properties_button("") == "Set properties"
+    assert wording.set_properties_button("Fat per 100 g") == "Set Fat per 100 g"
+    assert wording.set_properties_button("Fat and Sodium") == "Set Fat and Sodium"
+    assert wording.properties_for_caption("Fat and Sodium", "Water") == (
+        "Fat and Sodium in Water, per 100 g. A box left empty counts as 0 in "
+        "any limit.")
+    assert wording.properties_saved("Fat", "Water") == "Saved Fat for Water."
+    assert wording.SAVE_BUTTON == "Save"
+    assert not hasattr(wording, "SAVE_VALUES_BUTTON")
+    assert not hasattr(wording, "values_for_caption")
+
+
+def test_the_property_rule_is_read_where_properties_are_used():
+    """Properties never touch closeness — they feed limits only — so the
+    sentence about a blank box belongs in the Limits caption, not in the
+    closeness fold two sections above it."""
+    assert ("An ingredient with no figure for a property counts as 0 in any "
+            "limit on it.") in wording.LIMITS_CAPTION
+    joined = " ".join(wording.HOW_CLOSENESS)
+    assert "property" not in joined, joined
+    assert "counts as containing none" not in joined, joined
+
+
+def test_the_dropped_sentences_are_gone_from_wording():
+    """Four sentences the screen already said in the control beneath them."""
+    for name in ("GOAL_SELECT_HELP", "SAVED_WHEN_SUFFIX",
+                 "LEAVE_BLANK_KEEP_VALUE_HELP", "KEEP_RECORDED_AMOUNT_HELP"):
+        assert not hasattr(wording, name), name
+    assert wording.CORRECTION_CAPTION == (
+        "Change only what is wrong. Anything you leave alone stays as "
+        "recorded.")
+
+
+def test_the_results_counter_says_complete():
+    assert wording.filled_in_counter(1, 2) == "1 of 2 complete"
+    assert wording.partly_filled_suffix(1) == " · 1 partly filled"
+    assert wording.not_made_counter_suffix(1) == " · 1 not made"

@@ -335,8 +335,15 @@ def scaled_caution(opt, recipes, total):
                      for recipe in scaled)]
     if not names:
         return ""
-    return wording.scaled_amounts_caution(opt.batch_total_text(total),
-                                          number_list(names), len(names) > 1)
+    ingredients = [var for var in opt.variables
+                   if var.get('category', 'ingredient') == 'ingredient']
+    # Three names read as a list; eight read as a wall. Above three the line
+    # counts them instead — the fix named in the second half is the same one
+    # either way.
+    return wording.scaled_amounts_caution(
+        opt.batch_total_text(total),
+        names_text=number_list(names) if len(names) <= 3 else "",
+        n_outside=len(names), n_total=len(ingredients))
 
 
 def table_height(n_rows, max_rows=12):

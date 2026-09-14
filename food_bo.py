@@ -1143,8 +1143,11 @@ class FoodOptimizer:
         # How closeness is worked out belongs in the expander below this
         # line, per goal: two of the three goals have no target at all, so a
         # sentence about distance from one was wrong on most screens.
-        return (f"Overall score = {terms}. Every measurement at its goal "
-                f"scores {self.utility_ceiling():.2f}.")
+        # The subject is the formulation, not the measurement: 2.50 is the
+        # whole-formulation ceiling, and "every measurement ... scores 2.50"
+        # read as each one scoring it.
+        return (f"Overall score = {terms}. A formulation that hits every "
+                f"goal scores {self.utility_ceiling():.2f}.")
 
     def closeness_details(self, index):
         """The best-formulation table, most important first: one dict per

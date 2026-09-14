@@ -341,7 +341,8 @@ def _title(opt):
     st.markdown(wording.make_these(opt.pending_batch_no, len(opt.pending_batch)))
     if opt.pending_batch_discarded:
         st.caption(wording.batch_discarded_caption(
-            number_list(opt.pending_batch_discarded)))
+            number_list(opt.pending_batch_discarded),
+            len(opt.pending_batch_discarded) > 1))
 
 
 def _batch_table(opt, scale_to):
@@ -435,7 +436,7 @@ def _sheet_lines(opt, row, scale_to):
     process = [v for v in opt.variables if v.get('category') == 'process']
     lines = [(f"{opt.project_name} · {made_on}", _PROSE),
              (f"{wording.FORMULATION_CAP} {row['formulation']} · "
-              f"{wording.BATCH} {opt.pending_batch_no}", _PROSE),
+              f"{wording.BATCH_CAP} {opt.pending_batch_no}", _PROSE),
              ("", _PROSE)]
     for var in ingredients:
         lines.append((f"{var['name']}: "
@@ -456,9 +457,9 @@ def _sheet_lines(opt, row, scale_to):
                                         var.get('unit')), _PROSE))
     lines.append(("", _PROSE))
     for obj in opt.measurements_by_importance():
-        lines.append((wording.MEASURED_PREFIX
-                      + f"{label_with_unit(obj['name'], obj.get('unit'))}"
-                      f" · {goal_line(obj)}:", _RULE))
+        lines.append((f"{label_with_unit(obj['name'], obj.get('unit'))}"
+                      f"{wording.SHEET_GOAL_SEPARATOR}{goal_line(obj)}:",
+                      _RULE))
     lines.append(("", _PROSE))
     # A repeat says so on the sheet the technician carries: two sheets with
     # identical amounts and nothing printed to say why is how a formulation
@@ -696,17 +697,15 @@ def _record_results(opt):
     )
     if to_record and not kept:
         st.info(wording.NOTHING_TO_SAVE)
-    # "filled in", not "to record": this counts the rows that HAVE a value,
-    # and every other screen uses "to record" for the rows that do not
-    # ("Back to batch 2 · 2 to record"). One word could not mean both.
-    # Nothing here reaches the file until Save results is pressed, and the
-    # line says so directly above the button that does it.
+    # "complete", not "to record": this counts the rows that HAVE every
+    # measurement, and every other screen uses "to record" for the rows that
+    # do not ("Back to Batch 2 · 2 to record"). One word could not mean both.
     counter = wording.filled_in_counter(entered, len(kept))
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
         counter += wording.not_made_counter_suffix(len(left_out))
-    st.caption(counter + wording.SAVED_WHEN_SUFFIX)
+    st.caption(counter)
     lit = ready and not confirmation_open()
     if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
                  disabled=not lit, key="save_results") and lit:
@@ -880,7 +879,8 @@ def render(opt, storage):
     regenerate = confirm_action(
         "regenerate", wording.GENERATE_DIFFERENT_BATCH,
         wording.regenerate_warning(opt.pending_batch_no,
-                                   ", ".join(str(n) for n in numbers)),
+                                   number_list(numbers), max(numbers) + 1,
+                                   len(numbers) > 1),
         confirm_label=wording.YES_DISCARD,
         # The question is asked above the grid, so its Cancel reruns before
         # the grid exists: without this it emptied every measurement, note
