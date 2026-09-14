@@ -169,7 +169,7 @@ if [ "$NEED_SETUP" = "1" ]; then
   if [ "$FREE_KB" -gt 0 ] && [ "$FREE_KB" -lt 6291456 ]; then
     die "not enough free disk space for setup (need about 6 GB)" 4
   fi
-  say "one-time setup starting (downloading software components)"
+  say "one-time setup starting (downloading about 1 GB)"
   SETUP_START=$SECONDS   # wall clock for the "setup complete in N s" line below
   # The marker test must run BEFORE the rm below: its presence is what tells
   # an upgrade (components only) apart from a first install (Python too). An

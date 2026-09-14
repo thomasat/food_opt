@@ -649,7 +649,7 @@ ADD_VARIABLE_BUTTON = "Add ingredient or setting"
 # value" sat on one screen contradicting each other, and the app never knows
 # an ingredient is fat-free — only that a box was left empty.
 PROPERTY_PLACEHOLDER = "e.g. 2"
-PROPERTY_BLANK_RULE = "A box left empty counts as 0 in any limit."
+PROPERTY_BLANK_RULE = "An empty box counts as 0 in any limit."
 PROPERTY_BOX_HELP = "Per 100 g of this ingredient. " + PROPERTY_BLANK_RULE
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")

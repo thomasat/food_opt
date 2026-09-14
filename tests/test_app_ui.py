@@ -5863,7 +5863,7 @@ def test_the_per_100_caption_waits_for_one_unit(mixed_units):
 
 
 def test_only_one_set_of_property_boxes_is_on_screen(burger):
-    """The add form and Set property values both hold a box per property;
+    """The add form and the Set properties dialog both hold a box per property;
     two boxes for one property on one screen is two answers to one question."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)

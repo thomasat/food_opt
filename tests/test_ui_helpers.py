@@ -579,7 +579,7 @@ def test_the_property_controls_name_the_properties_they_set():
     said = wording.properties_for_caption(
         "Fat per 100 g and Sodium per 100 g", "Pea protein isolate", True)
     assert said == ("Fat per 100 g and Sodium per 100 g in Pea protein "
-                    "isolate. A box left empty counts as 0 in any limit.")
+                    "isolate. An empty box counts as 0 in any limit.")
     assert ", per 100 g." not in said, said
     # Short names keep the caption inside the tab's one-line budget.
     assert len(wording.properties_for_caption("Fat and Sodium", "Water")) < 100
