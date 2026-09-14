@@ -589,9 +589,8 @@ def _delete_formulations(opt, storage):
         question = wording.delete_formulation_warning(chosen[0])
         done = wording.formulation_deleted(chosen[0])
     else:
-        label = wording.delete_formulations_button(
-            f"{wording.FORMULATION_CAP}s {number_list(chosen)}"
-            if len(chosen) <= 3 else plural(len(chosen), wording.FORMULATION))
+        label = wording.delete_formulations_button(number_list(chosen),
+                                                  len(chosen))
         question = wording.delete_formulations_warning(number_list(chosen))
         done = wording.formulations_deleted(number_list(chosen))
     # Said once, in the confirmation: a caption above it repeats it.
@@ -866,7 +865,7 @@ def render(opt, storage):
         # A project with no ingredients cannot make a batch: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
         # And a batch already on the bench is not a first batch to make: the
-        # foot of every other screen calls it "Back to batch 1 · 3 to record".
+        # foot of every other screen calls it "Back to Batch 1 · 3 to record".
         ready, _ = readiness(opt)
         if not ready:
             label, target = wording.SET_UP_THIS_PROJECT_BUTTON, TAB_SETUP

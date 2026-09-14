@@ -47,7 +47,7 @@ _FORM_KEY_PREFIXES = (
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, at least, at most,
                                    # and the box that names a new property
-    "setprop_",                    # the Set property values editor
+    "setprop_",                    # the Set properties editor
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
@@ -87,7 +87,7 @@ _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
 
 # The boxes whose names are the project's own, so they cannot be listed in
 # _FORM_FRESH above: one per property on the add form (var_prop_<name>), one
-# per property in the Set property values editor (setprop_<row>_<name>), one
+# per property in the Set properties editor (setprop_<row>_<name>), one
 # per variable in tab 2's "Add a formulation of your own" (own_<name> — its
 # own_note box is named in _FORM_FRESH, and is parked before this), one per
 # amount in tab 3's correction row (correct_amount_<no>_<name>), and one per

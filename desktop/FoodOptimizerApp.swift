@@ -283,12 +283,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let title = setupIsUpgrade ? "Updating Food Optimizer"
                                    : "Setting up Food Optimizer"
         let body = setupIsUpgrade
-            ? "Food Optimizer is downloading updated software components. "
+            ? "Food Optimizer is downloading an update. "
               + "This usually takes under a minute; on a slow network, a few "
               + "minutes. Leave this window open."
-            : "The first time it opens, Food Optimizer downloads its "
-              + "software components, about 1 GB. This usually takes under a "
-              + "minute; on a slow network, a few minutes. Leave this window open."
+            : "The first time it opens, Food Optimizer downloads about 1 GB. "
+              + "This usually takes under a minute; on a slow network, a few "
+              + "minutes. Leave this window open."
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 
@@ -473,8 +473,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "newer) running macOS 13 or later. Please contact us for help.")
         case 3:
             showStatus("Setup needs the internet, just this once",
-                       "The first time it opens, Food Optimizer downloads its "
-                       + "software components. Please connect to the internet, "
+                       "The first time it opens, Food Optimizer downloads about "
+                       + "1 GB. Please connect to the internet, "
                        + "then click Try again. After that, no internet is "
                        + "needed. If you are connected but this message keeps "
                        + "coming back (some office networks block downloads), "

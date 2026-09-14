@@ -311,9 +311,9 @@ def bounds_caution(opt, name, value):
 
 
 def scaled_caution(opt, recipes, total):
-    """The one line naming every ingredient whose amount falls outside what
-    the project allows once these formulations are made to `total`, or "" when
-    they all fit.
+    """The one line for the ingredients whose amounts fall outside what the
+    project allows once these formulations are made to `total`, or "" when
+    they all fit. Up to three it names them; above that it counts them.
 
     The stored amounts were chosen inside the project's own Lowest and
     Highest; a formulation total they were never chosen for scales them past
@@ -325,18 +325,16 @@ def scaled_caution(opt, recipes, total):
     if total is None:
         return ""
     scaled = [opt.scaled_recipe(recipe, total) for recipe in recipes]
-    # Project order, not the order the rows happen to be in: the names read
-    # as they are listed everywhere else on screen.
-    names = [var['name'] for var in opt.variables
-             if var.get('category', 'ingredient') == 'ingredient'
-             # Ingredients only: a formulation total scales what you weigh
-             # out, and leaves a cook temperature exactly where it was.
-             and any(bounds_caution(opt, var['name'], recipe.get(var['name']))
-                     for recipe in scaled)]
+    # Ingredients only, in project order: a formulation total scales what you
+    # weigh out and leaves a cook temperature exactly where it was, and the
+    # names read as they are listed everywhere else on screen.
+    ingredients = [var['name'] for var in opt.variables
+                   if var.get('category', 'ingredient') == 'ingredient']
+    names = [name for name in ingredients
+             if any(bounds_caution(opt, name, recipe.get(name))
+                    for recipe in scaled)]
     if not names:
         return ""
-    ingredients = [var for var in opt.variables
-                   if var.get('category', 'ingredient') == 'ingredient']
     # Three names read as a list; eight read as a wall. Above three the line
     # counts them instead — the fix named in the second half is the same one
     # either way.

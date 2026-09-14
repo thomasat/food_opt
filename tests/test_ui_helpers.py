@@ -551,32 +551,51 @@ def test_the_scaled_caution_names_the_ingredients_only_while_it_can():
     line counts them instead, and either way it says what to do next."""
     named = wording.scaled_amounts_caution("150 g", names_text="Water",
                                            n_outside=1, n_total=8)
-    assert named == ("At 150 g, Water goes past its allowed amounts. Print at "
-                     "a smaller total, or widen them in Set up.")
+    assert named == ("At 150 g, Water goes past the amounts you allowed. "
+                     "Print at a smaller total, or widen them in Set up.")
     two = wording.scaled_amounts_caution("150 g", names_text="Water and Salt",
                                          n_outside=2, n_total=8)
-    assert two.startswith("At 150 g, Water and Salt go past their allowed "
-                          "amounts.")
+    assert two.startswith("At 150 g, Water and Salt go past the amounts you "
+                          "allowed.")
     counted = wording.scaled_amounts_caution("150 g", n_outside=8, n_total=8)
-    assert counted == ("At 150 g, 8 of 8 ingredients go past their allowed "
-                       "amounts. Print at a smaller total, or widen them in "
+    assert counted == ("At 150 g, 8 of 8 ingredients go past the amounts you "
+                       "allowed. Print at a smaller total, or widen them in "
                        "Set up.")
+    # One spelling of what was exceeded, whichever branch wrote the line.
+    for line in (named, two, counted):
+        assert wording.AMOUNTS_YOU_ALLOWED in line, line
 
 
 def test_the_property_controls_name_the_properties_they_set():
     """"Set property values" said the developer's word for the thing twice
-    and the thing itself never. The button, the caption and the flash all
-    name the properties the project actually has."""
-    assert wording.set_properties_button("") == "Set properties"
-    assert wording.set_properties_button("Fat per 100 g") == "Set Fat per 100 g"
-    assert wording.set_properties_button("Fat and Sodium") == "Set Fat and Sodium"
+    and the thing itself never. The button keeps a short, stable label — a
+    property name is the project's own and can be long — and the dialog it
+    opens does the naming, as does the flash."""
+    assert wording.SET_PROPERTIES_BUTTON == "Set properties"
     assert wording.properties_for_caption("Fat and Sodium", "Water") == (
         "Fat and Sodium in Water, per 100 g. A box left empty counts as 0 in "
         "any limit.")
+    # Names that carry the basis themselves do not have it added a third time.
+    said = wording.properties_for_caption(
+        "Fat per 100 g and Sodium per 100 g", "Pea protein isolate", True)
+    assert said == ("Fat per 100 g and Sodium per 100 g in Pea protein "
+                    "isolate. A box left empty counts as 0 in any limit.")
+    assert ", per 100 g." not in said, said
+    # Short names keep the caption inside the tab's one-line budget.
+    assert len(wording.properties_for_caption("Fat and Sodium", "Water")) < 100
     assert wording.properties_saved("Fat", "Water") == "Saved Fat for Water."
     assert wording.SAVE_BUTTON == "Save"
     assert not hasattr(wording, "SAVE_VALUES_BUTTON")
     assert not hasattr(wording, "values_for_caption")
+
+
+def test_the_delete_button_prints_the_numbers_while_they_fit():
+    assert wording.delete_formulations_button("2 and 3", 2) == (
+        "Delete Formulations 2 and 3")
+    assert wording.delete_formulations_button("1, 2 and 3", 3) == (
+        "Delete Formulations 1, 2 and 3")
+    assert wording.delete_formulations_button("1, 2, 3, 4 and 5", 5) == (
+        "Delete 5 formulations")
 
 
 def test_the_property_rule_is_read_where_properties_are_used():
@@ -601,6 +620,7 @@ def test_the_dropped_sentences_are_gone_from_wording():
 
 
 def test_the_results_counter_says_complete():
-    assert wording.filled_in_counter(1, 2) == "1 of 2 complete"
+    assert wording.complete_counter(1, 2) == "1 of 2 complete"
+    assert not hasattr(wording, "filled_in_counter")
     assert wording.partly_filled_suffix(1) == " · 1 partly filled"
     assert wording.not_made_counter_suffix(1) == " · 1 not made"

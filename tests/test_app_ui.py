@@ -1597,6 +1597,12 @@ def test_regenerating_names_the_numbers_it_discards(open_batch):
     at.run()
     assert any(w.value == wording.regenerate_warning(1, "1 and 2", 3)
                for w in at.warning), [w.value for w in at.warning]
+    # The number is read off the project, not guessed from the rows, and the
+    # sentence says NEW FORMULATIONS: the batch keeps its own number.
+    assert wording.regenerate_warning(1, "1 and 2", 3) == (
+        "Discard Batch 1 and Formulations 1 and 2? New formulations start at "
+        "Formulation 3.")
+    assert at.session_state["optimizer"].next_formulation_no == 3
     _submit_button(at, "Yes, discard").click()
     at.run()
     assert not at.exception
@@ -5597,16 +5603,17 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
     at.number_input(key="scale_total").set_value(200.0)
     at.run()
     assert not at.exception
-    cautions = [c.value for c in at.caption if "allowed amounts" in c.value]
+    cautions = [c.value for c in at.caption
+                if wording.AMOUNTS_YOU_ALLOWED in c.value]
     # ONE line, however many ingredients on however many of the batch's rows
     # are outside: the total did it, and the fix is the same one every time.
     assert cautions == ["At 200 g, Pea protein and Methylcellulose go past "
-                        "their allowed amounts. Print at a smaller total, or "
-                        "widen them in Set up."], cautions
+                        "the amounts you allowed. Print at a smaller total, "
+                        "or widen them in Set up."], cautions
     # And none at all while the batch is shown as generated.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
-    assert not any("allowed amounts" in c.value
+    assert not any(wording.AMOUNTS_YOU_ALLOWED in c.value
                    for c in at.caption), [c.value for c in at.caption]
 
 
@@ -5924,8 +5931,8 @@ def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
     # amounts out of what the project allows.
     assert [c.value for c in at.caption if "150 g" in c.value] == [
         "Sheets show each formulation made to 150 g.",
-        "At 150 g, Pea protein and Methylcellulose go past their allowed "
-        "amounts. Print at a smaller total, or widen them in Set up."], \
+        "At 150 g, Pea protein and Methylcellulose go past the amounts you "
+        "allowed. Print at a smaller total, or widen them in Set up."], \
         [c.value for c in at.caption]
 
 
@@ -6043,6 +6050,9 @@ def test_the_preview_and_the_download_are_the_same_sheets(open_batch):
     assert ui_batch._sheets_body(opt, None) in document
     assert document.startswith("<!doctype html>")
     assert "_" not in document, document
+    # The tab the printer dialog shows names the batch as a name, exactly as
+    # the sheet header inside it does.
+    assert "<title>burger · Batch 1</title>" in document, document
 
 
 # ------------------------------------------------------------------ #
@@ -6378,7 +6388,7 @@ def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
     at.number_input(key="scale_total").set_value(200.0)
     at.run()
     order = _tab_flow(at)
-    caution = next(t for t in order if "allowed amounts" in t)
+    caution = next(t for t in order if wording.AMOUNTS_YOU_ALLOWED in t)
     assert (_first(order, wording.batch_total_label("g"))
             < order.index(caution)
             < _first(order, wording.STEP_RECORD_HEADING)), order
@@ -6505,9 +6515,10 @@ def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
     at.number_input(key="scale_total").set_value(200.0)
     at.run()
     assert not at.exception
-    said = [c.value for c in at.caption if "allowed amounts" in c.value]
+    said = [c.value for c in at.caption
+            if wording.AMOUNTS_YOU_ALLOWED in c.value]
     assert said == ["At 200 g, Pea protein and Methylcellulose go past "
-                    "their allowed amounts. Print at a smaller total, or "
+                    "the amounts you allowed. Print at a smaller total, or "
                     "widen them in Set up."], said
 
 
@@ -6517,8 +6528,9 @@ def test_the_scaled_caution_is_singular_for_one_ingredient(open_batch):
     at.number_input(key="scale_total").set_value(30.0)
     at.run()
     assert not at.exception
-    said = [c.value for c in at.caption if "allowed amounts" in c.value]
-    assert said == ["At 30 g, Pea protein goes past its allowed amounts. "
+    said = [c.value for c in at.caption
+            if wording.AMOUNTS_YOU_ALLOWED in c.value]
+    assert said == ["At 30 g, Pea protein goes past the amounts you allowed. "
                     "Print at a smaller total, or widen them in "
                     "Set up."], said
 
@@ -6531,9 +6543,9 @@ def test_the_best_says_when_its_own_total_pushes_an_amount_out(made_to_a_total):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
-    caution = ("At 150 g, Pea protein and Methylcellulose go past their "
-               "allowed amounts. Print at a smaller total, or widen them in "
-               "Set up.")
+    caution = ("At 150 g, Pea protein and Methylcellulose go past the "
+               "amounts you allowed. Print at a smaller total, or widen them "
+               "in Set up.")
     order = _tab_flow(at, 2)
     assert order.count(caution) == 1, order
     assert (_first(order, wording.amounts_to_make_it_heading("150 g"))
@@ -6546,9 +6558,9 @@ def test_every_printed_sheet_ends_with_the_caution(open_batch):
     import re as _re
 
     import ui_batch
-    caution = ("At 200 g, Pea protein and Methylcellulose go past their "
-               "allowed amounts. Print at a smaller total, or widen them in "
-               "Set up.")
+    caution = ("At 200 g, Pea protein and Methylcellulose go past the "
+               "amounts you allowed. Print at a smaller total, or widen them "
+               "in Set up.")
     printed = ui_batch._sheets_html(open_batch, 200.0)
     blocks = printed.split("<div class='fo-sheet'>")[1:]
     assert len(blocks) == 2, printed
@@ -6556,7 +6568,8 @@ def test_every_printed_sheet_ends_with_the_caution(open_batch):
         lines = _re.findall(r"<p>(.*?)</p>", block)
         assert lines[-1] == caution, lines
     # A batch made as generated has nothing to caution about.
-    assert "allowed amounts" not in ui_batch._sheets_html(open_batch, None)
+    assert wording.AMOUNTS_YOU_ALLOWED not in \
+        ui_batch._sheets_html(open_batch, None)
 
 
 def test_the_restore_flash_counts_the_rows_nobody_made_too(project_with_history,
@@ -6710,10 +6723,12 @@ def test_the_results_counter_counts_the_rows_that_are_complete(open_batch):
 
 
 def test_the_property_controls_are_named_after_the_properties(burger):
+    """The button is one short, stable label — a property name is the
+    project's own and can be long — and the dialog it opens names them."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "Set Cost" in _labels(at), _labels(at)
+    assert "Set properties" in _labels(at), _labels(at)
     next(b for b in at.button if b.key == "set_props").click()
     at.run()
     assert not at.exception
@@ -6729,12 +6744,29 @@ def test_the_property_controls_are_named_after_the_properties(burger):
         [s.value for s in at.success]
 
 
-def test_two_properties_are_both_named_on_the_button(burger):
-    burger.add_property("Cost")
+def test_the_caption_does_not_say_per_100_g_twice_over(burger):
+    """Property names carry the basis as often as not, and a caption that
+    then added ", per 100 g" said it three times in one line."""
     burger.add_property("Fat per 100 g")
+    burger.add_property("Sodium per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "Set Cost and Fat per 100 g" in _labels(at), _labels(at)
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    assert not at.exception
+    assert any(c.value == ("Fat per 100 g and Sodium per 100 g in Pea "
+                           "protein. A box left empty counts as 0 in any "
+                           "limit.")
+               for c in at.caption), [c.value for c in at.caption]
+    # ...and a name that does NOT carry it still gets the basis.
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    next(b for b in at.button if b.key == "set_props").click()
+    at.run()
+    assert any(c.value.endswith("in Pea protein, per 100 g. A box left empty "
+                                "counts as 0 in any limit.")
+               for c in at.caption), [c.value for c in at.caption]
 
 
 def test_the_damaged_file_banner_says_the_two_ways_out(tmp_path, monkeypatch):
@@ -6778,9 +6810,10 @@ def test_the_scaled_caution_counts_instead_of_listing_eight_names(eight_ingredie
     at.number_input(key="scale_total").set_value(400.0)
     at.run()
     assert not at.exception
-    said = [c.value for c in at.caption if "allowed amounts" in c.value]
-    assert said == ["At 400 g, 8 of 8 ingredients go past their allowed "
-                    "amounts. Print at a smaller total, or widen them in "
+    said = [c.value for c in at.caption
+            if wording.AMOUNTS_YOU_ALLOWED in c.value]
+    assert said == ["At 400 g, 8 of 8 ingredients go past the amounts you "
+                    "allowed. Print at a smaller total, or widen them in "
                     "Set up."], said
 
 

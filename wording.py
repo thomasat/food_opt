@@ -58,6 +58,9 @@ NEED_A_MEASUREMENT = "Add at least one measurement."
 # does not.
 YOUR_RANGE = "your range"
 ALLOWED_AMOUNTS = "its allowed amounts"
+# The half of the scaled caution that names what was exceeded. One spelling,
+# whether the line lists the ingredients or counts them.
+AMOUNTS_YOU_ALLOWED = "the amounts you allowed"
 WIDEN_RANGE_HINT = " Widen the range in Set up, or check the value."
 
 
@@ -65,8 +68,8 @@ SMALLER_TOTAL_HINT = "Print at a smaller total, or widen them in Set up."
 
 
 def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
-    """'At 150 g, Pea protein isolate and Water go past their allowed
-    amounts. Print at a smaller total, or widen them in Set up.' — the one
+    """'At 150 g, Pea protein isolate and Water go past the amounts you
+    allowed. Print at a smaller total, or widen them in Set up.' — the one
     line for a formulation total that pushes amounts past what the project
     allows.
 
@@ -80,14 +83,11 @@ def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
     per row buried the step below it under eight lines of raw numbers. The
     total is named because the total is what did it.
     """
-    if names_text:
-        went = (f"{names_text} go past their allowed amounts."
-                if n_outside > 1
-                else f"{names_text} goes past {ALLOWED_AMOUNTS}.")
-    else:
-        went = (f"{n_outside} of {n_total} {INGREDIENT}s go past their "
-                "allowed amounts.")
-    return f"At {total_text}, {went} {SMALLER_TOTAL_HINT}"
+    who = (names_text if names_text
+           else f"{n_outside} of {n_total} {INGREDIENT}s")
+    goes = "go" if (n_outside > 1 or not names_text) else "goes"
+    return (f"At {total_text}, {who} {goes} past {AMOUNTS_YOU_ALLOWED}. "
+            + SMALLER_TOTAL_HINT)
 
 
 def saved_line(when):
@@ -254,6 +254,9 @@ def batch_discarded_notice(no=None):
     clause was unreadable on one pass and still never said what to do. "Your
     set-up" is the tab all three live on.
     """
+    # Every screen that flashes this knows the number. The unnumbered form
+    # is the honest fallback for a batch whose number did not survive the
+    # read that discarded it, and nothing reaches it today.
     who = f"{BATCH_CAP} {no}" if no is not None else f"The open {BATCH}"
     return (f"{who} was discarded: your set-up changed after it was made. "
             "Generate a new one.")
@@ -433,16 +436,17 @@ GENERATE_DIFFERENT_BATCH = f"Generate a different {BATCH}"
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):
-    """'Discard Batch 1 and Formulations 1, 2 and 3? The next batch starts at
-    Formulation 4.'
+    """'Discard Batch 1 and Formulations 1, 2 and 3? New formulations start
+    at Formulation 4.'
 
     Every other confirmation in the app asks a question, and "those numbers
     will not be used again" is a release note: what the reader can act on is
-    where the numbering picks up.
+    where the numbering picks up. Not "the next batch": a regenerate keeps
+    this batch's own number, so only the formulation numbers move on.
     """
     word = f"{FORMULATION_CAP}s" if many else FORMULATION_CAP
-    return (f"Discard {BATCH_CAP} {no} and {word} {numbers_text}? The next "
-            f"{BATCH} starts at {FORMULATION_CAP} {next_no}.")
+    return (f"Discard {BATCH_CAP} {no} and {word} {numbers_text}? New "
+            f"{FORMULATION}s start at {FORMULATION_CAP} {next_no}.")
 
 
 YES_DISCARD = "Yes, discard"
@@ -487,10 +491,10 @@ NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
 SAVE_RESULTS = "Save results"
 
 
-def filled_in_counter(entered, kept_n):
+def complete_counter(complete_n, kept_n):
     """'1 of 2 complete' — a row is complete when EVERY measurement on it has
     a number. One of three typed is not a third of a result."""
-    return f"{entered} of {kept_n} complete"
+    return f"{complete_n} of {kept_n} complete"
 
 
 def not_made_counter_suffix(n):
@@ -498,9 +502,9 @@ def not_made_counter_suffix(n):
 
 
 def partly_filled_suffix(n):
-    """A formulation counts as filled in when EVERY measurement has a value.
-    One of three typed is not a third of a result, and counting it as filled
-    in told the user the batch was further along than it was."""
+    """The rows with some measurements on them but not all. They are counted
+    apart from the complete ones: folding them in told the user the batch was
+    further along than it was."""
     return f" · {n} partly filled"
 
 
@@ -670,20 +674,25 @@ NEW_UNIT_LABEL = "New unit"
 SET_UNIT_BUTTON = "Set unit"
 
 
-def set_properties_button(names_text):
-    """'Set fat and sodium' — the button names the properties this project
-    has. With none it can only name the idea, but with none it is never
-    drawn either."""
-    return f"Set {names_text}" if names_text else "Set properties"
+# A project's property names are its own and can be long ("Sodium mg per
+# 100 g"), so the button stays the short, stable label and the dialog it
+# opens does the naming.
+SET_PROPERTIES_BUTTON = "Set properties"
 
 
 ONLY_INGREDIENT_HAS_PROPERTIES = "Only an ingredient has properties."
 
 
-def properties_for_caption(names_text, name):
+def properties_for_caption(names_text, name, per_100_already_said=False):
     """'Fat and sodium in Pea protein isolate, per 100 g. A box left empty
-    counts as 0 in any limit.'"""
-    return f"{names_text} in {name}, per 100 g. " + PROPERTY_BLANK_RULE
+    counts as 0 in any limit.'
+
+    `per_100_already_said` drops the basis from the sentence: a project whose
+    property names carry it themselves ("Fat per 100 g and Sodium per 100 g")
+    would otherwise say it three times in one line.
+    """
+    basis = "" if per_100_already_said else ", per 100 g"
+    return f"{names_text} in {name}{basis}. " + PROPERTY_BLANK_RULE
 
 
 SAVE_BUTTON = "Save"
@@ -1147,8 +1156,14 @@ def delete_formulation_button(no):
     return f"Delete {FORMULATION_CAP} {no}"
 
 
-def delete_formulations_button(formulations_text):
-    return f"Delete {formulations_text}"
+def delete_formulations_button(numbers_text, n):
+    """'Delete Formulations 2 and 3' up to three, 'Delete 5 formulations'
+    above that. "Delete 2 formulations" and the single row's "Delete
+    Formulation 2" are one keystroke apart in meaning, so the button prints
+    the numbers while they still fit on it."""
+    if n > 3:
+        return f"Delete {n} {FORMULATION}s"
+    return f"Delete {FORMULATION_CAP}s {numbers_text}"
 
 
 def delete_formulation_warning(no):

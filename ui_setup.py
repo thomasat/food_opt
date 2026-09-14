@@ -203,10 +203,10 @@ def _add_variable(opt):
                 placeholder=wording.BASELINE_PLACEHOLDER,
                 help=wording.BASELINE_HELP,
             )
-    # One box per property, on their own row: a property is an ingredient's
-    # value, so a process setting is never asked for one — and neither is this
-    # form while Set property values is open below it, or the same property
-    # would have two boxes on one screen.
+    # One box per property, on their own row: only an ingredient has
+    # properties, so a process setting is never asked for one — and neither
+    # is this form while Set properties is open below it, or the same
+    # property would have two boxes on one screen.
     editing_values = st.session_state.get("_props_for") is not None
     properties = [] if (setting or editing_values) else opt.properties()
     if properties:
@@ -397,8 +397,7 @@ def _variable_controls(opt, storage):
         with cols[5]:
             # Disabled rather than hidden for a setting: a control that comes
             # and goes as the pick changes reads as a fault in the app.
-            label = wording.set_properties_button(number_list(properties))
-            if st.button(label, key="set_props",
+            if st.button(wording.SET_PROPERTIES_BUTTON, key="set_props",
                          disabled=not is_ingredient,
                          help=(wording.ONLY_INGREDIENT_HAS_PROPERTIES
                                if not is_ingredient else None)):
@@ -419,11 +418,17 @@ def _pkey(pick, prop):
 
 
 def _property_value_editor(opt, pick, properties):
-    """One box per property for the picked ingredient, opened by the button
-    that names them. A box left empty counts as 0 in the per-100 average —
-    and every limit on that property names the ingredients it is reading as
-    zeroes."""
-    st.caption(wording.properties_for_caption(number_list(properties), pick))
+    """One box per property for the picked ingredient, opened by Set
+    properties. A box left empty counts as 0 in the per-100 average — and
+    every limit on that property names the ingredients it is reading as
+    zeroes. The caption above the boxes is what names the properties; the
+    button cannot, because a property name is the project's own and may run
+    to "Sodium mg per 100 g"."""
+    # Property names carry their own basis as often as not ("Fat per 100 g"),
+    # and a caption that then adds ", per 100 g" said it three times.
+    said_already = all("per 100 g" in prop.lower() for prop in properties)
+    st.caption(wording.properties_for_caption(number_list(properties), pick,
+                                              said_already))
     boxes = st.columns(min(4, len(properties)))
     for j, prop in enumerate(properties):
         with boxes[j % len(boxes)]:
@@ -1031,9 +1036,10 @@ def _property_limits(opt, storage):
 
 
 def _limit_gap_tail(opt, metric):
-    """'· Water has no value and counts as 0.' — the ingredients this limit
-    is silently reading as zeroes. A limit that looks satisfied because half
-    the recipe was never given a value is the one way this arithmetic lies."""
+    """'· Water has no figure for it and counts as 0.' — the ingredients
+    this limit is silently reading as zeroes. A limit that looks satisfied
+    because half the formulation was never given a figure is the one way this
+    arithmetic lies."""
     gaps = opt.ingredients_without_property(metric)
     if not gaps:
         return ""

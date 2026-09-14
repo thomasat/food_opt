@@ -522,7 +522,7 @@ def _sheets_html(opt, scale_to):
     the other tabs with it."""
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{html.escape(opt.project_name)} {wording.BATCH} "
+        f"<title>{html.escape(opt.project_name)} · {wording.BATCH_CAP} "
         f"{opt.pending_batch_no}</title>"
         "<style>body{margin:0}</style></head><body>"
         + _sheets_body(opt, scale_to) + "</body></html>"
@@ -680,8 +680,8 @@ def _record_results(opt):
         st.checkbox(wording.NOT_MADE, key=f"f{number}_leave_out",
                     help=wording.NOT_MADE_HELP)
         if not skip:
-            # Filled in means EVERY measurement has a value. One of three
-            # typed is not a third of a result, and counting it as filled in
+            # Complete means EVERY measurement has a number. One of three
+            # typed is not a third of a result, and counting it as complete
             # told the user the batch was further along than it was.
             if ordered and typed == len(ordered):
                 entered += 1
@@ -700,7 +700,7 @@ def _record_results(opt):
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Batch 2 · 2 to record"). One word could not mean both.
-    counter = wording.filled_in_counter(entered, len(kept))
+    counter = wording.complete_counter(entered, len(kept))
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
@@ -878,8 +878,11 @@ def render(opt, storage):
     numbers = [r['formulation'] for r in rows]
     regenerate = confirm_action(
         "regenerate", wording.GENERATE_DIFFERENT_BATCH,
+        # The number the next generate will actually issue, read off the
+        # project rather than guessed from the rows on screen.
         wording.regenerate_warning(opt.pending_batch_no,
-                                   number_list(numbers), max(numbers) + 1,
+                                   number_list(numbers),
+                                   opt.next_formulation_no,
                                    len(numbers) > 1),
         confirm_label=wording.YES_DISCARD,
         # The question is asked above the grid, so its Cancel reruns before
