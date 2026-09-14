@@ -6842,3 +6842,36 @@ def test_the_goal_box_does_not_explain_its_own_three_options(burger):
     assert not at.exception
     assert not at.selectbox(key="meas_new_goal").help, \
         at.selectbox(key="meas_new_goal").help
+
+
+def test_all_formulations_shows_every_number_to_two_decimals(burger):
+    """A panel score typed as 5 read 5.000000 beside an amount written 11.88:
+    pandas' default for a column nobody formatted. Every number in the table
+    reads to two decimals; a blank measurement stays blank."""
+    burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0},
+                {"Juiciness": 5.0, "Firmness": 6.25}, formulation_no=1,
+                batch_no=1)
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0}, formulation_no=2, batch_no=1)
+    import ui_results
+    frame = burger.history_frame(include_amounts=True)
+    rendered = frame.style.format(ui_results._amount_format(burger, frame))
+    cells = rendered._translate(False, False)["body"]
+    headers = list(frame.columns)
+
+    def cell(row, column):
+        return cells[row][headers.index(column) + 1]["display_value"]
+
+    by_no = {int(cells[i][headers.index(wording.FORMULATION_CAP) + 1]
+                 ["display_value"]): i for i in range(len(cells))}
+    assert cell(by_no[1], "Juiciness (/10)") == "5.00"
+    assert cell(by_no[1], "Firmness (N)") == "6.25"
+    assert cell(by_no[1], "Pea protein (g)") == "11.88"
+    # Formulation 2 has no Firmness reading: blank, never "nan".
+    assert cell(by_no[2], "Firmness (N)") == ""
+    # The numbers that name things are not decimals.
+    assert cell(by_no[1], wording.FORMULATION_CAP) == "1"
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception

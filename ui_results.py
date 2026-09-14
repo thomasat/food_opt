@@ -182,13 +182,25 @@ def _amount_format(opt, frame):
     amounts = {opt._amount_column(v['name']) for v in opt.variables}
 
     def weighed(value):
-        # A row nobody made may hold no amount for a variable added later.
+        # A row nobody made may hold no amount for a variable added later,
+        # and a measurement left blank stays blank rather than reading "nan".
         if value is None or pd.isna(value):
             return ""
         return fmt_amount(value)
 
-    return {c: (fmt_setting if c in settings else weighed)
-            for c in frame.columns if c in amounts}
+    # Every number in the table reads to two decimals: the amounts, the
+    # measurements and the score alike. Left to pandas, a panel score typed
+    # as 5 came out as 5.000000 beside an amount written 11.88. A process
+    # setting keeps fmt_setting (180, not 180.00), and a text column — the
+    # score with "· Juiciness not measured" behind it, Note, Best — is left
+    # alone.
+    numeric = {c for c in frame.columns
+               if c not in amounts and frame[c].dtype != object
+               and c not in (wording.FORMULATION_CAP, wording.BATCH_CAP)}
+    formats = {c: (fmt_setting if c in settings else weighed)
+               for c in frame.columns if c in amounts}
+    formats.update({c: weighed for c in numeric})
+    return formats
 
 
 def _all_formulations(opt, said_partial=False):
