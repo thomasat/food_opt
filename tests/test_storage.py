@@ -155,3 +155,17 @@ def test_no_file_written_on_init(tmp_path, monkeypatch):
     from food_bo import FoodOptimizer
     FoodOptimizer("ghost")
     assert not (tmp_path / "ghost.pkl").exists()
+
+
+def test_saved_at_reads_the_file_time_and_is_none_without_a_file(tmp_path, monkeypatch):
+    """The sidebar's saved line must survive a fresh session: last_saved_at is
+    only set by a save, so the file's own modification time is the fallback."""
+    from datetime import datetime, timedelta
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    assert s.saved_at("nope") is None
+    s.save("proj", {"project_name": "proj"})
+    stamp = s.saved_at("proj")
+    assert isinstance(stamp, datetime)
+    assert stamp.tzinfo is not None                     # aware, like last_saved_at
+    assert abs(stamp - datetime.now().astimezone()) < timedelta(seconds=30)

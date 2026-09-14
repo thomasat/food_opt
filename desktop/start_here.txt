@@ -1,11 +1,15 @@
 FOOD OPTIMIZER — START HERE
 
+Food Optimizer suggests which formulations to make next and learns from
+your results. You set up ingredients and measurements, make a batch,
+record what you measured, and repeat.
+
 WHAT YOUR COMPUTER NEEDS
 - A Mac with an Apple chip (M1 or later — any Mac from late 2020 onward).
   Not sure? Click the Apple menu (top left of your screen), choose
   "About This Mac", and look at the "Chip" line.
 - macOS 13 Ventura or newer.
-- About 6 GB of free disk space.
+- About 6 GB of free disk space once set up.
 - An internet connection the first time you open the app. After that,
   no internet is needed.
 
@@ -13,9 +17,9 @@ HOW TO INSTALL
 1. Drag the Food Optimizer icon onto the Applications folder icon
    next to it.
 2. Open your Applications folder and double-click Food Optimizer.
-3. The first time, the app sets itself up: it downloads about 1 GB of
-   software components, which usually takes a few minutes and up to 15
-   on a slow connection. The window shows a progress bar the whole way.
+3. The first time, the app finishes installing itself. It downloads
+   about 1 GB. This usually takes under a minute; on a slow network, a
+   few minutes. The window shows a progress bar the whole way.
    Leave it open. When it finishes, Food Optimizer opens, ready to use.
    If your Mac asks whether you are sure you want to open it, click Open.
 
@@ -23,33 +27,33 @@ TRYING IT OUT
 - The app comes with a sample project: a plant-based burger with eight
   ingredients and two panel scores. On the first screen, click
   "Try the sample project" to explore before setting up your own.
-- Starting from a spreadsheet instead? The same screen offers a CSV
-  template you can fill in and upload.
+- Starting from a spreadsheet? On the Set up tab, open "Or upload an
+  ingredients CSV" for a template you can fill in.
 
 USING IT DAY TO DAY
 - To open the app again, open Food Optimizer from Applications, like
   any app. It runs in its own window.
 - To quit, close the window.
-- Your projects folder is one click away: File menu > Open Projects
-  Folder. Need bigger text? View menu > Bigger Text.
+- Your projects folder is one click away: File menu › Open Projects
+  Folder. Need bigger text? View menu › Bigger Text.
 
 YOUR DATA STAYS ON YOUR COMPUTER
-- Your recipes, experiments and results never leave your Mac. The app
+- Your formulations and results never leave your Mac. The app
   does not connect to any website or service, and it collects no
   statistics.
 - Your project files are saved in a folder called FoodOptimizer in your
   home folder (in Finder: click the Go menu, then Home). You can see,
-  copy or delete them at any time.
-- The one-time setup only downloads the app's software components. It
+  copy or remove them at any time.
+- The one-time setup only downloads the software the app runs on. It
   sends nothing of yours anywhere.
 
 NEED HELP?
 Write to the Food Intelligence Lab at
 https://github.com/thomasat/food_opt/issues. Describe the problem in
-words, and do not attach project files, backups or recipes, because
+words, and do not attach project files, backups or formulations, because
 that page is public.
 
-Attaching the app's technical details file helps us help you. Inside
+Attaching the app's log file helps us find the problem faster. Inside
 the app, choose Show Log File from the Help menu and it finds the file
 for you. If the app will not open, find it in Finder instead: click the
 Go menu, choose "Go to Folder...", paste the line below, press Return,

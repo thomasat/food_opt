@@ -1,6 +1,12 @@
-Food Optimizer helps food product developers find better recipes in fewer lab batches. You describe your ingredients and what you measure; it suggests the next recipes to try and learns from your results. No knowledge of optimization or machine learning is needed.
+Food Optimizer helps food product developers find better formulations in fewer rounds of lab work. You describe your ingredients and what you measure; it suggests the next formulations to make and learns from your results. No knowledge of statistics or machine learning is needed.
 
-**Instructions:**
+**Desktop app (macOS):** download the latest `.dmg` from the
+[releases page](https://github.com/thomasat/food_opt/releases), drag the app to
+your Applications folder, and open it. The first time it opens it downloads
+about 1 GB. This usually takes under a minute; on a slow network, a few
+minutes. After that it works fully offline.
+
+**Run it from source:**
 
 pip install -r requirements.txt
 

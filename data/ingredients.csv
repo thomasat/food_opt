@@ -1,21 +1,21 @@
-name,min,max,Fat per 100 g,Sodium per 100 g
-Pea protein isolate,0,25,2.0,800
-Soy protein concentrate,0,20,0.5,600
-Wheat gluten,0,15,1.8,30
-Chickpea flour,0,10,6.0,25
-Rice protein,0,10,3.5,50
-Coconut oil,0,15,99.0,0
-Canola oil,0,10,100.0,0
-Cocoa butter,0,8,100.0,0
-Sunflower oil,0,8,100.0,0
-Olive oil,0,8,100.0,0
-Tapioca starch,0,8,0.0,0
-Potato starch,0,8,0.1,10
-Methylcellulose,0,3,0.0,50
-Xanthan gum,0,1.5,0.0,800
-Beet juice powder,0,2,0.0,150
-Yeast extract,0,3,0.5,4000
-Onion powder,0,2,1.0,20
-Salt,0,3,0.0,39000
-Water,20,60,0.0,0
-Soy sauce,0,2,0.1,5700
+name,min,max,unit,Fat per 100 g,Sodium per 100 g
+Pea protein isolate,0,25,g,2.0,800
+Soy protein concentrate,0,20,g,0.5,600
+Wheat gluten,0,15,g,1.8,30
+Chickpea flour,0,10,g,6.0,25
+Rice protein,0,10,g,3.5,50
+Coconut oil,0,15,g,99.0,0
+Canola oil,0,10,g,100.0,0
+Cocoa butter,0,8,g,100.0,0
+Sunflower oil,0,8,g,100.0,0
+Olive oil,0,8,g,100.0,0
+Tapioca starch,0,8,g,0.0,0
+Potato starch,0,8,g,0.1,10
+Methylcellulose,0,3,g,0.0,50
+Xanthan gum,0,1.5,g,0.0,800
+Beet juice powder,0,2,g,0.0,150
+Yeast extract,0,3,g,0.5,4000
+Onion powder,0,2,g,1.0,20
+Salt,0,3,g,0.0,39000
+Water,20,60,g,0.0,0
+Soy sauce,0,2,g,0.1,5700

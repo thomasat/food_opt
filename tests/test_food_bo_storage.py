@@ -128,7 +128,7 @@ def test_pending_batch_roundtrip_and_default():
     opt = _tiny_project()
     opt.set_pending_batch([{"Water": 3.0}])
     opt2 = FoodOptimizer("t")               # loads from disk
-    assert opt2.pending_batch == [{"Water": 3.0}]
+    assert opt2.pending_batch == [{"formulation": 1, "recipe": {"Water": 3.0}}]
 
     state = opt.export_json()
     del state["pending_batch"]              # pre-feature backup
@@ -146,7 +146,8 @@ def test_design_space_mutations_clear_pending_batch():
 
     opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0}])
     opt.add_objective("Crunch", 0.5, "max", min_val=0, max_val=10)
-    assert opt.pending_batch is None
+    assert opt.pending_batch is not None   # measurements do not invalidate a batch
+    opt.set_pending_batch(None)
 
     opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0}])
     opt.add_process_parameter("Temp", 100, 200)

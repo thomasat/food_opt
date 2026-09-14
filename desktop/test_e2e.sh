@@ -79,7 +79,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
@@ -106,7 +106,8 @@ assert "dmg has /Applications"  test -L "$VOL/Applications"
 assert "dmg has Start Here.txt" test -f "$VOL/Start Here.txt"
 # The sample lives in the app (Try the sample project); a second copy on the
 # disk image gave first-run users two routes and two names for one thing.
-assert "dmg has no Example Data folder" test ! -e "$VOL/Example Data"
+# The folder name below is the one 0.1.x shipped: it is asserted absent.
+assert "dmg carries no bundled sample folder" test ! -e "$VOL/Example Data"
 assert "dmg volume holds only app, Applications, Start Here" \
   test "$(find "$VOL" -mindepth 1 -maxdepth 1 -not -name '.*' -exec basename {} \; | sort | tr '\n' '|')" = "Applications|$APP_NAME.app|Start Here.txt|"
 
@@ -241,7 +242,7 @@ opt.tell(batch2[0], {"taste": 8.0})
 opt2 = FoodOptimizer("E2E_Smoke")
 assert opt2.load_error is None and len(opt2.X_history) == 2
 assert all(len(x) == 3 for x in opt2.X_history)
-assert opt2.X_history[0][2] == 180.0  # first experiment encoded at baseline
+assert opt2.X_history[0][2] == 180.0  # first formulation encoded at baseline
 print("SMOKE_OK")
 PY
 )"
@@ -266,11 +267,16 @@ at = AppTest.from_file(
 at.session_state["_loaded_project"] = "UI_Check"
 at.run()
 assert not at.exception, at.exception
-at.text_input(key="pp_name").set_value("oven_temp")
-at.number_input(key="pp_min").set_value(150.0)
-at.number_input(key="pp_max").set_value(220.0)
-at.number_input(key="pp_base").set_value(100.0)  # outside [150, 220]
-next(b for b in at.button if b.label == "Add process setting").click()
+# One form adds both types: Type picks which, and a setting added mid-run
+# asks for the baseline the formulations already made were run at.
+at.radio(key="var_kind").set_value("Process setting")
+at.run()
+at.text_input(key="var_name").set_value("oven_temp")
+at.number_input(key="var_low").set_value(150.0)
+at.number_input(key="var_high").set_value(220.0)
+at.number_input(key="var_base").set_value(100.0)  # outside [150, 220]
+at.run()
+next(b for b in at.button if b.label == "Add ingredient or setting").click()
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
 assert any("must be between" in str(e.value) for e in at.error)
@@ -281,6 +287,64 @@ if echo "$UI_OUT" | grep -q UI_OK; then ok "bundled UI error handling"; else fai
 assert "pkl saved to data dir" test -f "$DATA/E2E_Smoke.pkl"
 # Project files must be JSON (safe to open), not executable pickle.
 assert "project file is JSON" "$SUPPORT/venv/bin/python" -c "import json,sys; json.load(open(sys.argv[1]))" "$DATA/E2E_Smoke.pkl"
+
+echo "-- test 5c: second wording wave controls are in the packaged app --"
+WAVE_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
+  APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
+  "$SUPPORT/venv/bin/python" - <<'PY'
+import os
+import wording
+from streamlit.testing.v1 import AppTest
+from food_bo import FoodOptimizer
+
+opt = FoodOptimizer("Wave_Check")
+opt.add_ingredient("water", 0.0, 100.0)
+opt.add_objective("taste", 1.0, goal="max")
+opt.tell({"water": 50.0}, {"taste": 7.0})
+
+at = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+at.session_state["_loaded_project"] = "Wave_Check"
+at.run()
+assert not at.exception, at.exception
+
+# Tab 1 - Set up: the measurements table carries the fifth column the owner
+# asked for, and the score line spells out the share of score each
+# measurement gets.
+table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
+assert list(table.columns) == ["Measurement", "Goal", "Range",
+                               "Importance", "Share of score"]
+assert list(table["Share of score"]) == ["100 %"]
+assert any(c.value.startswith("Overall score = 1 (100 %)")
+           for c in at.caption), [c.value for c in at.caption]
+
+# Tab 2 - Make a batch: the retired Repeat checkbox never comes back, and
+# a formulation of your own has an expander to land in instead.
+at.session_state["main_tab"] = wording.TAB_BATCH
+at.run()
+assert not at.exception, at.exception
+expander_labels = [e.label for e in at.expander]
+assert wording.ADD_OWN_EXPANDER in expander_labels, expander_labels
+assert not any(c.label and c.label.startswith("Repeat") for c in at.checkbox), \
+    [c.label for c in at.checkbox]
+
+# Tab 3 - Results: one "Edit past formulations" expander replaces the three
+# retired controls; none of their old labels survive anywhere on the tab.
+at.session_state["main_tab"] = wording.TAB_RESULTS
+at.run()
+assert not at.exception, at.exception
+expander_labels = [e.label for e in at.expander]
+assert wording.EDIT_PAST_FORMULATIONS_EXPANDER in expander_labels, expander_labels
+retired = ("Correct a result", "Delete a batch or a formulation",
+           "Delete the last batch", "Import past formulations from a CSV")
+seen = (expander_labels + [b.label for b in at.button]
+        + [c.label for c in at.checkbox if c.label])
+assert not any(label in seen for label in retired), seen
+print("WAVE_OK")
+PY
+)"
+if echo "$WAVE_OUT" | grep -q WAVE_OK; then ok "second wording wave controls in packaged app"; else fail "second wording wave controls in packaged app ($WAVE_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"
