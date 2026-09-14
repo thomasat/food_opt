@@ -37,7 +37,7 @@ def _result_key(formulation_no, measurement):
 
 
 def _left_out(formulation_no):
-    """Read the Not made flag before its checkbox is drawn — the checkbox is
+    """Read the Not scored flag before its checkbox is drawn — the checkbox is
     rendered last in the row, after the boxes the user came to fill."""
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
 
@@ -122,7 +122,7 @@ def _scale_to(opt):
 
 def _any_value_typed(opt):
     """True once a result has been typed into a row that is still being kept.
-    A row nobody made is skipped: a disabled number_input still returns its stored
+    A not-scored row is skipped: a disabled number_input still returns its stored
     value, which would flip the bench sheet grey on a tick."""
     for row in open_rows(opt):
         number = row['formulation']
@@ -467,7 +467,7 @@ def _sheet_lines(opt, row, scale_to):
     note = str(row.get('note') or "").strip()
     lines.append((wording.note_line(note), _PROSE) if note
                  else (wording.NOTE_SHEET_LABEL, _AREA))
-    lines.append((wording.NOT_MADE_CHECKBOX_SHEET, _PROSE))
+    lines.append((wording.NOT_SCORED_CHECKBOX_SHEET, _PROSE))
     # The sheet leaves the app, and it is what the amounts are weighed out
     # from: a caution that lived only on screen was not on the page in the
     # technician's hand. Same sentence, last line, one per sheet.
@@ -672,13 +672,13 @@ def _record_results(opt):
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
-        # Never disabled: why a formulation was not made is the only record
-        # of what went wrong, and a Note that greys out on the tick can only
-        # be typed by someone who knew to type it first.
+        # Never disabled: why a formulation was not scored is the only
+        # record of what went wrong, and a Note that greys out on the tick
+        # can only be typed by someone who knew to type it first.
         st.text_input(wording.NOTE, key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox(wording.NOT_MADE, key=f"f{number}_leave_out",
-                    help=wording.NOT_MADE_HELP)
+        st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
+                    help=wording.NOT_SCORED_HELP)
         if not skip:
             # Complete means EVERY measurement has a number. One of three
             # typed is not a third of a result, and counting it as complete
@@ -704,7 +704,7 @@ def _record_results(opt):
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
-        counter += wording.not_made_counter_suffix(len(left_out))
+        counter += wording.not_scored_counter_suffix(len(left_out))
     st.caption(counter)
     lit = ready and not confirmation_open()
     if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
@@ -743,15 +743,15 @@ def _save_results(opt, kept, left_out, to_record):
     for row in to_record:
         number = row['formulation']
         if number in left_out:
-            # Why it was not made is often typed before the box is ticked, and
-            # it is the only record of what went wrong.
+            # Why it was not scored is often typed before the box is
+            # ticked, and it is the only record of what went wrong.
             note = str(st.session_state.get(f"f{number}_note") or "").strip()
-            # "Not made" first, always: with only the typed note, the All
-            # formulations row for a formulation nobody made said nothing
-            # about not having been made.
+            # "Not scored" first, always: with only the typed note, the All
+            # formulations row for a not-scored formulation said nothing
+            # about having no result.
             opt.record_skipped(number, batch_no, row['recipe'],
-                               note=(wording.not_made_with_note(note) if note
-                                     else wording.NOT_MADE))
+                               note=(wording.not_scored_with_note(note) if note
+                                     else wording.NOT_SCORED))
     opt.set_pending_batch(None)
     clear_scale_total()
     st.session_state.pop("_results_upload", None)

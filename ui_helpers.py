@@ -466,7 +466,7 @@ def landing_tab(opt):
     A project with no formulations sent the user to an empty Results tab, and
     the sample project skipped its own set-up entirely. Confirming the set-up
     is the step before making anything, so that is where those land. A
-    formulation nobody made counts as one the project holds: it has a
+    not-scored formulation counts as one the project holds: it has a
     number, its amounts and a note, and tab 3 lists it."""
     ready, _ = readiness(opt)
     if not ready:

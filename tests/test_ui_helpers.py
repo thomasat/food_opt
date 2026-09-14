@@ -623,4 +623,4 @@ def test_the_results_counter_says_complete():
     assert wording.complete_counter(1, 2) == "1 of 2 complete"
     assert not hasattr(wording, "filled_in_counter")
     assert wording.partly_filled_suffix(1) == " · 1 partly filled"
-    assert wording.not_made_counter_suffix(1) == " · 1 not made"
+    assert wording.not_scored_counter_suffix(1) == " · 1 not scored"

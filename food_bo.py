@@ -1330,9 +1330,9 @@ class FoodOptimizer:
         for k, s in enumerate(self.skipped):
             batch = s.get('batch')
             row = {
-                # Best is a star or nothing. "not made" belongs in the Note
-                # column, which already carries it, and a Best column with
-                # words in it read as a third kind of score.
+                # Best is a star or nothing. "Not scored" belongs in the
+                # Note column, which already carries it, and a Best column
+                # with words in it read as a third kind of score.
                 "Best": "",
                 wording.BATCH_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
@@ -1344,7 +1344,7 @@ class FoodOptimizer:
                 row[self._measurement_column(obj)] = None
             row["Overall score"] = ""
             row["Recorded"] = ""
-            row["Note"] = s.get('note') or wording.NOT_MADE
+            row["Note"] = s.get('note') or wording.NOT_SCORED
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
@@ -1561,7 +1561,7 @@ class FoodOptimizer:
 
     def history_csv(self):
         """Every formulation the project holds as CSV — the ones with results
-        and the ones nobody made — with the identity columns (Formulation,
+        and the not-scored ones — with the identity columns (Formulation,
         Batch, Recorded, Overall score) and the Note.
 
         Amount and measurement columns carry their own units, exactly as the
@@ -1570,7 +1570,7 @@ class FoodOptimizer:
         was the one place in the app an amount had no unit on it. Measurements
         run by importance, as they do on every screen.
 
-        A formulation nobody made is here too, with its amounts, its note and
+        A not-scored formulation is here too, with its amounts, its note and
         blank measurement cells: it has a number and it is part of the record,
         and leaving it out made the file disagree with the table it was
         downloaded from.
@@ -1610,7 +1610,7 @@ class FoodOptimizer:
             row.update(self._amount_columns(left_out.get('recipe', {})))
             for obj in objs:
                 row[self._measurement_column(obj)] = None
-            row["Note"] = left_out.get('note') or wording.NOT_MADE
+            row["Note"] = left_out.get('note') or wording.NOT_SCORED
             rows.append(row)
         columns = (["Formulation", wording.BATCH_CAP, "Recorded",
                     "Overall score"]
@@ -2145,7 +2145,7 @@ class FoodOptimizer:
             raise ValueError("Add at least one measurement before saving results.")
         kept = {k: v for k, v in results_dict.items() if v is not None}
         if not any(obj['name'] in kept for obj in self.objectives):
-            raise ValueError("Enter a value for at least one measurement.")
+            raise ValueError(wording.ENTER_A_MEASUREMENT)
 
         if formulation_no is None:
             formulation_no = self._issue_formulation_no()
@@ -2277,19 +2277,46 @@ class FoodOptimizer:
         except (ValueError, TypeError):
             return None
 
-    def record_skipped(self, formulation_no, batch_no, recipe, note="Not made"):
+    def record_skipped(self, formulation_no, batch_no, recipe,
+                       note=wording.NOT_SCORED):
         """Store a formulation that was generated but never scored. It keeps
         its number and amounts, and stays out of the scored history and the
-        model."""
+        model. score_skipped() moves it into the scored history if a result
+        turns up later."""
         self.skipped.append({
             'formulation': int(formulation_no),
             'batch': None if batch_no is None else int(batch_no),
             'recipe': dict(recipe),
-            'note': str(note) if note else "Not made",
+            'note': str(note) if note else wording.NOT_SCORED,
         })
         self._retire_formulation_no(formulation_no)
         self._retire_batch_no(batch_no)
         self.save()
+
+    def score_skipped(self, formulation_no, results_dict, note=None):
+        """Score a formulation that was recorded as not scored: the bowl was
+        made after all, or measured late.
+
+        It keeps the number and the batch it was generated with — both
+        retired the day the row was recorded, so tell() issues nothing — and
+        its stored amounts are the ones recorded. The row leaves `skipped`
+        only if tell() accepts the result: a refusal must not delete the one
+        record the project holds of that formulation.
+        """
+        position = next((k for k, s in enumerate(self.skipped)
+                         if int(s['formulation']) == int(formulation_no)), None)
+        if position is None:
+            raise ValueError(f"Formulation {formulation_no} is not a "
+                             "not-scored formulation of this project.")
+        row = self.skipped.pop(position)
+        try:
+            self.tell(dict(row.get('recipe') or {}), results_dict,
+                      formulation_no=int(row['formulation']),
+                      batch_no=row.get('batch'),
+                      note="" if note is None else str(note))
+        except Exception:
+            self.skipped.insert(position, row)
+            raise
 
     def import_formulation(self, recipe_dict, results_dict,
                            note=wording.IMPORTED_NOTE):
@@ -2317,7 +2344,7 @@ class FoodOptimizer:
         return False
 
     def delete_formulations(self, numbers):
-        """Delete several formulations by number, recorded or not made, in one
+        """Delete several formulations by number, scored or not, in one
         save. Returns how many went.
 
         The scored rows go highest position first: every list here is

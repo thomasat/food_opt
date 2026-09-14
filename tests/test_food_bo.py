@@ -1799,7 +1799,8 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.record_skipped(4, 2, {"Water": 30.0})
         assert opt.skipped == [
-            {"formulation": 4, "batch": 2, "recipe": {"Water": 30.0}, "note": "Not made"}
+            {"formulation": 4, "batch": 2, "recipe": {"Water": 30.0},
+             "note": "Not scored"}
         ]
         assert opt.X_history == []
 
@@ -1891,6 +1892,77 @@ class TestFormulationIdentity:
         assert opt.index_of_formulation(7) == 0
         assert opt.index_of_formulation(8) is None
 
+    def test_score_skipped_moves_the_row_into_history_keeping_number_and_batch(
+            self, tmp_path, monkeypatch):
+        """A formulation left not scored can be scored later. It keeps the
+        number and the batch it was generated with, and nothing is issued:
+        both numbers retired the day the row was recorded, and a second
+        number for one formulation is two rows for one bowl."""
+        opt = self._opt(tmp_path, monkeypatch, name="scoreskipped")
+        opt.ask(n_suggestions=2)
+        batch_no = opt.pending_batch_no
+        first, second = opt.pending_batch[0], opt.pending_batch[1]
+        opt.tell(first["recipe"], {"Firmness": 5.0},
+                 formulation_no=first["formulation"], batch_no=batch_no)
+        opt.record_skipped(second["formulation"], batch_no, second["recipe"],
+                           note="Not scored · burner failed")
+        opt.set_pending_batch(None)
+        next_f, next_b = opt.next_formulation_no, opt.next_batch_number
+        total_before = opt.batch_total(batch_no)
+        opt.score_skipped(second["formulation"], {"Firmness": 7.0})
+        assert opt.skipped == []
+        assert opt.formulation_ids == [first["formulation"],
+                                       second["formulation"]]
+        assert opt.batch_history == [batch_no, batch_no]
+        assert opt.recipe_history[-1] == second["recipe"]
+        # The note said why it was not scored. It is scored now, so the row
+        # carries no reason for a state it is no longer in.
+        assert opt.notes_history[-1] == ""
+        assert opt.next_formulation_no == next_f
+        assert opt.next_batch_number == next_b
+        assert opt.batch_total(batch_no) == total_before
+        reloaded = FoodOptimizer("scoreskipped")
+        assert reloaded.skipped == []
+        assert reloaded.formulation_ids == [first["formulation"],
+                                            second["formulation"]]
+        assert reloaded.next_formulation_no == next_f
+
+    def test_an_old_projects_not_made_note_still_loads_and_shows(
+            self, tmp_path, monkeypatch):
+        """A note is data. Projects saved before 0.4.0 carry "Not made · …"
+        on their not-scored rows, and that is what those rows said when the
+        technician wrote them: it is read back and shown, word for word.
+        Only new notes say "Not scored"."""
+        opt = self._opt(tmp_path, monkeypatch, name="oldnote")
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1,
+                 batch_no=1)
+        state = opt.export_json()
+        state["skipped"] = [{"formulation": 2, "batch": 1,
+                             "recipe": {"Water": 20.0},
+                             "note": "Not made · burner failed"}]
+        older = FoodOptimizer("oldnote2")
+        older.import_json(state)
+        assert older.skipped[0]["note"] == "Not made · burner failed"
+        assert older.history_frame()["Note"].iloc[1] == "Not made · burner failed"
+
+    def test_score_skipped_keeps_the_row_when_nothing_was_measured(
+            self, tmp_path, monkeypatch):
+        """tell() refuses a row with nothing on it. The not-scored row must
+        survive that refusal, or a slip of the hand deletes the formulation."""
+        opt = self._opt(tmp_path, monkeypatch, name="scoreskipped2")
+        opt.record_skipped(1, 1, {"Water": 10.0}, note="Not scored")
+        with pytest.raises(ValueError, match="at least one measurement"):
+            opt.score_skipped(1, {"Firmness": None})
+        assert [s["formulation"] for s in opt.skipped] == [1]
+        assert FoodOptimizer("scoreskipped2").skipped[0]["formulation"] == 1
+
+    def test_score_skipped_refuses_a_number_it_does_not_hold(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="scoreskipped3")
+        opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1)
+        with pytest.raises(ValueError, match="not-scored"):
+            opt.score_skipped(1, {"Firmness": 5.0})
+
     def test_old_projects_backfill_numbers_on_load(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0})
@@ -1962,9 +2034,9 @@ class TestFormulationIdentity:
         with pytest.raises(IndexError):
             opt.edit_amounts(0, {"Water": 1.0})
 
-    def test_delete_formulations_takes_recorded_and_not_made_rows_in_one_save(
+    def test_delete_formulations_takes_scored_and_not_scored_rows_in_one_save(
             self, tmp_path, monkeypatch):
-        """Three numbers, one of them never made, and one write to the disk:
+        """Three numbers, one of them not scored, and one write to the disk:
         deleting row by row saved four times and, done in the wrong order,
         deleted the wrong rows as the positions shifted."""
         opt = self._opt(tmp_path, monkeypatch, name="delmany")
@@ -2357,11 +2429,11 @@ class TestUnitsAndImportance:
         assert list(df.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
                                     "Juiciness", "Overall score", "Recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
-        # Best is a star or nothing; the Note column carries "Not made".
+        # Best is a star or nothing; the Note column carries "Not scored".
         assert list(df["Best"]) == ["★", "", ""]
         assert list(df["Batch"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
-        assert df["Note"].iloc[2] == "Not made"
+        assert df["Note"].iloc[2] == "Not scored"
         assert df["Overall score"].iloc[2] == ""
 
     def test_history_frame_trial_column_is_all_strings_on_a_mixed_project(self, tmp_path, monkeypatch):
@@ -2423,14 +2495,14 @@ class TestUnitsAndImportance:
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 1.0},
                  {"Firmness": 5.0}, formulation_no=2, batch_no=1)   # partial: no Juiciness
         opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0},
-                           note="Not made · burner failed")
+                           note="Not scored · burner failed")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
         assert list(df["Formulation"]) == [1, 2, 3]
         assert df["Firmness (N)"].iloc[1] == 5.0
         assert pd.isna(df["Juiciness"].iloc[1])
         # The left-out row: amounts and note, no measurements, no score.
         assert df["Pea protein (g)"].iloc[2] == 14.0
-        assert df["Note"].iloc[2] == "Not made · burner failed"
+        assert df["Note"].iloc[2] == "Not scored · burner failed"
         assert pd.isna(df["Firmness (N)"].iloc[2])
         assert pd.isna(df["Juiciness"].iloc[2])
         # Firmness is the more important of the two, so it comes first.
@@ -2941,8 +3013,8 @@ _BANNED = [
     # The coherence wave (2026-09-10): one word per concept on every screen.
     # Lowest/Highest for the ends of a range (Min and Max survive only as
     # column headers an ingredient CSV may carry); Remove for anything taken
-    # out of a project, with Delete kept for the project itself; Not made for
-    # a formulation nobody made; Formulation total for the total a batch is written
+    # out of a project, with Delete kept for the project itself; Not scored
+    # for a formulation with no result; Formulation total for the total a batch is written
     # to; and no Priority column beside the importance it was a rank of.
     re.compile(r"\bMin\b"),
     re.compile(r"\bMax\b"),
@@ -2968,6 +3040,10 @@ _BANNED = [
     re.compile(r"\bRemove\b"),
     re.compile(r"\bRemake\b"),
     re.compile(r"\bShare\b(?! of score)"),
+    # 0.4.0: a formulation with no result is NOT SCORED, whether or not it
+    # was made. The screen said "Not made" of a bowl that was made and never
+    # measured, and there was then no way to score it later.
+    re.compile(r"\bnot made\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -3192,6 +3268,30 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     for literal in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift):
         if any(pattern.search(literal) for pattern in _BANNED):
             offenders.append((_USER_FACING_SWIFT, literal))
+    assert offenders == [], offenders
+
+
+_NOT_MADE = re.compile(r"\bnot made\b", re.I)
+
+
+def test_no_screen_says_not_made():
+    """0.4.0: a formulation with no result is "Not scored". "Not made" was
+    wrong about the bowl that was made and never measured, and it said
+    nothing could be done about it — a not-scored formulation can now be
+    scored from the Results tab."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = []
+    for name in _USER_FACING_SOURCES:
+        offenders += [(name, text) for text in _string_constants(root / name)
+                      if _NOT_MADE.search(text)]
+    for name in _USER_FACING_TEXT:
+        offenders += [(name, i) for i, line
+                      in enumerate((root / name).read_text().splitlines(), 1)
+                      if _NOT_MADE.search(line)]
+    swift = (root / _USER_FACING_SWIFT).read_text()
+    offenders += [(_USER_FACING_SWIFT, literal) for literal
+                  in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
+                  if _NOT_MADE.search(literal)]
     assert offenders == [], offenders
 
 

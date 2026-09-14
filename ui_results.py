@@ -182,7 +182,7 @@ def _amount_format(opt, frame):
     amounts = {opt._amount_column(v['name']) for v in opt.variables}
 
     def weighed(value):
-        # A row nobody made may hold no amount for a variable added later,
+        # A not-scored row may hold no amount for a variable added later,
         # and a measurement left blank stays blank rather than reading "nan".
         if value is None or pd.isna(value):
             return ""
@@ -320,6 +320,31 @@ def _measurement_boxes(ordered, key_of, current=None):
     return typed
 
 
+def _score_row(opt, choice):
+    """The row a not-scored formulation opens under `Correct a formulation`.
+
+    Nothing recorded is being changed here: the amounts are the ones the
+    project generated and stored, shown as they are shown everywhere else,
+    and the one thing missing is a result. So they are read, not offered in
+    boxes — an editable amount invites an edit nobody came here to make —
+    and the measurement boxes open empty."""
+    row = next((s for s in opt.skipped
+                if int(s['formulation']) == int(choice)), None)
+    if row is None:
+        return None
+    recipe = dict(row.get('recipe') or {})
+    st.markdown(wording.AMOUNTS_TO_MAKE_IT_HEADING)
+    st.table(pd.DataFrame(_amount_rows(opt, recipe),
+                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
+                                   wording.AMOUNT_COLUMN]))
+    ordered = opt.measurements_by_importance()
+    typed = _measurement_boxes(
+        ordered, lambda name: _correct_measurement_key(choice, name))
+    return {"choice": int(choice), "index": None, "ordered": ordered,
+            "current": {}, "typed": typed, "recipe": recipe,
+            "amounts": None, "skipped": True, "slot": st.container()}
+
+
 def _correct(opt):
     """The correction row: the select box, the amounts the formulation was
     really made with, and the measurements to retype. Returns the open
@@ -330,7 +355,12 @@ def _correct(opt):
     sections below does not rerun, so a Save correction drawn now would still
     be coloured on the very run that puts a Yes beside it; render() fills the
     slot once the confirmations have had their say."""
-    numbers = [int(n) for n in opt.formulation_ids]
+    scored = [int(n) for n in opt.formulation_ids]
+    # After the scored ones, in their own order: the numbers with a result
+    # are what this box is reached for, and a not-scored one is picked to
+    # write a result for the first time rather than to change one.
+    not_scored = [int(s['formulation']) for s in opt.skipped]
+    numbers = scored + not_scored
     if not numbers:
         # Not "No results yet.": that sentence is already the whole screen
         # above this section on a project holding nothing.
@@ -343,12 +373,14 @@ def _correct(opt):
     choice = st.selectbox(wording.CORRECT_WHICH_LABEL, numbers, index=None,
                           placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
                           key="correct_formulation")
-    if opt.skipped:
-        # The picker offers fewer numbers than All formulations lists, and
-        # the reason is not visible from the box.
-        st.caption(wording.FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION)
+    if not_scored:
+        # A not-scored number in the list is not a correction, and nothing
+        # about the box says what picking one does.
+        st.caption(wording.NOT_SCORED_CAN_BE_SCORED_CAPTION)
     if choice is None:
         return None
+    if int(choice) in not_scored:
+        return _score_row(opt, int(choice))
     index = opt.index_of_formulation(choice)
     if index is None:
         return None
@@ -398,6 +430,11 @@ def _save_correction(opt, storage, pending):
             _close_correction(opt, choice)
             st.rerun()
     if not save:
+        return
+    if pending.get("skipped"):
+        # A not-scored formulation has no recorded result to change: this
+        # writes its first one.
+        _save_score(opt, storage, pending)
         return
     # Amounts first, and a blank one is a refusal: nothing is written, no
     # copy is kept, and what was typed stays on screen to be finished.
@@ -476,6 +513,49 @@ def _save_correction(opt, storage, pending):
     st.rerun()
 
 
+def _save_score(opt, storage, pending):
+    """Score a formulation that was left not scored. Its row moves into the
+    scored history under the number and the batch it was generated with —
+    nothing is renumbered — and the model reads it from the next batch on."""
+    choice, ordered, typed = (pending['choice'], pending['ordered'],
+                              pending['typed'])
+    for obj in ordered:
+        problem = scale_error(obj, typed[obj['name']])
+        if problem:
+            st.error(problem)
+            return
+    # A measurement nobody took is left out, exactly as tab 2 leaves it out,
+    # and the row is stored partial. Every box empty is not a result at all,
+    # and is refused in the sentence tab 2 uses.
+    results = {obj['name']: float(typed[obj['name']]) for obj in ordered
+               if typed[obj['name']] is not None}
+    if not results:
+        st.error(wording.ENTER_A_MEASUREMENT)
+        return
+    before = best_formulation_no(opt)
+    # The row leaves `skipped` for good, so the project is copied first — as
+    # it is before every other write that cannot be retyped from memory.
+    try:
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    try:
+        opt.score_skipped(choice, results)
+    except (ValueError, TypeError) as e:
+        st.error(wording.could_not_save(e))
+        return
+    if not saved_ok(opt):
+        return
+    sentences = [wording.formulation_scored(choice)]
+    move = best_move_sentence(before, best_formulation_no(opt))
+    if move:
+        sentences.append(move)
+    flash("success", " ".join(sentences))
+    _close_correction(opt, choice)
+    st.rerun()
+
+
 def _foot_label(opt):
     """What the foot of this tab offers. An open batch outranks everything:
     the work to do is the batch on the bench, and every other screen already
@@ -527,8 +607,8 @@ def _batch_numbers(opt):
 
 
 def _formulations_of_batch(opt, batch_no):
-    """Every number that batch issued and the project still holds, recorded
-    and not made alike."""
+    """Every number that batch issued and the project still holds, scored
+    and not scored alike."""
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history)
                if b is not None and int(b) == int(batch_no)]
     numbers += [int(s['formulation']) for s in opt.skipped
@@ -551,7 +631,7 @@ def _disarm_delete():
 
 
 def _delete_formulations(opt, storage):
-    """Any number of formulations, recorded or not made, behind one
+    """Any number of formulations, scored or not, behind one
     confirmation.
 
     `Delete the last batch` was a button of its own that could only ever
@@ -802,7 +882,7 @@ def _import(opt):
             results = {name: float(row[col_for[name]]) for name in measurements
                        if not pd.isna(row[col_for[name]])}
             if not results:
-                # A formulation nobody made: `Download all formulations`
+                # A not-scored formulation: `Download all formulations`
                 # includes those rows, amounts and note and all, and they
                 # have no result to teach the model. Left out, and counted,
                 # rather than stopping a file that is otherwise importable.

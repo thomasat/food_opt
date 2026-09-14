@@ -1645,7 +1645,7 @@ def test_the_printable_sheet_names_the_formulation_and_the_trial(open_batch):
     assert any(e.label == "Preview the printed sheets" for e in at.expander)
     texts = _sheet_lines(at)
     assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1" in texts, texts
-    assert any(t.endswith("Not made") for t in texts), texts
+    assert any(t.startswith("Not scored") for t in texts), texts
     # The measurement is named and its rule is drawn in CSS beside it; a
     # typed underscore neither stays in line nor takes a pen.
     assert any("Firmness, target 6 N:" in t for t in texts), texts
@@ -1769,7 +1769,7 @@ def test_the_counter_counts_kept_rows_only(open_batch):
     at.number_input(key="f1_Juiciness").set_value(7.0)
     at.checkbox(key="f2_leave_out").check()
     at.run()
-    assert any(c.value == "1 of 1 complete · 1 not made"
+    assert any(c.value == "1 of 1 complete · 1 not scored"
                for c in at.caption), [c.value for c in at.caption]
     assert not _submit_button(at, "Save results").disabled
 
@@ -1871,7 +1871,7 @@ def test_leave_out_disables_the_row_but_keeps_its_values(open_batch):
     assert reloaded.skipped == [{"formulation": 2, "batch": 1,
                                  "recipe": {"Pea protein": 20.0,
                                             "Methylcellulose": 2.0},
-                                 "note": "Not made"}]
+                                 "note": "Not scored"}]
 
 
 def test_every_row_left_out_says_there_is_nothing_to_save(open_batch):
@@ -2102,7 +2102,7 @@ def scored_open_batch(scored):
 
 
 def test_a_note_typed_on_a_row_that_is_left_out_is_kept(open_batch):
-    """Why it was not made is often typed before the box is ticked, and it is
+    """Why it was not scored is often typed before the box is ticked, and it is
     the only record of what went wrong."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -2113,9 +2113,9 @@ def test_a_note_typed_on_a_row_that_is_left_out_is_kept(open_batch):
     _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
-    # "Not made" first: the row is otherwise blank, and nothing else on it
+    # "Not scored" first: the row is otherwise blank, and nothing else on it
     # says the formulation was left out.
-    assert FoodOptimizer("burger").skipped[0]["note"] == "Not made · burner failed"
+    assert FoodOptimizer("burger").skipped[0]["note"] == "Not scored · burner failed"
 
 
 def test_a_recorded_row_shows_its_note(open_batch):
@@ -2360,10 +2360,10 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
                                    "Juiciness (/10)", "Overall score", "Recorded",
                                    "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
-    # Best is a star or nothing. That a row was never made is said in the
+    # Best is a star or nothing. That a row has no result is said in the
     # Note column, which is where a fact about the row belongs.
     assert list(table["Best"]) == ["★", "", ""]
-    assert table["Note"].iloc[2] == "Not made"
+    assert table["Note"].iloc[2] == "Not scored"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
                                                          "Batch order"]
@@ -4112,8 +4112,8 @@ def test_the_formulations_download_says_what_is_in_it(burger):
                         "Download all formulations (CSV)")
     assert download.proto.help == ("One row per formulation, with the same "
                                    "units the screen shows. Formulations "
-                                   "marked not made are included, with their "
-                                   "measurements blank.")
+                                   "marked not scored are included, with "
+                                   "their measurements blank.")
 
 
 # A reloaded ingredient file is the third edit that can empty a limit of
@@ -4215,7 +4215,7 @@ def test_leaving_a_formulation_out_keeps_the_note_box_open(open_batch):
     note = next(t for t in at.text_input if t.key == "f1_note")
     assert not note.disabled
     tick = next(c for c in at.checkbox if c.key == "f1_leave_out")
-    assert tick.label == "Not made"
+    assert tick.label == "Not scored"
     assert tick.help == "Say why in Note. It stays with the formulation."
     # The measurement boxes still grey out: a left-out formulation has no
     # results, and only the note it leaves behind.
@@ -4235,7 +4235,7 @@ def test_a_left_out_formulation_keeps_the_note_typed_after_the_tick(open_batch):
     _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
-    assert FoodOptimizer("burger").skipped[0]["note"] == "Not made · Mixer jammed"
+    assert FoodOptimizer("burger").skipped[0]["note"] == "Not scored · Mixer jammed"
 
 
 def test_a_measurement_recorded_for_the_first_time_is_stored(burger):
@@ -5431,15 +5431,64 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
         [c.value for c in at.caption]
 
 
-def test_the_correction_picker_says_why_a_formulation_is_missing(scored):
-    """It offers fewer numbers than All formulations lists, and the reason is
-    not visible from the box."""
+def test_the_correct_picker_offers_not_scored_formulations(scored):
+    """Formulation 3 was never scored. It used to be missing from the picker
+    with a caption saying so; it is now offered, after the scored numbers,
+    and the caption says what picking it does."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.selectbox(key="correct_formulation").options == ["1", "2"]
-    assert any(c.value == wording.FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION
+    assert at.selectbox(key="correct_formulation").options == ["1", "2", "3"]
+    assert any(c.value == wording.NOT_SCORED_CAN_BE_SCORED_CAPTION
                for c in at.caption), \
         [c.value for c in at.caption]
+
+
+def test_scoring_a_not_scored_formulation_from_results(scored, tmp_path):
+    """The amounts it was generated with are shown, not offered for editing —
+    nobody weighed them out twice — and the measurements open empty. Saving
+    moves the row into the scored history under its own number and batch."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(3)
+    at.run()
+    keys = [n.key for n in at.number_input]
+    assert "correct_amount_3_Pea protein" not in keys, keys
+    assert "correct_3_Firmness" in keys, keys
+    assert at.number_input(key="correct_3_Firmness").value is None
+    at.number_input(key="correct_3_Firmness").set_value(6.0)
+    at.number_input(key="correct_3_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_CORRECTION_BUTTON).click()
+    at.run()
+    assert not at.exception
+    said = next(s.value for s in at.success if "scored" in s.value)
+    assert said == (wording.formulation_scored(3) + " "
+                    + wording.best_moved(2, 3))
+    opt = FoodOptimizer("burger")
+    assert opt.skipped == []
+    assert opt.formulation_ids == [1, 2, 3]
+    assert opt.batch_history == [1, 1, 1]
+    assert opt.recipe_history[2] == {"Pea protein": 25.0,
+                                     "Methylcellulose": 3.0}
+    assert opt.next_formulation_no == 4
+    # The row is done, so it closes itself exactly as a correction does.
+    assert at.session_state["correct_formulation"] is None
+    assert (tmp_path / "burger_pre_edit.pkl").exists(), \
+        [f.name for f in tmp_path.glob("*.pkl")]
+
+
+def test_scoring_a_not_scored_formulation_with_nothing_typed_is_refused(scored):
+    """The same refusal tab 2 gives, and the row stays not scored."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(3)
+    at.run()
+    _submit_button(at, wording.SAVE_CORRECTION_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert any("at least one measurement" in e.value for e in at.error), \
+        [e.value for e in at.error]
+    assert [s["formulation"] for s in FoodOptimizer("burger").skipped] == [3]
 
 
 def test_the_two_downloads_on_the_trial_name_their_format(open_batch):
@@ -6034,7 +6083,7 @@ def test_the_printable_sheet_has_rules_to_write_on_not_typed_underscores(
     assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1" in lines, lines
     assert "Firmness, target 6 N:" in lines, lines
     assert "Note:" in lines, lines
-    assert wording.NOT_MADE_CHECKBOX_SHEET in lines, lines
+    assert wording.NOT_SCORED_CHECKBOX_SHEET in lines, lines
     # One ruled line per measurement per sheet, and one ruled area per sheet
     # for the note: two formulations, two measurements each.
     assert body.count("class='fo-rule'") == 4, body
@@ -6574,7 +6623,7 @@ def test_every_printed_sheet_ends_with_the_caution(open_batch):
 
 def test_the_restore_flash_counts_the_rows_nobody_made_too(project_with_history,
                                                            tmp_path):
-    """The preview counts scored and not made alike; a flash that counted
+    """The preview counts scored and not-scored alike; a flash that counted
     only the scored ones reported losing formulations the restore had just
     put back."""
     donor = FoodOptimizer("donor_counts")

@@ -419,7 +419,7 @@ def note_line(note):
     return f"{NOTE}: {note}"
 
 
-NOT_MADE_CHECKBOX_SHEET = "[  ] Not made"
+NOT_SCORED_CHECKBOX_SHEET = "Not scored [  ]"
 
 DOWNLOAD_BENCH_SHEET = "Download the batch to fill in (CSV)"
 DOWNLOAD_FORMULATION_SHEETS = "Download one sheet per formulation (to print)"
@@ -484,10 +484,16 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
-NOT_MADE = "Not made"
-NOT_MADE_HELP = f"Say why in {NOTE}. It stays with the formulation."
+# A formulation with no result yet: never made, or made and never measured.
+# It can be scored later from the Results tab.
+NOT_SCORED = "Not scored"
+NOT_SCORED_HELP = f"Say why in {NOTE}. It stays with the formulation."
 
 NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
+# Said by food_bo when a row arrives with nothing on it, and by the Results
+# tab when a not-scored formulation is saved with every box empty. One
+# sentence, so the refusal reads the same wherever the row was typed.
+ENTER_A_MEASUREMENT = "Enter a value for at least one measurement."
 SAVE_RESULTS = "Save results"
 
 
@@ -497,8 +503,8 @@ def complete_counter(complete_n, kept_n):
     return f"{complete_n} of {kept_n} complete"
 
 
-def not_made_counter_suffix(n):
-    return f" · {n} not made"
+def not_scored_counter_suffix(n):
+    return f" · {n} not scored"
 
 
 def partly_filled_suffix(n):
@@ -512,8 +518,8 @@ def could_not_save(e):
     return f"Could not save these results: {e}"
 
 
-def not_made_with_note(note):
-    return f"Not made · {note}"
+def not_scored_with_note(note):
+    return f"{NOT_SCORED} · {note}"
 
 
 def batch_recorded_flash(no):
@@ -1075,8 +1081,8 @@ SHOW_AMOUNTS_TOGGLE = "Show amounts"
 DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (CSV)"
 DOWNLOAD_ALL_FORMULATIONS_HELP = ("One row per formulation, with the same "
                                   "units the screen shows. Formulations "
-                                  "marked not made are included, with their "
-                                  "measurements blank.")
+                                  "marked not scored are included, with "
+                                  "their measurements blank.")
 
 # ---------------------------------------------------------------- #
 # `Edit past formulations`: one collapsed section for every way the
@@ -1096,14 +1102,22 @@ def no_formulation_to_correct_caption():
     return f"No {FORMULATION} to correct yet."
 
 
-FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION = ("Formulations that were not made "
-                                           "have no result to correct.")
+# The picker offers every number the project holds. A not-scored one has no
+# result to correct — it has one to write for the first time — and this says
+# so, because nothing about the box itself does.
+NOT_SCORED_CAN_BE_SCORED_CAPTION = "Not-scored formulations can be scored here."
 # One line above the whole form. The boxes open pre-filled, so "leave blank"
 # described a state the reader was not in — and two tooltips said one thing
 # two ways on one screen.
 CORRECTION_CAPTION = ("Change only what is wrong. Anything you leave alone "
                       "stays as recorded.")
 SAVE_CORRECTION_BUTTON = "Save correction"
+
+
+def formulation_scored(no):
+    """A formulation that was left not scored, scored later from Results. It
+    is not a correction: nothing recorded changed, a result arrived."""
+    return f"{FORMULATION_CAP} {no} scored."
 
 
 def formulation_unchanged(no):
@@ -1248,7 +1262,7 @@ def imported(text):
 
 
 def rows_with_nothing_measured(rows_text, many):
-    """The tail on the import flash. A formulation nobody made is in the
+    """The tail on the import flash. A not-scored formulation is in the
     downloaded file — it has a number, its amounts and its note — but it has
     no result to teach the model, so it is left where it is rather than
     stopping the whole import."""

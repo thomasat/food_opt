@@ -98,8 +98,8 @@ _PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_",
 
 
 def _grid_fresh(key):
-    """The empty value of one result-grid box: a note is text, Not made is a
-    tick, and a measurement is an empty number box."""
+    """The empty value of one result-grid box: a note is text, Not scored is
+    a tick, and a measurement is an empty number box."""
     if key.endswith("_note"):
         return ""
     if key.endswith("_leave_out"):
@@ -382,7 +382,8 @@ with st.sidebar:
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
                                     # Counted exactly as the preview above
-                                    # counts it — scored and not made alike.
+                                    # counts it — scored and not-scored
+                                    # alike.
                                     # A flash that counted only the scored
                                     # rows reported restoring fewer
                                     # formulations than the file had just
