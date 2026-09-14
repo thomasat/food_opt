@@ -284,12 +284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                    : "Setting up Food Optimizer"
         let body = setupIsUpgrade
             ? "Food Optimizer is downloading updated software components. "
-              + "This usually takes under a minute; up to 15 minutes on a "
-              + "slow office network. Leave this window open."
-            : "The first time it opens, Food Optimizer downloads its "
-              + "software components, about 1 GB. On a good connection this "
-              + "takes under a minute; on a slow office network up to 15 "
+              + "This usually takes under a minute; on a slow network, a few "
               + "minutes. Leave this window open."
+            : "The first time it opens, Food Optimizer downloads its "
+              + "software components, about 1 GB. This usually takes under a "
+              + "minute; on a slow network, a few minutes. Leave this window open."
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 

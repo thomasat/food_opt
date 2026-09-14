@@ -3,9 +3,8 @@ Food Optimizer helps food product developers find better formulations in fewer r
 **Desktop app (macOS):** download the latest `.dmg` from the
 [releases page](https://github.com/thomasat/food_opt/releases), drag the app to
 your Applications folder, and open it. The first time it opens it downloads
-about 1 GB of software components. On a good connection this takes under a
-minute; on a slow office network up to 15 minutes. After that it works fully
-offline.
+about 1 GB of software components. This usually takes under a minute; on a
+slow network, a few minutes. After that it works fully offline.
 
 **Run it from source:**
 

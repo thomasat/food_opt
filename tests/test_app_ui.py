@@ -2909,8 +2909,8 @@ def test_the_desktop_bundle_ships_every_module():
         assert module in e2e, module
 
 
-_FIRST_RUN_SENTENCE = ("On a good connection this takes under a minute; "
-                       "on a slow office network up to 15 minutes.")
+_FIRST_RUN_SENTENCE = ("This usually takes under a minute; "
+                       "on a slow network, a few minutes.")
 
 
 def _flowed(text):
