@@ -419,7 +419,7 @@ def _pkey(pick, prop):
 
 def _property_value_editor(opt, pick, properties):
     """One box per property for the picked ingredient, opened by Set
-    properties. A box left empty counts as 0 in the per-100 average — and
+    properties. An empty box counts as 0 in the per-100 average — and
     every limit on that property names the ingredients it is reading as
     zeroes. The caption above the boxes is what names the properties; the
     button cannot, because a property name is the project's own and may run

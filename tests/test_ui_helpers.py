@@ -573,7 +573,7 @@ def test_the_property_controls_name_the_properties_they_set():
     opens does the naming, as does the flash."""
     assert wording.SET_PROPERTIES_BUTTON == "Set properties"
     assert wording.properties_for_caption("Fat and Sodium", "Water") == (
-        "Fat and Sodium in Water, per 100 g. A box left empty counts as 0 in "
+        "Fat and Sodium in Water, per 100 g. An empty box counts as 0 in "
         "any limit.")
     # Names that carry the basis themselves do not have it added a third time.
     said = wording.properties_for_caption(

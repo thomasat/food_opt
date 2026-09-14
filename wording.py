@@ -684,7 +684,7 @@ ONLY_INGREDIENT_HAS_PROPERTIES = "Only an ingredient has properties."
 
 
 def properties_for_caption(names_text, name, per_100_already_said=False):
-    """'Fat and sodium in Pea protein isolate, per 100 g. A box left empty
+    """'Fat and sodium in Pea protein isolate, per 100 g. An empty box
     counts as 0 in any limit.'
 
     `per_100_already_said` drops the basis from the sentence: a project whose

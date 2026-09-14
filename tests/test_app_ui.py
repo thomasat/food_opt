@@ -5622,7 +5622,7 @@ def test_the_add_ingredient_rows_property_boxes_say_what_they_hold(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     box = at.number_input(key="var_prop_Fat per 100 g")
-    assert box.help == ("Per 100 g of this ingredient. A box left empty "
+    assert box.help == ("Per 100 g of this ingredient. An empty box "
                         "counts as 0 in any limit.")
     # An example, not a rule: the rule is in the tooltip, said once.
     assert box.proto.placeholder == "e.g. 2"
@@ -6732,7 +6732,7 @@ def test_the_property_controls_are_named_after_the_properties(burger):
     next(b for b in at.button if b.key == "set_props").click()
     at.run()
     assert not at.exception
-    assert any(c.value == ("Cost in Pea protein, per 100 g. A box left empty "
+    assert any(c.value == ("Cost in Pea protein, per 100 g. An empty box "
                            "counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
     assert "Save" in _labels(at), _labels(at)
@@ -6755,7 +6755,7 @@ def test_the_caption_does_not_say_per_100_g_twice_over(burger):
     at.run()
     assert not at.exception
     assert any(c.value == ("Fat per 100 g and Sodium per 100 g in Pea "
-                           "protein. A box left empty counts as 0 in any "
+                           "protein. An empty box counts as 0 in any "
                            "limit.")
                for c in at.caption), [c.value for c in at.caption]
     # ...and a name that does NOT carry it still gets the basis.
@@ -6764,7 +6764,7 @@ def test_the_caption_does_not_say_per_100_g_twice_over(burger):
     at.run()
     next(b for b in at.button if b.key == "set_props").click()
     at.run()
-    assert any(c.value.endswith("in Pea protein, per 100 g. A box left empty "
+    assert any(c.value.endswith("in Pea protein, per 100 g. An empty box "
                                 "counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
 
