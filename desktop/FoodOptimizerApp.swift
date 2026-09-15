@@ -568,7 +568,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let values = try? portFile.resourceValues(forKeys: [.contentModificationDateKey]),
               let modified = values.contentModificationDate
         else { return false }
-        return modified >= started
+        // A 2s tolerance: a small backward clock step, or a volume whose
+        // mtimes are coarser than our own clock, must never reject a file
+        // this very launch just wrote — that would starve poll() of a port
+        // to watch forever, not just for the few seconds the check exists to
+        // cover.
+        return modified >= started.addingTimeInterval(-2)
     }
 
     // The launcher publishes "<text>|<percent>" (percent may be empty) once
@@ -634,7 +639,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Keep the setup message honest on slow connections.
         pollTicks += 1
         readStatusFile()
-        if pollTicks == 720 {   // ~6 minutes in, at 500ms ticks
+        // Only while still waiting on setup itself: once a port file exists
+        // (armed or not — see below) this message's own copy is wrong, and
+        // painting it here would silently cover the "Almost there." page or,
+        // worse, the give-up page — which, unlike this one, has a Try again
+        // link — stranding the user with no way forward.
+        if pollTicks == 720, awaitingHealthSince == nil, !timedOutWaitingForHealth {
             showStatus("Still setting up…",
                        "The downloads are taking a while — slow connections "
                        + "can take longer than usual. Leave this window open; "
