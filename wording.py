@@ -2,15 +2,25 @@
 the tests read this module too."""
 
 # ------------------------------------------------------------------ #
-# Concepts. The set of formulations issued together is called a "batch"
-# on screen — the word the owner's formulation team already uses for a
-# round of formulations. Every batch-naming sentence below is built from
-# these two constants, so a name change is a one-line edit.
+# Concepts. The set of formulations issued together is a "round" on
+# screen. It was a "batch" until 0.5.0, when "batch size" took that word
+# for the weight of ONE formulation — the sense the bench already uses it
+# in — and one word could not be both. Every round-naming sentence below
+# is built from these two constants, so a name change is a one-line edit.
+# Stored field names keep the old spelling (`pending_batch`, `batch_totals`);
+# they never reach a screen.
 # ------------------------------------------------------------------ #
-BATCH = "batch"
-BATCH_CAP = "Batch"
+ROUND = "round"
+ROUND_CAP = "Round"
 FORMULATION = "formulation"
 FORMULATION_CAP = "Formulation"
+
+# The weight of ONE formulation. Two boxes ask it — the round screen's
+# Batch size and Set up's Default batch size (FORMULATION_TOTAL_NAME,
+# further down, is built from this noun) — so the words are spelled once
+# here and every sentence about either box reads from them.
+BATCH_SIZE_NOUN = "batch size"
+BATCH_SIZE_NAME = "Batch size"
 
 # Plain nouns handed to ui_helpers.plural(n, word) at more than one call
 # site, so the word is spelled once.
@@ -46,7 +56,7 @@ STARTING_APP = (f"Starting {APP_TITLE}… loading its components. "
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
-TAB_BATCH = f"2 · Make a {BATCH}"
+TAB_BATCH = f"2 · Make a {ROUND}"
 TAB_RESULTS = "3 · Results"
 
 # Archived copies are written beside the project's own file, which on the
@@ -173,7 +183,7 @@ SAMPLE_TARGETS_SOURCE = (
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
     "A plant-based burger with eight ingredients and two panel scores. "
-    "Next: make a batch."
+    "Next: make a round."
 )
 
 PROJECT_LOAD_ERROR_SIDEBAR_NOTE = ("This project could not be opened. The "
@@ -272,7 +282,7 @@ def welcome_steps():
     return (
         "1. **Name a project** in the sidebar on the left.\n"
         "2. **Add ingredients** and the measurements you will record.\n"
-        f"3. **Make a {BATCH}**, weigh out the formulations, and record "
+        f"3. **Make a {ROUND}**, weigh out the formulations, and record "
         "what you measured."
     )
 
@@ -320,7 +330,7 @@ def batch_discarded_notice(no=None, reason=SETUP_CHANGED_REASON):
     # Every screen that flashes this knows the number. The unnumbered form
     # is the honest fallback for a batch whose number did not survive the
     # read that discarded it, and nothing reaches it today.
-    who = f"{BATCH_CAP} {no}" if no is not None else f"The open {BATCH}"
+    who = f"{ROUND_CAP} {no}" if no is not None else f"The open {ROUND}"
     return (f"{who} was discarded: {reason} after it was made. "
             "Generate a new one.")
 
@@ -344,13 +354,13 @@ def batch_line_open(no, n):
     'to record', the same word tab 3's own button uses of the same count of
     the same batch: 'N to make' and 'N to record' read as two different
     numbers, and the reader had to work out that they were one."""
-    return f"{BATCH_CAP} {no} · {n} to record"
+    return f"{ROUND_CAP} {no} · {n} to record"
 
 
 def batch_line_recorded(no):
     """Same line, once every row of that batch has been recorded (or left
     out)."""
-    return f"{BATCH_CAP} {no} · recorded"
+    return f"{ROUND_CAP} {no} · recorded"
 
 
 # ------------------------------------------------------------------ #
@@ -375,7 +385,7 @@ def batch_ready(no):
     """The flash a freshly generated batch lands on. It names the two steps
     that follow, in the order the screen puts them: a batch that is "ready"
     and nothing more left the reader looking for what to do with it."""
-    return (f"{BATCH_CAP} {no} is ready to make. Print the sheets, then "
+    return (f"{ROUND_CAP} {no} is ready to make. Print the sheets, then "
             "record the results below when you have them.")
 
 
@@ -391,7 +401,7 @@ ADD_OWN_NO_BATCH_CAPTION = ("Want the app's suggestions too? Click "
                             "Generate first, then add yours.")
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
 START_FROM_BEST = "Start from the best so far"
-ADD_TO_THIS_BATCH = f"Add to this {BATCH}"
+ADD_TO_THIS_BATCH = f"Add to this {ROUND}"
 ENTER_EVERY_AMOUNT = ("Enter every amount. Type 0 for an ingredient you "
                       "are leaving out.")
 # What the row says when the user typed no reason of their own. The note is
@@ -401,7 +411,7 @@ OWN_FORMULATION_NOTE = f"Own {FORMULATION}"
 
 
 def own_formulation_added(no, batch_no):
-    return f"{FORMULATION_CAP} {no} added to {BATCH_CAP} {batch_no}."
+    return f"{FORMULATION_CAP} {no} added to {ROUND_CAP} {batch_no}."
 
 
 def generate_button_label(n):
@@ -413,7 +423,7 @@ def generate_button_label(n):
 # after the fifth formulation alike. Two captions for the two halves of one
 # rule made a reader who had seen only one of them think there were two.
 HOW_CHOSEN = ("Until five formulations have results, new ones are spread out "
-              f"to learn the space. After that, each {BATCH} aims closer to "
+              f"to learn the space. After that, each {ROUND} aims closer to "
               "your targets.")
 
 
@@ -429,15 +439,15 @@ def make_these(no, n):
     """'Batch 1 · make this 1 formulation' / '... make these 3
     formulations'."""
     word = FORMULATION if n == 1 else FORMULATION + "s"
-    return (f"**{BATCH_CAP} {no} · make "
+    return (f"**{ROUND_CAP} {no} · make "
             f"{'this' if n == 1 else 'these'} {n} {word}**")
 
 
 # Every row in the batch is one the user added by hand, so there is no
 # Generate control on the screen and nothing else would say why.
 ONLY_OWN_FORMULATIONS_CAPTION = (
-    "This batch holds only your own formulations. For the app's suggestions "
-    f"too, click Generate a different {BATCH}, then Generate."
+    "This round holds only your own formulations. For the app's suggestions "
+    f"too, click Generate a different {ROUND}, then Generate."
 )
 
 
@@ -503,36 +513,35 @@ NEEDS_ONE_UNIT = ("To make each formulation to a set amount, every "
                   "ingredient needs the same unit.")
 
 
-# Tab 2's box asks the same question as tab 1's and takes the same answer,
-# so it wears the same name. Two names for one number — "Total of each
-# formulation" upstairs and "Make each formulation to" here — let the bench
-# answer it twice, differently, and the cold read could not tell which was
-# the real one.
-def batch_total_label(unit):
-    """'Total of each formulation (g)' — tab 2's own box, named exactly as
-    tab 1's."""
-    return formulation_total_label(unit)
+# The round screen's own box: the weight of one formulation in the round in
+# front of the bench. Set up's box (FORMULATION_TOTAL_NAME) answers the same
+# question for every round still to come, and the two names say which is
+# which — "Default" is the only word between them.
+def batch_size_label(unit):
+    """'Batch size (g)' — the round screen's box. The unit is the one the
+    ingredients share."""
+    return f"{BATCH_SIZE_NAME} ({unit})" if unit else BATCH_SIZE_NAME
 
 
-BATCH_TOTAL_HELP = ("Sets the total for this batch's sheets. Set it in Set "
-                    "up to make every suggestion add up to it.")
-# An example, not a description: a blank box means "the amounts in the table",
-# and the help says so once.
-BATCH_TOTAL_PLACEHOLDER = "e.g. 150"
+BATCH_SIZE_HELP = (f"Every {FORMULATION} in this {ROUND} adds up to this. "
+                   "Change it and the sheets scale with it.")
+# An example, not a description: the help above already says what the box is
+# for.
+BATCH_SIZE_PLACEHOLDER = "e.g. 150"
 
-NOT_HELD_TO_A_TOTAL = f"This {BATCH} is not held to a total."
+NOT_HELD_TO_A_TOTAL = f"This {ROUND} is not held to a {BATCH_SIZE_NOUN}."
 
 
 def total_mismatch_caption(no, made_text, total_text):
-    """'Formulation 4 adds up to 97.00 g, not the 100 g total.'
+    """'Formulation 4 adds up to 97.00 g, not the 100 g batch size.'
 
-    One sentence for the only two rows that can miss the total: a
-    formulation of the user's own, which is recorded exactly as typed, and a
-    suggestion that could not be moved onto the total without breaking a
-    limit. Nothing is rewritten to hide either, so the line says what the
-    row adds up to and what it was measured against."""
+    One sentence for the row that can miss the batch size: a suggestion that
+    could not be moved onto it without breaking a limit. Nothing is
+    rewritten to hide it, so the line says what the row adds up to and what
+    it was measured against. Once the user scales the round every row lands
+    on the size and the line has nothing to say."""
     return (f"{FORMULATION_CAP} {no} adds up to {made_text}, not the "
-            f"{total_text} total.")
+            f"{total_text} {BATCH_SIZE_NOUN}.")
 
 
 def sheets_show_total_caption(total_text):
@@ -541,12 +550,7 @@ def sheets_show_total_caption(total_text):
     return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
-# Beside that line: the total is set on tab 1, and the sentence that names it
-# was the only place on this tab it appeared at all.
-CHANGE_THE_TOTAL_BUTTON = "Change the total"
-
-
-GENERATE_DIFFERENT_BATCH = f"Generate a different {BATCH}"
+GENERATE_DIFFERENT_BATCH = f"Generate a different {ROUND}"
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):
@@ -559,7 +563,7 @@ def regenerate_warning(no, numbers_text, next_no, many=True):
     this batch's own number, so only the formulation numbers move on.
     """
     word = f"{FORMULATION_CAP}s" if many else FORMULATION_CAP
-    return (f"Discard {BATCH_CAP} {no} and {word} {numbers_text}? New "
+    return (f"Discard {ROUND_CAP} {no} and {word} {numbers_text}? New "
             f"{FORMULATION}s start at {FORMULATION_CAP} {next_no}.")
 
 
@@ -652,12 +656,12 @@ def note_reason(note):
 
 
 def batch_recorded_flash(no):
-    return f"{BATCH_CAP} {no} recorded."
+    return f"{ROUND_CAP} {no} recorded."
 
 
 UPLOAD_EXPANDER = "Or upload results from a file"
 UPLOAD_HELP_CAPTION = (
-    "Fill in the Measured cells on the batch sheet you downloaded above and "
+    "Fill in the Measured cells on the round sheet you downloaded above and "
     "upload the file here. Formulations are matched on their number."
 )
 UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
@@ -682,7 +686,7 @@ UPLOAD_PREVIEW_CAPTION = "What the file says. Check it before saving."
 
 def upload_partial_flash(parsed_n, total_n, batch_no, left_n):
     return (f"Recorded {parsed_n} of {total_n} formulations in "
-            f"{BATCH_CAP} {batch_no} · {left_n} to record.")
+            f"{ROUND_CAP} {batch_no} · {left_n} to record.")
 
 
 # ------------------------------------------------------------------ #
@@ -709,15 +713,18 @@ def range_text(low, high):
     return f"{float(low):g} to {float(high):g}"
 
 
-LIMIT_KEPT = (f"Formulations already made are kept. The next {BATCH} will "
+LIMIT_KEPT = (f"Formulations already made are kept. The next {ROUND} will "
              "respect this limit.")
 NO_FORMULATION_FITS_LIMIT = "No formulation you have made fits this limit."
 
 
 def unscaled_tail(batch_no, total_text):
-    """Scaling needs one unit, and a unit change may have just taken it away:
-    the open batch is back to as-generated, and only this sentence says so."""
-    return (f"{BATCH_CAP} {batch_no} is back to its own amounts: your "
+    """A batch size needs one unit, and a unit change may have just taken it
+    away: the round keeps the amounts it already has, but nothing on the
+    round screen can change their size any more, and only this sentence says
+    so. Nothing is undone — since 0.5.0 the size moves the amounts
+    themselves, so there is no as-generated to go back to."""
+    return (f"{ROUND_CAP} {batch_no} keeps the amounts it has: your "
             "ingredients no longer share one unit.")
 
 # The one collapsed expander that says how the app works, in the app's own
@@ -1155,12 +1162,12 @@ def delete_limit_button(who):
 
 
 def delete_limit_warning(who):
-    return (f"Delete the {LIMIT} on {who}? The next {BATCH} is no longer "
+    return (f"Delete the {LIMIT} on {who}? The next {ROUND} is no longer "
             f"held to it. " + COPY_KEPT)
 
 
 def limit_deleted(who):
-    return f"Limit on {who} deleted. The next {BATCH} is no longer held to it."
+    return f"Limit on {who} deleted. The next {ROUND} is no longer held to it."
 
 
 LIMIT_ON_CHOSEN_INGREDIENTS_HEADING = "**Limit on chosen ingredients**"
@@ -1168,24 +1175,25 @@ INGREDIENTS_TO_LIMIT_LABEL = "Ingredients to limit together"
 ADD_INGREDIENT_LIMIT_BUTTON = "Add ingredient limit"
 
 # ---------------------------------------------------------------- #
-#  Total of each formulation
+#  Batch size, and the project's default
 # ---------------------------------------------------------------- #
-# The size every suggested formulation is built to. It lives under the
-# ingredients table rather than in the Limits section, because it is not an
-# optional rule about a few ingredients: it is the question the bench asks
-# first, and the Limits list only shows what it wrote.
+# The weight of ONE formulation. The round screen asks it of the round in
+# front of the bench (Batch size); Set up holds the project's answer for
+# every round still to come (Default batch size). Two names for two
+# questions, both spelled from BATCH_SIZE_NOUN so they can never drift.
 
 
-FORMULATION_TOTAL_NAME = "Total of each formulation"
-FORMULATION_TOTAL_LOWER = "the total of each formulation"
-# What batch_discarded_notice blames when the total is what discarded the
-# batch, rather than the tab as a whole.
+FORMULATION_TOTAL_NOUN = f"default {BATCH_SIZE_NOUN}"
+FORMULATION_TOTAL_NAME = f"Default {BATCH_SIZE_NOUN}"
+FORMULATION_TOTAL_LOWER = f"the {FORMULATION_TOTAL_NOUN}"
+# What batch_discarded_notice blames when the default is what discarded the
+# round, rather than the tab as a whole.
 TOTAL_CHANGED_REASON = f"{FORMULATION_TOTAL_LOWER} changed"
 
 
 def formulation_total_label(unit):
-    """'Total of each formulation (g)'. The unit is the one the ingredients
-    share; without one there is no total to ask for and no box is drawn."""
+    """'Default batch size (g)'. The unit is the one the ingredients share;
+    without one there is no size to ask for and no box is drawn."""
     return (f"{FORMULATION_TOTAL_NAME} ({unit})" if unit
             else FORMULATION_TOTAL_NAME)
 
@@ -1222,33 +1230,40 @@ def formulation_total_row(total_text):
     return f"{FORMULATION_TOTAL_NAME} · {total_text}"
 
 
-def total_not_reachable_at_most(total_text, most_text):
-    """A total above everything the allowed amounts can add up to. The two
+def total_not_reachable_at_most(total_text, most_text,
+                                noun=FORMULATION_TOTAL_NOUN):
+    """A size above everything the allowed amounts can add up to. The two
     numbers are the whole answer: nothing about the search can rescue a sum
-    that has no solution, and the fix is to raise an ingredient's Highest."""
-    return (f"A total of {total_text} is not reachable: the allowed amounts "
+    that has no solution, and the fix is to raise an ingredient's Highest.
+
+    `noun` is which of the two boxes is refusing — Set up's default, or the
+    round screen's own — so the sentence names the box the reader just
+    typed into rather than the other one."""
+    return (f"A {noun} of {total_text} is not reachable: the allowed amounts "
             f"add up to at most {most_text}.")
 
 
-def total_not_reachable_at_least(total_text, least_text):
-    return (f"A total of {total_text} is not reachable: the allowed amounts "
+def total_not_reachable_at_least(total_text, least_text,
+                                 noun=FORMULATION_TOTAL_NOUN):
+    return (f"A {noun} of {total_text} is not reachable: the allowed amounts "
             f"add up to at least {least_text}.")
 
 
-def total_not_reachable_at_all(total_text):
-    """A total of nothing. Reachable arithmetic — every amount can be 0 in a
+def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):
+    """A size of nothing. Reachable arithmetic — every amount can be 0 in a
     project with no lower bounds — and still not a formulation, so it is
-    refused in the same shape as a total the amounts cannot make."""
-    return (f"A total of {total_text} is not reachable: every formulation "
+    refused in the same shape as a size the amounts cannot make."""
+    return (f"A {noun} of {total_text} is not reachable: every formulation "
             "has to add up to something.")
 
 
 def no_formulation_reaches_total(total_text):
-    """Generate found nothing that adds up to the total. It is the total that
-    is impossible, so the sentence names it and the two ways out, rather than
-    talking about limits the user never wrote."""
+    """Generate found nothing that adds up to the default batch size. It is
+    that size that is impossible, so the sentence names it and the two ways
+    out, rather than talking about limits the user never wrote."""
     return (f"No formulation adds up to {total_text} within the allowed "
-            "amounts. Change the total or widen the amounts.")
+            f"amounts. Change {FORMULATION_TOTAL_LOWER} or widen the "
+            "amounts.")
 
 
 # The one way back out of a hold that has put a total out of reach. Said by
@@ -1276,18 +1291,18 @@ def held_is_why_the_total_is_out_of_reach(names_text, many=False):
 
 
 def formulation_total_gone_unit(total_text):
-    """The sentence a unit change owes the total when it has just split the
-    ingredients across units — the same debt unscaled_tail settles for the
-    open batch, one sentence, said once."""
-    return (f"The total of {total_text} is gone: your ingredients no longer "
-            "share one unit.")
+    """The sentence a unit change owes the default batch size when it has
+    just split the ingredients across units — the same debt unscaled_tail
+    settles for the open round, one sentence, said once."""
+    return (f"The {FORMULATION_TOTAL_NOUN} of {total_text} is gone: your "
+            "ingredients no longer share one unit.")
 
 
 def formulation_total_gone_unreachable(total_text):
     """...and the same when the ingredient list or its allowed amounts moved
-    far enough that the sum can no longer land on the total."""
-    return (f"The total of {total_text} is gone: the allowed amounts no "
-            "longer add up to it.")
+    far enough that the sum can no longer land on that size."""
+    return (f"The {FORMULATION_TOTAL_NOUN} of {total_text} is gone: the "
+            "allowed amounts no longer add up to it.")
 
 
 HOW_FORMULATIONS_CHOSEN_EXPANDER = "How formulations are chosen (advanced)"
@@ -1331,7 +1346,7 @@ def invalid_json(e):
 
 IN_USE_PREFIX = "In use: "
 
-NEXT_MAKE_BATCH_BUTTON = f"Next: make a {BATCH}"
+NEXT_MAKE_BATCH_BUTTON = f"Next: make a {ROUND}"
 
 
 # ------------------------------------------------------------------ #
@@ -1344,18 +1359,18 @@ PARTIAL_SCORES_CAPTION = ("A formulation missing a measurement scores it as "
 
 
 def batch_recorded_progress(no, before, now):
-    return (f"{BATCH_CAP} {no} recorded · best improved "
+    return (f"{ROUND_CAP} {no} recorded · best improved "
             f"{before:.2f} → {now:.2f}")
 
 
 def batch_recorded_no_improvement(no):
-    return f"{BATCH_CAP} {no} recorded · best score unchanged."
+    return f"{ROUND_CAP} {no} recorded · best score unchanged."
 
 
 def best_so_far_heading(no, batch_no=None):
     heading = f"Best so far: {FORMULATION_CAP} {no}"
     if batch_no is not None:
-        heading += f" ({BATCH_CAP} {batch_no})"
+        heading += f" ({ROUND_CAP} {batch_no})"
     return heading
 
 
@@ -1399,7 +1414,7 @@ SORT_LABEL = "Sort"
 # read them from here and the two can never drift apart.
 SORT_BEST_FIRST = "Best first"
 SORT_NEWEST_FIRST = "Newest first"
-SORT_BATCH_ORDER = f"{BATCH_CAP} order"
+SORT_BATCH_ORDER = f"{ROUND_CAP} order"
 SORT_OPTIONS = [SORT_BEST_FIRST, SORT_NEWEST_FIRST, SORT_BATCH_ORDER]
 SHOW_AMOUNTS_TOGGLE = "Show amounts"
 DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (Excel)"
@@ -1469,17 +1484,17 @@ def formulation_corrected(no):
 
 
 def back_to_batch_label(no, n):
-    return f"Back to {BATCH_CAP} {no} · {n} to record"
+    return f"Back to {ROUND_CAP} {no} · {n} to record"
 
 
-START_NEXT_BATCH = f"Start the next {BATCH}"
+START_NEXT_BATCH = f"Start the next {ROUND}"
 
 PROGRESS_CHART_EXPANDER = "Progress chart"
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
 BEST_SO_FAR_COLUMN = "Best so far"
 PROGRESS_CHART_CAPTION = ("The top line only rises. A few flat "
-                          f"{BATCH}es are normal; a long flat stretch "
+                          f"{ROUND}s are normal; a long flat stretch "
                           "suggests this ingredient list is close to the "
                           "best it can do.")
 
@@ -1487,7 +1502,7 @@ def batch_open_record_first_caption():
     """food_bo.undo_last_batch's refusal. No screen reaches it any more —
     the Delete the last batch button retired with this section — but the
     method stays for its tests and it still has to speak English."""
-    return f"Record or discard the open {BATCH} first."
+    return f"Record or discard the open {ROUND} first."
 
 
 DELETE_FORMULATIONS_HEADING = f"##### Delete {FORMULATION}s"
@@ -1495,8 +1510,8 @@ FORMULATIONS_TO_DELETE_LABEL = f"{FORMULATION_CAP}s to delete"
 CHOOSE_MANY_PLACEHOLDER = "Choose one or more"
 # The quick pick beside the list: one batch's formulations, recorded and not
 # made alike, dropped into the selection to be looked over before deleting.
-WHOLE_BATCH_LABEL = f"Add a whole {BATCH} to the list"
-CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {BATCH}"
+WHOLE_BATCH_LABEL = f"Add a whole {ROUND} to the list"
+CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND}"
 
 
 def no_formulation_to_delete_caption():
@@ -1609,7 +1624,7 @@ def rows_with_nothing_measured(rows_text, many):
 
 
 SET_UP_THIS_PROJECT_BUTTON = "Set up this project"
-MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {BATCH}"
+MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {ROUND}"
 ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
                                 "formulations again. Nothing recorded has "
                                 "been lost.")
@@ -1622,7 +1637,7 @@ ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
 # off the paper is here — the sheet is the one screen the app cannot see
 # being used, so it says exactly what the screen says.
 # ------------------------------------------------------------------ #
-DOWNLOAD_BATCH_SHEETS = f"Download the {BATCH} sheets (Excel)"
+DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND} sheets (Excel)"
 
 # The summary sheet's own columns. The amount column carries its unit
 # (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
@@ -1688,7 +1703,7 @@ def summary_title(batch_no, project_name, made_on, total_text=""):
 def batch_sheet_name(batch_no):
     """'Batch 2' — the summary sheet's name, and the sheet an uploaded
     workbook is read back from."""
-    return f"{BATCH_CAP} {batch_no}"
+    return f"{ROUND_CAP} {batch_no}"
 
 
 def formulation_sheet_name(no):
@@ -1701,7 +1716,7 @@ def sheet_title(no, batch_no, project_name):
     """'Formulation 4 · Batch 2 · Sample project' — the first line of one
     formulation's sheet. The project's name is on it because the sheet
     leaves the app and the bench works on more than one."""
-    return f"{FORMULATION_CAP} {no} · {BATCH_CAP} {batch_no} · {project_name}"
+    return f"{FORMULATION_CAP} {no} · {ROUND_CAP} {batch_no} · {project_name}"
 
 
 def sheet_measurement_label(label, goal):
@@ -1741,7 +1756,7 @@ def all_formulations_file_name(project_name):
 INGREDIENTS_TEMPLATE_FILE_NAME = "ingredients_template.xlsx"
 
 WORKBOOK_UNREADABLE = ("This file could not be read as a workbook. Upload "
-                       "the file you downloaded from this " + BATCH + ".")
+                       "the file you downloaded from this " + ROUND + ".")
 
 
 def workbook_sheet_missing(wanted, found_text):
@@ -1756,7 +1771,7 @@ def workbook_sheet_missing(wanted, found_text):
 
 def workbook_no_formulations(wanted):
     return (f"The {wanted} sheet has no formulation columns. Upload the "
-            f"file you downloaded from this {BATCH}.")
+            f"file you downloaded from this {ROUND}.")
 
 
 def workbook_nothing_filled_in(wanted):

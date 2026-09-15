@@ -1361,7 +1361,7 @@ def test_a_hold_that_discards_the_batch_says_so(burger):
     at.run()
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
-    assert any(f"{wording.BATCH_CAP} 1 was discarded" in i.value
+    assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
                for i in at.info), [i.value for i in at.info]
 
 
@@ -1474,7 +1474,7 @@ def test_the_ingredient_table_has_no_status_column_until_something_is_held(burge
 
 @pytest.fixture
 def open_batch(burger):
-    """Batch 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
+    """Round 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
                               {"Pea protein": 20.0, "Methylcellulose": 2.0}])
     return burger
@@ -1519,7 +1519,7 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     at.run()
     assert wording.HOW_CHOSEN == (
         "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each batch aims closer to your "
+        "learn the space. After that, each round aims closer to your "
         "targets."), wording.HOW_CHOSEN
     assert wording.HOW_CHOSEN in HOW_IT_WORKS, HOW_IT_WORKS
     assert any(c.value == wording.HOW_CHOSEN for c in at.caption), \
@@ -1561,7 +1561,7 @@ def test_own_formulation_starts_a_batch_when_none_is_open(burger):
     assert reloaded.pending_batch[0]["note"] == wording.OWN_FORMULATION_NOTE
     assert reloaded.pending_batch_no == 1
     assert len(reloaded.pending_batch_created) == 10        # an ISO date
-    assert any(s.value == "Formulation 1 added to Batch 1."
+    assert any(s.value == "Formulation 1 added to Round 1."
                for s in at.success), [s.value for s in at.success]
     # The boxes empty again, so the next one is typed into a clean form.
     assert at.session_state["own_Pea protein"] is None
@@ -1573,7 +1573,7 @@ def test_own_formulation_joins_the_open_batch(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -1593,7 +1593,7 @@ def test_own_formulation_joins_the_open_batch(burger):
                for m in at.markdown), [m.value for m in at.markdown]
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Note"]) == ["", "", wording.OWN_FORMULATION_NOTE]
-    assert any(s.value == "Formulation 3 added to Batch 1."
+    assert any(s.value == "Formulation 3 added to Round 1."
                for s in at.success), [s.value for s in at.success]
 
 
@@ -1602,7 +1602,7 @@ def test_the_own_formulation_note_placeholder_gives_an_example(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -1700,26 +1700,31 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
                                    "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
-    assert box.value is None                          # empty: as generated
+    # Prefilled: no stored size and no project default, so the box opens at
+    # what the round already weighs — the mean of 11 g and 22 g, rounded.
+    assert box.value == 16.0
     assert box.proto.placeholder == "e.g. 150"
 
 
-def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
-    """What is downloaded must equal what is on screen: the whole point of the
-    scale box is that the lab weighs those amounts out."""
+def test_a_batch_size_rescales_the_screen_the_sheet_and_the_record(open_batch):
+    """What is downloaded must equal what is on screen: the whole point of
+    the box is that the lab weighs those amounts out. Since 0.5.0 the stored
+    row moves with them, so what is recorded is what was made."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(22.0)
     at.run()
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert table["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
-    # One caption about the total on this tab, not two: it names the number
+    # One caption about the size on this tab, not two: it names the number
     # the files were written for, under the files.
     assert any(c.value == "Sheets show each formulation made to 22 g."
                for c in at.caption), [c.value for c in at.caption]
     assert not any(c.value == "Amounts shown for this total."
                    for c in at.caption), [c.value for c in at.caption]
-    assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 10.0
+    stored = FoodOptimizer("burger").pending_batch
+    assert stored[0]["recipe"]["Pea protein"] == pytest.approx(20.0)
+    assert stored[1]["recipe"]["Pea protein"] == pytest.approx(20.0)
 
 
 def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batch):
@@ -1732,13 +1737,13 @@ def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batc
         [wording.DOWNLOAD_BATCH_SHEETS], \
         [d.label for d in _unknowns(at.tabs[1], "download_button")]
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
     # The download IS the coloured thing here, and it is the only one.
-    assert _tab_primaries(at, 1) == ["Download the batch sheets (Excel)"], _tab_primaries(at, 1)
+    assert _tab_primaries(at, 1) == ["Download the round sheets (Excel)"], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "secondary"
+                    "Download the round sheets (Excel)").proto.type == "secondary"
 
 
 def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
@@ -1751,7 +1756,7 @@ def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
 
 
 def test_regenerating_names_the_numbers_it_discards(open_batch):
@@ -1764,7 +1769,7 @@ def test_regenerating_names_the_numbers_it_discards(open_batch):
     # The number is read off the project, not guessed from the rows, and the
     # sentence says NEW FORMULATIONS: the batch keeps its own number.
     assert wording.regenerate_warning(1, "1 and 2", 3) == (
-        "Discard Batch 1 and Formulations 1 and 2? New formulations start at "
+        "Discard Round 1 and Formulations 1 and 2? New formulations start at "
         "Formulation 3.")
     assert at.session_state["optimizer"].next_formulation_no == 3
     _submit_button(at, "Yes, discard").click()
@@ -1810,10 +1815,10 @@ def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
-    assert book.sheetnames == ["Batch 1", "Formulation 1", "Formulation 2"], \
+    assert book.sheetnames == ["Round 1", "Formulation 1", "Formulation 2"], \
         book.sheetnames
     texts = _sheet_text(at)
-    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1 · burger" \
+    assert f"{wording.FORMULATION_CAP} 1 · {wording.ROUND_CAP} 1 · burger" \
         in texts, texts
     assert wording.NOT_SCORED_CHECKBOX_SHEET in texts, texts
     # The measurement is named, what a good number looks like is beside it,
@@ -1887,7 +1892,7 @@ def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
     at.run()
     assert _submit_button(at, "Save results").disabled
     # "complete", not "to record": every other screen uses "to record" for
-    # the rows that still have no number ("Back to Batch 1 · 2 to record"),
+    # the rows that still have no number ("Back to Round 1 · 2 to record"),
     # and this line counts the opposite. A row is complete only when EVERY
     # measurement has a number: one of two typed is not half a result, so it
     # is counted as partly filled instead. The Save results button is the
@@ -1994,7 +1999,7 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
 
 def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch):
     """Twin of the typed path: closing the batch is a write like any other, and
-    a green "Batch 1 recorded." over a batch still open on disk is a lie."""
+    a green "Round 1 recorded." over a batch still open on disk is a lie."""
     import storage as storage_backend
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -2120,11 +2125,11 @@ def test_a_confirmation_takes_the_colour_from_the_batch_sheets(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "secondary"
+                    "Download the round sheets (Excel)").proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -2185,7 +2190,8 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
            == "e.g. 150")
     amounts = _sheet_amounts(at)
     # The sheets carry the amounts as generated, to the balance's own two
-    # decimals.
+    # decimals. The box opens prefilled, but a prefill is not an answer: the
+    # round is only rewritten once the bench CHANGES the size.
     assert ("Pea protein", 20.0) in amounts, amounts
     assert ("Methylcellulose", 1.0) in amounts, amounts
 
@@ -2204,7 +2210,8 @@ def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
                for c in at.caption), [c.value for c in at.caption]
     # Both sheets now carry the same amounts, so the download followed.
     assert _sheet_amounts(at).count(("Pea protein", 10.0)) == 2
-    assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] == 20.0
+    assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] \
+        == pytest.approx(10.0)
 
 
 def test_the_batch_table_never_dresses_a_setting_as_an_amount(burger):
@@ -2429,8 +2436,8 @@ def test_type_in_a_past_formulation(burger):
     assert reloaded.results_history[0] == {"Firmness": 5.0}
     table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
     assert table["Note"].iloc[0] == wording.IMPORTED_NOTE
-    assert str(table["Batch"].iloc[0]) in ("", "None", "nan", "<NA>"), \
-        table["Batch"].iloc[0]
+    assert str(table["Round"].iloc[0]) in ("", "None", "nan", "<NA>"), \
+        table["Round"].iloc[0]
 
 
 def test_a_typed_past_formulation_needs_every_amount(burger):
@@ -2501,7 +2508,7 @@ def test_not_used_lists_ingredients_only(scored):
 
 
 def test_the_first_batch_is_not_announced_twice_on_one_screen(scored):
-    """Saving flashes "Batch 1 recorded." above the tabs. A caption under the
+    """Saving flashes "Round 1 recorded." above the tabs. A caption under the
     heading saying the same thing is the same sentence twice on one screen,
     and there is nothing to compare a first batch with anyway."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -2529,7 +2536,7 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
-    assert list(table.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
+    assert list(table.columns) == ["Best", "Round", "Formulation", "Firmness (N)",
                                    "Juiciness (/10)", "Overall score", "Recorded",
                                    "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
@@ -2539,7 +2546,7 @@ def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     assert table["Note"].iloc[2] == "Not scored"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
-                                                         "Batch order"]
+                                                         "Round order"]
 
 
 def test_show_amounts_adds_the_amount_columns(scored):
@@ -3368,14 +3375,14 @@ def test_a_sidebar_cancel_keeps_how_many_formulations_to_generate(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(7)
+    at.number_input(key="how_many").set_value(7)
     at.run()
     _submit_button(at, wording.DELETE_PROJECT_LABEL).click()
     at.run()
     _submit_button(at, wording.CANCEL).click()
     at.run()
     assert not at.exception
-    assert at.session_state["batch_size"] == 7
+    assert at.session_state["how_many"] == 7
     assert _submit_button(at, wording.generate_button_label(7)).label == \
         wording.generate_button_label(7)
 
@@ -3552,7 +3559,7 @@ def test_only_one_confirmation_can_be_armed_on_the_set_up_tab(burger):
 
 def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
                                                                     monkeypatch):
-    """Half a sheet on disk under a green 'Batch 1 recorded.' is the worst
+    """Half a sheet on disk under a green 'Round 1 recorded.' is the worst
     outcome: the save loop must stop and say so at the first failure."""
     import storage as storage_backend
 
@@ -4049,7 +4056,7 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").label == \
-        wording.batch_total_label("g")
+        wording.batch_size_label("g")
 
 
 def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
@@ -4231,7 +4238,7 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     at.run()
     _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).click()
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -5110,7 +5117,7 @@ def test_saving_the_editor_retires_the_open_batch_with_the_notice(burger):
     _submit_button(at, "Save Methylcellulose").click()
     at.run()
     assert FoodOptimizer("burger").pending_batch is None
-    assert any(f"{wording.BATCH_CAP} 1 was discarded" in i.value
+    assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
                for i in at.info), [i.value for i in at.info]
 
 
@@ -6056,7 +6063,7 @@ def test_scoring_a_not_scored_formulation_from_results(scored, tmp_path):
 
 @pytest.fixture
 def not_scored_at_a_total(burger):
-    """Batch 1 printed to 100 g: one formulation scored, one left not scored
+    """Round 1 printed to 100 g: one formulation scored, one left not scored
     with a reason typed against it."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
                               {"Pea protein": 15.0, "Methylcellulose": 3.0}],
@@ -6165,7 +6172,7 @@ def test_the_one_download_on_the_batch_names_its_format(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     names = [b.label for b in _unknowns(at.tabs[1], "download_button")]
-    assert names == ["Download the batch sheets (Excel)"], names
+    assert names == ["Download the round sheets (Excel)"], names
     assert "Preview the printed sheets" not in [e.label for e in at.expander], \
         [e.label for e in at.expander]
 
@@ -6204,7 +6211,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     _submit_button(at, "Delete limit on Fat per 100 g").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
-                           "batch is no longer held to it. " + wording.COPY_KEPT)
+                           "round is no longer held to it. " + wording.COPY_KEPT)
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").constraints != []   # not yet
     _submit_button(at, wording.YES_DELETE).click()
@@ -6213,7 +6220,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     assert FoodOptimizer("burger").constraints == []
     assert (tmp_path / "burger_pre_delete.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
-    assert any(s.value == "Limit on Fat per 100 g deleted. The next batch is "
+    assert any(s.value == "Limit on Fat per 100 g deleted. The next round is "
                           "no longer held to it." for s in at.success), \
         [s.value for s in at.success]
 
@@ -6282,8 +6289,8 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     picker = at.selectbox(key="delete_whole_batch")
-    assert picker.label == "Add a whole batch to the list"
-    assert picker.proto.placeholder == "Choose a batch"
+    assert picker.label == "Add a whole round to the list"
+    assert picker.proto.placeholder == "Choose a round"
 
 
 def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
@@ -6298,18 +6305,18 @@ def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(c.value == ("The top line only rises. A few flat batches are "
+    assert any(c.value == ("The top line only rises. A few flat rounds are "
                            "normal; a long flat stretch suggests this "
                            "ingredient list is close to the best it can do.")
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_formulation_total_help_says_what_it_scales(open_batch):
+def test_the_batch_size_help_says_what_it_scales(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").help == (
-        "Sets the total for this batch's sheets. Set it in Set up to make "
-        "every suggestion add up to it.")
+        "Every formulation in this round adds up to this. Change it and the "
+        "sheets scale with it.")
 
 
 def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
@@ -6328,8 +6335,10 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
     assert cautions == ["At 200 g, Pea protein and Methylcellulose go past "
                         "the amounts you allowed. Print at a smaller total, "
                         "or widen them in Set up."], cautions
-    # And none at all while the batch is shown as generated.
-    at.number_input(key="scale_total").set_value(0.0)
+    # And none at all once the round is made to a size the project allows.
+    # Emptying the box does NOT undo it: the amounts have moved, and the way
+    # back is another size, not a blank.
+    at.number_input(key="scale_total").set_value(20.0)
     at.run()
     assert not any(wording.AMOUNTS_YOU_ALLOWED in c.value
                    for c in at.caption), [c.value for c in at.caption]
@@ -6618,17 +6627,17 @@ def test_both_upload_doors_read_the_same_way(open_batch):
 #  workbook the bench carries away.
 # ------------------------------------------------------------------ #
 def _workbook(at):
-    """The workbook behind `Download the batch sheets`, opened.
+    """The workbook behind `Download the round sheets`, opened.
 
     AppTest cannot reach a download button's bytes, so the file is built from
-    the same optimizer, the same batch and the same total the screen drew
-    with — which is exactly what the button hands over."""
+    the same optimizer, the same round and the same size the screen drew
+    with — which is exactly what the button hands over. open_round_size, not
+    the box's own value: a prefill the bench has not changed is not an
+    answer, and the sheets carry the amounts the round actually holds."""
     opt = at.session_state["optimizer"]
-    typed = (at.session_state["scale_total"]
-             if "scale_total" in at.session_state else None)
-    total = opt.sheet_total(typed)
     return openpyxl.load_workbook(
-        io.BytesIO(opt.workbook_bytes(opt.pending_batch, total)))
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch,
+                                      opt.open_round_size())))
 
 
 def _formulation_sheets(at):
@@ -6669,66 +6678,48 @@ def _summary_rows(at):
             if isinstance(row[0], str)}
 
 
-def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
+def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     box = at.number_input(key="scale_total")
-    # The same name as tab 1's box: one question, one answer, one word.
-    assert box.label == "Total of each formulation (g)"
+    # Not "Default batch size": that is Set up's box, for every round still
+    # to come. This one is the round on screen.
+    assert box.label == "Batch size (g)"
     assert box.proto.placeholder == "e.g. 150"
-    assert box.help == ("Sets the total for this batch's sheets. Set it in "
-                        "Set up to make every suggestion add up to it.")
+    assert box.help == ("Every formulation in this round adds up to this. "
+                        "Change it and the sheets scale with it.")
     box.set_value(150.0)
     at.run()
     assert any(c.value == "Sheets show each formulation made to 150 g."
                for c in at.caption), [c.value for c in at.caption]
-    # One line about what the sheets hold, not two. The caution under it
-    # names the total as well, because the total is what pushed those
-    # amounts out of what the project allows.
+    # One line about what the sheets hold, not two. The refusal and the
+    # caution read under the box that caused them, above the table; the
+    # sheets line reads under the download.
     assert [c.value for c in at.caption if "150 g" in c.value] == [
-        # The same refusal tab 1's box gives the same number: 150 g is more
+        # The same refusal Set up's box gives the same number: 150 g is more
         # than these two ingredients can add up to at all.
-        "A total of 150 g is not reachable: the allowed amounts add up to at "
-        "most 28 g.",
-        "Sheets show each formulation made to 150 g.",
+        "A batch size of 150 g is not reachable: the allowed amounts add up "
+        "to at most 28 g.",
         "At 150 g, Pea protein and Methylcellulose go past the amounts you "
-        "allowed. Print at a smaller total, or widen them in Set up."], \
+        "allowed. Print at a smaller total, or widen them in Set up.",
+        "Sheets show each formulation made to 150 g."], \
         [c.value for c in at.caption]
 
 
-def test_change_the_total_goes_to_set_up_and_keeps_what_was_typed(open_batch):
-    """The total the sheets are written to is set on tab 1, and this line was
-    the only place on tab 2 the reader saw the number at all. The grid below
-    has not been drawn on the run that leaves, so what the bench has already
-    typed is parked rather than dropped."""
+def test_there_is_no_change_the_total_button_any_more(open_batch):
+    """The Batch size box is on this screen, above the table. A button that
+    left the tab to answer a question the tab already asks was the long way
+    round, and it named a number that was not even this round's."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(20.0)
-    at.run()
-    at.number_input(key="f1_Firmness").set_value(6.0)
-    at.run()
-    button = _submit_button(at, "Change the total")
-    assert button.proto.type == "secondary" and not button.disabled
-    button.click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == wording.TAB_SETUP
-    assert at.session_state["f1_Firmness"] == 6.0
+    labels = [b.label for b in at.button]
+    assert "Change the total" not in labels, labels
 
 
-def test_change_the_total_steps_aside_for_a_confirmation(open_batch):
-    """A tab never shows two lit buttons, and a question waiting for an
-    answer is the one thing to do."""
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.number_input(key="scale_total").set_value(20.0)
-    at.run()
-    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
-    at.run()
-    assert _submit_button(at, "Change the total").disabled
-
-
-def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
+def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(150.0)
@@ -6741,10 +6732,14 @@ def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
     at.run()
     assert not at.exception
     reloaded = FoodOptimizer("burger")
-    assert reloaded.pending_batch_total is None      # the batch closed
+    assert reloaded.pending_batch_total is None      # the round closed
     assert reloaded.batch_total(1) == 150.0
-    # The amounts recorded are still the ones the model was told about.
-    assert reloaded.recipe_history[0]["Pea protein"] == 10.0
+    # What is recorded is what was MADE. Until 0.5.0 the box scaled the
+    # sheets and the model was told the amounts the bench had not weighed.
+    assert reloaded.ingredient_total(reloaded.recipe_history[0]) == \
+        pytest.approx(150.0)
+    assert reloaded.recipe_history[0]["Pea protein"] == pytest.approx(
+        150.0 * 10.0 / 11.0)
 
 
 def test_discarding_the_batch_forgets_the_total(open_batch):
@@ -6762,7 +6757,7 @@ def test_discarding_the_batch_forgets_the_total(open_batch):
 
 @pytest.fixture
 def made_to_a_total(burger):
-    """Batch 1 recorded after its sheets were printed to 150 g."""
+    """Round 1 recorded after its sheets were printed to 150 g."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
                              batch_no=1)
     burger.set_pending_batch_total(150.0)
@@ -6839,7 +6834,7 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
 def test_the_workbook_is_named_for_the_project_and_the_batch(open_batch):
     """A downloaded file is found in a Downloads folder a month later,
     beside eleven others, so it carries both names."""
-    assert wording.workbook_file_name("burger", 1) == "burger · Batch 1.xlsx"
+    assert wording.workbook_file_name("burger", 1) == "burger · Round 1.xlsx"
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
@@ -6906,11 +6901,12 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.STEP_MAKE_HEADING)
             < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.STEP_RECORD_HEADING)), order
-    # Step 1 is the table; step 2 the two downloads and the total box; step 3
-    # the grid, the counter and Save results.
+    # Step 1 is the Batch size box and then the table; step 2 the download;
+    # step 3 the grid, the counter and Save results.
     assert (_first(order, wording.STEP_MAKE_HEADING)
+            < _first(order, wording.batch_size_label("g"))
+            < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
-            < _first(order, wording.batch_total_label("g"))
             < _first(order, wording.STEP_RECORD_HEADING)
             < _first(order, wording.formulation_heading(1))
             < _first(order, "0 of 2 complete")
@@ -6938,7 +6934,7 @@ def test_the_ready_flash_says_what_to_do_next(burger):
     _submit_button(at, wording.generate_button_label(3)).click()
     at.run()
     assert not at.exception
-    assert any(s.value == ("Batch 1 is ready to make. Print the sheets, then "
+    assert any(s.value == ("Round 1 is ready to make. Print the sheets, then "
                            "record the results below when you have them.")
                for s in at.success), [s.value for s in at.success]
 
@@ -7006,7 +7002,7 @@ def test_how_it_works_is_five_lines(burger):
         "Importance says how much each measurement counts. Closeness is a "
         "0 to 1 score for how near a result is to its goal.",
         "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each batch aims closer to your targets.",
+        "learn the space. After that, each round aims closer to your targets.",
         "Limits are hard rules for every formulation the app suggests. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
@@ -7098,25 +7094,26 @@ def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
     assert FoodOptimizer("burger").pending_batch_total == 150.0
 
 
-def test_clearing_the_box_still_reaches_the_file(open_batch):
-    """The seeding must not undo a deliberate clear: an empty box is a value
-    of its own, and it means the amounts in the table."""
+def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
+        open_batch):
+    """An emptied box is not an undo. Since 0.5.0 the size moves the amounts
+    themselves, so there is no as-generated to go back to — the round stays
+    at 150 g and the way to another size is to type one."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(150.0)
     at.run()
-    # An emptied box comes back as 0, the box's own floor, and 0 is what
-    # "as generated" has always meant here.
+    # An emptied box comes back as 0, the box's own floor.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
     assert not at.exception
-    # The seeding must not put 150 back: the box holds what the user left in
-    # it, the table is back to as-generated, and the file agrees.
+    # The seeding must not put 150 back into a box the bench emptied...
     assert at.number_input(key="scale_total").value == 0.0
+    # ...and nothing is rewritten: the round is still the 150 g one.
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Total (g)"]) == pytest.approx([11.0, 22.0])
-    assert FoodOptimizer("burger").pending_batch_total is None
+    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
 
 
 def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
@@ -7188,7 +7185,7 @@ def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
     at.run()
     order = _tab_flow(at)
     caution = next(t for t in order if wording.AMOUNTS_YOU_ALLOWED in t)
-    assert (_first(order, wording.batch_total_label("g"))
+    assert (_first(order, wording.batch_size_label("g"))
             < order.index(caution)
             < _first(order, wording.STEP_RECORD_HEADING)), order
 
@@ -7224,7 +7221,7 @@ def test_a_restored_total_opens_a_box_the_session_had_seen_empty(open_batch):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert at.number_input(key="scale_total").value is None
+    assert at.number_input(key="scale_total").value == 16.0   # the prefill
     at.session_state["_restore_candidate"] = state
     at.run()
     _submit_button(at, wording.YES_REPLACE).click()
@@ -7243,7 +7240,7 @@ def test_a_reloaded_total_opens_a_box_the_session_had_seen_empty(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert at.number_input(key="scale_total").value is None
+    assert at.number_input(key="scale_total").value == 16.0   # the prefill
     # The file says 150 now; this session never saw it typed.
     FoodOptimizer("burger").set_pending_batch_total(150.0)
     at.session_state["optimizer"].save_error = (
@@ -7258,9 +7255,10 @@ def test_a_reloaded_total_opens_a_box_the_session_had_seen_empty(open_batch):
 
 def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
         open_batch):
-    """The mark carries the stored value, so it has to be re-stamped after
-    every write of the session's own — otherwise a deliberate clear reads as
-    a total that changed somewhere else, and the box fills itself back in."""
+    """The mark carries the size the box was last put on screen holding, so
+    it has to be re-stamped after every write of the session's own —
+    otherwise a deliberate clear reads as a size that changed somewhere else,
+    and the box fills itself back in."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
@@ -7270,7 +7268,8 @@ def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
     at.run()
     at.run()                                   # and it stays cleared
     assert at.number_input(key="scale_total").value == 0.0
-    assert FoodOptimizer("burger").pending_batch_total is None
+    # The round keeps the size it was made to; only the box is empty.
+    assert FoodOptimizer("burger").pending_batch_total == 150.0
 
 
 def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
@@ -7689,7 +7688,7 @@ def test_all_formulations_shows_every_number_to_two_decimals(burger):
 
 
 # ------------------------------------------------------------------ #
-#  Total of each formulation (0.4.0 §C)
+#  Default batch size (0.4.0 §C)
 # ------------------------------------------------------------------ #
 
 def _total_box(at):
@@ -7704,7 +7703,7 @@ def test_the_total_box_sits_under_the_ingredients_and_says_what_it_does(burger):
     at.run()
     box = _total_box(at)
     assert box is not None
-    assert box.label == "Total of each formulation (g)"
+    assert box.label == "Default batch size (g)"
     assert box.help == ("Every suggested formulation adds up to this. Set it "
                         "to what your mixer or your panel needs.")
     assert box.placeholder == "e.g. 100"
@@ -7734,8 +7733,8 @@ def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "A total of 90 g is not reachable: the allowed amounts add up to at "
-        "most 28 g."]
+        "A default batch size of 90 g is not reachable: the allowed amounts "
+        "add up to at most 28 g."]
     assert FoodOptimizer("burger").formulation_total is None
 
 
@@ -7747,12 +7746,12 @@ def test_the_total_reads_once_in_the_limits_list_and_is_taken_off_above(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     lines = [t.value for t in at.text]
-    assert "Total of each formulation · 20 g" in lines, lines
+    assert "Default batch size · 20 g" in lines, lines
     assert not any(line.startswith("All ingredients") for line in lines), lines
     assert not any("Pea protein + Methylcellulose" in line for line in lines), \
         lines
     assert "Delete limit on the total of each formulation" not in _labels(at)
-    assert any(c.value == "Empty the Total of each formulation box to take "
+    assert any(c.value == "Empty the Default batch size box to take "
                           "it off." for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
     # ... and emptying the box is what takes it off.
@@ -7788,28 +7787,34 @@ def test_a_unit_change_that_splits_the_ingredients_says_the_total_went(burger):
     _submit_button(at, wording.SET_UNIT_BUTTON).click()
     at.run()
     assert not at.exception
-    assert any(w.value == ("The total of 20 g is gone: your ingredients no "
+    assert any(w.value == ("The default batch size of 20 g is gone: your ingredients no "
                            "longer share one unit.")
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").formulation_total is None
     assert _total_box(at) is None
 
 
-def test_the_batch_tab_hides_its_own_total_box_while_the_project_has_one(
+def test_the_round_tab_opens_its_batch_size_box_at_the_projects_default(
         open_batch):
-    """Two boxes for one number would let the bench answer the question
-    twice, differently. The sheets are written for the project's total."""
+    """0.5.0: the round screen always asks the size, and a project with a
+    default opens the box AT that default rather than showing nothing.
+
+    Until 0.5.0 the box was hidden whenever Set up carried a total, so the
+    size of what the bench was about to weigh out was two tabs away and
+    making one round bigger meant editing the project."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(n.key == "scale_total" for n in at.number_input)
-    # Setting the total discards the open batch — its rows were built to the
-    # old answer — so a new one is opened under the total.
+    # Setting the default discards the open round — its rows were built to
+    # the old answer — so a new one is opened under it.
     open_batch.set_formulation_total(20)
     open_batch.set_pending_batch([{"Pea protein": 17.0,
                                    "Methylcellulose": 3.0}])
     again = AppTest.from_file(APP_PATH, default_timeout=180)
     again.run()
-    assert not any(n.key == "scale_total" for n in again.number_input)
+    box = next(n for n in again.number_input if n.key == "scale_total")
+    assert box.label == "Batch size (g)"
+    assert box.value == 20.0
     assert not any(c.value == wording.NEEDS_ONE_UNIT
                    for c in again.tabs[1].caption)
     assert any("20 g" in c.value for c in again.tabs[1].caption), \
@@ -7847,7 +7852,7 @@ def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
     assert not at.exception
     assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
     assert _total_box(at).value == 100.0
-    assert "Total of each formulation · 100 g" in [t.value for t in at.text]
+    assert "Default batch size · 100 g" in [t.value for t in at.text]
 
 
 def _warm_burger(opt):
@@ -7880,7 +7885,7 @@ def test_each_formulation_says_what_it_is_trying(burger):
     # line carries it.
     sheet = _formulation_sheets(at)[0]
     assert sheet.cell(row=1, column=1).value == \
-        "Formulation 6 · Batch 2 · burger", sheet.cell(row=1, column=1).value
+        "Formulation 6 · Round 2 · burger", sheet.cell(row=1, column=1).value
     assert sheet.cell(row=2, column=1).value == \
         f"Compared with Formulation 1: {line}", sheet.cell(row=2, column=1).value
 
@@ -7913,7 +7918,7 @@ def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
 
 
 # ------------------------------------------------------------------ #
-#  Total of each formulation: fix round 1
+#  Default batch size: fix round 1
 # ------------------------------------------------------------------ #
 
 def test_deleting_an_ingredient_says_what_happened_to_the_total(burger):
@@ -7932,7 +7937,7 @@ def test_deleting_an_ingredient_says_what_happened_to_the_total(burger):
     _submit_button(at, wording.YES_DELETE).click()
     at.run()
     assert not at.exception
-    assert any(w.value == ("The total of 80 g is gone: the allowed amounts "
+    assert any(w.value == ("The default batch size of 80 g is gone: the allowed amounts "
                            "no longer add up to it.")
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").formulation_total is None
@@ -8017,7 +8022,7 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     filled = io.BytesIO()
     book.save(filled)
     filled.seek(0)
-    filled.name = "burger · Batch 1.xlsx"
+    filled.name = "burger · Round 1.xlsx"
 
     import ui_batch
     at.session_state["_results_upload"] = ui_batch._read_results_file(opt,
@@ -8049,7 +8054,7 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     import ui_batch
     opt = open_batch
     book = io.BytesIO(opt.workbook_bytes(opt.pending_batch, None))
-    book.name = "burger · Batch 1.xlsx"
+    book.name = "burger · Round 1.xlsx"
     filled = openpyxl.load_workbook(book)
     sheet = filled[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
@@ -8059,7 +8064,7 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     out = io.BytesIO()
     filled.save(out)
     out.seek(0)
-    out.name = "burger · Batch 1.xlsx"
+    out.name = "burger · Round 1.xlsx"
     from_workbook = ui_batch._read_results_file(opt, out)
     assert list(from_workbook["Formulation"]) == [1]
     assert from_workbook["Firmness"].iloc[0] == 6.0
@@ -8144,7 +8149,7 @@ def test_a_batch_held_to_no_total_says_so_under_the_table(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This batch is not held to a total."
+    assert any(c.value == "This round is not held to a batch size."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 
@@ -8160,7 +8165,7 @@ def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[1].caption]
-    assert ("Formulation 2 adds up to 13.00 g, not the 20 g total."
+    assert ("Formulation 2 adds up to 13.00 g, not the 20 g batch size."
             in captions), captions
     # ... and the row is shown at what it really adds up to.
     frame = next(d.value for d in at.dataframe
@@ -8205,7 +8210,7 @@ def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
 def test_the_batch_line_says_to_record_on_every_tab(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == "Batch 1 · 2 to record"
+    assert any(c.value == "Round 1 · 2 to record"
                for c in at.tabs[0].caption), [c.value for c in at.tabs[0].caption]
 
 
@@ -8360,8 +8365,8 @@ def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
     _total_box(at).set_value(25.0)
     at.run()
     assert not at.exception
-    assert any(i.value == ("Batch 1 was discarded: the total of each "
-                           "formulation changed after it was made. Generate "
+    assert any(i.value == ("Round 1 was discarded: the default batch size "
+                           "changed after it was made. Generate "
                            "a new one.") for i in at.info), \
         [i.value for i in at.info]
     assert FoodOptimizer("burger").pending_batch is None

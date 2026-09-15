@@ -149,8 +149,8 @@ warnings entirely, and the checklist below gates distribution on that.
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
 6. UI walkthrough: click "Try the sample project" (eight ingredients,
-   Juiciness and Firmness, formulations of 100 g), go to Make a batch and
-   generate one, download the batch sheets (Excel) and open it, record a
+   Juiciness and Firmness, formulations of 100 g), go to Make a round and
+   generate one, download the round sheets (Excel) and open it, record a
    result (or mark one Not scored and score it later from Results),
    confirm the `.pkl` appears in `~/FoodOptimizer/`.
 7. Quit, relaunch: fast start, project still listed and loads.

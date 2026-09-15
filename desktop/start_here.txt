@@ -1,7 +1,7 @@
 FOOD OPTIMIZER — START HERE
 
 Food Optimizer suggests which formulations to make next and learns from
-your results. You set up ingredients and measurements, make a batch,
+your results. You set up ingredients and measurements, make a round,
 record what you measured, and repeat.
 
 WHAT YOUR COMPUTER NEEDS

@@ -43,7 +43,8 @@ import wording
 # a variable with one of these names would silently overwrite that column.
 RESERVED_VARIABLE_NAMES = {
     "Experiment", "Date", "Overall Score", "Recipe",
-    "Formulation", "Batch", "Trial", "Overall score", "Note", "Recorded",
+    "Formulation", "Round", "Batch", "Trial", "Overall score", "Note",
+    "Recorded",
     "Best", "Total",
     # The workbook's own row labels. An ingredient named "Not scored" put an
     # amount on the row the upload reads the tick off, and the whole
@@ -1790,7 +1791,7 @@ class FoodOptimizer:
                       include_amounts=False):
         """Every formulation — scored and left out — as the All formulations
         table shows them. `order` is 'Best first', 'Newest first' or
-        wording.SORT_BATCH_ORDER's value. Batch is a string in every row: a
+        wording.SORT_BATCH_ORDER's value. Round is a string in every row: a
         project that predates batches has blanks, and a mixed int/blank
         column renders inconsistently."""
         objs = self.measurements_by_importance()
@@ -1803,7 +1804,7 @@ class FoodOptimizer:
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 "Best": "★" if i == best_i else "",
-                wording.BATCH_CAP: "" if batch is None else str(int(batch)),
+                wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
@@ -1831,7 +1832,7 @@ class FoodOptimizer:
                 # Note column, which already carries it, and a Best column
                 # with words in it read as a third kind of score.
                 "Best": "",
-                wording.BATCH_CAP: "" if batch is None else str(int(batch)),
+                wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
@@ -1845,7 +1846,7 @@ class FoodOptimizer:
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
-        columns = (["Best", wording.BATCH_CAP, "Formulation"]
+        columns = (["Best", wording.ROUND_CAP, "Formulation"]
                    + [self._measurement_column(o) for o in objs]
                    + ["Overall score", "Recorded", "Note"])
         if include_amounts:
@@ -1964,7 +1965,7 @@ class FoodOptimizer:
         else:
             raise ValueError(
                 "The sheet needs a Formulation column with the numbers "
-                "from the batch sheets you downloaded."
+                f"from the {wording.ROUND} sheets you downloaded."
             )
         col_for, missing = {}, []
         for obj in self.objectives:
@@ -1993,14 +1994,16 @@ class FoodOptimizer:
             if legacy:
                 if not (1 <= number <= len(rows)):
                     raise ValueError(
-                        f"Formulation {number} is not in batch "
-                        f"{self.pending_batch_no} (it has {in_batch})."
+                        f"Formulation {number} is not in "
+                        f"{wording.ROUND} {self.pending_batch_no} "
+                        f"(it has {in_batch})."
                     )
                 number = numbers[number - 1]
             elif number not in numbers:
                 raise ValueError(
-                    f"Formulation {number} is not in batch "
-                    f"{self.pending_batch_no} (it has {in_batch})."
+                    f"Formulation {number} is not in "
+                    f"{wording.ROUND} {self.pending_batch_no} "
+                    f"(it has {in_batch})."
                 )
             if number in seen:
                 raise ValueError(
@@ -2048,7 +2051,7 @@ class FoodOptimizer:
     def history_csv(self):
         """Every formulation the project holds as CSV — the ones with results
         and the not-scored ones — with the identity columns (Formulation,
-        Batch, Recorded, Overall score) and the Note.
+        Round, Recorded, Overall score) and the Note.
 
         The download is a workbook now (all_formulations_workbook), and both
         write the one table history_export_frame builds. This is still the
@@ -2149,7 +2152,7 @@ class FoodOptimizer:
         """The date the sheets are for: when the batch was generated, when
         its first formulation was recorded if it has been closed since, and
         today for a batch with neither. It is on the summary's title line
-        because two printouts of Batch 2 cannot otherwise be told apart."""
+        because two printouts of Round 2 cannot otherwise be told apart."""
         created = getattr(self, 'pending_batch_created', None)
         if created:
             return str(created)
@@ -2689,7 +2692,7 @@ class FoodOptimizer:
             results = self.results_history[i] if i < len(self.results_history) else {}
             row = {
                 "Formulation": int(self.formulation_ids[i]),
-                wording.BATCH_CAP: "" if batch is None else int(batch),
+                wording.ROUND_CAP: "" if batch is None else int(batch),
                 "Recorded": local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
@@ -2708,7 +2711,7 @@ class FoodOptimizer:
             batch = left_out.get('batch')
             row = {
                 "Formulation": int(left_out['formulation']),
-                wording.BATCH_CAP: "" if batch is None else int(batch),
+                wording.ROUND_CAP: "" if batch is None else int(batch),
                 "Recorded": "",
                 "Overall score": "",
             }
@@ -2721,7 +2724,7 @@ class FoodOptimizer:
             row[wording.NOT_SCORED] = wording.TICKED_BOX
             row["Note"] = left_out.get('note') or wording.NOT_SCORED
             rows.append(row)
-        columns = (["Formulation", wording.BATCH_CAP, "Recorded",
+        columns = (["Formulation", wording.ROUND_CAP, "Recorded",
                     "Overall score"]
                    + [self._amount_column(v['name']) for v in self.variables]
                    + ([total_col] if total_col is not None else [])
@@ -2906,16 +2909,40 @@ class FoodOptimizer:
             n_outside=len(names), n_total=len(ingredients))
 
     def _rewritten(self, recipes, total):
-        """The amounts a total actually rewrote, ready to be checked against
-        the project's own rules. Empty when nothing was rewritten."""
+        """The amounts a batch size actually put where the model did not
+        choose them, ready to be checked against the project's own rules.
+        Empty when nothing was moved.
+
+        Two ways an amount gets here. A round SHOWN at a size it was not
+        built to is rewritten on the way to the screen, and shown_recipe says
+        so by handing back a basis. And since 0.5.0 the Batch size box moves
+        the stored amounts themselves — every row of the open round, the
+        bench's own rows included, and whether or not the project has a
+        default — so once that round has a size of its own every one of its
+        rows is checked, however it is displayed.
+        """
         if total is None:
             return []
+        sized = self._round_was_sized(recipes)
         out = []
         for row in recipes:
             recipe, basis = self.shown_recipe(row, total)
-            if basis is not None:
+            if basis is not None or sized:
                 out.append(recipe)
         return out
+
+    def _round_was_sized(self, recipes):
+        """True when `recipes` are rows of the OPEN round and the bench has
+        given that round a batch size of its own. Recorded formulations and
+        bare amount dicts are not: nothing has moved them."""
+        if getattr(self, 'pending_batch_total', None) is None:
+            return False
+        numbers = {int(r['formulation'])
+                   for r in self._batch_rows(self.pending_batch)}
+        rows = [r for r in recipes
+                if isinstance(r, dict) and 'formulation' in r]
+        return bool(numbers) and bool(rows) and all(
+            int(r['formulation']) in numbers for r in rows)
 
     def scaled_limit_caution(self, recipes, total):
         """The line for a limit the total broke on its way past it, or "" when
@@ -3361,6 +3388,21 @@ class FoodOptimizer:
         if project_total is not None:
             return float(project_total)
         return None if batch_total is None else float(batch_total)
+
+    def open_round_size(self):
+        """The batch size the OPEN round is being made to: the size the bench
+        typed on the round screen if there is one, else the project's
+        default, else None for as generated.
+
+        The round's own answer wins. Until 0.5.0 the project's default hid
+        tab 2's box altogether, so sheet_total could put the project first
+        and be right; now the box is always there and scaling the round is
+        how a bench makes one round bigger than the default without editing
+        the project."""
+        stored = getattr(self, 'pending_batch_total', None)
+        if stored is not None:
+            return float(stored)
+        return self.sheet_total(None)
 
     # ------------------------------------------------------------------ #
     #  Utility Scoring
@@ -3899,16 +3941,15 @@ class FoodOptimizer:
         # and only this says what the bench weighed out. It is written when a
         # result arrives, because the open batch is cleared straight after.
         if batch_no is not None and batch_no == self.pending_batch_no:
-            # sheet_total, not the box's own number: with a project total in
-            # force tab 2 draws no box, so pending_batch_total is blank (or
-            # stale from before the total was set) while the sheets the bench
-            # worked from were printed to the project's total.
+            # open_round_size, not the box's own number: a round the bench
+            # never re-sized was printed to the project's default, and the
+            # box's value must not be read as an answer it never gave.
             #
-            # Written even when it is None. "This batch was made as
+            # Written even when it is None. "This round was made as
             # generated" is an answer, and the only place it is kept: with
-            # the key absent, a total typed on tab 1 months later was read
-            # back as the total this batch had been made to.
-            made_to = self.sheet_total(getattr(self, 'pending_batch_total', None))
+            # the key absent, a default typed on tab 1 months later was read
+            # back as the size this round had been made to.
+            made_to = self.open_round_size()
             self._batch_totals()[int(batch_no)] = (
                 None if made_to is None else float(made_to))
         self.save()
@@ -4243,6 +4284,41 @@ class FoodOptimizer:
         if value == getattr(self, 'pending_batch_total', None):
             return
         self.pending_batch_total = value
+        self.save()
+
+    def scale_round(self, batch_size):
+        """Make every formulation in the open round to `batch_size`.
+
+        The round screen's Batch size box calls this. Until 0.5.0 that box
+        scaled the PICTURE — `scaled_recipe` rewrote the table and the sheets
+        on the way out while the stored rows kept their own amounts — so a
+        round printed at 150 g was recorded at the 50 g the model had
+        proposed, and the bench's own row was not rewritten at all. Here the
+        amounts move: the table, the workbook and what `tell` records are one
+        set of numbers, because they are the same numbers.
+
+        Proportional, from what the rows hold NOW, so scaling to 100 and then
+        to 50 lands on 50. Process settings do not scale — a cook temperature
+        is not an amount of anything — and a row that adds up to nothing has
+        no factor that reaches the size, so it is left as it is.
+
+        The round stays open and keeps its number: this is a change of size,
+        not a regenerate. `pending_batch_total` (the stored name, unchanged)
+        remembers the size, so a reopened window and the Results tab both
+        still know what the bench weighed out. With no round open there is
+        nothing to size and nothing to remember it by, so this does nothing.
+        """
+        if not self.pending_batch:
+            return          # no round to size; nothing to remember it by
+        size = None if batch_size is None else float(batch_size)
+        rows = self._batch_rows(self.pending_batch)
+        if size is not None and size > 0:
+            rows = [self._batch_row(row['formulation'],
+                                    self.scaled_recipe(row['recipe'], size),
+                                    row.get('note'))
+                    for row in rows]
+        self.pending_batch = rows
+        self.pending_batch_total = size
         self.save()
 
     def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):

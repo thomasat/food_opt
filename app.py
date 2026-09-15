@@ -98,7 +98,7 @@ _FORM_FRESH = {
     "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
     "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
-    "batch_size": 3, "scale_total": None, "own_note": "",
+    "how_many": 3, "scale_total": None, "own_note": "",
     "formulation_total": None,
     "targets_source_box": "",
     # Tab 3's "Add a formulation you already made": the note box opens
@@ -668,7 +668,7 @@ _line = _batch_line(_opt)
 
 with tab_setup:
     # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
-    # directly above "Batch 1 · make these 3 formulations" saying it again.
+    # directly above "Round 1 · make these 3 formulations" saying it again.
     if _line:
         st.caption(_line)
     ui_setup.render(_opt, STORAGE)

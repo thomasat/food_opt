@@ -2,7 +2,7 @@
 
 One column, in the order a formulator fills it in: the ingredients and the
 process settings together, then the measurements, then the optional
-sections. Exactly one coloured button lives here — `Next: make a batch` at
+sections. Exactly one coloured button lives here — `Next: make a round` at
 the foot.
 """
 import json
@@ -108,8 +108,9 @@ KIND_SETTING = wording.KIND_SETTING
 
 
 def _scaled_now(opt):
-    """The total the open batch is scaled to, or None. Only a real scaling
-    counts: the box is not even offered while the ingredients differ in unit."""
+    """The batch size the open round is being made to, or None. Only a real
+    size counts: the box is not even offered while the ingredients differ in
+    unit."""
     if opt.one_amount_unit() is None:
         return None
     value = st.session_state.get("scale_total")
@@ -119,10 +120,12 @@ def _scaled_now(opt):
 
 
 def _unscaled_tail(opt, before, before_unit):
-    """The sentence a unit change owes the open batch when it has just split
-    the ingredients across units: scaling needs one unit, so the batch is back
-    to as-generated. Empties the box too — a number left in it would go on
-    quietly meaning nothing."""
+    """The sentence a unit change owes the open round when it has just split
+    the ingredients across units: a batch size needs one unit, so there is no
+    longer a box to change it in. Nothing is undone — since 0.5.0 the size
+    moves the amounts themselves — so the sentence says the round keeps what
+    it has. Empties the box too: a number left in it would go on quietly
+    meaning nothing."""
     if before is None or opt.one_amount_unit() is not None:
         return ""
     clear_scale_total()
@@ -912,8 +915,8 @@ def _set_unit_now(opt, pick, typed):
         var = opt._var_by_name(pick)
         is_ingredient = var.get('category', 'ingredient') == 'ingredient'
         said = wording.unit_changed(pick, written, is_ingredient)
-        # Scaling needs one unit, and this change may have taken it away; the
-        # batch is back to as-generated, so say so.
+        # A batch size needs one unit, and this change may have taken it
+        # away; the round keeps the amounts it has, so say so.
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{said} {tail}" if tail else said)
         # An amount limit is a sum, and this change may have left one adding
@@ -1713,7 +1716,7 @@ def _foot(opt, editing=False):
 def render(opt, storage):
     # The sample's own welcome, directly under the tab's title: gone the
     # moment any formulation exists, scored or not — a batch whose one row
-    # was ticked Not scored has still been made, and "Next: make a batch"
+    # was ticked Not scored has still been made, and "Next: make a round"
     # would be wrong about it.
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):

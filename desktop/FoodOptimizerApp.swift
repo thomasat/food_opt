@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let stillLoadingLine = "Still loading. The first start can take up to a minute."
     // The one line that says what the app is for, so the wait has something
     // to read that is not about waiting.
-    let nextUpLine = "Next: set up your ingredients and measurements, then make a batch."
+    let nextUpLine = "Next: set up your ingredients and measurements, then make a round."
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
         as? String ?? ""

@@ -90,7 +90,7 @@ def _progress_line(opt):
                if b != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
-        # "Batch 1 recorded."; saying it again four lines lower is the same
+        # "Round 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
     best_now = max(float(y) for y in opt.Y_history)
@@ -210,7 +210,7 @@ def _amount_format(opt, frame):
     # alone.
     numeric = {c for c in frame.columns
                if c not in amounts and frame[c].dtype != object
-               and c not in (wording.FORMULATION_CAP, wording.BATCH_CAP)}
+               and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP)}
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
     formats.update({c: weighed for c in numeric})
@@ -1066,7 +1066,7 @@ def render(opt, storage):
         # A project with no ingredients cannot make a batch: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
         # And a batch already on the bench is not a first batch to make: the
-        # foot of every other screen calls it "Back to Batch 1 · 3 to record".
+        # foot of every other screen calls it "Back to Round 1 · 3 to record".
         ready, _ = readiness(opt)
         if not ready:
             label, target = wording.SET_UP_THIS_PROJECT_BUTTON, TAB_SETUP
