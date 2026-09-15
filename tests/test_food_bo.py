@@ -307,21 +307,6 @@ def test_recipe_lines_sorts_largest_first_and_omits_zeros(tmp_path, monkeypatch)
     assert opt.recipe_lines(recipe, limit=1) == [("Sugar", 5.0)]
 
 
-def test_batch_csv_rounds_to_two_decimals(tmp_path, monkeypatch):
-    """The downloaded sheet must match the two-decimal table shown on screen,
-    not the raw float precision the optimizer suggests."""
-    monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("bf2")
-    opt.add_ingredient("Water", 0, 100)
-    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
-    opt.set_pending_batch([{"Water": 11.877679824829102}])
-    df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-    # The sheet's amount columns carry the ingredient's unit, as the batch
-    # table's do: a bare "Water" column left the lab guessing.
-    assert df["Water (g)"].iloc[0] == 11.88
-    assert list(df["Formulation"]) == [1]
-
-
 def test_history_csv_carries_the_units_the_screen_shows(tmp_path, monkeypatch):
     """The amount columns are headed exactly as the All formulations table
     and the batch sheet head them. A bare "Water" column whose numbers were
@@ -2543,27 +2528,14 @@ class TestUnitsAndImportance:
         assert list(df["Formulation"]) == [1]
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
 
-    def test_batch_frame_and_csv_carry_the_scale_through(self, tmp_path, monkeypatch):
-        """What is downloaded must equal what is on screen, or the lab weighs
-        out the wrong amounts."""
+    def test_batch_frame_carries_the_scale_through(self, tmp_path, monkeypatch):
+        """What the sheets carry must equal what is on screen, or the lab
+        weighs out the wrong amounts."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
         df = opt.batch_frame(opt.pending_batch, scale_to=22.0)
         assert df["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
         assert df["Total (g)"].iloc[0] == pytest.approx(22.0)
-        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch, scale_to=22.0)))
-        assert sheet["Pea protein (g)"].iloc[0] == 20.0
-        assert sheet["Total (g)"].iloc[0] == pytest.approx(22.0)
-
-    def test_batch_csv_has_formulation_numbers_and_blank_measurements(self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        opt.set_pending_batch([{"Pea protein": 11.877679824829102,
-                                "Methylcellulose": 1.0}])
-        df = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert list(df["Formulation"]) == [1]
-        assert df["Pea protein (g)"].iloc[0] == 11.88
-        assert df["Firmness"].isna().all()
-        assert "Note" in df.columns
 
     def test_objectives_without_a_unit_key_backfill_to_blank_on_load(self, tmp_path, monkeypatch):
         """A 0.2.x project's objectives were saved before 'unit' existed;
@@ -2713,15 +2685,6 @@ class TestUnitPerIngredient:
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
         assert opt.one_amount_unit() == "g"
 
-    def test_the_batch_sheet_carries_the_units(self, tmp_path, monkeypatch):
-        """The sheet the lab fills in must say what the amounts are measured
-        in, or 40 of water is 40 of nothing."""
-        opt = self._opt(tmp_path, monkeypatch)
-        opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
-        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert "Pea protein (g)" in sheet.columns
-        assert sheet["Water (ml)"].iloc[0] == 40.0
-
     def test_ingredients_in_several_units_have_no_single_unit(self, tmp_path,
                                                               monkeypatch):
         """What the screen asks before offering to scale a batch to a total:
@@ -2833,20 +2796,12 @@ class TestUnitPerIngredient:
         assert removed[0]['missing'] == ["Water"]
         assert opt.quantity_constraints == []
 
-    def test_the_batch_sheet_totals_each_unit_in_its_own_column(
-            self, tmp_path, monkeypatch):
-        """A spreadsheet cannot add up '10.00 g · 40.00 ml', so the CSV gives
-        each unit a column of numbers; the screen and the printable sheets
-        keep the one cell."""
+    def test_a_total_across_two_units_is_written_out(self, tmp_path,
+                                                     monkeypatch):
+        """Nothing can add up '10.00 g · 40.00 ml' to one number, so the
+        screen and the sheets both carry it written out."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
-        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert list(sheet.columns) == ["Formulation", "Pea protein (g)",
-                                       "Water (ml)", "Total (g)", "Total (ml)",
-                                       "Firmness", "Note"]
-        assert sheet["Total (g)"].iloc[0] == 10.0
-        assert sheet["Total (ml)"].iloc[0] == 40.0
-        # The screen is unchanged: one cell, both units.
         assert opt.batch_frame(opt.pending_batch)["Total"].iloc[0] == \
             "10.00 g · 40.00 ml"
 
@@ -2876,11 +2831,6 @@ class TestSettingsOnlyProject:
                                     "Incubation temperature (°C)",
                                     "Incubation time (h)",
                                     wording.COMPARED_WITH_ALLOWED]
-        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert list(sheet.columns) == ["Formulation",
-                                       "Incubation temperature (°C)",
-                                       "Incubation time (h)", "Acidity",
-                                       "Note"]
 
     def test_the_loop_runs_on_settings_alone(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -4180,9 +4130,12 @@ class TestWhatEachFormulationIsTrying:
         assert list(df["Compared with Formulation 1"]) == [
             "Trying something different · Water +20.00 g",
             "Close to the best · Water +1.00 g"]
-        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
-        assert not any(c.startswith("Compared with") for c in sheet.columns), \
-            list(sheet.columns)
+        # ... and not on the sheets: a workbook's rows are the ingredients
+        # to weigh out, and a column of prose is not one of them.
+        summary = _book(opt.workbook_bytes(opt.pending_batch, None)).worksheets[0]
+        assert not any(isinstance(row[0], str)
+                       and row[0].startswith("Compared with")
+                       for row in summary.iter_rows(values_only=True))
 
     def test_a_scaled_table_compares_the_amounts_it_shows(self, tmp_path,
                                                           monkeypatch):
@@ -4267,6 +4220,27 @@ class TestTheTotalIsAlwaysReachable:
             for name, value in row.items():
                 low, high = bounds[name]
                 assert low - 1e-6 <= value <= high + 1e-6, (name, value)
+
+    def test_a_warm_batch_lands_exactly_on_the_total(self, tmp_path,
+                                                      monkeypatch):
+        """The limit the total is enforced as is a band of ±0.5 %, so the
+        model could choose 99.5 g where the project says 100 — and the sheets
+        then carried an amount the caution had to apologise for. A warm batch
+        is projected onto the total, exactly as the opening is."""
+        opt = self._sample(tmp_path, monkeypatch, name="warm_total")
+        opt.set_formulation_total(100)
+        for row in opt.ask(n_suggestions=5):
+            opt.tell(row, {"Juiciness": 6.0, "Firmness": 6.0})
+        assert len(opt.X_history) == 5          # the cold start is over
+        rows = opt.ask(n_suggestions=3)
+        bounds = {v['name']: v['bounds'] for v in opt.variables}
+        for row in rows:
+            assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
+            for name, value in row.items():
+                low, high = bounds[name]
+                assert low - 1e-6 <= value <= high + 1e-6, (name, value)
+        # Nothing to caution about: the sheets are the total the box says.
+        assert opt.scaled_caution(rows, opt.sheet_total(None)) == ""
 
     def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
         """Projecting onto the total must not collapse the design: three rows
@@ -4450,8 +4424,12 @@ class TestTheWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Batch 2"]
         rows = _rows(sheet)
-        assert rows[0] == ("Ingredient", "Formulation 1", "%",
-                           "Formulation 2", "%", "Formulation 3", "%"), rows[0]
+        # The title line says which batch of which project this is and when
+        # it was asked for; the header the upload reads is under it.
+        assert rows[0][0] == wording.summary_title(2, "sheets",
+                                                   opt._sheet_date())
+        assert rows[1] == ("Ingredient", "Formulation 1", "%",
+                           "Formulation 2", "%", "Formulation 3", "%"), rows[1]
         labelled = _labelled(sheet)
         assert labelled["Pea protein (g)"] == [20.0, 20.0, 30.0, 30.0,
                                                25.0, 25.0]
@@ -4472,11 +4450,17 @@ class TestTheWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Batch 2"]
         labels = list(_labelled(sheet))
-        # By importance, as every screen orders them.
-        assert labels[-4:] == ["Firmness, target 6 N",
+        # The block is headed in the word every sentence about it uses, the
+        # measurements are in importance order, and the last line says which
+        # of the two ways of filling a column in wins.
+        assert labels[-6:] == ["Measured",
+                               "Firmness, target 6 N",
                                "Juiciness (/10), higher is better",
-                               "Not scored", "Note"], labels
-        for label in labels[-4:]:
+                               "Not scored", "Note",
+                               wording.SUMMARY_TICK_NOTE], labels
+        assert wording.SUMMARY_TICK_NOTE == (
+            "A ticked Not scored box wins over numbers typed in that column.")
+        for label in labels[-5:-1]:
             assert _labelled(sheet)[label] == [None] * 6, label
 
     def test_a_note_the_app_wrote_is_already_on_the_sheet(self, tmp_path,
@@ -4500,12 +4484,10 @@ class TestTheWorkbook:
                                          100.0))["Formulation 1"]
         rows = _rows(sheet)
         assert rows[0][0] == "Formulation 1 · Batch 2 · sheets"
-        # What this formulation is trying, anchored: on paper there is no
-        # column header to read the cell against.
-        assert rows[1][0] == wording.compared_with_line(
-            opt.compared_with_column(),
-            opt.compared_with_text(opt.pending_batch[0]['recipe'],
-                                   scale_to=100.0))
+        # What this formulation is trying. Nothing to compare it with yet,
+        # so the line is the cell alone: "Compared with the allowed amounts:
+        # Spread across the allowed amounts" is that sentence twice.
+        assert rows[1][0] == wording.SUGGESTION_SPREAD.capitalize()
         # A column to tick as each ingredient goes in, in set-up order.
         assert rows[3] == ("Tick", "Ingredient", "Amount (g)", "%"), rows[3]
         assert [row[1] for row in rows[4:7]] == ["Pea protein", "Water",
@@ -4529,7 +4511,7 @@ class TestTheWorkbook:
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         summary = book["Batch 2"]
         wanted = {}
-        for row in summary.iter_rows(min_row=2, max_row=4, max_col=1):
+        for row in summary.iter_rows(min_row=3, max_row=5, max_col=1):
             wanted[row[0].value] = row[0].fill.fgColor.rgb
         assert len(set(wanted.values())) == 3, wanted
         for name in book.sheetnames[1:]:
@@ -4662,6 +4644,155 @@ class TestTheWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError, match="could not be read as a workbook"):
             opt.results_from_workbook(io.BytesIO(b"not a workbook"))
+
+    def _old_layout(self, opt, extra_rows=()):
+        """A workbook as the app wrote them before the summary had a title
+        line or a Measured heading: the header IS row 1. `extra_rows` are
+        (label, values) pairs written among the ingredients — an ingredient
+        named `Not scored` is what a project saved before that name was
+        reserved can still hold."""
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.title = wording.batch_sheet_name(opt.pending_batch_no)
+        numbers = [row['formulation'] for row in opt.pending_batch]
+        sheet.cell(row=1, column=1, value=wording.KIND_INGREDIENT)
+        for j, number in enumerate(numbers):
+            sheet.cell(row=1, column=2 + 2 * j,
+                       value=wording.formulation_sheet_name(number))
+            sheet.cell(row=1, column=3 + 2 * j, value=wording.PERCENT_COLUMN)
+        r = 2
+        for label, values in list(extra_rows) + [("Pea protein (g)", [20, 30, 25])]:
+            sheet.cell(row=r, column=1, value=label)
+            for j, value in enumerate(values):
+                sheet.cell(row=r, column=2 + 2 * j, value=value)
+            r += 1
+        sheet.cell(row=r, column=1, value="Total (g)")
+        r += 2
+        for obj in opt.measurements_by_importance():
+            sheet.cell(row=r, column=1,
+                       value=opt._measurement_sheet_label(obj))
+            r += 1
+        sheet.cell(row=r, column=1, value=wording.NOT_SCORED)
+        not_scored_row = r
+        r += 1
+        sheet.cell(row=r, column=1, value=wording.NOTE)
+        return book, not_scored_row
+
+    def test_a_workbook_from_before_the_title_line_still_imports(
+            self, tmp_path, monkeypatch):
+        """The summary opens with a title line now, so the header is row 2 —
+        but a bench filling in the file it downloaded last month must not be
+        told its work is unreadable. The header is found, not counted to."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book, _ = self._old_layout(opt)
+        sheet = book[wording.batch_sheet_name(2)]
+        labels = [sheet.cell(row=r, column=1).value
+                  for r in range(1, sheet.max_row + 1)]
+        sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+                   value=5.5)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        frame = opt.results_from_workbook(out)
+        assert list(frame["Formulation"]) == [1]
+        assert frame["Firmness"].iloc[0] == 5.5
+        # ... and the file the app writes today reads back the same way.
+        today = opt.results_from_workbook(self._filled_in(opt))
+        assert list(today["Formulation"]) == [1, 2, 3]
+
+    def test_an_ingredient_called_not_scored_cannot_hijack_the_tick(
+            self, tmp_path, monkeypatch):
+        """The tick and the note are read by position under the last
+        measurement row, not by the first label that matches. An ingredient
+        of that name put its amount on the tick row, and the whole column
+        came back as a formulation nobody scored."""
+        opt = self._opt(tmp_path, monkeypatch)
+        # The name is reserved now...
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_ingredient(wording.NOT_SCORED, 0, 10)
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_ingredient(wording.MEASURED_COLUMN, 0, 10)
+        # ... but a project saved before it was still has the row.
+        book, _ = self._old_layout(opt, extra_rows=[(wording.NOT_SCORED,
+                                                     [5, 5, 5])])
+        sheet = book[wording.batch_sheet_name(2)]
+        labels = [sheet.cell(row=r, column=1).value
+                  for r in range(1, sheet.max_row + 1)]
+        sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+                   value=5.5)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        frame = opt.results_from_workbook(out)
+        assert list(frame["Formulation"]) == [1]
+        assert frame["Firmness"].iloc[0] == 5.5
+        assert frame[wording.NOT_SCORED].iloc[0] == "", frame.to_dict()
+
+    def test_the_formulation_sheets_are_read_when_the_summary_is_empty(
+            self, tmp_path, monkeypatch):
+        """A bench that prints one sheet per bowl writes on the sheet in its
+        hand. The summary is where the upload looks first; the sheets are
+        where it looks when nothing was written there."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        sheet = book[wording.formulation_sheet_name(2)]
+        for r in range(1, sheet.max_row + 1):
+            label = sheet.cell(row=r, column=2).value
+            if label == "Firmness":
+                sheet.cell(row=r, column=4, value=6.5)
+            elif label == "Juiciness (/10)":
+                sheet.cell(row=r, column=4, value=7.0)
+        third = book[wording.formulation_sheet_name(3)]
+        for r in range(1, third.max_row + 1):
+            if third.cell(row=r, column=2).value == wording.NOT_SCORED_CHECKBOX_SHEET:
+                third.cell(row=r, column=4, value="x")
+            elif third.cell(row=r, column=2).value == wording.NOTE:
+                third.cell(row=r, column=3, value="burner failed")
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        frame = opt.results_from_workbook(out)
+        assert list(frame["Formulation"]) == [2, 3]
+        parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
+                                                  with_skipped=True)
+        assert parsed == [(2, {"Firmness": 6.5, "Juiciness": 7.0}, "")]
+        assert skipped == [(3, "burner failed")]
+
+    def test_a_sheet_whose_measurement_rows_are_all_unreadable_is_refused(
+            self, tmp_path, monkeypatch):
+        """The tick and the note are read from under the last measurement
+        row. With no measurement row found at all there is nothing to count
+        from, and reading the first ingredient's amount as a ticked box would
+        lose the whole batch to it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book, _ = self._old_layout(opt)
+        sheet = book[wording.batch_sheet_name(2)]
+        for r in range(1, sheet.max_row + 1):
+            label = str(sheet.cell(row=r, column=1).value or "")
+            if label.startswith(("Firmness", "Juiciness")):
+                sheet.cell(row=r, column=1, value="Panel " + label)
+                sheet.cell(row=r, column=2, value=5.5)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        with pytest.raises(ValueError, match="Nothing is filled in"):
+            opt.results_from_workbook(out)
+
+    def test_the_summary_is_read_first_when_both_are_filled_in(
+            self, tmp_path, monkeypatch):
+        """One sheet has to win, and it is the one the whole batch is
+        written on."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = openpyxl.load_workbook(self._filled_in(opt))
+        sheet = book[wording.formulation_sheet_name(1)]
+        for r in range(1, sheet.max_row + 1):
+            if sheet.cell(row=r, column=2).value == "Firmness":
+                sheet.cell(row=r, column=4, value=9.9)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        frame = opt.results_from_workbook(out)
+        assert frame["Firmness"].iloc[0] == 5.5, frame.to_dict()
 
     # ------------------------- the whole project ------------------------ #
 

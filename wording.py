@@ -269,7 +269,9 @@ def project_load_error_info():
 
 SAVE_ERROR_WARNING = ("**Your last change was not saved.** Save a "
                       "copy now, then click Reload project.")
-SAVE_COPY_NOW = "Save a copy"
+# The banner above it reads "Save a copy now, then click Reload
+# project.", so the button is the first half of that sentence.
+SAVE_COPY_NOW = "Save a copy now"
 RELOAD_PROJECT = "Reload project"
 PROJECT_RELOADED = "Project reloaded from the latest saved copy."
 
@@ -1476,9 +1478,22 @@ NOT_SCORED_CHECKBOX_SHEET = f"{NOT_SCORED} ☐"
 # it was.
 MADE_BY_FOOTER = "Made by ____ on ____"
 
+# The one line under the summary's Note row. The tick and the numbers can
+# both be filled in on one column, and only one of them can be true.
+SUMMARY_TICK_NOTE = (f"A ticked {NOT_SCORED} box wins over numbers typed in "
+                     f"that column.")
+
 ALL_FORMULATIONS_SHEET = f"All {FORMULATION}s"
 SET_UP_SHEET = "Set-up"
 INGREDIENTS_SHEET = "Ingredients"
+
+
+def summary_title(batch_no, project_name, made_on):
+    """'Batch 2 · Sample project · 2026-09-14' — the first line of the
+    summary sheet. A sheet printed and carried to a bench says which batch
+    of which project it is and when it was asked for; without the date, two
+    printouts of the same batch number cannot be told apart."""
+    return f"{batch_sheet_name(batch_no)} · {project_name} · {made_on}"
 
 
 def batch_sheet_name(batch_no):

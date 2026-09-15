@@ -112,7 +112,7 @@ def test_restore_rejects_empty_json(project_with_history):
     assert len(FoodOptimizer("my_project").X_history) == 1
 
 
-def test_save_failure_shows_one_banner_with_backup_and_reload(project_with_history):
+def test_save_failure_shows_one_banner_with_a_copy_and_reload(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.session_state["optimizer"].save_error = "The server could not be reached — your last change was NOT saved."
@@ -121,6 +121,14 @@ def test_save_failure_shows_one_banner_with_backup_and_reload(project_with_histo
     assert sum(1 for w in at.warning if "not saved" in w.value) == 1, [w.value for w in at.warning]
     labels = [b.label for b in at.button]
     assert "Reload project" in labels, labels
+    # The banner says "Save a copy now, then click Reload project." and the
+    # two buttons under it are the two halves of that sentence, word for
+    # word — a button reading "Save a copy" sent the reader looking for a
+    # third control.
+    assert any(w.value == wording.SAVE_ERROR_WARNING for w in at.warning), \
+        [w.value for w in at.warning]
+    assert wording.SAVE_COPY_NOW == "Save a copy now"
+    assert _unknown(at.main, "download_button", wording.SAVE_COPY_NOW)
 
 
 def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
@@ -4054,18 +4062,24 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _sheet_amounts(at) == [("Pea protein", 10.0), ("Water", 40.0)], \
-        _sheet_amounts(at)
+    # Every row carries its own unit, because the column header cannot.
+    assert _sheet_amounts(at) == [("Pea protein (g)", 10.0),
+                                  ("Water (ml)", 40.0)], _sheet_amounts(at)
     texts = _sheet_text(at)
     assert "10.00 g · 40.00 ml" in texts, texts
-    # The amount column cannot carry one unit, so it stays bare and the
-    # ingredient rows are headed by the summary sheet's own labels.
     assert wording.AMOUNT_COLUMN in texts, texts
-    assert list(_summary_rows(at)) == ["Ingredient", "Pea protein (g)",
-                                       "Water (ml)", "Total",
-                                       "Firmness, target 6 N",
-                                       "Not scored", "Note"], \
-        list(_summary_rows(at))
+    # And there is no `%` column at all: 10 g of powder is a share of no
+    # total that also holds 40 ml of water.
+    assert wording.PERCENT_COLUMN not in texts, texts
+    rows = _summary_rows(at)
+    assert list(rows)[1:] == ["Ingredient", "Pea protein (g)",
+                              "Water (ml)", "Total",
+                              wording.MEASURED_COLUMN,
+                              "Firmness, target 6 N",
+                              "Not scored", "Note",
+                              wording.SUMMARY_TICK_NOTE], list(rows)
+    # One column per formulation, not two.
+    assert rows["Pea protein (g)"] == [10.0], rows["Pea protein (g)"]
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -6420,9 +6434,9 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, a note box and its overflow, and one tick per
-    # ingredient, on each of the two sheets.
-    assert boxed == 2 * (2 + 2 + 2), boxed
+    # Two measurements, the Not scored box, a note box and its overflow,
+    # and one tick per ingredient, on each of the two sheets.
+    assert boxed == 2 * (2 + 1 + 2 + 2), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -6953,9 +6967,17 @@ def test_every_sheet_ends_with_the_caution(open_batch):
     sheets = [book[name] for name in book.sheetnames[1:]]
     assert len(sheets) == 2, book.sheetnames
     for sheet in sheets:
-        last = [value for row in sheet.iter_rows(values_only=True)
-                for value in row if isinstance(value, str)][-1]
-        assert last == caution, last
+        text = [value for row in sheet.iter_rows(values_only=True)
+                for value in row if isinstance(value, str)]
+        # Directly under the amounts it is about — under the Total line, not
+        # at the foot of the page under the signature.
+        assert text[text.index(wording.TOTAL_LABEL) + 1] == caution, text
+        assert text.count(caution) == 1, text
+    # ... and once on the summary sheet, under the amounts block there.
+    summary = book[book.sheetnames[0]]
+    summary_text = [value for row in summary.iter_rows(values_only=True)
+                    for value in row if isinstance(value, str)]
+    assert summary_text.count(caution) == 1, summary_text
     # A batch made as generated has nothing to caution about.
     plain = openpyxl.load_workbook(io.BytesIO(
         open_batch.workbook_bytes(open_batch.pending_batch, None)))
