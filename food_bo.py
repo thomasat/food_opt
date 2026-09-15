@@ -216,6 +216,256 @@ def number_list(numbers):
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
+# ------------------------------------------------------------------ #
+#  0.5.0 · reading an edited grid
+#
+#  `st.data_editor` hands back a DataFrame: the rows the user left alone,
+#  the ones they changed, and the ones they typed on the empty line at the
+#  bottom, with no way of telling them apart. GRID_ID is how they are told
+#  apart — a hidden column carrying the name each row is filed under today,
+#  so a name typed over it is a RENAME of that row and a row that arrives
+#  without one is new.
+#
+#  Every cell is read through the three helpers below, because a grid cell
+#  is never quite a value: a number box left empty comes back as NaN, a text
+#  box as None or "", and a column the frame does not have at all is simply
+#  missing.
+# ------------------------------------------------------------------ #
+GRID_ID = "_id"
+
+
+def _grid_frame(data, columns):
+    """A grid frame with its rows numbered from 1, so that "Row 3" under the
+    grid names the third row the reader can see."""
+    frame = pd.DataFrame(data, columns=columns)
+    frame.index = pd.RangeIndex(start=1, stop=len(frame) + 1)
+    return frame
+
+
+def _grid_rows(frame):
+    """(row number, row) for every row, numbered as the grid shows them —
+    by position, never by the frame's own index, which an edited frame may
+    have renumbered."""
+    return [(i, row) for i, (_, row)
+            in enumerate(frame.iterrows(), start=1)]
+
+
+def _cell(row, column, default=None):
+    """One cell, or `default` for one that is empty, missing or NaN."""
+    if column not in row:
+        return default
+    value = row[column]
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def _text_cell(row, column):
+    return str(_cell(row, column, "")).strip()
+
+
+def _number_cell(row, column):
+    """(number, True) for a cell that holds one, (None, True) for an empty
+    one, and (None, False) for a cell holding something that is not a number
+    at all — which is a refusal, not a blank."""
+    value = _cell(row, column)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, True
+    try:
+        return float(value), True
+    except (TypeError, ValueError):
+        return None, False
+
+
+def grid_signature(frame):
+    """One comparable value per row, for asking whether a grid still says
+    what the project says. Compared cell by cell rather than frame by frame:
+    an editor hands back its own dtypes (an int typed into a float column, a
+    blank as NaN), and two frames that read the same on screen are not equal
+    to pandas."""
+    return [tuple(_signature_cell(row.get(column)) for column in frame.columns)
+            for _, row in frame.iterrows()]
+
+
+def _signature_cell(value):
+    """One cell, as the thing it means: a blank, a number, or text."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bool):
+        return value
+    try:
+        return round(float(value), 9)
+    except (TypeError, ValueError):
+        return str(value).strip()
+
+
+def _grid_ids(frame):
+    return [_text_cell(row, GRID_ID) for _, row in frame.iterrows()]
+
+
+def _row_is_blank(row):
+    """True for the empty line at the bottom of a dynamic grid, clicked and
+    then left alone. It is not an addition and it is not an error."""
+    return not any(str(_cell(row, c, "")).strip() for c in row.index
+                   if c != GRID_ID)
+
+
+def _rename_order(rows):
+    """The order to write the existing rows in so that no rename ever lands
+    on a name another row is still wearing.
+
+    Renaming A to B while B is still on the grid under another row is only
+    safe once B has moved out of the way. Anything whose target is free goes
+    first, which frees more names, and so on. What is left when nothing can
+    move is a swap — A to B and B to A — and that is handed back to be
+    refused by name rather than half-applied.
+    """
+    pending = [(row_no, spec) for row_no, spec in rows
+               if spec['var'] is not None]
+    held = {spec['id'] for _, spec in pending}
+    order = []
+    while pending:
+        movable = [item for item in pending
+                   if item[1]['name'] not in (held - {item[1]['id']})]
+        if not movable:
+            return order, pending[0]
+        for item in movable:
+            order.append(item[0])
+            held.discard(item[1]['id'])
+            held.add(item[1]['name'])
+            pending.remove(item)
+    return order, None
+
+
+def _proposed_variable(spec):
+    """One row of the finished grid as a variable dict, for the feasibility
+    question. A copy: the real row is not touched until the answer is in."""
+    var = dict(spec['var']) if spec['var'] is not None else {
+        'type': 'continuous'}
+    var['name'] = spec['name']
+    var['category'] = spec['category']
+    var['bounds'] = (float(spec['low']), float(spec['high']))
+    var['type'] = var.get('type', 'continuous')
+    var['unit'] = spec['unit']
+    return var
+
+
+def _limits_over(limits, names):
+    """The amount limits that would survive the finished grid: one that has
+    lost an ingredient is pruned, and the total's own limit is over whatever
+    the ingredient list now is."""
+    kept = []
+    for qc in limits:
+        if qc.get('source') == 'formulation_total':
+            kept.append(dict(qc, ingredients=list(names)))
+        elif all(n in names for n in qc['ingredients']):
+            kept.append(qc)
+    return kept
+
+
+def _what_moved(before, after):
+    """Which part of a grid row changed, as a set of "unit", "supplier" and
+    "other".
+
+    They are kept apart because they cost different things. "other" — the
+    allowed amounts, the type, a setting's baseline — is a change to the
+    question the model is being asked, and retires the open round. A unit is
+    how a number is written, not the number, and has a sentence of its own
+    to say. A vendor and an SKU are printed on the sheets and read by
+    nothing. The row's NAME is not in here at all: a rename goes through
+    rename_variable, which moves everything filed under it.
+    """
+    if before is None or before == after:
+        return set() if before == after else {'other'}
+    moved = set()
+    if before[3] != after[3]:
+        moved.add('unit')
+    if before[4:6] != after[4:6]:
+        moved.add('supplier')
+    if (before[1], before[2], before[6]) != (after[1], after[2], after[6]):
+        moved.add('other')
+    return moved
+
+
+def _shares_moved(typed, final):
+    """True when the column on screen will not come back holding what was
+    typed into it."""
+    return any(abs(float(typed[name]) - float(final.get(name, 0)))
+               > 0.5 for name in typed)
+
+
+# The refusals the grid has to give BEFORE it writes anything, so they are
+# written once and raised from two places: the model path that discovers
+# them after the fact, and the grid's own validation pass.
+LAST_VARYING_ROW_ERROR = (
+    "Cannot delete the last ingredient or setting with a range.")
+AMOUNTS_MISSING_DELETE_ERROR = (
+    "Cannot delete this: some formulations were recorded without their "
+    "amounts, so the history cannot be rebuilt. Fix it at one amount "
+    "instead, or start a fresh project.")
+
+
+def _reserved_name_message(name):
+    return (f"{name} is a column name Food Optimizer uses for its own "
+            f"tables. Choose another name, for example {name}s.")
+
+
+def _name_taken_message(name, category):
+    kind = ("an ingredient" if category == 'ingredient'
+            else "a process setting")
+    return f"{name} is already the name of {kind}. Choose another name."
+
+
+LOWEST_ABOVE_HIGHEST_ERROR = "Lowest cannot be above Highest."
+RANGE_ENDS_ERROR = "Range lowest must be less than range highest."
+TARGET_REQUIRED_ERROR = ("Enter a target value for a 'Hit a target' "
+                         "measurement.")
+
+
+def _target_outside_message(target, low, high):
+    return (f"Target {target:g} must be between the range's lowest and "
+            f"highest ({low:g} to {high:g}).")
+
+
+def _baseline_outside_message(value, low, high):
+    return (f"Baseline {float(value):g} must be between {low:g} and "
+            f"{high:g}.")
+
+
+def _objective_scoring_state(obj):
+    """The fields that feed closeness. A change to any of them recalculates
+    every overall score already stored, which is what decides whether a save
+    keeps a copy first and says it recalculated."""
+    return (obj['goal'],
+            None if obj.get('target') is None else float(obj['target']),
+            float(obj.get('min_val', 0.0)), float(obj.get('max_val', 10.0)))
+
+
+def _objective_state(obj):
+    """Everything one row of the measurements grid says about a measurement,
+    as one comparable value — the share apart, which is set for the column
+    as a whole. The unit is in here and NOT in the scoring state above: it
+    is how a number is written, not the number."""
+    return _objective_scoring_state(obj) + (str(obj.get('unit', "") or ""),)
+
+
+def _used_ingredient_message(name, numbers):
+    word = "Formulation" if len(numbers) == 1 else "Formulations"
+    return (f"'{name}' was used in {word} {number_list(numbers)}, so it "
+            f"cannot be deleted. Tick 'Delete even if it was used' to "
+            f"discard that information.")
+
+
 def goal_line(obj):
     """The half of an input label that says what a good number looks like:
     'target 6 N', 'lower is better', 'higher is better'."""
@@ -576,12 +826,8 @@ class FoodOptimizer:
         for var in self.variables:
             if var is skip or var['name'].lower() != lowered:
                 continue
-            kind = ("an ingredient"
-                    if var.get('category', 'ingredient') == 'ingredient'
-                    else "a process setting")
-            raise ValueError(
-                f"{var['name']} is already the name of {kind}. Choose "
-                f"another name.")
+            raise ValueError(_name_taken_message(
+                var['name'], var.get('category', 'ingredient')))
         for obj in self.objectives:
             if obj['name'].lower() == lowered:
                 raise ValueError(
@@ -598,15 +844,12 @@ class FoodOptimizer:
         if not name:
             raise ValueError("Name cannot be empty.")
         if is_reserved_name(name):
-            raise ValueError(
-                f"{name} is a column name Food Optimizer uses for its own "
-                f"tables. Choose another name, for example {name}s."
-            )
+            raise ValueError(_reserved_name_message(name))
         # Equal is allowed, and is how a row is FIXED: one amount, in every
         # formulation. Only Lowest ABOVE Highest is a range with nothing in
         # it, and that is what is refused.
         if float(min_val) > float(max_val):
-            raise ValueError("Lowest cannot be above Highest.")
+            raise ValueError(LOWEST_ABOVE_HIGHEST_ERROR)
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
@@ -624,10 +867,19 @@ class FoodOptimizer:
         self._name_is_free(name, skip=editing)
         return name
 
-    def add_ingredient(self, name, min_val, max_val, unit=None):
+    def add_ingredient(self, name, min_val, max_val, unit=None,
+                       keep_lowest=False):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
         ingredient is treated as absent (=0) in every prior recipe, and the
         encoded history is rebuilt so the GP stays dimensionally consistent.
+
+        `keep_lowest` keeps the Lowest the caller typed even mid-run. The old
+        add form disabled that box and this method forced it to 0, because
+        absent-in-past encodes as 0 and a bound that excluded it looked like
+        a contradiction. The grid lifts it: "5 g of salt in every formulation
+        from here on" is a thing a formulator asks for, and the formulations
+        already made are still honest observations of a formulation with none
+        of it in. The screen says so once, in the save flash.
 
         `unit` is this ingredient's own unit — the water may be in ml while
         the powders are in g. None means "no unit of its own": the ingredient
@@ -657,7 +909,8 @@ class FoodOptimizer:
                     "Cannot add this now: some formulations were recorded without their "
                     "amounts. Start a fresh project or re-import your history."
                 )
-            min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
+            if not keep_lowest:
+                min_val = 0.0   # absent-in-past encodes as 0
         self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
         var = {
             'name': name,
@@ -832,10 +1085,8 @@ class FoodOptimizer:
                 fixing = min_val == max_val and baseline is None
                 if (carried is not None and not fixing
                         and not (min_val <= float(carried) <= max_val)):
-                    raise ValueError(
-                        f"Baseline {float(carried):g} must be between "
-                        f"{min_val:g} and {max_val:g}."
-                    )
+                    raise ValueError(_baseline_outside_message(
+                        carried, min_val, max_val))
                 self._check_fixed_feasible(name, min_val, max_val, 'process')
                 var['bounds'] = (min_val, max_val)
                 var['unit'] = unit
@@ -866,9 +1117,8 @@ class FoodOptimizer:
                 )
             baseline = float(baseline)
             if not (min_val <= baseline <= max_val):
-                raise ValueError(
-                    f"Baseline {baseline:g} must be between {min_val:g} and {max_val:g}."
-                )
+                raise ValueError(_baseline_outside_message(
+                    baseline, min_val, max_val))
             var['_absent_value'] = baseline
         self.variables.append(var)
         if self.X_history:
@@ -918,20 +1168,18 @@ class FoodOptimizer:
             )
         weight = float(weight)
         if weight <= 0:
-            raise ValueError("Importance must be greater than 0.")
+            raise ValueError(wording.SHARE_REQUIRED_ERROR)
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
-            raise ValueError("Range lowest must be less than range highest.")
+            raise ValueError(RANGE_ENDS_ERROR)
         if goal == 'target':
             if target is None:
-                raise ValueError("Enter a target value for a 'Hit a target' measurement.")
+                raise ValueError(TARGET_REQUIRED_ERROR)
             target = float(target)
             if not (min_val <= target <= max_val):
-                raise ValueError(
-                    f"Target {target:g} must be between the range's lowest "
-                    f"and highest ({min_val:g} to {max_val:g})."
-                )
+                raise ValueError(_target_outside_message(target, min_val,
+                                                         max_val))
         else:
             target = None
         replaced = any(obj['name'] == name for obj in self.objectives)
@@ -1379,21 +1627,19 @@ class FoodOptimizer:
         merged.update(fields)
         weight = float(merged.get('weight', 1.0))
         if weight <= 0:
-            raise ValueError("Importance must be greater than 0.")
+            raise ValueError(wording.SHARE_REQUIRED_ERROR)
         min_val = float(merged.get('min_val', 0.0))
         max_val = float(merged.get('max_val', 10.0))
         if min_val >= max_val:
-            raise ValueError("Range lowest must be less than range highest.")
+            raise ValueError(RANGE_ENDS_ERROR)
         goal = merged.get('goal', 'max')
         if goal == 'target':
             if merged.get('target') is None:
-                raise ValueError("Enter a target value for a 'Hit a target' measurement.")
+                raise ValueError(TARGET_REQUIRED_ERROR)
             target = float(merged['target'])
             if not (min_val <= target <= max_val):
-                raise ValueError(
-                    f"Target {target:g} must be between the range's lowest "
-                    f"and highest ({min_val:g} to {max_val:g})."
-                )
+                raise ValueError(_target_outside_message(target, min_val,
+                                                         max_val))
         else:
             target = None
         obj.update({
@@ -2785,9 +3031,15 @@ class FoodOptimizer:
         # column used to say, now that the screen reads a fixed row off its
         # one amount instead.
         any_fixed = any(self.is_fixed(v) for v in self.variables)
+        # Vendor and SKU are printed so the bench knows what to reach for;
+        # like Status, they arrive with the first row that has one.
+        any_supplier = any(v.get('vendor') or v.get('sku')
+                           for v in self.variables)
         headers = [wording.NAME_LABEL, wording.TYPE_LABEL,
                    wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
                    wording.UNIT_LABEL, wording.BASELINE_LABEL]
+        if any_supplier:
+            headers += [wording.VENDOR_LABEL, wording.SKU_LABEL]
         if any_fixed:
             headers.append(wording.STATUS_LABEL)
         for c, name in enumerate(headers, start=1):
@@ -2804,8 +3056,13 @@ class FoodOptimizer:
             _write_cell(sheet, r, 5, self.unit_of(var['name']) or None)
             baseline = var.get('_absent_value')
             _write_cell(sheet, r, 6, None if baseline is None else float(baseline))
+            c = 7
+            if any_supplier:
+                _write_cell(sheet, r, c, var.get('vendor') or None)
+                _write_cell(sheet, r, c + 1, var.get('sku') or None)
+                c += 2
             if any_fixed:
-                _write_cell(sheet, r, 7,
+                _write_cell(sheet, r, c,
                             wording.fixed_status(self.fixed_at_text(var))
                             if self.is_fixed(var) else None)
             r += 1
@@ -2813,11 +3070,13 @@ class FoodOptimizer:
 
         _write_cell(sheet, r, 1, wording.MEASUREMENTS_HEADER, bold=True)
         r += 1
+        # No Importance column: 0.5.0 makes Share of score the number the
+        # reader types and the importance behind it derived, so a sheet that
+        # printed both printed one fact twice — in two scales.
         for c, name in enumerate((wording.MEASUREMENT_COLUMN,
                                   wording.GOAL_LABEL, wording.TARGET_LABEL,
                                   wording.RANGE_COLUMN,
-                                  wording.IMPORTANCE_LABEL,
-                                  wording.COL_SHARE), start=1):
+                                  wording.SHARE_COLUMN), start=1):
             _write_cell(sheet, r, c, name, bold=True)
         r += 1
         for obj in self.measurements_by_importance():
@@ -2827,11 +3086,7 @@ class FoodOptimizer:
             _write_cell(sheet, r, 3, None if obj.get('target') is None
                         else float(obj['target']))
             _write_cell(sheet, r, 4, measurement_range_text(obj))
-            _write_cell(sheet, r, 5, float(obj['weight']))
-            # Beside Importance, as it is on the screen the sheet is of: a
-            # column the app shows and the file it exports does not left the
-            # reader to work out what a 1.5 among 1s was a share of.
-            _write_cell(sheet, r, 6, self.share_text(obj['name']))
+            _write_cell(sheet, r, 5, self.share_text(obj['name']))
             r += 1
         r += 1
 
@@ -2854,8 +3109,8 @@ class FoodOptimizer:
         _write_cell(sheet, r, 1,
                     getattr(self, "targets_source", "") or wording.SHEET_NONE,
                     wrap=True)
-        _set_widths(sheet, [34, 18, 12, 12, 10, 12, 14])
-        _fit_to_page(sheet, r, 7)
+        _set_widths(sheet, [34, 18, 12, 12, 10, 12, 14, 14, 14])
+        _fit_to_page(sheet, r, 9)
 
     def limit_label(self, qc):
         """How one ingredient limit is named — 'Total of each formulation',
@@ -4605,6 +4860,12 @@ class FoodOptimizer:
         here."""
         if float(min_val) != float(max_val):
             return
+        # A grid Save asks this question ONCE, over the finished grid, and
+        # compares the answer with the one the project already gives (see
+        # _grid_feasibility_error). Asking it again per row would refuse a
+        # save for a half-applied state nothing ever sees.
+        if getattr(self, '_in_grid_apply', False):
+            return
         var = next((v for v in self.variables if v['name'] == name), None)
         added = var is None
         if added:
@@ -4659,10 +4920,7 @@ class FoodOptimizer:
         if new_name == name:
             return name
         if is_reserved_name(new_name):
-            raise ValueError(
-                f"{new_name} is a column name Food Optimizer uses for its own "
-                f"tables. Choose another name, for example {new_name}s."
-            )
+            raise ValueError(_reserved_name_message(new_name))
         self._name_is_free(new_name, skip=var)
         return new_name
 
@@ -4730,33 +4988,17 @@ class FoodOptimizer:
                 f"'{name}' is a process setting. Use Delete next to the "
                 f"process setting instead."
             )
-        if self.X_history and len(self.recipe_history) != len(self.X_history):
-            raise ValueError(
-                "Cannot delete this: some formulations were recorded without "
-                "their amounts, so the history cannot be rebuilt. Fix it at "
-                "one amount instead, or start a fresh project."
-            )
-
-        used = [
-            i for i, r in enumerate(self.recipe_history)
-            if float(r.get(name, 0.0)) != 0.0
-        ]
-        if used and not force:
-            # Name the formulations, not row indexes: a formulation number is
-            # what the user wrote on the sheet, and #0 is not a thing they own.
-            numbers = [int(self.formulation_ids[i]) if i < len(self.formulation_ids)
-                       else i + 1 for i in used]
-            word = "Formulation" if len(numbers) == 1 else "Formulations"
-            raise ValueError(
-                f"'{name}' was used in {word} {number_list(numbers)}, so it "
-                f"cannot be deleted. Tick 'Delete even if it was used' to "
-                f"discard that information."
-            )
+        trouble = self._ingredient_delete_refusal(name, force)
+        if trouble:
+            raise ValueError(trouble)
 
         remaining = [v for v in self.variables if v['name'] != name]
-        if not any(not self.is_fixed(v) for v in remaining):
-            raise ValueError(
-                "Cannot delete the last ingredient or setting with a range.")
+        # Held back for the length of a grid Save: the finished grid was
+        # asked this question as a whole, and a row half way through it is
+        # not a state the project ever reaches.
+        if (not getattr(self, '_in_grid_apply', False)
+                and not any(not self.is_fixed(v) for v in remaining)):
+            raise ValueError(LAST_VARYING_ROW_ERROR)
 
         self.variables = remaining
         self.ingredient_properties.pop(name, None)
@@ -4778,6 +5020,780 @@ class FoodOptimizer:
         self._drop_pending_batch()
         self.save()
         return removed
+
+    # ------------------------------------------------------------------ #
+    #  0.5.0 · the two editable grids
+    #
+    #  Tab 1 has no add form, no control row and no per-row editor: the
+    #  ingredients and the measurements are typed where they are read, and
+    #  one `Save changes` writes the lot. That work lives here rather than
+    #  on the screen for two reasons. The difference between what is on the
+    #  grid and what is in the project is arithmetic over the model's own
+    #  objects; and `streamlit.testing`'s AppTest cannot click a cell, so
+    #  this is the layer the behaviour can be pinned at.
+    #
+    #  The contract both halves keep:
+    #    * every row is validated FIRST and nothing is written until they
+    #      all pass, so a refusal leaves the project exactly as it was;
+    #    * the fixed-feasibility question is asked ONCE, over the finished
+    #      grid, and blames this save only for a limit it NEWLY breaks;
+    #    * the writes go through the same paths the old form used —
+    #      add_ingredient, add_process_parameter, rename_variable,
+    #      remove_ingredient, set_variable_unit — so every consequence (the
+    #      default batch size kept or dropped, limits pruned, the open round
+    #      discarded, results kept) fires exactly once and is said once.
+    # ------------------------------------------------------------------ #
+
+    def grid_variables(self):
+        """Ingredients first, then process settings, each in the order they
+        were added. The grid and the Set-up sheet read the same way down."""
+        return self._ingredients() + self._process_settings()
+
+    def ingredient_grid_frame(self):
+        """What the ingredients grid opens holding.
+
+        The hidden `_id` column is the row's identity: it carries the name
+        the row is filed under TODAY, so a name typed over it is a rename of
+        that row rather than a new row beside a deleted one. A row typed on
+        the empty line at the bottom comes back without one, which is what
+        makes it an addition.
+
+        Baseline is a column only once results exist (spec 1.1): it is the
+        value every formulation already made is read at, and a project with
+        nothing recorded has nothing to read.
+        """
+        columns = [GRID_ID, wording.NAME_LABEL, wording.TYPE_LABEL,
+                   wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
+                   wording.UNIT_LABEL, wording.VENDOR_LABEL,
+                   wording.SKU_LABEL]
+        if self.X_history:
+            columns.append(wording.BASELINE_LABEL)
+        data = []
+        for var in self.grid_variables():
+            ingredient = var.get('category', 'ingredient') == 'ingredient'
+            row = {
+                GRID_ID: var['name'],
+                wording.NAME_LABEL: var['name'],
+                wording.TYPE_LABEL: (wording.KIND_INGREDIENT if ingredient
+                                     else wording.KIND_SETTING),
+                wording.LOWEST_LABEL: float(var['bounds'][0]),
+                wording.HIGHEST_LABEL: float(var['bounds'][1]),
+                wording.UNIT_LABEL: self.unit_of(var['name']) or "",
+                wording.VENDOR_LABEL: str(var.get('vendor', "") or ""),
+                wording.SKU_LABEL: str(var.get('sku', "") or ""),
+            }
+            if self.X_history:
+                baseline = var.get('_absent_value')
+                row[wording.BASELINE_LABEL] = (None if baseline is None
+                                               else float(baseline))
+            data.append(row)
+        return _grid_frame(data, columns)
+
+    def measurement_grid_frame(self):
+        """What the measurements grid opens holding, most important first —
+        the order every screen lists them in. Share of score is the column
+        that is typed into; the importance behind it is derived from that and
+        is on no screen any more (spec 1.3)."""
+        columns = [GRID_ID, wording.MEASUREMENT_COLUMN, wording.GOAL_LABEL,
+                   wording.TARGET_LABEL, wording.LOWEST_MEASURABLE_LABEL,
+                   wording.HIGHEST_MEASURABLE_LABEL, wording.UNIT_LABEL,
+                   wording.SHARE_COLUMN]
+        shares = self.share_percents()
+        data = [{
+            GRID_ID: obj['name'],
+            wording.MEASUREMENT_COLUMN: obj['name'],
+            wording.GOAL_LABEL: wording.GOAL_LABELS.get(obj['goal'],
+                                                        obj['goal']),
+            wording.TARGET_LABEL: (None if obj.get('target') is None
+                                   else float(obj['target'])),
+            wording.LOWEST_MEASURABLE_LABEL: float(obj.get('min_val', 0.0)),
+            wording.HIGHEST_MEASURABLE_LABEL: float(obj.get('max_val', 10.0)),
+            wording.UNIT_LABEL: str(obj.get('unit', "") or ""),
+            wording.SHARE_COLUMN: float(shares.get(obj['name'], 0)),
+        } for obj in self.measurements_by_importance()]
+        return _grid_frame(data, columns)
+
+    def ingredient_grid_deletions(self, frame):
+        """The rows the grid has taken out: every variable whose `_id` is no
+        longer anywhere on it. Asked by the screen BEFORE Save, because a
+        deletion is confirmed by name first."""
+        kept = {i for i in _grid_ids(frame) if i}
+        return [v['name'] for v in self.grid_variables()
+                if v['name'] not in kept]
+
+    def measurement_grid_deletions(self, frame):
+        kept = {i for i in _grid_ids(frame) if i}
+        return [o['name'] for o in self.measurements_by_importance()
+                if o['name'] not in kept]
+
+    # -- the ingredients grid ------------------------------------------- #
+
+    def apply_ingredient_grid(self, frame, force=()):
+        """Write the ingredients grid to the project.
+
+        Returns `(errors, messages)`. `errors` is a list of `(row, message)`
+        — the row being the number the grid shows down its left edge, or
+        None for a refusal about the grid as a whole — and while it is not
+        empty NOTHING has been written. `messages` is a list of
+        `(kind, sentence)` for the screen to flash, one per consequence.
+
+        `force` names the ingredients the reader has ticked to delete even
+        though formulations used them.
+        """
+        errors, plan = self._plan_ingredient_grid(frame, force)
+        if errors:
+            return errors, []
+        return [], self._apply_ingredient_plan(plan, force)
+
+    def _plan_ingredient_grid(self, frame, force=()):
+        """Read the grid, refuse everything that cannot be saved, and hand
+        back what to do. Nothing here writes."""
+        errors, rows, seen = [], [], {}
+        by_id = {v['name']: v for v in self.variables}
+        ids_used = set()
+        for row_no, row in _grid_rows(frame):
+            if _row_is_blank(row):
+                # The empty line at the bottom of a dynamic grid, clicked and
+                # then left alone. Not an addition, and not an error.
+                continue
+            spec, trouble = self._read_ingredient_row(row, by_id, ids_used)
+            if trouble:
+                errors.append((row_no, trouble))
+                continue
+            twin = seen.get(spec['name'].lower())
+            if twin is not None:
+                # Two rows with one name are two columns of one name on every
+                # table in the app; a second SPELLING of it is the same
+                # collision, and has always had its own sentence.
+                errors.append((row_no,
+                               _name_taken_message(twin, spec['category'])
+                               if twin == spec['name']
+                               else wording.name_differs_only_by_case(twin)))
+                continue
+            seen[spec['name'].lower()] = spec['name']
+            rows.append((row_no, spec))
+        if errors:
+            return errors, None
+
+        # A name may clash with something that is not on this grid at all —
+        # a measurement, a property — and that is the refusal the add form
+        # gave, in the same words.
+        for row_no, spec in rows:
+            try:
+                self._name_is_free(spec['name'], skip=spec['var'])
+            except ValueError as e:
+                errors.append((row_no, str(e)))
+        if errors:
+            return errors, None
+
+        deleted = [v['name'] for v in self.grid_variables()
+                   if v['name'] not in ids_used]
+        errors += self._check_grid_deletions(deleted, rows, force)
+        if errors:
+            return errors, None
+
+        order, stuck = _rename_order(rows)
+        if stuck is not None:
+            errors.append((stuck[0], _name_taken_message(
+                stuck[1]['name'], stuck[1]['category'])))
+            return errors, None
+
+        trouble = self._grid_feasibility_error(rows)
+        if trouble:
+            return [(None, trouble)], None
+        return [], {'rows': rows, 'deleted': deleted, 'rename_order': order}
+
+    def _read_ingredient_row(self, row, by_id, ids_used):
+        """One row of the grid as a plain dict, or (None, why it cannot be
+        saved). Every refusal here is about this row on its own."""
+        row_id = _text_cell(row, GRID_ID)
+        var = by_id.get(row_id)
+        if var is not None:
+            ids_used.add(row_id)
+        name = _text_cell(row, wording.NAME_LABEL)
+        if not name:
+            return None, wording.NAME_REQUIRED_ERROR
+        if is_reserved_name(name):
+            return None, _reserved_name_message(name)
+        kind = _text_cell(row, wording.TYPE_LABEL) or wording.KIND_INGREDIENT
+        category = 'process' if kind == wording.KIND_SETTING else 'ingredient'
+        low, low_ok = _number_cell(row, wording.LOWEST_LABEL)
+        high, high_ok = _number_cell(row, wording.HIGHEST_LABEL)
+        if not low_ok or not high_ok or low is None or high is None:
+            return None, wording.NUMBER_REQUIRED_ERROR
+        # Equal is allowed, and is how a row is FIXED at one amount. Only
+        # Lowest ABOVE Highest is a range with nothing in it.
+        if low > high:
+            return None, LOWEST_ABOVE_HIGHEST_ERROR
+        unit = _text_cell(row, wording.UNIT_LABEL)
+        if category == 'ingredient' and not unit:
+            # An ingredient's amounts are added up, averaged and printed. A
+            # blank cell there is not "no unit", it is a sum of nothing. A
+            # process setting may have none: a mixer speed of 3 is a 3.
+            return None, wording.UNIT_REQUIRED_ERROR
+        vendor = _text_cell(row, wording.VENDOR_LABEL)
+        sku = _text_cell(row, wording.SKU_LABEL)
+        if category == 'process' and (vendor or sku):
+            return None, wording.only_an_ingredient_has(
+                wording.VENDOR_LABEL if vendor else wording.SKU_LABEL)
+        baseline, baseline_ok = _number_cell(row, wording.BASELINE_LABEL)
+        if not baseline_ok:
+            return None, wording.NUMBER_REQUIRED_ERROR
+        if baseline is not None and category == 'ingredient':
+            return None, wording.only_a_setting_has(wording.BASELINE_LABEL)
+        if (var is not None and self.X_history
+                and var.get('category', 'ingredient') != category):
+            return None, wording.TYPE_LOCKED_ERROR
+        if var is None and category == 'process' and self.X_history and (
+                baseline is None):
+            return None, wording.ADD_BASELINE_ERROR
+        # A baseline the reader has MOVED is a fact about bakes already
+        # done, and has to sit inside the range those bakes are read
+        # against. One they have left alone does not: fixing a setting at
+        # 190 is a decision about the next round, and refusing it because a
+        # past bake ran at 175 refuses something they are entitled to ask
+        # for (see add_process_parameter).
+        stored = None if var is None else var.get('_absent_value')
+        moved = (baseline is not None
+                 and (stored is None or float(stored) != baseline))
+        if moved and category == 'process' and not (low <= baseline <= high):
+            return None, _baseline_outside_message(baseline, low, high)
+        return {
+            'var': var, 'id': row_id if var is not None else None,
+            'name': name, 'category': category, 'low': low, 'high': high,
+            'unit': unit, 'vendor': vendor, 'sku': sku, 'baseline': baseline,
+            'baseline_moved': moved,
+        }, None
+
+    def _check_grid_deletions(self, deleted, rows, force):
+        """Refuse a deletion before anything is written, in the words
+        remove_ingredient would have used after the fact."""
+        errors = []
+        for name in deleted:
+            if self._var_by_name(name).get('category',
+                                           'ingredient') != 'ingredient':
+                continue
+            trouble = self._ingredient_delete_refusal(name, name in force)
+            if trouble:
+                errors.append((None, trouble))
+        if deleted and not any(spec['low'] < spec['high']
+                               for _, spec in rows):
+            errors.append((None, LAST_VARYING_ROW_ERROR))
+        return errors
+
+    def _ingredient_delete_refusal(self, name, force):
+        """Why this ingredient cannot be deleted, or None. The two questions
+        remove_ingredient asks, asked without writing — so the grid can
+        refuse the whole save rather than half of it."""
+        if self.X_history and len(self.recipe_history) != len(self.X_history):
+            return AMOUNTS_MISSING_DELETE_ERROR
+        used = [i for i, r in enumerate(self.recipe_history)
+                if float(r.get(name, 0.0)) != 0.0]
+        if used and not force:
+            # Name the formulations, not row indexes: a formulation number is
+            # what the reader wrote on the sheet, and #0 is not theirs.
+            numbers = [int(self.formulation_ids[i])
+                       if i < len(self.formulation_ids) else i + 1
+                       for i in used]
+            return _used_ingredient_message(name, numbers)
+        return None
+
+    def _grid_feasibility_error(self, rows):
+        """The fixed-feasibility question, asked ONCE over the finished grid.
+
+        Two rulings live in these lines. It is asked once rather than per
+        row, because a grid is saved whole and a row half way through it is
+        not a state the project ever sits in. And it compares BEFORE with
+        AFTER: a limit that was already impossible — after a range narrowed
+        last week, which has always been allowed — is not this save's doing,
+        and refusing the save for it would leave the reader with no way to
+        edit their way back out.
+        """
+        fixed = [spec['name'] for _, spec in rows
+                 if spec['low'] == spec['high']]
+        if not fixed:
+            return None
+        if self._satisfiable_now() is not None:
+            return None
+        after = self._satisfiable_with(rows)
+        if after is None:
+            return None
+        return after + " " + wording.fixed_rows_tail(number_list(fixed))
+
+    def _satisfiable_now(self):
+        """The refusal the limits give as things stand, or None."""
+        try:
+            self._assert_constraints_satisfiable()
+        except ValueError as e:
+            return str(e)
+        return None
+
+    def _satisfiable_with(self, rows):
+        """The same question with the finished grid in place, and the project
+        put back exactly as it was afterwards."""
+        variables, limits = self.variables, self.quantity_constraints
+        try:
+            self.variables = [_proposed_variable(spec) for _, spec in rows]
+            self.quantity_constraints = _limits_over(
+                limits, [v['name'] for v in self.variables
+                         if v.get('category', 'ingredient') == 'ingredient'])
+            return self._satisfiable_now()
+        finally:
+            self.variables, self.quantity_constraints = variables, limits
+
+    def _apply_ingredient_plan(self, plan, force=()):
+        """Write the plan through the paths the form used, in the one order
+        that never trips over a name: what goes, goes first; then the rows
+        that stay, in an order that frees and takes names safely; then the
+        new ones.
+
+        The per-row fixed check and the last-varying-row refusal stand down
+        for the length of this. Both were asked over the finished grid
+        already, and asking them again half way through would refuse a save
+        for a state nothing ever sees.
+        """
+        rows, deleted = plan['rows'], plan['deleted']
+        by_row = dict(rows)
+        round_before = self.pending_batch_no
+        removed, changed, added, units = [], [], [], []
+        self._in_grid_apply = True
+        try:
+            for name in deleted:
+                if self._var_by_name(name).get('category',
+                                               'ingredient') == 'ingredient':
+                    removed += self.remove_ingredient(
+                        name, force=name in force) or []
+                else:
+                    self.remove_process_parameter(name)
+            for row_no in plan['rename_order']:
+                spec = by_row[row_no]
+                moved = self._write_ingredient_row(spec)
+                removed += spec.pop('_removed', [])
+                if spec['id'] != spec['name']:
+                    self.rename_variable(spec['id'], spec['name'])
+                    moved = moved | {'other'}
+                if 'unit' in moved:
+                    units.append(spec['name'])
+                if moved - {'unit'}:
+                    changed.append(spec['name'])
+            for _, spec in rows:
+                if spec['var'] is not None:
+                    continue
+                self._write_ingredient_row(spec)
+                removed += spec.pop('_removed', [])
+                added.append(spec['name'])
+        finally:
+            self._in_grid_apply = False
+        return self._ingredient_grid_messages(added, changed, deleted, units,
+                                              removed, round_before)
+
+    def _write_ingredient_row(self, spec):
+        """One row's answers, through the narrowest door that carries them.
+
+        What comes back is WHAT moved — its unit, its supplier, everything
+        else, or nothing — and the door is chosen by that, because the doors
+        differ in what they cost. A changed range retires the open round;
+        a unit does not (it is how a number is written, not the number), and
+        a vendor printed on a sheet does not either. Routing every row
+        through add_ingredient would have retired the round for a corrected
+        SKU.
+        """
+        var = spec['var']
+        name = spec['id'] or spec['name']
+        if var is None:
+            self._add_grid_row(spec, spec['name'])
+            return {'other'}
+        moved = _what_moved(self._row_state(var),
+                            self._proposed_row_state(var, spec))
+        if not moved:
+            # Nothing about the question the model is being asked has moved,
+            # so there is nothing for the default batch size, the limits or
+            # the open round to answer for. This is also what lets a pure
+            # rename keep the open round: rename_variable rewrites its rows
+            # in place, where add_ingredient would retire it.
+            return moved
+        if 'other' in moved:
+            if var.get('category', 'ingredient') != spec['category']:
+                self.set_variable_type(name, spec['category'])
+            self._add_grid_row(spec, name)
+        elif 'unit' in moved:
+            spec['_removed'] = self.set_variable_unit(name, spec['unit']) or []
+        if 'supplier' in moved:
+            var = self._var_by_name(name)
+            var['vendor'], var['sku'] = spec['vendor'], spec['sku']
+            self.save()
+        return moved
+
+    def _add_grid_row(self, spec, name):
+        """The add path, which is also the edit path: re-adding a name the
+        project already has updates its allowed amounts and its unit, so
+        every consequence the screen owes fires exactly once."""
+        if spec['category'] == 'process':
+            self.add_process_parameter(
+                name, spec['low'], spec['high'],
+                # Only a baseline the reader moved is passed on: an
+                # unchanged one is already where it belongs, and handing it
+                # back would take the range-fixing path's exemption away.
+                baseline=spec['baseline'] if spec['baseline_moved'] else None,
+                unit=spec['unit'])
+            return
+        spec['_removed'] = self.add_ingredient(
+            name, spec['low'], spec['high'], unit=spec['unit'],
+            keep_lowest=True) or []
+        var = self._var_by_name(name)
+        if (str(var.get('vendor', "")), str(var.get('sku', ""))) != (
+                spec['vendor'], spec['sku']):
+            var['vendor'], var['sku'] = spec['vendor'], spec['sku']
+            self.save()
+
+    def _proposed_row_state(self, var, spec):
+        """What _row_state would say about this row once the grid is saved.
+        A baseline the grid does not ask for is the one the row already
+        carries."""
+        baseline = (var.get('_absent_value') if spec['baseline'] is None
+                    else float(spec['baseline']))
+        return (spec['name'], spec['category'],
+                (float(spec['low']), float(spec['high'])), spec['unit'],
+                spec['vendor'], spec['sku'], baseline)
+
+    def _row_state(self, var):
+        """Everything one row of the grid says about a variable, as one
+        comparable value. None for a row that was not there before."""
+        if var is None:
+            return None
+        return (var['name'], var.get('category', 'ingredient'),
+                tuple(float(b) for b in var['bounds']), self._unit_of(var),
+                str(var.get('vendor', "")), str(var.get('sku', "")),
+                var.get('_absent_value'))
+
+    def _ingredient_grid_messages(self, added, changed, deleted, units,
+                                  removed, round_before):
+        """One line per consequence, each said once however many rows caused
+        it — which is the whole point of applying a grid in one go."""
+        messages = []
+        new_ingredients = [n for n in added if self._var_by_name(n).get(
+            'category', 'ingredient') == 'ingredient']
+        if added:
+            line = wording.added(number_list(added))
+            if new_ingredients and self.has_formulation_total():
+                line += " " + wording.total_still_holds(
+                    self.batch_total_text(self.formulation_total))
+            messages.append(("success", line))
+        if changed:
+            messages.append(("success", wording.saved(number_list(changed))))
+        for name in units:
+            # Its own sentence, per row: nothing was converted and nothing
+            # was rescored, and this is the only line that says so.
+            var = self._var_by_name(name)
+            messages.append(("success", wording.unit_changed(
+                name, self._unit_of(var),
+                var.get('category', 'ingredient') == 'ingredient')))
+        if deleted:
+            messages.append(("success", wording.deleted(number_list(deleted))))
+        if new_ingredients and self.recipe_history:
+            messages.append(("info", wording.formulations_contain_none_of(
+                number_list(new_ingredients))))
+        messages += self.limit_removed_messages(removed)
+        if round_before is not None and self.pending_batch_no is None:
+            messages.append(("info",
+                             wording.batch_discarded_notice(round_before)))
+        return messages
+
+    def limit_removed_messages(self, removed):
+        """Name every limit an edit has just emptied of meaning, one line
+        each. It lives here rather than on the screen because four doors
+        reach it — a unit set, a new default unit, a reloaded ingredient
+        file and now a grid Save — and all four owe the same sentence."""
+        messages = []
+        for qc in removed or []:
+            if 'metric' in qc:
+                # A property limit is an average over the amounts, so it is
+                # the ingredients as a whole that stopped sharing a unit.
+                messages.append(("warning",
+                                 wording.property_limit_removed(qc['metric'])))
+            elif qc.get('source') == 'formulation_total':
+                total_text = join_unit(f"{float(qc.get('total')):g}",
+                                       qc.get('unit') or "")
+                messages.append((
+                    "warning",
+                    wording.formulation_total_gone_unit(total_text)
+                    if qc.get('reason') == 'unit'
+                    else wording.formulation_total_gone_unreachable(
+                        total_text)))
+            elif qc.get('reason') == 'missing':
+                gone = qc.get('missing') or []
+                many = len(gone) > 1
+                messages.append(("warning",
+                                 wording.quantity_limit_removed_missing(
+                                     self.limit_label(qc),
+                                     wording.no_longer_ingredients(
+                                         number_list(gone) if many else gone[0],
+                                         many))))
+            else:
+                messages.append((
+                    "warning", wording.quantity_limit_removed_unit_mismatch(
+                        self.limit_label(qc))))
+        return messages
+
+    def set_variable_type(self, name, category):
+        """Move one row between Ingredient and Process setting.
+
+        Allowed only while nothing has been recorded. A name is the key every
+        formulation's amounts are filed under, and an ingredient's column is
+        a mass where a setting's is a temperature: swapping them under a
+        history would rewrite bakes nobody made. With no history there is
+        nothing to rewrite, so the row simply changes its mind — and the
+        amount limits are pruned, because a setting is in no sum.
+        """
+        var = self._var_by_name(name)
+        if var.get('category', 'ingredient') == category:
+            return []
+        if self.X_history:
+            raise ValueError(wording.TYPE_LOCKED_ERROR)
+        var['category'] = category
+        if category == 'process':
+            var.pop('vendor', None)
+            var.pop('sku', None)
+            self.ingredient_properties.pop(name, None)
+            var['unit'] = str(var.get('unit') or "")
+        else:
+            var.setdefault('vendor', "")
+            var.setdefault('sku', "")
+        removed = self.prune_amount_limits()
+        self._drop_pending_batch()
+        self.save()
+        return removed
+
+    # -- the measurements grid ------------------------------------------ #
+
+    def set_shares(self, shares):
+        """Say what each measurement is worth out of 100, and derive the
+        importances from that (spec 1.3).
+
+        The shares are scaled proportionally so the column adds up to 100:
+        the reader is typing into a column whose sum they can see, and a
+        column of 30, 30, 30 has to mean something. True comes back when
+        that scaling moved anything, which is what the caption under the
+        grid is about.
+
+        What the shares set is the RATIO between the measurements; the sum
+        of the importances behind them is left where it was. That sum is
+        the ceiling every stored overall score is written against ("2.20 of
+        2.50"), and shares are the one thing that cannot carry it — so
+        deriving the importances as the percents themselves would have
+        rescaled every score in the project's history the first time
+        anybody touched the column.
+        """
+        if not self.objectives:
+            return False
+        values = {}
+        for obj in self.objectives:
+            value = shares.get(obj['name'])
+            if value is None or float(value) <= 0:
+                raise ValueError(wording.SHARE_REQUIRED_ERROR)
+            values[obj['name']] = float(value)
+        total = sum(values.values())
+        rebalanced = abs(total - 100.0) > 1e-9
+        scale = sum(float(o['weight']) for o in self.objectives) / total
+        for obj in self.objectives:
+            obj['weight'] = values[obj['name']] * scale
+        self._recompute_utilities()
+        self.save()
+        return rebalanced
+
+    def apply_measurement_grid(self, frame):
+        """Write the measurements grid to the project. The same contract as
+        apply_ingredient_grid: `(errors, messages)`, and nothing is written
+        while there is an error."""
+        errors, plan = self._plan_measurement_grid(frame)
+        if errors:
+            return errors, []
+        return [], self._apply_measurement_plan(plan)
+
+    def measurement_grid_rescores(self, frame):
+        """True when saving this grid would recalculate every overall score
+        already stored. Asked by the screen BEFORE it writes, because that
+        is what decides whether a copy is kept first — and a copy kept after
+        the fact is not a copy of anything."""
+        errors, plan = self._plan_measurement_grid(frame)
+        if errors or plan is None:
+            return False
+        return self._plan_rescores(plan)
+
+    def _plan_rescores(self, plan):
+        if plan['deleted'] or any(spec['obj'] is None
+                                  for _, spec in plan['rows']):
+            return True
+        stored = self.share_percents()
+        for _, spec in plan['rows']:
+            if _objective_scoring_state(spec['obj']) != (
+                    spec['goal'],
+                    None if spec['target'] is None else float(spec['target']),
+                    float(spec['min_val']), float(spec['max_val'])):
+                return True
+            if abs(float(stored.get(spec['name'], 0))
+                   - float(spec['share_of_score'])) > 1e-9:
+                return True
+        return False
+
+    def _plan_measurement_grid(self, frame):
+        errors, rows, seen = [], [], set()
+        by_id = {o['name']: o for o in self.objectives}
+        ids_used = set()
+        for row_no, row in _grid_rows(frame):
+            if _row_is_blank(row):
+                continue
+            spec, trouble = self._read_measurement_row(row, by_id, ids_used)
+            if trouble:
+                errors.append((row_no, trouble))
+                continue
+            if spec['name'].lower() in seen:
+                errors.append((row_no, wording.MEASUREMENT_EXISTS_ERROR))
+                continue
+            seen.add(spec['name'].lower())
+            rows.append((row_no, spec))
+        if errors:
+            return errors, None
+        for row_no, spec in rows:
+            if spec['obj'] is not None:
+                continue
+            try:
+                self._name_is_free(spec['name'])
+            except ValueError as e:
+                errors.append((row_no, str(e)))
+        if errors:
+            return errors, None
+        deleted = [o['name'] for o in self.measurements_by_importance()
+                   if o['name'] not in ids_used]
+        return [], {'rows': rows, 'deleted': deleted}
+
+    def _read_measurement_row(self, row, by_id, ids_used):
+        row_id = _text_cell(row, GRID_ID)
+        obj = by_id.get(row_id)
+        if obj is not None:
+            ids_used.add(row_id)
+        name = _text_cell(row, wording.MEASUREMENT_COLUMN)
+        if not name:
+            return None, wording.NAME_REQUIRED_ERROR
+        if obj is not None and name != obj['name']:
+            # Every result already recorded is filed under this name, and
+            # there is no rename_objective to move them: an honest refusal
+            # beats a silent half-move.
+            return None, wording.MEASUREMENT_RENAME_ERROR
+        goal_label = _text_cell(row, wording.GOAL_LABEL)
+        goal = next((k for k, v in wording.GOAL_LABELS.items()
+                     if v == goal_label), goal_label or 'max')
+        low, low_ok = _number_cell(row, wording.LOWEST_MEASURABLE_LABEL)
+        high, high_ok = _number_cell(row, wording.HIGHEST_MEASURABLE_LABEL)
+        if not low_ok or not high_ok or low is None or high is None:
+            return None, wording.NUMBER_REQUIRED_ERROR
+        if low >= high:
+            return None, RANGE_ENDS_ERROR
+        target, target_ok = _number_cell(row, wording.TARGET_LABEL)
+        if not target_ok:
+            return None, wording.NUMBER_REQUIRED_ERROR
+        if goal == 'target':
+            if target is None:
+                return None, TARGET_REQUIRED_ERROR
+            if not (low <= target <= high):
+                return None, _target_outside_message(target, low, high)
+        share, share_ok = _number_cell(row, wording.SHARE_COLUMN)
+        if not share_ok or share is None or share <= 0:
+            return None, wording.SHARE_REQUIRED_ERROR
+        return {
+            'obj': obj, 'name': name, 'goal': goal,
+            'target': target if goal == 'target' else None,
+            'min_val': low, 'max_val': high,
+            'unit': _text_cell(row, wording.UNIT_LABEL),
+            # Spelled out: a bare 'share' literal is a column header the
+            # vocabulary guard refuses, and the guard is right to — the
+            # column is "Share of score", never "Share".
+            'share_of_score': share,
+        }, None
+
+    def _apply_measurement_plan(self, plan):
+        messages, rows, deleted = [], plan['rows'], plan['deleted']
+        # What the grid was SHOWING before this save: the basis both for
+        # which shares the reader moved and for how far the rest give way.
+        stored_shares = self.share_percents()
+        rescored = self._plan_rescores(plan)
+        for name in deleted:
+            self.remove_objective(name)
+        added, changed = [], []
+        for _, spec in rows:
+            obj = spec['obj']
+            if obj is None:
+                self.add_objective(spec['name'], 1.0, spec['goal'],
+                                   target=spec['target'],
+                                   min_val=spec['min_val'],
+                                   max_val=spec['max_val'], unit=spec['unit'])
+                added.append(spec['name'])
+                continue
+            before = _objective_state(obj)
+            self.update_objective(spec['name'], goal=spec['goal'],
+                                  target=spec['target'],
+                                  min_val=spec['min_val'],
+                                  max_val=spec['max_val'], unit=spec['unit'])
+            if before != _objective_state(obj):
+                changed.append(spec['name'])
+        typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
+        if typed:
+            # A row the reader typed a share into is one they have
+            # answered — and a row they have just added is always one of
+            # those, because there was nothing there to leave alone.
+            moved = {name for name, share in typed.items()
+                     if name not in stored_shares
+                     or abs(stored_shares[name] - share) > 1e-9}
+            self.set_shares(self._rebalanced_shares(typed, moved))
+            if _shares_moved(typed, self.share_percents()):
+                messages.append(("info", wording.SHARES_REBALANCED_CAPTION))
+            # A share moved is a row saved: without this a save that changed
+            # nothing but the column of shares had no green line at all, and
+            # the sentences that ride on it — the rescore, the best moving,
+            # the copy — had nowhere to land.
+            changed += [n for n in moved
+                        if n not in changed and n not in added]
+        if added:
+            messages.append(("success", wording.added(number_list(added))))
+        if changed:
+            messages.append(("success", wording.saved(number_list(changed))))
+        if deleted:
+            messages.append(("success", wording.measurement_deleted(
+                number_list(deleted))))
+        if rescored and self.Y_history:
+            # Said once, on the last green line, whatever mix of edits
+            # caused it: a rescore is one thing that happened, not four.
+            green = [i for i, (kind, _) in enumerate(messages)
+                     if kind == "success"]
+            if green:
+                kind, line = messages[green[-1]]
+                messages[green[-1]] = (kind, line + wording.RECALCULATED_SUFFIX)
+        return messages
+
+    def _rebalanced_shares(self, typed, moved):
+        """What the column should hold once the reader has moved part of it.
+
+        A share they typed is an answer and is kept; the rest give way
+        proportionally to make room for it, which is what "rebalances the
+        others" means with more than two rows on the grid. When everything
+        moved — or when what moved already asks for 100 or more — there is
+        nothing left to give way, and the whole column is scaled instead.
+        """
+        others = [n for n in typed if n not in moved]
+        kept = sum(typed[n] for n in moved)
+        if not moved or not others or kept >= 100:
+            return dict(typed)
+        pool = sum(max(float(self.share_percents().get(n, 0.0)), 0.0)
+                   for n in others)
+        remainder = 100.0 - kept
+        stored = self.share_percents()
+        out = {n: float(typed[n]) for n in moved}
+        for n in others:
+            out[n] = (remainder * float(stored.get(n, 0.0)) / pool if pool
+                      else remainder / len(others))
+        if any(v <= 0 for v in out.values()):
+            return dict(typed)
+        return out
 
     def set_bo_config(self, spec):
         """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the

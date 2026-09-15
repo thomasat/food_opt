@@ -653,3 +653,40 @@ def test_the_results_counter_says_complete():
     assert not hasattr(wording, "filled_in_counter")
     assert wording.partly_filled_suffix(1) == " · 1 partly filled"
     assert wording.not_scored_counter_suffix(1) == " · 1 not scored"
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · tab 1's editable grids keep their state under a key that
+#  turns over
+# ------------------------------------------------------------------ #
+
+def test_a_grid_is_emptied_by_drawing_a_new_one():
+    """A data editor's value cannot be assigned from session state at all —
+    Streamlit refuses the write — so the park-and-assign discipline every
+    other box on the page uses is not available here. Discard changes, a
+    Save that lands and a project switch all turn the key over instead,
+    which draws a new editor; Streamlit then drops the state of the widget
+    the run did not create.
+
+    The key and the counter are two different keys, and the counter's name
+    is not a widget's: assigning it is legal from a handler."""
+    import streamlit as st
+    import ui_helpers
+    st.session_state.clear()
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_0"
+    ui_helpers.clear_grid("ingredient_grid")
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_1"
+    # One grid's counter is its own: turning the ingredients grid over must
+    # not throw away what has been typed into the measurements grid.
+    assert ui_helpers.grid_key("measurement_grid") == "measurement_grid_0"
+    ui_helpers.clear_grid("measurement_grid")
+    assert ui_helpers.grid_key("measurement_grid") == "measurement_grid_1"
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_1"
+    st.session_state.clear()
+
+
+def test_the_two_grid_keys_the_app_owns_are_named_once():
+    """app.py turns both over on a project switch, and the test helpers
+    address them by name; ui_setup is where they are spelled."""
+    import ui_setup
+    assert ui_setup.GRID_KEYS == ("ingredient_grid", "measurement_grid")

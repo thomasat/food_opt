@@ -129,7 +129,7 @@ def disarm(key):
 
 
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
-                   disabled=False, preserve=False):
+                   disabled=False, preserve=False, primary=False):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -424,3 +424,30 @@ def landing_tab(opt):
     if not opt.X_history and not opt.skipped:
         return TAB_SETUP
     return TAB_RESULTS
+
+
+def _grid_nonce(name):
+    return f"_{name}_nonce"
+
+
+def grid_key(name):
+    """The key tab 1's editable grid `name` is mounted under on this run.
+
+    It carries a counter, and that is not decoration. A data editor's value
+    cannot be assigned from session state AT ALL — Streamlit refuses the
+    write outright, so the park-and-assign discipline every other box on the
+    page uses is not available here — and its session-state entry is a
+    record of what was typed (this cell changed, this row was added), not a
+    frame. Left standing after a save, that record would add the new row a
+    second time on the next run. So the only way to throw it away is to draw
+    a NEW editor: turning the counter over does that, and Streamlit drops
+    the state of the widget the run did not create.
+    """
+    return f"{name}_{st.session_state.get(_grid_nonce(name), 0)}"
+
+
+def clear_grid(name):
+    """Throw away what has been typed into one editable grid, by turning its
+    key over. Called by Discard changes and by every Save that lands."""
+    st.session_state[_grid_nonce(name)] = (
+        st.session_state.get(_grid_nonce(name), 0) + 1)

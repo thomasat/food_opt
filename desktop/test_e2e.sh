@@ -279,6 +279,7 @@ UI_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
   APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
   "$SUPPORT/venv/bin/python" - <<'PY'
 import os
+import wording
 from streamlit.testing.v1 import AppTest
 from food_bo import FoodOptimizer
 
@@ -292,19 +293,23 @@ at = AppTest.from_file(
 at.session_state["_loaded_project"] = "UI_Check"
 at.run()
 assert not at.exception, at.exception
-# One form adds both types: Type picks which, and a setting added mid-run
-# asks for the baseline the formulations already made were run at.
-at.radio(key="var_kind").set_value("Process setting")
+# One grid holds both types: Type is a cell, and a setting added mid-run
+# asks for the baseline the formulations already made were run at. Typing
+# into a data editor is injecting its own record of what was typed, which is
+# what the browser sends; it has to be injected before every run.
+EDITS = {"edited_rows": {}, "deleted_rows": [], "added_rows": [{
+    wording.NAME_LABEL: "oven_temp", wording.TYPE_LABEL: wording.KIND_SETTING,
+    wording.LOWEST_LABEL: 150.0, wording.HIGHEST_LABEL: 220.0,
+    wording.UNIT_LABEL: "C",
+    wording.BASELINE_LABEL: 100.0}]}          # outside [150, 220]
+at.session_state["ingredient_grid_0"] = dict(EDITS)
 at.run()
-at.text_input(key="var_name").set_value("oven_temp")
-at.number_input(key="var_low").set_value(150.0)
-at.number_input(key="var_high").set_value(220.0)
-at.number_input(key="var_base").set_value(100.0)  # outside [150, 220]
-at.run()
-next(b for b in at.button if b.label == "Add ingredient or setting").click()
+next(b for b in at.button if b.key == "save_ingredient_grid__save").click()
+at.session_state["ingredient_grid_0"] = dict(EDITS)
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
-assert any("must be between" in str(e.value) for e in at.error)
+assert any("must be between" in str(e.value) for e in at.error), \
+    [str(e.value) for e in at.error]
 print("UI_OK")
 PY
 )"
@@ -334,13 +339,14 @@ at.session_state["_loaded_project"] = "Wave_Check"
 at.run()
 assert not at.exception, at.exception
 
-# Tab 1 - Set up: the measurements table carries the fifth column the owner
-# asked for, and the score line spells out the share of score each
-# measurement gets.
-table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
-assert list(table.columns) == ["Measurement", "Goal", "Range",
-                               "Importance", "Share of score"]
-assert list(table["Share of score"]) == ["100 %"]
+# Tab 1 - Set up: the measurements grid carries Share of score as the
+# column that is typed into, and the score line spells out the share each
+# measurement gets. There is no Importance column anywhere (0.5.0).
+grid = at.dataframe[1].value
+assert [c for c in grid.columns if c != "_id"] == [
+    "Measurement", "Goal", "Target", "Lowest measurable",
+    "Highest measurable", "Unit", "Share of score (%)"], list(grid.columns)
+assert list(grid["Share of score (%)"]) == [100.0]
 assert any(c.value.startswith("Overall score = 1 (100 %)")
            for c in at.caption), [c.value for c in at.caption]
 

@@ -732,14 +732,14 @@ def unscaled_tail(batch_no):
 # words. It was written as the one place the specialist vocabulary was
 # spoken — variable, objective, weight, constraint — and says none of those
 # four words any more: the concepts are named as the screens name them
-# (ingredients and settings, measurements and goals, importance, limits).
+# (ingredients and settings, measurements and goals, shares, limits).
 # There is therefore no glossary bridge anywhere in the app, which is a
 # deliberate choice and not an oversight.
 HOW_IT_WORKS = [
     "Ingredients and settings are what the model varies. Measurements "
     "and goals are what it aims for.",
-    "Importance says how much each measurement counts. Closeness is a 0 to 1 "
-    "score for how near a result is to its goal.",
+    "Share of score says how much each measurement counts, out of 100. "
+    "Closeness is a 0 to 1 score for how near a result is to its goal.",
     HOW_CHOSEN,
     "Limits are hard rules for every formulation the app suggests. A "
     "formulation of your own is recorded as you typed it.",
@@ -761,8 +761,8 @@ HOW_CLOSENESS = [
     "far the target sits from the ends of your range. Because of that "
     "floor, a target measurement sways the score a little less than its "
     "share suggests.",
-    "The model learns the one overall score, so changing an importance, a "
-    "goal or a range re-scores every past formulation.",
+    "The model learns the one overall score, so changing a share, a goal "
+    "or a range re-scores every past formulation.",
     "A formulation of your own counts like any other. Making the best one "
     "again teaches the model how noisy your measurements are.",
 ]
@@ -778,34 +778,16 @@ def made_before_units_caption(unit):
 UPLOAD_INGREDIENTS_EXPANDER = "Or upload an ingredients file"
 
 NAME_LABEL = "Name"
-SETTING_NAME_PLACEHOLDER = "e.g. Cook temperature"
-INGREDIENT_NAME_PLACEHOLDER = "e.g. Water"
 TYPE_LABEL = "Type"
 VARIABLE_TYPE_HELP = ("Ingredients are weighed into the formulation and "
                       "count towards its total. Process settings, such as "
                       "temperature or time, are set on the equipment.")
 LOWEST_LABEL = "Lowest"
 HIGHEST_LABEL = "Highest"
-NEW_INGREDIENT_FIXED_LOW_HELP = ("Fixed at 0: every formulation you have "
-                                 "already made contains none of it.")
 UNIT_LABEL = "Unit"
-INGREDIENT_UNIT_PLACEHOLDER = "e.g. g"
-SETTING_UNIT_PLACEHOLDER = "e.g. °C"
 BASELINE_LABEL = "Baseline"
-BASELINE_ADD_LABEL = f"{BASELINE_LABEL} (required)"
-BASELINE_PLACEHOLDER = "e.g. 180"
 BASELINE_HELP = ("The setting you used for every formulation already made, "
                  "so those results still count.")
-ADD_VARIABLE_BUTTON = "Add ingredient or setting"
-
-
-def save_variable_button(name):
-    """'Save Pea protein isolate' — the add form, named for the row it is
-    open on, like the Edit and Delete buttons that lead to it. Only Add is a
-    bare verb: it is the one that has no row yet."""
-    return f"Save {name}"
-
-
 def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
@@ -815,7 +797,6 @@ def saved(name):
 # an ingredient is fat-free — only that a box was left empty.
 PROPERTY_PLACEHOLDER = "e.g. 2"
 PROPERTY_BLANK_RULE = "An empty box counts as 0 in any limit."
-PROPERTY_BOX_HELP = "Per 100 g of this ingredient. " + PROPERTY_BLANK_RULE
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
 
@@ -840,21 +821,92 @@ def fixed_status(amount_text):
 
 
 INGREDIENT_OR_SETTING_LABEL = "Ingredient or process setting"
-# The picker at the head of the control row. It carried the label above
-# word for word, which is also tab 3's Amounts column header: one label on
-# two unrelated controls, saying nothing about what picking a row does.
-VARIABLE_PICK_LABEL = "Choose one to edit, delete or change its unit"
-NEW_UNIT_LABEL = "New unit"
-SET_UNIT_BUTTON = "Set unit"
+
+# ------------------------------------------------------------------ #
+# 0.5.0 · the two editable grids on tab 1.
+#
+# There is no add form, no control row and no per-row editor any more: a
+# row is typed where it is read, and one Save changes writes the lot. So
+# the words here are column headers and one pair of buttons, and the
+# sentences that used to belong to six separate controls are gone with
+# them.
+# ------------------------------------------------------------------ #
+VENDOR_LABEL = "Vendor"
+SKU_LABEL = "SKU"
+VENDOR_HELP = ("Printed on the sheets so the bench knows what to reach "
+               "for. The app never reads it.")
+# What each measurement is worth out of 100. It moved up here from the
+# measurements block below because the grid's own header is built from it,
+# and a module reads top to bottom.
+COL_SHARE = "Share of score"
+SHARE_COLUMN = f"{COL_SHARE} (%)"
+SHARE_HELP = ("What this measurement is worth out of 100. Change one and "
+              "the others move to keep the column adding up to 100.")
+SHARES_REBALANCED_CAPTION = "Shares adjusted to add up to 100 %."
+
+INGREDIENT_GRID_CAPTION = ("One row per ingredient or process setting. Type "
+                           "a new one on the empty row at the bottom; set "
+                           "Lowest and Highest to the same number to fix it "
+                           "at one amount.")
+MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
+                            "what each one is worth out of 100.")
+
+DISCARD_CHANGES_BUTTON = "Discard changes"
+UNSAVED_CHANGES_CAPTION = ("These changes are not saved yet. Nothing reaches "
+                           "the project until you save them.")
+
+
+# `row_error` — 'Row 3: Lowest cannot be above Highest.' — lives further
+# down, beside the import that first needed it. Tab 1's grids say the same
+# sentence about a row that cannot be saved, in the same shape.
+
+
+def delete_rows_warning(names_text):
+    """The question Save asks before it applies a deleted row. Spec 1.1's
+    sentence, with the app's own standing promise about the copy: every
+    other Delete in the app says where the copy went, and this one is no
+    less permanent for arriving through a grid."""
+    return (f"Delete {names_text}? Later formulations keep their numbers. "
+            + COPY_KEPT)
+
+
+def only_a_setting_has(column):
+    """A cell filled in on a row that cannot carry it. Refused rather than
+    quietly dropped: a number typed into Baseline is an answer, and throwing
+    it away without a word is how a grid loses an edit."""
+    return f"Only a process setting has a {column}."
+
+
+def only_an_ingredient_has(column):
+    return f"Only an ingredient has a {column}."
+
+
+NAME_REQUIRED_ERROR = "Name cannot be empty."
+NUMBER_REQUIRED_ERROR = "Enter a number."
+SHARE_REQUIRED_ERROR = "Enter a share above 0."
+MEASUREMENT_RENAME_ERROR = ("A measurement's name cannot change: every "
+                            "result already recorded is filed under it. "
+                            "Delete it and add it again.")
+TYPE_LOCKED_ERROR = ("Type cannot change once formulations have been "
+                     "recorded. Delete the row and add it again.")
+
+
+def formulations_contain_none_of(names_text):
+    """Said once when a grid Save adds an ingredient to a project that has
+    already recorded formulations: those formulations are encoded as
+    containing none of it, whatever Lowest the new row carries."""
+    return f"Formulations already made contain no {names_text}."
+
+
+# The one picker left on the tab: Set properties keeps a minimal path of its
+# own until 0.5.0's More settings gives properties a grid (spec 1.5).
+PROPERTIES_PICK_LABEL = "Ingredient"
 
 
 # A project's property names are its own and can be long ("Sodium mg per
 # 100 g"), so the button stays the short, stable label and the dialog it
 # opens does the naming.
 SET_PROPERTIES_BUTTON = "Set properties"
-
-
-ONLY_INGREDIENT_HAS_PROPERTIES = "Only an ingredient has properties."
 
 
 def properties_for_caption(names_text, name, per_100_already_said=False):
@@ -895,13 +947,6 @@ YES_DELETE = "Yes, delete"
 
 def delete_button(name):
     return f"Delete {name}"
-
-
-def delete_variable_warning(name, is_ingredient):
-    head = (f"Delete {name} from this project permanently? " if is_ingredient
-            else f"Delete {name}? ")
-    return (head + "Formulations you already recorded keep their amounts. "
-            + COPY_KEPT)
 
 
 DELETE_VS_FIXING_CAPTION = ("Deleting takes it out of every formulation "
@@ -962,16 +1007,10 @@ def quantity_limit_removed_unit_mismatch(label):
 ALL_INGREDIENTS_LABEL = "All ingredients"
 ALL_INGREDIENTS_LOWER = "all ingredients"
 
-MEASUREMENT_NAME_PLACEHOLDER = "e.g. Firmness"
-MEASUREMENT_UNIT_PLACEHOLDER = "e.g. N or /10"
 GOAL_LABEL = "Goal"
 TARGET_LABEL = "Target"
-RANGE_HEADING = "**Range**"
 LOWEST_MEASURABLE_LABEL = "Lowest measurable"
 HIGHEST_MEASURABLE_LABEL = "Highest measurable"
-RANGE_HINT_CAPTION = "The ends of your range, not the numbers you expect."
-IMPORTANCE_LABEL = "Importance"
-IMPORTANCE_HELP = "Any positive number. 2 counts twice as much as 1."
 MEASUREMENT_EXISTS_ERROR = ("That measurement already exists. Use Edit on "
                             "its row to change it.")
 
@@ -982,14 +1021,9 @@ def name_differs_only_by_case(stored):
     without regard to case, so the second could never be filled in."""
     return (f"{stored} already exists. Use that spelling to change it, or "
             "choose another name.")
-ADD_MEASUREMENT_BUTTON = "Add measurement"
 SAVE_CHANGES_BUTTON = "Save changes"
 
 RECALCULATED_SUFFIX = " Every overall score was recalculated."
-
-
-def importance_changed(name, value):
-    return f"{name} importance is now {float(value):.1f}."
 
 
 def updated(name):
@@ -1001,26 +1035,16 @@ def measurement_deleted(name):
 
 
 MEASUREMENTS_HEADER = "Measurements and targets"
-ADD_A_MEASUREMENT_EXPANDER = "Add a measurement"
 MEASUREMENT_COLUMN = "Measurement"
 RANGE_COLUMN = "Range"
-COL_SHARE = "Share of score"
 
 
-def edit_button(name):
-    return f"Edit {name}"
-
-
-def edit_measurement_heading(name):
-    """The open editor's own title. Without it the form was six unlabelled
-    boxes with a greyed Name at the top, and nothing said which measurement
-    Save changes would change."""
-    return f"##### Edit {name}"
-
-
-def delete_measurement_warning(name):
-    return (f"Delete {name}? Every overall score is recalculated without "
-            "it. " + COPY_KEPT)
+def delete_measurement_warning(names_text, many=False):
+    """The question a grid Save asks before it drops a measurement. It takes
+    a list, because a grid can take two out at once, and says "them" when it
+    is one."""
+    return (f"Delete {names_text}? Every overall score is recalculated "
+            f"without {'them' if many else 'it'}. " + COPY_KEPT)
 
 
 # Where the targets came from: an optional free-text note under the
@@ -1351,13 +1375,12 @@ NOT_USED_PREFIX = "Not used: "
 
 def overall_score_caption(score, ceiling, missing_text=""):
     """`missing_text` names the measurements nobody took, or is empty. A goal
-    re-scores every formulation exactly as an importance or a range does, so
-    it is named here with them."""
+    re-scores every formulation exactly as a share of the score or a range
+    does, so it is named here with them."""
     return (f"Overall score {score:.2f} of {ceiling:.2f}"
             + (not_measured_tail(missing_text) if missing_text else "")
-            + ". Scores only compare within this project. Change an "
-            "importance, a goal or a range and every score is worked out "
-            "again.")
+            + ". Scores only compare within this project. Change a share, a "
+            "goal or a range and every score is worked out again.")
 
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
@@ -1552,6 +1575,11 @@ IMPORT_ALL_ROWS_BUTTON = "Import all rows"
 
 
 def row_error(position, problem):
+    """'Row 3: Lowest cannot be above Highest.' — one line per row that
+    cannot be read or cannot be saved. Two places say it: the formulation
+    import on tab 3, and 0.5.0's editable grids on tab 1. The number is the
+    row's own, the one on screen beside it, so the reader looks in one
+    place."""
     return f"Row {position}: {problem}"
 
 
@@ -1731,3 +1759,11 @@ def workbook_no_formulations(wanted):
 def workbook_nothing_filled_in(wanted):
     return (f"Nothing is filled in on the {wanted} sheet. Write a number "
             f"in a Measured cell, or tick {NOT_SCORED}.")
+
+
+def fixed_rows_tail(names_text):
+    """The tail on a refusal from a grid Save: which rows, pinned at one
+    amount, are what makes the limit impossible. The refusal itself names
+    the limit; without this the reader had to work out which of eight rows
+    they had just fixed."""
+    return f"Fixed at one amount: {names_text}."

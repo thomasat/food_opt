@@ -225,8 +225,10 @@ class TestObjectiveValidation:
         assert opt.Y_history[0] == pytest.approx(0.25)
 
     def test_weight_must_be_positive(self, tmp_path, monkeypatch):
+        """What the measurement is worth is typed as its share of the score
+        now, so the refusal for a nought says so in those words."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="greater than 0"):
+        with pytest.raises(ValueError, match="share above 0"):
             opt.add_objective("Taste", 0.0)
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
@@ -2982,6 +2984,556 @@ class TestParseBatchResultsByFormulation:
             opt.parse_batch_results(df, opt.pending_batch)
 
 
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · the two editable grids, at the layer they are written at
+#
+#  AppTest cannot click a cell, so this is where the diff between an edited
+#  frame and the project is pinned: every kind of change, every refusal, and
+#  the rule that a refusal writes nothing at all.
+# ------------------------------------------------------------------ #
+
+def _edit(frame, row, **cells):
+    """Type into one row of a grid, by the number the grid shows."""
+    out = frame.copy()
+    for column, value in cells.items():
+        out.loc[row, column] = value
+    return out
+
+
+def _add(frame, **cells):
+    """Type a row on the empty line at the bottom. The hidden identity comes
+    back empty, which is what makes it an addition."""
+    out = frame.copy()
+    row = {c: None for c in out.columns}
+    row.update(cells)
+    out.loc[len(out) + 1] = row
+    return out
+
+
+def _drop(frame, row):
+    return frame.drop(index=row)
+
+
+def _ing_row(name, kind=None, low=0.0, high=100.0, unit="g", **extra):
+    row = {wording.NAME_LABEL: name,
+           wording.TYPE_LABEL: kind or wording.KIND_INGREDIENT,
+           wording.LOWEST_LABEL: low, wording.HIGHEST_LABEL: high,
+           wording.UNIT_LABEL: unit,
+           wording.VENDOR_LABEL: "", wording.SKU_LABEL: ""}
+    row.update(extra)
+    return row
+
+
+def _meas_row(name, goal="max", low=0.0, high=10.0, unit="", share=50.0,
+              target=None):
+    return {wording.MEASUREMENT_COLUMN: name,
+            wording.GOAL_LABEL: wording.GOAL_LABELS[goal],
+            wording.TARGET_LABEL: target,
+            wording.LOWEST_MEASURABLE_LABEL: low,
+            wording.HIGHEST_MEASURABLE_LABEL: high,
+            wording.UNIT_LABEL: unit, wording.SHARE_COLUMN: share}
+
+
+def _said(messages, kind=None):
+    return [text for k, text in messages if kind is None or k == kind]
+
+
+class TestTheIngredientsGrid:
+
+    def _opt(self, tmp_path, monkeypatch, name="grid"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Salt", 0, 10)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    # ---- what the grid opens holding -------------------------------- #
+
+    def test_the_frame_is_the_project_with_a_hidden_identity(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = opt.ingredient_grid_frame()
+        assert list(frame.columns) == [
+            "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
+            wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+            wording.VENDOR_LABEL, wording.SKU_LABEL]
+        # Numbered from 1, so "Row 2" under the grid is the second row the
+        # reader can see.
+        assert list(frame.index) == [1, 2]
+        assert list(frame["_id"]) == ["Water", "Salt"]
+
+    def test_baseline_arrives_with_the_first_result(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert wording.BASELINE_LABEL not in opt.ingredient_grid_frame()
+        opt.tell({"Water": 50.0, "Salt": 5.0}, {"Taste": 7.0})
+        assert wording.BASELINE_LABEL in opt.ingredient_grid_frame()
+
+    # ---- one diff kind at a time ------------------------------------ #
+
+    def test_an_added_row(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_ingredient_grid(
+            _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=20.0)))
+        assert errors == []
+        assert _said(messages, "success") == ["Oil added."]
+        assert opt._var_by_name("Oil")["bounds"] == (0.0, 20.0)
+
+    def test_a_deleted_row(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = opt.ingredient_grid_frame()
+        assert opt.ingredient_grid_deletions(_drop(frame, 2)) == ["Salt"]
+        errors, messages = opt.apply_ingredient_grid(_drop(frame, 2))
+        assert errors == []
+        assert _said(messages, "success") == ["Salt deleted."]
+        assert [v["name"] for v in opt.variables] == ["Water"]
+
+    def test_a_renamed_row_keeps_everything_filed_under_it(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0, "Salt": 5.0}, {"Taste": 7.0})
+        opt.add_quantity_constraint(["Salt"], max_val=8)
+        errors, messages = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.NAME_LABEL: "Sea salt"}))
+        assert errors == []
+        assert _said(messages, "success") == ["Sea salt saved."]
+        assert opt.recipe_history[0] == {"Water": 50.0, "Sea salt": 5.0}
+        assert opt.quantity_constraints[0]["ingredients"] == ["Sea salt"]
+
+    def test_changed_bounds(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 1,
+                  **{wording.HIGHEST_LABEL: 60.0}))
+        assert errors == []
+        assert opt._var_by_name("Water")["bounds"] == (0.0, 60.0)
+
+    def test_a_changed_unit_says_nothing_was_converted(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 1,
+                  **{wording.UNIT_LABEL: "ml"}))
+        assert errors == []
+        assert wording.unit_changed("Water", "ml", True) in _said(messages)
+        assert opt.unit_of("Water") == "ml"
+
+    def test_a_changed_type(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.TYPE_LABEL: wording.KIND_SETTING,
+                     wording.UNIT_LABEL: "°C"}))
+        assert errors == []
+        assert opt._var_by_name("Salt")["category"] == "process"
+
+    def test_a_type_change_is_refused_once_results_exist(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0, "Salt": 5.0}, {"Taste": 7.0})
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.TYPE_LABEL: wording.KIND_SETTING}))
+        assert errors == [(2, wording.TYPE_LOCKED_ERROR)]
+        assert opt._var_by_name("Salt")["category"] == "ingredient"
+
+    def test_vendor_and_sku(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 1,
+                  **{wording.VENDOR_LABEL: "Acme",
+                     wording.SKU_LABEL: "H2O-1"}))
+        assert errors == []
+        var = opt._var_by_name("Water")
+        assert (var["vendor"], var["sku"]) == ("Acme", "H2O-1")
+
+    def test_a_fixed_row_is_lowest_equals_highest(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.LOWEST_LABEL: 4.0, wording.HIGHEST_LABEL: 4.0}))
+        assert errors == []
+        assert [v["name"] for v in opt.fixed_variables()] == ["Salt"]
+
+    def test_four_changes_in_one_save(self, tmp_path, monkeypatch):
+        """The point of a grid: one Save, and every consequence said once."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Oil", 0, 20)
+        frame = opt.ingredient_grid_frame()
+        frame = _edit(frame, 1, **{wording.HIGHEST_LABEL: 60.0})
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Sea salt"})
+        frame = _add(frame, **_ing_row("Sugar", high=5.0))
+        frame = _drop(frame, 3)
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert _said(messages, "success") == [
+            "Sugar added.", "Water and Sea salt saved.", "Oil deleted."]
+        assert [v["name"] for v in opt.variables] == ["Water", "Sea salt",
+                                                      "Sugar"]
+
+    # ---- every refusal, and nothing written -------------------------- #
+
+    def _refused(self, opt, frame):
+        before = json.dumps(opt.export_json(), sort_keys=True, default=str)
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert messages == []
+        after = json.dumps(opt.export_json(), sort_keys=True, default=str)
+        assert before == after, "a refused grid wrote something"
+        return errors
+
+    def test_a_taken_name_is_refused_by_row(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 2,
+                                        **{wording.NAME_LABEL: "Water"})) == [
+            (2, "Water is already the name of an ingredient. Choose another "
+                "name.")]
+
+    def test_a_name_that_differs_only_by_case_is_refused(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 2,
+                                        **{wording.NAME_LABEL: "water"})) == [
+            (2, wording.name_differs_only_by_case("Water"))]
+
+    def test_a_measurements_name_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 2,
+                                        **{wording.NAME_LABEL: "Taste"})) == [
+            (2, "Taste is already the name of a measurement. Choose another "
+                "name.")]
+
+    def test_a_reserved_name_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors = self._refused(opt, _edit(opt.ingredient_grid_frame(), 2,
+                                          **{wording.NAME_LABEL: "Total"}))
+        assert errors[0][0] == 2 and "column name" in errors[0][1]
+
+    def test_an_empty_name_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 2,
+                                        **{wording.NAME_LABEL: "  "})) == [
+            (2, wording.NAME_REQUIRED_ERROR)]
+
+    def test_lowest_above_highest_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
+                                        **{wording.LOWEST_LABEL: 90.0,
+                                           wording.HIGHEST_LABEL: 10.0})) == [
+            (1, "Lowest cannot be above Highest.")]
+
+    def test_a_number_that_is_not_a_number_is_refused(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
+                                        **{wording.HIGHEST_LABEL: "lots"})) == [
+            (1, wording.NUMBER_REQUIRED_ERROR)]
+
+    def test_a_blank_unit_is_refused_for_an_ingredient_only(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
+                                        **{wording.UNIT_LABEL: ""})) == [
+            (1, wording.UNIT_REQUIRED_ERROR)]
+        opt.add_process_parameter("Mixer speed", 1, 5, unit="rpm")
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 3,
+                  **{wording.UNIT_LABEL: ""}))
+        assert errors == []
+        assert opt.unit_of("Mixer speed") == ""
+
+    def test_a_cell_that_does_not_belong_to_the_row_is_refused(self, tmp_path,
+                                                               monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Mixer speed", 1, 5, unit="rpm")
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 3,
+                                        **{wording.VENDOR_LABEL: "Acme"})) == [
+            (3, wording.only_an_ingredient_has(wording.VENDOR_LABEL))]
+        opt.tell({"Water": 50.0, "Salt": 5.0, "Mixer speed": 3.0},
+                 {"Taste": 7.0})
+        assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
+                                        **{wording.BASELINE_LABEL: 2.0})) == [
+            (1, wording.only_a_setting_has(wording.BASELINE_LABEL))]
+
+    def test_every_row_is_checked_before_any_is_written(self, tmp_path,
+                                                        monkeypatch):
+        """Two bad rows come back as two lines, not one — the reader fixes
+        the grid once rather than saving into a queue of refusals."""
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.NAME_LABEL: ""})
+        frame = _edit(frame, 2, **{wording.LOWEST_LABEL: 90.0,
+                                   wording.HIGHEST_LABEL: 10.0})
+        assert self._refused(opt, frame) == [
+            (1, wording.NAME_REQUIRED_ERROR),
+            (2, "Lowest cannot be above Highest.")]
+
+    def test_a_deletion_of_a_used_ingredient_is_refused_before_it_writes(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0, "Salt": 5.0}, {"Taste": 7.0})
+        errors = self._refused(opt, _drop(opt.ingredient_grid_frame(), 2))
+        assert errors[0][0] is None and "was used in Formulation 1" in errors[0][1]
+        # ...and goes through once the reader says so.
+        errors, messages = opt.apply_ingredient_grid(
+            _drop(opt.ingredient_grid_frame(), 2), force={"Salt"})
+        assert errors == []
+        assert [v["name"] for v in opt.variables] == ["Water"]
+
+    def test_a_blank_row_is_not_an_addition(self, tmp_path, monkeypatch):
+        """The empty line at the bottom of a dynamic grid, clicked and left
+        alone. Not a row, and not an error either."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_ingredient_grid(
+            _add(opt.ingredient_grid_frame()))
+        assert (errors, messages) == ([], [])
+        assert len(opt.variables) == 2
+
+    # ---- the fixed check, once, over the finished grid --------------- #
+
+    def test_fixing_everything_below_the_batch_size_is_refused_over_the_grid(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(50.0)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.LOWEST_LABEL: 10.0,
+                         wording.HIGHEST_LABEL: 10.0})
+        frame = _edit(frame, 2, **{wording.LOWEST_LABEL: 2.0,
+                                   wording.HIGHEST_LABEL: 2.0})
+        errors = self._refused(opt, frame)
+        assert len(errors) == 1
+        row, message = errors[0]
+        assert row is None, "the refusal is about the grid, not a row"
+        assert wording.fixing_breaks_the_total("50 g") in message
+        assert wording.fixed_rows_tail("Water and Salt") in message
+
+    def test_one_row_fixed_mid_grid_is_never_asked_on_its_own(self, tmp_path,
+                                                              monkeypatch):
+        """Fixing Water at 48 g and widening Salt to 2 g in one save reaches
+        50 g. Asked per row, the first half would have been refused for a
+        state the project never sits in."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(50.0)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.LOWEST_LABEL: 48.0,
+                         wording.HIGHEST_LABEL: 48.0})
+        frame = _edit(frame, 2, **{wording.LOWEST_LABEL: 2.0,
+                                   wording.HIGHEST_LABEL: 2.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.formulation_total == 50.0
+
+    def test_a_limit_already_impossible_is_not_blamed_on_this_save(
+            self, tmp_path, monkeypatch):
+        """A range narrowed before this edit can strand a limit, and always
+        could. Refusing the next save for it would leave no way back out."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Water"], min_val=200)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.LOWEST_LABEL: 3.0, wording.HIGHEST_LABEL: 3.0}))
+        assert errors == []
+        assert opt._var_by_name("Salt")["bounds"] == (3.0, 3.0)
+
+    # ---- consequences, once ----------------------------------------- #
+
+    def test_the_open_round_is_discarded_once(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Water": 50.0, "Salt": 5.0}], batch_no=1)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.HIGHEST_LABEL: 60.0})
+        frame = _edit(frame, 2, **{wording.HIGHEST_LABEL: 20.0})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert _said(messages, "info") == [
+            wording.batch_discarded_notice(1)]
+        assert opt.pending_batch is None
+
+    def test_a_pruned_limit_is_named_once(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Water", "Salt"], max_val=50)
+        errors, messages = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.UNIT_LABEL: "ml"}))
+        assert errors == []
+        assert len(_said(messages, "warning")) == 1
+        assert opt.quantity_constraints == []
+
+    def test_the_default_batch_size_is_kept_and_said_once(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(50.0)
+        errors, messages = opt.apply_ingredient_grid(
+            _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=20.0)))
+        assert errors == []
+        assert _said(messages, "success") == [
+            "Oil added. " + wording.total_still_holds("50 g")]
+
+    def test_a_new_ingredient_mid_run_says_what_the_records_contain(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0, "Salt": 5.0}, {"Taste": 7.0})
+        errors, messages = opt.apply_ingredient_grid(
+            _add(opt.ingredient_grid_frame(),
+                 **_ing_row("Sugar", low=5.0, high=5.0)))
+        assert errors == []
+        assert _said(messages, "info") == [
+            wording.formulations_contain_none_of("Sugar")]
+        # 0.5.0: a new row may start above 0 — the old form forced it there.
+        assert opt._var_by_name("Sugar")["bounds"] == (5.0, 5.0)
+
+    def test_a_grid_that_says_what_the_project_says_writes_nothing(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Water": 50.0, "Salt": 5.0}], batch_no=1)
+        errors, messages = opt.apply_ingredient_grid(
+            opt.ingredient_grid_frame())
+        assert (errors, messages) == ([], [])
+        assert opt.pending_batch is not None
+
+    def test_a_rename_on_its_own_keeps_the_open_round(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Water": 50.0, "Salt": 5.0}], batch_no=1)
+        errors, messages = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.NAME_LABEL: "Sea salt"}))
+        assert errors == [] and _said(messages, "info") == []
+        assert opt.pending_batch[0]["recipe"] == {"Water": 50.0,
+                                                  "Sea salt": 5.0}
+
+
+class TestTheMeasurementsGrid:
+
+    def _opt(self, tmp_path, monkeypatch, name="mgrid"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_the_frame_is_the_measurements_with_their_shares(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = opt.measurement_grid_frame()
+        assert list(frame.columns) == [
+            "_id", wording.MEASUREMENT_COLUMN, wording.GOAL_LABEL,
+            wording.TARGET_LABEL, wording.LOWEST_MEASURABLE_LABEL,
+            wording.HIGHEST_MEASURABLE_LABEL, wording.UNIT_LABEL,
+            wording.SHARE_COLUMN]
+        assert list(frame[wording.SHARE_COLUMN]) == [60.0, 40.0]
+
+    def test_a_typed_share_is_kept_and_the_rest_give_way(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.SHARE_COLUMN: 80.0}))
+        assert errors == []
+        assert opt.share_percents() == {"Firmness": 80, "Juiciness": 20}
+        assert wording.SHARES_REBALANCED_CAPTION in _said(messages, "info")
+
+    def test_three_shares_give_way_proportionally(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_objective("Colour", 1.0, goal="max", min_val=0, max_val=10)
+        # 43 / 28.5 / 28.5 before; Firmness moves to 50 and the other two
+        # share the remaining 50 in the ratio they already had.
+        errors, _ = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.SHARE_COLUMN: 50.0}))
+        assert errors == []
+        shares = opt.share_percents()
+        assert shares["Firmness"] == 50
+        assert shares["Juiciness"] == shares["Colour"] == 25
+
+    def test_a_column_that_already_adds_up_says_nothing(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.HIGHEST_MEASURABLE_LABEL: 20.0}))
+        assert errors == []
+        assert _said(messages, "info") == []
+
+    def test_a_share_that_is_not_a_number_is_refused_by_row(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 2,
+                  **{wording.SHARE_COLUMN: "half"}))
+        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+        assert messages == []
+        assert opt.share_percents() == {"Firmness": 60, "Juiciness": 40}
+
+    def test_a_share_of_nought_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 2,
+                  **{wording.SHARE_COLUMN: 0.0}))
+        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+
+    def test_a_renamed_measurement_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.MEASUREMENT_COLUMN: "Bite"}))
+        assert errors == [(1, wording.MEASUREMENT_RENAME_ERROR)]
+
+    def test_a_target_outside_the_range_is_refused(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.TARGET_LABEL: 50.0}))
+        assert errors[0][0] == 1
+        assert "must be between the range" in errors[0][1]
+
+    def test_an_added_measurement_takes_its_share_from_the_rest(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_measurement_grid(
+            _add(opt.measurement_grid_frame(),
+                 **_meas_row("Colour", share=20.0)))
+        assert errors == []
+        assert _said(messages, "success")[0] == "Colour added."
+        assert opt.share_percents() == {"Firmness": 48, "Juiciness": 32,
+                                        "Colour": 20}
+
+    def test_a_deleted_measurement_recalculates_and_rebalances(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        errors, messages = opt.apply_measurement_grid(
+            _drop(opt.measurement_grid_frame(), 2))
+        assert errors == []
+        assert [o["name"] for o in opt.objectives] == ["Firmness"]
+        assert opt.share_percents() == {"Firmness": 100}
+        assert any(wording.RECALCULATED_SUFFIX.strip() in line
+                   for line in _said(messages, "success"))
+
+    def test_a_unit_on_its_own_rescores_nothing(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        frame = _edit(opt.measurement_grid_frame(), 1,
+                      **{wording.UNIT_LABEL: "kPa"})
+        assert opt.measurement_grid_rescores(frame) is False
+        errors, messages = opt.apply_measurement_grid(frame)
+        assert errors == []
+        assert _said(messages, "success") == ["Firmness saved."]
+
+    def test_a_range_moved_does_rescore(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        frame = _edit(opt.measurement_grid_frame(), 1,
+                      **{wording.HIGHEST_MEASURABLE_LABEL: 20.0})
+        assert opt.measurement_grid_rescores(frame) is True
+
 import ast
 import pathlib
 import re
@@ -3019,7 +3571,13 @@ _PAUSE = re.compile(r"\bpaus(e|ed|ing)\b", re.I)
 _CSV_WORD = re.compile(r"\bCSV\b")
 _CSV_ALLOWED = "(Excel or CSV)"
 
+# 0.5.0: what a measurement is worth is typed as its SHARE OF SCORE, out of
+# 100, and the importance behind it is derived. Importance named a number
+# the reader no longer enters, on a scale they could not see the sum of.
+_IMPORTANCE = re.compile(r"\bimportance\b", re.I)
+
 _BANNED = [
+    _IMPORTANCE,
     re.compile(r"\brecipes?\b", re.I),
     re.compile(r"\bexperiments?\b", re.I),
     re.compile(r"\bobjectives?\b", re.I),
@@ -3286,7 +3844,8 @@ _SINGLE_WORDS = re.compile(
     r"|priority|trials?|batch(es)?|kind|scales?|remove|remake|share|backups?"
     # 0.4.1: a one-word "Paused" column value is the shape this one took.
     # 0.5.0: and the one-word "Held" a Status cell could hold.
-    r"|pause[ds]?|pausing|hold|held)$", re.I)
+    # 0.5.0: and the one-word "Importance" a column header was.
+    r"|pause[ds]?|pausing|hold|held|importance)$", re.I)
 
 
 def _how_it_works():
@@ -5375,13 +5934,16 @@ class TestTheWorkbookFinalWave:
 
     def test_the_set_up_sheet_carries_the_share_of_score(self, tmp_path,
                                                          monkeypatch):
+        """And nothing else: 0.5.0 makes the share the number the reader
+        types, so the sheet no longer prints the importance behind it beside
+        it — one fact, in one scale."""
         opt = self._opt(tmp_path, monkeypatch)
         rows = _rows(_book(opt.all_formulations_workbook())["Set-up"])
         head = next(r for r in rows if r[0] == wording.MEASUREMENT_COLUMN)
-        assert head[4] == wording.IMPORTANCE_LABEL
-        assert head[5] == wording.COL_SHARE
+        assert head[4] == wording.SHARE_COLUMN
+        assert len([c for c in head if c]) == 5
         line = next(r for r in rows if r[0] == "Firmness")
-        assert line[5] == "60 %"
+        assert line[4] == "60 %"
 
     # ---- F6 / F7 / F8: what an uploaded workbook is read as ------------
 

@@ -37,7 +37,8 @@ from food_bo import (                         # noqa: E402
 )
 from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
-    confirm_action, confirmation_open, drain_clears, flash, landing_tab,
+    clear_grid, confirm_action, confirmation_open, drain_clears,
+    flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
     render_flash, saved_line, saved_ok, take_clear,
 )
@@ -65,9 +66,10 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 # form. Popping a key while its widget is on screen raises, which is why this
 # only ever runs from a handler, before the tabs render.
 _FORM_KEY_PREFIXES = (
-    "meas_",                       # the measurement form, new and per-edit
-    "var_",                        # the one add form: name, type, lowest,
-                                   # highest, unit, baseline, and the picker
+    # Tab 1's ingredients and measurements are two editable grids now. A
+    # grid's own key is neither popped nor parked — it is turned over
+    # (_EDITOR_GRID_KEYS below) — and there is no add form and no per-row
+    # editor left to empty.
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, at least, at most,
@@ -90,13 +92,8 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 # So the empty value is PARKED and assigned before the widget is created, the
 # same pattern clear_selection has always used for a select box.
 _FORM_FRESH = {
-    "var_name": "", "var_low": 0.0, "var_high": 100.0, "var_base": None,
-    "var_kind": "Ingredient", "unit_value": "",
     "prop_min": None, "prop_max": None, "prop_new": "",
     "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
-    "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
-    "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
-    "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
     "how_many": 3, "scale_total": None, "own_note": "",
     "formulation_total": None,
@@ -106,22 +103,26 @@ _FORM_FRESH = {
     # on the typed-in half.
     "past_note": wording.IMPORTED_NOTE, "add_past_mode": wording.TYPE_IT_IN,
 }
-# The boxes whose empty value is None: the select boxes, and the add form's
-# unit box, which empties to the newly opened project's own default (app.py
-# passes it to drain_clears; it is not known here).
+# The boxes whose empty value is None: the select boxes.
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
-                         "var_unit")
+                         "prop_pick")
+
+# Tab 1's two editable grids. Their session-state value is the record of
+# what has been typed into them — which cells changed, which rows were added
+# and which taken out — and Streamlit refuses to let a script assign it, so
+# a project switch turns each grid's key over instead (clear_grid). A record
+# left behind would apply one project's edits to another project's rows.
+_EDITOR_GRID_KEYS = ui_setup.GRID_KEYS
 
 # The boxes whose names are the project's own, so they cannot be listed in
-# _FORM_FRESH above: one per property on the add form (var_prop_<name>), one
-# per property in the Set properties editor (setprop_<row>_<name>), one
-# per variable in tab 2's "Add a formulation of your own" (own_<name> — its
-# own_note box is named in _FORM_FRESH, and is parked before this), one per
-# amount in tab 3's correction row (correct_amount_<no>_<name>), and one per
-# amount and measurement in tab 3's typed-in past formulation (past_<name>
-# and past_m_<name>; past_note is named in _FORM_FRESH and parked first).
-_PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_",
-                          "correct_amount_", "past_")
+# _FORM_FRESH above: one per property in the Set properties editor
+# (setprop_<row>_<name>), one per variable in tab 2's "Add a formulation of
+# your own" (own_<name> — its own_note box is named in _FORM_FRESH, and is
+# parked before this), one per amount in tab 3's correction row
+# (correct_amount_<no>_<name>), and one per amount and measurement in tab 3's
+# typed-in past formulation (past_<name> and past_m_<name>; past_note is
+# named in _FORM_FRESH and parked first).
+_PER_NAME_BOX_PREFIXES = ("setprop_", "own_", "correct_amount_", "past_")
 
 
 def _grid_fresh(key):
@@ -140,12 +141,14 @@ def _reset_project_session():
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
-              "_results_upload", "_import_rows", "_editing_measurement",
-              "_editing_variable",
+              "_results_upload", "_import_rows",
+              "_ingredient_grid_errors", "_measurement_grid_errors",
+              "_ingredient_grid_pending", "_grid_deletions_armed",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_var_kind_shown", "_props_for",
-              "_targets_source_open", ARMED_KEY):
+              "_pending_tab", "_targets_source_open", ARMED_KEY):
         st.session_state.pop(k, None)
+    for name in _EDITOR_GRID_KEYS:
+        clear_grid(name)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
