@@ -366,8 +366,11 @@ opt.add_ingredient("water", 0.0, 100.0)
 opt.add_ingredient("flour", 0.0, 100.0)
 opt.add_objective("taste", 1.0, goal="max")
 opt.set_formulation_total(50.0)
-opt.tell({"water": 20.0, "flour": 30.0}, {"taste": 7.0}, formulation_no=1,
-         batch_no=1)
+# Five scored rows: the Compared-with column is drawn only once the cold
+# start is over (the first five formulations are spread out, not compared).
+for no, water in enumerate((20.0, 22.0, 24.0, 26.0, 28.0), start=1):
+    opt.tell({"water": water, "flour": 50.0 - water}, {"taste": 5.0 + no * 0.4},
+             formulation_no=no, batch_no=1)
 opt.set_pending_batch([{"water": 25.0, "flour": 25.0}])
 
 
