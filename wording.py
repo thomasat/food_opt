@@ -1531,9 +1531,29 @@ SETTINGS_SHEET_HEADING = "Settings"
 MEASUREMENTS_SHEET_HEADING = "Measurements"
 LIMITS_SHEET_HEADING = "Limits"
 SHEET_NONE = "None"
-SHEET_GOAL_SEPARATOR = ", "
-# A box to tick with a pen, not a run of typed underscores.
-NOT_SCORED_CHECKBOX_SHEET = f"{NOT_SCORED} ☐"
+# The same separator the screens use between a measurement and its goal
+# ("Firmness (N) · target 6 N"). It was a comma on the sheet alone, which
+# read as a third measurement in a list of two.
+SHEET_GOAL_SEPARATOR = " · "
+# A box to tick with a pen, not a run of typed underscores. The box alone
+# fills the Tick column's cells, which had a header and nothing under it.
+TICK_BOX = "☐"
+NOT_SCORED_CHECKBOX_SHEET = f"{NOT_SCORED} {TICK_BOX}"
+
+# The one line above a sheet's measurements block. On paper there is nothing
+# to hover and nobody to ask, so the sheet says what mark it will read: the
+# cold read put a cross in the Not scored row without knowing the app would
+# take it.
+SHEET_WRITE_IN_NOTE = ("Write what you measured. If you did not score it, "
+                       f"mark {NOT_SCORED_CHECKBOX_SHEET} with an X.")
+
+# The title row of the All formulations sheet. The amounts in it are the
+# ones the project RECORDED — as generated — which are not always the ones a
+# batch sheet printed, and a table of numbers with nothing saying which is
+# a table nobody can weigh anything out from.
+RECORDED_AMOUNTS = "Recorded amounts"
+# What a not-scored row carries in that sheet's own tick column.
+TICKED_BOX = "☒"
 # Who made it and when. A sheet comes back from the bench days later and
 # is filed; without these two blanks nothing on the page says whose work
 # it was.
@@ -1549,12 +1569,17 @@ SET_UP_SHEET = "Set-up"
 INGREDIENTS_SHEET = "Ingredients"
 
 
-def summary_title(batch_no, project_name, made_on):
+def summary_title(batch_no, project_name, made_on, total_text=""):
     """'Batch 2 · Sample project · 2026-09-14' — the first line of the
     summary sheet. A sheet printed and carried to a bench says which batch
     of which project it is and when it was asked for; without the date, two
-    printouts of the same batch number cannot be told apart."""
-    return f"{batch_sheet_name(batch_no)} · {project_name} · {made_on}"
+    printouts of the same batch number cannot be told apart.
+
+    `total_text` puts the size on the page too: the app's own caption said
+    "Sheets show each formulation made to 100 g" and that sentence was
+    nowhere on the sheet the bench carried."""
+    line = f"{batch_sheet_name(batch_no)} · {project_name} · {made_on}"
+    return f"{line} · made to {total_text}" if total_text else line
 
 
 def batch_sheet_name(batch_no):
@@ -1577,10 +1602,27 @@ def sheet_title(no, batch_no, project_name):
 
 
 def sheet_measurement_label(label, goal):
-    """'Firmness (N), target 6 N' — a measurement and what a good number
+    """'Firmness (N) · target 6 N' — a measurement and what a good number
     looks like, as one row label on the summary sheet. An uploaded sheet
     is matched back on this exact text, so it is written once."""
     return f"{label}{SHEET_GOAL_SEPARATOR}{goal}"
+
+
+def workbook_note_without_numbers(no):
+    """A column with a note in it and nothing else. It is not an untouched
+    formulation — somebody wrote on it — and it is not a result either, so
+    it is refused rather than quietly dropped with the note it carries."""
+    return (f"{FORMULATION_CAP} {no} has a note but no numbers. Tick "
+            f"{NOT_SCORED} to record it, or fill in the numbers.")
+
+
+def workbook_measurement_missing(name, sheet_name):
+    """A measurement row whose label is gone from the sheet, with nothing
+    written where the app put it. Counting rows from there would read the
+    line below as this measurement's result; the sheet is refused instead,
+    naming the one thing to put back."""
+    return (f"{name} was not found on the {sheet_name} sheet. Keep the row "
+            "labels the app wrote.")
 
 
 def workbook_file_name(project_name, batch_no):

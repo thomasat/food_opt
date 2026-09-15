@@ -4075,8 +4075,9 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     assert list(rows)[1:] == ["Ingredient", "Pea protein (g)",
                               "Water (ml)", "Total",
                               wording.MEASURED_COLUMN,
-                              "Firmness, target 6 N",
-                              "Not scored", "Note",
+                              wording.SHEET_WRITE_IN_NOTE,
+                              "Firmness · target 6 N",
+                              wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
                               wording.SUMMARY_TICK_NOTE], list(rows)
     # One column per formulation, not two.
     assert rows["Pea protein (g)"] == [10.0], rows["Pea protein (g)"]
@@ -6433,9 +6434,10 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, the Not scored box, a note box and its overflow,
-    # and one tick per ingredient, on each of the two sheets.
-    assert boxed == 2 * (2 + 1 + 2 + 2), boxed
+    # Two measurements, the Not scored box, a note box and its overflow, on
+    # each of the two sheets. The tick cells carry a printed box, so they
+    # are bordered AND written in — they are not counted here.
+    assert boxed == 2 * (2 + 1 + 2), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -7607,13 +7609,13 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     sheet = book[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    firm = labels.index("Firmness, target 6 N") + 1
-    juice = labels.index("Juiciness (/10), target 7") + 1
+    firm = labels.index("Firmness · target 6 N") + 1
+    juice = labels.index("Juiciness (/10) · target 7") + 1
     sheet.cell(row=firm, column=2, value=6.0)
     sheet.cell(row=juice, column=2, value=7.0)
     sheet.cell(row=firm, column=4, value=5.0)
     sheet.cell(row=juice, column=4, value=6.5)
-    sheet.cell(row=labels.index(wording.NOT_SCORED) + 1, column=6, value="x")
+    sheet.cell(row=labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1, column=6, value="x")
     sheet.cell(row=labels.index(wording.NOTE) + 1, column=6,
                value="burner failed")
     filled = io.BytesIO()
@@ -7656,7 +7658,7 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     sheet = filled[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+    sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
                value=6.0)
     out = io.BytesIO()
     filled.save(out)

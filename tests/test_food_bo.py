@@ -4482,9 +4482,11 @@ class TestTheWorkbook:
         rows = _rows(sheet)
         # The title line says which batch of which project this is and when
         # it was asked for; the header the upload reads is under it.
+        # The title line says which batch of which project this is, when it
+        # was asked for and what size it is made to.
         assert rows[0][0] == wording.summary_title(2, "sheets",
-                                                   opt._sheet_date())
-        assert rows[1] == ("Ingredient", "Formulation 1", "%",
+                                                   opt._sheet_date(), "100 g")
+        assert rows[1] == ("Ingredient or process setting", "Formulation 1", "%",
                            "Formulation 2", "%", "Formulation 3", "%"), rows[1]
         labelled = _labelled(sheet)
         assert labelled["Pea protein (g)"] == [20.0, 20.0, 30.0, 30.0,
@@ -4509,10 +4511,10 @@ class TestTheWorkbook:
         # The block is headed in the word every sentence about it uses, the
         # measurements are in importance order, and the last line says which
         # of the two ways of filling a column in wins.
-        assert labels[-6:] == ["Measured",
-                               "Firmness, target 6 N",
-                               "Juiciness (/10), higher is better",
-                               "Not scored", "Note",
+        assert labels[-7:] == ["Measured", wording.SHEET_WRITE_IN_NOTE,
+                               "Firmness · target 6 N",
+                               "Juiciness (/10) · higher is better",
+                               "Not scored ☐", "Note",
                                wording.SUMMARY_TICK_NOTE], labels
         assert wording.SUMMARY_TICK_NOTE == (
             "A ticked Not scored box wins over numbers typed in that column.")
@@ -4605,7 +4607,7 @@ class TestTheWorkbook:
         assert sheet.page_setup.orientation == "portrait"
         assert sheet.sheet_properties.pageSetUpPr.fitToPage is True
         assert sheet.page_setup.fitToWidth == 1
-        assert sheet.print_area == "'Formulation 1'!$A$1:$D$21"
+        assert sheet.print_area == "'Formulation 1'!$A$1:$D$22"
         assert sheet.column_dimensions["B"].width == 34
 
     # -------------------------- and back again -------------------------- #
@@ -4617,9 +4619,9 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(opt.pending_batch_no)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        firm = labels.index("Firmness, target 6 N") + 1
-        juice = labels.index("Juiciness (/10), higher is better") + 1
-        not_scored = labels.index(wording.NOT_SCORED) + 1
+        firm = labels.index("Firmness · target 6 N") + 1
+        juice = labels.index("Juiciness (/10) · higher is better") + 1
+        not_scored = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
         note = labels.index(wording.NOTE) + 1
         sheet.cell(row=firm, column=2, value=5.5)
         sheet.cell(row=juice, column=2, value=7)
@@ -4656,7 +4658,7 @@ class TestTheWorkbook:
         sheet = book["Batch 2"]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -4744,7 +4746,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -4774,7 +4776,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -4825,9 +4827,9 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.insert_rows(labels.index(wording.NOT_SCORED) + 1)
-        sheet.cell(row=labels.index(wording.NOT_SCORED) + 1, column=1,
-                   value="Panel notes")
+        at = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
+        sheet.insert_rows(at)
+        sheet.cell(row=at, column=1, value="Panel notes")
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
@@ -4892,8 +4894,10 @@ class TestTheWorkbook:
         book = _book(opt.all_formulations_workbook())
         assert book.sheetnames == ["All formulations", "Set-up"]
         # The same table the download used to carry, to the cell.
+        # A title row above the header says which amounts these are: the
+        # RECORDED ones, which are not always the ones a batch sheet printed.
         written = pd.read_excel(io.BytesIO(opt.all_formulations_workbook()),
-                                sheet_name="All formulations")
+                                sheet_name="All formulations", header=1)
         downloaded = pd.read_csv(io.StringIO(opt.history_csv()))
         assert list(written.columns) == list(downloaded.columns)
         # check_dtype off: a spreadsheet reads 20.0 back as a whole number,
@@ -5162,3 +5166,198 @@ class TestTotalsAndBatchesFinalWave:
                   "Water": 66.66666666666669}
         assert sum(recipe.values()) > 100.0
         assert opt._check_constraints(recipe)
+
+
+# ------------------------------------------------------------------ #
+#  The final fix wave (0.4.0): the paper
+# ------------------------------------------------------------------ #
+
+class TestTheWorkbookFinalWave:
+    """The sheet is the one screen the app cannot watch being used, so it
+    says exactly what the screen says, and it refuses what it cannot read."""
+
+    def _opt(self, tmp_path, monkeypatch, name="paper"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_process_parameter("Cook temperature", 100, 220, unit="°C")
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10,
+                          unit="/10")
+        opt.set_pending_batch([
+            {"Pea protein": 20.0, "Water": 80.0, "Cook temperature": 180.0},
+            {"Pea protein": 30.0, "Water": 70.0, "Cook temperature": 190.0},
+        ], batch_no=2)
+        return opt
+
+    # ---- G-a1/b1: Goal for the words, Target for the number -----------
+
+    def test_a_formulation_sheet_heads_the_words_goal(self, tmp_path,
+                                                      monkeypatch):
+        """'Target: higher is better' was printed on every sheet."""
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch))["Formulation 1"]
+        rows = [r for r in _rows(sheet) if r[1] == wording.MEASUREMENT_COLUMN]
+        assert rows and rows[0][2] == wording.GOAL_LABEL, rows
+
+    def test_the_summary_reads_a_measurement_with_the_middle_dot(
+            self, tmp_path, monkeypatch):
+        """The screens say 'Firmness (N) · target 6 N'; the sheet said it
+        with a comma. One separator, and the upload matches on it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch))["Batch 2"]
+        assert "Firmness · target 6 N" in _labelled(sheet)
+
+    # ---- G-b2 / G-d5 / C24 / C25: what the paper says ------------------
+
+    def test_the_summary_names_the_column_for_a_project_with_settings(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch))["Batch 2"]
+        assert _rows(sheet)[1][0] == wording.INGREDIENT_OR_SETTING_LABEL
+
+    def test_the_summary_tick_row_carries_the_box(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch))["Batch 2"]
+        assert wording.NOT_SCORED_CHECKBOX_SHEET in _labelled(sheet)
+
+    def test_the_title_line_says_what_the_sheets_were_made_to(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        title = _rows(_book(opt.workbook_bytes(opt.pending_batch,
+                                               100.0))["Batch 2"])[0][0]
+        assert title.endswith(" · made to 100 g"), title
+        plain = _rows(_book(opt.workbook_bytes(
+            opt.pending_batch))["Batch 2"])[0][0]
+        assert "made to" not in plain
+
+    def test_a_formulation_sheet_says_how_to_mark_what_it_asks_for(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch))["Formulation 1"]
+        flat = [v for row in _rows(sheet) for v in row if v is not None]
+        assert wording.SHEET_WRITE_IN_NOTE in flat, flat
+        # The tick column is a column of boxes, not a header over nothing.
+        head = next(i for i, r in enumerate(_rows(sheet))
+                    if r[0] == wording.TICK_COLUMN)
+        assert _rows(sheet)[head + 1][0] == wording.TICK_BOX
+
+    # ---- C10 / F10: the All formulations sheet -------------------------
+
+    def test_all_formulations_carries_the_total_and_the_tick(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        rows = list(opt.pending_batch)
+        opt.tell(rows[0]['recipe'], {"Firmness": 6.0, "Juiciness": 7.0},
+                 formulation_no=1, batch_no=2)
+        opt.record_skipped(2, 2, rows[1]['recipe'],
+                           note=wording.NOT_SCORED)
+        sheet = _book(opt.all_formulations_workbook())["All formulations"]
+        grid = _rows(sheet)
+        assert grid[0][0] == wording.RECORDED_AMOUNTS
+        header = list(grid[1])
+        assert opt.total_column() in header
+        assert wording.NOT_SCORED in header
+        by_name = dict(zip(header, grid[2]))
+        assert by_name[opt.total_column()] == 100.0
+        assert by_name[wording.NOT_SCORED] is None   # blank: it was scored
+        assert dict(zip(header, grid[3]))[wording.NOT_SCORED] == "☒"
+
+    def test_all_formulations_writes_amounts_to_two_decimals(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 33.333333, "Water": 66.666667,
+                  "Cook temperature": 180.0},
+                 {"Firmness": 6.0}, formulation_no=1, batch_no=2)
+        sheet = _book(opt.all_formulations_workbook())["All formulations"]
+        header = list(_rows(sheet)[1])
+        cell = sheet.cell(row=3, column=header.index("Pea protein (g)") + 1)
+        assert cell.number_format == "0.00"
+
+    # ---- G-b5: the Set-up sheet says what the screen says --------------
+
+    def test_the_set_up_sheet_carries_the_share_of_score(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        rows = _rows(_book(opt.all_formulations_workbook())["Set-up"])
+        head = next(r for r in rows if r[0] == wording.MEASUREMENT_COLUMN)
+        assert head[4] == wording.IMPORTANCE_LABEL
+        assert head[5] == wording.COL_SHARE
+        line = next(r for r in rows if r[0] == "Firmness")
+        assert line[5] == "60 %"
+
+    # ---- F6 / F7 / F8: what an uploaded workbook is read as ------------
+
+    def _filled(self, opt, edit):
+        """The downloaded workbook, written on, handed back."""
+        data = io.BytesIO(opt.workbook_bytes(opt.pending_batch))
+        book = openpyxl.load_workbook(data)
+        edit(book)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        return out
+
+    def _row_of(self, sheet, label):
+        for r, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if row and str(row[0]).strip() == label:
+                return r
+        raise AssertionError(f"no row {label!r}")
+
+    def test_a_note_with_no_numbers_and_no_tick_is_refused(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+
+        def edit(book):
+            sheet = book["Batch 2"]
+            sheet.cell(row=self._row_of(sheet, wording.NOTE), column=2).value \
+                = "fell apart"
+
+        with pytest.raises(ValueError) as excinfo:
+            opt.results_from_workbook(self._filled(opt, edit))
+        assert str(excinfo.value) == (
+            "Formulation 1 has a note but no numbers. Tick Not scored to "
+            "record it, or fill in the numbers.")
+
+    def test_a_measurement_label_that_was_retyped_away_is_refused(
+            self, tmp_path, monkeypatch):
+        """The positional fallback reads the row the app wrote at that
+        position. With the label gone AND that cell empty, the fallback is
+        reading somebody else's row."""
+        opt = self._opt(tmp_path, monkeypatch)
+
+        def edit(book):
+            sheet = book["Batch 2"]
+            row = self._row_of(sheet, "Firmness · target 6 N")
+            sheet.cell(row=row, column=1).value = "Bite force"
+            sheet.cell(row=row + 1, column=2).value = 7.0    # Juiciness
+
+        with pytest.raises(ValueError) as excinfo:
+            opt.results_from_workbook(self._filled(opt, edit))
+        assert str(excinfo.value) == (
+            "Firmness was not found on the Batch 2 sheet. Keep the row "
+            "labels the app wrote.")
+
+    def test_the_written_in_note_wins_over_the_apps_own(self, tmp_path,
+                                                        monkeypatch):
+        """The app prints its own note on the sheet; what the bench writes
+        beside it is what happened."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0,
+                                "Cook temperature": 180.0}], batch_no=3)
+        number = opt.pending_batch[0]['formulation']
+        opt.pending_batch[0]['note'] = "Repeat of Formulation 1"
+
+        def edit(book):
+            sheet = book[wording.formulation_sheet_name(number)]
+            for r, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row and len(row) > 1 and str(row[1]).strip() == "Firmness":
+                    sheet.cell(row=r, column=4).value = 6.0
+                if row and len(row) > 1 and str(row[1]).strip() == wording.NOTE:
+                    sheet.cell(row=r, column=4).value = "second try"
+
+        frame = opt.results_from_workbook(self._filled(opt, edit))
+        assert list(frame[wording.NOTE]) == ["second try"]
