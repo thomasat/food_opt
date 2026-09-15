@@ -3036,7 +3036,10 @@ _BANNED = [
     re.compile(r"\btrials?\b", re.I),
     re.compile(r"\bscales?\b", re.I),
     re.compile(r"\bKind\b"),
-    re.compile(r"\bRemove\b"),
+    # Case-insensitive: "removed" survived in Start Here ("copy or remove
+    # them") and in storage.py's load error ("moved, renamed or removed"),
+    # because the pattern only ever matched a capitalised Remove.
+    re.compile(r"\bremoved?\b", re.I),
     re.compile(r"\bRemake\b"),
     re.compile(r"\bShare\b(?! of score)"),
     # The screen said "Not made" of a bowl that was made and never measured,
@@ -3212,13 +3215,17 @@ _SINGLE_WORDS = re.compile(
 
 
 def _how_it_works():
-    """The two collapsed folds that explain the app in the words a specialist
-    would use: How it works and, under it, How closeness is calculated. They
-    are the only place a banned word may be said, so they are read from the
-    source rather than copied here: a bullet reworded in the app cannot
-    quietly fall out of the allowance."""
-    from wording import HOW_CLOSENESS, HOW_IT_WORKS
-    return set(HOW_IT_WORKS) | set(HOW_CLOSENESS)
+    """The two collapsed folds that explain how the app works: How it works
+    and, under it, How closeness is calculated.
+
+    They no longer say a banned word between them — the specialist
+    vocabulary they were written to carry is gone — so the blanket exemption
+    is gone with it and they are scanned like every other sentence. The set
+    is empty rather than removed so that the reason stays written down: a
+    bullet that reaches for "objective" again is a bullet the guard should
+    catch, not one it waves through.
+    """
+    return set()
 
 
 def _string_constants(path):
@@ -4918,7 +4925,9 @@ class TestTheWorkbook:
     def test_the_ingredients_template_opens_and_loads_back(self, tmp_path,
                                                            monkeypatch):
         """The file a project starts from is the same kind of file every
-        other download is, and it comes back in through the same door."""
+        other download is, and it comes back in through the same door — with
+        the headers and ONE example row, so nobody has to work out which
+        lines are theirs."""
         monkeypatch.chdir(tmp_path)
         template = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "data", "sample_ingredients.csv")
@@ -4931,7 +4940,7 @@ class TestTheWorkbook:
         opt.set_amount_unit("g")
         opt.load_ingredients_from_csv(frame)
         assert [v['name'] for v in opt.variables] == \
-            list(pd.read_csv(template)["Name"])
+            list(pd.read_csv(template)["Name"])[:1]
         assert opt.unit_of("Pea protein isolate") == "g"
 
 

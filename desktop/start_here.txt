@@ -28,22 +28,23 @@ TRYING IT OUT
   ingredients and two panel scores. On the first screen, click
   "Try the sample project" to explore before setting up your own.
 - Starting from a spreadsheet? On the Set up tab, open "Or upload an
-  ingredients file" for a template you can fill in.
+  ingredients file" to download the template, fill it in, and upload it
+  from the same place.
 
 USING IT DAY TO DAY
 - To open the app again, open Food Optimizer from Applications, like
   any app. It runs in its own window.
 - To quit, close the window.
-- Your projects folder is one click away: File menu › Open Projects
-  Folder. Need bigger text? View menu › Bigger Text.
+- Your FoodOptimizer folder (File › Open Projects Folder) is one click
+  away. Need bigger text? View menu › Bigger Text.
 
 YOUR DATA STAYS ON YOUR COMPUTER
 - Your formulations and results never leave your Mac. The app
   does not connect to any website or service, and it collects no
   statistics.
-- Your project files are saved in a folder called FoodOptimizer in your
-  home folder (in Finder: click the Go menu, then Home). You can see,
-  copy or remove them at any time.
+- Your project files are saved in your FoodOptimizer folder, in your home
+  folder (in Finder: click the Go menu, then Home). You can see, copy or
+  delete them at any time.
 - The one-time setup only downloads the software the app runs on. It
   sends nothing of yours anywhere.
 

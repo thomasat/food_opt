@@ -45,11 +45,17 @@ def _deletable_numbers(opt):
 
 
 def _amount_rows(opt, recipe):
-    """The `Amounts to make it` rows: ingredients by amount, largest first,
-    then the process settings, each written with its own unit — the water in
-    ml beside the protein in g, and a cook temperature never in either."""
+    """The `Amounts to make it` rows: ingredients in SET-UP order, then the
+    process settings, each written with its own unit — the water in ml beside
+    the protein in g, and a cook temperature never in either.
+
+    Set-up order, not largest first: it is the order every sheet lists them
+    in and the order the table on tab 1 reads down, and the same recipe in
+    two orders on two screens made the reader check it line by line."""
     category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
-    pairs = opt.recipe_lines(recipe)
+    shown = {name for name, _ in opt.recipe_lines(recipe)}
+    pairs = [(v['name'], float(recipe[v['name']])) for v in opt.variables
+             if v['name'] in shown and v['name'] in recipe]
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
     settings = [p for p in pairs if category.get(p[0]) == 'process']
 
@@ -309,14 +315,18 @@ def _amount_boxes(opt, key_of, recipe=None):
             # allows is a fact about work already done, and clamping it would
             # quietly record a formulation nobody made. It is a caution on
             # the way out, exactly as an imported amount is.
+            # Two decimals, as the sheet the bench weighed from printed it:
+            # a box holding 22.241068936455125 under a label that says (g)
+            # claims the balance read that, and the sheet said 22.24.
             st.session_state.setdefault(
                 key_of(name),
-                None if recipe is None else _recorded_amount(var, recipe))
+                None if recipe is None
+                else round(_recorded_amount(var, recipe), 2))
             # The All formulations table's own header, so an amount is typed
             # in the unit that table prints it in.
             typed[name] = st.number_input(
                 opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
-                key=key_of(name))
+                key=key_of(name), format="%.2f")
     return typed
 
 
@@ -403,11 +413,11 @@ def _correct(opt):
     be coloured on the very run that puts a Yes beside it; render() fills the
     slot once the confirmations have had their say."""
     scored = [int(n) for n in opt.formulation_ids]
-    # After the scored ones, in their own order: the numbers with a result
-    # are what this box is reached for, and a not-scored one is picked to
-    # write a result for the first time rather than to change one.
     not_scored = [int(s['formulation']) for s in opt.skipped]
-    numbers = scored + not_scored
+    # One run of numbers, in number order: the list came out 1, 2, 4, 3 —
+    # scored ones first and the rest after — which is not an order anybody
+    # could read. A not-scored one says so on its own line instead.
+    numbers = sorted(scored + not_scored)
     if not numbers:
         # Not "No results yet.": that sentence is already the whole screen
         # above this section on a project holding nothing.
@@ -417,9 +427,12 @@ def _correct(opt):
     # The label says what picking one DOES; the placeholder says what the box
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
-    choice = st.selectbox(wording.CORRECT_WHICH_LABEL, numbers, index=None,
-                          placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
-                          key="correct_formulation")
+    choice = st.selectbox(
+        wording.CORRECT_WHICH_LABEL, numbers, index=None,
+        placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
+        format_func=lambda n: (wording.not_scored_option(n)
+                               if n in not_scored else str(n)),
+        key="correct_formulation")
     if not_scored:
         # A not-scored number in the list is not a correction, and nothing
         # about the box says what picking one does.
@@ -441,9 +454,17 @@ def _correct(opt):
     current = opt.results_history[index]
     typed = _measurement_boxes(
         ordered, lambda name: _correct_measurement_key(choice, name), current)
+    # The same field a not-scored row gets. A note is part of the record —
+    # which bowl it was, what went wrong — and it was the one thing a scored
+    # formulation could not have corrected.
+    recorded_note = (opt.notes_history[index]
+                     if index < len(opt.notes_history) else "")
+    st.session_state.setdefault(_correct_note_key(choice), recorded_note)
+    note = st.text_input(wording.NOTE, key=_correct_note_key(choice))
     return {"choice": choice, "index": index, "ordered": ordered,
             "current": current, "typed": typed, "recipe": recipe,
-            "amounts": amounts, "slot": st.container()}
+            "amounts": amounts, "note": note, "recorded_note": recorded_note,
+            "slot": st.container()}
 
 
 def _close_correction(opt, choice):
@@ -469,7 +490,10 @@ def _save_correction(opt, storage, pending):
     # lit — unless a confirmation is armed, which outranks everything.
     lit = not confirmation_open()
     with b1:
-        save = st.button(wording.SAVE_CORRECTION_BUTTON, key="save_correction",
+        # A not-scored row has no result to correct: this writes its first.
+        label = (wording.SAVE_RESULT_BUTTON if pending.get("skipped")
+                 else wording.SAVE_CORRECTION_BUTTON)
+        save = st.button(label, key="save_correction",
                          type="primary" if lit else "secondary",
                          disabled=not lit, use_container_width=True) and lit
     with b2:
@@ -518,7 +542,10 @@ def _save_correction(opt, storage, pending):
         if was is None or abs(float(was) - float(value)) > 1e-9:
             changes.append(obj['name'])
         final[obj['name']] = float(value)
-    if not changes and not amount_changes:
+    note_changed = (not pending.get("skipped")
+                    and str(pending.get("note") or "").strip()
+                    != str(pending.get("recorded_note") or "").strip())
+    if not changes and not amount_changes and not note_changed:
         # Nothing to write, so nothing to copy first, and nothing to claim.
         flash("success", wording.formulation_unchanged(choice))
         st.rerun()
@@ -538,6 +565,10 @@ def _save_correction(opt, storage, pending):
             return
     if changes:
         opt.edit_result(index, final)
+        if not saved_ok(opt):
+            return
+    if note_changed:
+        opt.edit_note(index, str(pending.get("note") or "").strip())
         if not saved_ok(opt):
             return
     after = best_formulation_no(opt)
@@ -994,7 +1025,14 @@ def _edit_past(opt, storage):
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
     with st.expander(wording.EDIT_PAST_FORMULATIONS_EXPANDER):
-        st.markdown(wording.CORRECT_A_FORMULATION_HEADING)
+        # The heading follows the pick: with a not-scored row picked, the
+        # section is writing that row's FIRST result, and "Correct" named
+        # something there was nothing of yet.
+        picked = st.session_state.get("correct_formulation")
+        scoring = picked is not None and any(
+            int(row['formulation']) == int(picked) for row in opt.skipped)
+        st.markdown(wording.SCORE_A_FORMULATION_HEADING if scoring
+                    else wording.CORRECT_A_FORMULATION_HEADING)
         pending = _correct(opt)
         st.divider()
         st.markdown(wording.DELETE_FORMULATIONS_HEADING)

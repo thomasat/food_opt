@@ -43,7 +43,7 @@ class LocalStorage:
                                    # up-to-date file is left untouched
 
     _CONFLICT = (
-        "This project was changed in another window or tab. Click Reload "
+        "This project was changed in another window. Click Reload "
         "project before continuing — changes made here were NOT saved."
     )
 
@@ -97,7 +97,7 @@ class LocalStorage:
         except OSError:
             raise StorageError(
                 "This project file could not be opened. It may have been "
-                "moved, renamed or removed."
+                "moved, renamed or deleted."
             )
         seen[name] = self._stamp(name)
         try:

@@ -422,6 +422,21 @@ def _scale_control(opt, unit, scale_to):
         key="scale_total",
         help=wording.BATCH_TOTAL_HELP,
     )
+    # The same refusal tab 1's box gives the same number: a total the allowed
+    # amounts cannot add up to is arithmetic with no answer, and printing the
+    # sheets for it sends the bench out with amounts the project says it does
+    # not allow. A warning, not a block — these rows already exist and the
+    # cautions below say what it did to them.
+    if scale_to is not None:
+        lowest, highest = opt.total_reach()
+        if scale_to > highest:
+            st.caption(wording.total_not_reachable_at_most(
+                opt.batch_total_text(scale_to),
+                opt.batch_total_text(highest)))
+        elif scale_to < lowest:
+            st.caption(wording.total_not_reachable_at_least(
+                opt.batch_total_text(scale_to),
+                opt.batch_total_text(lowest)))
     # No "Amounts shown for this total." under the box: the box holds the
     # total, the help says what it does, and the line under the two download
     # buttons names the number the files were written for. Three sentences
@@ -584,7 +599,11 @@ def _record_results(opt):
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Batch 2 · 2 to record"). One word could not mean both.
-    counter = wording.complete_counter(entered, len(kept))
+    #
+    # The denominator is every row still open, ticked ones included, so it
+    # matches the sheets in the technician's hand: "1 of 1 complete · 1 not
+    # scored" counted a batch of two as a batch of one.
+    counter = wording.complete_counter(entered, len(to_record))
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
@@ -655,6 +674,44 @@ def _read_results_file(opt, uploaded):
     return pd.read_csv(uploaded)
 
 
+def _upload_preview(opt, parsed, left_out):
+    """The numbers the file was read as, before anything is saved.
+
+    The check step counted the formulations it found and showed none of
+    them: a firmness of 74 written where 7.4 was meant passed it without
+    anybody seeing the number. One row per formulation, in the columns the
+    grid above uses.
+    """
+    ordered = opt.measurements_by_importance()
+    rows = [{wording.FORMULATION_CAP: int(no),
+             **{label_with_unit(o['name'], o.get('unit')):
+                results.get(o['name']) for o in ordered},
+             wording.NOT_SCORED: "", wording.NOTE: note or ""}
+            for no, results, note in parsed]
+    rows += [{wording.FORMULATION_CAP: int(no),
+              **{label_with_unit(o['name'], o.get('unit')): None
+                 for o in ordered},
+              wording.NOT_SCORED: wording.TICKED_BOX, wording.NOTE: note or ""}
+             for no, note in left_out]
+    if not rows:
+        return
+    rows.sort(key=lambda r: r[wording.FORMULATION_CAP])
+    frame = pd.DataFrame(rows)
+    st.caption(wording.UPLOAD_PREVIEW_CAPTION)
+    st.dataframe(frame.style.format(
+        {c: _blank_or_number for c in frame.columns
+         if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
+        hide_index=True, key="upload_preview",
+        height=table_height(len(frame)))
+
+
+def _blank_or_number(value):
+    """A measurement nobody took is a blank cell, never 'nan'."""
+    if value is None or pd.isna(value):
+        return ""
+    return f"{float(value):g}"
+
+
 def _upload(opt):
     with st.expander(wording.UPLOAD_EXPANDER):
         st.caption(wording.UPLOAD_HELP_CAPTION)
@@ -692,6 +749,7 @@ def _upload(opt):
             ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
             + (wording.not_scored_counter_suffix(len(left_out)) if left_out
                else ""))
+        _upload_preview(opt, parsed, left_out)
         if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}

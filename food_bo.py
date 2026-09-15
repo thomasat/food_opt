@@ -344,11 +344,16 @@ def frame_workbook(sheets):
 
 
 def ingredients_template_workbook(path):
-    """The ingredients template as a workbook: the sample project's own
-    ingredient file, in the shape the uploader reads back. One file to fill
-    in and hand back, rather than a comma-separated file to be talked
-    through a spreadsheet's import dialog."""
-    return frame_workbook({wording.INGREDIENTS_SHEET: pd.read_csv(path)})
+    """The ingredients template as a workbook: the column headers and ONE
+    example row, in the shape the uploader reads back. One file to fill in
+    and hand back, rather than a comma-separated file to be talked through a
+    spreadsheet's import dialog.
+
+    One row, not eight. A file arriving with a full ingredient list already
+    in it is an export, and the reader who downloaded a "template" then has
+    to work out which lines are theirs and which the app's."""
+    return frame_workbook(
+        {wording.INGREDIENTS_SHEET: pd.read_csv(path).head(1)})
 
 
 def _fmt_weight(w):
@@ -3329,6 +3334,16 @@ class FoodOptimizer:
         if index < len(self.results_history):
             self.results_history[index] = dict(new_results_dict)
         self.Y_history[index] = self._compute_utility(new_results_dict)
+        self.save()
+
+    def edit_note(self, index, note):
+        """Correct one formulation's note. It is part of the record — which
+        bowl it was, what went wrong — and a correction that could change
+        every number on the row but not the sentence beside them left the
+        reader with a note about a formulation that had moved."""
+        if index < 0 or index >= len(self.notes_history):
+            raise IndexError("There is no formulation at that position.")
+        self.notes_history[index] = "" if note is None else str(note)
         self.save()
 
     def edit_amounts(self, index, recipe_dict):

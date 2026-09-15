@@ -321,7 +321,7 @@ def park_clear(key, value):
 
 
 def clear_scale_total():
-    """Empty tab 2's `Make each formulation to` box for the next batch.
+    """Empty tab 2's own `Total of each formulation` box for the next batch.
 
     Parked, not popped. Popping a widget's key does not reach the browser —
     the mounted box posts its old value straight back — so a regenerated

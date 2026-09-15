@@ -25,7 +25,7 @@ with `swiftc`, so the build machine needs the Xcode Command Line Tools
 ```
 
 Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
-(removed afterward); it never touches your real environment.
+(deleted afterward); it never touches your real environment.
 
 ## Signing + notarization (required before distributing)
 
@@ -117,14 +117,14 @@ image can show a bogus **"you don't have permission"** error (sandboxed
 apps refuse documents on quarantined volumes). The file is fine — this is
 Gatekeeper rejecting the missing signature.
 
-Internal testers only — remove the flag before mounting:
+Internal testers only — clear the flag before mounting:
 
 ```bash
 xattr -d com.apple.quarantine ~/Downloads/FoodOptimizer-X.Y.Z.dmg
 ```
 
 (No output = success. If the app was already copied to /Applications from
-a quarantined mount, remove it and drag it again from the cleaned image.)
+a quarantined mount, delete it and drag it again from the cleaned image.)
 
 Real recipients must never need this: signing + notarization removes the
 warnings entirely, and the checklist below gates distribution on that.

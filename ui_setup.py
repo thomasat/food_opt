@@ -250,12 +250,6 @@ def _formulation_total(opt):
         st.rerun()
 
 
-def _clear_formulation_total(opt):
-    """Take the total out, and empty the box that holds it."""
-    opt.clear_formulation_total()
-    clear_formulation_total_box()
-
-
 def _variables(opt, storage):
     """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
     of controls, with the file upload folded away beneath.
@@ -289,9 +283,19 @@ def _add_variable(opt):
     # The unit box opens on what that type is written in: g for an ingredient,
     # blank for a setting, because a cook temperature is never 175 g. Assigned
     # before the box is created, which is the one moment Streamlit allows it.
-    if st.session_state.get("_var_kind_shown") != kind:
+    #
+    # Only while the box still holds the OTHER type's default, though. A unit
+    # the user typed is an answer: switching Type after typing "min" wiped it
+    # and the form came back a field short of what had been filled in.
+    shown_kind = st.session_state.get("_var_kind_shown")
+    if shown_kind != kind:
+        default_before = ("" if shown_kind == KIND_SETTING
+                          else (opt.amount_unit or ""))
+        if (shown_kind is None
+                or str(st.session_state.get("var_unit", "")) == default_before):
+            st.session_state["var_unit"] = ("" if setting
+                                            else (opt.amount_unit or ""))
         st.session_state["_var_kind_shown"] = kind
-        st.session_state["var_unit"] = "" if setting else (opt.amount_unit or "")
     wants_baseline = setting and mid_run
     widths = [2, 2, 1, 1, 1] + ([1] if wants_baseline else [])
     cols = st.columns(widths)
@@ -520,7 +524,7 @@ def _variable_controls(opt, storage):
     widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
-        pick = st.selectbox(wording.INGREDIENT_OR_SETTING_LABEL,
+        pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
                             [v['name'] for v in rows],
                             key="var_pick")
     var = opt._var_by_name(pick)
@@ -604,7 +608,7 @@ def _pause_or_resume(opt, var, pick):
     left out of new formulations; nothing is removed."""
     batch_no = opt.pending_batch_no
     if not var.get('active', True):
-        if st.button(wording.RESUME_BUTTON, key="resume_var",
+        if st.button(wording.resume_button(pick), key="resume_var",
                      help=wording.RESUME_HELP):
             opt.reactivate_variable(pick)
             if saved_ok(opt):
@@ -613,9 +617,9 @@ def _pause_or_resume(opt, var, pick):
                 st.rerun()
         return
     alone = len(opt.active_variables()) <= 1
-    if st.button(wording.PAUSE_BUTTON, key="pause_var", disabled=alone,
+    if st.button(wording.pause_button(pick), key="pause_var", disabled=alone,
                  help=(wording.PAUSE_DISABLED_HELP if alone else
-                       wording.PAUSE_HELP)):
+                       wording.pause_help(_held_at(opt, var)))):
         try:
             opt.deactivate_variable(pick)
         except ValueError as e:
@@ -1083,7 +1087,11 @@ def _targets_source_editor(opt):
                 st.session_state.pop(_TARGETS_SOURCE_BOX, None)
                 st.rerun()
     else:
-        if st.button(wording.TARGETS_SOURCE_BUTTON, key="edit_targets_source"):
+        # Edit when there is a note above it, Add when there is not: a bare
+        # "Edit this note" over nothing names a note the reader cannot see.
+        label = (wording.TARGETS_SOURCE_BUTTON if opt.targets_source
+                 else wording.ADD_TARGETS_SOURCE_BUTTON)
+        if st.button(label, key="edit_targets_source"):
             st.session_state[_TARGETS_SOURCE_OPEN] = True
             st.rerun()
 
@@ -1347,12 +1355,17 @@ def _limits(opt, storage):
                 # reads as the one number it is rather than as the
                 # half-percent band it is enforced as.
                 st.text(opt.limit_text(qc))
+            if qc.get('source') == 'formulation_total':
+                # The total's row is a reading of the box at the top of this
+                # tab, not a second control for it. A Delete here let one
+                # rule be taken off in two places, and the cold read could
+                # not tell which of the two was the real one.
+                with l1:
+                    st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
+                continue
             with l2:
-                remove = ((lambda: _clear_formulation_total(opt))
-                          if qc.get('source') == 'formulation_total'
-                          else (lambda i=i: opt.remove_quantity_constraint(i)))
                 _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
-                              remove)
+                              lambda i=i: opt.remove_quantity_constraint(i))
 
 
 def _advanced(opt):

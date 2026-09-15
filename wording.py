@@ -44,8 +44,8 @@ TAB_RESULTS = "3 · Results"
 # Archived copies are written beside the project's own file, which on the
 # desktop app is the FoodOptimizer folder. Every tab and the sidebar use it,
 # so the sentence exists once.
-COPY_KEPT = ("A copy is saved first. Open a saved copy can bring it "
-             "back.")
+COPY_KEPT = ("A copy is saved first. To bring it back, use Open a saved "
+             "copy in the sidebar.")
 
 NAME_RULE = "Up to 64 characters. Start with a letter or a number."
 
@@ -180,8 +180,9 @@ COPY_UNAVAILABLE = ("Saving a copy is unavailable while the project "
 SAVE_A_COPY = "Save a copy of this project"
 
 OPEN_A_SAVED_COPY = "Open a saved copy"
-OPEN_SAVED_COPY_CAPTION = ("A copy you saved earlier (.json). The current "
-                           "project is copied first.")
+OPEN_SAVED_COPY_CAPTION = ("A copy you saved yourself, or one the app saved "
+                           "before a change. The current project is copied "
+                           "first.")
 CHECK_THIS_COPY = "Check this copy"
 COPY_UNREADABLE = (
     "This file could not be read as a Food Optimizer copy. "
@@ -261,7 +262,7 @@ WELCOME_HEADER = "## Create your first project"
 
 def welcome_steps():
     return (
-        "1. **Name a project** and click Create project.\n"
+        "1. **Name a project** in the sidebar on the left.\n"
         "2. **Add ingredients** and the measurements you will record.\n"
         f"3. **Make a {BATCH}**, weigh out the formulations, and record "
         "what you measured."
@@ -323,8 +324,12 @@ def sample_project_failed(err):
 
 def batch_line_open(no, n):
     """The one line under the title on tabs 1 and 2 once a batch exists and
-    still has rows to make."""
-    return f"{BATCH_CAP} {no} · {n} to make"
+    still has rows without a result.
+
+    'to record', the same word tab 3's own button uses of the same count of
+    the same batch: 'N to make' and 'N to record' read as two different
+    numbers, and the reader had to work out that they were one."""
+    return f"{BATCH_CAP} {no} · {n} to record"
 
 
 def batch_line_recorded(no):
@@ -483,18 +488,19 @@ NEEDS_ONE_UNIT = ("To make each formulation to a set amount, every "
                   "ingredient needs the same unit.")
 
 
+# Tab 2's box asks the same question as tab 1's and takes the same answer,
+# so it wears the same name. Two names for one number — "Total of each
+# formulation" upstairs and "Make each formulation to" here — let the bench
+# answer it twice, differently, and the cold read could not tell which was
+# the real one.
 def batch_total_label(unit):
-    """The box that says how big to make each formulation. It asks the
-    question the bench asks — how much do I make? — rather than naming a
-    quantity ("Formulation total") the reader then has to decode."""
-    return (f"Make each formulation to ({unit})" if unit
-            else "Make each formulation to")
+    """'Total of each formulation (g)' — tab 2's own box, named exactly as
+    tab 1's."""
+    return formulation_total_label(unit)
 
 
-BATCH_TOTAL_HELP = (
-    "How much of each formulation to make. Leave blank to use the amounts in "
-    "the table."
-)
+BATCH_TOTAL_HELP = ("Sets the total for this batch's sheets. Set it in Set "
+                    "up to make every suggestion add up to it.")
 # An example, not a description: a blank box means "the amounts in the table",
 # and the help says so once.
 BATCH_TOTAL_PLACEHOLDER = "e.g. 150"
@@ -572,7 +578,8 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
-NOT_SCORED_HELP = f"Say why in {NOTE}. It stays with the formulation."
+NOT_SCORED_HELP = (f"Ticked wins over any number typed in this {ROW}. Say "
+                   f"why in {NOTE}; it stays with the formulation.")
 
 NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
 # Said by food_bo when a row arrives with nothing on it, and by the Results
@@ -584,7 +591,11 @@ SAVE_RESULTS = "Save results"
 
 def complete_counter(complete_n, kept_n):
     """'1 of 2 complete' — a row is complete when EVERY measurement on it has
-    a number. One of three typed is not a third of a result."""
+    a number. One of three typed is not a third of a result.
+
+    `kept_n` is every row of the batch, ticked ones included: "1 of 1
+    complete · 1 not scored" made the batch look bigger than it was, and a
+    reader who counted the sheets in their hand got a different answer."""
     return f"{complete_n} of {kept_n} complete"
 
 
@@ -643,11 +654,15 @@ def upload_found_caption(found_n, total_n, names_text):
 
 
 SAVE_UPLOADED_RESULTS = "Save uploaded results"
+# The table drawn above it, so the reader checks the numbers the app read
+# rather than a count of them: a firmness of 74 written for 7.4 passed the
+# count without anybody seeing it.
+UPLOAD_PREVIEW_CAPTION = "What the file says. Check it before saving."
 
 
 def upload_partial_flash(parsed_n, total_n, batch_no, left_n):
     return (f"Recorded {parsed_n} of {total_n} formulations in "
-            f"{BATCH_CAP} {batch_no} · {left_n} to make.")
+            f"{BATCH_CAP} {batch_no} · {left_n} to record.")
 
 
 # ------------------------------------------------------------------ #
@@ -685,18 +700,21 @@ def unscaled_tail(batch_no, total_text):
     return (f"{BATCH_CAP} {batch_no} is back to its own amounts: your "
             "ingredients no longer share one unit.")
 
-# The one collapsed expander that maps the words on this tab to the words a
-# specialist would use. Every optimization term the app otherwise refuses to
-# say — variable, objective, weight, constraint — is said here and only here,
-# one line each, so the mapping exists exactly once. The vocabulary guard
-# reads this list by name and allows what is in it.
+# The one collapsed expander that says how the app works, in the app's own
+# words. It was written as the one place the specialist vocabulary was
+# spoken — variable, objective, weight, constraint — and says none of those
+# four words any more: the concepts are named as the screens name them
+# (ingredients and settings, measurements and goals, importance, limits).
+# There is therefore no glossary bridge anywhere in the app, which is a
+# deliberate choice and not an oversight.
 HOW_IT_WORKS = [
     "Ingredients and settings are what the model varies. Measurements "
     "and goals are what it aims for.",
     "Importance says how much each measurement counts. Closeness is a 0 to 1 "
     "score for how near a result is to its goal.",
     HOW_CHOSEN,
-    "Limits are hard rules the model never breaks.",
+    "Limits are hard rules for every formulation the app suggests. A "
+    "formulation of your own is recorded as you typed it.",
     "Each suggestion says whether it stays close to the best or tries "
     "something different, and what it changes.",
 ]
@@ -776,6 +794,10 @@ def paused_status(held_text):
 
 
 INGREDIENT_OR_SETTING_LABEL = "Ingredient or process setting"
+# The picker at the head of the control row. It carried the label above
+# word for word, which is also tab 3's Amounts column header: one label on
+# two unrelated controls, saying nothing about what picking a row does.
+VARIABLE_PICK_LABEL = "Choose one to pause, delete or change its unit"
 NEW_UNIT_LABEL = "New unit"
 SET_UNIT_BUTTON = "Set unit"
 
@@ -809,13 +831,27 @@ def properties_saved(names_text, name):
     return f"Saved {names_text} for {name}."
 
 
-RESUME_BUTTON = "Resume"
+def resume_button(name):
+    """'Resume Pea protein isolate' — named, like the Delete button beside
+    it. A bare Pause sat next to 'Delete Pea protein isolate' and it was
+    easy to pause the wrong row."""
+    return f"Resume {name}"
+
+
+def pause_button(name):
+    return f"Pause {name}"
+
+
 RESUME_HELP = "Use this ingredient in new formulations again."
-PAUSE_BUTTON = "Pause"
 PAUSE_DISABLED_HELP = ("At least two ingredients or settings must stay "
                        "active before one can be paused.")
-PAUSE_HELP = ("New formulations will not use this ingredient. Results "
-             "already recorded are kept.")
+def pause_help(held_text):
+    """'Held at 0.00 g in new suggestions; results already recorded keep
+    it.' — what Pause actually does, in the number the row will be held at.
+    The old help said only that new formulations "will not use" it, which
+    read as "left out" rather than "pinned to this amount"."""
+    return (f"Held at {held_text} in new suggestions; results already "
+            "recorded keep it.")
 
 
 def resumed(name):
@@ -975,7 +1011,10 @@ def delete_measurement_warning(name):
 # measurements table. One label serves both the button that opens the box and
 # the box itself, so the reader sees the same words twice rather than a
 # button and a form asking two different questions.
-TARGETS_SOURCE_BUTTON = "Where the targets come from"
+# It opens a box to write in, so it says so. "Where the targets come from"
+# read as an explanation the app was about to give.
+TARGETS_SOURCE_BUTTON = "Edit this note"
+ADD_TARGETS_SOURCE_BUTTON = "Add where the targets come from"
 TARGETS_SOURCE_LABEL = "Where the targets come from"
 TARGETS_SOURCE_PLACEHOLDER = "e.g. Benchmark burger, panel of 8"
 
@@ -1048,10 +1087,12 @@ def limit_gap_tail(name, many):
 LIMITS_EXPANDER = "Limits (optional)"
 # The property rule lives here, not in the closeness fold: a property never
 # touches closeness — it feeds limits and nothing else.
-LIMITS_CAPTION = ("Limits hold every new formulation to an amount you weigh "
-                  "out or a property of your ingredients. Measurements have "
-                  "goals and targets instead. An ingredient with no figure "
-                  "for a property counts as 0 in any limit on it.")
+LIMITS_CAPTION = ("Limits are hard rules for every formulation the app "
+                  "suggests. A formulation of your own is recorded as you "
+                  "typed it. A limit is on an amount you weigh out or a "
+                  "property of your ingredients; measurements have goals and "
+                  "targets instead. An ingredient with no figure for a "
+                  "property counts as 0 in any limit on it.")
 
 
 def old_limit_basis_caption(unit):
@@ -1110,6 +1151,12 @@ FORMULATION_TOTAL_HELP = ("Every suggested formulation adds up to this. Set "
 # An example, not a description: the help above already says what the box is
 # for, and 100 g is what the sample ships with.
 FORMULATION_TOTAL_PLACEHOLDER = "e.g. 100"
+
+# The total's row in the Limits list is a reading, not a control: the box at
+# the top of the tab is where the number is answered, and a Delete button
+# beside the row let the same rule be taken off in two places.
+FORMULATION_TOTAL_IN_LIMITS_CAPTION = (
+    f"Empty the {FORMULATION_TOTAL_NAME} box to take it off.")
 
 
 def total_still_holds(total_text):
@@ -1328,6 +1375,10 @@ DOWNLOAD_ALL_FORMULATIONS_HELP = ("One row per formulation, with the same "
 EDIT_PAST_FORMULATIONS_EXPANDER = f"Edit past {FORMULATION}s"
 
 CORRECT_A_FORMULATION_HEADING = f"##### Correct a {FORMULATION}"
+# The same control, doing the other of its two jobs. A not-scored row has no
+# result to correct — this writes its first one — and one heading over both
+# made the reader work out which had happened.
+SCORE_A_FORMULATION_HEADING = f"##### Score a {FORMULATION}"
 CORRECT_WHICH_LABEL = f"{FORMULATION_CAP} to correct"
 CHOOSE_A_FORMULATION_PLACEHOLDER = f"Choose a {FORMULATION}"
 
@@ -1346,6 +1397,14 @@ NOT_SCORED_CAN_BE_SCORED_CAPTION = "Not-scored formulations can be scored here."
 CORRECTION_CAPTION = ("Change only what is wrong. Anything you leave alone "
                       "stays as recorded.")
 SAVE_CORRECTION_BUTTON = "Save correction"
+SAVE_RESULT_BUTTON = "Save result"
+
+
+def not_scored_option(no):
+    """'3 · not scored' — how a formulation with no result reads in the
+    correction picker. The list is one run of numbers, and nothing on it
+    said which of them were being scored for the first time."""
+    return f"{no} · {NOT_SCORED.lower()}"
 
 
 def formulation_scored(no):
