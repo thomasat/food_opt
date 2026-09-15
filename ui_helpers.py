@@ -195,8 +195,11 @@ _TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
 #
 # Losing the formulation total is not a blank box: the batch table and the
 # sheets silently go back to as-generated, and the bench weighs out different
-# numbers from the ones that were on screen a click ago.
-_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size")
+# numbers from the ones that were on screen a click ago. Tab 1's own total
+# box and the where-the-targets-come-from box are here for the same reason —
+# both sit below the sidebar, so every sidebar Cancel ran above them.
+_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size",
+                  "formulation_total", "targets_source_box")
 _GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
 
 

@@ -88,6 +88,12 @@ def is_reserved_name(name):
 # the model starts aiming, and how large a change — as a fraction of a
 # variable's own allowed range — still counts as staying close to the best.
 COLD_START_RUNS = 5
+
+# `tell(batch_no=NO_BATCH)`: this formulation belongs to no batch this
+# project generated. None cannot say it — None means "the open batch" — and
+# patching batch_history afterwards left the open batch's own total written
+# against a formulation made before the project existed.
+NO_BATCH = object()
 CLOSE_TO_THE_BEST = 0.15
 # How many process settings one what-is-it-trying line names, on its own so
 # that a project of eight settings does not bury the amounts under them. The
@@ -1571,14 +1577,24 @@ class FoodOptimizer:
             return wording.COMPARED_WITH_ALLOWED
         return wording.compared_with_column(self.best_formulation_no())
 
-    def compared_with_text(self, recipe, scale_to=None):
+    def compared_with_text(self, recipe, scale_to=None, own=False):
         """One cell of the batch table, and the same line on the sheet: what
         kind of formulation this is, and the amounts that carry it.
 
         During the cold start nothing is listed. There is a best-so-far from
         the very first result, but these formulations were not stepped away
         from it — they are spread across the allowed amounts — so naming the
-        amounts they happen to differ by would claim a reason nobody had."""
+        amounts they happen to differ by would claim a reason nobody had.
+
+        `own` marks a formulation the user typed. It is not a suggestion, so
+        it has no kind: the app describing its own sampling ('spread across
+        the allowed amounts') on a row somebody wrote out by hand was the
+        app taking credit for their bench standard. The changes from the best
+        still follow — those are a fact about the amounts."""
+        if own:
+            return wording.compared_with_cell(
+                wording.OWN_FORMULATION_KIND,
+                self.vs_best_text(recipe, scale_to=scale_to))
         kind = self.suggestion_kind(recipe)
         changes = ("" if kind == wording.SUGGESTION_SPREAD
                    else self.vs_best_text(recipe, scale_to=scale_to))
@@ -1606,6 +1622,60 @@ class FoodOptimizer:
                                 if var.get('category', 'ingredient') == 'ingredient'
                                 else value)
         return out
+
+    def _rewrites_amounts(self, own=False):
+        """Whether a row of a batch is rewritten for a total at all.
+
+        Only tab 2's typed per-batch total ever rewrites anything. Under a
+        PROJECT total every suggestion is BUILT to the total — the cold start
+        projects onto it and a warm batch is snapped onto it — so there is
+        nothing to rewrite, and a row that could not be snapped without
+        breaking a limit stands at the band edge and says so. A formulation
+        of the user's own is never rewritten under either: the sheet told the
+        bench to weigh out 20.62 g while the model learned the 20.00 g that
+        was typed, and the two disagreed about what was made.
+        """
+        return not own and not self.has_formulation_total()
+
+    def shown_recipe(self, row, total):
+        """(amounts, basis) — what one row of a batch is SHOWN and PRINTED
+        at, and the total its `%` column is a share of.
+
+        One accessor for the table, the summary sheet and the formulation
+        sheets, so the paper in the technician's hand can never carry
+        different numbers from the screen it was downloaded from. `basis` is
+        None for a row shown at its own sum: each share is then of that
+        formulation's own total, and the column still adds to 100.
+        """
+        recipe = row['recipe'] if isinstance(row, dict) and 'recipe' in row else row
+        own = bool(isinstance(row, dict) and row.get('note'))
+        if total is not None and self._rewrites_amounts(own):
+            return self.scaled_recipe(recipe, total), float(total)
+        return dict(recipe), None
+
+    def total_mismatch(self, number, recipe, total):
+        """'Formulation 4 adds up to 97.00 g, not the 100 g total.', or ''
+        when it lands on it.
+
+        Nothing is rescaled to hide the difference, so this line is the only
+        thing that says it — under the batch table, and on the row's own
+        sheet."""
+        if total is None or self.one_amount_unit() is None:
+            return ""
+        made = self.ingredient_total(recipe)
+        if round(made, 2) == round(float(total), 2):
+            return ""
+        return wording.total_mismatch_caption(
+            number, join_unit(f"{made:.2f}", self.one_amount_unit() or ""),
+            self.batch_total_text(total))
+
+    def total_mismatch_lines(self, rows, total):
+        """One line per row of a batch that does not add up to the total, in
+        the order the table shows them."""
+        lines = [self.total_mismatch(row['formulation'],
+                                     self.shown_recipe(row, total)[0], total)
+                 for row in self._batch_rows(rows)]
+        return [line for line in lines if line]
 
     def _recompute_utilities(self):
         for i, results_dict in enumerate(self.results_history):
@@ -1738,11 +1808,20 @@ class FoodOptimizer:
         noted = any(r.get('note') for r in read)
         # What each formulation is trying, last: it is the only column of
         # words among the numbers, and it reads as the answer to the row
-        # rather than another figure to weigh out. A formulation of the
-        # user's own is a row like any other and gets the same line.
+        # rather than another figure to weigh out.
+        #
+        # During the cold start there is nothing to compare with, and a
+        # column headed 'Compared with the allowed amounts' whose every cell
+        # repeated it word for word said one thing twice and told the reader
+        # nothing about the row. The caption under the table says the first
+        # five are spread out; the column comes back when it has a
+        # formulation to name.
         trying = self.compared_with_column()
+        if trying == wording.COMPARED_WITH_ALLOWED:
+            trying = None
         for row in read:
-            recipe = self.scaled_recipe(row['recipe'], scale_to)
+            own = bool(row.get('note'))
+            recipe, _ = self.shown_recipe(row, scale_to)
             item = {"Formulation": int(row['formulation'])}
             for var in ingredients:
                 item[self._amount_column(var['name'])] = float(
@@ -1754,17 +1833,18 @@ class FoodOptimizer:
                     recipe.get(var['name'], 0.0))
             if noted:
                 item["Note"] = row.get('note', "")
-            # The stored amounts, with the table's own total handed on: the
-            # changes are then between two numbers the screen shows.
-            item[trying] = self.compared_with_text(row['recipe'],
-                                                   scale_to=scale_to)
+            if trying is not None:
+                # The stored amounts, with the table's own total handed on:
+                # the changes are then between two numbers the screen shows.
+                item[trying] = self.compared_with_text(
+                    row['recipe'], scale_to=scale_to, own=own)
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
                    + ([total_col] if total_col is not None else [])
                    + [self._amount_column(v['name']) for v in process]
                    + (["Note"] if noted else [])
-                   + [trying])
+                   + ([trying] if trying is not None else []))
         return pd.DataFrame(rows, columns=columns)
 
     def recipe_lines(self, recipe, limit=None):
@@ -2034,7 +2114,12 @@ class FoodOptimizer:
         """
         ingredients, process = self._ingredients(), self._process_settings()
         objs = self.measurements_by_importance()
-        recipes = [self.scaled_recipe(row['recipe'], total) for row in rows]
+        # What each column is weighed out at, and the total its % is a share
+        # of. A row shown at its own sum has no total to be a share of, so
+        # its column is a share of that formulation instead.
+        shown = [self.shown_recipe(row, total) for row in rows]
+        recipes = [recipe for recipe, _ in shown]
+        bases = [basis for _, basis in shown]
         shares = self._shows_shares()
         stride = 2 if shares else 1
 
@@ -2065,7 +2150,7 @@ class FoodOptimizer:
                             fill=fill, number_format=_TWO_DP)
                 if shares:
                     _write_cell(sheet, r, column(j, 1),
-                                self._percent_of(recipe, var, total),
+                                self._percent_of(recipe, var, bases[j]),
                                 fill=fill, number_format=_ONE_DP)
             r += 1
         if ingredients:
@@ -2089,10 +2174,13 @@ class FoodOptimizer:
                             round(float(recipe.get(var['name'], 0.0)), 2))
             r += 1
         # The caution belongs with the amounts it is about, directly under
-        # them — not at the foot of the sheet, under the signature line.
-        caution = self.scaled_caution([row['recipe'] for row in rows], total)
-        if caution:
-            _write_cell(sheet, r, 1, caution)
+        # them — not at the foot of the sheet, under the signature line. A
+        # row that does not add up to the total says so on its own line: the
+        # bench weighs out what is printed above, and nothing else on the
+        # page would say the column is not the total in the title.
+        for line in (self.scaled_cautions(rows, total)
+                     + self.total_mismatch_lines(rows, total)):
+            _write_cell(sheet, r, 1, line)
             r += 1
         r += 1   # a blank line: what to make above it, what to write below
 
@@ -2131,7 +2219,7 @@ class FoodOptimizer:
         """One formulation, as the page a technician carries to the bench:
         what it is trying, what to weigh out in the order it is set up, what
         to dial in, what to measure, and room to sign it."""
-        recipe = self.scaled_recipe(row['recipe'], total)
+        recipe, basis = self.shown_recipe(row, total)
         ingredients, process = self._ingredients(), self._process_settings()
         unit = self.one_amount_unit()
         shares = self._shows_shares()
@@ -2145,10 +2233,13 @@ class FoodOptimizer:
         # header and the cell say the same thing, and "Compared with the
         # allowed amounts: Spread across the allowed amounts" is that
         # sentence twice.
+        own = bool(row.get('note'))
         column_head = self.compared_with_column()
-        cell_text = self.compared_with_text(row['recipe'], scale_to=total)
+        cell_text = self.compared_with_text(row['recipe'], scale_to=total,
+                                            own=own)
         _write_cell(sheet, 2, 1,
-                    cell_text if column_head == wording.COMPARED_WITH_ALLOWED
+                    cell_text if (own
+                                  or column_head == wording.COMPARED_WITH_ALLOWED)
                     else wording.compared_with_line(column_head, cell_text))
 
         r = 4
@@ -2173,7 +2264,7 @@ class FoodOptimizer:
                             fill=fill, number_format=_TWO_DP)
                 if shares:
                     _write_cell(sheet, r, 4,
-                                self._percent_of(recipe, var, total),
+                                self._percent_of(recipe, var, basis),
                                 fill=fill, number_format=_ONE_DP)
                 r += 1
             _write_cell(sheet, r, 2, wording.TOTAL_LABEL, bold=True)
@@ -2185,10 +2276,11 @@ class FoodOptimizer:
             r += 1
             # Directly under the amounts it is about: the bench reads down
             # the table and stops at the line that says these numbers are
-            # outside what the project allows.
-            caution = self.scaled_caution([row['recipe']], total)
-            if caution:
-                _write_cell(sheet, r, 2, caution)
+            # outside what the project allows, or that they do not add up to
+            # the total the title names.
+            for line in (self.scaled_cautions([row], total)
+                         + self.total_mismatch_lines([row], total)):
+                _write_cell(sheet, r, 2, line)
                 r += 1
             r += 1
 
@@ -2616,10 +2708,16 @@ class FoodOptimizer:
         weighs out an amount the project says it does not allow. Tab 2's box,
         tab 3's amounts table and the workbook's own sheets all say so in
         these words, from here, so the three can never drift apart.
+
+        `recipes` may be plain amounts or whole batch rows. A row of the
+        user's own is never rewritten, so it is never one of these numbers,
+        and nothing at all is rewritten under a project total — the line is
+        silent there, and a row that misses the total says so in its own
+        words instead.
         """
-        if total is None:
+        scaled = self._rewritten(recipes, total)
+        if not scaled:
             return ""
-        scaled = [self.scaled_recipe(recipe, total) for recipe in recipes]
         ingredients = [var['name'] for var in self._ingredients()]
         names = [name for name in ingredients
                  if any(self.bounds_caution(name, recipe.get(name))
@@ -2630,6 +2728,66 @@ class FoodOptimizer:
             self.batch_total_text(total),
             names_text=number_list(names) if len(names) <= 3 else "",
             n_outside=len(names), n_total=len(ingredients))
+
+    def _rewritten(self, recipes, total):
+        """The amounts a total actually rewrote, ready to be checked against
+        the project's own rules. Empty when nothing was rewritten."""
+        if total is None:
+            return []
+        out = []
+        for row in recipes:
+            recipe, basis = self.shown_recipe(row, total)
+            if basis is not None:
+                out.append(recipe)
+        return out
+
+    def scaled_limit_caution(self, recipes, total):
+        """The line for a limit the total broke on its way past it, or "" when
+        they all hold.
+
+        An amount still inside its own Lowest and Highest can carry a limit
+        over — 'Pea protein isolate + Wheat gluten at most 20 g' became
+        20.32 g when the batch was printed at 150 g — and a limit is
+        documented as a hard rule. One line, naming the first limit that does
+        not hold, in the words the Limits list writes it in."""
+        for recipe in self._rewritten(recipes, total):
+            for qc in getattr(self, 'quantity_constraints', []):
+                if qc.get('source') == 'formulation_total':
+                    continue     # the total is the thing being asked about
+                value = sum(float(recipe.get(n, 0.0))
+                            for n in qc['ingredients'])
+                if ((qc['min'] is not None and value < qc['min'])
+                        or (qc['max'] is not None and value > qc['max'])):
+                    return wording.scaled_limit_caution(
+                        self.batch_total_text(total), self.limit_text(qc))
+            for constraint in self.constraints:
+                if not self._property_limit_holds(recipe, constraint):
+                    return wording.scaled_limit_caution(
+                        self.batch_total_text(total),
+                        self.property_limit_text(constraint))
+        return ""
+
+    def _property_limit_holds(self, recipe, constraint):
+        """One property limit, read the way _check_constraints reads it."""
+        metric = constraint['metric']
+        if (constraint['min'] is not None
+                and self._property_residual(recipe, metric,
+                                            constraint['min']) < -1e-9):
+            return False
+        if (constraint['max'] is not None
+                and self._property_residual(recipe, metric,
+                                            constraint['max']) > 1e-9):
+            return False
+        return True
+
+    def scaled_cautions(self, recipes, total):
+        """Every line a scaled batch owes the bench: the amounts pushed past
+        what the project allows, and the limit the total broke. Callers draw
+        them in order — the screen as captions, the sheets as rows — so one
+        list is the whole answer."""
+        return [line for line in (self.scaled_caution(recipes, total),
+                                  self.scaled_limit_caution(recipes, total))
+                if line]
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
@@ -2749,17 +2907,32 @@ class FoodOptimizer:
     #  Total of each formulation
     # ------------------------------------------------------------------ #
 
-    def total_reach(self):
+    def total_reach(self, active_only=True):
         """(lowest, highest) — the totals the allowed amounts can add up to.
 
         The sum of every ingredient's Lowest and the sum of every ingredient's
         Highest. A total outside that pair is not a tight fit, it is
         arithmetic that has no answer, and the refusal says so in those two
         numbers rather than letting the search fail later with nothing to
-        show for it."""
+        show for it.
+
+        A PAUSED ingredient counts at the one value it is held at, at both
+        ends — exactly as _snap_to_total takes its amount off the target
+        before moving anything. Reading its Lowest and Highest instead
+        offered a total the search could never reach: the box accepted it and
+        every Generate afterwards came back empty.
+
+        `active_only` is False to ask the same question of the project with
+        nothing paused, which is how a refusal knows whether the pause is
+        why."""
         lows = highs = 0.0
         for var in self.variables:
             if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            if active_only and not var.get('active', True):
+                frozen = self._frozen_value(var)
+                lows += frozen
+                highs += frozen
                 continue
             low, high = var['bounds']
             lows += float(low)
@@ -2847,6 +3020,22 @@ class FoodOptimizer:
         return (value * (1.0 - self.FORMULATION_TOTAL_TOLERANCE),
                 value * (1.0 + self.FORMULATION_TOTAL_TOLERANCE))
 
+    def _paused_reach_tail(self, total):
+        """'' unless the pause is why this total is out of reach — that is,
+        unless resuming every paused ingredient would bring it back inside
+        the reach. The two numbers in the refusal are the paused project's,
+        so without this the answer to them ('raise an ingredient's Highest')
+        is the wrong one."""
+        paused = [v['name'] for v in self.inactive_variables()
+                  if v.get('category', 'ingredient') == 'ingredient']
+        if not paused:
+            return ""
+        lowest, highest = self.total_reach(active_only=False)
+        if not lowest <= float(total) <= highest:
+            return ""
+        return wording.paused_is_why_the_total_is_out_of_reach(
+            number_list(paused), len(paused) > 1)
+
     def set_formulation_total(self, total):
         """Every suggested formulation adds up to `total`.
 
@@ -2863,10 +3052,12 @@ class FoodOptimizer:
         lowest, highest = self.total_reach()
         if value > highest:
             raise ValueError(wording.total_not_reachable_at_most(
-                self.batch_total_text(value), self.batch_total_text(highest)))
+                self.batch_total_text(value), self.batch_total_text(highest))
+                + self._paused_reach_tail(value))
         if value < lowest:
             raise ValueError(wording.total_not_reachable_at_least(
-                self.batch_total_text(value), self.batch_total_text(lowest)))
+                self.batch_total_text(value), self.batch_total_text(lowest))
+                + self._paused_reach_tail(value))
         # A project every one of whose amounts can be 0 reaches 0, so the
         # sentence above lets a total of nothing through. It is refused in
         # the same shape rather than as the band's own "At least must be less
@@ -2896,6 +3087,12 @@ class FoodOptimizer:
             raise
         self._keep_limit_position(index)
         self.formulation_total = value
+        # The open batch was generated under the old answer: its rows were
+        # built to a total that no longer holds, and its sheets name it. It
+        # goes the way every other set-up change sends it, with the same
+        # notice, rather than sitting on screen as a batch nothing on tab 1
+        # describes.
+        self._drop_pending_batch()
         self.save()
 
     def _keep_limit_position(self, index):
@@ -2916,6 +3113,7 @@ class FoodOptimizer:
         if index is not None:
             self.quantity_constraints.pop(index)
         self.formulation_total = None
+        self._drop_pending_batch()
         self.save()
 
     def _sync_formulation_total(self):
@@ -2965,12 +3163,14 @@ class FoodOptimizer:
         The opposite order to sheet_total, and deliberately: a batch on the
         bench is being made NOW, to whatever the project says; a batch in the
         records was made once, to a number that cannot change afterwards
-        because someone later typed a different total on tab 1."""
+        because someone later typed a different total on tab 1.
+
+        None means "as generated", whether the batch recorded that answer
+        itself or predates the record being kept at all. Falling back to the
+        project's current total put a number on a batch nobody made to it.
+        """
         stored = self.batch_total(batch_no)
-        if stored is not None:
-            return float(stored)
-        return (float(self.formulation_total)
-                if self.has_formulation_total() else None)
+        return None if stored is None else float(stored)
 
     def sheet_total(self, batch_total=None):
         """The total the sheets, the downloads and tab 3's amounts heading
@@ -3235,12 +3435,18 @@ class FoodOptimizer:
                                            constr['max']) > slack:
                     return False
 
-        # Quantity constraints
+        # Quantity constraints, with the same relative slack the property
+        # loop above uses: a sum reached the long way round (as
+        # _snap_to_total reaches it, a share at a time) lands a few bits
+        # above the limit it was built to sit exactly on, and a candidate
+        # rejected by the last bit of a float is a suggestion the bench
+        # never sees.
         for qc in getattr(self, 'quantity_constraints', []):
             total_val = sum(recipe_dict.get(name, 0.0) for name in qc['ingredients'])
-            if qc['min'] is not None and total_val < qc['min']:
+            slack = 1e-6 * (1.0 + abs(float(total_val)))
+            if qc['min'] is not None and total_val < float(qc['min']) - slack:
                 return False
-            if qc['max'] is not None and total_val > qc['max']:
+            if qc['max'] is not None and total_val > float(qc['max']) + slack:
                 return False
 
         return True
@@ -3489,6 +3695,8 @@ class FoodOptimizer:
             self._retire_formulation_no(formulation_no)
         if batch_no is None:
             batch_no = self.pending_batch_no
+        elif batch_no is NO_BATCH:
+            batch_no = None          # belongs to no batch this project made
         else:
             self._retire_batch_no(batch_no)
 
@@ -3509,9 +3717,14 @@ class FoodOptimizer:
             # force tab 2 draws no box, so pending_batch_total is blank (or
             # stale from before the total was set) while the sheets the bench
             # worked from were printed to the project's total.
+            #
+            # Written even when it is None. "This batch was made as
+            # generated" is an answer, and the only place it is kept: with
+            # the key absent, a total typed on tab 1 months later was read
+            # back as the total this batch had been made to.
             made_to = self.sheet_total(getattr(self, 'pending_batch_total', None))
-            if made_to is not None:
-                self._batch_totals()[int(batch_no)] = float(made_to)
+            self._batch_totals()[int(batch_no)] = (
+                None if made_to is None else float(made_to))
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -3663,10 +3876,12 @@ class FoodOptimizer:
                            note=wording.IMPORTED_NOTE):
         """Record a formulation made before this project existed. It draws the
         next global number, its batch stays blank (it belongs to no batch this
-        project generated), and the note says where it came from."""
-        self.tell(recipe_dict, results_dict, note=note)
-        self.batch_history[-1] = None    # tell() would inherit the open batch
-        self.save()
+        project generated), and the note says where it came from.
+
+        NO_BATCH, not a blank patched over afterwards: tell() would otherwise
+        inherit the open batch and write the total that batch is being made
+        to against a formulation made before the project existed."""
+        self.tell(recipe_dict, results_dict, batch_no=NO_BATCH, note=note)
 
     def delete_formulation(self, no):
         """Delete one formulation by its global number, scored or left out.
@@ -3675,11 +3890,14 @@ class FoodOptimizer:
         index = self.index_of_formulation(no)
         if index is not None:
             self.delete_result(index)
+            self._prune_batch_totals()
+            self.save()
             return True
         before = len(self.skipped)
         self.skipped = [s for s in self.skipped
                         if int(s['formulation']) != int(no)]
         if len(self.skipped) != before:
+            self._prune_batch_totals()
             self.save()
             return True
         return False
@@ -4341,7 +4559,9 @@ class FoodOptimizer:
             'pending_batch_discarded': self.pending_batch_discarded,
             'pending_batch_total': getattr(self, 'pending_batch_total', None),
             'formulation_total': getattr(self, 'formulation_total', None),
-            'batch_totals': {str(k): float(v)
+            # A None value is kept: it is this batch's own record that it
+            # was made as generated, which is not the same as no record.
+            'batch_totals': {str(k): (None if v is None else float(v))
                              for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
@@ -4474,8 +4694,9 @@ class FoodOptimizer:
             raise ValueError(
                 "This copy's 'batch_totals' section has the wrong shape.")
         for key, value in (totals or {}).items():
+            # None is a value here: 'this batch was made as generated'.
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
-                    or not _total(value):
+                    or (value is not None and not _total(value)):
                 raise ValueError(
                     "This copy's 'batch_totals' section has the wrong shape.")
         pending = state.get('pending_batch')
@@ -4586,7 +4807,8 @@ class FoodOptimizer:
         project_total = state.get('formulation_total')
         self.formulation_total = (None if project_total is None
                                   else float(project_total))
-        self.batch_totals = {int(k): float(v) for k, v
+        self.batch_totals = {int(k): (None if v is None else float(v))
+                             for k, v
                              in (state.get('batch_totals') or {}).items()}
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups

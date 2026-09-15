@@ -71,6 +71,22 @@ WIDEN_RANGE_HINT = " Widen the range in Set up, or check the value."
 
 
 SMALLER_TOTAL_HINT = "Print at a smaller total, or widen them in Set up."
+# The same two ways out for a limit rather than an ingredient's own amounts:
+# a limit is changed in Set up, not widened there.
+SMALLER_TOTAL_OR_LIMIT_HINT = ("Print at a smaller total, or change the "
+                               "limit in Set up.")
+
+
+def scaled_limit_caution(total_text, limit_text):
+    """'At 150 g, the limit Water + Oil: at most 20 g is not met. Print at a
+    smaller total, or change the limit in Set up.'
+
+    An amount scaled to a total can carry a limit over with it, and a limit
+    is a hard rule: the sheet that breaks one has to say which, in the same
+    words the Limits list writes it in.
+    """
+    return (f"At {total_text}, the {LIMIT} {limit_text} is not met. "
+            + SMALLER_TOTAL_OR_LIMIT_HINT)
 
 
 def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
@@ -426,6 +442,10 @@ def change_text(name, delta, size):
 SUGGESTION_CLOSE = "close to the best"
 SUGGESTION_DIFFERENT = "trying something different"
 SUGGESTION_SPREAD = "spread across the allowed amounts"
+# A formulation the user typed is not a suggestion, so it is not one of the
+# three kinds: saying "spread across the allowed amounts" of a row somebody
+# wrote out by hand described the app's own sampling, not their formulation.
+OWN_FORMULATION_KIND = f"your own {FORMULATION}"
 
 # The cold start has no best to compare with, so the column header names what
 # the formulations ARE spread across.
@@ -478,6 +498,21 @@ BATCH_TOTAL_HELP = (
 # An example, not a description: a blank box means "the amounts in the table",
 # and the help says so once.
 BATCH_TOTAL_PLACEHOLDER = "e.g. 150"
+
+NOT_HELD_TO_A_TOTAL = f"This {BATCH} is not held to a total."
+
+
+def total_mismatch_caption(no, made_text, total_text):
+    """'Formulation 4 adds up to 97.00 g, not the 100 g total.'
+
+    One sentence for the only two rows that can miss the total: a
+    formulation of the user's own, which is recorded exactly as typed, and a
+    suggestion that could not be moved onto the total without breaking a
+    limit. Nothing is rewritten to hide either, so the line says what the
+    row adds up to and what it was measured against."""
+    return (f"{FORMULATION_CAP} {no} adds up to {made_text}, not the "
+            f"{total_text} total.")
+
 
 def sheets_show_total_caption(total_text):
     """'Sheets show each formulation made to 150 g.' — the one line on the
@@ -1077,6 +1112,17 @@ FORMULATION_TOTAL_HELP = ("Every suggested formulation adds up to this. Set "
 FORMULATION_TOTAL_PLACEHOLDER = "e.g. 100"
 
 
+def total_still_holds(total_text):
+    """'Each formulation still totals 100 g.' — the half-sentence an edit to
+    the ingredient list adds to its own success line.
+
+    The total's limit is over every ingredient, so it is rewritten on every
+    such edit; this is the screen saying so. It was rewritten silently, and
+    a reader who had just been told "Limits are hard rules" had no way to
+    know whether the rule they typed had survived their own step 2."""
+    return f"Each {FORMULATION} still totals {total_text}."
+
+
 def formulation_total_row(total_text):
     """'Total of each formulation · 100 g' — the one line the total takes in
     the Limits list. It holds every ingredient, so listing it as a limit on a
@@ -1114,13 +1160,28 @@ def no_formulation_reaches_total(total_text):
             "amounts. Change the total or widen the amounts.")
 
 
+# The one way back out of a pause that has put a total out of reach. Said by
+# the pause guard and by the total box's own refusal, so the two answers to
+# the same predicament are one sentence.
+RESUME_ENOUGH = "resume enough ingredients to reach it"
+
+
 def pausing_breaks_the_total(total_text):
     """Pausing holds an ingredient at one value, which can put the total out
     of reach of the ones still moving. The fix is the total, not the eight
     ingredients its limit happens to name."""
     return (f"Pausing these would leave no formulation adding up to "
-            f"{total_text}. Clear the total of each formulation first, or "
-            "resume enough ingredients to reach it.")
+            f"{total_text}. Clear {FORMULATION_TOTAL_LOWER} first, or "
+            f"{RESUME_ENOUGH}.")
+
+
+def paused_is_why_the_total_is_out_of_reach(names_text, many=False):
+    """The tail the total box's refusal carries when the numbers it names are
+    the PAUSED project's: an ingredient held where it is adds the same amount
+    at both ends of the reach, so the way back is the pause and not sixteen
+    Lowest and Highest boxes."""
+    return (f" {names_text} {'are' if many else 'is'} paused and held where "
+            f"{'they are' if many else 'it is'}; {RESUME_ENOUGH}.")
 
 
 def formulation_total_gone_unit(total_text):

@@ -130,16 +130,22 @@ def _best(opt):
     # recorded amounts: those are the ones the model was told about.
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
-    shown = opt.scaled_recipe(recipe, total) if total else recipe
+    # The row as the sheet carried it: a formulation of the user's own — the
+    # note is what marks one — was printed exactly as typed, and nothing at
+    # all is rewritten under a project total.
+    note = opt.notes_history[index] if index < len(opt.notes_history) else ""
+    row = {'formulation': number, 'recipe': recipe, 'note': note}
+    shown, _ = opt.shown_recipe(row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
-    # The amounts above are the ones the bench weighed out, so the same line
-    # tab 2 shows under the box belongs under the table that shows them: it
-    # is the total, not the formulation, that pushed them out.
-    caution = scaled_caution(opt, [recipe], total)
-    if caution:
+    # The amounts above are the ones the bench weighed out, so the same lines
+    # tab 2 shows under the box belong under the table that shows them: it
+    # is the total, not the formulation, that pushed them out — and a row
+    # that does not add up to the total says so rather than being rewritten.
+    for caution in (opt.scaled_cautions([row], total)
+                    + opt.total_mismatch_lines([row], total)):
         st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
@@ -356,16 +362,19 @@ def _score_row(opt, choice):
     batch = row.get('batch')
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
-    shown = opt.scaled_recipe(recipe, total) if total else recipe
+    # No note here: a not-scored row's note says why nobody scored it, not
+    # that the user wrote the formulation out themselves.
+    shown_row = {'formulation': int(choice), 'recipe': recipe}
+    shown, _ = opt.shown_recipe(shown_row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
     # It is the total, not the formulation, that pushes an amount out of the
-    # allowed ones — the same line tab 2 shows under its box, and the best
+    # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
-    caution = scaled_caution(opt, [recipe], total)
-    if caution:
+    for caution in (opt.scaled_cautions([shown_row], total)
+                    + opt.total_mismatch_lines([shown_row], total)):
         st.caption(caution)
     ordered = opt.measurements_by_importance()
     typed = _measurement_boxes(

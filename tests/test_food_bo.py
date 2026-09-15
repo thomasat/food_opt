@@ -294,8 +294,9 @@ def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
     # a process setting is not an amount, so a cook temperature is never "(g)".
     # The total closes the amounts you weigh out, so it comes straight after
     # the ingredients and before the settings you dial in.
-    assert list(df.columns) == ["Formulation", "Water (g)", "Total (g)", "Temp",
-                                wording.COMPARED_WITH_ALLOWED]
+    # No what-is-it-trying column during the cold start: every cell under it
+    # repeated the header word for word.
+    assert list(df.columns) == ["Formulation", "Water (g)", "Total (g)", "Temp"]
     assert df["Total (g)"].iloc[0] == 10.0   # the process setting is not an amount
 
 
@@ -2523,8 +2524,7 @@ class TestUnitsAndImportance:
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation", "Pea protein (g)",
-                                    "Methylcellulose (g)", "Total (g)",
-                                    wording.COMPARED_WITH_ALLOWED]
+                                    "Methylcellulose (g)", "Total (g)"]
         assert list(df["Formulation"]) == [1]
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
 
@@ -2660,8 +2660,7 @@ class TestUnitPerIngredient:
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation", "Pea protein (g)",
-                                    "Water (ml)", "Total",
-                                    wording.COMPARED_WITH_ALLOWED]
+                                    "Water (ml)", "Total"]
         assert df["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
     def test_a_unit_that_adds_up_to_nothing_is_left_out_of_the_total(
@@ -2680,8 +2679,9 @@ class TestUnitPerIngredient:
         opt.add_ingredient("Methylcellulose", 0, 3)
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
         df = opt.batch_frame(opt.pending_batch)
-        # The total closes the amounts; the what-is-it-trying column follows.
-        assert list(df.columns)[-2] == "Total (g)"
+        # The total closes the amounts, and during the cold start nothing
+        # follows it.
+        assert list(df.columns)[-1] == "Total (g)"
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
         assert opt.one_amount_unit() == "g"
 
@@ -2829,8 +2829,7 @@ class TestSettingsOnlyProject:
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation",
                                     "Incubation temperature (°C)",
-                                    "Incubation time (h)",
-                                    wording.COMPARED_WITH_ALLOWED]
+                                    "Incubation time (h)"]
 
     def test_the_loop_runs_on_settings_alone(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3575,15 +3574,19 @@ class TestTheTotalABatchWasPrintedTo:
         assert again.batch_total(3) is None
         assert again.batch_total(None) is None
 
-    def test_a_batch_printed_as_generated_stores_no_total(self, tmp_path,
-                                                          monkeypatch):
+    def test_a_batch_printed_as_generated_records_that_it_was(self, tmp_path,
+                                                              monkeypatch):
+        """"Made as generated" is an answer, and the batch keeps it: with no
+        entry at all, a total typed on tab 1 months later was read back as
+        the total this batch had been made to."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 5.0}],
                               batch_no=1)
         opt.tell({"Pea protein": 10.0, "Water": 5.0}, {"Firmness": 6.0},
                  formulation_no=1, batch_no=1)
-        assert opt.batch_totals == {}
+        assert opt.batch_totals == {1: None}
         assert opt.batch_total(1) is None
+        assert opt.recorded_total(1) is None
 
     def test_both_totals_round_trip_through_a_backup(self, tmp_path,
                                                      monkeypatch):
@@ -4405,12 +4408,14 @@ class TestTheTotalIsAlwaysReachable:
         assert opt.recorded_total(batch_no) == 400.0     # still 400 g
         assert opt.sheet_total(400.0) == 100.0           # the bench now: 100 g
 
-    def test_a_batch_from_before_totals_falls_back_to_the_project(
+    def test_a_batch_from_before_totals_stays_as_generated(
             self, tmp_path, monkeypatch):
+        """A batch recorded before the total was stored was made to no total,
+        and a number typed on tab 1 today cannot reach back and claim it."""
         opt = self._sample(tmp_path, monkeypatch)
         assert opt.recorded_total(7) is None
         opt.set_formulation_total(100)
-        assert opt.recorded_total(7) == 100.0
+        assert opt.recorded_total(7) is None
 
 
 # ------------------------------------------------------------------ #
@@ -4874,12 +4879,15 @@ class TestTheWorkbook:
     def test_all_formulations_holds_the_table_and_the_set_up(self, tmp_path,
                                                              monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
+        # Setting the total discards the open batch (its rows were built to
+        # the old answer), so the rows are taken first.
+        rows = list(opt.pending_batch)
         opt.set_formulation_total(100.0)
         opt.set_targets_source("A benchmark burger, panel of 8.")
-        opt.tell(opt.pending_batch[0]['recipe'],
+        opt.tell(rows[0]['recipe'],
                  {"Firmness": 5.5, "Juiciness": 7.0}, formulation_no=1,
                  batch_no=2)
-        opt.record_skipped(3, 2, opt.pending_batch[2]['recipe'],
+        opt.record_skipped(3, 2, rows[2]['recipe'],
                            note=wording.not_scored_with_note("burner failed"))
         book = _book(opt.all_formulations_workbook())
         assert book.sheetnames == ["All formulations", "Set-up"]
@@ -4921,3 +4929,236 @@ class TestTheWorkbook:
         assert [v['name'] for v in opt.variables] == \
             list(pd.read_csv(template)["Name"])
         assert opt.unit_of("Pea protein isolate") == "g"
+
+
+# ------------------------------------------------------------------ #
+#  The final fix wave (0.4.0): totals, batches and state
+# ------------------------------------------------------------------ #
+
+class TestTotalsAndBatchesFinalWave:
+    """One total, one set of numbers: what the screen shows, what the sheet
+    prints and what the record holds can never be three answers."""
+
+    def _opt(self, tmp_path, monkeypatch, name="finalwave"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 60)
+        opt.add_ingredient("Water", 0, 80)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+        return opt
+
+    # ---- F2: the reach counts a paused ingredient's frozen value -----
+
+    def test_total_reach_counts_a_paused_ingredient_where_it_is_held(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.total_reach() == (0.0, 140.0)
+        opt.deactivate_variable("Pea protein", value=10.0)
+        # Pea protein can no longer move: it adds exactly 10 g at both ends.
+        assert opt.total_reach() == (10.0, 90.0)
+
+    def test_a_total_beyond_the_paused_reach_is_refused_and_says_why(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Pea protein", value=10.0)
+        with pytest.raises(ValueError) as excinfo:
+            opt.set_formulation_total(120.0)
+        message = str(excinfo.value)
+        assert "90 g" in message
+        # The pause is why, so the pause is named and the way back is the
+        # pause, not the Lowest and Highest of eight ingredients.
+        assert "Pea protein" in message and "paused" in message
+        assert opt.formulation_total is None
+
+    def test_a_total_out_of_reach_for_the_amounts_does_not_blame_the_pause(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Pea protein", value=10.0)
+        with pytest.raises(ValueError) as excinfo:
+            opt.set_formulation_total(400.0)
+        assert "paused" not in str(excinfo.value)
+
+    # ---- F1 / G-e2 / C4: nothing is rescaled under a project total ----
+
+    def test_a_project_total_never_rescales_what_is_shown(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        row = {'formulation': 7, 'recipe': {"Pea protein": 20.0,
+                                            "Water": 79.5}}
+        shown, basis = opt.shown_recipe(row, opt.sheet_total())
+        assert shown == row['recipe']      # the band edge stands
+        assert basis is None               # its % is of its own sum
+
+    def test_a_row_that_misses_the_total_says_so_in_one_line(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        line = opt.total_mismatch(7, {"Pea protein": 20.0, "Water": 79.5},
+                                  100.0)
+        assert line == ("Formulation 7 adds up to 99.50 g, not the 100 g "
+                        "total.")
+        assert opt.total_mismatch(8, {"Pea protein": 20.0, "Water": 80.0},
+                                  100.0) == ""
+
+    def test_a_formulation_of_your_own_is_never_rescaled(self, tmp_path,
+                                                         monkeypatch):
+        """Tab 2's typed total scales the suggestions; it never rewrites a
+        formulation the user typed in."""
+        opt = self._opt(tmp_path, monkeypatch)
+        own = {'formulation': 4, 'recipe': {"Pea protein": 20.0,
+                                            "Water": 77.0},
+               'note': "Own formulation"}
+        made = {'formulation': 5, 'recipe': {"Pea protein": 20.0,
+                                             "Water": 77.0}}
+        assert opt.shown_recipe(own, 150.0)[0] == own['recipe']
+        assert opt.shown_recipe(made, 150.0)[0] != made['recipe']
+        assert opt.total_mismatch(4, own['recipe'], 150.0) == (
+            "Formulation 4 adds up to 97.00 g, not the 150 g total.")
+
+    def test_the_batch_table_shows_each_row_at_its_own_sum_under_a_total(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        batch = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
+                                               "Water": 79.5}},
+                 {'formulation': 2, 'recipe': {"Pea protein": 25.0,
+                                               "Water": 72.0},
+                  'note': "Own formulation"}]
+        frame = opt.batch_frame(batch, scale_to=opt.sheet_total())
+        assert list(frame["Total (g)"]) == [99.5, 97.0]
+
+    def test_the_scaled_caution_is_silent_under_a_project_total(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        rows = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
+                                              "Water": 80.0}}]
+        assert opt.scaled_cautions(rows, opt.sheet_total()) == []
+
+    def test_a_typed_total_that_breaks_a_limit_names_the_limit(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Pea protein"], max_val=30.0)
+        rows = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
+                                              "Water": 80.0}}]
+        lines = opt.scaled_cautions(rows, 200.0)
+        assert any("Pea protein" in line and "is not met" in line
+                   for line in lines), lines
+
+    def test_an_own_row_takes_no_part_in_the_scaled_caution(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        rows = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
+                                              "Water": 80.0},
+                 'note': "Own formulation"}]
+        assert opt.scaled_cautions(rows, 400.0) == []
+
+    def test_an_own_row_says_it_is_the_users_own_rather_than_a_kind(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        text = opt.compared_with_text({"Pea protein": 20.0, "Water": 77.0},
+                                      own=True)
+        assert text.startswith("Your own formulation")
+        assert "spread across" not in text.lower()
+
+    # ---- G-d4 / C16: no Compared with column during the cold start ----
+
+    def test_the_cold_start_batch_table_has_no_compared_with_column(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        batch = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
+                                               "Water": 80.0}}]
+        frame = opt.batch_frame(batch)
+        assert not [c for c in frame.columns if str(c).startswith("Compared")]
+
+    # ---- F4: a total that changes drops the open batch -----------------
+
+    def test_setting_the_total_drops_the_open_batch(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 60.0}])
+        assert opt.pending_batch
+        opt.set_formulation_total(100.0)
+        assert opt.pending_batch is None
+
+    def test_clearing_the_total_drops_the_open_batch(self, tmp_path,
+                                                     monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0}])
+        opt.clear_formulation_total()
+        assert opt.pending_batch is None
+
+    def test_setting_the_same_total_again_leaves_the_batch_alone(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0}])
+        opt.set_formulation_total(100.0)
+        assert opt.pending_batch is not None
+
+    # ---- F5: the recorded total is the one the sheets used -------------
+
+    def test_a_batch_made_as_generated_is_recorded_as_generated(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 60.0}])
+        no = opt.pending_batch_no
+        opt.tell({"Pea protein": 20.0, "Water": 60.0}, {"Firmness": 6.0},
+                 formulation_no=opt.pending_batch[0]['formulation'],
+                 batch_no=no)
+        assert opt.batch_total(no) is None
+        # A total typed on tab 1 afterwards cannot rewrite what was made.
+        opt.set_formulation_total(100.0)
+        assert opt.recorded_total(no) is None
+
+    def test_a_batch_from_before_totals_existed_shows_as_generated(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 20.0, "Water": 60.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=1)
+        opt.batch_totals = {}          # a project saved before the key existed
+        opt.set_formulation_total(100.0)
+        assert opt.recorded_total(1) is None
+
+    # ---- F9 / F11: imports and deletions leave no total behind ---------
+
+    def test_an_imported_formulation_writes_no_batch_total(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0}])
+        no = opt.pending_batch_no
+        opt.import_formulation({"Pea protein": 20.0, "Water": 82.0},
+                               {"Firmness": 6.0})
+        assert opt.batch_history[-1] is None
+        assert opt.batch_total(no) is None
+
+    def test_deleting_the_last_row_of_a_batch_forgets_its_total(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0}])
+        no = opt.pending_batch_no
+        number = opt.pending_batch[0]['formulation']
+        opt.tell({"Pea protein": 20.0, "Water": 80.0}, {"Firmness": 6.0},
+                 formulation_no=number, batch_no=no)
+        assert opt.batch_total(no) == 100.0
+        opt._drop_pending_batch()      # the batch is closed once it is saved
+        opt.delete_formulation(number)
+        assert opt.batch_total(no) is None
+
+    # ---- the queued float slack on the quantity check ------------------
+
+    def test_a_quantity_limit_is_not_broken_by_the_last_bit_of_a_float(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Pea protein", "Water"], max_val=100.0)
+        # 100.0 reached the long way round, as _snap_to_total reaches it.
+        recipe = {"Pea protein": 33.333333333333336,
+                  "Water": 66.66666666666669}
+        assert sum(recipe.values()) > 100.0
+        assert opt._check_constraints(recipe)

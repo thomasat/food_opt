@@ -1692,9 +1692,10 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
     assert any(m.value == wording.make_these(1, 2)
                for m in at.markdown), [m.value for m in at.markdown]
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    # No what-is-it-trying column during the cold start: every cell under it
+    # said the header back, word for word.
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
-                                   "Methylcellulose (g)", "Total (g)",
-                                   wording.COMPARED_WITH_ALLOWED]
+                                   "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
     assert box.value is None                          # empty: as generated
     assert box.proto.placeholder == "e.g. 150"
@@ -4022,8 +4023,7 @@ def test_the_batch_table_carries_each_unit_and_a_per_unit_total(mixed_units):
     assert not at.exception
     frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(frame.value.columns) == ["Formulation", "Pea protein (g)",
-                                         "Water (ml)", "Total",
-                                         wording.COMPARED_WITH_ALLOWED]
+                                         "Water (ml)", "Total"]
     assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
 
@@ -4201,8 +4201,7 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(frame.value.columns) == ["Formulation",
                                          "Incubation temperature (°C)",
-                                         "Incubation time (h)",
-                                         wording.COMPARED_WITH_ALLOWED]
+                                         "Incubation time (h)"]
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
     assert not any("Scaling needs" in c.value for c in at.caption), \
         [c.value for c in at.caption]
@@ -7405,7 +7404,11 @@ def test_the_batch_tab_hides_its_own_total_box_while_the_project_has_one(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(n.key == "scale_total" for n in at.number_input)
+    # Setting the total discards the open batch — its rows were built to the
+    # old answer — so a new one is opened under the total.
     open_batch.set_formulation_total(20)
+    open_batch.set_pending_batch([{"Pea protein": 17.0,
+                                   "Methylcellulose": 3.0}])
     again = AppTest.from_file(APP_PATH, default_timeout=180)
     again.run()
     assert not any(n.key == "scale_total" for n in again.number_input)
@@ -7415,8 +7418,21 @@ def test_the_batch_tab_hides_its_own_total_box_while_the_project_has_one(
         [c.value for c in again.tabs[1].caption]
 
 
-def test_the_results_amounts_heading_names_the_project_total(scored):
+def test_the_results_amounts_heading_names_the_project_total(burger):
+    """The heading names the total the BATCH was made to. A batch recorded
+    under the project's total carries it; one recorded before it was typed
+    was made as generated and keeps saying so."""
+    scored = burger
     scored.set_formulation_total(20)
+    scored.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                              {"Pea protein": 17.0, "Methylcellulose": 3.0}])
+    scored.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 1.0},
+                formulation_no=1, batch_no=scored.pending_batch_no,
+                note="crumbly")
+    scored.tell({"Pea protein": 17.0, "Methylcellulose": 3.0},
+                {"Juiciness": 7.0, "Firmness": 8.0},
+                formulation_no=2, batch_no=scored.pending_batch_no)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
@@ -7479,9 +7495,13 @@ def test_an_own_formulation_gets_the_same_line(burger):
     burger.add_to_pending_batch({"Pea protein": 20.0, "Methylcellulose": 1.0},
                                 wording.OWN_FORMULATION_NOTE)
     table = burger.batch_frame(burger.pending_batch)
+    # The changes are a fact about the amounts and are listed for both. The
+    # KIND is not: a formulation the user typed is not one of the app's
+    # three kinds of suggestion, and calling it one took credit for their
+    # own bench standard.
     assert list(table["Compared with Formulation 1"]) == [
         "Close to the best · Pea protein +1.00 g",
-        "Trying something different · Pea protein +10.00 g"]
+        "Your own formulation · Pea protein +10.00 g"]
 
 
 def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
@@ -7666,3 +7686,85 @@ def test_every_tab_still_has_one_lit_button_with_the_workbook_on_it(
         _tab_primaries(at, 1)
     for index in (0, 2):
         assert len(_tab_primaries(at, index)) <= 1, _tab_primaries(at, index)
+
+
+# ------------------------------------------------------------------ #
+#  The final fix wave: the total survives everything that is not a
+#  change to it, and the screen says what the batch is held to.
+# ------------------------------------------------------------------ #
+
+def _sidebar_button(at, label):
+    return next(b for b in at.sidebar.button if b.label == label)
+
+
+@pytest.mark.parametrize("arm,cancel", [
+    ("Delete this project", "Cancel"),
+    ("Start this project over", "Cancel"),
+])
+def test_a_sidebar_cancel_never_writes_the_total_away(burger, arm, cancel):
+    """Back out, change nothing. Cancel reruns from ABOVE the tabs, so
+    Streamlit discards the total box's value — and an emptied box used to be
+    read as the user clearing the total every suggestion is held to."""
+    burger.set_formulation_total(20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _total_box(at).value == 20.0
+    _sidebar_button(at, arm).click()
+    at.run()
+    _sidebar_button(at, cancel).click()
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.formulation_total == 20.0
+    assert len(saved.quantity_constraints) == 1
+    assert _total_box(at).value == 20.0
+
+
+def test_adding_an_ingredient_keeps_the_total_and_says_so(burger):
+    """Adding ingredients is step 2 of the app's own first-run instructions,
+    and it used to take the 100 g rule with it, silently."""
+    burger.set_formulation_total(20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="var_name").set_value("Onion powder")
+    at.number_input(key="var_high").set_value(2.0)
+    at.run()
+    _submit_button(at, "Add ingredient or setting").click()
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.formulation_total == 20.0
+    assert saved._formulation_total_index() is not None
+    # The limit is over every ingredient, so the new one is in it.
+    assert "Onion powder" in saved.quantity_constraints[0]['ingredients']
+    assert any(s.value == "Onion powder added. Each formulation still "
+                          "totals 20 g." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_a_batch_held_to_no_total_says_so_under_the_table(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert any(c.value == "This batch is not held to a total."
+               for c in at.tabs[1].caption), \
+        [c.value for c in at.tabs[1].caption]
+
+
+def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
+    """Nothing is rewritten to make a formulation of the user's own add up,
+    so this line is the only thing that says it does not."""
+    burger.set_formulation_total(20.0)
+    burger.set_pending_batch([{"Pea protein": 17.0, "Methylcellulose": 3.0}])
+    burger.add_to_pending_batch({"Pea protein": 12.0, "Methylcellulose": 1.0},
+                                wording.OWN_FORMULATION_NOTE)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[1].caption]
+    assert ("Formulation 2 adds up to 13.00 g, not the 20 g total."
+            in captions), captions
+    # ... and the row is shown at what it really adds up to.
+    frame = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(frame["Total (g)"]) == [20.0, 13.0]

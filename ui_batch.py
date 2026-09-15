@@ -350,15 +350,35 @@ def _title(opt):
 
 
 def _batch_table(opt, scale_to):
-    """The make-these table, and nothing under it. A caption used to say what
-    the first row changed from the best; the table's own last column now says
-    that for every row, in the same words, and the two together said one
-    thing twice."""
+    """The make-these table and the lines it owes the reader.
+
+    Nothing is rewritten to make a row add up: a suggestion that could not be
+    moved onto the total without breaking a limit stands at the band edge,
+    and a formulation of the user's own stands exactly as typed. Each such
+    row gets one line saying what it does add up to — the same sentence the
+    sheet carries — because the table is what the bench reads before it
+    prints anything.
+
+    With no total in force at all, one line says so. The cold read watched a
+    batch come out at 73 to 89 g with nothing on the screen to say the 100 g
+    rule had stopped applying.
+    """
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     st.dataframe(
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
+    if scale_to is None:
+        if opt.has_ingredients():
+            st.caption(wording.NOT_HELD_TO_A_TOTAL)
+    else:
+        for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
+            st.caption(line)
+    # The what-is-it-trying column is not drawn during the cold start (every
+    # cell under it repeated its own header); this is the line that says what
+    # those formulations are instead.
+    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
+        st.caption(wording.HOW_CHOSEN)
 
 
 def _scaled_cautions(opt, rows, scale_to):
@@ -369,8 +389,7 @@ def _scaled_cautions(opt, rows, scale_to):
     per ingredient per row put eight lines of raw numbers between the box and
     the step below it, and said nothing the one line does not.
     """
-    caution = scaled_caution(opt, [row['recipe'] for row in rows], scale_to)
-    if caution:
+    for caution in opt.scaled_cautions(rows, scale_to):
         st.caption(caution)
 
 

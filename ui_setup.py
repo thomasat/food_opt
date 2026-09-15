@@ -23,8 +23,8 @@ from ui_helpers import (
     confirm_action, confirmation_open,
     disarm, flash,
     fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
-    number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
-    table_height,
+    number_list, other_confirmation, park_clear, plural, preserve_tab_forms,
+    readiness, saved_ok, table_height,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -129,6 +129,11 @@ def _unscaled_tail(opt, before, before_unit):
 # After that an empty box means the user emptied it, which is an answer of its
 # own and must reach the file.
 _SEEDED_FORMULATION_TOTAL = "_formulation_total_seeded"
+# The number the box was last put on screen holding. A widget's own key
+# cannot answer this — it holds whatever the browser posted back, which is
+# the same thing whether the user typed it or the app seeded it — so the one
+# value a returned number can be compared against is tracked here.
+_SHOWN_FORMULATION_TOTAL = "_formulation_total_shown"
 
 
 def _formulation_total_mark(opt, total):
@@ -151,22 +156,41 @@ def _seed_formulation_total(opt):
     which is why this runs first."""
     stored = getattr(opt, 'formulation_total', None)
     mark = _formulation_total_mark(opt, stored)
-    if st.session_state.get(_SEEDED_FORMULATION_TOTAL) == mark:
+    # ... and re-seeded whenever the key has gone, whatever the mark says.
+    # Streamlit discards the session-state entry of every widget a run did
+    # not create, so any rerun raised ABOVE this box (a Cancel in the
+    # sidebar, which runs before all three tabs) leaves the mark stamped and
+    # the number gone. The box then opened empty over a project that has a
+    # total — and an empty box used to mean "the user cleared it".
+    if (st.session_state.get(_SEEDED_FORMULATION_TOTAL) == mark
+            and "formulation_total" in st.session_state):
         return
     st.session_state[_SEEDED_FORMULATION_TOTAL] = mark
+    st.session_state[_SHOWN_FORMULATION_TOTAL] = (
+        None if stored is None else float(stored))
     if stored is not None:
         st.session_state["formulation_total"] = float(stored)
 
 
-def _store_formulation_total(opt, typed):
+def _store_formulation_total(opt, typed, shown):
     """Keep what the box holds with the project, on a change only: this runs
     on every rerun, and a save per rerun would bump the file's mtime and make
     another open window see a false conflict.
+
+    `shown` is the value the box was DRAWN with on this run. The write
+    happens only when the two differ — that is, only when the user themselves
+    moved the number — never because the box came up holding something else.
+    Comparing against the stored total instead read a widget Streamlit had
+    just thrown away as an answer of the user's: a Cancel in the sidebar, or
+    an ingredient added, and the 100 g every suggestion was held to was gone
+    with no message anywhere.
 
     A refusal is left on screen with the number still in the box — the mark
     is not re-stamped, so the next run does not quietly put the old total
     back over what the user is still typing."""
     stored = getattr(opt, 'formulation_total', None)
+    if typed == shown:
+        return
     if typed is None and stored is None:
         return
     try:
@@ -179,6 +203,7 @@ def _store_formulation_total(opt, typed):
         return
     st.session_state[_SEEDED_FORMULATION_TOTAL] = _formulation_total_mark(
         opt, getattr(opt, 'formulation_total', None))
+    st.session_state[_SHOWN_FORMULATION_TOTAL] = typed
 
 
 def _formulation_total(opt):
@@ -200,6 +225,12 @@ def _formulation_total(opt):
         return
     _seed_formulation_total(opt)
     st.session_state.setdefault("formulation_total", None)
+    # What the box was last put on screen holding. Not its own key: that
+    # holds whatever the browser posted back, which reads the same whether
+    # the user typed it or the app seeded it a moment ago.
+    shown = st.session_state.get(_SHOWN_FORMULATION_TOTAL)
+    shown = None if not shown else float(shown)
+    batch_no = opt.pending_batch_no
     typed = st.number_input(
         wording.formulation_total_label(opt.one_amount_unit()),
         min_value=0.0, step=1.0,
@@ -207,7 +238,16 @@ def _formulation_total(opt):
         key="formulation_total",
         help=wording.FORMULATION_TOTAL_HELP,
     )
-    _store_formulation_total(opt, None if not typed else float(typed))
+    _store_formulation_total(opt, None if not typed else float(typed), shown)
+    # The open batch was built to the old answer, so a changed total retires
+    # it like every other set-up change — with the same notice. The notice
+    # lands above the tabs on the NEXT run, so this one is ended here:
+    # otherwise the batch vanished from tab 2 with nothing said until the
+    # user's next click.
+    if batch_no is not None and opt.pending_batch_no is None:
+        _note_discarded_batch(opt, batch_no)
+        preserve_tab_forms()
+        st.rerun()
 
 
 def _clear_formulation_total(opt):
@@ -332,6 +372,20 @@ def _set_typed_properties(opt, name, properties):
         park_clear(_prop_key(prop), None)
 
 
+def _added_line(opt, name):
+    """'Onion powder added. Each formulation still totals 100 g.'
+
+    The total's limit is over every ingredient, so every add rewrites it. The
+    reader has just been told limits are hard rules; the success line is
+    where they find out the one they typed is still standing. Said only when
+    there is a total: a project without one has nothing to reassure anybody
+    about."""
+    added = wording.added(str(name).strip())
+    if not opt.has_formulation_total():
+        return added
+    return f"{added} {wording.total_still_holds(opt.batch_total_text(opt.formulation_total))}"
+
+
 def _add_variable_now(opt, setting, wants_baseline, properties=()):
     name = st.session_state["var_name"]
     low, high = st.session_state["var_low"], st.session_state["var_high"]
@@ -352,7 +406,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
             st.error(str(e))
             return
         if saved_ok(opt):
-            flash("success", wording.added(str(name).strip()))
+            flash("success", _added_line(opt, name))
             _note_discarded_batch(opt, batch_no)
             st.rerun()
         return
@@ -370,7 +424,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
         _set_typed_properties(opt, str(name).strip(), properties)
         if not saved_ok(opt):
             return
-        added_line = wording.added(str(name).strip())
+        added_line = _added_line(opt, name)
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
