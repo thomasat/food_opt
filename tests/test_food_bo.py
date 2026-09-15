@@ -4242,6 +4242,57 @@ class TestTheTotalIsAlwaysReachable:
         # Nothing to caution about: the sheets are the total the box says.
         assert opt.scaled_caution(rows, opt.sheet_total(None)) == ""
 
+    def test_a_snapped_suggestion_still_keeps_every_limit(self, tmp_path,
+                                                          monkeypatch):
+        """Moving a warm suggestion onto the total moves amounts, and an
+        amount limit the user wrote is exactly what that can break: the
+        batch came back with 20.32 g of protein under a limit of 20, and
+        nothing on screen said so. The projected row is used only while it
+        still keeps every limit; otherwise the optimiser's own row stands,
+        inside the ±0.5 % band."""
+        opt = self._sample(tmp_path, monkeypatch, name="warm_limit")
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Pea protein isolate", "Wheat gluten"],
+                                    max_val=20)
+        for row in opt.ask(n_suggestions=5):
+            opt.tell(row, {"Juiciness": 6.0, "Firmness": 6.0})
+        rows = opt.ask(n_suggestions=3)
+        assert len(rows) == 3
+        for row in rows:
+            assert (row["Pea protein isolate"] + row["Wheat gluten"]
+                    <= 20 + 1e-9), row
+            assert opt._check_constraints(row), row
+            # Still the total the box says, within the band the limit is
+            # enforced as.
+            assert sum(row.values()) == pytest.approx(100.0, rel=0.005)
+
+    def test_a_projection_that_would_break_a_limit_is_not_taken(
+            self, tmp_path, monkeypatch):
+        """The branch itself, without a model in the way: projecting this
+        formulation onto 100 g pushes Water past the 20 g it is allowed, so
+        the row is left where the optimiser put it — inside the band, and
+        the sheets carry the caution."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("snap_limit", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water"], max_val=20)
+        kept = {"Water": 20.0, "Flour": 70.0}
+        # Unguarded, the projection is what it would have used.
+        snapped = opt._snap_to_total(kept, 100.0)
+        assert sum(snapped.values()) == pytest.approx(100.0)
+        assert snapped["Water"] > 20, snapped
+        assert not opt._check_constraints(snapped)
+        assert opt._snapped_if_it_still_fits(kept) == kept
+        # A formulation the projection does not push over is still moved.
+        fits = {"Water": 5.0, "Flour": 90.0}
+        moved = opt._snapped_if_it_still_fits(fits)
+        assert sum(moved.values()) == pytest.approx(100.0)
+        assert moved["Water"] <= 20 + 1e-9
+
     def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
         """Projecting onto the total must not collapse the design: three rows
         at a total the box has room around are three different formulations."""
@@ -4756,6 +4807,30 @@ class TestTheWorkbook:
         parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
                                                   with_skipped=True)
         assert parsed == [(2, {"Firmness": 6.5, "Juiciness": 7.0}, "")]
+        assert skipped == [(3, "burner failed")]
+
+    def test_a_row_inserted_in_the_block_does_not_shift_the_tick(
+            self, tmp_path, monkeypatch):
+        """A technician adds a line of their own between the measurements
+        and the tick. Counting positions read the inserted row as the tick
+        and the tick as the note; the labels are what the rows are found
+        by."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = openpyxl.load_workbook(self._filled_in(opt))
+        sheet = book[wording.batch_sheet_name(2)]
+        labels = [sheet.cell(row=r, column=1).value
+                  for r in range(1, sheet.max_row + 1)]
+        sheet.insert_rows(labels.index(wording.NOT_SCORED) + 1)
+        sheet.cell(row=labels.index(wording.NOT_SCORED) + 1, column=1,
+                   value="Panel notes")
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        frame = opt.results_from_workbook(out)
+        parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
+                                                  with_skipped=True)
+        assert parsed == [(1, {"Firmness": 5.5, "Juiciness": 7.0}, ""),
+                          (2, {"Firmness": 6.5, "Juiciness": 6.0}, "")]
         assert skipped == [(3, "burner failed")]
 
     def test_a_sheet_whose_measurement_rows_are_all_unreadable_is_refused(

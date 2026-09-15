@@ -2303,11 +2303,14 @@ class FoodOptimizer:
         `Formulation N` cells, and everything below it is the labels in the
         first column.
 
-        The measurement rows are found by their labels, last match first, and
-        the tick and the note are read by POSITION under the last of them —
-        an ingredient named `Not scored` would otherwise hijack the tick row
-        and take its column's results with it. (That name is reserved now;
-        a project saved before it was is not.)
+        The measurement rows are found by their labels, last match first.
+        The tick and the note are found by their labels too, but only among
+        the rows BELOW the last measurement, falling back to the positions
+        the app writes them at: an ingredient named `Not scored` would
+        otherwise hijack the tick row and take its column's results with it
+        (that name is reserved now; a project saved before it was is not),
+        while counting positions alone lost them to any row inserted in the
+        block.
         """
         grid = frame.values.tolist()
         header = next((i for i, row in enumerate(grid)
@@ -2351,6 +2354,24 @@ class FoodOptimizer:
             # ticked box and lost the whole batch to it.
             return [], numbers
 
+        def under_the_measurements(label_text, fallback):
+            """The row carrying this label somewhere BELOW the last
+            measurement, or the position the app writes it at.
+
+            By label, so a row inserted into the block — a second note line,
+            a blank line a technician left — does not shift the tick onto
+            the note. Below the measurements, so an ingredient row of the
+            same name on a sheet written before that name was reserved still
+            cannot hijack it."""
+            for i in range(last_row + 1, len(lowered)):
+                if lowered[i] == label_text.lower():
+                    return i
+            return fallback
+
+        not_scored_row = under_the_measurements(wording.NOT_SCORED,
+                                                last_row + 1)
+        note_row = under_the_measurements(wording.NOTE, last_row + 2)
+
         rows = []
         for number, c in columns:
             values = [row[c] if c < len(row) else None
@@ -2358,8 +2379,8 @@ class FoodOptimizer:
             measured = {name: self._cell(values, index)
                         for name, index in by_measurement.items()}
             item = self._result_item(number, measured,
-                                     self._cell(values, last_row + 1),
-                                     self._cell(values, last_row + 2))
+                                     self._cell(values, not_scored_row),
+                                     self._cell(values, note_row))
             if item is not None:
                 rows.append(item)
         return rows, numbers
@@ -3257,19 +3278,34 @@ class FoodOptimizer:
             # Warm: GP-based Bayesian optimization
             recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
             if self.has_formulation_total():
-                # The total is enforced on the optimiser as a band (the
-                # limit is ±0.5 %), so a warm batch could land at 99.5 g
-                # where the project says 100 — and the sheets then carried
-                # an amount the caution had to apologise for. Projected onto
-                # the total, exactly as the cold start's candidates are. A
-                # candidate that cannot reach it is left where it is; the
-                # band still holds it.
-                recipes = [self._snap_to_total(rec, self.formulation_total)
-                           or rec for rec in recipes]
+                recipes = [self._snapped_if_it_still_fits(rec)
+                           for rec in recipes]
 
         # Numbers are issued here, at generation, and never reissued.
         self.set_pending_batch(recipes, batch_no=batch_no, discarded=discarded)
         return recipes
+
+    def _snapped_if_it_still_fits(self, recipe):
+        """One suggestion of a warm batch, moved onto the project's total —
+        but only while it keeps every other limit.
+
+        The total is enforced on the optimiser as a band (the limit is
+        ±0.5 %), so the model can land at 99.5 g where the project says 100,
+        and the sheets then carry an amount the caution has to apologise
+        for. Projecting it onto the total is the same move the cold start
+        makes — except that the cold start's candidates are projected BEFORE
+        anything is checked, while these have already been chosen inside
+        every limit the user wrote. Moving 0.5 g back into the amounts can
+        push a limit of its own over ('Pea protein isolate + Wheat gluten at
+        most 20 g' became 20.32 g, silently), so the projected row is used
+        only if it still satisfies them all. When it does not, the
+        optimiser's own row stands: it is inside the band, and the caution
+        on the sheets says the total it was made to.
+        """
+        snapped = self._snap_to_total(recipe, self.formulation_total)
+        if snapped is None or not self._check_constraints(snapped):
+            return recipe
+        return snapped
 
     def _ask_seed(self):
         """The seed both regimes draw from. It is the next formulation number,
