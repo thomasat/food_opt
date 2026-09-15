@@ -18,13 +18,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
     var pollTicks = 0
     var deferDeadline: Int?   // pollTicks limit after our launcher deferred to another launch
-    // The tick the server's port file first appeared, once the launcher is
-    // done with its own setup steps and Streamlit is expected to answer any
-    // moment. nil while still waiting for that file. Bounds the otherwise
-    // unbounded wait for the first health check to succeed, so a Streamlit
-    // that started but never answers still fails kindly instead of leaving
-    // "Almost there." on screen forever.
+    // When this launch's launcher process was started. A server.port file can
+    // survive a previous, force-quit launch for a few seconds (launcher.sh
+    // removes it before writing its own), so only a port file written at or
+    // after this moment belongs to the launcher we are actually watching.
+    var launchStartedAt: Date?
+    // The tick the CURRENT launch's server.port file first appeared, once the
+    // launcher is done with its own setup steps and Streamlit is expected to
+    // answer any moment. nil while still waiting for that file (or while a
+    // stale one from a previous launch is all that is on disk — see
+    // portFileIsFromThisLaunch()). Bounds the otherwise unbounded wait for
+    // the first health check to succeed, so a Streamlit that started but
+    // never answers still fails kindly instead of leaving "Almost there." on
+    // screen forever.
     var awaitingHealthSince: Int?
+    // Set once the 180s bound above has been reached and the give-up page
+    // has been painted, so poll() does not repaint it every tick — but
+    // polling itself continues, so a late 200 still recovers into the web
+    // view instead of being stranded on a page that told the user to quit.
+    var timedOutWaitingForHealth = false
     var lastStatusLine: String?   // raw "<text>|<percent>" last read from status.txt
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
@@ -307,9 +319,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // The last page before the web view: setup (if any) is over and the
     // launcher's own port file exists, so nothing is left to report except
     // waiting for Streamlit to answer. A fixed, short line beats a stale step
-    // that stopped moving once there were no more steps to name.
+    // that stopped moving once there were no more steps to name. Still
+    // `indeterminate`, so the moving bar carries through from the setup page
+    // instead of vanishing while this last stretch plays out.
     func showAlmostThereStatus() {
-        showStatus("Starting Food Optimizer…", "Almost there.", spinner: true)
+        showStatus("Starting Food Optimizer…", "Almost there.",
+                   spinner: true, indeterminate: true)
+    }
+
+    // The generic "we don't know why, but it never came up" failure. One
+    // page for every poll-driven give-up — setup finished but Streamlit
+    // never answered, another launch's server never appeared, the plain
+    // default when the launcher itself exits unexpectedly — so the three
+    // near-identical pages that used to say this each their own way can't
+    // drift apart. `detail`, when given, is a short sentence naming what was
+    // different about this particular give-up, said before the shared advice.
+    func showCouldNotStartStatus(detail: String? = nil) {
+        let body = (detail.map { $0 + " " } ?? "")
+            + "Please click Try again. If this keeps happening, reach out to "
+            + "the Food Intelligence Lab and attach the file from Help › Show "
+            + "Log File."
+        showStatus("The app could not start", body, retry: true)
     }
 
     // `indeterminate` draws a looping bar for work with no measurable
@@ -389,6 +419,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func startLauncher() {
         launchGeneration += 1
         let generation = launchGeneration
+        // Anything server.port carries from before this moment belongs to a
+        // launch we are not watching (a previous, possibly force-quit one).
+        launchStartedAt = Date()
         let p = Process()
         p.executableURL = URL(fileURLWithPath:
             Bundle.main.bundlePath + "/Contents/Resources/launcher.sh")
@@ -419,6 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pollTicks = 0
         deferDeadline = nil
         awaitingHealthSince = nil
+        timedOutWaitingForHealth = false
         lastStatusLine = nil
         lastStepText = nil
         lastProgress = nil
@@ -508,11 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "Try again.",
                        retry: true)
         default:
-            showStatus("The app could not start",
-                       "Please click Try again. If this keeps happening, reach "
-                       + "out to the Food Intelligence Lab and attach the file "
-                       + "from Help › Show Log File.",
-                       retry: true)
+            showCouldNotStartStatus()
         }
     }
 
@@ -524,6 +554,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               !token.isEmpty,
               token.allSatisfy({ $0.isNumber }) else { return nil }
         return token
+    }
+
+    // launcher.sh removes an orphaned server.port from a previous, possibly
+    // force-quit launch, but that can take up to ~5s (it waits for the old
+    // server to die before deleting the file). Until then, a freshly started
+    // launcher and a leftover file from the last one are indistinguishable by
+    // content alone — only the file's own age says which launch it belongs
+    // to.
+    func portFileIsFromThisLaunch() -> Bool {
+        guard let started = launchStartedAt else { return true }
+        let portFile = supportDir.appendingPathComponent("server.port")
+        guard let values = try? portFile.resourceValues(forKeys: [.contentModificationDateKey]),
+              let modified = values.contentModificationDate
+        else { return false }
+        return modified >= started
     }
 
     // The launcher publishes "<text>|<percent>" (percent may be empty) once
@@ -599,17 +644,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if let deadline = deferDeadline, pollTicks >= deadline {
             pollTimer?.invalidate()
-            showStatus("Food Optimizer could not start",
-                       "Another copy of the app seemed to be starting, but it "
-                       + "never finished. Please click Try again. If this keeps "
-                       + "happening, reach out to the Food Intelligence Lab and "
-                       + "attach the file from Help › Show Log File.",
-                       retry: true)
+            showCouldNotStartStatus(detail: "Another copy of the app seemed "
+                                    + "to be starting, but it never finished.")
             return
         }
-        guard let port = readServerPort(),
+        guard let port = readServerPort(), portFileIsFromThisLaunch(),
               let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")
-        else { return }
+        else {
+            // Nothing from THIS launch to wait on right now — either no port
+            // file yet, or the one on disk is a leftover launcher.sh has not
+            // removed yet. Disarm rather than let a since-vanished file's old
+            // tick count linger: readStatusFile() (above) is already showing
+            // setup progress again, and we re-arm cleanly once a fresh file
+            // appears.
+            awaitingHealthSince = nil
+            return
+        }
         // The launcher is done and Streamlit should answer any moment: swap
         // the (possibly stale) setup page for a fixed "Almost there." rather
         // than leaving a step line that stopped moving. Never a blank
@@ -617,15 +667,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // actually succeeds.
         if awaitingHealthSince == nil {
             awaitingHealthSince = pollTicks
+            timedOutWaitingForHealth = false
             showAlmostThereStatus()
-        } else if pollTicks - awaitingHealthSince! >= 120 {   // 60s at 500ms ticks
-            pollTimer?.invalidate()
-            showStatus("The app could not start",
-                       "Please click Try again. If this keeps happening, reach "
-                       + "out to the Food Intelligence Lab and attach the file "
-                       + "from Help › Show Log File.",
-                       retry: true)
-            return
+        } else if let since = awaitingHealthSince, !timedOutWaitingForHealth,
+                  pollTicks - since >= 360 {   // matches launcher.sh's own 180s patience
+            // Say so, but keep polling: launcher.sh itself gives up around
+            // now (~180s), but a late 200 must still swap in the web view
+            // rather than strand the user on a page that told them to quit.
+            timedOutWaitingForHealth = true
+            showCouldNotStartStatus()
         }
         URLSession.shared.dataTask(with: health) { [weak self] _, resp, _ in
             guard let self, !self.loaded,
