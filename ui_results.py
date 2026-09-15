@@ -904,7 +904,18 @@ def _read_past_formulations(uploaded):
     """Formulations made before this project existed, in either shape: the
     first sheet of a workbook, or a comma-separated file."""
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
-        return pd.read_excel(uploaded, sheet_name=0)
+        raw = pd.read_excel(uploaded, sheet_name=0, header=None)
+        # The app's own export opens with a one-cell title row ("Recorded
+        # amounts"); the header is the first row that names more than one
+        # column. A plain sheet whose first row is the header still works.
+        header_row = 0
+        for i in range(min(len(raw), 5)):
+            if raw.iloc[i].notna().sum() > 1:
+                header_row = i
+                break
+        frame = raw.iloc[header_row + 1:].reset_index(drop=True)
+        frame.columns = [str(c) for c in raw.iloc[header_row]]
+        return frame.dropna(how="all")
     return pd.read_csv(uploaded)
 
 

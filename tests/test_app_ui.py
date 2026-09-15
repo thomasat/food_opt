@@ -7992,3 +7992,26 @@ def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
                            "a new one.") for i in at.info), \
         [i.value for i in at.info]
     assert FoodOptimizer("burger").pending_batch is None
+
+
+def test_the_apps_own_export_imports_back_as_past_formulations(burger):
+    """Download all formulations (Excel) opens with a one-cell title row; the
+    importer must find the real header under it, or the app's own file is
+    refused with a list of missing columns."""
+    import io
+    burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0},
+                {"Juiciness": 5.0, "Firmness": 6.25}, formulation_no=1,
+                batch_no=1)
+    import ui_results
+    data = io.BytesIO(burger.all_formulations_workbook())
+    data.name = "All formulations.xlsx"
+    frame = ui_results._read_past_formulations(data)
+    for column in ("Pea protein (g)", "Methylcellulose (g)", "Juiciness (/10)",
+                   "Firmness (N)"):
+        assert any(str(c).startswith(column.split(" (")[0]) for c in frame.columns), (
+            column, list(frame.columns))
+    assert len(frame) == 1
+    col_for, missing = ui_results._import_columns(burger, frame)
+    assert missing == [], missing
+    assert set(col_for) == {"Pea protein", "Methylcellulose", "Juiciness",
+                            "Firmness"}
