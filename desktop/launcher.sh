@@ -302,10 +302,26 @@ WARM_START=$SECONDS
 trap 'kill "${WARM_PID:-}" 2>/dev/null; rm -f "$STATUS_FILE" "$STATUS_FILE.tmp"; exit 143' TERM INT
 "$VENV_DIR/bin/python" -c "import torch, botorch, gpytorch, pandas, openpyxl" &
 WARM_PID=$!
-# A failed import is not fatal here: Streamlit imports the same modules a
-# moment later, and its traceback is the one worth showing in the log.
-wait "$WARM_PID" || say "warm-up import failed - starting the server anyway"
-say "components loaded in $((SECONDS - WARM_START))s"
+# Bounded, because this step runs BEFORE the port file exists and so before
+# anything can give up on it: an import that hangs (a half-written cache, a
+# file server that stopped answering) would otherwise strand every launch on
+# this page forever. The warm-up is an optimisation, never a gate — at the
+# bound it is killed and the server starts anyway, which is also what happens
+# when the import simply fails.
+WARM_WAITED=0
+while kill -0 "$WARM_PID" 2>/dev/null; do
+  if [ "$WARM_WAITED" -ge 120 ]; then
+    say "warm-up import still running after ${WARM_WAITED}s - giving up on it"
+    kill "$WARM_PID" 2>/dev/null
+    break
+  fi
+  sleep 1
+  WARM_WAITED=$((WARM_WAITED + 1))
+done
+# A failed (or killed) import is not fatal here: Streamlit imports the same
+# modules a moment later, and its traceback is the one worth showing.
+wait "$WARM_PID" 2>/dev/null || say "warm-up import did not finish - starting the server anyway"
+say "components loaded in $((SECONDS - WARM_START)) s"
 
 # Empty percent on purpose: a percent here would make the window treat a
 # plain warm launch as a setup page ("Updating Food Optimizer").

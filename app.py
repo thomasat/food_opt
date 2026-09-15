@@ -12,8 +12,14 @@ import wording
 
 # Must be the first Streamlit call of the run — before the placeholder.
 st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
-_starting = st.empty()
-_starting.info(wording.STARTING_APP)
+# Only the first run of a session pays for the imports; every rerun after it
+# has them in memory, and a line promising a wait that is already over would
+# flicker on every click.
+_starting = None
+if "_imports_warmed" not in st.session_state:
+    st.session_state["_imports_warmed"] = True
+    _starting = st.empty()
+    _starting.info(wording.STARTING_APP)
 
 import json                                   # noqa: E402
 import os                                     # noqa: E402
@@ -36,7 +42,8 @@ from ui_helpers import (                      # noqa: E402
     render_flash, saved_line, saved_ok, take_clear,
 )
 
-_starting.empty()   # the app itself is what the window shows from here on
+if _starting is not None:
+    _starting.empty()   # the app itself is what the window shows from here on
 
 STORAGE = storage_backend.LocalStorage()
 
@@ -224,17 +231,21 @@ def _open_sample_project():
     A Mac that met an earlier version has that version's sample on disk, and
     reopening it unchanged is how someone ends up with a sample that has no
     formulation total and batches that come out at different weights. So a
-    sample nobody has used yet — no results recorded, nothing left not
-    scored — is rebuilt as the current one. The moment it holds a result it
-    is the user's own project and is opened exactly as it stands.
+    sample nobody has used yet is rebuilt as the current one. The moment it
+    holds any work of the user's it is their project, and it is opened
+    exactly as it stands.
     """
     _name = wording.SAMPLE_PROJECT_NAME
     _existing = None
     if STORAGE.exists(_name):
         _existing = FoodOptimizer(_name, storage=STORAGE)
-        # Used, or unreadable: either way this is not ours to rewrite. A
-        # damaged file reports itself on the page it opens onto.
-        if _existing.load_error or _existing.X_history or _existing.skipped:
+        # Used, or unreadable: either way this is not ours to rewrite. Used
+        # means more than a recorded result — an open batch is on someone's
+        # bench, and a formulation number already issued says a batch was
+        # made and then deleted, which is still their history. A damaged file
+        # reports itself on the page it opens onto.
+        if (_existing.load_error or _existing.X_history or _existing.skipped
+                or _existing.pending_batch or _existing.next_formulation_no > 1):
             _open_project(_name)
             return
     try:

@@ -8029,6 +8029,11 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
     tree = ast.parse((root / "app.py").read_text())
 
     def line_of_call(attr, owner=None, arg_is=None):
+        """The line of the FIRST matching call. ast.walk visits by node, not
+        by line, so the candidates are sorted rather than taken as they come
+        — otherwise this guard's own answer depends on the shape of the tree.
+        """
+        found = []
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
@@ -8040,14 +8045,14 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
                 if not (node.args and isinstance(node.args[0], ast.Attribute)
                         and node.args[0].attr == arg_is):
                     continue
-            return node.lineno
-        return None
+            found.append(node.lineno)
+        return min(found) if found else None
 
     config_at = line_of_call("set_page_config", owner="st")
     placeholder_at = line_of_call("info", owner="_starting", arg_is="STARTING_APP")
     cleared_at = line_of_call("empty", owner="_starting")
     heavy = []
-    for node in ast.walk(tree):
+    for node in ast.walk(tree):   # sorted below, for the same reason
         if isinstance(node, ast.Import):
             names = [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom):
@@ -8057,10 +8062,11 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
         if any(n == "food_bo" or n.startswith("ui_") for n in names):
             heavy.append(node.lineno)
 
+    heavy.sort()
     assert config_at and placeholder_at and cleared_at and heavy
-    assert config_at < placeholder_at < min(heavy), (
-        config_at, placeholder_at, min(heavy))
-    assert cleared_at > max(heavy), (cleared_at, max(heavy))
+    assert config_at < placeholder_at < heavy[0], (
+        config_at, placeholder_at, heavy[0])
+    assert cleared_at > heavy[-1], (cleared_at, heavy[-1])
     # And the sentence itself is the one the window shows while it waits.
     assert wording.STARTING_APP == ("Starting Food Optimizer… loading its "
                                     "components. This takes a few seconds.")
@@ -8154,3 +8160,49 @@ def test_a_sample_whose_only_batch_was_never_scored_is_left_alone(
     kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
     assert [v["name"] for v in kept.variables] == ["Water"]
     assert kept.skipped
+
+
+def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
+        tmp_path, monkeypatch):
+    """Nothing is scored and nothing was ticked Not scored, but a batch is on
+    someone's bench and the formulations in it have been numbered. That is
+    work, and rebuilding the sample would take it away."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old.add_ingredient("Oat flour", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    old.set_pending_batch([{"Oat flour": 50.0}])
+    assert old.X_history == [] and old.skipped == []
+    assert old.pending_batch and old.next_formulation_no > 1
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+
+    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert [v["name"] for v in kept.variables] == ["Oat flour"]
+    assert kept.pending_batch == old.pending_batch
+    assert kept.formulation_total is None
+
+
+def test_a_sample_whose_batch_was_made_and_deleted_is_left_alone(
+        tmp_path, monkeypatch):
+    """A number already issued is the trace a deleted batch leaves: history
+    the user made, even though nothing is on file under it."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old.add_ingredient("Oat flour", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    old.set_pending_batch([{"Oat flour": 50.0}])
+    old.set_pending_batch(None)          # generated, then thrown away
+    assert old.pending_batch is None and old.next_formulation_no > 1
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+    assert [v["name"] for v in FoodOptimizer(
+        wording.SAMPLE_PROJECT_NAME).variables] == ["Oat flour"]

@@ -49,6 +49,19 @@ assert "launcher warms the components before the server" \
   grep -qF 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh"
 assert "the warm-up publishes a step line" \
   grep -qF 'WARM_MSG="Loading the model components' "$DESKTOP_DIR/launcher.sh"
+# Order is the whole point: warming the imports AFTER the server is spawned
+# would leave the blank window exactly where it was.
+WARM_AT="$(grep -n 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh" | head -n 1 | cut -d: -f1)"
+RUN_AT="$(grep -n -- '-m streamlit run' "$DESKTOP_DIR/launcher.sh" | head -n 1 | cut -d: -f1)"
+if [ -n "$WARM_AT" ] && [ -n "$RUN_AT" ] && [ "$WARM_AT" -lt "$RUN_AT" ]; then
+  ok "the warm-up runs before the server is spawned"
+else
+  fail "the warm-up runs before the server is spawned"
+fi
+# A hung import must not strand the launch: it runs before the port file
+# exists, so nothing else can give up on it.
+assert "the warm-up wait is bounded" \
+  grep -qF 'WARM_WAITED" -ge 120' "$DESKTOP_DIR/launcher.sh"
 # ...and the window lists that step under the same name, or it would tick a
 # step nobody is running.
 assert "the window names the same step" \

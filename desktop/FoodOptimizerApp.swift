@@ -52,7 +52,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var stepsHasDownload = false    // ...and it was built with the download row
     var activeStep: LaunchStep = .load
     var activeStepStarted = Date()  // when it became active, for the counter
-    var activeStepStalled = false   // past the range: the note line changes and stays
+    // True once a launcher line — not merely the window opening — put the
+    // active step on screen. The counter times the work, so a warm launch
+    // that shows "Loading…" from its first frame still starts counting when
+    // the launcher says the import has begun.
+    var activeStepConfirmed = false
+    // Past the range we promised. Latched for the whole launch: a warm-up
+    // that took 45 s must not let the next step promise 15 to 30 seconds.
+    var activeStepStalled = false
     var stepDetail = ""             // the launcher's own line, under the active step
     // The six-minute "Still setting up…" page, which is not a steps page: it
     // must not be rebuilt over by the next status line.
@@ -321,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stepsPageShowing = false
         activeStep = isFirstRun ? .download : .load
         activeStepStarted = Date()
+        activeStepConfirmed = false
         activeStepStalled = false
         stepDetail = ""
         showStepsPage()
@@ -356,39 +364,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // Make `step` the one being worked on. A step that is genuinely new
-    // restarts the counter; the same step reported again (the launcher
-    // publishes its download line once a second) does not.
+    // restarts the counter, and so does the first launcher line to confirm
+    // the step the window opened on; the same step reported again (the
+    // launcher publishes its download line once a second) does not.
     func setActiveStep(_ step: LaunchStep, detail: String? = nil) {
         if let d = detail { stepDetail = d }
         if step == .download && !stepsHasDownload {
             stepsHasDownload = true      // a launch that turned out to be an upgrade
             stepsPageShowing = false     // the row set changed: rebuild
         }
-        if step != activeStep {
+        if step != activeStep || !activeStepConfirmed {
             activeStep = step
             activeStepStarted = Date()
-            activeStepStalled = false
         }
+        activeStepConfirmed = true
         if !stepsPageShowing { showStepsPage() }
         updateStepsPage()
     }
 
-    // Draw the page. Everything that changes second to second is left empty
-    // here and filled by updateStepsPage(), so the spinner and the counter
-    // are never restarted by a reload.
+    // How long the active step has been running, and the line under it. Both
+    // are read by the paint and by the tick, so the page says the same thing
+    // whichever drew it last.
+    var elapsedOnActiveStep: Int {
+        max(0, Int(Date().timeIntervalSince(activeStepStarted)))
+    }
+
+    // Past the range we promised: say so, and keep saying it for the rest of
+    // the launch. Only the two second-scale steps make that promise — the
+    // download has its own sentence and its own bar.
+    func latchStalled() {
+        if elapsedOnActiveStep >= 30 && activeStep != .download {
+            activeStepStalled = true
+        }
+    }
+
+    var stepsNote: String {
+        if activeStep == .download { return setupBody }
+        return activeStepStalled ? stillLoadingLine : usualWaitLine
+    }
+
+    // Text bound for the page's HTML rather than for a JS string. The detail
+    // line is the launcher's own, so it is escaped rather than trusted.
+    func htmlText(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    // Draw the page in the state it is in. The JS that maintains it cannot
+    // run until WebKit has loaded this string, so anything left blank here
+    // would BE blank for the first frames — including, on a first run, the
+    // sentence about the download. updateStepsPage() only maintains what is
+    // painted here.
     func showStepsPage() {
+        latchStalled()
+        let active = rowOf(activeStep)
         var rowsHTML = ""
         for (i, label) in stepLabels.enumerated() {
+            let done = i < active, running = i == active
             rowsHTML += """
             <li id="row\(i)" style="display:flex;align-items:center;gap:10px;
-                                    margin:0 0 12px;opacity:.45">
+                                    margin:0 0 12px;opacity:\(done || running ? "1" : ".45")">
               <span style="width:16px;height:16px;display:inline-flex;
                            align-items:center;justify-content:center;flex:none">
-                <span id="dot\(i)" style="color:#9aa39b">•</span>
-                <span id="spin\(i)" style="display:none;width:13px;height:13px;
+                <span id="dot\(i)" style="color:#9aa39b;
+                      display:\(done || running ? "none" : "inline")">•</span>
+                <span id="spin\(i)" style="display:\(running ? "inline-block" : "none");
+                     width:13px;height:13px;
                      border:2px solid #cdd6ce;border-top-color:#2E6E4E;
                      border-radius:50%;animation:spin 1s linear infinite"></span>
-                <span id="tick\(i)" style="display:none;color:#2E6E4E">✓</span>
+                <span id="tick\(i)" style="display:\(done ? "inline" : "none");
+                      color:#2E6E4E">✓</span>
               </span>
               <span>\(label)</span>
             </li>
@@ -398,9 +444,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // step with a real measure. It is hidden once that step is done.
         let barHTML = stepsHasDownload ? """
             <div id="barwrap" style="max-width:320px;height:6px;margin:0 auto 16px;
-                                     background:#e2e6e1;border-radius:3px;overflow:hidden">
-              <div id="bar" style="width:0%;height:100%;background:#2E6E4E;
-                                   border-radius:3px;transition:width .4s ease"></div>
+                                     background:#e2e6e1;border-radius:3px;overflow:hidden;
+                                     display:\(activeStep == .download ? "block" : "none")">
+              <div id="bar" style="width:\(lastProgress ?? 0)%;height:100%;
+                                   background:#2E6E4E;border-radius:3px;
+                                   transition:width .4s ease"></div>
             </div>
             """ : ""
         let html = """
@@ -414,9 +462,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   margin:26px auto 18px;display:inline-block;
                                   text-align:left;font-size:15px">\(rowsHTML)</ul>
             \(barHTML)
-            <p id="detail" style="font-size:13px;color:#7c867e;margin:0 0 8px"></p>
-            <p id="note" style="font-size:15px;line-height:1.5;color:#556;margin:0"></p>
-            <p id="elapsed" style="font-size:13px;color:#9aa39b;margin:10px 0 0"></p>
+            <p id="detail" style="font-size:13px;color:#7c867e;margin:0 0 8px">
+              \(htmlText(activeStep == .download ? stepDetail : ""))</p>
+            <p id="note" style="font-size:15px;line-height:1.5;color:#556;margin:0">
+              \(htmlText(stepsNote))</p>
+            <p id="elapsed" style="font-size:13px;color:#9aa39b;margin:10px 0 0">
+              \(elapsedOnActiveStep) s</p>
             <p style="margin-top:34px;font-size:13px;color:#7c867e">\(nextUpLine)</p>
             <p style="margin-top:26px;font-size:12px;color:#9aa39b">
               \(appVersion.isEmpty ? "Food Optimizer" : "Food Optimizer " + appVersion)</p>
@@ -436,12 +487,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // counter moves even when the launcher has nothing new to say.
     func updateStepsPage() {
         guard stepsPageShowing else { return }
+        latchStalled()
         let active = rowOf(activeStep)
-        let elapsed = max(0, Int(Date().timeIntervalSince(activeStepStarted)))
-        // Past the range we promised: say so, and keep saying it. Only the
-        // two second-scale steps make that promise — the download has its own
-        // sentence and its own bar.
-        if elapsed >= 30 && activeStep != .download { activeStepStalled = true }
         var js = ""
         for i in 0..<stepLabels.count {
             let done = i < active, running = i == active
@@ -454,16 +501,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 + "document.getElementById('tick\(i)').style.display="
                 + "'\(done ? "inline" : "none")';})();"
         }
-        let note = activeStep == .download ? setupBody
-            : (activeStepStalled ? stillLoadingLine : usualWaitLine)
         js += "var t=document.getElementById('title');"
             + "if(t){t.textContent=\(jsString(stepsPageTitle))}"
         js += "var n=document.getElementById('note');"
-            + "if(n){n.textContent=\(jsString(note))}"
+            + "if(n){n.textContent=\(jsString(stepsNote))}"
         js += "var d=document.getElementById('detail');"
             + "if(d){d.textContent=\(jsString(activeStep == .download ? stepDetail : ""))}"
         js += "var e=document.getElementById('elapsed');"
-            + "if(e){e.textContent=\(jsString("\(elapsed) s"))}"
+            + "if(e){e.textContent=\(jsString("\(elapsedOnActiveStep) s"))}"
         if stepsHasDownload {
             js += "var w=document.getElementById('barwrap');"
                 + "if(w){w.style.display='\(activeStep == .download ? "block" : "none")'}"
@@ -555,8 +600,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         """
         webView.loadHTMLString(html, baseURL: nil)
         // Whatever this page is, it is not the steps page: the next status
-        // line must update it in place, not rebuild the steps over it.
+        // line must update it in place, not rebuild the steps over it. Nor is
+        // it the six-minute page — poll() sets that flag itself, right after
+        // the one call that paints it.
         stepsPageShowing = false
+        stalledPageShowing = false
         // Forget the last line we pushed: the DOM is new, so the next tick
         // must re-apply the current step even if the launcher has not moved on.
         lastStatusLine = nil
@@ -724,6 +772,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return modified >= started.addingTimeInterval(-2)
     }
 
+    // The previous launch's last line survives until the NEXT launch owns the
+    // lock and clears it — up to ~10 s in. Read as this launch's, it would
+    // drive the steps backwards ("Finishing setup" after "Loading…") and
+    // could add a download row to a launch with nothing to download. Same 2 s
+    // tolerance as portFileIsFromThisLaunch(), and for the same reasons.
+    func statusFileIsFromThisLaunch() -> Bool {
+        guard let started = launchStartedAt else { return true }
+        let statusFile = supportDir.appendingPathComponent("status.txt")
+        guard let values = try? statusFile.resourceValues(
+                  forKeys: [.contentModificationDateKey]),
+              let modified = values.contentModificationDate
+        else { return false }
+        return modified >= started.addingTimeInterval(-2)
+    }
+
     // The launcher publishes "<text>|<percent>" (percent may be empty) once
     // a second. Its text says which step is running, and the page is updated
     // in place rather than reloaded, so the spinner, the bar and the elapsed
@@ -732,7 +795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Once the port file exists there are no more launcher lines coming —
         // poll() has already moved the page on to its last step — so a stray
         // leftover status.txt line must not paint over it.
-        guard !loaded, awaitingHealthSince == nil,
+        guard !loaded, awaitingHealthSince == nil, statusFileIsFromThisLaunch(),
               let raw = try? String(contentsOfFile: supportPath("status.txt"),
                                     encoding: .utf8)
         else { return }
