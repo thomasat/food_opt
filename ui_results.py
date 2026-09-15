@@ -817,9 +817,9 @@ def _type_in_past(opt):
     if not opt.variables:
         st.caption(wording.import_columns_caption_empty())
         return
-    # Every variable, paused ones included: this formulation was made, and it
+    # Every variable, held ones included: this formulation was made, and it
     # was made with some amount of each. Tab 2's own-formulation form pins a
-    # paused variable to the value generated formulations hold it at, because
+    # held variable to the value generated formulations hold it at, because
     # that one is a new formulation under today's set — this one is a fact
     # about work already done.
     _amount_boxes(opt, _past_key)

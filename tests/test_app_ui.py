@@ -1350,14 +1350,14 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
     assert not any("Added" in m.value for m in at.success), [m.value for m in at.success]
 
 
-def test_a_pause_that_discards_the_trial_says_so(burger):
+def test_a_hold_that_discards_the_batch_says_so(burger):
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
     at.run()
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
@@ -1457,7 +1457,7 @@ def test_the_range_labels_are_sentence_case(burger):
     assert "Lowest measurable" in labels and "Highest measurable" in labels, labels
 
 
-def test_the_ingredient_table_has_no_status_column_until_something_is_paused(burger):
+def test_the_ingredient_table_has_no_status_column_until_something_is_held(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
@@ -1465,10 +1465,10 @@ def test_the_ingredient_table_has_no_status_column_until_something_is_paused(bur
                                    "Unit"], list(table.columns)
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table["Status"]) == ["active", "paused · held at 0.00 g"], \
+    assert list(table["Status"]) == ["active", "held at 0.00 g"], \
         list(table["Status"])
 
 
@@ -4114,14 +4114,14 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     assert FoodOptimizer("mixed").quantity_constraints == []
 
 
-def test_a_paused_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
+def test_a_held_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
     mixed_units.add_process_parameter("Cook temperature", 160, 200, unit="°C")
     mixed_units.deactivate_variable("Water", value=30.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
     assert dict(zip(table["Name"], table["Status"])) == {
-        "Pea protein": "active", "Water": "paused · held at 30.00 ml",
+        "Pea protein": "active", "Water": "held at 30.00 ml",
         "Cook temperature": "active"}
 
 
@@ -4528,20 +4528,19 @@ def test_the_set_unit_picker_is_not_called_a_measurement(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").label == \
-        "Choose one to pause, delete or change its unit"
+        "Choose one to hold, edit, delete or change its unit"
 
 
-def test_pausing_speaks_for_settings_as_well_as_ingredients(ferment):
+def test_holding_speaks_for_settings_as_well_as_ingredients(ferment):
     """In a fermentation project the picker offers process settings only."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").options == ["Incubation temperature",
                                                     "Incubation time"]
-    # The button names the row it will act on, like the Delete beside it,
-    # and the help says what Pause does to it — in the setting's own unit.
-    button = _submit_button(at, wording.pause_button("Incubation temperature"))
-    assert button.proto.help == ("Held at 30 °C in new suggestions; results "
-                                 "already recorded keep it.")
+    # The button names the row it will act on and the value it will hold it
+    # at — in the setting's own unit, not in grams.
+    button = _submit_button(at, "Hold Incubation temperature at 30 °C")
+    assert button.proto.help == "Results already recorded keep their amounts."
 
 
 def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
@@ -5031,47 +5030,389 @@ def test_the_table_names_the_type_of_every_row(burger):
     assert list(table["Unit"]) == ["g", "g", "°C"]
 
 
-def test_a_paused_row_is_the_only_reason_for_a_status_column(burger):
+def test_a_held_row_is_the_only_reason_for_a_status_column(burger):
     burger.deactivate_variable("Methylcellulose", value=1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in _tab1(at).dataframe if "Type" in d.value.columns)
     assert "Status" in table.columns
-    assert list(table["Status"]) == ["active", "paused · held at 1.00 g"]
+    assert list(table["Status"]) == ["active", "held at 1.00 g"]
 
 
-def test_the_control_row_pauses_and_resumes_one_row(burger):
+def _open_variable_editor(at, name):
+    """Pick a row and open the add form on it, the way the tab does."""
+    at.selectbox(key="var_pick").select(name)
+    at.run()
+    _submit_button(at, wording.edit_button(name)).click()
+    at.run()
+    return at
+
+
+def test_edit_opens_the_add_form_on_the_row_it_names(burger):
+    """The same six boxes, already filled in: an edit is the same four
+    answers as an add, and a second form for them would be a second place to
+    learn."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    assert at.text_input(key="var_name").value == "Methylcellulose"
+    assert at.radio(key="var_kind").value == "Ingredient"
+    assert at.number_input(key="var_low").value == 0.0
+    assert at.number_input(key="var_high").value == 3.0
+    assert at.text_input(key="var_unit").value == "g"
+    # Add is gone while it is open: the form is on one row, and it is this one.
+    assert wording.ADD_VARIABLE_BUTTON not in _labels(at)
+    assert "Save Methylcellulose" in _labels(at)
+    assert wording.CANCEL in _labels(at)
+
+
+def test_the_open_editor_is_the_tabs_one_lit_button(burger):
+    """The measurement editor's rule, on the row above it: Save is the lit
+    one, and Continue steps aside because it would leave the tab and throw
+    the edit away."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    save = next(b for b in at.button if b.key == "save_variable")
+    foot = next(b for b in at.button if b.key == "continue_to_batch")
+    assert save.proto.type == "primary" and not save.disabled
+    assert foot.proto.type == "secondary" and foot.disabled
+
+
+def test_saving_the_editor_changes_the_allowed_amounts_and_says_so(burger):
+    burger.set_formulation_total(25.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Methylcellulose saved. Each formulation still "
+               "totals 25 g." for s in at.success), [s.value for s in at.success]
+    assert FoodOptimizer("burger")._var_by_name("Methylcellulose")["bounds"] \
+        == (0.0, 6.0)
+    # Closed, and the form is back to adding.
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert at.text_input(key="var_name").value == ""
+
+
+def test_saving_the_editor_retires_the_open_batch_with_the_notice(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert FoodOptimizer("burger").pending_batch is None
+    assert any(f"{wording.BATCH_CAP} 1 was discarded" in i.value
+               for i in at.info), [i.value for i in at.info]
+
+
+def test_a_rename_through_the_editor_keeps_what_was_recorded(burger):
+    """The results already recorded are the whole reason a rename is not a
+    delete-and-add: they are filed under the name being changed."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.add_quantity_constraint(["Methylcellulose"], max_val=2.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.text_input(key="var_name").set_value("Methyl cellulose")
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Methyl cellulose saved." for s in at.success), \
+        [s.value for s in at.success]
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methyl cellulose"]
+    assert saved.recipe_history[0] == {"Pea protein": 10.0,
+                                       "Methyl cellulose": 1.0}
+    assert saved.quantity_constraints[0]["ingredients"] == ["Methyl cellulose"]
+    table = next(d.value for d in _tab1(at).dataframe
+                 if "Type" in d.value.columns)
+    assert "Methyl cellulose" in list(table["Name"])
+
+
+def test_a_rename_onto_a_name_that_is_taken_refuses_and_changes_nothing(burger):
+    """The refusal comes before anything is written: a half-saved edit would
+    leave the allowed amounts changed under the old name."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.text_input(key="var_name").set_value("Pea protein")
+    at.run()
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert [e.value for e in at.error] == [
+        "Pea protein is already the name of an ingredient. Choose another name."]
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methylcellulose"]
+    assert saved._var_by_name("Methylcellulose")["bounds"] == (0.0, 3.0)
+    # Still open on the row, with what was typed still in the box.
+    assert "Save Methylcellulose" in _labels(at)
+
+
+def test_cancel_closes_the_editor_and_changes_nothing(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(9.0)
+    at.run()
+    _submit_button(at, wording.CANCEL).click()
+    at.run()
+    assert FoodOptimizer("burger")._var_by_name("Methylcellulose")["bounds"] \
+        == (0.0, 3.0)
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert at.text_input(key="var_name").value == ""
+    assert at.number_input(key="var_high").value == 100.0
+
+
+def test_picking_another_row_closes_the_editor(burger):
+    """The form would otherwise sit there holding one row's answers under a
+    Save button naming it, while the controls beneath act on another."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.selectbox(key="var_pick").select("Pea protein")
+    at.run()
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert "Save Methylcellulose" not in _labels(at)
+
+
+def test_a_setting_is_edited_in_its_own_words(ferment):
+    """Type, Lowest, Highest and the setting's own unit — and a baseline only
+    where the project has one to change."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Incubation time")
+    assert at.radio(key="var_kind").value == "Process setting"
+    assert at.text_input(key="var_unit").value == "h"
+    assert at.number_input(key="var_low").value == 4.0
+    at.number_input(key="var_high").set_value(24.0)
+    at.run()
+    _submit_button(at, "Save Incubation time").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Incubation time saved." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("ferment")._var_by_name("Incubation time")["bounds"] \
+        == (4.0, 24.0)
+
+
+@pytest.fixture
+def mid_run(tmp_path, monkeypatch):
+    """A project with one formulation recorded and a setting added after it,
+    so the setting carries a baseline the recorded formulation is read at."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mid_run")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                              unit="°C")
+    return opt
+
+
+def test_the_editor_opens_on_the_baseline_a_setting_already_has(mid_run):
+    """Not '(required)': it is not being asked for, it is being shown. And
+    changing it moves the formulations already made with it, because the
+    baseline is what they were read at."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    _open_variable_editor(at, "Cook temperature")
+    box = at.number_input(key="var_base")
+    assert box.label == "Baseline" and box.value == 175.0
+    box.set_value(180.0)
+    at.run()
+    _submit_button(at, "Save Cook temperature").click()
+    at.run()
+    assert not at.exception, at.exception
+    saved = FoodOptimizer("mid_run")
+    assert saved._var_by_name("Cook temperature")["_absent_value"] == 180.0
+    assert saved.X_history == [saved._encode(r) for r in saved.recipe_history]
+
+
+def test_an_ingredient_that_already_exists_may_set_its_own_lowest(mid_run):
+    """Lowest is fixed at 0 for an ingredient ADDED mid-run, because it was
+    absent from every formulation already made. One that has been there all
+    along was recorded at its own amounts, so its Lowest is its own."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    assert at.number_input(key="var_low").disabled      # the add form
+    _open_variable_editor(at, "Water")
+    assert not at.number_input(key="var_low").disabled
+    at.number_input(key="var_low").set_value(5.0)
+    at.run()
+    _submit_button(at, "Save Water").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("mid_run")._var_by_name("Water")["bounds"] == (5.0, 100.0)
+
+
+def test_only_one_editor_is_open_at_a_time(burger):
+    """Each editor lights its own Save, and the tab shows one coloured button
+    at a time — so opening either closes the other, and each Edit greys while
+    the other is open."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # The measurement first, then the ingredient.
+    _submit_button(at, wording.edit_button("Firmness")).click()
+    at.run()
+    assert _submit_button(at, wording.edit_button("Pea protein")).disabled
+    at.session_state["_editing_measurement"] = "Firmness"
+    _open_variable_editor(at, "Pea protein")
+    assert "_editing_measurement" not in at.session_state
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at)
+    lit = [b.label for b in _tab1(at).button if b.proto.type == "primary"]
+    assert lit == ["Save Pea protein"], lit
+    # ...and each Edit greys while the other editor is open.
+    assert _submit_button(at, wording.edit_button("Pea protein")).disabled
+    assert _submit_button(at, wording.edit_button("Firmness")).disabled
+
+
+def test_the_measurement_editor_closes_the_ingredient_one(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Pea protein")
+    # Greyed rather than silently stealing the tab's one lit button.
+    assert _submit_button(at, wording.edit_button("Firmness")).disabled
+    # Reached anyway (a stale click, a wide screen): it closes the other.
+    at.session_state["_editing_variable"] = "Pea protein"
+    at.session_state["_editing_measurement"] = "Firmness"
+    at.run()
+    lit = [b.label for b in _tab1(at).button if b.proto.type == "primary"]
+    assert lit == ["Save Pea protein"], lit
+    assert "_editing_measurement" not in at.session_state
+
+
+def test_a_held_amount_follows_a_narrowed_range(burger):
+    """The hold is a number the button, the table, the sheets and every
+    suggestion all read. Narrowing the row's Highest below it moved the
+    search and left the other three saying the old number."""
+    burger.deactivate_variable("Pea protein", value=20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert "Hold Pea protein at 20.00 g" not in _labels(at)   # already held
+    _open_variable_editor(at, "Pea protein")
+    at.number_input(key="var_high").set_value(5.0)
+    at.run()
+    _submit_button(at, "Save Pea protein").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Pea protein saved. Pea protein is now held at "
+               "5.00 g." for s in at.success), [s.value for s in at.success]
+    saved = FoodOptimizer("burger")
+    var = saved._var_by_name("Pea protein")
+    assert var["_frozen_at"] == 5.0
+    assert saved._frozen_value(var) == 5.0
+    table = next(d.value for d in _tab1(at).dataframe
+                 if "Type" in d.value.columns)
+    assert dict(zip(table["Name"], table["Status"]))["Pea protein"] == \
+        "held at 5.00 g"
+    assert "Vary Pea protein again" in _labels(at)
+
+
+def test_an_edit_that_leaves_the_hold_reachable_says_nothing_extra(burger):
+    burger.deactivate_variable("Pea protein", value=20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Pea protein")
+    at.number_input(key="var_high").set_value(40.0)
+    at.run()
+    _submit_button(at, "Save Pea protein").click()
+    at.run()
+    assert any(s.value == "Pea protein saved." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_a_rename_on_its_own_keeps_the_open_batch(burger):
+    """Nothing about the question the model was asked has moved, so the batch
+    on the bench is still the answer to it — and its rows are rewritten to
+    the new name rather than thrown away."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.text_input(key="var_name").set_value("Methyl cellulose")
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert [s.value for s in at.success] == ["Methyl cellulose saved."]
+    assert not at.info, [i.value for i in at.info]
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch[0]["recipe"] == {"Pea protein": 10.0,
+                                                "Methyl cellulose": 1.0}
+
+
+def test_saving_the_editor_unchanged_keeps_the_open_batch_too(burger):
+    """Saving a form nobody changed is not a set-up change."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").pending_batch is not None
+
+
+def test_the_control_row_holds_one_row_and_varies_it_again(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    # The amount the row will be held at is in the button, not only in the
+    # help: it is the whole of what the click does.
+    _submit_button(at, "Hold Methylcellulose at 0.00 g").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Methylcellulose paused." for s in at.success), \
-        [s.value for s in at.success]
+    assert any(s.value == "Methylcellulose is held at 0.00 g."
+               for s in at.success), [s.value for s in at.success]
     assert [v["name"] for v in FoodOptimizer("burger").inactive_variables()] \
         == ["Methylcellulose"]
-    # The same button is now the way back.
-    assert wording.pause_button("Methylcellulose") not in _labels(at)
-    _submit_button(at, wording.resume_button("Methylcellulose")).click()
+    # The same place on the row is now the way back.
+    assert "Hold Methylcellulose at 0.00 g" not in _labels(at)
+    vary = _submit_button(at, "Vary Methylcellulose again")
+    assert vary.proto.help == "New suggestions vary it again."
+    vary.click()
     at.run()
-    assert any(s.value == "Methylcellulose resumed." for s in at.success), \
+    assert any(s.value == "Methylcellulose varies again." for s in at.success), \
         [s.value for s in at.success]
     assert FoodOptimizer("burger").inactive_variables() == []
 
 
-def test_pause_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
+def test_hold_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("one_only")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    pause = _submit_button(at, wording.pause_button("Water"))
-    assert pause.disabled
-    assert pause.proto.help == ("At least two ingredients or settings must "
-                                "stay active before one can be paused.")
+    hold = _submit_button(at, "Hold Water at 0.00 g")
+    assert hold.disabled
+    assert hold.proto.help == ("At least two ingredients or settings must "
+                               "stay active before one can be held.")
 
 
 def test_the_control_row_sets_one_ingredient_unit(burger):
@@ -6353,6 +6694,38 @@ def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
         "At 150 g, Pea protein and Methylcellulose go past the amounts you "
         "allowed. Print at a smaller total, or widen them in Set up."], \
         [c.value for c in at.caption]
+
+
+def test_change_the_total_goes_to_set_up_and_keeps_what_was_typed(open_batch):
+    """The total the sheets are written to is set on tab 1, and this line was
+    the only place on tab 2 the reader saw the number at all. The grid below
+    has not been drawn on the run that leaves, so what the bench has already
+    typed is parked rather than dropped."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    button = _submit_button(at, "Change the total")
+    assert button.proto.type == "secondary" and not button.disabled
+    button.click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
+    assert at.session_state["f1_Firmness"] == 6.0
+
+
+def test_change_the_total_steps_aside_for_a_confirmation(open_batch):
+    """A tab never shows two lit buttons, and a question waiting for an
+    answer is the one thing to do."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    assert _submit_button(at, "Change the total").disabled
 
 
 def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
@@ -7978,7 +8351,7 @@ def test_only_an_ingredient_add_says_the_total_still_holds(burger):
 
 
 def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
-    """'Your set-up changed' is true of the ingredient list, a pause and the
+    """'Your set-up changed' is true of the ingredient list, a hold and the
     allowed amounts. When it was the total, the notice names the total."""
     burger.set_formulation_total(20.0)
     burger.set_pending_batch([{"Pea protein": 17.0, "Methylcellulose": 3.0}])

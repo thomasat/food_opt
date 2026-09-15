@@ -217,11 +217,12 @@ def preserve_tab_forms():
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from seven handlers only: Next: make a batch,
-    Back to set up, Save results, Save uploaded results, Start the next batch,
-    Change a measurement or an ingredient, and opening a project. A set-up
-    edit, Generate, a correction or a plain rerun must never call it, and
-    neither must a handler whose write failed.
+    tabs, and it is called from eight handlers only: Next: make a batch,
+    Back to set up, Save results, Save uploaded results, Start the next
+    batch, Change a measurement or an ingredient, Change the total, and
+    opening a project. A set-up edit, Generate, a correction or a plain
+    rerun must never call it, and neither must a handler whose write
+    failed.
 
     The move is deferred: the tabs widget already exists on this run, so
     assigning its key now would raise, and a write the frontend never asked

@@ -464,7 +464,7 @@ def _stray_literals(path):
 
 
 def test_the_discarded_notice_names_the_batch_and_what_to_do_next():
-    """Three edits lead here — the ingredient list, a paused ingredient or
+    """Three edits lead here — the ingredient list, a held ingredient or
     setting, the allowed amounts — and naming all three in one subordinate
     clause was unreadable on one pass and still never said what to do. The
     batch is named because the notice lands above the tabs."""

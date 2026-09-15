@@ -531,6 +531,40 @@ class FoodOptimizer:
     #  Setup: Ingredients & Process Parameters
     # ------------------------------------------------------------------ #
 
+    def _name_is_free(self, name, skip=None):
+        """Raise unless `name` is free for something in this project to wear.
+
+        One name, one thing: an ingredient, a process setting, a measurement
+        and a property all head columns of the same tables, so no two of them
+        may share one. The three doors that name something — adding a
+        variable, renaming one, naming a property — ask here, so they refuse
+        the same clashes in the same words. `skip` is the row already wearing
+        the name and entitled to keep it (the one being renamed).
+
+        The variable pass is a plain refusal, which is the answer at two of
+        those doors. Adding is the third and has its own answers first:
+        re-adding a name the project already has is an EDIT, and a second
+        spelling of one has a sentence of its own — so add calls this with
+        the row it is editing as `skip`, once those have had their say.
+        """
+        lowered = name.lower()
+        for var in self.variables:
+            if var is skip or var['name'].lower() != lowered:
+                continue
+            kind = ("an ingredient"
+                    if var.get('category', 'ingredient') == 'ingredient'
+                    else "a process setting")
+            raise ValueError(
+                f"{var['name']} is already the name of {kind}. Choose "
+                f"another name.")
+        for obj in self.objectives:
+            if obj['name'].lower() == lowered:
+                raise ValueError(
+                    f"{obj['name']} is already the name of a measurement. "
+                    f"Choose another name.")
+        if self._known_property(name) is not None:
+            raise ValueError(f"{name} is already a property of this project.")
+
     def _check_new_variable(self, name, min_val, max_val, category):
         """Shared validation for add_ingredient / add_process_parameter.
         Returns the stripped name. Same-name same-category is allowed (the
@@ -542,10 +576,6 @@ class FoodOptimizer:
             raise ValueError(
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
-            )
-        if any(name.lower() == obj['name'].lower() for obj in self.objectives):
-            raise ValueError(
-                f"{name} is already the name of a measurement. Choose another name."
             )
         if float(min_val) >= float(max_val):
             raise ValueError("Lowest must be less than Highest.")
@@ -560,7 +590,31 @@ class FoodOptimizer:
             # would be a second row, with the same name on every table.
             if v['name'] != name and v['name'].lower() == name.lower():
                 raise ValueError(wording.name_differs_only_by_case(v['name']))
+        # The row this add is really an edit of, if there is one: it is
+        # allowed to go on wearing its own name.
+        editing = next((v for v in self.variables if v['name'] == name), None)
+        self._name_is_free(name, skip=editing)
         return name
+
+    def _keep_the_hold_inside(self, var):
+        """Bring a held row's amount back inside the amounts it is now
+        allowed, and say whether it moved.
+
+        A held row is pinned at one number, and that number is read in four
+        places — the Hold button, the Status column, the Set-up sheet and
+        every suggestion. Narrowing the row's Highest below it left the four
+        disagreeing: the screen said 20.00 g and the search used 5.00. The
+        hold is the thing that has to give, because the allowed amounts are
+        what the user has just typed."""
+        if '_frozen_at' not in var:
+            return False
+        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+        held = float(var['_frozen_at'])
+        inside = min(max(held, lo), hi)
+        if inside == held:
+            return False
+        var['_frozen_at'] = inside
+        return True
 
     def add_ingredient(self, name, min_val, max_val, unit=None):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
@@ -584,6 +638,7 @@ class FoodOptimizer:
                 var['bounds'] = (min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
+                self._keep_the_hold_inside(var)
                 removed = self.prune_amount_limits()
                 self._drop_pending_batch()
                 self.save()
@@ -745,8 +800,28 @@ class FoodOptimizer:
         unit = str(unit or "").strip()
         for var in self.variables:
             if var['name'] == name:
+                # A setting that carries a baseline can have it corrected:
+                # it is what every formulation already made is read at, so
+                # the encoded history moves with it. And it has to stay
+                # inside the allowed amounts either way — a baseline outside
+                # them is an amount the history encodes at and the setting
+                # says it cannot take.
+                stored = var.get('_absent_value')
+                held = (float(baseline) if baseline is not None
+                        and stored is not None else stored)
+                if held is not None and not (min_val <= float(held) <= max_val):
+                    raise ValueError(
+                        f"Baseline {float(held):g} must be between "
+                        f"{min_val:g} and {max_val:g}."
+                    )
                 var['bounds'] = (min_val, max_val)
                 var['unit'] = unit
+                if held is not None and float(held) != float(stored):
+                    var['_absent_value'] = float(held)
+                    self._reencode_history()
+                # A held setting is pinned at its own number, which the new
+                # amounts may no longer reach.
+                self._keep_the_hold_inside(var)
                 self._drop_pending_batch()
                 self.save()
                 return
@@ -1027,22 +1102,7 @@ class FoodOptimizer:
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
             )
-        lowered = name.lower()
-        for var in self.variables:
-            if var['name'].lower() == lowered:
-                kind = ("an ingredient"
-                        if var.get('category', 'ingredient') == 'ingredient'
-                        else "a process setting")
-                raise ValueError(
-                    f"{var['name']} is already the name of {kind}. Choose "
-                    f"another name.")
-        for obj in self.objectives:
-            if obj['name'].lower() == lowered:
-                raise ValueError(
-                    f"{obj['name']} is already the name of a measurement. "
-                    f"Choose another name.")
-        if self._known_property(name) is not None:
-            raise ValueError(f"{name} is already a property of this project.")
+        self._name_is_free(name)
         self._remember_property(name)
         self.save()
         return name
@@ -1455,7 +1515,7 @@ class FoodOptimizer:
         """Every change from ref_recipe to recipe — largest first, as
         (name, change) pairs. `category` keeps to the ingredients or to the
         process settings; None takes both. A change smaller than `floor` is
-        left out, and so is a paused variable: it is held at one value in
+        left out, and so is a held variable: it is held at one value in
         every new formulation, so it cannot be a change this batch made;
         naming it as the biggest one pointed at the row nobody moved.
 
@@ -3032,14 +3092,14 @@ class FoodOptimizer:
         numbers rather than letting the search fail later with nothing to
         show for it.
 
-        A PAUSED ingredient counts at the one value it is held at, at both
+        A HELD ingredient counts at the one value it is held at, at both
         ends — exactly as _snap_to_total takes its amount off the target
         before moving anything. Reading its Lowest and Highest instead
         offered a total the search could never reach: the box accepted it and
         every Generate afterwards came back empty.
 
         `active_only` is False to ask the same question of the project with
-        nothing paused, which is how a refusal knows whether the pause is
+        nothing held, which is how a refusal knows whether the hold is
         why."""
         lows = highs = 0.0
         for var in self.variables:
@@ -3085,7 +3145,7 @@ class FoodOptimizer:
         stays spread out; it now spreads across the face of the box the
         total cuts, which is the only place a valid formulation lives.
 
-        A paused ingredient is held at its frozen value and takes no part:
+        A held ingredient is held at its frozen value and takes no part:
         its amount comes off the target first."""
         names, lows, caps, start = [], [], [], []
         fixed = 0.0
@@ -3136,21 +3196,21 @@ class FoodOptimizer:
         return (value * (1.0 - self.FORMULATION_TOTAL_TOLERANCE),
                 value * (1.0 + self.FORMULATION_TOTAL_TOLERANCE))
 
-    def _paused_reach_tail(self, total):
-        """'' unless the pause is why this total is out of reach — that is,
-        unless resuming every paused ingredient would bring it back inside
-        the reach. The two numbers in the refusal are the paused project's,
+    def _held_reach_tail(self, total):
+        """'' unless a hold is why this total is out of reach — that is,
+        unless varying every held ingredient would bring it back inside
+        the reach. The two numbers in the refusal are the held project's,
         so without this the answer to them ('raise an ingredient's Highest')
         is the wrong one."""
-        paused = [v['name'] for v in self.inactive_variables()
-                  if v.get('category', 'ingredient') == 'ingredient']
-        if not paused:
+        held = [v['name'] for v in self.inactive_variables()
+                if v.get('category', 'ingredient') == 'ingredient']
+        if not held:
             return ""
         lowest, highest = self.total_reach(active_only=False)
         if not lowest <= float(total) <= highest:
             return ""
-        return wording.paused_is_why_the_total_is_out_of_reach(
-            number_list(paused), len(paused) > 1)
+        return wording.held_is_why_the_total_is_out_of_reach(
+            number_list(held), len(held) > 1)
 
     def set_formulation_total(self, total):
         """Every suggested formulation adds up to `total`.
@@ -3169,11 +3229,11 @@ class FoodOptimizer:
         if value > highest:
             raise ValueError(wording.total_not_reachable_at_most(
                 self.batch_total_text(value), self.batch_total_text(highest))
-                + self._paused_reach_tail(value))
+                + self._held_reach_tail(value))
         if value < lowest:
             raise ValueError(wording.total_not_reachable_at_least(
                 self.batch_total_text(value), self.batch_total_text(lowest))
-                + self._paused_reach_tail(value))
+                + self._held_reach_tail(value))
         # A project every one of whose amounts can be 0 reaches 0, so the
         # sentence above lets a total of nothing through. It is refused in
         # the same shape rather than as the band's own "At least must be less
@@ -3597,7 +3657,7 @@ class FoodOptimizer:
         """
         if not self.active_variables():
             raise ValueError(
-                "Everything is paused — resume at least one ingredient before "
+                "Everything is held — vary at least one ingredient before "
                 "generating formulations."
             )
         bounds_tensor = self._get_bounds()
@@ -4341,13 +4401,13 @@ class FoodOptimizer:
             lo, hi = self._achievable_property(metric, pinned)
             if constr['min'] is not None and hi < constr['min']:
                 raise ValueError(
-                    f"Pausing these would make the limit on {metric} impossible "
+                    f"Holding these would make the limit on {metric} impossible "
                     f"to meet: the remaining active ingredients can only reach "
                     f"{hi:.4g} {per} at most. Loosen the limit first."
                 )
             if constr['max'] is not None and lo > constr['max']:
                 raise ValueError(
-                    f"Pausing these would make the limit on {metric} impossible "
+                    f"Holding these would make the limit on {metric} impossible "
                     f"to meet: the remaining active ingredients cannot get "
                     f"below {lo:.4g} {per}. Loosen the limit first."
                 )
@@ -4362,19 +4422,19 @@ class FoodOptimizer:
                 # loosen a limit they never wrote helped nobody.
                 if ((qc['min'] is not None and hi < qc['min'])
                         or (qc['max'] is not None and lo > qc['max'])):
-                    raise ValueError(wording.pausing_breaks_the_total(
+                    raise ValueError(wording.holding_breaks_the_total(
                         self.batch_total_text(self.formulation_total)))
                 continue
             if qc['min'] is not None and hi < qc['min']:
                 raise ValueError(
-                    f"Pausing these would make the limit on {label} impossible "
+                    f"Holding these would make the limit on {label} impossible "
                     f"to meet: the remaining active ingredients can only reach "
                     f"{hi:.4g} at most. Loosen the limit first."
                 )
             if qc['max'] is not None and lo > qc['max']:
                 raise ValueError(
-                    f"Pausing these would make the limit on {label} impossible "
-                    f"to meet: the paused items alone add up to {lo:.4g}. "
+                    f"Holding these would make the limit on {label} impossible "
+                    f"to meet: the held items alone add up to {lo:.4g}. "
                     f"Loosen the limit first."
                 )
 
@@ -4442,6 +4502,74 @@ class FoodOptimizer:
         self._drop_pending_batch()
         self.save()
 
+    def _check_rename(self, name, new_name):
+        """The stripped name `rename_variable` would give this row, or a
+        ValueError saying why it cannot have it. Separate from the rename
+        itself so a caller with other writes to make can ask first and refuse
+        the whole edit, rather than renaming and then failing."""
+        var = self._var_by_name(name)
+        new_name = str(new_name).strip()
+        if not new_name:
+            raise ValueError("Name cannot be empty.")
+        if new_name == name:
+            return name
+        if is_reserved_name(new_name):
+            raise ValueError(
+                f"{new_name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name, for example {new_name}s."
+            )
+        self._name_is_free(new_name, skip=var)
+        return new_name
+
+    def rename_variable(self, name, new_name):
+        """Give one ingredient or process setting a different name, keeping
+        everything recorded under the old one.
+
+        A name is a KEY here, not a label: the amounts of every formulation
+        are stored against it, the open batch and every not-scored row hold
+        it, an amount limit lists it, the total's own limit lists it, and an
+        ingredient's property values are filed under it. Renaming rewrites
+        all six and re-encodes the history, so the project after the rename
+        holds exactly what it held before, under the new name.
+
+        Refused for a name that is empty, reserved, or already the name of
+        something else in this project — the same refusals adding one gives,
+        in the same words. Nothing is written until every one of them has
+        passed, and _check_rename answers the same question without writing
+        anything, so a screen can refuse before it starts.
+        """
+        var = self._var_by_name(name)
+        new_name = self._check_rename(name, new_name)
+        if new_name == name:
+            return
+
+        var['name'] = new_name
+        for recipe in self.recipe_history:
+            if name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for row in (self.pending_batch or []):
+            recipe = row.get('recipe', row) if isinstance(row, dict) else row
+            if isinstance(recipe, dict) and name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for row in self.skipped:
+            recipe = row.get('recipe') or {}
+            if name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for qc in getattr(self, 'quantity_constraints', []):
+            # The total's own limit is in here too: it lists every ingredient
+            # by name, so it is rewritten with the rest rather than dropped
+            # and rebuilt.
+            qc['ingredients'] = [new_name if n == name else n
+                                 for n in qc['ingredients']]
+        if name in self.ingredient_properties:
+            self.ingredient_properties[new_name] = \
+                self.ingredient_properties.pop(name)
+        # The columns are in the same order and hold the same numbers, but
+        # encoding reads the recipes by name: a history left keyed to the old
+        # name would encode every amount as absent.
+        self._reencode_history()
+        self.save()
+
     def remove_ingredient(self, name, force=False):
         """Permanently delete an ingredient and drop its column from the history.
 
@@ -4459,7 +4587,7 @@ class FoodOptimizer:
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
                 "Cannot delete this: some formulations were recorded without "
-                "their amounts, so the history cannot be rebuilt. Pause it "
+                "their amounts, so the history cannot be rebuilt. Hold it "
                 "instead, or start a fresh project."
             )
 
@@ -4536,12 +4664,12 @@ class FoodOptimizer:
         all_names = [v['name'] for v in self.variables]
         lines = [f"In play ({len(active)}): {', '.join(active)}"]
         if inactive:
-            lines.append(f"Paused ({len(inactive)}): {', '.join(inactive)}")
+            lines.append(f"Held ({len(inactive)}): {', '.join(inactive)}")
         lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
-            # Show every variable that was actually used, including since-paused
-            # ones, so the expert can see what a paused variable contributed.
+            # Show every variable that was actually used, including ones
+            # since held, so the expert can see what a held one contributed.
             comp = ", ".join(f"{k}={rec[k]:.3g}" for k in all_names if rec.get(k))
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())

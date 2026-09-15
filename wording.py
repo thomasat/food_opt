@@ -302,7 +302,7 @@ PROJECT_RELOADED = "Project reloaded from the latest saved copy."
 
 
 # What the discard notice blames when it knows. The general case is the
-# tab — three ways lead there (the ingredient list, a paused row, the
+# tab — three ways lead there (the ingredient list, a held row, the
 # allowed amounts) and naming all three in one subordinate clause was
 # unreadable on one pass. The total is its own answer because it is one
 # control the reader has just touched, and "your set-up changed" sent them
@@ -539,6 +539,11 @@ def sheets_show_total_caption(total_text):
     """'Sheets show each formulation made to 150 g.' — the one line on the
     tab that names the number the files were written for."""
     return f"Sheets show each {FORMULATION} made to {total_text}."
+
+
+# Beside that line: the total is set on tab 1, and the sentence that names it
+# was the only place on this tab it appeared at all.
+CHANGE_THE_TOTAL_BUTTON = "Change the total"
 
 
 GENERATE_DIFFERENT_BATCH = f"Generate a different {BATCH}"
@@ -784,6 +789,19 @@ BASELINE_PLACEHOLDER = "e.g. 180"
 BASELINE_HELP = ("The setting you used for every formulation already made, "
                  "so those results still count.")
 ADD_VARIABLE_BUTTON = "Add ingredient or setting"
+
+
+def save_variable_button(name):
+    """'Save Pea protein isolate' — the add form, named for the row it is
+    open on, like the Edit and Delete buttons that lead to it. Only Add is a
+    bare verb: it is the one that has no row yet."""
+    return f"Save {name}"
+
+
+def saved(name):
+    """Subject first, like added() above it and every other flash on the
+    tab."""
+    return f"{name} saved."
 # An example, not a rule: "0 if blank" and "leave a box empty for no
 # value" sat on one screen contradicting each other, and the app never knows
 # an ingredient is fat-free — only that a box was left empty.
@@ -804,15 +822,18 @@ STATUS_LABEL = "Status"
 ACTIVE_STATUS = "active"
 
 
-def paused_status(held_text):
-    return f"paused · held at {held_text}"
+def held_status(held_text):
+    """'held at 0.00 g' — the Status column of a row that is not being
+    varied. It used to read 'paused · held at 0.00 g', which said the same
+    thing twice: the row is held, and this is the amount it is held at."""
+    return f"held at {held_text}"
 
 
 INGREDIENT_OR_SETTING_LABEL = "Ingredient or process setting"
 # The picker at the head of the control row. It carried the label above
 # word for word, which is also tab 3's Amounts column header: one label on
 # two unrelated controls, saying nothing about what picking a row does.
-VARIABLE_PICK_LABEL = "Choose one to pause, delete or change its unit"
+VARIABLE_PICK_LABEL = "Choose one to hold, edit, delete or change its unit"
 NEW_UNIT_LABEL = "New unit"
 SET_UNIT_BUTTON = "Set unit"
 
@@ -846,35 +867,40 @@ def properties_saved(names_text, name):
     return f"Saved {names_text} for {name}."
 
 
-def resume_button(name):
-    """'Resume Pea protein isolate' — named, like the Delete button beside
-    it. A bare Pause sat next to 'Delete Pea protein isolate' and it was
-    easy to pause the wrong row."""
-    return f"Resume {name}"
+def vary_button(name):
+    """'Vary Pea protein isolate again' — named, like the Delete button
+    beside it, and it says what the click does rather than naming a state
+    the reader has to remember being in."""
+    return f"Vary {name} again"
 
 
-def pause_button(name):
-    return f"Pause {name}"
+def hold_button(name, held_text):
+    """'Hold Pea protein isolate at 0.00 g' — the amount is in the button,
+    because holding a row pins it to one number and that number is the whole
+    of what the click does. A bare 'Pause Pea protein isolate' named a state
+    and left the reader to work out what the row would be held at."""
+    return f"Hold {name} at {held_text}"
 
 
-RESUME_HELP = "Use this ingredient in new formulations again."
-PAUSE_DISABLED_HELP = ("At least two ingredients or settings must stay "
-                       "active before one can be paused.")
-def pause_help(held_text):
-    """'Held at 0.00 g in new suggestions; results already recorded keep
-    it.' — what Pause actually does, in the number the row will be held at.
-    The old help said only that new formulations "will not use" it, which
-    read as "left out" rather than "pinned to this amount"."""
-    return (f"Held at {held_text} in new suggestions; results already "
-            "recorded keep it.")
+def now_held_at(name, held_text):
+    """The sentence an edit owes a held row when the amounts just typed no
+    longer reach the amount it was held at: the hold moves to the nearest
+    amount the row is now allowed, and four places say that number."""
+    return f"{name} is now held at {held_text}."
 
 
-def resumed(name):
-    return f"{name} resumed."
+VARY_HELP = "New suggestions vary it again."
+HOLD_HELP = "Results already recorded keep their amounts."
+HOLD_DISABLED_HELP = ("At least two ingredients or settings must stay "
+                      "active before one can be held.")
 
 
-def paused(name):
-    return f"{name} paused."
+def varies_again(name):
+    return f"{name} varies again."
+
+
+def held(name, held_text):
+    return f"{name} is held at {held_text}."
 
 
 UNIT_REQUIRED_ERROR = "A unit is required; use g if the amount is a mass."
@@ -904,8 +930,8 @@ def delete_variable_warning(name, is_ingredient):
             + COPY_KEPT)
 
 
-DELETE_VS_PAUSE_CAPTION = ("Deleting takes it out of every formulation "
-                           "already made; pausing keeps the data.")
+DELETE_VS_HOLD_CAPTION = ("Deleting takes it out of every formulation "
+                          "already made; holding keeps the data.")
 DELETE_EVEN_IF_USED_CHECKBOX = ("Delete even though formulations used it "
                                 "— those amounts go too")
 
@@ -1225,28 +1251,28 @@ def no_formulation_reaches_total(total_text):
             "amounts. Change the total or widen the amounts.")
 
 
-# The one way back out of a pause that has put a total out of reach. Said by
-# the pause guard and by the total box's own refusal, so the two answers to
+# The one way back out of a hold that has put a total out of reach. Said by
+# the hold guard and by the total box's own refusal, so the two answers to
 # the same predicament are one sentence.
-RESUME_ENOUGH = "resume enough ingredients to reach it"
+VARY_ENOUGH = "vary enough ingredients to reach it"
 
 
-def pausing_breaks_the_total(total_text):
-    """Pausing holds an ingredient at one value, which can put the total out
+def holding_breaks_the_total(total_text):
+    """Holding pins an ingredient at one value, which can put the total out
     of reach of the ones still moving. The fix is the total, not the eight
     ingredients its limit happens to name."""
-    return (f"Pausing these would leave no formulation adding up to "
+    return (f"Holding these would leave no formulation adding up to "
             f"{total_text}. Clear {FORMULATION_TOTAL_LOWER} first, or "
-            f"{RESUME_ENOUGH}.")
+            f"{VARY_ENOUGH}.")
 
 
-def paused_is_why_the_total_is_out_of_reach(names_text, many=False):
+def held_is_why_the_total_is_out_of_reach(names_text, many=False):
     """The tail the total box's refusal carries when the numbers it names are
-    the PAUSED project's: an ingredient held where it is adds the same amount
-    at both ends of the reach, so the way back is the pause and not sixteen
-    Lowest and Highest boxes."""
-    return (f" {names_text} {'are' if many else 'is'} paused and held where "
-            f"{'they are' if many else 'it is'}; {RESUME_ENOUGH}.")
+    a project with a row held: an ingredient held where it is adds the same
+    amount at both ends of the reach, so the way back is the hold and not
+    sixteen Lowest and Highest boxes."""
+    return (f" {names_text} {'are' if many else 'is'} held where "
+            f"{'they are' if many else 'it is'}; {VARY_ENOUGH}.")
 
 
 def formulation_total_gone_unit(total_text):
