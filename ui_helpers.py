@@ -11,12 +11,13 @@ from datetime import datetime
 import streamlit as st
 
 import wording
-# join_unit and goal_line live in food_bo (they are pure data formatting and
-# closeness_details needs them too); the tab modules import them from here so
-# there is one import site for screen helpers.
+# join_unit, goal_line and the two number formatters live in food_bo (they are
+# pure data formatting, and closeness_details, the batch table and the
+# what-is-it-trying column all need them there); the tab modules import them
+# from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
-    goal_line, join_unit, label_with_unit, number_list, outside_message,
-    unit_after_number,
+    fmt_amount, fmt_setting, goal_line, join_unit, label_with_unit,
+    number_list, outside_message, unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do
@@ -242,36 +243,6 @@ def plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def fmt_amount(value, unit="", decimals=2):
-    """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
-
-    Always two decimals. A weighing sheet that mixes '0.3 g', '33.9 g' and
-    '11.88 g' cannot be read down the column, and 0.30 g is the precision a
-    balance works to. A process setting is not an amount and does not come
-    through here: a cook temperature is 180 °C, never 180.00 °C."""
-    if value is None:
-        return ""
-    txt = f"{float(value):.{decimals}f}"
-    if float(txt) == 0:
-        txt = f"{0.0:.{decimals}f}"     # never '-0.00'
-    return join_unit(txt, unit)
-
-
-def fmt_setting(value, unit=""):
-    """A process setting as prose: '188.49 °C', '180 °C', '' for a missing
-    value. A setting is dialled in, not weighed: at most two decimals, and no
-    trailing zeros, because 188.494 is a precision no oven dial has and
-    180.00 is a precision nobody typed. Every screen that shows a setting —
-    the batch table, the printable sheets, the amounts table — goes through
-    here, so the three always agree."""
-    if value is None:
-        return ""
-    txt = f"{float(value):.2f}".rstrip("0").rstrip(".")
-    if txt in ("", "-0"):
-        txt = "0"
-    return join_unit(txt, unit)
-
-
 def scale_error(obj, value):
     """The refusal for a measured value outside its range, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 range is either a
@@ -433,8 +404,7 @@ def best_formulation_no(opt):
     """The number of the best formulation, or None. Three tabs name it —
     `Start from the best so far`, the biggest-changes line and every 'Best
     moved' sentence — and they must all mean the same formulation."""
-    i = opt.best_index()
-    return None if i is None else int(opt.formulation_ids[i])
+    return opt.best_formulation_no()
 
 
 def best_move_sentence(before, after):

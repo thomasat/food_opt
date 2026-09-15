@@ -1684,7 +1684,8 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
                for m in at.markdown), [m.value for m in at.markdown]
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
-                                   "Methylcellulose (g)", "Total (g)"]
+                                   "Methylcellulose (g)", "Total (g)",
+                                   wording.COMPARED_WITH_ALLOWED]
     box = at.number_input(key="scale_total")
     assert box.value is None                          # empty: as generated
     assert box.proto.placeholder == "e.g. 150"
@@ -4011,7 +4012,8 @@ def test_the_batch_table_carries_each_unit_and_a_per_unit_total(mixed_units):
     assert not at.exception
     frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(frame.value.columns) == ["Formulation", "Pea protein (g)",
-                                         "Water (ml)", "Total"]
+                                         "Water (ml)", "Total",
+                                         wording.COMPARED_WITH_ALLOWED]
     assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
 
@@ -4186,7 +4188,8 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(frame.value.columns) == ["Formulation",
                                          "Incubation temperature (°C)",
-                                         "Incubation time (h)"]
+                                         "Incubation time (h)",
+                                         wording.COMPARED_WITH_ALLOWED]
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
     assert not any("Scaling needs" in c.value for c in at.caption), \
         [c.value for c in at.caption]
@@ -5246,12 +5249,12 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     assert float(reloaded.Y_history[0]) == pytest.approx(1.5 * 0.4)
 
 
-def test_how_it_works_says_what_the_model_does_in_four_lines(burger):
+def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     """It is collapsed, it sits under the measurements table, and it says
-    what the model varies, what it aims for, how the next batch is chosen and
-    what it will never break — four lines, no arithmetic. The arithmetic is
-    the fold directly beneath, which is the one place a banned word is
-    said."""
+    what the model varies, what it aims for, how the next batch is chosen,
+    what it will never break and what each suggestion is trying — five lines,
+    no arithmetic. The arithmetic is the fold directly beneath, which is the
+    one place a banned word is said."""
     from ui_setup import HOW_CLOSENESS, HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -5260,9 +5263,10 @@ def test_how_it_works_says_what_the_model_does_in_four_lines(burger):
     text = "\n".join(m.value for m in fold.markdown)
     for line in HOW_IT_WORKS:
         assert line in text, line
-    assert len(HOW_IT_WORKS) == 4
+    assert len(HOW_IT_WORKS) == 5
     assert "the model varies" in text and "aims for" in text
     assert "hard rules the model never breaks" in text
+    assert "close to the best or tries something different" in text
     # Nothing here is arithmetic, and nothing here says a specialist's word.
     assert "closeness =" not in text, text
     assert "share" not in text.lower(), text
@@ -6531,9 +6535,10 @@ def test_adding_your_own_formulation_keeps_what_was_typed_into_the_grid(
     assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
 
 
-def test_how_it_works_is_four_lines(burger):
+def test_how_it_works_is_five_lines(burger):
     """One bullet per thing the model does. The formulas moved to a fold of
-    their own: they answered a question the first four raise."""
+    their own: they answered a question the first four raise. The fifth is
+    what each suggestion is trying, which is the column tab 2 now carries."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert wording.HOW_IT_WORKS == [
@@ -6544,13 +6549,15 @@ def test_how_it_works_is_four_lines(burger):
         "Until five formulations have results, new ones are spread out to "
         "learn the space. After that, each batch aims closer to your targets.",
         "Limits are hard rules the model never breaks.",
+        "Each suggestion says whether it stays close to the best or tries "
+        "something different, and what it changes.",
     ], wording.HOW_IT_WORKS
     fold = next(e for e in _tab1(at).expander
                 if e.label == wording.HOW_IT_WORKS_EXPANDER)
     assert not fold.proto.expanded
     text = "\n".join(m.value for m in fold.markdown)
     for line in wording.HOW_IT_WORKS:
-        assert f"- {line}" in text, line     # four flat bullets, none nested
+        assert f"- {line}" in text, line     # five flat bullets, none nested
     assert not hasattr(wording, "HOW_IT_WORKS_NESTED")
 
 
@@ -7350,3 +7357,57 @@ def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
     assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
     assert _total_box(at).value == 100.0
     assert "Total of each formulation · 100 g" in [t.value for t in at.text]
+
+
+def _warm_burger(opt):
+    """Five results on the burger project, Formulation 1 the best of them, so
+    the cold start is over and there is something to compare with."""
+    for i in range(5):
+        opt.tell({"Pea protein": 10.0 + i, "Methylcellulose": 1.0},
+                 {"Juiciness": 7.0, "Firmness": 6.0 if i == 0 else 1.0},
+                 formulation_no=i + 1, batch_no=1)
+    assert opt.best_formulation_no() == 1
+    return opt
+
+
+def test_each_formulation_says_what_it_is_trying(burger):
+    """Tab 2's last column, headed with the formulation the changes are
+    measured from, and the same line on the sheet directly under the
+    formulation's own title — the technician holding the paper is the one who
+    asks why this bowl differs from the last."""
+    _warm_burger(burger)
+    burger.set_pending_batch([{"Pea protein": 11.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    assert list(table.columns)[-1] == "Compared with Formulation 1"
+    line = "Close to the best · Pea protein +1.00 g"
+    assert table["Compared with Formulation 1"].iloc[0] == line
+    sheet = _sheet_lines(at)
+    assert sheet[1] == "Formulation 6 · Batch 2", sheet
+    assert sheet[2] == line, sheet
+
+
+def test_an_own_formulation_gets_the_same_line(burger):
+    """A formulation of the user's own is a row like any other: it says what
+    it changes from the best, exactly as a suggested one does."""
+    _warm_burger(burger)
+    burger.set_pending_batch([{"Pea protein": 11.0, "Methylcellulose": 1.0}])
+    burger.add_to_pending_batch({"Pea protein": 20.0, "Methylcellulose": 1.0},
+                                wording.OWN_FORMULATION_NOTE)
+    table = burger.batch_frame(burger.pending_batch)
+    assert list(table["Compared with Formulation 1"]) == [
+        "Close to the best · Pea protein +1.00 g",
+        "Trying something different · Pea protein +10.00 g"]
+
+
+def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
+    """It is words, not an amount: handing it to a two-decimal format would
+    raise the moment the table was drawn."""
+    from ui_batch import _amount_format
+    _warm_burger(burger)
+    burger.set_pending_batch([{"Pea protein": 11.0, "Methylcellulose": 1.0}])
+    frame = burger.batch_frame(burger.pending_batch)
+    assert "Compared with Formulation 1" not in _amount_format(burger, frame)

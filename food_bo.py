@@ -64,6 +64,13 @@ def is_reserved_name(name):
             or bool(_TOTAL_COLUMN_RE.match(name)))
 
 
+# How many results the cold start spreads across the allowed amounts before
+# the model starts aiming, and how large a change — as a fraction of a
+# variable's own allowed range — still counts as staying close to the best.
+COLD_START_RUNS = 5
+CLOSE_TO_THE_BEST = 0.15
+
+
 def join_unit(text, unit):
     """'6 N', '7/10' — a unit that starts with a slash joins tight, everything
     else takes one space. Every screen goes through this, so a project whose
@@ -88,6 +95,36 @@ def label_with_unit(name, unit):
     measured '6 N')."""
     unit = str(unit or "")
     return f"{name} ({unit})" if unit.startswith("/") else str(name)
+
+
+def fmt_amount(value, unit="", decimals=2):
+    """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
+
+    Always two decimals. A weighing sheet that mixes '0.3 g', '33.9 g' and
+    '11.88 g' cannot be read down the column, and 0.30 g is the precision a
+    balance works to. A process setting is not an amount and does not come
+    through here: a cook temperature is 180 °C, never 180.00 °C."""
+    if value is None:
+        return ""
+    txt = f"{float(value):.{decimals}f}"
+    if float(txt) == 0:
+        txt = f"{0.0:.{decimals}f}"     # never '-0.00'
+    return join_unit(txt, unit)
+
+
+def fmt_setting(value, unit=""):
+    """A process setting as prose: '188.49 °C', '180 °C', '' for a missing
+    value. A setting is dialled in, not weighed: at most two decimals, and no
+    trailing zeros, because 188.494 is a precision no oven dial has and
+    180.00 is a precision nobody typed. Every screen that shows a setting —
+    the batch table, the printable sheets, the amounts table — goes through
+    here, so the three always agree."""
+    if value is None:
+        return ""
+    txt = f"{float(value):.2f}".rstrip("0").rstrip(".")
+    if txt in ("", "-0"):
+        txt = "0"
+    return join_unit(txt, unit)
 
 
 def outside_message(name, value, low, high, unit, what, tail=""):
@@ -1247,25 +1284,138 @@ class FoodOptimizer:
         temperature as "+198.65 g" priced a setting in grams, and against a
         formulation made before the setting existed the change was the whole
         baseline rather than anything the batch actually moved."""
+        return self._variable_deltas(recipe, ref_recipe, 'ingredient')[:n]
+
+    def _variable_deltas(self, recipe, ref_recipe, category):
+        """Every change from ref_recipe to recipe in one category — largest
+        first, as (name, change) pairs. An amount that did not move is left
+        out, and so is a paused variable: it is held at one value in every new
+        formulation, so it cannot be a change this batch made; naming it as
+        the biggest one pointed at the row nobody moved.
+
+        A key missing from either side is read as the variable's 'absent'
+        value — 0 for an ingredient, its baseline for a process setting —
+        which is the rule _encode follows, so a setting added mid-run is not
+        reported as having moved by the whole of that baseline.
+
+        The sort is stable, so two changes of the same size stay in set-up
+        order rather than swapping between two runs of the same batch."""
         pairs = []
         for var in self.variables:
-            if var.get('category', 'ingredient') != 'ingredient':
+            if var.get('category', 'ingredient') != category:
                 continue
-            # A paused ingredient is held at one value in every new
-            # formulation, so it cannot be a change this batch made; naming
-            # it as the biggest one pointed at the row nobody moved.
             if not var.get('active', True):
                 continue
             name = var['name']
+            absent = var.get('_absent_value', 0.0)
             try:
-                delta = float(recipe.get(name, 0.0)) - float(ref_recipe.get(name, 0.0))
+                delta = (float(recipe.get(name, absent))
+                         - float(ref_recipe.get(name, absent)))
             except (TypeError, ValueError):
                 continue
             if abs(delta) < 0.005:
                 continue
             pairs.append((name, delta))
         pairs.sort(key=lambda kv: abs(kv[1]), reverse=True)
-        return pairs[:n]
+        return pairs
+
+    def best_formulation_no(self):
+        """The number of the highest-scoring formulation, or None. Several
+        screens name it, and they must all mean the same formulation."""
+        i = self.best_index()
+        return None if i is None else int(self.formulation_ids[i])
+
+    def vs_best_text(self, recipe, n=3, scale_to=None):
+        """What this formulation changes from the best one so far: the `n`
+        largest amount changes among the ingredients, largest first, then the
+        `n` largest among the process settings. '' while there is no best.
+
+        Amounts and settings are never ranked against each other — a change
+        of 12 g and a change of 12 °C are not comparable numbers — and the
+        amounts come first because they are weighed out before anything is
+        dialled in. Each number wears its own variable's unit; an amount is
+        written to the two decimals a balance works to and a setting is not,
+        because no oven dial reads 180.00.
+
+        `scale_to` rewrites this formulation AND the best one to that total
+        before the two are compared, so a change read beside a scaled table
+        is the difference between two numbers the screen actually shows."""
+        best = self.best_index()
+        if best is None or best >= len(self.recipe_history):
+            return ""
+        mine = self.scaled_recipe(recipe, scale_to)
+        ref = self.scaled_recipe(self.recipe_history[best], scale_to)
+        parts = [
+            wording.change_text(name, delta,
+                                fmt_amount(abs(delta), self.unit_of(name)))
+            for name, delta in self._variable_deltas(mine, ref, 'ingredient')[:n]
+        ]
+        parts += [
+            wording.change_text(name, delta,
+                                fmt_setting(abs(delta), self.unit_of(name)))
+            for name, delta in self._variable_deltas(mine, ref, 'process')[:n]
+        ]
+        return ", ".join(parts)
+
+    def suggestion_kind(self, recipe):
+        """Whether this formulation stays near the best one or strikes out:
+        `close to the best` while the largest change is at most
+        CLOSE_TO_THE_BEST of that variable's own allowed range, and
+        `trying something different` otherwise.
+
+        Normalised, because the raw numbers are not comparable: 5 g of salt
+        out of an allowed 0 to 10 g is a bold move, 5 °C out of an allowed
+        20 to 200 °C is not. Until the cold start is over there is nothing to
+        be close to — the formulations are spread out to learn the space —
+        so every row says that instead.
+
+        The amounts are the ones the project stores, never a scaled copy: the
+        allowed amounts this is a fraction of are the project's own."""
+        if len(self.X_history) < COLD_START_RUNS:
+            return wording.SUGGESTION_SPREAD
+        best = self.best_index()
+        if best is None or best >= len(self.recipe_history):
+            return wording.SUGGESTION_SPREAD
+        ref = self.recipe_history[best]
+        largest = 0.0
+        for var in self.active_variables():
+            if var['type'] != 'continuous':
+                continue
+            low, high = float(var['bounds'][0]), float(var['bounds'][1])
+            span = high - low
+            if span <= 0:
+                continue
+            absent = var.get('_absent_value', 0.0)
+            try:
+                delta = (float(recipe.get(var['name'], absent))
+                         - float(ref.get(var['name'], absent)))
+            except (TypeError, ValueError):
+                continue
+            largest = max(largest, abs(delta) / span)
+        return (wording.SUGGESTION_CLOSE if largest <= CLOSE_TO_THE_BEST
+                else wording.SUGGESTION_DIFFERENT)
+
+    def compared_with_column(self):
+        """The header of the what-is-it-trying column: the best formulation's
+        number, or — while the cold start is still spreading formulations out
+        — the allowed amounts they are spread across."""
+        best_no = self.best_formulation_no()
+        if len(self.X_history) < COLD_START_RUNS or best_no is None:
+            return wording.COMPARED_WITH_ALLOWED
+        return wording.compared_with_column(best_no)
+
+    def compared_with_text(self, recipe, scale_to=None):
+        """One cell of the batch table, and the same line on the sheet: what
+        kind of formulation this is, and the amounts that carry it.
+
+        During the cold start nothing is listed. There is a best-so-far from
+        the very first result, but these formulations were not stepped away
+        from it — they are spread across the allowed amounts — so naming the
+        amounts they happen to differ by would claim a reason nobody had."""
+        kind = self.suggestion_kind(recipe)
+        changes = ("" if kind == wording.SUGGESTION_SPREAD
+                   else self.vs_best_text(recipe, scale_to=scale_to))
+        return wording.compared_with_cell(kind, changes)
 
     def ingredient_total(self, recipe):
         """The formulation total: process settings are not amounts and are excluded."""
@@ -1419,6 +1569,11 @@ class FoodOptimizer:
         rows = []
         read = self._batch_rows(batch)
         noted = any(r.get('note') for r in read)
+        # What each formulation is trying, last: it is the only column of
+        # words among the numbers, and it reads as the answer to the row
+        # rather than another figure to weigh out. A formulation of the
+        # user's own is a row like any other and gets the same line.
+        trying = self.compared_with_column()
         for row in read:
             recipe = self.scaled_recipe(row['recipe'], scale_to)
             item = {"Formulation": int(row['formulation'])}
@@ -1432,12 +1587,17 @@ class FoodOptimizer:
                     recipe.get(var['name'], 0.0))
             if noted:
                 item["Note"] = row.get('note', "")
+            # The stored amounts, with the table's own total handed on: the
+            # changes are then between two numbers the screen shows.
+            item[trying] = self.compared_with_text(row['recipe'],
+                                                   scale_to=scale_to)
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name']) for v in ingredients]
                    + ([total_col] if total_col is not None else [])
                    + [self._amount_column(v['name']) for v in process]
-                   + (["Note"] if noted else []))
+                   + (["Note"] if noted else [])
+                   + [trying])
         return pd.DataFrame(rows, columns=columns)
 
     def recipe_lines(self, recipe, limit=None):
@@ -2186,7 +2346,7 @@ class FoodOptimizer:
     #  Core Loop: Ask / Tell
     # ------------------------------------------------------------------ #
 
-    def ask(self, n_suggestions=1, n_init_random=5, batch_no=None,
+    def ask(self, n_suggestions=1, n_init_random=COLD_START_RUNS, batch_no=None,
             discarded=None):
         """Suggest the next batch of recipes to try.
 

@@ -378,8 +378,8 @@ def _batch_table(opt, scale_to):
                 # Each change in that ingredient's own unit: +10.00 ml of
                 # water beside +2.00 g of protein.
                 parts = ", ".join(
-                    f"{name} {'+' if delta > 0 else '−'}"
-                    f"{fmt_amount(abs(delta), opt.unit_of(name))}"
+                    wording.change_text(
+                        name, delta, fmt_amount(abs(delta), opt.unit_of(name)))
                     for name, delta in changes
                 )
                 # Named: the line reads one row of the batch, so a batch of
@@ -453,6 +453,12 @@ def _sheet_lines(opt, row, scale_to):
     lines = [(f"{opt.project_name} · {made_on}", _PROSE),
              (f"{wording.FORMULATION_CAP} {row['formulation']} · "
               f"{wording.BATCH_CAP} {opt.pending_batch_no}", _PROSE),
+             # Directly under the title, in the same words the batch table
+             # uses: the technician holding the sheet is the one who asks why
+             # this bowl differs from the last, and the screen is two rooms
+             # away by then. The CSV sheet gets nothing — it is a grid to
+             # fill in, and a column of prose is not something to weigh.
+             (opt.compared_with_text(row['recipe'], scale_to=scale_to), _PROSE),
              ("", _PROSE)]
     for var in ingredients:
         lines.append((f"{var['name']}: "

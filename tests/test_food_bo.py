@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import wording
 from food_bo import FoodOptimizer
 
 
@@ -291,7 +292,8 @@ def test_batch_frame_has_formulation_numbers(tmp_path, monkeypatch):
     # a process setting is not an amount, so a cook temperature is never "(g)".
     # The total closes the amounts you weigh out, so it comes straight after
     # the ingredients and before the settings you dial in.
-    assert list(df.columns) == ["Formulation", "Water (g)", "Total (g)", "Temp"]
+    assert list(df.columns) == ["Formulation", "Water (g)", "Total (g)", "Temp",
+                                wording.COMPARED_WITH_ALLOWED]
     assert df["Total (g)"].iloc[0] == 10.0   # the process setting is not an amount
 
 
@@ -2526,7 +2528,8 @@ class TestUnitsAndImportance:
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation", "Pea protein (g)",
-                                    "Methylcellulose (g)", "Total (g)"]
+                                    "Methylcellulose (g)", "Total (g)",
+                                    wording.COMPARED_WITH_ALLOWED]
         assert list(df["Formulation"]) == [1]
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
 
@@ -2675,7 +2678,8 @@ class TestUnitPerIngredient:
         opt.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation", "Pea protein (g)",
-                                    "Water (ml)", "Total"]
+                                    "Water (ml)", "Total",
+                                    wording.COMPARED_WITH_ALLOWED]
         assert df["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
     def test_a_unit_that_adds_up_to_nothing_is_left_out_of_the_total(
@@ -2694,7 +2698,8 @@ class TestUnitPerIngredient:
         opt.add_ingredient("Methylcellulose", 0, 3)
         opt.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
         df = opt.batch_frame(opt.pending_batch)
-        assert list(df.columns)[-1] == "Total (g)"
+        # The total closes the amounts; the what-is-it-trying column follows.
+        assert list(df.columns)[-2] == "Total (g)"
         assert df["Total (g)"].iloc[0] == pytest.approx(11.0)
         assert opt.one_amount_unit() == "g"
 
@@ -2858,7 +2863,8 @@ class TestSettingsOnlyProject:
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns) == ["Formulation",
                                     "Incubation temperature (°C)",
-                                    "Incubation time (h)"]
+                                    "Incubation time (h)",
+                                    wording.COMPARED_WITH_ALLOWED]
         sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
         assert list(sheet.columns) == ["Formulation",
                                        "Incubation temperature (°C)",
@@ -3926,3 +3932,164 @@ class TestFormulationTotal:
         assert opt.sheet_total(400.0) == 100.0     # an old batch's own total
         opt.clear_formulation_total()
         assert opt.sheet_total(400.0) == 400.0
+
+
+class TestWhatEachFormulationIsTrying:
+    """0.4.0 §D: every suggested formulation says whether it stays close to
+    the best or tries something different, and which amounts carry it."""
+
+    def _opt(self, tmp_path, monkeypatch, name="trying"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Wheat gluten", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def _warm(self, opt):
+        """Five results, so the cold start is over, with Formulation 1 — 40 g
+        of water — the best of them."""
+        opt.tell({"Water": 40.0, "Wheat gluten": 20.0}, {"Firmness": 9.0},
+                 formulation_no=1, batch_no=1)
+        for i in range(2, 6):
+            opt.tell({"Water": 40.0 + i, "Wheat gluten": 20.0},
+                     {"Firmness": 3.0}, formulation_no=i, batch_no=1)
+        assert opt.best_formulation_no() == 1
+        return opt
+
+    def test_fifteen_hundredths_of_the_range_is_still_close_to_the_best(
+            self, tmp_path, monkeypatch):
+        """The line is at 0.15 of a variable's own allowed range, and 0.15
+        itself falls on the near side of it. Water is allowed 0 to 100 g, so
+        the move that decides it is 15 g."""
+        opt = self._warm(self._opt(tmp_path, monkeypatch))
+        assert opt.suggestion_kind({"Water": 55.0, "Wheat gluten": 20.0}) == \
+            "close to the best"
+        assert opt.suggestion_kind({"Water": 55.1, "Wheat gluten": 20.0}) == \
+            "trying something different"
+        # Down is the same distance as up.
+        assert opt.suggestion_kind({"Water": 24.9, "Wheat gluten": 20.0}) == \
+            "trying something different"
+
+    def test_the_kind_is_a_fraction_of_each_variables_own_range(
+            self, tmp_path, monkeypatch):
+        """Raw numbers are not comparable: 5 of an allowed 0 to 10 is a bold
+        move, 5 of an allowed 100 to 200 is not."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Salt", 0, 10)
+        self._warm(opt)
+        # Salt moves 5 g of an allowed 10 — half its range — while water
+        # moves nothing at all.
+        assert opt.suggestion_kind(
+            {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}) == \
+            "trying something different"
+        assert opt.suggestion_kind(
+            {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
+            "close to the best"
+
+    def test_a_paused_variable_does_not_decide_the_kind(self, tmp_path,
+                                                        monkeypatch):
+        """A paused ingredient is held at one value in every new formulation,
+        so it cannot be what this batch is trying."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Salt", 0, 10)
+        self._warm(opt)
+        moved = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}
+        assert opt.suggestion_kind(moved) == "trying something different"
+        opt.deactivate_variable("Salt")
+        assert opt.suggestion_kind(moved) == "close to the best"
+
+    def test_the_cold_start_is_spread_across_the_allowed_amounts(
+            self, tmp_path, monkeypatch):
+        """Until five formulations have results there is nothing to be close
+        to, so no row claims a reason and none lists a change."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 40.0, "Wheat gluten": 20.0}, {"Firmness": 9.0},
+                 formulation_no=1, batch_no=1)
+        recipe = {"Water": 80.0, "Wheat gluten": 20.0}
+        assert opt.suggestion_kind(recipe) == "spread across the allowed amounts"
+        assert opt.compared_with_text(recipe) == \
+            "Spread across the allowed amounts"
+        assert opt.compared_with_column() == "Compared with the allowed amounts"
+
+    def test_with_no_best_there_is_nothing_to_compare(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.best_formulation_no() is None
+        assert opt.vs_best_text({"Water": 40.0}) == ""
+        assert opt.compared_with_text({"Water": 40.0}) == \
+            "Spread across the allowed amounts"
+
+    def test_the_changes_are_the_three_largest_in_their_own_units(
+            self, tmp_path, monkeypatch):
+        """Three amounts, largest first, each in its own ingredient's unit and
+        written to the two decimals a balance works to; the settings follow
+        the amounts, and a setting is not an amount, so it is not."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("units")
+        opt.add_ingredient("Water", 0, 100, unit="ml")
+        opt.add_ingredient("Wheat gluten", 0, 100, unit="g")
+        opt.add_ingredient("Salt", 0, 10, unit="g")
+        opt.add_ingredient("Oil", 0, 50, unit="g")
+        opt.add_process_parameter("Cook temperature", 100, 200, unit="°C")
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        best = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 1.0,
+                "Oil": 10.0, "Cook temperature": 180.0}
+        opt.tell(best, {"Firmness": 9.0}, formulation_no=1, batch_no=1)
+        text = opt.vs_best_text({"Water": 52.0, "Wheat gluten": 17.0,
+                                 "Salt": 1.5, "Oil": 10.2,
+                                 "Cook temperature": 185.0})
+        assert text == ("Water +12.00 ml, Wheat gluten −3.00 g, Salt +0.50 g, "
+                        "Cook temperature +5 °C")
+        # The minus is the typographic one, so it sits beside a plus.
+        assert "-3" not in text
+
+    def test_two_equal_changes_keep_their_set_up_order(self, tmp_path,
+                                                       monkeypatch):
+        """Same size, same order every time the batch is looked at."""
+        opt = self._opt(tmp_path, monkeypatch)
+        self._warm(opt)
+        assert opt.vs_best_text({"Water": 45.0, "Wheat gluten": 15.0}) == \
+            "Water +5.00 g, Wheat gluten −5.00 g"
+
+    def test_the_cell_leads_with_the_kind(self, tmp_path, monkeypatch):
+        """'Trying something different · Water +12.00 g' — the kind first,
+        capitalised as the first word of the cell, then what carries it."""
+        opt = self._warm(self._opt(tmp_path, monkeypatch))
+        assert opt.compared_with_text({"Water": 60.0, "Wheat gluten": 20.0}) \
+            == "Trying something different · Water +20.00 g"
+        assert opt.compared_with_text({"Water": 41.0, "Wheat gluten": 20.0}) \
+            == "Close to the best · Water +1.00 g"
+
+    def test_the_batch_table_carries_the_column_and_the_sheet_does_not(
+            self, tmp_path, monkeypatch):
+        """The table says what each formulation is trying; the CSV sheet is a
+        grid to fill in, and a column of prose is not something to weigh."""
+        opt = self._warm(self._opt(tmp_path, monkeypatch))
+        opt.set_pending_batch([{"Water": 60.0, "Wheat gluten": 20.0},
+                               {"Water": 41.0, "Wheat gluten": 20.0}])
+        df = opt.batch_frame(opt.pending_batch)
+        assert list(df.columns)[-1] == "Compared with Formulation 1"
+        assert list(df["Compared with Formulation 1"]) == [
+            "Trying something different · Water +20.00 g",
+            "Close to the best · Water +1.00 g"]
+        sheet = pd.read_csv(io.StringIO(opt.batch_csv(opt.pending_batch)))
+        assert not any(c.startswith("Compared with") for c in sheet.columns), \
+            list(sheet.columns)
+
+    def test_a_scaled_table_compares_the_amounts_it_shows(self, tmp_path,
+                                                          monkeypatch):
+        """A change read off a scaled table has to be the difference between
+        two numbers the screen actually shows, so the best is rewritten to
+        that same total before the two are compared."""
+        opt = self._warm(self._opt(tmp_path, monkeypatch))
+        opt.set_pending_batch([{"Water": 52.0, "Wheat gluten": 20.0}])
+        df = opt.batch_frame(opt.pending_batch, scale_to=120.0)
+        cell = df["Compared with Formulation 1"].iloc[0]
+        # Both rewritten to 120 g: 86.67 g of water against 80.00 g, and the
+        # gluten the same distance the other way. The KIND is read off the
+        # amounts the project stores, because the allowed amounts it is a
+        # fraction of are the project's own: 52 g against 40 g is still close.
+        assert cell == ("Close to the best · Water +6.67 g, "
+                        "Wheat gluten −6.67 g"), cell
+        assert df["Water (g)"].iloc[0] == pytest.approx(86.666666, rel=1e-5)

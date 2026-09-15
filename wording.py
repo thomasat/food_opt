@@ -406,6 +406,43 @@ def biggest_changes_caption(row_no, best_no, parts):
             f"{FORMULATION_CAP} {best_no}: {parts}.")
 
 
+def change_text(name, delta, size):
+    """'Water +12.00 g' — one change in one ingredient or setting. The sign is
+    the typographic minus, not a hyphen: beside a plus of the same weight a
+    hyphen reads as a dash between two words."""
+    return f"{name} {'+' if delta > 0 else '−'}{size}"
+
+
+# What each formulation is trying. The three kinds are written lower case
+# because each is a fragment: compared_with_cell() capitalises the one it is
+# given as the first word of the cell, and nothing says them anywhere else.
+SUGGESTION_CLOSE = "close to the best"
+SUGGESTION_DIFFERENT = "trying something different"
+SUGGESTION_SPREAD = "spread across the allowed amounts"
+
+# The cold start has no best to compare with, so the column header names what
+# the formulations ARE spread across.
+COMPARED_WITH_ALLOWED = "Compared with the allowed amounts"
+
+
+def compared_with_column(best_no):
+    """The batch table's header for the what-is-it-trying column. It names the
+    formulation the changes are measured from once, at the top, so no cell
+    under it has to repeat it."""
+    return f"Compared with {FORMULATION_CAP} {best_no}"
+
+
+def compared_with_cell(kind, changes=""):
+    """'Trying something different · Water +12.00 g, Wheat gluten −3.00 g'.
+
+    The kind leads because it is the answer to the question the reader asks
+    first — is this a small step or a new direction? — and the amounts that
+    follow say which ingredients carry it. During the cold start there is
+    nothing to compare with, so the kind stands alone."""
+    head = kind[:1].upper() + kind[1:]
+    return f"{head} · {changes}" if changes else head
+
+
 NEEDS_ONE_UNIT = ("To make each formulation to a set amount, every "
                   "ingredient needs the same unit.")
 
@@ -631,11 +668,13 @@ HOW_IT_WORKS = [
     "score for how near a result is to its goal.",
     HOW_CHOSEN,
     "Limits are hard rules the model never breaks.",
+    "Each suggestion says whether it stays close to the best or tries "
+    "something different, and what it changes.",
 ]
 
 # The fold directly under it, for the reader who wants the arithmetic. The
-# four lines above raise the question — what is closeness, exactly? — and
-# this answers it; nine bullets in one fold answered it before anyone asked.
+# bullets above raise the question — what is closeness, exactly? — and this
+# answers it; nine bullets in one fold answered it before anyone asked.
 HOW_CLOSENESS_EXPANDER = "How closeness is calculated"
 HOW_CLOSENESS = [
     "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
