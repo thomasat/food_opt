@@ -950,8 +950,8 @@ def delete_button(name):
 
 
 DELETE_VS_FIXING_CAPTION = ("Deleting takes it out of every formulation "
-                          "already made; setting Lowest and Highest to the "
-                          "same amount keeps the data.")
+                            "already made; setting Lowest and Highest to the "
+                            "same amount keeps the data.")
 DELETE_EVEN_IF_USED_CHECKBOX = ("Delete even though formulations used it "
                                 "— those amounts go too")
 
@@ -1759,6 +1759,16 @@ def workbook_no_formulations(wanted):
 def workbook_nothing_filled_in(wanted):
     return (f"Nothing is filled in on the {wanted} sheet. Write a number "
             f"in a Measured cell, or tick {NOT_SCORED}.")
+
+
+def limit_fixed_rows_break(what, names_text, many=False):
+    """A limit refused at the door it is written at, because the rows it
+    reads are pinned at one amount: no formulation could ever meet it, and
+    letting it in would leave Generate handing back rows the app itself
+    calls invalid."""
+    return (f"No formulation can meet a limit on {what} while "
+            f"{names_text} {'are' if many else 'is'} fixed at one amount. "
+            f"Change the limit, or give {'them' if many else 'it'} a range.")
 
 
 def fixed_rows_tail(names_text):

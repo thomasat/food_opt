@@ -98,6 +98,11 @@ def is_reserved_name(name):
 # variable's own allowed range — still counts as staying close to the best.
 COLD_START_RUNS = 5
 
+# How narrow a fixed column's recorded history may be before _search_bounds
+# stops treating it as a frame at all. Relative to the numbers themselves:
+# 175 °C and 0.0001 g are not near each other on one absolute scale.
+_FIXED_SPAN_FLOOR = 1e-9
+
 # `tell(batch_no=NO_BATCH)`: this formulation belongs to no batch this
 # project generated. None cannot say it — None means "the open batch" — and
 # patching batch_history afterwards left the open batch's own total written
@@ -1082,7 +1087,14 @@ class FoodOptimizer:
                 # already done at another setting. "Baseline 175 must be
                 # between 190 and 190" refused a thing the user is entitled
                 # to ask for, in a sentence that reads as a fault.
-                fixing = min_val == max_val and baseline is None
+                #
+                # "No baseline was passed" is not the test — the editor
+                # prefilled the stored one and the grid sends it straight
+                # back, so the screen never took this door. The test is
+                # whether the baseline is being MOVED.
+                fixing = min_val == max_val and (
+                    baseline is None or stored is None
+                    or float(baseline) == float(stored))
                 if (carried is not None and not fixing
                         and not (min_val <= float(carried) <= max_val)):
                     raise ValueError(_baseline_outside_message(
@@ -3299,7 +3311,8 @@ class FoodOptimizer:
         self.constraints = [c for c in self.constraints
                             if str(c['metric']).strip().lower()
                             != str(metric).strip().lower()]
-        self.constraints.append({
+        kept = list(self.constraints)
+        entry = {
             'metric': metric,
             'min': float(min_val) if min_val is not None else None,
             'max': float(max_val) if max_val is not None else None,
@@ -3307,7 +3320,11 @@ class FoodOptimizer:
             # has no basis at all, and the screen says once that it is now
             # read per 100 g.
             'basis': 'per_100',
-        })
+        }
+        self.constraints.append(entry)
+        self._refuse_limit_the_fixed_rows_break(
+            metric, self._property_limit_refusal(entry), None,
+            lambda: setattr(self, 'constraints', kept))
         self.save()
 
     def remove_constraint(self, index):
@@ -3342,6 +3359,7 @@ class FoodOptimizer:
                 "A limit adds amounts, so these ingredients need one "
                 "unit; " + self.unit_fix_sentence(list(ingredients)))
         ingredient_set = set(ingredients)
+        kept = list(self.quantity_constraints)
         self.quantity_constraints = [
             qc for qc in self.quantity_constraints
             if set(qc['ingredients']) != ingredient_set
@@ -3355,6 +3373,14 @@ class FoodOptimizer:
         if source is not None:
             entry['source'] = source
         self.quantity_constraints.append(entry)
+        if source is None:
+            # The batch size's own limit is exempt: set_formulation_total
+            # asks the reach question first, in the two numbers the box was
+            # typed into, and its answer is the better one.
+            self._refuse_limit_the_fixed_rows_break(
+                " + ".join(ingredients), self._quantity_limit_refusal(entry),
+                ingredients,
+                lambda: setattr(self, 'quantity_constraints', kept))
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None,
@@ -3832,7 +3858,13 @@ class FoodOptimizer:
                     seen = [float(row[col]) for row in self.X_history
                             if col < len(row)]
                     lo, hi = min([lo] + seen), max([hi] + seen)
-                    if hi <= lo:
+                    # A floor, not just "wider than zero": a history that
+                    # moved by 1e-13 is a span the normalization would
+                    # divide by, and the frame would blow up rather than
+                    # break. Scaled by the numbers themselves, because a
+                    # setting at 175 °C and an amount at 0.0001 g are not
+                    # near each other on the same absolute scale.
+                    if hi - lo <= _FIXED_SPAN_FLOOR * max(1.0, abs(lo)):
                         hi = lo + 1.0
                 spans.append((lo, hi))
                 col += 1
@@ -3885,6 +3917,13 @@ class FoodOptimizer:
                     offset += coeff * v_min
 
                 if not indices:
+                    # Every ingredient carrying this property is FIXED, so
+                    # the average is one number and there is nothing for the
+                    # solver to choose. Dropping the row here let `ask` hand
+                    # back formulations the app's own _check_constraints then
+                    # calls invalid, with nothing on screen to say why.
+                    self._refuse_unreachable_limit(
+                        self._property_limit_refusal(constr))
                     continue
                 constraints_list.append((
                     torch.tensor(indices, dtype=torch.long),
@@ -3912,6 +3951,11 @@ class FoodOptimizer:
                     offset += v_min
 
             if not indices:
+                # Every ingredient this limit names is FIXED: the sum is the
+                # constant `offset`, which either meets the limit or cannot.
+                # Either way there is no inequality to hand the solver — but
+                # "cannot" is a refusal, not a row to drop silently.
+                self._refuse_unreachable_limit(self._quantity_limit_refusal(qc))
                 continue
             t_idx = torch.tensor(indices, dtype=torch.long)
             t_coeffs = torch.tensor(coeffs, dtype=torch.double)
@@ -3922,6 +3966,49 @@ class FoodOptimizer:
                 constraints_list.append((t_idx, -t_coeffs, -(qc['max'] - offset)))
 
         return constraints_list
+
+    def _fixed_ingredients_among(self, names=None):
+        """The fixed ingredients out of `names`, in project order — or every
+        fixed ingredient when `names` is None, which is what a property
+        limit reads (adding water is how a formulation is diluted, so every
+        ingredient carries one)."""
+        wanted = None if names is None else set(names)
+        return [v['name'] for v in self.variables
+                if self.is_fixed(v)
+                and v.get('category', 'ingredient') == 'ingredient'
+                and (wanted is None or v['name'] in wanted)]
+
+    def _refuse_limit_the_fixed_rows_break(self, what, refusal, names,
+                                           put_back):
+        """Refuse a limit at the door it is written at when the rows it reads
+        are already pinned at one amount.
+
+        The far end of the same problem the round guards: a limit only fixed
+        rows feed is a constant, and a constant the limit does not hold is a
+        question with no answer. Caught here it names the rows; let through,
+        it surfaced as Generate quietly handing back formulations the app's
+        own check calls invalid.
+
+        Only when a fixed row is why. A limit nothing can meet for its own
+        sake — a minimum above every ingredient's figure — is refused the
+        way it always was, by Generate, because that is a limit the reader
+        may still be part way through writing."""
+        if not refusal:
+            return
+        fixed = self._fixed_ingredients_among(names)
+        if not fixed:
+            return
+        put_back()
+        raise ValueError(wording.limit_fixed_rows_break(
+            what, number_list(fixed), len(fixed) > 1))
+
+    @staticmethod
+    def _refuse_unreachable_limit(message):
+        """Raise `message` if there is one. The one line between "this limit
+        is a constant that happens to hold" and "this limit is a constant
+        that does not"."""
+        if message:
+            raise ValueError(message)
 
     def _check_constraints(self, recipe_dict):
         """Return True if a recipe satisfies all constraints."""
@@ -4684,10 +4771,15 @@ class FoodOptimizer:
 
         The two old keys are read here and nowhere else, ever again: a file
         still carrying them opens, and is rewritten without them the first
-        time it is saved."""
+        time it is saved. A row this cannot migrate — a categorical has
+        options rather than a range, so there is no pair of numbers to write
+        the pin into — keeps what it had rather than being quietly stripped
+        of it."""
+        if var.get('type', 'continuous') != 'continuous':
+            return
         was_held = not var.pop('active', True)
         frozen = var.pop('_frozen_at', None)
-        if not was_held or var.get('type', 'continuous') != 'continuous':
+        if not was_held:
             return
         lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
         if frozen is None:
@@ -4796,53 +4888,88 @@ class FoodOptimizer:
             highest = over
         return lowest, highest
 
-    def _assert_constraints_satisfiable(self):
-        """Raise if the allowed amounts, as they stand, make any limit
-        unsatisfiable. Fixing an ingredient at 0 can strand a lower bound that
-        the ingredient was carrying, which would otherwise surface later as an
-        opaque acquisition-optimization failure."""
+    def _property_limit_refusal(self, constr):
+        """Why this property limit cannot be met by any formulation the
+        allowed amounts describe, or None while one can."""
+        metric = constr['metric']
         per = self.per_amount_text()
-        for constr in self.constraints:
-            metric = constr['metric']
-            lo, hi = self._achievable_property(metric)
-            if constr['min'] is not None and hi < constr['min']:
-                raise ValueError(
-                    f"Fixing these would make the limit on {metric} impossible "
+        lo, hi = self._achievable_property(metric)
+        if constr['min'] is not None and hi < constr['min']:
+            return (f"Fixing these would make the limit on {metric} impossible "
                     f"to meet: the ingredients that can still vary only reach "
-                    f"{hi:.4g} {per} at most. Loosen the limit first."
-                )
-            if constr['max'] is not None and lo > constr['max']:
-                raise ValueError(
-                    f"Fixing these would make the limit on {metric} impossible "
+                    f"{hi:.4g} {per} at most. Loosen the limit first.")
+        if constr['max'] is not None and lo > constr['max']:
+            return (f"Fixing these would make the limit on {metric} impossible "
                     f"to meet: the ingredients that can still vary cannot get "
-                    f"below {lo:.4g} {per}. Loosen the limit first."
-                )
+                    f"below {lo:.4g} {per}. Loosen the limit first.")
+        return None
 
-        for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
-            names = set(qc['ingredients'])
-            label = " + ".join(qc['ingredients'])
-            lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0)
-            if qc.get('source') == 'formulation_total':
-                # The total is one number the user typed, not a rule about a
-                # list: naming its eight ingredients and telling the user to
-                # loosen a limit they never wrote helped nobody.
-                if ((qc['min'] is not None and hi < qc['min'])
-                        or (qc['max'] is not None and lo > qc['max'])):
-                    raise ValueError(wording.fixing_breaks_the_total(
-                        self.batch_total_text(self.formulation_total)))
-                continue
-            if qc['min'] is not None and hi < qc['min']:
-                raise ValueError(
-                    f"Fixing these would make the limit on {label} impossible "
+    def _quantity_limit_refusal(self, qc):
+        """The same question of one amount limit. The batch size's own limit
+        answers in its own words: it is one number the user typed, not a rule
+        about a list, and naming its eight ingredients helped nobody."""
+        names = set(qc['ingredients'])
+        lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0)
+        broken = ((qc['min'] is not None and hi < qc['min'])
+                  or (qc['max'] is not None and lo > qc['max']))
+        if qc.get('source') == 'formulation_total':
+            if broken:
+                return wording.fixing_breaks_the_total(
+                    self.batch_total_text(self.formulation_total))
+            return None
+        label = " + ".join(qc['ingredients'])
+        if qc['min'] is not None and hi < qc['min']:
+            return (f"Fixing these would make the limit on {label} impossible "
                     f"to meet: the ingredients that can still vary only reach "
-                    f"{hi:.4g} at most. Loosen the limit first."
-                )
-            if qc['max'] is not None and lo > qc['max']:
-                raise ValueError(
-                    f"Fixing these would make the limit on {label} impossible "
+                    f"{hi:.4g} at most. Loosen the limit first.")
+        if qc['max'] is not None and lo > qc['max']:
+            return (f"Fixing these would make the limit on {label} impossible "
                     f"to meet: the amounts pinned already add up to {lo:.4g}. "
-                    f"Loosen the limit first."
-                )
+                    f"Loosen the limit first.")
+        return None
+
+    @staticmethod
+    def _limit_key(qc):
+        """One amount limit's identity, stable across an edit so a BEFORE and
+        an AFTER can be lined up limit by limit. Not its index: a save that
+        deletes an ingredient prunes the list and every index after it
+        shifts."""
+        if qc.get('source') == 'formulation_total':
+            return ('total',)
+        return ('quantity', tuple(qc['ingredients']))
+
+    def _limit_refusals(self):
+        """{key: sentence} for every limit the allowed amounts, as they
+        stand, cannot meet.
+
+        Per limit rather than first-one-wins, because the question every
+        caller really asks is "did THIS save break something": a limit
+        stranded by a narrowing last week is not this save's doing, and
+        refusing for it would leave the reader with no way to edit their way
+        back out."""
+        refusals = {}
+        for constr in self.constraints:
+            message = self._property_limit_refusal(constr)
+            if message:
+                refusals[('property', constr['metric'])] = message
+        for qc in getattr(self, 'quantity_constraints', []):
+            message = self._quantity_limit_refusal(qc)
+            if message:
+                refusals[self._limit_key(qc)] = message
+        return refusals
+
+    def _broken_by_this_save(self, before, after, fixed_names=()):
+        """The one sentence a save owes when it breaks a limit that was fine
+        before it, or None. `fixed_names` are the rows this save pinned at
+        one amount, named at the end so the reader knows which of eight rows
+        the refusal is about."""
+        newly = [message for key, message in after.items() if key not in before]
+        if not newly:
+            return None
+        if not fixed_names:
+            return newly[0]
+        return newly[0] + " " + wording.fixed_rows_tail(
+            number_list(list(fixed_names)))
 
     def _check_fixed_feasible(self, name, min_val, max_val, category):
         """Refuse a save that would fix `name` at one amount where nothing
@@ -4853,11 +4980,11 @@ class FoodOptimizer:
         refusal has to name the amounts the user just typed, and a project
         left half-written by a refusal is worse than the refusal.
 
-        Only a save that FIXES a row is asked. Narrowing a range is the
-        user's own business and has always been allowed to strand a limit;
-        what changed in 0.5.0 is that a row with no range left is how a hold
-        is spelled, so the guard that used to sit on the Hold button sits
-        here."""
+        Only a save that FIXES a row is asked, and only a limit that passes
+        BEFORE and fails AFTER earns the refusal. Narrowing a range is the
+        user's own business and has always been allowed to strand a limit; a
+        save blamed for one it did not break is a save with no way back.
+        """
         if float(min_val) != float(max_val):
             return
         # A grid Save asks this question ONCE, over the finished grid, and
@@ -4866,24 +4993,32 @@ class FoodOptimizer:
         # save for a half-applied state nothing ever sees.
         if getattr(self, '_in_grid_apply', False):
             return
-        var = next((v for v in self.variables if v['name'] == name), None)
-        added = var is None
+        before = self._limit_refusals()
+        index = next((i for i, v in enumerate(self.variables)
+                      if v['name'] == name), None)
+        added = index is None
         if added:
-            var = {'name': name, 'type': 'continuous',
-                   'bounds': (float(min_val), float(max_val)),
-                   'category': category}
-            self.variables.append(var)
-            before = None
+            # Appended, and removed again BY INDEX: two rows of a project can
+            # hold equal dicts, and list.remove would take the first of them.
+            index = len(self.variables)
+            self.variables.append({
+                'name': name, 'type': 'continuous',
+                'bounds': (float(min_val), float(max_val)),
+                'category': category})
+            was = None
         else:
-            before = var['bounds']
-            var['bounds'] = (float(min_val), float(max_val))
+            was = self.variables[index]['bounds']
+            self.variables[index]['bounds'] = (float(min_val), float(max_val))
         try:
-            self._assert_constraints_satisfiable()
+            after = self._limit_refusals()
         finally:
             if added:
-                self.variables.remove(var)
+                self.variables.pop(index)
             else:
-                var['bounds'] = before
+                self.variables[index]['bounds'] = was
+        message = self._broken_by_this_save(before, after, [name])
+        if message is not None:
+            raise ValueError(message)
 
     def _get_fixed_features(self):
         """{column: normalized_value} for the fixed columns, in the [0,1]^d frame
@@ -5304,31 +5439,20 @@ class FoodOptimizer:
         Two rulings live in these lines. It is asked once rather than per
         row, because a grid is saved whole and a row half way through it is
         not a state the project ever sits in. And it compares BEFORE with
-        AFTER: a limit that was already impossible — after a range narrowed
-        last week, which has always been allowed — is not this save's doing,
-        and refusing the save for it would leave the reader with no way to
-        edit their way back out.
+        AFTER, limit by limit, through the same `_broken_by_this_save` the
+        single-row door uses: a limit that was already impossible — after a
+        range narrowed last week, which has always been allowed — is not this
+        save's doing, and refusing the save for it would leave the reader
+        with no way to edit their way back out.
         """
         fixed = [spec['name'] for _, spec in rows
                  if spec['low'] == spec['high']]
         if not fixed:
             return None
-        if self._satisfiable_now() is not None:
-            return None
-        after = self._satisfiable_with(rows)
-        if after is None:
-            return None
-        return after + " " + wording.fixed_rows_tail(number_list(fixed))
+        return self._broken_by_this_save(self._limit_refusals(),
+                                         self._refusals_with(rows), fixed)
 
-    def _satisfiable_now(self):
-        """The refusal the limits give as things stand, or None."""
-        try:
-            self._assert_constraints_satisfiable()
-        except ValueError as e:
-            return str(e)
-        return None
-
-    def _satisfiable_with(self, rows):
+    def _refusals_with(self, rows):
         """The same question with the finished grid in place, and the project
         put back exactly as it was afterwards."""
         variables, limits = self.variables, self.quantity_constraints
@@ -5337,7 +5461,7 @@ class FoodOptimizer:
             self.quantity_constraints = _limits_over(
                 limits, [v['name'] for v in self.variables
                          if v.get('category', 'ingredient') == 'ingredient'])
-            return self._satisfiable_now()
+            return self._limit_refusals()
         finally:
             self.variables, self.quantity_constraints = variables, limits
 
