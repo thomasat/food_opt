@@ -13,6 +13,10 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+from food_bo import (
+    WORKBOOK_MIME, goal_text, ingredients_template_workbook,
+    measurement_range_text,
+)
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_scale_total,
@@ -20,7 +24,7 @@ from ui_helpers import (
     disarm, flash,
     fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
     number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
-    table_height, unit_after_number,
+    table_height,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -51,17 +55,13 @@ def _note_discarded_batch(opt, batch_no_before):
 
 
 def _goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better'. A '/10' rides on
-    the measurement's own name instead of on every number in its row."""
-    if obj['goal'] == 'target':
-        return join_unit(wording.target_value(obj['target']),
-                         unit_after_number(obj.get('unit')))
-    return wording.GOAL_LABELS.get(obj['goal'], obj['goal'])
+    """'Target 6 N', 'Higher is better', 'Lower is better'. It lives in
+    food_bo, because the workbook's Set-up sheet says it too."""
+    return goal_text(obj)
 
 
 def _range_text(obj):
-    return join_unit(wording.range_text(obj['min_val'], obj['max_val']),
-                     unit_after_number(obj.get('unit')))
+    return measurement_range_text(obj)
 
 
 def _mkey(editing, field):
@@ -669,31 +669,40 @@ def _load_label(opt):
             else wording.LOAD_INGREDIENTS_BUTTON)
 
 
+def _read_ingredients_file(uploaded):
+    """An ingredient list in either shape: the template workbook's first
+    sheet, or a comma-separated file with the same columns."""
+    if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
+        return pd.read_excel(uploaded, sheet_name=0)
+    return pd.read_csv(uploaded)
+
+
 def _upload_ingredients(opt):
     """The ingredient file, folded away: typing one ingredient is the common
     case, and a file is the shortcut for a project that already has one."""
-    st.caption(wording.INGREDIENTS_CSV_CAPTION)
+    st.caption(wording.INGREDIENTS_FILE_CAPTION)
     uploaded = st.file_uploader(
-        wording.UPLOAD_INGREDIENTS_CSV_LABEL, type=["csv"],
+        wording.UPLOAD_INGREDIENTS_FILE_LABEL, type=["xlsx", "csv"],
         # Keyed to the project: a file uploader cannot be emptied from session
         # state, so a shared key handed the next project the sheet this one
         # loaded, with a live Load ingredients under it.
-        key=f"ingredients_csv_{opt.project_name}",
+        key=f"ingredients_file_{opt.project_name}",
         # The caption above lists the columns; the one thing it does not say
         # is what a blank Unit cell means, which is this project's own unit.
         help=wording.blank_unit_cell_help(opt.amount_unit),
     )
     if os.path.exists(_SAMPLE_CSV):
-        with open(_SAMPLE_CSV, "rb") as handle:
-            st.download_button(wording.DOWNLOAD_CSV_TEMPLATE, data=handle.read(),
-                               file_name="ingredients_template.csv",
-                               mime="text/csv", key="ingredients_template")
+        st.download_button(
+            wording.DOWNLOAD_TEMPLATE,
+            data=ingredients_template_workbook(_SAMPLE_CSV),
+            file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+            mime=WORKBOOK_MIME, key="ingredients_template")
     df = None
     if uploaded is not None:
         try:
-            df = pd.read_csv(uploaded)
+            df = _read_ingredients_file(uploaded)
         except Exception:
-            st.error(wording.CSV_UNREADABLE_RETRY)
+            st.error(wording.FILE_UNREADABLE_RETRY)
     # The file itself is left alone. Taking it out of the uploader changed
     # the widget's identity, which shut every open expander on the page under
     # the user's hands; remembering which file was loaded stops a second Load
@@ -791,21 +800,11 @@ def _delete_limit(opt, storage, key, who, remove):
 
 def _limit_label(opt, qc):
     """How one ingredient limit is named on screen — 'Total of each
-    formulation', 'All ingredients' or 'Water + Oil'. The list under Limits
-    and the line that reports a limit removed both read from here, so they
-    name it alike.
-
-    The total's own limit is named for the box that wrote it, not for the
-    ingredients it happens to cover: it is over all of them by definition,
-    and 'All ingredients' would read as something the user typed into the
-    picker below."""
-    if qc.get('source') == 'formulation_total':
-        return wording.FORMULATION_TOTAL_NAME
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
-    if names and set(qc['ingredients']) == set(names):
-        return wording.ALL_INGREDIENTS_LABEL
-    return " + ".join(qc['ingredients'])
+    formulation', 'All ingredients' or 'Water + Oil'. It lives on the
+    optimizer: the list under Limits, the line that reports a limit removed
+    and the workbook's Set-up sheet all read from there, so they name it
+    alike."""
+    return opt.limit_label(qc)
 
 
 def _measurement_editor(opt, storage, editing):
@@ -1286,26 +1285,14 @@ def _limits(opt, storage):
                                   wording.limit_added_on(" + ".join(picked)))
 
         for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
-            label = _limit_label(opt, qc)
-            # A limit sums ingredients that share a unit, so the
-            # limit is written in it: "at most 400 g", never a bare 400.
-            limited = {opt.unit_of(n) for n in qc['ingredients']}
-            qc_unit = limited.pop() if len(limited) == 1 else ""
             l1, l2 = st.columns([3, 1])
             with l1:
-                if qc.get('source') == 'formulation_total':
-                    # The total reads as the one number it is, not as the
-                    # half-percent band it is enforced as: "at least 99.5 g
-                    # and at most 100.5 g" is the arithmetic, and the user
-                    # typed 100.
-                    st.text(wording.formulation_total_row(
-                        opt.batch_total_text(opt.formulation_total)))
-                else:
-                    bounds = ([join_unit(wording.at_least(qc['min']), qc_unit)]
-                              if qc['min'] is not None else [])
-                    bounds += ([join_unit(wording.at_most(qc['max']), qc_unit)]
-                               if qc['max'] is not None else [])
-                    st.text(f"{label}: {' and '.join(bounds)}")
+                # One line per limit, written by the optimizer: a limit sums
+                # ingredients that share a unit, so it is written in that
+                # unit ("at most 400 g", never a bare 400), and the total
+                # reads as the one number it is rather than as the
+                # half-percent band it is enforced as.
+                st.text(opt.limit_text(qc))
             with l2:
                 remove = ((lambda: _clear_formulation_total(opt))
                           if qc.get('source') == 'formulation_total'

@@ -11,7 +11,9 @@ import ui_batch
 import ui_results
 import ui_setup
 import wording
-from food_bo import FoodOptimizer
+from food_bo import (
+    WORKBOOK_MIME, FoodOptimizer, ingredients_template_workbook,
+)
 from ui_helpers import (
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
@@ -52,9 +54,9 @@ _FORM_KEY_PREFIXES = (
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
     # mounted widget holding the file — so each is keyed to its project
-    # (ingredients_csv_<project>) and a new project renders a new, empty one.
-    # These pops only clear the state the old widgets left behind.
-    "ingredients_csv", "results_csv", "import_csv",
+    # (ingredients_file_<project>) and a new project renders a new, empty
+    # one. These pops only clear the state the old widgets left behind.
+    "ingredients_file", "results_file", "import_file",
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
@@ -503,9 +505,11 @@ if opt is None:
             _open_sample_project()
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
-            with open(_SAMPLE_CSV, "rb") as f:
-                st.download_button(wording.DOWNLOAD_CSV_TEMPLATE, data=f.read(),
-                                   file_name="ingredients_template.csv", mime="text/csv")
+            st.download_button(
+                wording.DOWNLOAD_TEMPLATE,
+                data=ingredients_template_workbook(_SAMPLE_CSV),
+                file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+                mime=WORKBOOK_MIME)
     st.stop()
 
 

@@ -28,7 +28,7 @@ TRYING IT OUT
   ingredients and two panel scores. On the first screen, click
   "Try the sample project" to explore before setting up your own.
 - Starting from a spreadsheet? On the Set up tab, open "Or upload an
-  ingredients CSV" for a template you can fill in.
+  ingredients file" for a template you can fill in.
 
 USING IT DAY TO DAY
 - To open the app again, open Food Optimizer from Applications, like

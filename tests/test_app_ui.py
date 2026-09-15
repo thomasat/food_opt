@@ -13,6 +13,7 @@ import pathlib
 import re
 import time
 
+import openpyxl
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -896,7 +897,7 @@ def test_the_trial_line_counts_what_is_left_to_make(project_with_history):
 
 def test_an_uploaded_import_sheet_does_not_survive_a_hard_reset(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({"Water": [1.0], "Taste": [5.0]})
     at.run()
     assert "_import_rows" in at.session_state
@@ -912,7 +913,7 @@ def test_an_uploaded_import_sheet_does_not_follow_a_project_switch(project_with_
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({"Water": [1.0], "Taste": [5.0]})
     at.run()
     at.selectbox(key="project_select").set_value("second")
@@ -1186,12 +1187,12 @@ def test_adding_a_measurement_from_the_collapsed_form(burger):
 def test_the_ingredient_uploader_help_names_the_real_columns(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
+    uploader = _unknown(at.main, "file_uploader", "Upload ingredients (Excel or CSV)")
     # The caption lists the columns; the tooltip says the one thing it does
     # not — what a blank Unit cell means — and says it in this project's unit.
     assert uploader.proto.help == ("Leave the Unit column blank and the app "
                                    "reads it as g."), uploader.proto.help
-    assert any(c.value.startswith("A CSV with the columns Name, Lowest, Highest")
+    assert any(c.value.startswith("A file with the columns Name, Lowest, Highest")
                for c in at.caption), [c.value for c in at.caption]
 def test_the_unit_box_placeholder_matches_ingredient_or_setting(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -1709,22 +1710,26 @@ def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
     assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 10.0
 
 
-def test_both_downloads_are_offered_and_only_the_bench_sheet_is_lit(open_batch):
+def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batch):
+    """One file leaves this tab: the workbook. It was three — a sheet to fill
+    in, a set of sheets to print and a preview of those — and a bench had to
+    choose between them before it could weigh anything out."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    assert [d.label for d in _unknowns(at.tabs[1], "download_button")] == \
+        [wording.DOWNLOAD_BATCH_SHEETS], \
+        [d.label for d in _unknowns(at.tabs[1], "download_button")]
     assert _unknown(at.main, "download_button",
-                    "Download the batch to fill in (CSV)").proto.type == "primary"
-    assert _unknown(at.main, "download_button",
-                    "Download one sheet per formulation (to print)").proto.type == "secondary"
+                    "Download the batch sheets (Excel)").proto.type == "primary"
     # The download IS the coloured thing here, and it is the only one.
-    assert _tab_primaries(at, 1) == ["Download the batch to fill in (CSV)"], _tab_primaries(at, 1)
+    assert _tab_primaries(at, 1) == ["Download the batch sheets (Excel)"], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch to fill in (CSV)").proto.type == "secondary"
+                    "Download the batch sheets (Excel)").proto.type == "secondary"
 
 
-def test_leaving_a_row_out_does_not_grey_the_bench_sheet(open_batch):
+def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
     """A disabled number_input still returns its stored value, so a naive
     'has anything been typed' check flipped the download grey on a tick."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -1734,7 +1739,7 @@ def test_leaving_a_row_out_does_not_grey_the_bench_sheet(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch to fill in (CSV)").proto.type == "primary"
+                    "Download the batch sheets (Excel)").proto.type == "primary"
 
 
 def test_regenerating_names_the_numbers_it_discards(open_batch):
@@ -1786,17 +1791,23 @@ def test_regenerating_asks_for_the_generated_rows_only(burger):
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_printable_sheet_names_the_formulation_and_the_trial(open_batch):
+def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
+    """The page a technician carries says which formulation it is, which
+    batch it belongs to and whose project it came out of — the screen is two
+    rooms away by then."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(e.label == "Preview the printed sheets" for e in at.expander)
-    texts = _sheet_lines(at)
-    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1" in texts, texts
-    assert any(t.startswith("Not scored") for t in texts), texts
-    # The measurement is named and its rule is drawn in CSS beside it; a
-    # typed underscore neither stays in line nor takes a pen.
-    assert any("Firmness, target 6 N:" in t for t in texts), texts
-    assert "_" not in _sheet_html(at), _sheet_html(at)
+    book = _workbook(at)
+    assert book.sheetnames == ["Batch 1", "Formulation 1", "Formulation 2"], \
+        book.sheetnames
+    texts = _sheet_text(at)
+    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1 · burger" \
+        in texts, texts
+    assert wording.NOT_SCORED_CHECKBOX_SHEET in texts, texts
+    # The measurement is named, what a good number looks like is beside it,
+    # and the cell to write the reading in is empty.
+    assert "Firmness" in texts and "target 6 N" in texts, texts
+    assert wording.MEASURED_COLUMN in texts, texts
 
 
 def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
@@ -2089,17 +2100,17 @@ def test_generate_is_the_one_lit_button_before_a_batch_exists(burger):
     assert _tab_primaries(at, 1) == ["Generate 3 formulations"], _tab_primaries(at, 1)
 
 
-def test_a_confirmation_takes_the_colour_from_the_bench_sheet(open_batch):
+def test_a_confirmation_takes_the_colour_from_the_batch_sheets(open_batch):
     """While a confirmation is armed, answering it is the one thing to do: the
     lit download steps aside rather than competing with the Yes."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch to fill in (CSV)").proto.type == "primary"
+                    "Download the batch sheets (Excel)").proto.type == "primary"
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch to fill in (CSV)").proto.type == "secondary"
+                    "Download the batch sheets (Excel)").proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -2158,10 +2169,11 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
     assert (at.number_input(key="scale_total").proto.placeholder
            == "e.g. 150")
-    texts = _sheet_lines(at)
-    # Two decimals on every line: a sheet is read down the column.
-    assert "Pea protein: 20.00 g" in texts, texts     # the sheet, as generated
-    assert "Methylcellulose: 1.00 g" in texts, texts
+    amounts = _sheet_amounts(at)
+    # The sheets carry the amounts as generated, to the balance's own two
+    # decimals.
+    assert ("Pea protein", 20.0) in amounts, amounts
+    assert ("Methylcellulose", 1.0) in amounts, amounts
 
 
 def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
@@ -2176,8 +2188,8 @@ def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
     assert table["Pea protein (g)"].iloc[1] == pytest.approx(10.0)
     assert any(c.value == "Sheets show each formulation made to 11 g."
                for c in at.caption), [c.value for c in at.caption]
-    # Both sheets now carry the same amounts, so the downloads followed.
-    assert _sheet_lines(at).count("Pea protein: 10.00 g") == 2
+    # Both sheets now carry the same amounts, so the download followed.
+    assert _sheet_amounts(at).count(("Pea protein", 10.0)) == 2
     assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] == 20.0
 
 
@@ -2327,7 +2339,7 @@ def test_edit_past_formulations_holds_the_three_parts(scored):
         _labels(at)
     assert not any(l.startswith("Import past") for l in labels), labels
     assert at.radio(key="add_past_mode").options == ["Type it in",
-                                                     "Upload a CSV"]
+                                                     "Upload a file"]
 
 
 def test_correcting_amounts_and_a_result_in_one_save(scored, tmp_path):
@@ -2529,7 +2541,7 @@ def test_download_all_formulations_is_grey(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     element = _unknown(at.main, "download_button",
-                       "Download all formulations (CSV)")
+                       "Download all formulations (Excel)")
     assert element.proto.type == "secondary"
 
 
@@ -2844,7 +2856,7 @@ def test_deleting_a_formulation_leaves_an_open_batch_alone(scored):
 
 
 def test_a_delete_keeps_the_open_batchs_uploaded_sheet(scored):
-    """A parsed bench sheet belongs to the OPEN batch, whose rows are not in
+    """A parsed batch sheet belongs to the OPEN batch, whose rows are not in
     the delete list at all; throwing it away made the user upload it again."""
     scored.set_pending_batch([{"Pea protein": 5.0, "Methylcellulose": 0.5}],
                              batch_no=2)
@@ -2903,7 +2915,7 @@ def test_deleting_one_formulation_keeps_later_numbers(scored, tmp_path):
 def test_the_import_caption_names_this_projects_columns(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.run()
     caption = next(c.value for c in at.caption
                    if c.value.startswith("One row per formulation"))
@@ -2913,7 +2925,7 @@ def test_the_import_caption_names_this_projects_columns(burger):
 def test_importing_past_formulations_marks_them_and_accepts_partials(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
         "Juiciness": [6.0, None], "Firmness": [5.0, 5.5],
@@ -2941,7 +2953,7 @@ def test_the_importer_reads_the_downloaded_files_own_headers(burger):
     assert "Pea protein (g)" in downloaded.columns
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = downloaded
     at.run()
     assert not at.error, [e.value for e in at.error]
@@ -3002,7 +3014,7 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
     """A 99 typed into a 0-10 column would sail in as the best formulation."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 99.0],
@@ -3022,7 +3034,7 @@ def test_an_import_outside_an_ingredient_range_warns_and_still_imports(burger):
     mistake to refuse: the model needs it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0, 999.0], "Methylcellulose": [1.2, 1.3],
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
@@ -3042,7 +3054,7 @@ def test_a_finished_import_does_not_offer_to_import_again(burger):
     successful import recorded every row twice."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
@@ -3184,7 +3196,7 @@ def test_edit_past_formulations_does_not_follow_you_to_another_project(scored):
     at.multiselect(key="delete_formulations").set_value([2])
     at.number_input(key="past_Pea protein").set_value(12.0)
     at.text_input(key="past_note").set_value("from the 2024 bench book")
-    at.radio(key="add_past_mode").set_value(wording.UPLOAD_A_CSV)
+    at.radio(key="add_past_mode").set_value(wording.UPLOAD_A_FILE)
     at.run()
     assert at.session_state["correct_amount_1_Pea protein"] == 10.0
     at.sidebar.selectbox(key="project_select").select("second")
@@ -3371,7 +3383,7 @@ def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = downloaded
     at.run()
     _submit_button(at, "Import all rows").click()
@@ -3390,7 +3402,7 @@ def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
 def test_one_row_with_nothing_measured_is_said_in_the_singular(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0, 13.0], "Methylcellulose": [1.2, 1.3],
         "Juiciness": [6.0, None], "Firmness": [5.0, None],
@@ -3713,7 +3725,8 @@ def test_a_process_setting_carries_its_own_unit_everywhere(burger):
     at.run()
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert "Cook temperature (°C)" in table.columns, list(table.columns)
-    assert "Cook temperature: 180 °C" in _sheet_lines(at), _sheet_lines(at)
+    assert ("Cook temperature (°C)", 180.0) in _sheet_amounts(at), \
+        _sheet_amounts(at)
 
 
 def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
@@ -3908,7 +3921,8 @@ def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
     shown = _displayed(next(d for d in at.dataframe
                             if "Formulation" in d.value.columns))
     assert shown["Cook temperature (°C)"].iloc[0] == "188.49", shown.to_dict()
-    assert "Cook temperature: 188.49 °C" in _sheet_lines(at), _sheet_lines(at)
+    assert ("Cook temperature (°C)", 188.49) in _sheet_amounts(at), \
+        _sheet_amounts(at)
     # ... and on tab 3, once it is recorded.
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0,
                  "Cook temperature": 188.4936},
@@ -3989,7 +4003,7 @@ def test_set_unit_changes_one_ingredient_and_says_so(burger):
 def test_the_uploader_says_the_unit_column_is_optional(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    uploader = _unknown(at.main, "file_uploader", "Upload ingredients CSV")
+    uploader = _unknown(at.main, "file_uploader", "Upload ingredients (Excel or CSV)")
     assert "Unit" in uploader.proto.help, uploader.proto.help
 
 
@@ -4034,14 +4048,24 @@ def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
     assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
 
-def test_the_printable_sheet_writes_every_amount_in_its_own_unit(mixed_units):
+def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
+    """A sheet mixing grams and millilitres carries each unit on its own
+    heading, and a total that cannot be one number is written out as two."""
     mixed_units.set_pending_batch([{"Pea protein": 10.0, "Water": 40.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    lines = _sheet_lines(at)
-    assert "Pea protein: 10.00 g" in lines, lines
-    assert "Water: 40.00 ml" in lines, lines
-    assert "Total: 10.00 g · 40.00 ml" in lines, lines
+    assert _sheet_amounts(at) == [("Pea protein", 10.0), ("Water", 40.0)], \
+        _sheet_amounts(at)
+    texts = _sheet_text(at)
+    assert "10.00 g · 40.00 ml" in texts, texts
+    # The amount column cannot carry one unit, so it stays bare and the
+    # ingredient rows are headed by the summary sheet's own labels.
+    assert wording.AMOUNT_COLUMN in texts, texts
+    assert list(_summary_rows(at)) == ["Ingredient", "Pea protein (g)",
+                                       "Water (ml)", "Total",
+                                       "Firmness, target 6 N",
+                                       "Not scored", "Note"], \
+        list(_summary_rows(at))
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -4168,10 +4192,10 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
     assert not any("Scaling needs" in c.value for c in at.caption), \
         [c.value for c in at.caption]
-    # The printable sheet lists the settings and claims no total.
-    lines = _sheet_lines(at)
-    assert "Incubation temperature: 37 °C" in lines, lines
-    assert not any(l.startswith("Total") for l in lines), lines
+    # The sheet lists the settings and claims no total.
+    assert ("Incubation temperature (°C)", 37.0) in _sheet_amounts(at), \
+        _sheet_amounts(at)
+    assert wording.TOTAL_LABEL not in _sheet_text(at), _sheet_text(at)
     # Both kinds of limit are about what you weigh out, so the whole section
     # is gone: a setting's own Lowest and Highest are its bounds.
     assert [e.label for e in at.expander if e.label == "Limits (optional)"] == []
@@ -4270,11 +4294,13 @@ def test_the_formulations_download_says_what_is_in_it(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     download = _unknown(at.main, "download_button",
-                        "Download all formulations (CSV)")
+                        "Download all formulations (Excel)")
     assert download.proto.help == ("One row per formulation, with the same "
-                                   "units the screen shows. Formulations "
-                                   "marked not scored are included, with "
-                                   "their measurements blank.")
+                                   "units the screen shows, and a second "
+                                   "sheet holding the set-up they were made "
+                                   "under. Formulations marked not scored "
+                                   "are included, with their measurements "
+                                   "blank.")
 
 
 # A reloaded ingredient file is the third edit that can empty a limit of
@@ -4283,6 +4309,7 @@ def test_the_formulations_download_says_what_is_in_it(burger):
 # the lines the handler writes, including the one no other path can produce.
 REMOVED_LIMIT_LINES = """
 import streamlit as st
+from food_bo import FoodOptimizer
 from ui_helpers import render_flash
 from ui_setup import _flash_removed_limits
 
@@ -4291,6 +4318,10 @@ class _Opt:
     variables = [{"name": "Water", "category": "ingredient"},
                  {"name": "Oil", "category": "ingredient"},
                  {"name": "Salt", "category": "ingredient"}]
+    # How a limit is named lives on the optimizer, so the stub borrows the
+    # two methods that answer it rather than spelling the rule twice.
+    _ingredients = FoodOptimizer._ingredients
+    limit_label = FoodOptimizer.limit_label
 
 
 _flash_removed_limits(_Opt(), [
@@ -4490,11 +4521,11 @@ def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()                                   # the welcome panel: no project
-    assert _unknown(at.main, "download_button", "Download CSV template")
+    assert _unknown(at.main, "download_button", "Download ingredients template (Excel)")
     FoodOptimizer("named").save()
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _unknown(at.main, "download_button", "Download CSV template")
+    assert _unknown(at.main, "download_button", "Download ingredients template (Excel)")
 
 
 def test_the_tab_three_foot_never_offers_a_first_trial_over_an_open_one(burger):
@@ -4558,10 +4589,10 @@ def test_each_project_gets_its_own_file_uploaders(burger):
     at.session_state["_loaded_project"] = "burger"
     # The formulations uploader is the CSV half of `Add a formulation you
     # already made`; the radio opens on the typed-in half.
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.run()
-    assert _uploader_keys(at) == ["import_csv_burger", "ingredients_csv_burger",
-                                  "results_csv_burger"], _uploader_keys(at)
+    assert _uploader_keys(at) == ["import_file_burger", "ingredients_file_burger",
+                                  "results_file_burger"], _uploader_keys(at)
     at.sidebar.selectbox(key="project_select").select("second")
     at.run()
     _submit_button(at.sidebar, "Open").click()
@@ -4668,12 +4699,15 @@ def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
                                 note=wording.repeat_of_formulation(1))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    lines = _sheet_lines(at)
-    assert wording.note_line(wording.repeat_of_formulation(1)) in lines, lines
-    # The rows with nothing to say still carry an area to write one in — a
-    # ruled box drawn in CSS, never a run of typed underscores.
-    assert "Note:" in lines, lines
-    assert _sheet_html(at).count("class='fo-area'") == 1, _sheet_html(at)
+    texts = _sheet_text(at)
+    assert wording.repeat_of_formulation(1) in texts, texts
+    # Every sheet carries the label and a box to write a note in, whether or
+    # not the app already put one there.
+    assert texts.count(wording.NOTE) == 2, texts
+    # ... and so does the summary sheet, on the row it keeps for notes.
+    assert _summary_rows(at)[wording.NOTE] == [
+        None, None, wording.repeat_of_formulation(1), None], \
+        _summary_rows(at)[wording.NOTE]
 
 
 def test_a_settings_only_project_reads_as_one_section(ferment):
@@ -4874,7 +4908,7 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # ...and the section has no caption of its own: the one it carried only
     # restated the heading it now wears.
     labels = [e.label for e in _tab1(at).expander]
-    assert labels == ["Or upload an ingredients CSV", "Add a measurement",
+    assert labels == ["Or upload an ingredients file", "Add a measurement",
                       "How it works", "How closeness is calculated",
                       "Limits (optional)",
                       "How formulations are chosen (advanced)"], labels
@@ -5188,14 +5222,14 @@ def test_changing_the_pick_disarms_a_removal(burger):
 def test_the_upload_is_folded_away_beneath(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients CSV")
-    assert any(c.value == ("A CSV with the columns Name, Lowest, Highest "
+    fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
+    assert any(c.value == ("A file with the columns Name, Lowest, Highest "
                            "and, optionally, Unit. Extra columns become "
                            "properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
     assert [b.label for b in _unknowns(fold, "download_button")] == \
-        ["Download CSV template"]
+        ["Download ingredients template (Excel)"]
 
 
 def test_the_tab_has_no_project_wide_unit_box(burger):
@@ -5755,13 +5789,15 @@ def test_scoring_a_not_scored_formulation_with_nothing_typed_is_refused(scored):
     assert [s["formulation"] for s in FoodOptimizer("burger").skipped] == [3]
 
 
-def test_the_two_downloads_on_the_trial_name_their_format(open_batch):
+def test_the_one_download_on_the_batch_names_its_format(open_batch):
+    """One button, and it says what comes out of it. The preview expander is
+    gone with it: a sheet is looked at in the spreadsheet it opens in, not in
+    a fold halfway down a tab."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    names = [b.label for b in _unknowns(at.main, "download_button")]
-    assert "Download the batch to fill in (CSV)" in names, names
-    assert "Download one sheet per formulation (to print)" in names, names
-    assert any(e.label == "Preview the printed sheets" for e in at.expander), \
+    names = [b.label for b in _unknowns(at.tabs[1], "download_button")]
+    assert names == ["Download the batch sheets (Excel)"], names
+    assert "Preview the printed sheets" not in [e.label for e in at.expander], \
         [e.label for e in at.expander]
 
 
@@ -5984,7 +6020,7 @@ def test_the_correction_amount_boxes_carry_no_tooltip(scored):
 def test_the_import_caption_says_extra_columns_are_ignored(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.run()
     assert any(c.value.endswith(" Extra columns are ignored.")
                for c in at.caption), [c.value for c in at.caption]
@@ -5993,7 +6029,7 @@ def test_the_import_caption_says_extra_columns_are_ignored(burger):
 def test_an_extra_column_really_is_ignored(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = pd.DataFrame({
         "Pea protein": [12.0], "Methylcellulose": [1.2],
         "Juiciness": [6.0], "Firmness": [5.0], "Batch": ["whatever"],
@@ -6007,7 +6043,7 @@ def test_an_extra_column_really_is_ignored(burger):
 
 
 def test_show_amounts_rounds_like_every_other_table(burger):
-    """The bench sheet and the downloaded file both say 11.88; this table
+    """The batch sheet and the downloaded file both say 11.88; this table
     printed 11.875, which reads as a third number."""
     burger.add_process_parameter("Cook temperature", 100, 200, unit="\u00b0C")
     burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0,
@@ -6198,33 +6234,69 @@ def test_both_upload_doors_read_the_same_way(open_batch):
     """One shape for the three uploaders, and one verb for the button that
     reads whatever was put in them."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.run()
     labels = [u.label for u in _unknowns(at.main, "file_uploader")]
-    assert "Upload ingredients CSV" in labels, labels
-    assert "Upload results CSV" in labels, labels
-    assert "Upload formulations CSV" in labels, labels
+    assert "Upload ingredients (Excel or CSV)" in labels, labels
+    assert "Upload results (Excel or CSV)" in labels, labels
+    assert "Upload formulations (Excel or CSV)" in labels, labels
     assert not any(l == "Results sheet" for l in labels), labels
 
 
 # ------------------------------------------------------------------ #
-#  Tab 2 flow wave: the total each formulation is made to, and a
-#  printable sheet with rules to write on instead of typed underscores.
+#  Tab 2 flow wave: the total each formulation is made to, and the
+#  workbook the bench carries away.
 # ------------------------------------------------------------------ #
-def _sheet_html(at):
-    """The printable sheets as one string. The in-app preview renders the
-    same HTML the download carries, so there is one thing to read."""
-    return "\n".join(h.proto.body for h in _unknowns(at.main, "html"))
+def _workbook(at):
+    """The workbook behind `Download the batch sheets`, opened.
+
+    AppTest cannot reach a download button's bytes, so the file is built from
+    the same optimizer, the same batch and the same total the screen drew
+    with — which is exactly what the button hands over."""
+    opt = at.session_state["optimizer"]
+    typed = (at.session_state["scale_total"]
+             if "scale_total" in at.session_state else None)
+    total = opt.sheet_total(typed)
+    return openpyxl.load_workbook(
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch, total)))
 
 
-def _sheet_lines(at):
-    """The text of every line on the printable sheets, in order, with the
-    ruled write-in spans taken out — what the reader would read aloud."""
+def _formulation_sheets(at):
+    """Every per-formulation sheet, in order. Sheet one is the summary."""
+    book = _workbook(at)
+    return [book[name] for name in book.sheetnames[1:]]
+
+
+def _sheet_amounts(at):
+    """Every (name, number) pair the formulation sheets print: the
+    ingredients in set-up order, then the settings under them. The name
+    carries its unit wherever the variable has one."""
     out = []
-    for raw in re.findall(r"<p>(.*?)</p>", _sheet_html(at), re.S):
-        out.append(html.unescape(re.sub(r"<[^>]*>", "", raw)
-                                 .replace("&nbsp;", "")).strip())
+    for sheet in _formulation_sheets(at):
+        for row in sheet.iter_rows(values_only=True):
+            if (isinstance(row[1], str)
+                    and isinstance(row[2], (int, float))
+                    and not isinstance(row[2], bool)):
+                out.append((row[1], float(row[2])))
     return out
+
+
+def _sheet_text(at):
+    """Every word the formulation sheets carry, in order — what the reader
+    would read off the printed pages."""
+    out = []
+    for sheet in _formulation_sheets(at):
+        for row in sheet.iter_rows(values_only=True):
+            out += [value for value in row if isinstance(value, str)]
+    return out
+
+
+def _summary_rows(at):
+    """The summary sheet as {row label: [cell, ...]}, the labels being the
+    ingredients, the total, the measurements, Not scored and Note."""
+    sheet = _workbook(at).worksheets[0]
+    return {row[0]: list(row[1:]) for row in sheet.iter_rows(values_only=True)
+            if isinstance(row[0], str)}
 
 
 def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
@@ -6336,36 +6408,37 @@ def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
     assert at.session_state["own_Methylcellulose"] == 1.0
 
 
-def test_the_printable_sheet_has_rules_to_write_on_not_typed_underscores(
-        open_batch):
+def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
+    """A cell with a border is something a pen can fill in. One per
+    measurement per sheet — two formulations, two measurements each — plus
+    the tick, the note and the two blanks at the foot."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    body = _sheet_html(at)
-    assert body, "the preview renders no sheet HTML"
-    assert "_" not in body, body
-    lines = _sheet_lines(at)
-    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1" in lines, lines
-    assert "Firmness, target 6 N:" in lines, lines
-    assert "Note:" in lines, lines
-    assert wording.NOT_SCORED_CHECKBOX_SHEET in lines, lines
-    # One ruled line per measurement per sheet, and one ruled area per sheet
-    # for the note: two formulations, two measurements each.
-    assert body.count("class='fo-rule'") == 4, body
-    assert body.count("class='fo-area'") == 2, body
+    boxed = 0
+    for sheet in _formulation_sheets(at):
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value is None and cell.border.left.style:
+                    boxed += 1
+    # Two measurements, a note box and its overflow, and one tick per
+    # ingredient, on each of the two sheets.
+    assert boxed == 2 * (2 + 2 + 2), boxed
+    texts = _sheet_text(at)
+    assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
+    assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
 
 
-def test_the_preview_and_the_download_are_the_same_sheets(open_batch):
+def test_the_workbook_is_named_for_the_project_and_the_batch(open_batch):
+    """A downloaded file is found in a Downloads folder a month later,
+    beside eleven others, so it carries both names."""
+    assert wording.workbook_file_name("burger", 1) == "burger · Batch 1.xlsx"
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    import ui_batch
-    opt = at.session_state["optimizer"]
-    document = ui_batch._sheets_html(opt, None)
-    assert ui_batch._sheets_body(opt, None) in document
-    assert document.startswith("<!doctype html>")
-    assert "_" not in document, document
-    # The tab the printer dialog shows names the batch as a name, exactly as
-    # the sheet header inside it does.
-    assert "<title>burger · Batch 1</title>" in document, document
+    book = _workbook(at)
+    # The summary sheet is named for the batch, which is how an uploaded
+    # workbook is matched back to the one on the bench.
+    assert book.sheetnames[0] == wording.batch_sheet_name(1)
+    assert book.sheetnames[1:] == ["Formulation 1", "Formulation 2"]
 
 
 # ------------------------------------------------------------------ #
@@ -6428,17 +6501,18 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
     # Step 1 is the table; step 2 the two downloads and the total box; step 3
     # the grid, the counter and Save results.
     assert (_first(order, wording.STEP_MAKE_HEADING)
-            < _first(order, wording.DOWNLOAD_BENCH_SHEET)
+            < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
             < _first(order, wording.batch_total_label("g"))
             < _first(order, wording.STEP_RECORD_HEADING)
             < _first(order, wording.formulation_heading(1))
             < _first(order, "0 of 2 complete")
             < _first(order, wording.SAVE_RESULTS)), order
-    # The three folded extras come after Save, in one order, and the one
-    # button that throws the batch away is last on the screen.
+    # The two folded extras come after Save, in one order, and the one
+    # button that throws the batch away is last on the screen. (The preview
+    # of the printed sheets was the third: the workbook is looked at in the
+    # spreadsheet it opens in.)
     assert (_first(order, wording.SAVE_RESULTS)
             < _first(order, wording.ADD_OWN_EXPANDER)
-            < _first(order, wording.PREVIEW_SHEETS)
             < _first(order, wording.UPLOAD_EXPANDER)
             < _first(order, wording.GENERATE_DIFFERENT_BATCH)), order
     assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
@@ -6477,7 +6551,7 @@ def test_arming_the_discard_still_greys_everything_above_it(open_batch):
     assert _submit_button(at, wording.SAVE_RESULTS).disabled
     assert _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
     assert _unknown(at.main, "download_button",
-                    wording.DOWNLOAD_BENCH_SHEET).proto.type == "secondary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "secondary"
     # The warning is still on screen, above the Yes.
     assert any(w.value == wording.regenerate_warning(1, "1 and 2", 3)
                for w in at.warning), [w.value for w in at.warning]
@@ -6504,7 +6578,7 @@ def test_adding_your_own_formulation_keeps_what_was_typed_into_the_grid(
     assert at.session_state["f4_Firmness"] == 5.0
     assert at.session_state["f4_note"] == "second try"
     # The row that was just added has no result in it yet, so nothing is lit:
-    # the bench sheet stepped aside when the first value was typed, and Save
+    # the batch sheet stepped aside when the first value was typed, and Save
     # waits for every kept row. Filling the new row lights it again.
     assert _tab_primaries(at, 1) == [], _tab_primaries(at, 1)
     at.number_input(key="f5_Firmness").set_value(7.0)
@@ -6868,24 +6942,28 @@ def test_the_best_says_when_its_own_total_pushes_an_amount_out(made_to_a_total):
             < order.index(caution)), order
 
 
-def test_every_printed_sheet_ends_with_the_caution(open_batch):
+def test_every_sheet_ends_with_the_caution(open_batch):
     """The sheet is what the bench weighs out from, and it leaves the app: a
     caution only on screen is not on the page in the technician's hand."""
-    import re as _re
-
-    import ui_batch
     caution = ("At 200 g, Pea protein and Methylcellulose go past the "
                "amounts you allowed. Print at a smaller total, or widen them "
                "in Set up.")
-    printed = ui_batch._sheets_html(open_batch, 200.0)
-    blocks = printed.split("<div class='fo-sheet'>")[1:]
-    assert len(blocks) == 2, printed
-    for block in blocks:
-        lines = _re.findall(r"<p>(.*?)</p>", block)
-        assert lines[-1] == caution, lines
+    book = openpyxl.load_workbook(io.BytesIO(
+        open_batch.workbook_bytes(open_batch.pending_batch, 200.0)))
+    sheets = [book[name] for name in book.sheetnames[1:]]
+    assert len(sheets) == 2, book.sheetnames
+    for sheet in sheets:
+        last = [value for row in sheet.iter_rows(values_only=True)
+                for value in row if isinstance(value, str)][-1]
+        assert last == caution, last
     # A batch made as generated has nothing to caution about.
-    assert wording.AMOUNTS_YOU_ALLOWED not in \
-        ui_batch._sheets_html(open_batch, None)
+    plain = openpyxl.load_workbook(io.BytesIO(
+        open_batch.workbook_bytes(open_batch.pending_batch, None)))
+    assert not any(isinstance(value, str)
+                   and wording.AMOUNTS_YOU_ALLOWED in value
+                   for name in plain.sheetnames
+                   for row in plain[name].iter_rows(values_only=True)
+                   for value in row)
 
 
 def test_the_restore_flash_counts_the_not_scored_rows_too(project_with_history,
@@ -6965,7 +7043,7 @@ def test_a_note_survives_a_csv_round_trip(burger):
     assert "Note" in downloaded.columns, list(downloaded.columns)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
-    at.session_state["add_past_mode"] = wording.UPLOAD_A_CSV
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = downloaded
     at.run()
     _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
@@ -7364,9 +7442,11 @@ def test_each_formulation_says_what_it_is_trying(burger):
     assert table["Compared with Formulation 1"].iloc[0] == line
     # On paper there is no column header to read the cell against, so the
     # line carries it.
-    sheet = _sheet_lines(at)
-    assert sheet[1] == "Formulation 6 · Batch 2", sheet
-    assert sheet[2] == f"Compared with Formulation 1: {line}", sheet
+    sheet = _formulation_sheets(at)[0]
+    assert sheet.cell(row=1, column=1).value == \
+        "Formulation 6 · Batch 2 · burger", sheet.cell(row=1, column=1).value
+    assert sheet.cell(row=2, column=1).value == \
+        f"Compared with Formulation 1: {line}", sheet.cell(row=2, column=1).value
 
 
 def test_an_own_formulation_gets_the_same_line(burger):
@@ -7462,3 +7542,105 @@ def test_a_total_at_the_edge_of_what_the_amounts_reach_still_generates(burger):
     assert len(rows) == 3
     for row in rows:
         assert sum(row['recipe'].values()) == pytest.approx(28.0, abs=0.5)
+
+
+# ------------------------------------------------------------------ #
+#  0.4.0 §G: the workbook, from the tab it is downloaded on to the
+#  results it brings back.
+# ------------------------------------------------------------------ #
+def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
+        open_batch):
+    """The whole round trip a bench does: download the sheets, write the
+    readings in the Measured cells of the summary sheet, tick Not scored on
+    the one that never got measured, and upload the file."""
+    open_batch.add_to_pending_batch({"Pea protein": 15.0,
+                                     "Methylcellulose": 1.5})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    opt = at.session_state["optimizer"]
+    book = openpyxl.load_workbook(
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch, None)))
+    sheet = book[wording.batch_sheet_name(1)]
+    labels = [sheet.cell(row=r, column=1).value
+              for r in range(1, sheet.max_row + 1)]
+    firm = labels.index("Firmness, target 6 N") + 1
+    juice = labels.index("Juiciness (/10), target 7") + 1
+    sheet.cell(row=firm, column=2, value=6.0)
+    sheet.cell(row=juice, column=2, value=7.0)
+    sheet.cell(row=firm, column=4, value=5.0)
+    sheet.cell(row=juice, column=4, value=6.5)
+    sheet.cell(row=labels.index(wording.NOT_SCORED) + 1, column=6, value="x")
+    sheet.cell(row=labels.index(wording.NOTE) + 1, column=6,
+               value="burner failed")
+    filled = io.BytesIO()
+    book.save(filled)
+    filled.seek(0)
+    filled.name = "burger · Batch 1.xlsx"
+
+    import ui_batch
+    at.session_state["_results_upload"] = ui_batch._read_results_file(opt,
+                                                                     filled)
+    at.run()
+    assert not at.exception
+    assert not at.warning, [w.value for w in at.warning]
+    assert any("Found results for 2 of 3 formulations" in i.value
+               and wording.not_scored_counter_suffix(1) in i.value
+               for i in at.info), [i.value for i in at.info]
+    _submit_button(at, wording.SAVE_UPLOADED_RESULTS).click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.results_history == [
+        {"Firmness": 6.0, "Juiciness": 7.0},
+        {"Firmness": 5.0, "Juiciness": 6.5}], reloaded.results_history
+    # The ticked one is in the record with its reason, and with no result.
+    assert [(s["formulation"], s["note"]) for s in reloaded.skipped] == \
+        [(3, "Not scored · burner failed")], reloaded.skipped
+    assert not reloaded.pending_batch, reloaded.pending_batch
+
+
+def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
+    """Two shapes, one door. The workbook is what the app hands out; a file
+    saved out of a spreadsheet is what a bench that keeps its own sheet
+    hands back."""
+    import ui_batch
+    opt = open_batch
+    book = io.BytesIO(opt.workbook_bytes(opt.pending_batch, None))
+    book.name = "burger · Batch 1.xlsx"
+    filled = openpyxl.load_workbook(book)
+    sheet = filled[wording.batch_sheet_name(1)]
+    labels = [sheet.cell(row=r, column=1).value
+              for r in range(1, sheet.max_row + 1)]
+    sheet.cell(row=labels.index("Firmness, target 6 N") + 1, column=2,
+               value=6.0)
+    out = io.BytesIO()
+    filled.save(out)
+    out.seek(0)
+    out.name = "burger · Batch 1.xlsx"
+    from_workbook = ui_batch._read_results_file(opt, out)
+    assert list(from_workbook["Formulation"]) == [1]
+    assert from_workbook["Firmness"].iloc[0] == 6.0
+
+    plain = io.BytesIO(b"Formulation,Firmness,Juiciness\n1,6.0,7.0\n")
+    plain.name = "results.csv"
+    from_csv = ui_batch._read_results_file(opt, plain)
+    assert list(from_csv["Formulation"]) == [1]
+    assert opt.parse_batch_results(from_csv, opt.pending_batch) == \
+        [(1, {"Firmness": 6.0, "Juiciness": 7.0}, "")]
+
+
+def test_every_tab_still_has_one_lit_button_with_the_workbook_on_it(
+        open_batch):
+    """The download is the lit thing on tab 2 until a result is typed, and
+    no tab has two."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert not at.warning, [w.value for w in at.warning]
+    assert _tab_primaries(at, 1) == [wording.DOWNLOAD_BATCH_SHEETS], \
+        _tab_primaries(at, 1)
+    for index in (0, 2):
+        assert len(_tab_primaries(at, index)) <= 1, _tab_primaries(at, index)

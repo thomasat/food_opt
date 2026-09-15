@@ -23,6 +23,12 @@ ROW = "row"
 # same header) and a form field label; one spelling serves both.
 NOTE = "Note"
 
+# A formulation with no result yet: never made, or made and never measured.
+# It can be scored later from the Results tab. A concept, not a screen
+# label: the results grid, the record, the workbook and the counter all
+# say it, so it is spelled once and spelled here.
+NOT_SCORED = "Not scored"
+
 
 # ------------------------------------------------------------------ #
 # Shell: the page title, the three tabs, the sentence every irreversible
@@ -53,8 +59,8 @@ CANCEL = "Cancel"
 NEED_A_VARIABLE = "Add at least one ingredient or process setting."
 NEED_A_MEASUREMENT = "Add at least one measurement."
 
-# scale_error's and bounds_warning's arguments to outside_message: what a
-# value is outside of, and the hint scale_error appends that bounds_warning
+# scale_error's and bounds_caution's arguments to outside_message: what a
+# value is outside of, and the hint scale_error appends that bounds_caution
 # does not.
 YOUR_RANGE = "your range"
 ALLOWED_AMOUNTS = "its allowed amounts"
@@ -246,7 +252,7 @@ def welcome_steps():
     )
 
 
-DOWNLOAD_CSV_TEMPLATE = "Download CSV template"
+DOWNLOAD_TEMPLATE = "Download ingredients template (Excel)"
 
 
 # ------------------------------------------------------------------ #
@@ -471,25 +477,6 @@ BATCH_TOTAL_HELP = (
 # and the help says so once.
 BATCH_TOTAL_PLACEHOLDER = "e.g. 150"
 
-SHEET_GOAL_SEPARATOR = ", "
-TOTAL_PREFIX = "Total: "
-# The label above the ruled area a technician writes the note in. Nothing on
-# a sheet is a run of typed underscores any more: the rules are drawn in CSS,
-# so they stay straight however long the label beside them is.
-NOTE_SHEET_LABEL = f"{NOTE}:"
-
-
-def note_line(note):
-    return f"{NOTE}: {note}"
-
-
-NOT_SCORED_CHECKBOX_SHEET = "Not scored [  ]"
-
-DOWNLOAD_BENCH_SHEET = "Download the batch to fill in (CSV)"
-DOWNLOAD_FORMULATION_SHEETS = "Download one sheet per formulation (to print)"
-PREVIEW_SHEETS = "Preview the printed sheets"
-
-
 def sheets_show_total_caption(total_text):
     """'Sheets show each formulation made to 150 g.' — the one line on the
     tab that names the number the files were written for."""
@@ -548,9 +535,6 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
-# A formulation with no result yet: never made, or made and never measured.
-# It can be scored later from the Results tab.
-NOT_SCORED = "Not scored"
 NOT_SCORED_HELP = f"Say why in {NOTE}. It stays with the formulation."
 
 NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
@@ -603,16 +587,16 @@ def batch_recorded_flash(no):
     return f"{BATCH_CAP} {no} recorded."
 
 
-UPLOAD_EXPANDER = "Or upload results from a CSV"
+UPLOAD_EXPANDER = "Or upload results from a file"
 UPLOAD_HELP_CAPTION = (
-    "Fill in the CSV you downloaded above — one column per measurement — "
-    "and upload it here. Rows are matched on Formulation number."
+    "Fill in the Measured cells on the batch sheet you downloaded above and "
+    "upload the file here. Formulations are matched on their number."
 )
-UPLOAD_RESULTS_CSV = "Upload results CSV"
+UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
 CHECK_THIS_FILE = "Check this file"
-CSV_UNREADABLE = (
-    "This file could not be read as a CSV. If it came "
-    "from Excel, use File > Save As and pick CSV format."
+FILE_UNREADABLE = (
+    "This file could not be read. Upload the workbook you downloaded above, "
+    "or a spreadsheet saved from it."
 )
 
 
@@ -708,7 +692,7 @@ def made_before_units_caption(unit):
             f"are read as {unit}. Set the right unit below.")
 
 
-UPLOAD_INGREDIENTS_EXPANDER = "Or upload an ingredients CSV"
+UPLOAD_INGREDIENTS_EXPANDER = "Or upload an ingredients file"
 
 NAME_LABEL = "Name"
 SETTING_NAME_PLACEHOLDER = "e.g. Cook temperature"
@@ -844,10 +828,10 @@ def deleted(name):
 
 REPLACE_INGREDIENTS_BUTTON = "Replace ingredients"
 LOAD_INGREDIENTS_BUTTON = "Load ingredients"
-INGREDIENTS_CSV_CAPTION = ("A CSV with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit. Extra columns become "
-                           "properties you can set limits on.")
-UPLOAD_INGREDIENTS_CSV_LABEL = "Upload ingredients CSV"
+INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
+                            "and, optionally, Unit. Extra columns become "
+                            "properties you can set limits on.")
+UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
 
 def blank_unit_cell_help(unit):
@@ -855,9 +839,8 @@ def blank_unit_cell_help(unit):
             f"as {unit}.")
 
 
-CSV_UNREADABLE_RETRY = ("This file could not be read as a CSV. If it came "
-                        "from Excel, use File > Save As and pick CSV "
-                        "format, then try again.")
+FILE_UNREADABLE_RETRY = ("This file could not be read. Upload a spreadsheet "
+                         "with one row per ingredient, and try again.")
 FILE_ALREADY_LOADED_CAPTION = ("This file is already loaded. Choose another "
                                "to replace the ingredient list.")
 
@@ -1265,11 +1248,12 @@ SORT_NEWEST_FIRST = "Newest first"
 SORT_BATCH_ORDER = f"{BATCH_CAP} order"
 SORT_OPTIONS = [SORT_BEST_FIRST, SORT_NEWEST_FIRST, SORT_BATCH_ORDER]
 SHOW_AMOUNTS_TOGGLE = "Show amounts"
-DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (CSV)"
+DOWNLOAD_ALL_FORMULATIONS_BUTTON = "Download all formulations (Excel)"
 DOWNLOAD_ALL_FORMULATIONS_HELP = ("One row per formulation, with the same "
-                                  "units the screen shows. Formulations "
-                                  "marked not scored are included, with "
-                                  "their measurements blank.")
+                                  "units the screen shows, and a second "
+                                  "sheet holding the set-up they were made "
+                                  "under. Formulations marked not scored are "
+                                  "included, with their measurements blank.")
 
 # ---------------------------------------------------------------- #
 # `Edit past formulations`: one collapsed section for every way the
@@ -1391,10 +1375,10 @@ def formulations_deleted(numbers_text):
 ADD_PAST_FORMULATION_LABEL = f"Record a {FORMULATION} you already made"
 ADD_PAST_FORMULATION_HEADING = "##### " + ADD_PAST_FORMULATION_LABEL
 TYPE_IT_IN = "Type it in"
-UPLOAD_A_CSV = "Upload a CSV"
+UPLOAD_A_FILE = "Upload a file"
 # What a formulation made before this project existed is noted as, and what
 # the Note box opens holding. food_bo.import_formulation defaults to the same
-# word, so a row typed in and a row read off a CSV read alike.
+# word, so a row typed in and a row read off a file read alike.
 IMPORTED_NOTE = "Made earlier"
 ADD_THIS_FORMULATION = f"Record this {FORMULATION}"
 
@@ -1418,7 +1402,7 @@ def import_columns_caption_empty():
             "exactly.")
 
 
-UPLOAD_FORMULATIONS_CSV_LABEL = f"Upload {FORMULATION}s CSV"
+UPLOAD_FORMULATIONS_FILE_LABEL = f"Upload {FORMULATION}s (Excel or CSV)"
 
 
 def missing_columns(names_text):
@@ -1463,3 +1447,97 @@ MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {BATCH}"
 ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
                                 "formulations again. Nothing recorded has "
                                 "been lost.")
+
+
+# ------------------------------------------------------------------ #
+# The workbook. One Excel file carries the batch to the bench: a summary
+# sheet the whole batch is weighed out from, and one sheet per
+# formulation to carry, tick and write on. Every word the kitchen reads
+# off the paper is here — the sheet is the one screen the app cannot see
+# being used, so it says exactly what the screen says.
+# ------------------------------------------------------------------ #
+DOWNLOAD_BATCH_SHEETS = f"Download the {BATCH} sheets (Excel)"
+
+# The summary sheet's own columns. The amount column carries its unit
+# (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
+TICK_COLUMN = "Tick"
+PERCENT_COLUMN = "%"
+MEASURED_COLUMN = "Measured"
+TOTAL_LABEL = "Total"
+SETTINGS_SHEET_HEADING = "Settings"
+MEASUREMENTS_SHEET_HEADING = "Measurements"
+LIMITS_SHEET_HEADING = "Limits"
+SHEET_NONE = "None"
+SHEET_GOAL_SEPARATOR = ", "
+# A box to tick with a pen, not a run of typed underscores.
+NOT_SCORED_CHECKBOX_SHEET = f"{NOT_SCORED} ☐"
+# Who made it and when. A sheet comes back from the bench days later and
+# is filed; without these two blanks nothing on the page says whose work
+# it was.
+MADE_BY_FOOTER = "Made by ____ on ____"
+
+ALL_FORMULATIONS_SHEET = f"All {FORMULATION}s"
+SET_UP_SHEET = "Set-up"
+INGREDIENTS_SHEET = "Ingredients"
+
+
+def batch_sheet_name(batch_no):
+    """'Batch 2' — the summary sheet's name, and the sheet an uploaded
+    workbook is read back from."""
+    return f"{BATCH_CAP} {batch_no}"
+
+
+def formulation_sheet_name(no):
+    """'Formulation 4' — one formulation's own sheet, and the summary
+    sheet's column header for it."""
+    return f"{FORMULATION_CAP} {no}"
+
+
+def sheet_title(no, batch_no, project_name):
+    """'Formulation 4 · Batch 2 · Sample project' — the first line of one
+    formulation's sheet. The project's name is on it because the sheet
+    leaves the app and the bench works on more than one."""
+    return f"{FORMULATION_CAP} {no} · {BATCH_CAP} {batch_no} · {project_name}"
+
+
+def sheet_measurement_label(label, goal):
+    """'Firmness (N), target 6 N' — a measurement and what a good number
+    looks like, as one row label on the summary sheet. An uploaded sheet
+    is matched back on this exact text, so it is written once."""
+    return f"{label}{SHEET_GOAL_SEPARATOR}{goal}"
+
+
+def workbook_file_name(project_name, batch_no):
+    """'Sample project · Batch 2.xlsx' — what the download is called in
+    the Downloads folder, a month later, beside eleven others."""
+    return f"{project_name} · {batch_sheet_name(batch_no)}.xlsx"
+
+
+def all_formulations_file_name(project_name):
+    return f"{project_name} · {ALL_FORMULATIONS_SHEET.lower()}.xlsx"
+
+
+INGREDIENTS_TEMPLATE_FILE_NAME = "ingredients_template.xlsx"
+
+WORKBOOK_UNREADABLE = ("This file could not be read as a workbook. Upload "
+                       "the file you downloaded from this " + BATCH + ".")
+
+
+def workbook_sheet_missing(wanted, found_text):
+    """The sheet named after the open batch is not in the uploaded file —
+    usually last week's workbook, downloaded twice. It names the sheet it
+    looked for and the ones it found, because both are on screen nowhere
+    else."""
+    return (f"This workbook has no sheet called {wanted}. It has "
+            f"{found_text}. Download the sheets for {wanted} and fill "
+            f"those in.")
+
+
+def workbook_no_formulations(wanted):
+    return (f"The {wanted} sheet has no formulation columns. Upload the "
+            f"file you downloaded from this {BATCH}.")
+
+
+def workbook_nothing_filled_in(wanted):
+    return (f"Nothing is filled in on the {wanted} sheet. Write a number "
+            f"in a Measured cell, or tick {NOT_SCORED}.")

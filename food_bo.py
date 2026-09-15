@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import re
 from datetime import datetime, timezone
@@ -6,6 +7,10 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 import torch
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 from torch.quasirandom import SobolEngine
 
 from botorch.acquisition import (
@@ -145,7 +150,7 @@ def fmt_setting(value, unit=""):
 def outside_message(name, value, low, high, unit, what, tail=""):
     """'Firmness 12 N is outside your range of 0 to 10 N.' — the one builder
     for every out-of-bounds line, so a measurement typed into the grid, one
-    read off an uploaded sheet and an amount imported from a CSV are refused
+    read off an uploaded sheet and an amount imported from a file are refused
     in the same words. `what` names the bounds, `tail` is any sentence that
     follows. A "/"-style unit stays off the numbers, as it does everywhere."""
     unit = unit_after_number(unit)
@@ -187,6 +192,139 @@ def goal_line(obj):
         return join_unit(f"target {float(obj['target']):g}",
                          unit_after_number(obj.get('unit')))
     return "lower is better" if obj.get('goal') == 'min' else "higher is better"
+
+
+def goal_text(obj):
+    """'Target 6 N', 'Higher is better', 'Lower is better' — the Goal cell of
+    the measurements table on tab 1 and of the workbook's Set-up sheet. A
+    '/10' rides on the measurement's own name instead of on every number in
+    its row."""
+    if obj['goal'] == 'target':
+        return join_unit(wording.target_value(obj['target']),
+                         unit_after_number(obj.get('unit')))
+    return wording.GOAL_LABELS.get(obj['goal'], obj['goal'])
+
+
+def measurement_range_text(obj):
+    """'0 to 10 N' — the Range cell, in the measurement's own unit."""
+    return join_unit(wording.range_text(obj['min_val'], obj['max_val']),
+                     unit_after_number(obj.get('unit')))
+
+
+# --------------------------------------------------------------------- #
+#  The workbook: what the bench carries away from the screen.
+# --------------------------------------------------------------------- #
+# Eight pastel fills, cycled in set-up order, so one ingredient wears one
+# colour on the summary sheet and on every formulation sheet in the file.
+# A technician weighing eight bowls reads down a colour, not a name.
+SHEET_COLOURS = ("FFF1E0", "E7F3E8", "E3EEF7", "F2E8F4",
+                 "FBF6DC", "FCE8E6", "E2F1F1", "EDEDED")
+
+# What a browser is told a workbook is. Not screen text: the one string
+# every download button hands to Streamlit.
+WORKBOOK_MIME = ("application/vnd.openxmlformats-officedocument"
+                 ".spreadsheetml.sheet")
+
+_BOLD = Font(bold=True)
+_TITLE_FONT = Font(bold=True, size=14)
+# A cell to write in is a box on paper. Nothing on a sheet is a run of
+# typed underscores: a rule drawn by the spreadsheet stays straight.
+_THIN = Side(style="thin", color="FF999999")
+_WRITE_IN = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+_TWO_DP = "0.00"
+_ONE_DP = "0.0"
+
+
+# What a technician's tick looks like once a spreadsheet has read it: a
+# cross, a tick, a letter, TRUE. A cell holding 0, "no" or "false" is
+# somebody answering the question rather than leaving it blank.
+_NOT_TICKED = {"", "0", "0.0", "no", "n", "false", "none", "-"}
+
+
+def _is_ticked(value):
+    """True when the Not scored box on a sheet has been marked."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False
+    return str(value).strip().lower() not in _NOT_TICKED
+
+
+def _write_cell(sheet, row, column, value, bold=False, fill=None,
+                number_format=None, border=False, wrap=False):
+    """One cell, with the furniture the sheets use over and over."""
+    cell = sheet.cell(row=row, column=column, value=value)
+    if bold:
+        cell.font = _BOLD
+    if fill is not None:
+        cell.fill = fill
+    if number_format is not None:
+        cell.number_format = number_format
+    if border:
+        cell.border = _WRITE_IN
+    if wrap:
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    return cell
+
+
+def _set_widths(sheet, widths):
+    for i, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(i)].width = width
+
+
+def _fit_to_page(sheet, last_row, last_column, landscape=False):
+    """One page wide, portrait unless the batch is too wide for it. A sheet
+    that prints its last two ingredients on a second page is a sheet the
+    bench weighs out wrong."""
+    sheet.page_setup.orientation = ("landscape" if landscape else "portrait")
+    sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0 if landscape else 1
+    sheet.print_area = f"A1:{get_column_letter(max(1, last_column))}{max(1, last_row)}"
+
+
+def _write_frame(sheet, frame, freeze=True):
+    """A DataFrame onto a sheet: bold headers, the values below, and columns
+    wide enough to read without dragging one."""
+    columns = list(frame.columns)
+    for c, name in enumerate(columns, start=1):
+        _write_cell(sheet, 1, c, str(name), bold=True)
+    for r, (_, row) in enumerate(frame.iterrows(), start=2):
+        for c, name in enumerate(columns, start=1):
+            value = row[name]
+            if value is None or (isinstance(value, float) and np.isnan(value)):
+                continue
+            if isinstance(value, (np.integer,)):
+                value = int(value)
+            elif isinstance(value, (np.floating,)):
+                value = float(value)
+            _write_cell(sheet, r, c, value)
+    _set_widths(sheet, [min(40, max(10, len(str(name)) + 4)) for name in columns])
+    if freeze and columns:
+        sheet.freeze_panes = "A2"
+    return sheet
+
+
+def frame_workbook(sheets):
+    """One workbook from {sheet name: DataFrame}. The ingredients template
+    goes out this way, so the file a project starts from is the same kind of
+    file every other download is."""
+    book = Workbook()
+    first = True
+    for name, frame in sheets.items():
+        sheet = book.active if first else book.create_sheet()
+        sheet.title = name
+        _write_frame(sheet, frame)
+        first = False
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+def ingredients_template_workbook(path):
+    """The ingredients template as a workbook: the sample project's own
+    ingredient file, in the shape the uploader reads back. One file to fill
+    in and hand back, rather than a comma-separated file to be talked
+    through a spreadsheet's import dialog."""
+    return frame_workbook({wording.INGREDIENTS_SHEET: pd.read_csv(path)})
 
 
 def _fmt_weight(w):
@@ -1645,7 +1783,12 @@ class FoodOptimizer:
         return items if limit is None else items[:limit]
 
     def batch_csv(self, batch, scale_to=None):
-        """The sheet the lab fills in: the global Formulation numbers, the
+        """The batch as a comma-separated table. Nothing downloads this any
+        more — the bench gets the workbook — but it is still the shape an
+        upload accepts from a bench that keeps its own spreadsheet, and it
+        is what those tests fill in.
+
+        The global Formulation numbers, the
         amounts to weigh out with their units in the headers and rounded as
         the screen rounds them, the same total the screen shows, one blank
         column per measurement, and a Note column. Its columns run in the
@@ -1687,18 +1830,24 @@ class FoodOptimizer:
                    + [o['name'] for o in objs] + ["Note"])
         return pd.DataFrame(rows, columns=columns).to_csv(index=False)
 
-    def parse_batch_results(self, df, batch):
+    def parse_batch_results(self, df, batch, with_skipped=False):
         """Match an uploaded results sheet to the open batch.
 
         The sheet needs a Formulation column holding the global numbers from
-        the downloaded bench sheet. `Recipe` and `Experiment` are accepted as
-        legacy headers and read as 1-based positions in the batch. Every
-        measurement needs its own column — an absent column is refused
-        outright (a typo'd header would otherwise silently drop that
+        the downloaded workbook (results_from_workbook transposes the summary
+        sheet into exactly this shape). `Recipe` and `Experiment` are
+        accepted as legacy headers and read as 1-based positions in the
+        batch. Every measurement needs its own column — an absent column is
+        refused outright (a typo'd header would otherwise silently drop that
         measurement from every row). A blank cell in a column that IS present
         means that one result could not be scored, so the row is stored as a
-        partial result; a row with nothing filled in is refused. Returns
-        [(formulation number, {measurement: value}, note), ...].
+        partial result; a row with nothing filled in is refused.
+
+        A `Not scored` column is the sheet's own tick box: a row marked there
+        is not a row missing its numbers, it is a formulation nobody scored,
+        and it is kept apart rather than refused. Returns [(formulation
+        number, {measurement: value}, note), ...], or that and the not-scored
+        rows as [(number, note), ...] when `with_skipped` is set.
         """
         rows = self._batch_rows(batch)
         numbers = [r['formulation'] for r in rows]
@@ -1711,8 +1860,8 @@ class FoodOptimizer:
             key_col, legacy = norm["experiment"], True
         else:
             raise ValueError(
-                "The sheet needs a Formulation column with the numbers from "
-                "the downloaded bench sheet."
+                "The sheet needs a Formulation column with the numbers "
+                "from the batch sheets you downloaded."
             )
         col_for, missing = {}, []
         for obj in self.objectives:
@@ -1724,10 +1873,11 @@ class FoodOptimizer:
         if missing:
             raise ValueError("Missing columns: " + ", ".join(missing))
         note_col = norm.get("note")
+        skipped_col = norm.get(wording.NOT_SCORED.lower())
         if len(df) == 0:
             raise ValueError("The sheet has no result rows.")
         in_batch = ", ".join(str(n) for n in numbers)
-        parsed, seen = [], set()
+        parsed, skipped, seen = [], [], set()
         for _, sheet_row in df.iterrows():
             raw_no = sheet_row[key_col]
             try:
@@ -1754,6 +1904,17 @@ class FoodOptimizer:
                     f"Formulation {number} appears more than once in the sheet."
                 )
             seen.add(number)
+            note = ""
+            if note_col is not None:
+                raw_note = sheet_row[note_col]
+                if raw_note is not None and not (isinstance(raw_note, float)
+                                                 and np.isnan(raw_note)):
+                    note = str(raw_note).strip()
+            if skipped_col is not None and _is_ticked(sheet_row[skipped_col]):
+                # The box was ticked on the sheet: no result to read, and
+                # nothing wrong with the row.
+                skipped.append((number, note))
+                continue
             results = {}
             for name, col in col_for.items():
                 val = sheet_row[col]
@@ -1778,14 +1939,8 @@ class FoodOptimizer:
                 raise ValueError(
                     f"Formulation {number} has no measurements filled in."
                 )
-            note = ""
-            if note_col is not None:
-                raw_note = sheet_row[note_col]
-                if raw_note is not None and not (isinstance(raw_note, float)
-                                                 and np.isnan(raw_note)):
-                    note = str(raw_note).strip()
             parsed.append((number, results, note))
-        return parsed
+        return (parsed, skipped) if with_skipped else parsed
 
     def history_csv(self):
         """Every formulation the project holds as CSV — the ones with results
@@ -1793,7 +1948,7 @@ class FoodOptimizer:
         Batch, Recorded, Overall score) and the Note.
 
         Amount and measurement columns carry their own units, exactly as the
-        All formulations table and the bench sheet write them: a file whose
+        All formulations table and the batch sheets write them: a file whose
         "Water" column meant millilitres while the screen said "Water (ml)"
         was the one place in the app an amount had no unit on it. Measurements
         run by importance, as they do on every screen.
@@ -1808,6 +1963,327 @@ class FoodOptimizer:
         backfilled to 0 in X_history for earlier rows, while recipe_history is
         never backfilled and would export a blank there.
         """
+        return self.history_export_frame().to_csv(index=False)
+
+    # ------------------------------------------------------------------ #
+    #  The workbook
+    # ------------------------------------------------------------------ #
+
+    def _ingredients(self):
+        return [v for v in self.variables
+                if v.get('category', 'ingredient') == 'ingredient']
+
+    def _process_settings(self):
+        return [v for v in self.variables if v.get('category') == 'process']
+
+    def _ingredient_fill(self, name):
+        """The colour this ingredient wears on every sheet of the workbook.
+        Keyed on its position in the set-up order, which is the order every
+        sheet lists it in, so the colours run down the page in sequence."""
+        names = [v['name'] for v in self._ingredients()]
+        if name not in names:
+            return None
+        return PatternFill("solid",
+                           fgColor=SHEET_COLOURS[names.index(name)
+                                                 % len(SHEET_COLOURS)])
+
+    def _percent_of(self, recipe, var, total):
+        """`%` — one amount as a share of the formulation total, to one
+        decimal. The share is of the total the sheet was written to, so the
+        column adds up to 100 for the numbers printed beside it. Where the
+        ingredients are in more than one unit there is no one total to be a
+        share of, so each amount is a share of its own unit's total."""
+        amount = float(recipe.get(var['name'], 0.0))
+        if total is not None and self.one_amount_unit() is not None:
+            base = float(total)
+        else:
+            base = dict(self.unit_totals(recipe)).get(self.unit_of(var['name']), 0.0)
+        if not base:
+            return None
+        return round(amount / float(base) * 100.0, 1)
+
+    def _measurement_sheet_label(self, obj):
+        """'Firmness, target 6 N' — how a measurement heads its row on the
+        summary sheet and its line on a formulation's own sheet. An uploaded
+        workbook is matched back on this exact text."""
+        return wording.sheet_measurement_label(
+            label_with_unit(obj['name'], obj.get('unit')), goal_line(obj))
+
+    def workbook_bytes(self, batch, total=None):
+        """The open batch as one Excel file: a summary sheet the whole batch
+        is weighed out from, and one sheet per formulation to carry, tick and
+        write on.
+
+        `total` is what every formulation is made to — the project's own
+        total, or the one typed on tab 2 — and the amounts are written for
+        it, so the file and the screen can never show different numbers.
+        With no total the amounts are as generated and each `%` is a share of
+        that formulation's own sum.
+
+        The file comes back the same way: the summary sheet's Measured cells
+        are read straight back off it by results_from_workbook.
+        """
+        rows = self._batch_rows(batch)
+        book = Workbook()
+        summary = book.active
+        summary.title = wording.batch_sheet_name(self.pending_batch_no)
+        self._write_summary_sheet(summary, rows, total)
+        for row in rows:
+            self._write_formulation_sheet(
+                book.create_sheet(
+                    wording.formulation_sheet_name(row['formulation'])),
+                row, total)
+        buffer = io.BytesIO()
+        book.save(buffer)
+        return buffer.getvalue()
+
+    def _write_summary_sheet(self, sheet, rows, total):
+        """One column per formulation, one row per ingredient: the sheet a
+        bench weighs a whole batch out from, and the one it writes the
+        results back onto."""
+        ingredients, process = self._ingredients(), self._process_settings()
+        objs = self.measurements_by_importance()
+        recipes = [self.scaled_recipe(row['recipe'], total) for row in rows]
+
+        _write_cell(sheet, 1, 1, wording.KIND_INGREDIENT, bold=True)
+        for j, row in enumerate(rows):
+            _write_cell(sheet, 1, 2 + 2 * j,
+                        wording.formulation_sheet_name(row['formulation']),
+                        bold=True)
+            _write_cell(sheet, 1, 3 + 2 * j, wording.PERCENT_COLUMN, bold=True)
+
+        r = 2
+        for var in ingredients:
+            fill = self._ingredient_fill(var['name'])
+            _write_cell(sheet, r, 1, self._amount_column(var['name']),
+                        bold=True, fill=fill)
+            for j, recipe in enumerate(recipes):
+                _write_cell(sheet, r, 2 + 2 * j,
+                            round(float(recipe.get(var['name'], 0.0)), 2),
+                            fill=fill, number_format=_TWO_DP)
+                _write_cell(sheet, r, 3 + 2 * j,
+                            self._percent_of(recipe, var, total),
+                            fill=fill, number_format=_ONE_DP)
+            r += 1
+        if ingredients:
+            _write_cell(sheet, r, 1, self.total_column(), bold=True)
+            one_unit = self.one_amount_unit() is not None
+            for j, recipe in enumerate(recipes):
+                cell = _write_cell(sheet, r, 2 + 2 * j,
+                                   self._total_cell(recipe), bold=True)
+                if one_unit:
+                    cell.number_format = _TWO_DP
+                    _write_cell(sheet, r, 3 + 2 * j, 100.0, bold=True,
+                                number_format=_ONE_DP)
+            r += 1
+        # The settings are on the sheet too: they are dialled in, not weighed
+        # out, so they carry no share of the total and no colour.
+        for var in process:
+            _write_cell(sheet, r, 1, self._amount_column(var['name']), bold=True)
+            for j, recipe in enumerate(recipes):
+                # A setting is dialled in, not weighed: two decimals at most,
+                # as fmt_setting writes it on every screen.
+                _write_cell(sheet, r, 2 + 2 * j,
+                            round(float(recipe.get(var['name'], 0.0)), 2))
+            r += 1
+        r += 1   # a blank line: what to make above it, what to write below
+
+        for obj in objs:
+            _write_cell(sheet, r, 1, self._measurement_sheet_label(obj))
+            for j in range(len(rows)):
+                _write_cell(sheet, r, 2 + 2 * j, None, border=True)
+            r += 1
+        _write_cell(sheet, r, 1, wording.NOT_SCORED)
+        for j in range(len(rows)):
+            _write_cell(sheet, r, 2 + 2 * j, None, border=True)
+        r += 1
+        _write_cell(sheet, r, 1, wording.NOTE)
+        for j, row in enumerate(rows):
+            _write_cell(sheet, r, 2 + 2 * j, row.get('note') or None,
+                        border=True)
+
+        _set_widths(sheet, [34] + [14, 7] * max(1, len(rows)))
+        sheet.freeze_panes = "B2"
+        # A batch of six formulations is twelve columns wide; portrait would
+        # print it in slices.
+        _fit_to_page(sheet, r, 1 + 2 * len(rows), landscape=len(rows) > 2)
+
+    def _write_formulation_sheet(self, sheet, row, total):
+        """One formulation, as the page a technician carries to the bench:
+        what it is trying, what to weigh out in the order it is set up, what
+        to dial in, what to measure, and room to sign it."""
+        recipe = self.scaled_recipe(row['recipe'], total)
+        ingredients, process = self._ingredients(), self._process_settings()
+        unit = self.one_amount_unit()
+
+        title = _write_cell(sheet, 1, 1,
+                            wording.sheet_title(row['formulation'],
+                                                self.pending_batch_no,
+                                                self.project_name))
+        title.font = _TITLE_FONT
+        _write_cell(sheet, 2, 1, wording.compared_with_line(
+            self.compared_with_column(),
+            self.compared_with_text(row['recipe'], scale_to=total)))
+
+        r = 4
+        if ingredients:
+            amount_header = (f"{wording.AMOUNT_COLUMN} ({unit})" if unit
+                             else wording.AMOUNT_COLUMN)
+            for c, name in enumerate(
+                    (wording.TICK_COLUMN, wording.KIND_INGREDIENT,
+                     amount_header, wording.PERCENT_COLUMN), start=1):
+                _write_cell(sheet, r, c, name, bold=True)
+            r += 1
+            for var in ingredients:
+                fill = self._ingredient_fill(var['name'])
+                _write_cell(sheet, r, 1, None, fill=fill, border=True)
+                _write_cell(sheet, r, 2, var['name'], bold=True, fill=fill)
+                _write_cell(sheet, r, 3,
+                            round(float(recipe.get(var['name'], 0.0)), 2),
+                            fill=fill, number_format=_TWO_DP)
+                _write_cell(sheet, r, 4, self._percent_of(recipe, var, total),
+                            fill=fill, number_format=_ONE_DP)
+                r += 1
+            _write_cell(sheet, r, 2, wording.TOTAL_LABEL, bold=True)
+            cell = _write_cell(sheet, r, 3, self._total_cell(recipe), bold=True)
+            if self.one_amount_unit() is not None:
+                cell.number_format = _TWO_DP
+                _write_cell(sheet, r, 4, 100.0, bold=True,
+                            number_format=_ONE_DP)
+            r += 2
+
+        if process:
+            _write_cell(sheet, r, 2, wording.SETTINGS_SHEET_HEADING, bold=True)
+            r += 1
+            for var in process:
+                _write_cell(sheet, r, 2, self._amount_column(var['name']))
+                _write_cell(sheet, r, 3,
+                            round(float(recipe.get(var['name'], 0.0)), 2))
+                r += 1
+            r += 1
+
+        _write_cell(sheet, r, 2, wording.MEASUREMENTS_SHEET_HEADING, bold=True)
+        r += 1
+        _write_cell(sheet, r, 2, wording.MEASUREMENT_COLUMN, bold=True)
+        _write_cell(sheet, r, 3, wording.TARGET_LABEL, bold=True)
+        _write_cell(sheet, r, 4, wording.MEASURED_COLUMN, bold=True)
+        r += 1
+        for obj in self.measurements_by_importance():
+            _write_cell(sheet, r, 2, label_with_unit(obj['name'], obj.get('unit')))
+            _write_cell(sheet, r, 3, goal_line(obj))
+            _write_cell(sheet, r, 4, None, border=True)
+            r += 1
+        r += 1
+        _write_cell(sheet, r, 2, wording.NOT_SCORED_CHECKBOX_SHEET)
+        r += 1
+        _write_cell(sheet, r, 2, wording.NOTE)
+        note = str(row.get('note') or "").strip()
+        _write_cell(sheet, r, 3, note or None, border=True, wrap=True)
+        _write_cell(sheet, r, 4, None, border=True)
+        r += 2
+        # The sheet leaves the app and comes back days later: without these
+        # two blanks nothing on the page says whose work it was.
+        _write_cell(sheet, r, 2, wording.MADE_BY_FOOTER)
+        caution = self.scaled_caution([row['recipe']], total)
+        if caution:
+            r += 2
+            _write_cell(sheet, r, 2, caution)
+        _set_widths(sheet, [6, 34, 14, 14])
+        _fit_to_page(sheet, r, 4)
+
+    def results_from_workbook(self, source, batch_no=None):
+        """A filled-in workbook read back as one row per formulation, in the
+        shape parse_batch_results reads.
+
+        The summary sheet is a column per formulation — that is what a bench
+        can write on — and the parser wants a row per formulation, so it is
+        transposed here. The sheet is found by the batch's own name: last
+        week's workbook, downloaded twice, is the mistake this catches.
+        """
+        wanted = wording.batch_sheet_name(
+            self.pending_batch_no if batch_no is None else batch_no)
+        try:
+            book = pd.ExcelFile(source)
+        except Exception:
+            raise ValueError(wording.WORKBOOK_UNREADABLE)
+        if wanted not in book.sheet_names:
+            raise ValueError(wording.workbook_sheet_missing(
+                wanted, number_list(book.sheet_names)))
+        return self._transpose_batch_sheet(book.parse(wanted), wanted)
+
+    def _transpose_batch_sheet(self, frame, wanted):
+        """The summary sheet's columns turned back into rows. Row labels are
+        matched on the text the sheet was written with; a formulation whose
+        column is untouched is left out, because half a batch measured today
+        and the rest tomorrow is how a bench works."""
+        labels = [str(v).strip() for v in frame.iloc[:, 0].tolist()]
+        columns = list(frame.columns)[1:]
+        by_measurement = {}
+        for obj in self.objectives:
+            wanted_labels = {self._measurement_sheet_label(obj).lower(),
+                             label_with_unit(obj['name'],
+                                             obj.get('unit')).lower(),
+                             str(obj['name']).strip().lower()}
+            for i, label in enumerate(labels):
+                if label.lower() in wanted_labels:
+                    by_measurement[obj['name']] = i
+                    break
+        not_scored_row = next((i for i, label in enumerate(labels)
+                               if label.lower() == wording.NOT_SCORED.lower()),
+                              None)
+        note_row = next((i for i, label in enumerate(labels)
+                         if label.lower() == wording.NOTE.lower()), None)
+
+        rows, found_any = [], False
+        for column in columns:
+            number = self._formulation_column_number(column)
+            if number is None:
+                continue
+            found_any = True
+            values = frame[column].tolist()
+
+            def cell(index):
+                if index is None or index >= len(values):
+                    return None
+                value = values[index]
+                if value is None or (isinstance(value, float) and np.isnan(value)):
+                    return None
+                return value
+
+            item = {"Formulation": number}
+            for name, index in by_measurement.items():
+                item[name] = cell(index)
+            ticked = cell(not_scored_row)
+            item[wording.NOT_SCORED] = "" if ticked is None else str(ticked)
+            note = cell(note_row)
+            item[wording.NOTE] = "" if note is None else str(note)
+            if (all(item.get(name) is None for name in by_measurement)
+                    and not _is_ticked(item[wording.NOT_SCORED])):
+                # Nothing written in this column: the batch is half done, not
+                # wrongly filled in.
+                continue
+            rows.append(item)
+        if not found_any:
+            raise ValueError(wording.workbook_no_formulations(wanted))
+        if not rows:
+            raise ValueError(wording.workbook_nothing_filled_in(wanted))
+        columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
+                       + [wording.NOT_SCORED, wording.NOTE])
+        return pd.DataFrame(rows, columns=columns_out)
+
+    @staticmethod
+    def _formulation_column_number(column):
+        """The number out of a `Formulation 4` column header, or None for
+        any other column (the `%` columns pandas names %, %.1, %.2 included)."""
+        match = re.fullmatch(
+            re.escape(wording.FORMULATION_CAP) + r"\s+(\d+)(\.\d+)?",
+            str(column).strip())
+        return int(match.group(1)) if match else None
+
+    def history_export_frame(self):
+        """Every formulation the project holds as one table — the download on
+        tab 3, whether it leaves as a workbook or as a comma-separated file.
+        See history_csv for what each column is."""
         objs = self.measurements_by_importance()
         rows = []
         for i, x in enumerate(self.X_history):
@@ -1845,7 +2321,167 @@ class FoodOptimizer:
                    + [self._amount_column(v['name']) for v in self.variables]
                    + [self._measurement_column(o) for o in objs]
                    + ["Note"])
-        return pd.DataFrame(rows, columns=columns).to_csv(index=False)
+        return pd.DataFrame(rows, columns=columns)
+
+    def all_formulations_workbook(self):
+        """Everything the project holds, in one file to send on: every
+        formulation with its amounts and results, and the set-up they were
+        made under. A table of numbers with nothing saying what the targets
+        were is a table nobody can read six months later."""
+        book = Workbook()
+        sheet = book.active
+        sheet.title = wording.ALL_FORMULATIONS_SHEET
+        _write_frame(sheet, self.history_export_frame())
+        self._write_setup_sheet(book.create_sheet(wording.SET_UP_SHEET))
+        buffer = io.BytesIO()
+        book.save(buffer)
+        return buffer.getvalue()
+
+    def _write_setup_sheet(self, sheet):
+        """The project as it stands: what can be changed and between which
+        amounts, what is measured and what a good number is, the limits, the
+        total, and where the targets came from."""
+        r = 1
+        _write_cell(sheet, r, 1, wording.VARIABLES_HEADER, bold=True)
+        r += 1
+        for c, name in enumerate((wording.NAME_LABEL, wording.TYPE_LABEL,
+                                  wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
+                                  wording.UNIT_LABEL, wording.BASELINE_LABEL),
+                                 start=1):
+            _write_cell(sheet, r, c, name, bold=True)
+        r += 1
+        for var in self.variables:
+            ingredient = var.get('category', 'ingredient') == 'ingredient'
+            _write_cell(sheet, r, 1, var['name'],
+                        fill=self._ingredient_fill(var['name']))
+            _write_cell(sheet, r, 2, wording.KIND_INGREDIENT if ingredient
+                        else wording.KIND_SETTING)
+            _write_cell(sheet, r, 3, float(var['bounds'][0]))
+            _write_cell(sheet, r, 4, float(var['bounds'][1]))
+            _write_cell(sheet, r, 5, self.unit_of(var['name']) or None)
+            baseline = var.get('_absent_value')
+            _write_cell(sheet, r, 6, None if baseline is None else float(baseline))
+            r += 1
+        r += 1
+
+        _write_cell(sheet, r, 1, wording.MEASUREMENTS_HEADER, bold=True)
+        r += 1
+        for c, name in enumerate((wording.MEASUREMENT_COLUMN,
+                                  wording.GOAL_LABEL, wording.TARGET_LABEL,
+                                  wording.RANGE_COLUMN,
+                                  wording.IMPORTANCE_LABEL), start=1):
+            _write_cell(sheet, r, c, name, bold=True)
+        r += 1
+        for obj in self.measurements_by_importance():
+            _write_cell(sheet, r, 1, label_with_unit(obj['name'], obj.get('unit')))
+            _write_cell(sheet, r, 2, wording.GOAL_LABELS.get(obj['goal'],
+                                                             obj['goal']))
+            _write_cell(sheet, r, 3, None if obj.get('target') is None
+                        else float(obj['target']))
+            _write_cell(sheet, r, 4, measurement_range_text(obj))
+            _write_cell(sheet, r, 5, float(obj['weight']))
+            r += 1
+        r += 1
+
+        _write_cell(sheet, r, 1, wording.LIMITS_SHEET_HEADING, bold=True)
+        r += 1
+        lines = [self.limit_text(qc)
+                 for qc in getattr(self, "quantity_constraints", [])]
+        lines += [self.property_limit_text(c) for c in self.constraints]
+        for line in lines or [wording.SHEET_NONE]:
+            _write_cell(sheet, r, 1, line)
+            r += 1
+        if self.formulation_total is None:
+            _write_cell(sheet, r, 1, wording.FORMULATION_TOTAL_NAME)
+            _write_cell(sheet, r, 2, wording.SHEET_NONE)
+            r += 1
+        r += 1
+
+        _write_cell(sheet, r, 1, wording.TARGETS_SOURCE_LABEL, bold=True)
+        r += 1
+        _write_cell(sheet, r, 1,
+                    getattr(self, "targets_source", "") or wording.SHEET_NONE,
+                    wrap=True)
+        _set_widths(sheet, [34, 18, 12, 12, 10, 12])
+        _fit_to_page(sheet, r, 6)
+
+    def limit_label(self, qc):
+        """How one ingredient limit is named — 'Total of each formulation',
+        'All ingredients' or 'Water + Oil'. The list under Limits, the line
+        that reports a limit removed and the workbook's Set-up sheet all read
+        from here, so they name it alike.
+
+        The total's own limit is named for the box that wrote it, not for the
+        ingredients it happens to cover: it is over all of them by
+        definition, and 'All ingredients' would read as something the user
+        typed into the picker below."""
+        if qc.get('source') == 'formulation_total':
+            return wording.FORMULATION_TOTAL_NAME
+        names = [v['name'] for v in self._ingredients()]
+        if names and set(qc['ingredients']) == set(names):
+            return wording.ALL_INGREDIENTS_LABEL
+        return " + ".join(qc['ingredients'])
+
+    def limit_text(self, qc):
+        """One limit as one line: 'Water + Oil: at least 10 g and at most
+        40 g', or the total written as the one number the user typed."""
+        if qc.get('source') == 'formulation_total':
+            return wording.formulation_total_row(
+                self.batch_total_text(self.formulation_total))
+        limited = {self.unit_of(n) for n in qc['ingredients']}
+        unit = limited.pop() if len(limited) == 1 else ""
+        bounds = ([join_unit(wording.at_least(qc['min']), unit)]
+                  if qc['min'] is not None else [])
+        bounds += ([join_unit(wording.at_most(qc['max']), unit)]
+                   if qc['max'] is not None else [])
+        return f"{self.limit_label(qc)}: {' and '.join(bounds)}"
+
+    def property_limit_text(self, constraint):
+        """A property limit, per 100 of the amount unit, as one line."""
+        bounds = ([wording.at_least(constraint['min'])]
+                  if constraint.get('min') is not None else [])
+        bounds += ([wording.at_most(constraint['max'])]
+                   if constraint.get('max') is not None else [])
+        return f"{constraint['metric']}: {' and '.join(bounds)}"
+
+    def bounds_caution(self, name, value):
+        """The line for an amount outside what the project allows, or '' when
+        it fits."""
+        var = next((v for v in self.variables if v['name'] == name), None)
+        if var is None or value is None:
+            return ""
+        low, high = (float(b) for b in var['bounds'])
+        if low <= float(value) <= high:
+            return ""
+        return outside_message(name, value, low, high, self.unit_of(name),
+                               wording.ALLOWED_AMOUNTS)
+
+    def scaled_caution(self, recipes, total):
+        """The one line for the ingredients whose amounts fall outside what
+        the project allows once these formulations are made to `total`, or ""
+        when they all fit. Up to three it names them; above that it counts
+        them.
+
+        The stored amounts were chosen inside the project's own Lowest and
+        Highest; a formulation total they were never chosen for scales them
+        past it, and the sheets are made from those numbers — so the bench
+        weighs out an amount the project says it does not allow. Tab 2's box,
+        tab 3's amounts table and the workbook's own sheets all say so in
+        these words, from here, so the three can never drift apart.
+        """
+        if total is None:
+            return ""
+        scaled = [self.scaled_recipe(recipe, total) for recipe in recipes]
+        ingredients = [var['name'] for var in self._ingredients()]
+        names = [name for name in ingredients
+                 if any(self.bounds_caution(name, recipe.get(name))
+                        for recipe in scaled)]
+        if not names:
+            return ""
+        return wording.scaled_amounts_caution(
+            self.batch_total_text(total),
+            names_text=number_list(names) if len(names) <= 3 else "",
+            n_outside=len(names), n_total=len(ingredients))
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints

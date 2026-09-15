@@ -256,16 +256,6 @@ def scale_error(obj, value):
                            wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
 
 
-def bounds_warning(name, value, low, high, unit):
-    """The caution for an amount outside what the project allows, or '' when it
-    fits. Same builder as scale_error, so the two lines never drift apart."""
-    if value is None:
-        return ""
-    if float(low) <= float(value) <= float(high):
-        return ""
-    return outside_message(name, value, low, high, unit, wording.ALLOWED_AMOUNTS)
-
-
 def bounds_caution(opt, name, value):
     """The line for an amount outside what the project allows, or '' when it
     fits. Built by the same helper that refuses an out-of-range measurement,
@@ -275,45 +265,18 @@ def bounds_caution(opt, name, value):
     is a fact about work already done, and a formulation of the user's own is
     a formulation they mean to make. Both teach the model more than a blank.
     """
-    var = next((v for v in opt.variables if v['name'] == name), None)
-    if var is None or value is None:
-        return ""
-    low, high = (float(b) for b in var['bounds'])
-    return bounds_warning(name, value, low, high, opt.unit_of(name))
+    return opt.bounds_caution(name, value)
 
 
 def scaled_caution(opt, recipes, total):
     """The one line for the ingredients whose amounts fall outside what the
     project allows once these formulations are made to `total`, or "" when
-    they all fit. Up to three it names them; above that it counts them.
+    they all fit.
 
-    The stored amounts were chosen inside the project's own Lowest and
-    Highest; a formulation total they were never chosen for scales them past
-    it, and the sheets are printed from those numbers — so the bench weighs
-    out an amount the project says it does not allow. Tab 2's box, tab 3's
-    amounts table and the printed sheet all say so in these words, from here,
-    so the three can never drift apart.
+    It lives on the optimizer, because the workbook's own sheets carry it and
+    food_bo cannot import this module.
     """
-    if total is None:
-        return ""
-    scaled = [opt.scaled_recipe(recipe, total) for recipe in recipes]
-    # Ingredients only, in project order: a formulation total scales what you
-    # weigh out and leaves a cook temperature exactly where it was, and the
-    # names read as they are listed everywhere else on screen.
-    ingredients = [var['name'] for var in opt.variables
-                   if var.get('category', 'ingredient') == 'ingredient']
-    names = [name for name in ingredients
-             if any(bounds_caution(opt, name, recipe.get(name))
-                    for recipe in scaled)]
-    if not names:
-        return ""
-    # Three names read as a list; eight read as a wall. Above three the line
-    # counts them instead — the fix named in the second half is the same one
-    # either way.
-    return wording.scaled_amounts_caution(
-        opt.batch_total_text(total),
-        names_text=number_list(names) if len(names) <= 3 else "",
-        n_outside=len(names), n_total=len(ingredients))
+    return opt.scaled_caution(recipes, total)
 
 
 def table_height(n_rows, max_rows=12):

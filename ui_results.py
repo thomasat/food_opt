@@ -12,6 +12,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+from food_bo import WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
@@ -176,7 +177,7 @@ def _amount_format(opt, frame):
     """How each amount column of the All formulations table is written out:
     two decimals, because that is the precision a balance works to and what
     every other table in the app shows — `Show amounts` printed 11.875 beside
-    the bench sheet's 11.88. A process setting is not an amount and keeps
+    the batch sheet's 11.88. A process setting is not an amount and keeps
     fmt_setting's own rule."""
     settings = {opt._amount_column(v['name']) for v in opt.variables
                 if v.get('category') == 'process'}
@@ -223,9 +224,15 @@ def _all_formulations(opt, said_partial=False):
     if not said_partial and any(wording.NOT_MEASURED in str(v)
                                 for v in frame["Overall score"]):
         st.caption(wording.PARTIAL_SCORES_CAPTION)
-    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON, data=opt.history_csv(),
-                       file_name=f"{opt.project_name} formulations.csv",
-                       mime="text/csv", key="download_formulations",
+    # One workbook, not a comma-separated file: the same table the screen
+    # shows, and a Set-up sheet beside it saying what the targets and the
+    # allowed amounts were. A column of numbers with nothing to read it
+    # against is a file nobody can use six months later.
+    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON,
+                       data=opt.all_formulations_workbook(),
+                       file_name=wording.all_formulations_file_name(
+                           opt.project_name),
+                       mime=WORKBOOK_MIME, key="download_formulations",
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
 
 
@@ -285,7 +292,7 @@ def _amount_boxes(opt, key_of, recipe=None):
     boxes open on what that row recorded; without one they open blank.
 
     A formulation is corrected as often for what went into the bowl — a
-    misread balance, a line transposed off the bench sheet — as for what came
+    misread balance, a line transposed off the batch sheet — as for what came
     off the panel, and until now only the measurements could be fixed."""
     typed = {}
     for var, col in _in_fours(opt.variables):
@@ -737,7 +744,7 @@ def _delete_formulations(opt, storage):
     park_clear("delete_formulations", [])
     # The form below this section is not what the user just deleted from.
     preserve_tab_forms()
-    # A scaled table and a parsed bench sheet both name formulations that may
+    # A scaled table and a parsed batch sheet both name formulations that may
     # have just left the project — but the open batch's own rows are never in
     # the list above (see _deletable_numbers), so an open batch keeps both:
     # its sheet was read for formulations this delete cannot have touched.
@@ -757,10 +764,10 @@ def _add_past(opt):
     the same note, and the CSV is no longer a section of its own that had to
     be found before past work could be entered at all."""
     mode = st.radio(wording.ADD_PAST_FORMULATION_LABEL,
-                    [wording.TYPE_IT_IN, wording.UPLOAD_A_CSV],
+                    [wording.TYPE_IT_IN, wording.UPLOAD_A_FILE],
                     horizontal=True, label_visibility="collapsed",
                     key="add_past_mode")
-    if mode == wording.UPLOAD_A_CSV:
+    if mode == wording.UPLOAD_A_FILE:
         _import(opt)
     else:
         _type_in_past(opt)
@@ -853,6 +860,14 @@ def _import_columns(opt, rows):
     return col_for, missing
 
 
+def _read_past_formulations(uploaded):
+    """Formulations made before this project existed, in either shape: the
+    first sheet of a workbook, or a comma-separated file."""
+    if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
+        return pd.read_excel(uploaded, sheet_name=0)
+    return pd.read_csv(uploaded)
+
+
 def _import(opt):
     variables = [v['name'] for v in opt.variables]
     # By importance, as every other list of measurements on every tab.
@@ -863,20 +878,20 @@ def _import(opt):
     else:
         st.caption(wording.import_columns_caption_empty())
     uploaded = st.file_uploader(
-        wording.UPLOAD_FORMULATIONS_CSV_LABEL, type=["csv"],
+        wording.UPLOAD_FORMULATIONS_FILE_LABEL, type=["xlsx", "csv"],
         # Per project: an uploader cannot be emptied from session state,
         # so a shared key offered the next project this one's file.
-        key=f"import_csv_{opt.project_name}")
+        key=f"import_file_{opt.project_name}")
     # The parse is behind a button, as it is on tab 2: reading the file on
     # every rerun left the sheet on screen after it had been imported, and
     # a second click on Import recorded every row twice.
     if uploaded is not None and st.button(wording.CHECK_THIS_FILE,
                                           key="check_import"):
         try:
-            st.session_state["_import_rows"] = pd.read_csv(uploaded)
+            st.session_state["_import_rows"] = _read_past_formulations(uploaded)
         except Exception:
             st.session_state.pop("_import_rows", None)
-            st.error(wording.CSV_UNREADABLE_RETRY)
+            st.error(wording.FILE_UNREADABLE_RETRY)
     rows = st.session_state.get("_import_rows")
     if rows is None:
         return
@@ -914,7 +929,7 @@ def _import(opt):
         for position, (_, row) in enumerate(rows.iterrows(), start=1):
             reached = position
             # A blank measurement is a partial result here too, exactly as
-            # it is in the results grid and in an uploaded bench sheet.
+            # it is in the results grid and in an uploaded batch sheet.
             results = {name: float(row[col_for[name]]) for name in measurements
                        if not pd.isna(row[col_for[name]])}
             if not results:
@@ -925,7 +940,7 @@ def _import(opt):
                 nothing_measured += 1
                 continue
             # The file's own Note column, when it has one: a round trip of
-            # `Download all formulations (CSV)` otherwise turned every note
+            # `Download all formulations (Excel)` otherwise turned every note
             # in the project into "Made earlier". A blank cell still means
             # the row came from before this project, and says so.
             note = ""
