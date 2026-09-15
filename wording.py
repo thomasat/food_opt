@@ -36,6 +36,14 @@ NOT_SCORED = "Not scored"
 # ------------------------------------------------------------------ #
 APP_TITLE = "Food Optimizer"
 
+# The first line the window ever shows from the app itself. Streamlit answers
+# the wrapper's health check as soon as its server is up, seconds before
+# app.py has finished importing what it runs on, so app.py draws this line
+# before those imports and clears it after them. Without it the window is
+# blank for those seconds.
+STARTING_APP = (f"Starting {APP_TITLE}… loading its components. "
+                "This takes a few seconds.")
+
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
 TAB_BATCH = f"2 · Make a {BATCH}"

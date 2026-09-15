@@ -1,32 +1,48 @@
-import json
-import os
-import re as _re
-from datetime import datetime
-
+# The imports are split in two on purpose, and the order below is load
+# bearing. The desktop wrapper shows the web view on Streamlit's first
+# healthy answer, which arrives before this file has finished importing
+# food_bo (torch, botorch, gpytorch — seconds, even warm), so anything drawn
+# after those imports is a blank window until they are done. Streamlit sends
+# each element as it is produced, so the two light imports, the page config
+# and the placeholder come FIRST, and the heavy ones after: the line is on
+# screen for the whole import and is cleared at _starting.empty() below.
 import streamlit as st
-import pandas as pd
 
-import storage as storage_backend
-import ui_batch
-import ui_results
-import ui_setup
 import wording
-from food_bo import (
+
+# Must be the first Streamlit call of the run — before the placeholder.
+st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
+_starting = st.empty()
+_starting.info(wording.STARTING_APP)
+
+import json                                   # noqa: E402
+import os                                     # noqa: E402
+import re as _re                              # noqa: E402
+from datetime import datetime                 # noqa: E402
+
+import pandas as pd                           # noqa: E402
+
+import storage as storage_backend             # noqa: E402
+import ui_batch                               # noqa: E402
+import ui_results                             # noqa: E402
+import ui_setup                               # noqa: E402
+from food_bo import (                         # noqa: E402
     WORKBOOK_MIME, FoodOptimizer, ingredients_template_workbook,
 )
-from ui_helpers import (
+from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
     render_flash, saved_line, saved_ok, take_clear,
 )
 
+_starting.empty()   # the app itself is what the window shows from here on
+
 STORAGE = storage_backend.LocalStorage()
 
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
 
-st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
 st.title(wording.APP_TITLE)
 # The container the flash messages live in. The sidebar below runs later and
 # can queue one of its own, so it is drained a second time once the sidebar
@@ -161,35 +177,77 @@ def _open_project(name, create=False, made=False):
     st.rerun()
 
 
+class _FreshStart:
+    """A storage backend that reports every project as new.
+
+    Building the sample needs a blank project under the sample's own name,
+    and FoodOptimizer reads the file whenever the name it is given already
+    exists. This stands in for the real backend just long enough to skip that
+    read; _build_sample_project swaps the real one back in before the first
+    save, so the sample is written where it belongs — over whatever that name
+    held.
+    """
+    persist_empty_on_init = False   # nothing is written until the build starts
+    persist_after_load = True
+
+    def exists(self, name):
+        return False
+
+
+def _build_sample_project(name):
+    """The current sample, built from nothing onto `name`. Every setter below
+    saves, and a save writes the whole project, so the first one replaces an
+    older sample outright rather than editing it."""
+    _sample = FoodOptimizer(name, storage=_FreshStart())
+    _sample.storage = STORAGE
+    _sample.set_amount_unit("g")
+    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+    # A plant-based burger rated by a trained panel for intensity, 0 to
+    # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
+    # is a puck), so both are targets; firmness matters a little more.
+    _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+    _sample.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+    _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
+    # A burger patty is made to a weight, and the panel is served
+    # one size. 100 g is what the sample's allowed amounts are
+    # written around, so every batch it suggests comes off the bench
+    # ready to grill.
+    _sample.set_formulation_total(100.0)
+    return _sample
+
+
 def _open_sample_project():
+    """Open the sample, building it first unless there is one worth keeping.
+
+    A Mac that met an earlier version has that version's sample on disk, and
+    reopening it unchanged is how someone ends up with a sample that has no
+    formulation total and batches that come out at different weights. So a
+    sample nobody has used yet — no results recorded, nothing left not
+    scored — is rebuilt as the current one. The moment it holds a result it
+    is the user's own project and is opened exactly as it stands.
+    """
     _name = wording.SAMPLE_PROJECT_NAME
+    _existing = None
     if STORAGE.exists(_name):
-        _open_project(_name)          # already created earlier; just open it
+        _existing = FoodOptimizer(_name, storage=STORAGE)
+        # Used, or unreadable: either way this is not ours to rewrite. A
+        # damaged file reports itself on the page it opens onto.
+        if _existing.load_error or _existing.X_history or _existing.skipped:
+            _open_project(_name)
+            return
+    try:
+        _sample = _build_sample_project(_name)
+    except ValueError as e:
+        st.error(wording.sample_project_failed(e))
     else:
-        try:
-            _sample = FoodOptimizer(_name, storage=STORAGE)
-            _sample.set_amount_unit("g")
-            _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-            # A plant-based burger rated by a trained panel for intensity, 0 to
-            # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
-            # is a puck), so both are targets; firmness matters a little more.
-            _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
-                                  min_val=0, max_val=10, unit="/10")
-            _sample.add_objective("Firmness", 1.5, goal="target", target=6,
-                                  min_val=0, max_val=10, unit="/10")
-            _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
-            # A burger patty is made to a weight, and the panel is served
-            # one size. 100 g is what the sample's allowed amounts are
-            # written around, so every batch it suggests comes off the bench
-            # ready to grill.
-            _sample.set_formulation_total(100.0)
-        except ValueError as e:
-            st.error(wording.sample_project_failed(e))
+        if _sample.save_error:
+            st.error(_sample.save_error)
         else:
-            if _sample.save_error:
-                st.error(_sample.save_error)
-            else:
-                _open_project(_name, made=True)
+            # "Created" only the first time: rebuilding a sample the user
+            # never used is still, to them, opening the sample.
+            _open_project(_name, made=_existing is None)
 
 
 def _held(opt):

@@ -8015,3 +8015,142 @@ def test_the_apps_own_export_imports_back_as_past_formulations(burger):
     assert missing == [], missing
     assert set(col_for) == {"Pea protein", "Methylcellulose", "Juiciness",
                             "Firmness"}
+
+
+def test_the_app_says_it_is_starting_before_its_heavy_imports():
+    """The desktop wrapper shows the web view on Streamlit's first healthy
+    answer, which arrives before app.py has finished importing food_bo (torch
+    and friends, seconds even warm). Anything drawn after those imports is a
+    blank window until they finish, so the order in the source is the fix and
+    is what this test guards: page config, then the placeholder, then the
+    heavy imports, then the placeholder is cleared."""
+    import ast
+    root = pathlib.Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "app.py").read_text())
+
+    def line_of_call(attr, owner=None, arg_is=None):
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == attr):
+                continue
+            if owner and getattr(node.func.value, "id", None) != owner:
+                continue
+            if arg_is:
+                if not (node.args and isinstance(node.args[0], ast.Attribute)
+                        and node.args[0].attr == arg_is):
+                    continue
+            return node.lineno
+        return None
+
+    config_at = line_of_call("set_page_config", owner="st")
+    placeholder_at = line_of_call("info", owner="_starting", arg_is="STARTING_APP")
+    cleared_at = line_of_call("empty", owner="_starting")
+    heavy = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        if any(n == "food_bo" or n.startswith("ui_") for n in names):
+            heavy.append(node.lineno)
+
+    assert config_at and placeholder_at and cleared_at and heavy
+    assert config_at < placeholder_at < min(heavy), (
+        config_at, placeholder_at, min(heavy))
+    assert cleared_at > max(heavy), (cleared_at, max(heavy))
+    # And the sentence itself is the one the window shows while it waits.
+    assert wording.STARTING_APP == ("Starting Food Optimizer… loading its "
+                                    "components. This takes a few seconds.")
+
+
+def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch):
+    """The placeholder is emptied after the imports, so a finished run never
+    shows it — it exists only for the seconds before the first element."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert not any(wording.STARTING_APP in i.value for i in at.info), \
+        [i.value for i in at.info]
+
+
+def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
+        tmp_path, monkeypatch):
+    """A Mac that met an earlier version has that version's sample on disk:
+    no formulation total, no targets source. Reopening it unchanged is how a
+    sample ends up making batches at different weights, so a sample nobody
+    has used yet is rebuilt as the current one."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    # Not one of the sample's own eight, so its absence afterwards is proof
+    # the project was rebuilt rather than added to.
+    old.add_ingredient("Oat flour", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    assert old.formulation_total is None and old.targets_source == ""
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+
+    rebuilt = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert rebuilt.formulation_total == 100
+    assert rebuilt.targets_source == wording.SAMPLE_TARGETS_SOURCE
+    assert [o["name"] for o in rebuilt.objectives] == ["Juiciness", "Firmness"]
+    # The old project's own set-up is gone, not added to.
+    assert "Oat flour" not in [v["name"] for v in rebuilt.variables]
+    assert len(rebuilt.variables) == 8
+    # It opens as the sample it now is, welcome line and all, and it is an
+    # opening: the project was already there.
+    assert any(s.value == wording.project_opened(wording.SAMPLE_PROJECT_NAME)
+               for s in at.success), [s.value for s in at.success]
+    assert wording.SAMPLE_TAB1_DESCRIPTION in [c.value for c in at.tabs[0].caption]
+
+
+def test_a_sample_with_a_result_is_opened_exactly_as_it_stands(
+        tmp_path, monkeypatch):
+    """The moment the sample holds a result it is the user's own project.
+    Rebuilding it would throw away their work."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old.add_ingredient("Water", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    old.tell({"Water": 50.0}, {"Taste": 7.0})
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+
+    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert [v["name"] for v in kept.variables] == ["Water"]
+    assert [o["name"] for o in kept.objectives] == ["Taste"]
+    assert len(kept.X_history) == 1
+    assert kept.formulation_total is None
+
+
+def test_a_sample_whose_only_batch_was_never_scored_is_left_alone(
+        tmp_path, monkeypatch):
+    """A row generated and then ticked Not scored leaves X_history empty but
+    `skipped` filled. That is a sample someone has used: leave it alone."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old.add_ingredient("Water", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    old.record_skipped(1, 1, {"Water": 50.0})
+    assert old.X_history == [] and old.skipped
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+
+    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert [v["name"] for v in kept.variables] == ["Water"]
+    assert kept.skipped

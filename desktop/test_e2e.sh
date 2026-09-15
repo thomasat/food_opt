@@ -42,6 +42,18 @@ assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
 assert "starting line carries no percent" grep -qF -- 'status "Starting the app…|"' "$DESKTOP_DIR/launcher.sh"
+# The window shows the app on Streamlit's first healthy answer, which lands
+# before app.py has imported torch and friends. The launcher imports them
+# first, behind its own progress page, so that window is never blank.
+assert "launcher warms the components before the server" \
+  grep -qF 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh"
+assert "the warm-up publishes a step line" \
+  grep -qF 'WARM_MSG="Loading the model components' "$DESKTOP_DIR/launcher.sh"
+# ...and the window lists that step under the same name, or it would tick a
+# step nobody is running.
+assert "the window names the same step" \
+  grep -qF 'let loadStepLabel = "Loading the model components"' \
+  "$DESKTOP_DIR/FoodOptimizerApp.swift"
 # The bar must exist from the first second of a first run, so the very first
 # setup line the launcher publishes has to carry a percent, not an empty field.
 assert "first setup line carries a percent" grep -qF '(step 1 of 3)|2' "$DESKTOP_DIR/launcher.sh"

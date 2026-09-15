@@ -29,8 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // stale one from a previous launch is all that is on disk — see
     // portFileIsFromThisLaunch()). Bounds the otherwise unbounded wait for
     // the first health check to succeed, so a Streamlit that started but
-    // never answers still fails kindly instead of leaving "Almost there." on
-    // screen forever.
+    // never answers still fails kindly instead of leaving the last step
+    // spinning forever.
     var awaitingHealthSince: Int?
     // Set once the 180s bound above has been reached and the give-up page
     // has been painted, so poll() does not repaint it every tick — but
@@ -40,12 +40,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastStatusLine: String?   // raw "<text>|<percent>" last read from status.txt
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
-    var showingStepPage = false   // the page on screen has a #step element
-    var showingBar = false        // ...and a #bar element whose width we set
-    // The plain "Opening Food Optimizer…" card. It now carries a step line of
-    // its own, so "has a #step element" no longer distinguishes it from a
-    // setup page — but only this page may be swapped out for one.
-    var showingOpeningPage = false
+    // ---- the starting page ----
+    // One page covers every launch, and it lists what a launch actually does:
+    // the components are downloaded (first run or upgrade only), then loaded,
+    // then the projects are opened. The launcher's status lines say which of
+    // the three is running; this wrapper's own health poll says when the last
+    // one ends. Nothing here is estimated — the page shows the step, an
+    // honest range, and how long the step has actually been running.
+    enum LaunchStep: Int { case download = 0, load = 1, open = 2 }
+    var stepsPageShowing = false    // the steps page is the page on screen
+    var stepsHasDownload = false    // ...and it was built with the download row
+    var activeStep: LaunchStep = .load
+    var activeStepStarted = Date()  // when it became active, for the counter
+    var activeStepStalled = false   // past the range: the note line changes and stays
+    var stepDetail = ""             // the launcher's own line, under the active step
+    // The six-minute "Still setting up…" page, which is not a steps page: it
+    // must not be rebuilt over by the next status line.
+    var stalledPageShowing = false
     var retryToken = 0            // cancels a pending retry when Try again is clicked again
     var pendingOldLauncher: Process?   // the launcher a retry is waiting on; a second click must keep waiting on it
     var setupIsUpgrade = false    // the marker existed when this launch began
@@ -59,6 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let setupStepPrefixes = ["Downloading Python", "Creating environment",
                              "Updating components", "Installing components",
                              "Finishing setup"]
+
+    // The three steps, as the user reads them, and the lines under them. The
+    // load step's label doubles as the prefix of the launcher's own line for
+    // it, so the two can never drift apart. The wait is given as a range on
+    // purpose: the honest thing to say about an import that depends on the
+    // machine is that it is usually quick and sometimes not.
+    let downloadStepLabel = "Downloading the app's components"
+    let loadStepLabel = "Loading the model components"
+    let openStepLabel = "Opening your projects"
+    let usualWaitLine = "Usually 15 to 30 seconds."
+    let stillLoadingLine = "Still loading. The first start can take up to a minute."
+    // The one line that says what the app is for, so the wait has something
+    // to read that is not about waiting.
+    let nextUpLine = "Next: set up your ingredients and measurements, then make a batch."
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
         as? String ?? ""
@@ -283,48 +308,171 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // ---------- status pages ----------
 
-    // The page shown while the launcher works. The first run gets the long
-    // explanation and a progress bar; a warm start is over in seconds.
+    // The page shown while the launcher works, from the first moment to the
+    // web view. Its steps are set here: the download row exists only for a
+    // launch that has one to do.
     func showInitialStatus() {
         // An upgrade still has the marker at this point (the launcher deletes
-        // it only after announcing itself), so remember which job this is and
-        // let the first status line switch a warm page over to the setup page.
+        // it only after announcing itself), so remember which job this is;
+        // the first setup line adds the download row to a launch that looked
+        // warm.
         setupIsUpgrade = !isFirstRun
-        if isFirstRun {
-            showSetupStatus(step: "Preparing…", progress: 0)
-        } else {
-            // A warm launch has no measurable steps, but it must still show
-            // motion that means "working", not a bare spinner: a step line the
-            // launcher can update plus a thin looping bar. The step text is
-            // the line the launcher is about to publish, so it does not jump.
-            showStatus("Opening Food Optimizer…", "",
-                       step: "Starting the app…", indeterminate: true)
-        }
+        stepsHasDownload = isFirstRun
+        stepsPageShowing = false
+        activeStep = isFirstRun ? .download : .load
+        activeStepStarted = Date()
+        activeStepStalled = false
+        stepDetail = ""
+        showStepsPage()
+        updateStepsPage()
     }
 
-    // The page for a job with steps: explanation, step line and progress bar.
-    func showSetupStatus(step: String, progress: Int?) {
-        let title = setupIsUpgrade ? "Updating Food Optimizer"
-                                   : "Setting up Food Optimizer"
-        let body = setupIsUpgrade
+    // The sentence a download-carrying launch reads under its step, kept
+    // word for word as it has always been.
+    var setupBody: String {
+        setupIsUpgrade
             ? "Food Optimizer is downloading an update. "
               + "This usually takes under a minute; on a slow network, a few "
               + "minutes. Leave this window open."
             : "The first time it opens, Food Optimizer downloads about 1 GB. "
               + "This usually takes under a minute; on a slow network, a few "
               + "minutes. Leave this window open."
-        showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 
-    // The last page before the web view: setup (if any) is over and the
-    // launcher's own port file exists, so nothing is left to report except
-    // waiting for Streamlit to answer. A fixed, short line beats a stale step
-    // that stopped moving once there were no more steps to name. Still
-    // `indeterminate`, so the moving bar carries through from the setup page
-    // instead of vanishing while this last stretch plays out.
-    func showAlmostThereStatus() {
-        showStatus("Starting Food Optimizer…", "Almost there.",
-                   spinner: true, indeterminate: true)
+    var stepsPageTitle: String {
+        guard activeStep == .download else { return "Starting Food Optimizer…" }
+        return setupIsUpgrade ? "Updating Food Optimizer" : "Setting up Food Optimizer"
+    }
+
+    var stepLabels: [String] {
+        stepsHasDownload ? [downloadStepLabel, loadStepLabel, openStepLabel]
+                         : [loadStepLabel, openStepLabel]
+    }
+
+    // Which row a step is drawn in: without the download row every step
+    // moves up one.
+    func rowOf(_ step: LaunchStep) -> Int {
+        stepsHasDownload ? step.rawValue : step.rawValue - 1
+    }
+
+    // Make `step` the one being worked on. A step that is genuinely new
+    // restarts the counter; the same step reported again (the launcher
+    // publishes its download line once a second) does not.
+    func setActiveStep(_ step: LaunchStep, detail: String? = nil) {
+        if let d = detail { stepDetail = d }
+        if step == .download && !stepsHasDownload {
+            stepsHasDownload = true      // a launch that turned out to be an upgrade
+            stepsPageShowing = false     // the row set changed: rebuild
+        }
+        if step != activeStep {
+            activeStep = step
+            activeStepStarted = Date()
+            activeStepStalled = false
+        }
+        if !stepsPageShowing { showStepsPage() }
+        updateStepsPage()
+    }
+
+    // Draw the page. Everything that changes second to second is left empty
+    // here and filled by updateStepsPage(), so the spinner and the counter
+    // are never restarted by a reload.
+    func showStepsPage() {
+        var rowsHTML = ""
+        for (i, label) in stepLabels.enumerated() {
+            rowsHTML += """
+            <li id="row\(i)" style="display:flex;align-items:center;gap:10px;
+                                    margin:0 0 12px;opacity:.45">
+              <span style="width:16px;height:16px;display:inline-flex;
+                           align-items:center;justify-content:center;flex:none">
+                <span id="dot\(i)" style="color:#9aa39b">•</span>
+                <span id="spin\(i)" style="display:none;width:13px;height:13px;
+                     border:2px solid #cdd6ce;border-top-color:#2E6E4E;
+                     border-radius:50%;animation:spin 1s linear infinite"></span>
+                <span id="tick\(i)" style="display:none;color:#2E6E4E">✓</span>
+              </span>
+              <span>\(label)</span>
+            </li>
+            """
+        }
+        // The measured bar belongs to the download alone — it is the only
+        // step with a real measure. It is hidden once that step is done.
+        let barHTML = stepsHasDownload ? """
+            <div id="barwrap" style="max-width:320px;height:6px;margin:0 auto 16px;
+                                     background:#e2e6e1;border-radius:3px;overflow:hidden">
+              <div id="bar" style="width:0%;height:100%;background:#2E6E4E;
+                                   border-radius:3px;transition:width .4s ease"></div>
+            </div>
+            """ : ""
+        let html = """
+        <html><head><meta charset="utf-8">
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style></head>
+        <body style="font-family:-apple-system,sans-serif;background:#f7f6f2;color:#2d3a2e;
+                     display:flex;align-items:center;justify-content:center;height:96vh;margin:0">
+          <div style="text-align:center;max-width:460px">
+            <h1 id="title" style="font-weight:600">\(stepsPageTitle)</h1>
+            <ul id="steps" style="list-style:none;padding:0;
+                                  margin:26px auto 18px;display:inline-block;
+                                  text-align:left;font-size:15px">\(rowsHTML)</ul>
+            \(barHTML)
+            <p id="detail" style="font-size:13px;color:#7c867e;margin:0 0 8px"></p>
+            <p id="note" style="font-size:15px;line-height:1.5;color:#556;margin:0"></p>
+            <p id="elapsed" style="font-size:13px;color:#9aa39b;margin:10px 0 0"></p>
+            <p style="margin-top:34px;font-size:13px;color:#7c867e">\(nextUpLine)</p>
+            <p style="margin-top:26px;font-size:12px;color:#9aa39b">
+              \(appVersion.isEmpty ? "Food Optimizer" : "Food Optimizer " + appVersion)</p>
+          </div>
+        </body></html>
+        """
+        webView.loadHTMLString(html, baseURL: nil)
+        stepsPageShowing = true
+        stalledPageShowing = false
+        // Forget the last line we pushed: the DOM is new, so the next tick
+        // must re-apply the current step even if the launcher has not moved on.
+        lastStatusLine = nil
+    }
+
+    // One tick of the page: which rows are done, what the note says, and how
+    // long the active step has been running. Called from every poll, so the
+    // counter moves even when the launcher has nothing new to say.
+    func updateStepsPage() {
+        guard stepsPageShowing else { return }
+        let active = rowOf(activeStep)
+        let elapsed = max(0, Int(Date().timeIntervalSince(activeStepStarted)))
+        // Past the range we promised: say so, and keep saying it. Only the
+        // two second-scale steps make that promise — the download has its own
+        // sentence and its own bar.
+        if elapsed >= 30 && activeStep != .download { activeStepStalled = true }
+        var js = ""
+        for i in 0..<stepLabels.count {
+            let done = i < active, running = i == active
+            js += "(function(){var r=document.getElementById('row\(i)');if(!r)return;"
+                + "r.style.opacity='\(done || running ? "1" : ".45")';"
+                + "document.getElementById('dot\(i)').style.display="
+                + "'\(done || running ? "none" : "inline")';"
+                + "document.getElementById('spin\(i)').style.display="
+                + "'\(running ? "inline-block" : "none")';"
+                + "document.getElementById('tick\(i)').style.display="
+                + "'\(done ? "inline" : "none")';})();"
+        }
+        let note = activeStep == .download ? setupBody
+            : (activeStepStalled ? stillLoadingLine : usualWaitLine)
+        js += "var t=document.getElementById('title');"
+            + "if(t){t.textContent=\(jsString(stepsPageTitle))}"
+        js += "var n=document.getElementById('note');"
+            + "if(n){n.textContent=\(jsString(note))}"
+        js += "var d=document.getElementById('detail');"
+            + "if(d){d.textContent=\(jsString(activeStep == .download ? stepDetail : ""))}"
+        js += "var e=document.getElementById('elapsed');"
+            + "if(e){e.textContent=\(jsString("\(elapsed) s"))}"
+        if stepsHasDownload {
+            js += "var w=document.getElementById('barwrap');"
+                + "if(w){w.style.display='\(activeStep == .download ? "block" : "none")'}"
+            if let pct = lastProgress {
+                js += "var b=document.getElementById('bar');"
+                    + "if(b){b.style.width='\(pct)%'}"
+            }
+        }
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     // The generic "we don't know why, but it never came up" failure. One
@@ -406,9 +554,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         </body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
-        showingStepPage = (step != nil)
-        showingBar = (progress != nil)
-        showingOpeningPage = indeterminate
+        // Whatever this page is, it is not the steps page: the next status
+        // line must update it in place, not rebuild the steps over it.
+        stepsPageShowing = false
         // Forget the last line we pushed: the DOM is new, so the next tick
         // must re-apply the current step even if the launcher has not moved on.
         lastStatusLine = nil
@@ -577,12 +725,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // The launcher publishes "<text>|<percent>" (percent may be empty) once
-    // a second during setup. Update the page in place rather than reloading
-    // it, so the spinner and the bar animate instead of restarting.
+    // a second. Its text says which step is running, and the page is updated
+    // in place rather than reloaded, so the spinner, the bar and the elapsed
+    // counter animate instead of restarting.
     func readStatusFile() {
-        // Once the port file exists there are no more setup lines coming —
-        // poll() has already swapped in the "Almost there." page — so a
-        // stray leftover status.txt line must not paint over it.
+        // Once the port file exists there are no more launcher lines coming —
+        // poll() has already moved the page on to its last step — so a stray
+        // leftover status.txt line must not paint over it.
         guard !loaded, awaitingHealthSince == nil,
               let raw = try? String(contentsOfFile: supportPath("status.txt"),
                                     encoding: .utf8)
@@ -605,45 +754,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pct = max(0, min(n, 100))
             lastProgress = pct
         }
-        // A launch that looked warm turned out to have work to do (an upgrade
-        // keeps the marker until the launcher speaks): swap in the setup page,
-        // which is where the long explanation and the measured bar live. Only
-        // a real setup line earns that swap — every launch, warm ones
-        // included, also publishes "Starting the app…", and that line must
-        // never turn an ordinary opening page into a setup page. It is still
-        // welcome to update the opening page's own step line, which is why the
-        // swap is now gated on the page rather than on "has a #step at all".
-        let isSetupLine = pct != nil
-            || setupStepPrefixes.contains { text.hasPrefix($0) }
-        if isSetupLine && (showingOpeningPage || !showingStepPage) {
-            showSetupStatus(step: text, progress: pct)
+        // Which of the three steps this line is about. A percent or one of
+        // the known setup prefixes is the download (an ordinary launch
+        // publishes neither); the load step's line starts with its own label;
+        // anything else — "Starting the app…" — is the server coming up,
+        // which is where "Opening your projects" begins.
+        let step: LaunchStep
+        if pct != nil || setupStepPrefixes.contains(where: { text.hasPrefix($0) }) {
+            step = .download
+        } else if text.hasPrefix(loadStepLabel) {
+            step = .load
+        } else {
+            step = .open
+        }
+        // The six-minute page is not a steps page, but it carries a step line
+        // and a bar of its own: keep those moving rather than painting the
+        // steps back over the explanation it exists to give.
+        if stalledPageShowing {
+            var js = "var s=document.getElementById('step');"
+                + "if(s){s.textContent=\(jsString(text))}"
+            if let pct = lastProgress {
+                js += ";var b=document.getElementById('bar');"
+                    + "if(b){b.style.width='\(pct)%'}"
+            }
+            webView.evaluateJavaScript(js, completionHandler: nil)
             return
         }
-        guard showingStepPage else { return }   // nowhere to put the text
-        // The first percent of a setup that began with unnumbered lines: the
-        // page has no #bar to widen yet, so render it once with one.
-        if pct != nil && !showingBar {
-            showSetupStatus(step: text, progress: pct)
-            return
-        }
-        var js = "var s=document.getElementById('step');"
-            + "if(s){s.textContent=\(jsString(text))}"
-        if let pct = lastProgress {
-            js += ";var b=document.getElementById('bar');"
-                + "if(b){b.style.width='\(pct)%'}"
-        }
-        webView.evaluateJavaScript(js, completionHandler: nil)
+        setActiveStep(step, detail: text)
     }
 
     func poll() {
         // Keep the setup message honest on slow connections.
         pollTicks += 1
         readStatusFile()
+        updateStepsPage()   // the counter ticks whether or not anything was said
         // Only while still waiting on setup itself: once a port file exists
         // (armed or not — see below) this message's own copy is wrong, and
-        // painting it here would silently cover the "Almost there." page or,
-        // worse, the give-up page — which, unlike this one, has a Try again
-        // link — stranding the user with no way forward.
+        // painting it here would silently cover the steps page's last step
+        // or, worse, the give-up page — which, unlike this one, has a Try
+        // again link — stranding the user with no way forward.
         if pollTicks == 720, awaitingHealthSince == nil, !timedOutWaitingForHealth {
             showStatus("Still setting up…",
                        "The downloads are taking a while — slow connections "
@@ -651,6 +800,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        + "the app will appear as soon as it's ready.",
                        spinner: true, step: lastStepText ?? "Still working…",
                        progress: lastProgress, indeterminate: lastProgress == nil)
+            stalledPageShowing = true
         }
         if let deadline = deferDeadline, pollTicks >= deadline {
             pollTimer?.invalidate()
@@ -670,15 +820,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             awaitingHealthSince = nil
             return
         }
-        // The launcher is done and Streamlit should answer any moment: swap
-        // the (possibly stale) setup page for a fixed "Almost there." rather
-        // than leaving a step line that stopped moving. Never a blank
-        // window: the status page stays up until the health check below
-        // actually succeeds.
+        // The launcher is done and Streamlit should answer any moment, which
+        // is the page's last step. Never a blank window: the status page
+        // stays up until the health check below actually succeeds.
         if awaitingHealthSince == nil {
             awaitingHealthSince = pollTicks
             timedOutWaitingForHealth = false
-            showAlmostThereStatus()
+            // The server is up; what is left is Streamlit answering, which is
+            // the last step. (It is usually already active: the launcher
+            // publishes "Starting the app…" as it spawns the server.)
+            if !stalledPageShowing { setActiveStep(.open) }
         } else if let since = awaitingHealthSince, !timedOutWaitingForHealth,
                   pollTicks - since >= 360 {   // matches launcher.sh's own 180s patience
             // Say so, but keep polling: launcher.sh itself gives up around
