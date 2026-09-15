@@ -541,6 +541,11 @@ def sheets_show_total_caption(total_text):
     return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
+# Beside that line: the total is set on tab 1, and the sentence that names it
+# was the only place on this tab it appeared at all.
+CHANGE_THE_TOTAL_BUTTON = "Change the total"
+
+
 GENERATE_DIFFERENT_BATCH = f"Generate a different {BATCH}"
 
 

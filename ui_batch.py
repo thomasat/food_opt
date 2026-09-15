@@ -14,8 +14,8 @@ from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, readiness, saved_ok, scale_error, scaled_caution,
-    table_height, unit_after_number,
+    park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
+    scaled_caution, table_height, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -471,9 +471,26 @@ def _downloads(opt, scale_to):
     _scale_control(opt, opt.one_amount_unit(), scale_to)
     if scale_to is not None:
         # The file carries the amounts on screen, so the size it was written
-        # for is named directly under it.
-        st.caption(wording.sheets_show_total_caption(
-            opt.batch_total_text(scale_to)))
+        # for is named directly under it — and beside it, the way to change
+        # it. The number is tab 1's, and the line that names it was the one
+        # place on this tab a reader could see it without being told where it
+        # is set.
+        line, change = st.columns([3, 1])
+        with line:
+            st.caption(wording.sheets_show_total_caption(
+                opt.batch_total_text(scale_to)))
+        with change:
+            # Grey, and greyed while a confirmation is waiting: the sheets
+            # are this step's lit button, and a tab never shows two.
+            if st.button(wording.CHANGE_THE_TOTAL_BUTTON,
+                         key="change_the_total",
+                         disabled=confirmation_open(),
+                         use_container_width=True):
+                # The grid below has not been drawn on this run, so what the
+                # bench has already typed into it is parked before the rerun
+                # that leaves the tab.
+                preserve_tab_forms()
+                go_to_tab(TAB_SETUP)
     # The total is what pushed an amount out of what the project allows, so
     # the line reads under the box that did it rather than under a table two
     # steps above.

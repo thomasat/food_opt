@@ -217,9 +217,10 @@ def preserve_tab_forms():
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from seven handlers only: Next: make a batch,
+    tabs, and it is called from eight handlers only: Next: make a batch,
     Back to set up, Save results, Save uploaded results, Start the next batch,
-    Change a measurement or an ingredient, and opening a project. A set-up
+    Change a measurement or an ingredient, Change the total, and opening a
+    project. A set-up
     edit, Generate, a correction or a plain rerun must never call it, and
     neither must a handler whose write failed.
 

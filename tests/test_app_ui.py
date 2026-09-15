@@ -6584,6 +6584,38 @@ def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
         [c.value for c in at.caption]
 
 
+def test_change_the_total_goes_to_set_up_and_keeps_what_was_typed(open_batch):
+    """The total the sheets are written to is set on tab 1, and this line was
+    the only place on tab 2 the reader saw the number at all. The grid below
+    has not been drawn on the run that leaves, so what the bench has already
+    typed is parked rather than dropped."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.run()
+    button = _submit_button(at, "Change the total")
+    assert button.proto.type == "secondary" and not button.disabled
+    button.click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
+    assert at.session_state["f1_Firmness"] == 6.0
+
+
+def test_change_the_total_steps_aside_for_a_confirmation(open_batch):
+    """A tab never shows two lit buttons, and a question waiting for an
+    answer is the one thing to do."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
+    at.run()
+    assert _submit_button(at, "Change the total").disabled
+
+
 def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
