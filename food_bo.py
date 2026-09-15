@@ -248,6 +248,11 @@ class FoodOptimizer:
     # than any bench scale and wide enough that the search always has room.
     FORMULATION_TOTAL_TOLERANCE = 0.005
 
+    # How many space-filling points the opening looks at before it gives up
+    # and asks the model. A batch that cannot be filled from the first pool
+    # is one the limits have made narrow, and a wider pool is cheap.
+    COLD_START_POOLS = (2048, 8192)
+
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
 
@@ -1964,6 +1969,70 @@ class FoodOptimizer:
                 return i
         return None
 
+    def has_formulation_total(self):
+        """True while the project says how big a formulation is. The one
+        question four screens ask — tab 1's box, tab 2's hidden box, the
+        seed and the store — so it is answered in one place."""
+        return getattr(self, 'formulation_total', None) is not None
+
+    def _snap_to_total(self, recipe, total):
+        """Move one candidate onto the total, or None if it cannot get there.
+
+        A total is an equality on a sum, and rejection sampling is hopeless
+        against one: near the ends of what the allowed amounts reach, almost
+        no random point lands in the band, and the opening batch failed with
+        a sentence about limits being too restrictive. So the space-filling
+        point is not tested against the total, it is PROJECTED onto it — the
+        part of each amount above its Lowest is rescaled so the sum comes
+        out right, clipped back into the allowed amounts, and the leftover
+        redistributed among the amounts that still have room. The design
+        stays spread out; it now spreads across the face of the box the
+        total cuts, which is the only place a valid formulation lives.
+
+        A paused ingredient is held at its frozen value and takes no part:
+        its amount comes off the target first."""
+        names, lows, caps, start = [], [], [], []
+        fixed = 0.0
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            value = float(recipe.get(var['name'], 0.0))
+            if not var.get('active', True):
+                fixed += value
+                continue
+            low, high = float(var['bounds'][0]), float(var['bounds'][1])
+            names.append(var['name'])
+            lows.append(low)
+            caps.append(max(0.0, high - low))
+            start.append(min(max(value - low, 0.0), max(0.0, high - low)))
+        if not names:
+            return None
+        room = sum(caps)
+        need = float(total) - fixed - sum(lows)
+        if need < -1e-9 or need > room + 1e-9:
+            return None         # the ingredients that can move cannot reach it
+        need = min(max(need, 0.0), room)
+        free = list(start)
+        for _ in range(40):
+            residual = need - sum(free)
+            if abs(residual) <= 1e-9:
+                break
+            # Only the amounts that can still move in that direction take a
+            # share, which is what stops an amount pinned at its Highest from
+            # swallowing the correction and the loop from stalling.
+            headroom = ([c - f for f, c in zip(free, caps)] if residual > 0
+                        else list(free))
+            share = sum(headroom)
+            if share <= 1e-12:
+                break
+            for i, head in enumerate(headroom):
+                free[i] = min(caps[i],
+                              max(0.0, free[i] + residual * head / share))
+        snapped = dict(recipe)
+        for name, low, value in zip(names, lows, free):
+            snapped[name] = low + value
+        return snapped
+
     def _formulation_total_bounds(self, total):
         """The band a total is enforced as: the total, give or take
         FORMULATION_TOTAL_TOLERANCE."""
@@ -1991,6 +2060,13 @@ class FoodOptimizer:
         if value < lowest:
             raise ValueError(wording.total_not_reachable_at_least(
                 self.batch_total_text(value), self.batch_total_text(lowest)))
+        # A project every one of whose amounts can be 0 reaches 0, so the
+        # sentence above lets a total of nothing through. It is refused in
+        # the same shape rather than as the band's own "At least must be less
+        # than At most", which named two boxes the user never saw.
+        if value <= 0:
+            raise ValueError(wording.total_not_reachable_at_all(
+                self.batch_total_text(value)))
         low, high = self._formulation_total_bounds(value)
         index = self._formulation_total_index()
         if (value == getattr(self, 'formulation_total', None)
@@ -2011,8 +2087,17 @@ class FoodOptimizer:
             if previous is not None:
                 self.quantity_constraints.insert(index, previous)
             raise
+        self._keep_limit_position(index)
         self.formulation_total = value
         self.save()
+
+    def _keep_limit_position(self, index):
+        """Put the limit just appended back where the old one stood. A limit
+        that jumped to the bottom of the Limits list every time the ingredient
+        list was touched read as a new limit the user had not written."""
+        if index is None or index >= len(self.quantity_constraints) - 1:
+            return
+        self.quantity_constraints.insert(index, self.quantity_constraints.pop())
 
     def clear_formulation_total(self):
         """Back to "any total the allowed amounts reach": the number goes and
@@ -2061,13 +2146,24 @@ class FoodOptimizer:
             self.formulation_total = None
             return [dict(gone, reason='unreachable')]
         low, high = self._formulation_total_bounds(total)
-        all_ingredients = [v['name'] for v in self.variables
-                           if v.get('category', 'ingredient') == 'ingredient']
-        self.quantity_constraints.append({
-            'ingredients': all_ingredients,
-            'min': low, 'max': high, 'source': 'formulation_total',
-        })
+        self.add_total_mass_constraint(low, high, source='formulation_total')
+        self._keep_limit_position(index)
         return []
+
+    def recorded_total(self, batch_no):
+        """What batch `batch_no` was actually made to, for a batch already
+        recorded: its own stored total, and the project's only for a batch
+        made before totals were stored at all.
+
+        The opposite order to sheet_total, and deliberately: a batch on the
+        bench is being made NOW, to whatever the project says; a batch in the
+        records was made once, to a number that cannot change afterwards
+        because someone later typed a different total on tab 1."""
+        stored = self.batch_total(batch_no)
+        if stored is not None:
+            return float(stored)
+        return (float(self.formulation_total)
+                if self.has_formulation_total() else None)
 
     def sheet_total(self, batch_total=None):
         """The total the sheets, the downloads and tab 3's amounts heading
@@ -2417,6 +2513,68 @@ class FoodOptimizer:
         past the points it has already issued, so 3 + 2 lands on the same
         five points as 5 in one go, and a regenerate still differs because
         the formulation numbers have moved on."""
+        for size in self.COLD_START_POOLS:
+            candidates = self._cold_start_pool(size, bounds_tensor, dim)
+
+            # Optional screening model
+            if self.screening_model is not None:
+                scored = []
+                for rec in candidates:
+                    if self._check_constraints(rec):
+                        try:
+                            if hasattr(self.screening_model, 'predict'):
+                                score = self.screening_model.predict([list(rec.values())])[0]
+                            else:
+                                score = self.screening_model(rec)
+                            scored.append((score, rec))
+                        except Exception:
+                            pass
+                scored.sort(key=lambda x: x[0], reverse=True)
+                results = [x[1] for x in scored[:n_suggestions]]
+            else:
+                # Standard: pick first feasible candidates
+                results = []
+                for candidate in candidates:
+                    if self._check_constraints(candidate):
+                        results.append(candidate)
+                    if len(results) >= n_suggestions:
+                        break
+
+            if len(results) >= n_suggestions:
+                return results
+
+        # A wider pool did not fill the batch. With results already in, the
+        # model can be asked instead — it is handed the same limits as
+        # inequalities and solves them rather than sampling for them.
+        if self.X_history:
+            try:
+                chosen = self._ask_optimize(n_suggestions, bounds_tensor, dim)
+            except Exception:
+                chosen = []
+            if chosen:
+                return chosen
+        if results:
+            return results
+
+        if self.has_formulation_total():
+            # The total is one number the user typed, and it is what nothing
+            # could satisfy: the refusal names it rather than talking about
+            # limits the user never wrote.
+            raise ValueError(wording.no_formulation_reaches_total(
+                self.batch_total_text(self.formulation_total)))
+        raise ValueError(
+            "No valid formulations found — your limits may be too restrictive. "
+            "Try widening the allowed amounts or relaxing limits."
+        )
+
+    def _cold_start_pool(self, size, bounds_tensor, dim):
+        """`size` points of this project's ONE Sobol sequence, decoded, and —
+        while the project has a total — projected onto it.
+
+        A fresh engine each time, fast-forwarded the same way, so a larger
+        pool opens with exactly the points the smaller one held: growing the
+        pool can only add candidates after the ones already considered, never
+        renumber them."""
         sobol = SobolEngine(dimension=dim, scramble=True,
                             seed=self._sobol_seed())
         # _ask_seed is the NEXT formulation number, so one less is how many
@@ -2424,7 +2582,7 @@ class FoodOptimizer:
         already = max(0, int(self._ask_seed()) - 1)
         if already:
             sobol.fast_forward(already)
-        pool_norm = sobol.draw(2048).double()
+        pool_norm = sobol.draw(size).double()
 
         # Pin inactive variables so the Sobol design also lives in X_S.
         for col, z in self._get_fixed_features().items():
@@ -2432,39 +2590,13 @@ class FoodOptimizer:
 
         candidates = [
             self._decode(unnormalize(pool_norm[i], bounds_tensor).numpy().flatten())
-            for i in range(2048)
+            for i in range(size)
         ]
-
-        # Optional screening model
-        if self.screening_model is not None:
-            scored = []
-            for rec in candidates:
-                if self._check_constraints(rec):
-                    try:
-                        if hasattr(self.screening_model, 'predict'):
-                            score = self.screening_model.predict([list(rec.values())])[0]
-                        else:
-                            score = self.screening_model(rec)
-                        scored.append((score, rec))
-                    except Exception:
-                        pass
-            scored.sort(key=lambda x: x[0], reverse=True)
-            return [x[1] for x in scored[:n_suggestions]]
-
-        # Standard: pick first feasible candidates
-        results = []
-        for candidate in candidates:
-            if self._check_constraints(candidate):
-                results.append(candidate)
-            if len(results) >= n_suggestions:
-                break
-
-        if not results:
-            raise ValueError(
-                "No valid formulations found — your limits may be too restrictive. "
-                "Try widening the allowed amounts or relaxing limits."
-            )
-        return results
+        if not self.has_formulation_total():
+            return candidates
+        snapped = (self._snap_to_total(rec, self.formulation_total)
+                   for rec in candidates)
+        return [rec for rec in snapped if rec is not None]
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
@@ -2540,9 +2672,14 @@ class FoodOptimizer:
         # batch number, not with the row: the amounts stored are as generated,
         # and only this says what the bench weighed out. It is written when a
         # result arrives, because the open batch is cleared straight after.
-        if (batch_no is not None and batch_no == self.pending_batch_no
-                and getattr(self, 'pending_batch_total', None) is not None):
-            self._batch_totals()[int(batch_no)] = float(self.pending_batch_total)
+        if batch_no is not None and batch_no == self.pending_batch_no:
+            # sheet_total, not the box's own number: with a project total in
+            # force tab 2 draws no box, so pending_batch_total is blank (or
+            # stale from before the total was set) while the sheets the bench
+            # worked from were printed to the project's total.
+            made_to = self.sheet_total(getattr(self, 'pending_batch_total', None))
+            if made_to is not None:
+                self._batch_totals()[int(batch_no)] = float(made_to)
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -3043,6 +3180,15 @@ class FoodOptimizer:
             names = set(qc['ingredients'])
             label = " + ".join(qc['ingredients'])
             lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0, pinned)
+            if qc.get('source') == 'formulation_total':
+                # The total is one number the user typed, not a rule about a
+                # list: naming its eight ingredients and telling the user to
+                # loosen a limit they never wrote helped nobody.
+                if ((qc['min'] is not None and hi < qc['min'])
+                        or (qc['max'] is not None and lo > qc['max'])):
+                    raise ValueError(wording.pausing_breaks_the_total(
+                        self.batch_total_text(self.formulation_total)))
+                continue
             if qc['min'] is not None and hi < qc['min']:
                 raise ValueError(
                     f"Pausing these would make the limit on {label} impossible "
@@ -3174,10 +3320,13 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
-        # The total is over every ingredient, and there is one fewer now.
-        self._sync_formulation_total()
+        # The total is over every ingredient, and there is one fewer now. It
+        # is handed back the way add_ingredient hands back what a unit change
+        # emptied: the screen owes the same one-line notice either way.
+        removed = self._sync_formulation_total()
         self._drop_pending_batch()
         self.save()
+        return removed
 
     def set_bo_config(self, spec):
         """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the

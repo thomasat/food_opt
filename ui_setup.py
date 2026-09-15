@@ -15,7 +15,8 @@ import storage as storage_backend
 import wording
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
-    best_move_sentence, clear_scale_total, confirm_action, confirmation_open,
+    best_move_sentence, clear_formulation_total_box, clear_scale_total,
+    confirm_action, confirmation_open,
     disarm, flash,
     fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
     number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
@@ -210,11 +211,9 @@ def _formulation_total(opt):
 
 
 def _clear_formulation_total(opt):
-    """Take the total out, and empty the box that holds it. Parked, not
-    popped: the mounted box posts its old value straight back, and this run's
-    Delete would be undone by the next run's write."""
+    """Take the total out, and empty the box that holds it."""
     opt.clear_formulation_total()
-    park_clear("formulation_total", None)
+    clear_formulation_total_box()
 
 
 def _variables(opt, storage):
@@ -642,10 +641,13 @@ def _remove_variable(opt, storage, pick, is_ingredient):
         st.session_state.pop("delete_ing_force", None)
     if confirmed:
         batch_no = opt.pending_batch_no
+        removed = []
         try:
             storage.archive(opt.project_name, "pre_delete", copy=True)
             if is_ingredient:
-                opt.remove_ingredient(pick, force=force)
+                # The total is over every ingredient, so deleting one can put
+                # it out of reach; what went comes back here to be said.
+                removed = opt.remove_ingredient(pick, force=force) or []
             else:
                 opt.remove_process_parameter(pick)
         except (ValueError, storage_backend.StorageError) as e:
@@ -653,6 +655,7 @@ def _remove_variable(opt, storage, pick, is_ingredient):
         else:
             if saved_ok(opt):
                 flash("success", wording.deleted(pick))
+                _flash_removed_limits(opt, removed)
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
 
@@ -738,10 +741,8 @@ def _flash_removed_limits(opt, removed):
                   wording.formulation_total_gone_unit(total_text)
                   if qc.get('reason') == 'unit'
                   else wording.formulation_total_gone_unreachable(total_text))
-            # The number goes out of the box as well as out of the file: a
-            # mounted box posts its old value back, and the next run would
-            # write the total straight back in.
-            park_clear("formulation_total", None)
+            # The number goes out of the box as well as out of the file.
+            clear_formulation_total_box()
             continue
         label = _limit_label(opt, qc)
         if qc.get('reason') == 'missing':
@@ -1246,13 +1247,14 @@ def _limits(opt, storage):
         names = [v['name'] for v in opt.variables
                  if v.get('category', 'ingredient') == 'ingredient']
 
-        # ONE amount limit. There used to be two controls for one idea: a
-        # group limit whose picker, with every ingredient ticked, wrote
-        # exactly what the second control wrote. The picker's empty state is
-        # now every ingredient, which is the common case and reads as one.
+        # ONE amount limit, on the ingredients the user names. The total
+        # over ALL of them is not written here — it is the box under the
+        # ingredients table, and this picker asks for a choice like every
+        # other picker in the app.
         st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
         picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
-                                key="qty_pick")
+                                key="qty_pick",
+                                placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
         q1, q2 = st.columns(2)
         with q1:
             st.session_state.setdefault("qc_min", None)

@@ -1109,6 +1109,31 @@ def total_not_reachable_at_least(total_text, least_text):
             f"add up to at least {least_text}.")
 
 
+def total_not_reachable_at_all(total_text):
+    """A total of nothing. Reachable arithmetic — every amount can be 0 in a
+    project with no lower bounds — and still not a formulation, so it is
+    refused in the same shape as a total the amounts cannot make."""
+    return (f"A total of {total_text} is not reachable: every formulation "
+            "has to add up to something.")
+
+
+def no_formulation_reaches_total(total_text):
+    """Generate found nothing that adds up to the total. It is the total that
+    is impossible, so the sentence names it and the two ways out, rather than
+    talking about limits the user never wrote."""
+    return (f"No formulation adds up to {total_text} within the allowed "
+            "amounts. Change the total or widen the amounts.")
+
+
+def pausing_breaks_the_total(total_text):
+    """Pausing holds an ingredient at one value, which can put the total out
+    of reach of the ones still moving. The fix is the total, not the eight
+    ingredients its limit happens to name."""
+    return (f"Pausing these would leave no formulation adding up to "
+            f"{total_text}. Clear the total of each formulation first, or "
+            "resume enough ingredients to reach it.")
+
+
 def formulation_total_gone_unit(total_text):
     """The sentence a unit change owes the total when it has just split the
     ingredients across units — the same debt unscaled_tail settles for the

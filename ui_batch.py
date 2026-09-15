@@ -72,7 +72,7 @@ def _seed_scale_total(opt):
     arrives, and `setdefault` would have passed straight over it. Assigning a
     widget's key is legal here and nowhere later — this runs before the box
     is created."""
-    if getattr(opt, 'formulation_total', None) is not None:
+    if opt.has_formulation_total():
         return          # no box on this tab to seed: tab 1 holds the total
     stored = getattr(opt, 'pending_batch_total', None)
     mark = _seed_mark(opt, stored)
@@ -98,7 +98,7 @@ def _store_total(opt, scale_to):
     back in."""
     if scale_to is None and not opt.has_ingredients():
         return
-    if getattr(opt, 'formulation_total', None) is not None:
+    if opt.has_formulation_total():
         # The box is not drawn while the project has a total of its own, so
         # there is no answer of the user's to record — and a value left
         # behind in the session must not blank the total a past batch of this
@@ -122,7 +122,7 @@ def _scale_to(opt):
     scaling."""
     if opt.one_amount_unit() is None:
         return None
-    if getattr(opt, 'formulation_total', None) is not None:
+    if opt.has_formulation_total():
         return None     # tab 1's total is the answer; the box is not drawn
     value = st.session_state.get("scale_total")
     if value is None or float(value) <= 0:
@@ -412,7 +412,7 @@ def _scale_control(opt, unit, scale_to):
     """
     if not opt.has_ingredients():
         return
-    if getattr(opt, 'formulation_total', None) is not None:
+    if opt.has_formulation_total():
         # The project already says how big a formulation is, and every row in
         # the table was BUILT to that total rather than rewritten to it. A
         # second box for the same number would let the bench answer the

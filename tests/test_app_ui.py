@@ -7411,3 +7411,75 @@ def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
     burger.set_pending_batch([{"Pea protein": 11.0, "Methylcellulose": 1.0}])
     frame = burger.batch_frame(burger.pending_batch)
     assert "Compared with Formulation 1" not in _amount_format(burger, frame)
+
+
+# ------------------------------------------------------------------ #
+#  Total of each formulation: fix round 1
+# ------------------------------------------------------------------ #
+
+def test_deleting_an_ingredient_says_what_happened_to_the_total(burger):
+    """The notice was the only thing that told the user the total went, and
+    only an added ingredient produced it — a deleted one left the box holding
+    a number the project no longer had, writing it back every run."""
+    burger.add_ingredient("Water", 20, 60)
+    burger.set_formulation_total(80)          # 25 + 3 + 60 reaches 80 g
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _total_box(at).value == 80.0
+    at.selectbox(key="var_pick").select("Water")
+    at.run()
+    _submit_button(at, "Delete Water").click()
+    at.run()
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    assert not at.exception
+    assert any(w.value == ("The total of 80 g is gone: the allowed amounts "
+                           "no longer add up to it.")
+               for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").formulation_total is None
+    assert _total_box(at).value is None
+    # ...and it stays gone: nothing writes the old number back on the next run.
+    at.run()
+    assert not at.error, [e.value for e in at.error]
+    assert FoodOptimizer("burger").formulation_total is None
+
+
+def test_a_recorded_batch_keeps_the_weight_it_was_made_to(scored):
+    """Typing a total on tab 1 must not rewrite what the bench already
+    weighed out for a batch in the records."""
+    scored.set_pending_batch_total(400.0)
+    scored._batch_totals()[1] = 400.0
+    scored.save()
+    scored.set_formulation_total(20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    headings = [m.value for m in at.tabs[2].markdown]
+    assert "**Amounts to make it (400 g)**" in headings, headings
+
+
+def test_the_limit_picker_asks_for_a_choice_like_every_other_picker(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.multiselect(key="qty_pick").proto.placeholder == \
+        wording.CHOOSE_MANY_PLACEHOLDER
+
+
+def test_a_total_at_the_edge_of_what_the_amounts_reach_still_generates(burger):
+    """The box accepted 28 g and Generate then failed with a sentence about
+    limits: rejection sampling cannot find an equality on a sum."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _total_box(at).set_value(28.0)            # 25 g + 3 g, the very ceiling
+    at.run()
+    assert not at.error, [e.value for e in at.error]
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, "Generate 3 formulations").click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    rows = FoodOptimizer("burger").pending_batch
+    assert len(rows) == 3
+    for row in rows:
+        assert sum(row['recipe'].values()) == pytest.approx(28.0, abs=0.5)

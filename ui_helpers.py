@@ -370,6 +370,16 @@ def clear_scale_total():
     park_clear("scale_total", None)
 
 
+def clear_formulation_total_box():
+    """Empty tab 1's `Total of each formulation` box.
+
+    Parked for the same reason tab 2's is: popping a widget's key does not
+    reach the browser, so a box left holding a total the project no longer
+    has would write it straight back on the next run — and the notice saying
+    the total went would be followed by the total coming back."""
+    park_clear("formulation_total", None)
+
+
 def take_clear(key, fresh=None):
     """Honour a pending clear. Call immediately BEFORE the widget is created.
     `fresh` is what a plain clear_selection should leave behind when the right

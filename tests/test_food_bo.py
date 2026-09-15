@@ -4121,3 +4121,153 @@ class TestWhatEachFormulationIsTrying:
         assert cell == ("Close to the best · Water +6.67 g, "
                         "Wheat gluten −6.67 g"), cell
         assert df["Water (g)"].iloc[0] == pytest.approx(86.666666, rel=1e-5)
+
+
+class TestTheTotalIsAlwaysReachable:
+    """Fix round 1: a total the box accepts must produce a batch. Rejection
+    sampling cannot find an equality on a sum near the ends of what the
+    allowed amounts reach, so the opening projects onto the total instead."""
+
+    def _sample(self, tmp_path, monkeypatch, name="reach"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+        return opt
+
+    @pytest.mark.parametrize("total", list(range(20, 131, 5)))
+    def test_every_total_the_box_accepts_fills_a_batch(self, total, tmp_path,
+                                                       monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch, name=f"reach_{total}")
+        opt.set_formulation_total(total)
+        rows = opt.ask(n_suggestions=3)
+        assert len(rows) == 3
+        bounds = {v['name']: v['bounds'] for v in opt.variables}
+        for row in rows:
+            assert sum(row.values()) == pytest.approx(float(total), abs=0.5)
+            for name, value in row.items():
+                low, high = bounds[name]
+                assert low - 1e-6 <= value <= high + 1e-6, (name, value)
+
+    def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
+        """Projecting onto the total must not collapse the design: three rows
+        at a total the box has room around are three different formulations."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        rows = opt.ask(n_suggestions=3)
+        waters = {round(row["Water"], 3) for row in rows}
+        assert len(waters) == 3, waters
+
+    def test_a_paused_ingredient_keeps_its_frozen_amount(self, tmp_path,
+                                                         monkeypatch):
+        """A paused ingredient is held at one value and takes no part in the
+        projection: its amount comes off the target first."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.deactivate_variable("Salt", value=2.0)
+        for row in opt.ask(n_suggestions=2):
+            assert row["Salt"] == pytest.approx(2.0)
+            assert sum(row.values()) == pytest.approx(100.0, abs=0.5)
+
+    def test_pausing_that_puts_the_total_out_of_reach_names_the_total(
+            self, tmp_path, monkeypatch):
+        """Not eight ingredients and a limit the user never wrote."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(120)
+        # Water is 20 to 60 g; held at 20, the rest reach 91 g at most.
+        with pytest.raises(ValueError) as refused:
+            opt.deactivate_variable("Water", value=20.0)
+        assert str(refused.value) == (
+            "Pausing these would leave no formulation adding up to 120 g. "
+            "Clear the total of each formulation first, or resume enough "
+            "ingredients to reach it.")
+
+    def test_a_total_of_nothing_is_refused_in_the_reach_words(self, tmp_path,
+                                                              monkeypatch):
+        """A project whose every amount can be 0 reaches 0, so the reach
+        sentence alone let a total of nothing through to the band, which
+        refused it by naming two boxes the user never saw."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("zeroes", robust=False)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 50)
+        assert opt.total_reach() == (0.0, 150.0)
+        with pytest.raises(ValueError) as refused:
+            opt.set_formulation_total(0)
+        assert str(refused.value) == (
+            "A total of 0 g is not reachable: every formulation has to add "
+            "up to something.")
+        assert opt.formulation_total is None
+        assert opt.quantity_constraints == []
+
+    def test_the_total_keeps_its_place_in_the_limits_list(self, tmp_path,
+                                                          monkeypatch):
+        """A limit that jumped to the bottom of the list every time the
+        ingredient list was touched read as a new limit."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Salt"], max_val=2)
+        assert [qc.get('source') for qc in opt.quantity_constraints] == [
+            'formulation_total', None]
+        opt.add_ingredient("Onion powder", 0, 5, unit="g")
+        assert [qc.get('source') for qc in opt.quantity_constraints] == [
+            'formulation_total', None]
+        assert "Onion powder" in opt.quantity_constraints[0]['ingredients']
+
+    def test_deleting_an_ingredient_hands_back_the_total_that_went(
+            self, tmp_path, monkeypatch):
+        """add_ingredient already did; the screen owes the same notice
+        either way, and could not say it without this."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(130)       # only 131 g of amounts allowed
+        removed = opt.remove_ingredient("Water")    # 131 g -> 71 g
+        assert opt.formulation_total is None
+        gone = [r for r in removed if r.get('source') == 'formulation_total']
+        assert [g['reason'] for g in gone] == ['unreachable']
+        assert gone[0]['total'] == 130.0
+
+    def test_deleting_an_ingredient_the_total_survives_returns_nothing(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        assert opt.remove_ingredient("Beet juice powder") == []
+        assert opt.formulation_total == 100.0
+
+    def test_a_batch_records_the_total_its_sheets_were_printed_to(
+            self, tmp_path, monkeypatch):
+        """Tab 2 draws no box while the project has a total, so
+        pending_batch_total is blank — and the bench still weighed out 100 g."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        rows = opt.ask(n_suggestions=2)
+        batch_no = opt.pending_batch_no
+        assert opt.pending_batch_total is None
+        opt.tell(rows[0], {"Juiciness": 7.0, "Firmness": 6.0},
+                 formulation_no=1, batch_no=batch_no)
+        assert opt.batch_total(batch_no) == 100.0
+
+    def test_a_recorded_batch_keeps_the_total_it_was_made_to(self, tmp_path,
+                                                             monkeypatch):
+        """A total typed on tab 1 afterwards must not rewrite what the bench
+        already weighed out."""
+        opt = self._sample(tmp_path, monkeypatch)
+        rows = opt.ask(n_suggestions=1)
+        batch_no = opt.pending_batch_no
+        opt.set_pending_batch_total(400.0)
+        opt.tell(rows[0], {"Juiciness": 7.0, "Firmness": 6.0},
+                 formulation_no=1, batch_no=batch_no)
+        assert opt.recorded_total(batch_no) == 400.0
+        opt.set_formulation_total(100)
+        assert opt.recorded_total(batch_no) == 400.0     # still 400 g
+        assert opt.sheet_total(400.0) == 100.0           # the bench now: 100 g
+
+    def test_a_batch_from_before_totals_falls_back_to_the_project(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        assert opt.recorded_total(7) is None
+        opt.set_formulation_total(100)
+        assert opt.recorded_total(7) == 100.0
