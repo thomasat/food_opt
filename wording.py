@@ -293,20 +293,27 @@ RELOAD_PROJECT = "Reload project"
 PROJECT_RELOADED = "Project reloaded from the latest saved copy."
 
 
-def batch_discarded_notice(no=None):
-    """'Batch 2 was discarded: your set-up changed after it was made.
-    Generate a new one.'
+# What the discard notice blames when it knows. The general case is the
+# tab — three ways lead there (the ingredient list, a paused row, the
+# allowed amounts) and naming all three in one subordinate clause was
+# unreadable on one pass. The total is its own answer because it is one
+# control the reader has just touched, and "your set-up changed" sent them
+# looking for what else they had done.
+# TOTAL_CHANGED_REASON is the other one; it lives beside the total's own
+# name, further down, because it is built from it.
+SETUP_CHANGED_REASON = "your set-up changed"
 
-    Three ways lead here — the ingredient list, a paused ingredient or
-    setting, the allowed amounts — and naming all three in one subordinate
-    clause was unreadable on one pass and still never said what to do. "Your
-    set-up" is the tab all three live on.
+
+def batch_discarded_notice(no=None, reason=SETUP_CHANGED_REASON):
+    """'Batch 2 was discarded: your set-up changed after it was made.
+    Generate a new one.' — or, when the total is what did it, 'Batch 2 was
+    discarded: the total of each formulation changed after it was made.'
     """
     # Every screen that flashes this knows the number. The unnumbered form
     # is the honest fallback for a batch whose number did not survive the
     # read that discarded it, and nothing reaches it today.
     who = f"{BATCH_CAP} {no}" if no is not None else f"The open {BATCH}"
-    return (f"{who} was discarded: your set-up changed after it was made. "
+    return (f"{who} was discarded: {reason} after it was made. "
             "Generate a new one.")
 
 
@@ -1137,6 +1144,9 @@ ADD_INGREDIENT_LIMIT_BUTTON = "Add ingredient limit"
 
 FORMULATION_TOTAL_NAME = "Total of each formulation"
 FORMULATION_TOTAL_LOWER = "the total of each formulation"
+# What batch_discarded_notice blames when the total is what discarded the
+# batch, rather than the tab as a whole.
+TOTAL_CHANGED_REASON = f"{FORMULATION_TOTAL_LOWER} changed"
 
 
 def formulation_total_label(unit):

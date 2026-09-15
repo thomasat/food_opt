@@ -2471,19 +2471,33 @@ class FoodOptimizer:
         by_measurement, last_row, guessed = {}, -1, {}
         heading = next((i for i in range(len(lowered) - 1, -1, -1)
                         if lowered[i] == wording.MEASURED_COLUMN.lower()), None)
+        # Where the write-in block's FIRST measurement sits, which is not
+        # always the row under the heading: the sheet carries one line of
+        # instruction between the two ("Write what you measured…"), and a
+        # fallback that counted from the heading landed one row too high —
+        # rename Juiciness's label and its 8.0 came back as Firmness's 5.5,
+        # silently. A sheet written before that line existed has no such row,
+        # so it is skipped only when it is there.
+        first_measurement = None
+        if heading is not None:
+            first_measurement = heading + 1
+            if (first_measurement < len(lowered)
+                    and lowered[first_measurement]
+                    == wording.SHEET_WRITE_IN_NOTE.lower()):
+                first_measurement += 1
         for position, obj in enumerate(self.measurements_by_importance()):
             names = {self._measurement_sheet_label(obj).lower(),
                      label_with_unit(obj['name'], obj.get('unit')).lower(),
                      str(obj['name']).strip().lower()}
             index = next((i for i in range(len(lowered) - 1, -1, -1)
                           if lowered[i] in names), None)
-            if index is None and heading is not None:
-                # The label was retyped on the sheet; under the Measured
-                # heading the measurements are still in importance order.
+            if index is None and first_measurement is not None:
+                # The label was retyped on the sheet; inside the write-in
+                # block the measurements are still in importance order.
                 # A guess, and recorded as one: if nothing was written where
                 # it points while the block holds numbers elsewhere, it is
                 # pointing at somebody else's row and the sheet is refused.
-                index = heading + 1 + position
+                index = first_measurement + position
                 guessed[obj['name']] = index
             if index is not None and index < len(labels):
                 by_measurement[obj['name']] = index

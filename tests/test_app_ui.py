@@ -7956,3 +7956,39 @@ def test_the_first_screen_says_where_the_name_box_is(tmp_path, monkeypatch):
     at.run()
     assert any("Name a project** in the sidebar on the left" in m.value
                for m in at.markdown), [m.value for m in at.markdown]
+
+
+def test_only_an_ingredient_add_says_the_total_still_holds(burger):
+    """The total is a sum of AMOUNTS. A process setting is not in it, so
+    adding one has nothing to reassure anybody about."""
+    burger.set_formulation_total(20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="var_name").set_value("Cook temperature")
+    at.radio(key="var_kind").set_value(wording.KIND_SETTING)
+    at.run()
+    at.text_input(key="var_unit").set_value("°C")
+    at.number_input(key="var_high").set_value(220.0)
+    at.run()
+    _submit_button(at, wording.ADD_VARIABLE_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert [s.value for s in at.success] == ["Cook temperature added."]
+    assert FoodOptimizer("burger").formulation_total == 20.0
+
+
+def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
+    """'Your set-up changed' is true of the ingredient list, a pause and the
+    allowed amounts. When it was the total, the notice names the total."""
+    burger.set_formulation_total(20.0)
+    burger.set_pending_batch([{"Pea protein": 17.0, "Methylcellulose": 3.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _total_box(at).set_value(25.0)
+    at.run()
+    assert not at.exception
+    assert any(i.value == ("Batch 1 was discarded: the total of each "
+                           "formulation changed after it was made. Generate "
+                           "a new one.") for i in at.info), \
+        [i.value for i in at.info]
+    assert FoodOptimizer("burger").pending_batch is None

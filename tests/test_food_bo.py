@@ -5370,3 +5370,54 @@ class TestTheWorkbookFinalWave:
 
         frame = opt.results_from_workbook(self._filled(opt, edit))
         assert list(frame[wording.NOTE]) == ["second try"]
+
+
+class TestTheWriteInBlockIsFoundPastTheInstruction:
+    """The instruction line sits between the `Measured` heading and the first
+    measurement, so a fallback that counted from the heading read one row too
+    high and handed back the row above the one it meant."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("firstrow")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10,
+                          unit="/10")
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 80.0}],
+                              batch_no=2)
+        return opt
+
+    def _handed_back(self, opt, edit):
+        book = openpyxl.load_workbook(
+            io.BytesIO(opt.workbook_bytes(opt.pending_batch)))
+        edit(book["Batch 2"])
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        return out
+
+    @staticmethod
+    def _row_of(sheet, label):
+        for r, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if row and str(row[0]).strip() == label:
+                return r
+        raise AssertionError(f"no row {label!r}")
+
+    def test_one_renamed_label_still_reads_both_measurements(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+
+        def edit(sheet):
+            firm = self._row_of(sheet, "Firmness · target 6 N")
+            juice = self._row_of(sheet, "Juiciness (/10) · higher is better")
+            sheet.cell(row=juice, column=1).value = "Mouth juiciness"
+            sheet.cell(row=firm, column=2).value = 5.5
+            sheet.cell(row=juice, column=2).value = 8.0
+
+        frame = opt.results_from_workbook(self._handed_back(opt, edit))
+        assert list(frame["Firmness"]) == [5.5]
+        assert list(frame["Juiciness"]) == [8.0]

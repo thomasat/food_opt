@@ -46,12 +46,19 @@ def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
 
 
-def _note_discarded_batch(opt, batch_no_before):
+def _note_discarded_batch(opt, batch_no_before,
+                          reason=wording.SETUP_CHANGED_REASON):
     """Flash the notice when the write just now retired the open batch. The
     batch is named: the notice lands above the tabs, away from the table it
-    is about."""
+    is about.
+
+    `reason` is what discarded it. The tab as a whole is the honest answer
+    for the ingredient list, a pause and the allowed amounts — three ways to
+    one place — but the total is one control the reader has just touched,
+    and blaming "your set-up" sent them looking for what else they had
+    done."""
     if batch_no_before is not None and opt.pending_batch_no is None:
-        flash("info", wording.batch_discarded_notice(batch_no_before))
+        flash("info", wording.batch_discarded_notice(batch_no_before, reason))
 
 
 def _goal_text(obj):
@@ -245,7 +252,7 @@ def _formulation_total(opt):
     # otherwise the batch vanished from tab 2 with nothing said until the
     # user's next click.
     if batch_no is not None and opt.pending_batch_no is None:
-        _note_discarded_batch(opt, batch_no)
+        _note_discarded_batch(opt, batch_no, wording.TOTAL_CHANGED_REASON)
         preserve_tab_forms()
         st.rerun()
 
@@ -376,16 +383,17 @@ def _set_typed_properties(opt, name, properties):
         park_clear(_prop_key(prop), None)
 
 
-def _added_line(opt, name):
+def _added_line(opt, name, ingredient=True):
     """'Onion powder added. Each formulation still totals 100 g.'
 
-    The total's limit is over every ingredient, so every add rewrites it. The
-    reader has just been told limits are hard rules; the success line is
-    where they find out the one they typed is still standing. Said only when
-    there is a total: a project without one has nothing to reassure anybody
-    about."""
+    The total's limit is over every ingredient, so every ingredient added
+    rewrites it. The reader has just been told limits are hard rules; the
+    success line is where they find out the one they typed is still
+    standing. Said only when there is a total, and only for an INGREDIENT: a
+    process setting is not an amount and is in no sum, so a total is not a
+    thing adding one could have put at risk."""
     added = wording.added(str(name).strip())
-    if not opt.has_formulation_total():
+    if not ingredient or not opt.has_formulation_total():
         return added
     return f"{added} {wording.total_still_holds(opt.batch_total_text(opt.formulation_total))}"
 
@@ -410,7 +418,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
             st.error(str(e))
             return
         if saved_ok(opt):
-            flash("success", _added_line(opt, name))
+            flash("success", _added_line(opt, name, ingredient=False))
             _note_discarded_batch(opt, batch_no)
             st.rerun()
         return
