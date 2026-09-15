@@ -1797,3 +1797,57 @@ def fixed_rows_tail(names_text):
     the limit; without this the reader had to work out which of eight rows
     they had just fixed."""
     return f"Fixed at one amount: {names_text}."
+
+
+# ------------------------------------------------------------------ #
+# 0.5.0 workbook. The file is locked where the app will not read it and
+# open where it will: the cells a bench writes in are unlocked and
+# shaded, and the sheet says which ones they are. Two of them are new —
+# the Lot a round was weighed from, and the Actual weight when the
+# balance did not land on the printed number.
+# ------------------------------------------------------------------ #
+# One lot per ingredient per round: the summary sheet has one cell for
+# it beside the amounts, not one per formulation, because a round is
+# weighed out of the sacks that are open that morning.
+LOT_COLUMN = "Lot"
+# What was really weighed, beside what was asked for. The column header
+# carries the project's unit, as the Amount column does.
+ACTUAL_COLUMN = "Actual"
+
+# The one line under each sheet's title. The sheets are protected now,
+# so this says what can be typed and where: a locked cell that refuses a
+# number without saying why is the worst kind of paper.
+SHEET_SHADED_NOTE = (
+    f"Fill in the shaded cells only: what you measured, {NOT_SCORED}, "
+    f"{NOTE}, {LOT_COLUMN}, and {ACTUAL_COLUMN} if you weighed something "
+    "different.")
+
+# What a formulation's note says when its amounts came back off the
+# sheet rather than off the screen. It goes in front of whatever the
+# bench wrote, exactly as the not-scored marker does: the row's amounts
+# are no longer the ones the app suggested, and nothing else on the
+# Results tab would say so.
+AMOUNTS_AS_WEIGHED = "Amounts as weighed"
+
+
+def amounts_as_weighed_note(note):
+    """'Amounts as weighed · lumpy' — the marker, then what was typed."""
+    text = str(note or "").strip()
+    return f"{AMOUNTS_AS_WEIGHED} · {text}" if text else AMOUNTS_AS_WEIGHED
+
+
+def workbook_actual_not_a_number(number, name):
+    """An Actual cell with something in it that is not a weight. It is
+    refused rather than dropped: the whole point of the column is that
+    what was weighed is not what was printed, so ignoring it would file
+    the printed amount under a formulation nobody made."""
+    return (f"{FORMULATION_CAP} {number}: the {ACTUAL_COLUMN} cell for "
+            f"{name} is not a number. Write what you weighed, or leave it "
+            "blank.")
+
+
+# The sheet of the All formulations file that carries the lot numbers:
+# one row per ingredient per round. They are not columns on the
+# formulations table — a lot belongs to a round, not to a formulation —
+# and a column per ingredient would double that table's width.
+LOTS_SHEET = "Lots"

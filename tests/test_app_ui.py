@@ -4189,15 +4189,17 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     # total that also holds 40 ml of water.
     assert wording.PERCENT_COLUMN not in texts, texts
     rows = _summary_rows(at)
-    assert list(rows)[1:] == ["Ingredient", "Pea protein (g)",
+    assert list(rows)[2:] == ["Ingredient", "Pea protein (g)",
                               "Water (ml)", "Total",
                               wording.MEASURED_COLUMN,
                               wording.SHEET_WRITE_IN_NOTE,
                               "Firmness · target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
                               wording.SUMMARY_TICK_NOTE], list(rows)
-    # One column per formulation, not two.
-    assert rows["Pea protein (g)"] == [10.0], rows["Pea protein (g)"]
+    # Under the title, the line that says which cells take a number.
+    assert list(rows)[1] == wording.SHEET_SHADED_NOTE
+    # One column per formulation, not two — and the Lot cell after it.
+    assert rows["Pea protein (g)"] == [10.0, None], rows["Pea protein (g)"]
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -4831,8 +4833,10 @@ def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
     # not the app already put one there.
     assert texts.count(wording.NOTE) == 2, texts
     # ... and so does the summary sheet, on the row it keeps for notes.
+    # Two formulations, each with an amount column and a share column, then
+    # the Lot column past the end of them.
     assert _summary_rows(at)[wording.NOTE] == [
-        None, None, wording.repeat_of_formulation(1), None], \
+        None, None, wording.repeat_of_formulation(1), None, None], \
         _summary_rows(at)[wording.NOTE]
 
 
@@ -7202,10 +7206,11 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, the Not scored box, a note box and its overflow, on
+    # Two measurements, the Not scored box, a note box and its overflow, and
+    # one Actual cell per ingredient (two) and per setting (none here), on
     # each of the two sheets. The tick cells carry a printed box, so they
     # are bordered AND written in — they are not counted here.
-    assert boxed == 2 * (2 + 1 + 2), boxed
+    assert boxed == 2 * (2 + 1 + 2 + 2), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -9092,3 +9097,47 @@ def test_moving_the_property_picker_takes_the_question_down(burger):
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
         _tab_primaries(at, 0)
     assert FoodOptimizer("burger").properties() == ["Cost", "Fat per 100 g"]
+def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
+        open_batch):
+    """0.5.0 §1.6, end to end: the file the bench hands back carries an
+    Actual weight and a lot number, and pressing Save records the amounts
+    that were made — not the ones that were printed — with the lot kept
+    against the round."""
+    import ui_batch
+    opt = open_batch
+    book = openpyxl.load_workbook(
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch, None)))
+    summary = book[wording.batch_sheet_name(1)]
+    at_row = {summary.cell(row=r, column=1).value: r
+              for r in range(1, summary.max_row + 1)}
+    summary.cell(row=at_row["Firmness · target 6 N"], column=2, value=6.0)
+    summary.cell(row=at_row["Juiciness (/10) · target 7"], column=2, value=7.0)
+    # The Lot column sits after the two formulations and their shares.
+    lot_column = 2 + 2 * len(opt.pending_batch)
+    summary.cell(row=at_row["Pea protein (g)"], column=lot_column,
+                 value="PP-42")
+    page = book["Formulation 1"]
+    rows = {page.cell(row=r, column=2).value: r
+            for r in range(1, page.max_row + 1)}
+    page.cell(row=rows["Pea protein"], column=4, value=10.4)
+    filled = io.BytesIO()
+    book.save(filled)
+    filled.seek(0)
+    filled.name = "burger · Round 1.xlsx"
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.session_state["_results_upload"] = ui_batch._read_results_file(
+        at.session_state["optimizer"], filled)
+    at.run()
+    assert not at.exception
+    _submit_button(at, wording.SAVE_UPLOADED_RESULTS).click()
+    at.run()
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.recipe_history[0] == {"Pea protein": 10.4,
+                                          "Methylcellulose": 1.0}
+    assert reloaded.notes_history[0] == wording.AMOUNTS_AS_WEIGHED
+    assert reloaded.lots == {1: {"Pea protein": "PP-42"}}

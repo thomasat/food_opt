@@ -5670,20 +5670,26 @@ class TestTheWorkbook:
         # was asked for and what size it is made to.
         assert rows[0][0] == wording.summary_title(2, "sheets",
                                                    opt._sheet_date(), "100 g")
-        assert rows[1] == ("Ingredient or process setting", "Formulation 1", "%",
-                           "Formulation 2", "%", "Formulation 3", "%"), rows[1]
+        # Under the title, the one line that says which cells can be
+        # written in; the header the upload reads is under that.
+        assert rows[1][0] == wording.SHEET_SHADED_NOTE
+        assert rows[2] == ("Ingredient or process setting", "Formulation 1", "%",
+                           "Formulation 2", "%", "Formulation 3", "%",
+                           "Lot"), rows[2]
         labelled = _labelled(sheet)
+        # The last cell of an ingredient row is its Lot, left blank for the
+        # bench to write in.
         assert labelled["Pea protein (g)"] == [20.0, 20.0, 30.0, 30.0,
-                                               25.0, 25.0]
-        assert labelled["Salt (g)"] == [10.0, 10.0, 5.0, 5.0, 5.0, 5.0]
+                                               25.0, 25.0, None]
+        assert labelled["Salt (g)"] == [10.0, 10.0, 5.0, 5.0, 5.0, 5.0, None]
         # The total is the number the sheets were written to, and every
         # column of shares adds up to it.
         assert labelled["Total (g)"] == [100.0, 100.0, 100.0, 100.0,
-                                         100.0, 100.0]
-        # A setting is dialled in, not weighed: no share, and rounded as
-        # every screen rounds it.
+                                         100.0, 100.0, None]
+        # A setting is dialled in, not weighed: no share, no lot, and
+        # rounded as every screen rounds it.
         assert labelled["Cook temperature (°C)"] == [180.0, None, 188.49,
-                                                     None, 200.0, None]
+                                                     None, 200.0, None, None]
 
     def test_the_summary_has_a_row_to_write_in_for_every_measurement(
             self, tmp_path, monkeypatch):
@@ -5703,7 +5709,7 @@ class TestTheWorkbook:
         assert wording.SUMMARY_TICK_NOTE == (
             "A ticked Not scored box wins over numbers typed in that column.")
         for label in labels[-5:-1]:
-            assert _labelled(sheet)[label] == [None] * 6, label
+            assert _labelled(sheet)[label] == [None] * 7, label
 
     def test_a_note_the_app_wrote_is_already_on_the_sheet(self, tmp_path,
                                                           monkeypatch):
@@ -5714,7 +5720,9 @@ class TestTheWorkbook:
                                   "Salt": 10.0, "Cook temperature": 180.0},
                                  note=wording.repeat_of_formulation(1))
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
-        assert _labelled(book["Round 2"])[wording.NOTE][-2] == \
+        # Formulation 4's own column: the amount columns come in pairs, and
+        # the Lot column is past the end of them.
+        assert _labelled(book["Round 2"])[wording.NOTE][(4 - 1) * 2] == \
             wording.repeat_of_formulation(1)
         assert wording.repeat_of_formulation(1) in \
             [v for row in _rows(book["Formulation 4"]) for v in row]
@@ -5730,12 +5738,17 @@ class TestTheWorkbook:
         # so the line is the cell alone: "Compared with the allowed amounts:
         # Spread across the allowed amounts" is that sentence twice.
         assert rows[1][0] == wording.SUGGESTION_SPREAD.capitalize()
-        # A column to tick as each ingredient goes in, in set-up order.
-        assert rows[3] == ("Tick", "Ingredient", "Amount (g)", "%"), rows[3]
-        assert [row[1] for row in rows[4:7]] == ["Pea protein", "Water",
+        # Then the one line that says which cells the sheet will take.
+        assert rows[2][0] == wording.SHEET_SHADED_NOTE
+        # A column to tick as each ingredient goes in, in set-up order, and
+        # a column to write what the balance actually said.
+        assert rows[4] == ("Tick", "Ingredient", "Amount (g)", "Actual (g)",
+                           "%"), rows[4]
+        assert [row[1] for row in rows[5:8]] == ["Pea protein", "Water",
                                                  "Salt"]
-        assert rows[4][2] == 20.0 and rows[4][3] == 20.0
-        assert (rows[7][1], rows[7][2], rows[7][3]) == ("Total", 100.0, 100.0)
+        assert rows[5][2] == 20.0 and rows[5][4] == 20.0
+        assert rows[5][3] is None        # Actual: blank means as printed
+        assert (rows[8][1], rows[8][2], rows[8][4]) == ("Total", 100.0, 100.0)
         text = [v for row in rows for v in row if isinstance(v, str)]
         assert wording.SETTINGS_SHEET_HEADING in text, text
         assert "Cook temperature (°C)" in text, text
@@ -5753,12 +5766,12 @@ class TestTheWorkbook:
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         summary = book["Round 2"]
         wanted = {}
-        for row in summary.iter_rows(min_row=3, max_row=5, max_col=1):
+        for row in summary.iter_rows(min_row=4, max_row=6, max_col=1):
             wanted[row[0].value] = row[0].fill.fgColor.rgb
         assert len(set(wanted.values())) == 3, wanted
         for name in book.sheetnames[1:]:
             sheet = book[name]
-            for row in sheet.iter_rows(min_row=5, max_row=7):
+            for row in sheet.iter_rows(min_row=6, max_row=8):
                 label = f"{row[1].value} (g)"
                 assert row[1].fill.fgColor.rgb == wanted[label], (name, label)
                 # The amount beside it is shaded the same, so the eye can
@@ -5773,14 +5786,14 @@ class TestTheWorkbook:
         sheet = _book(opt.workbook_bytes(opt.pending_batch, None))["Round 2"]
         labelled = _labelled(sheet)
         assert labelled["Total (g)"] == [100.0, 100.0, 100.0, 100.0,
-                                         100.0, 100.0]
+                                         100.0, 100.0, None]
         # Scaled to 200 g, the amounts double and the shares do not move.
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 200.0))["Round 2"]
         labelled = _labelled(sheet)
         assert labelled["Pea protein (g)"] == [40.0, 20.0, 60.0, 30.0,
-                                               50.0, 25.0]
+                                               50.0, 25.0, None]
         assert labelled["Total (g)"] == [200.0, 100.0, 200.0, 100.0,
-                                         200.0, 100.0]
+                                         200.0, 100.0, None]
 
     def test_the_sheets_are_set_up_to_print(self, tmp_path, monkeypatch):
         """A sheet that prints its last two ingredients on a second page is
@@ -5791,7 +5804,7 @@ class TestTheWorkbook:
         assert sheet.page_setup.orientation == "portrait"
         assert sheet.sheet_properties.pageSetUpPr.fitToPage is True
         assert sheet.page_setup.fitToWidth == 1
-        assert sheet.print_area == "'Formulation 1'!$A$1:$D$22"
+        assert sheet.print_area == "'Formulation 1'!$A$1:$E$23"
         assert sheet.column_dimensions["B"].width == 34
 
     # -------------------------- and back again -------------------------- #
@@ -6394,7 +6407,7 @@ class TestTheWorkbookFinalWave:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch))["Round 2"]
-        assert _rows(sheet)[1][0] == wording.INGREDIENT_OR_SETTING_LABEL
+        assert _rows(sheet)[2][0] == wording.INGREDIENT_OR_SETTING_LABEL
 
     def test_the_summary_tick_row_carries_the_box(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -7686,6 +7699,23 @@ class TestTheDisplayRescaleIsOnlyForOlderRounds:
     """
 
     def _opt(self, tmp_path, monkeypatch, name="rescale"):
+# ------------------------------------------------------------------ #
+#  0.5.0 §1.6: the workbook is locked where the app will not read it.
+#  The cells a bench writes in are unlocked and shaded, two of them are
+#  new — the Lot and the Actual weight — and both come back.
+# ------------------------------------------------------------------ #
+
+def _unlocked(sheet):
+    """Every cell of a sheet a pen — or a keyboard — can still reach."""
+    return {cell.coordinate for row in sheet.iter_rows() for cell in row
+            if not cell.protection.locked}
+
+
+class TestTheLockedWorkbook:
+    """A sheet that can be overtyped anywhere comes back as results for a
+    formulation the app never suggested, and nothing in the file says so."""
+
+    def _opt(self, tmp_path, monkeypatch, name="locked"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
         opt.set_amount_unit("g")
@@ -7730,3 +7760,266 @@ class TestTheDisplayRescaleIsOnlyForOlderRounds:
         assert basis == 150.0
         assert reloaded.ingredient_total(shown) == pytest.approx(150.0)
         assert shown["Pea protein"] == pytest.approx(60.0)
+        opt.add_process_parameter("Cook temperature", 100, 220, unit="°C")
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10,
+                          unit="/10")
+        opt.set_pending_batch([
+            {"Pea protein": 20.0, "Water": 80.0, "Cook temperature": 180.0},
+            {"Pea protein": 30.0, "Water": 70.0, "Cook temperature": 190.0},
+        ], batch_no=2)
+        return opt
+
+    def _rows_of(self, sheet, column=1):
+        """{label: its row number} down one column of a sheet."""
+        return {sheet.cell(row=r, column=column).value: r
+                for r in range(1, sheet.max_row + 1)
+                if isinstance(sheet.cell(row=r, column=column).value, str)}
+
+    # ---- protection ---------------------------------------------------- #
+
+    def test_every_sheet_of_the_round_is_protected(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        assert [s.protection.sheet for s in book.worksheets] == \
+            [True] * len(book.worksheets), book.sheetnames
+
+    def test_the_summary_unlocks_exactly_the_cells_the_app_reads(
+            self, tmp_path, monkeypatch):
+        """Measured, Not scored, Note — one per formulation — and one Lot per
+        ingredient. Nothing else: an amount overtyped on the way to the bench
+        is a formulation the app never suggested."""
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
+        at = self._rows_of(sheet)
+        write_in = ("Firmness · target 6 N",
+                    "Juiciness (/10) · higher is better",
+                    wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)
+        expected = {f"{letter}{at[label]}" for label in write_in
+                    for letter in ("B", "D")}          # one per formulation
+        expected |= {f"F{at[name]}" for name in ("Pea protein (g)",
+                                                 "Water (g)")}   # the Lot
+        assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
+        # And the shading says the same thing, so nobody finds out by being
+        # refused.
+        assert all(sheet[c].fill.fgColor.rgb.endswith("FFF2CC")
+                   for c in expected), expected
+
+    def test_a_formulation_page_unlocks_the_actual_cells_and_no_amount(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch,
+                                         100.0))["Formulation 1"]
+        at = self._rows_of(sheet, column=2)
+        expected = {f"D{at[label]}" for label in
+                    ("Pea protein", "Water",            # what to weigh
+                     "Cook temperature (°C)",           # what to dial in
+                     "Firmness", "Juiciness (/10)",     # what to measure
+                     wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)}
+        # Both note cells: the app reads the printed one back as its own, and
+        # a technician who corrects it there is not writing to no effect.
+        expected.add(f"C{at[wording.NOTE]}")
+        assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
+        # The amount beside the Actual cell is locked, and so is the tick.
+        amount = sheet.cell(row=at["Water"], column=3)
+        assert amount.value == 80.0 and amount.protection.locked
+        assert sheet.cell(row=at["Water"], column=1).protection.locked
+
+    # ---- Lot, Actual, and the trip back -------------------------------- #
+
+    def test_the_summary_carries_a_lot_cell_for_each_ingredient(
+            self, tmp_path, monkeypatch):
+        """One lot per ingredient for the whole round, not one per
+        formulation: a round is weighed out of the sacks open that morning.
+        A setting has none — nothing is poured out of a cook temperature."""
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
+        header = self._rows_of(sheet)[wording.INGREDIENT_OR_SETTING_LABEL]
+        assert sheet.cell(row=header, column=6).value == wording.LOT_COLUMN
+        at = self._rows_of(sheet)
+        assert sheet.cell(row=at["Cook temperature (°C)"],
+                          column=6).value is None
+        assert sheet.cell(row=at["Cook temperature (°C)"],
+                          column=6).protection.locked
+
+    def test_where_it_was_bought_is_printed_and_never_read(self, tmp_path,
+                                                           monkeypatch):
+        """Vendor and SKU are columns on the summary — beside the Lot, which
+        is the same question asked of the same row — and a grey line under
+        the name on the page the bench carries, which stays one page wide."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt._var_by_name("Water")['vendor'] = "Acme"
+        opt._var_by_name("Water")['sku'] = "W-1"
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        summary = book["Round 2"]
+        at = self._rows_of(summary)
+        header = at[wording.INGREDIENT_OR_SETTING_LABEL]
+        assert [summary.cell(row=header, column=c).value for c in (7, 8)] == \
+            [wording.VENDOR_LABEL, wording.SKU_LABEL]
+        assert [summary.cell(row=at["Water (g)"], column=c).value
+                for c in (7, 8)] == ["Acme", "W-1"]
+        # Nothing for the ingredient the project says nothing about.
+        assert summary.cell(row=at["Pea protein (g)"], column=7).value is None
+        page = book["Formulation 1"]
+        under = self._rows_of(page, column=2)["Water"] + 1
+        assert page.cell(row=under, column=2).value == "Acme · W-1"
+
+    def _filled(self, opt, total=100.0, actual=None, lot="L-7"):
+        """The workbook back off the bench: both formulations measured, one
+        ingredient weighed heavy on Formulation 1, and a lot written down."""
+        book = _book(opt.workbook_bytes(opt.pending_batch, total))
+        summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+        at = {summary.cell(row=r, column=1).value: r
+              for r in range(1, summary.max_row + 1)}
+        for column in (2, 4):
+            summary.cell(row=at["Firmness · target 6 N"], column=column,
+                         value=6.0)
+            summary.cell(row=at["Juiciness (/10) · higher is better"],
+                         column=column, value=7.0)
+        if lot is not None:
+            summary.cell(row=at["Water (g)"], column=6, value=lot)
+        if actual is not None:
+            page = book["Formulation 1"]
+            rows = {page.cell(row=r, column=2).value: r
+                    for r in range(1, page.max_row + 1)}
+            page.cell(row=rows["Water"], column=4, value=actual)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        return out
+
+    def _save(self, opt, sheet):
+        """The upload path the round screen runs on Save: the parsed rows,
+        the amounts as weighed, and the lots kept with the round."""
+        parsed = opt.parse_batch_results(sheet, opt.pending_batch)
+        by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
+        batch_no = opt.pending_batch_no
+        for number, results, note in parsed:
+            opt.tell(opt.amounts_as_weighed(sheet, number, by_number[number]),
+                     results, formulation_no=number, batch_no=batch_no,
+                     note=note)
+        opt.store_lots(batch_no, sheet)
+        return parsed
+
+    def test_what_was_weighed_is_what_is_recorded_and_the_note_says_so(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        sheet = opt.results_from_workbook(self._filled(opt, actual=82.5))
+        self._save(opt, sheet)
+        # Formulation 1 came back with 82.5 g of water in it, and the row
+        # says why its amounts are not the ones that were suggested.
+        assert opt.recipe_history[0] == {"Pea protein": 20.0, "Water": 82.5,
+                                         "Cook temperature": 180.0}
+        assert opt.notes_history[0] == wording.AMOUNTS_AS_WEIGHED
+        # A blank Actual cell means "as printed", on the same sheet.
+        assert opt.recipe_history[1] == {"Pea protein": 30.0, "Water": 70.0,
+                                         "Cook temperature": 190.0}
+        assert opt.notes_history[1] == ""
+        # The lot is kept with the round, never with the formulation.
+        assert opt.lots == {2: {"Water": "L-7"}}
+        assert FoodOptimizer(opt.project_name).lots == {2: {"Water": "L-7"}}
+
+    def test_a_note_the_bench_wrote_keeps_it_behind_the_marker(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = openpyxl.load_workbook(self._filled(opt, actual=82.5))
+        summary = book["Round 2"]
+        row = next(r for r in range(1, summary.max_row + 1)
+                   if summary.cell(row=r, column=1).value == wording.NOTE)
+        summary.cell(row=row, column=2, value="lumpy")
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        sheet = opt.results_from_workbook(out)
+        self._save(opt, sheet)
+        assert opt.notes_history[0] == "Amounts as weighed · lumpy"
+
+    def test_a_workbook_a_spreadsheet_re_saved_still_imports(self, tmp_path,
+                                                             monkeypatch):
+        """A technician opens the file, fills it in and presses save: openpyxl
+        rewrites every sheet, and the app still finds its own cells."""
+        opt = self._opt(tmp_path, monkeypatch)
+        again = io.BytesIO()
+        openpyxl.load_workbook(self._filled(opt, actual=82.5)).save(again)
+        again.seek(0)
+        sheet = opt.results_from_workbook(again)
+        assert list(sheet["Formulation"]) == [1, 2]
+        self._save(opt, sheet)
+        assert opt.recipe_history[0]["Water"] == 82.5
+        assert opt.lots == {2: {"Water": "L-7"}}
+
+    def test_the_lots_sheet_lists_what_each_round_was_weighed_from(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        self._save(opt, opt.results_from_workbook(self._filled(opt)))
+        book = _book(opt.all_formulations_workbook())
+        assert wording.LOTS_SHEET in book.sheetnames, book.sheetnames
+        rows = _rows(book[wording.LOTS_SHEET])
+        assert rows[0] == (wording.ROUND_CAP, wording.KIND_INGREDIENT,
+                           wording.LOT_COLUMN), rows[0]
+        assert rows[1] == (2, "Water", "L-7"), rows[1]
+        # The formulations table gains nothing: a lot belongs to a round.
+        header = list(_rows(book[wording.ALL_FORMULATIONS_SHEET])[1])
+        assert wording.LOT_COLUMN not in header, header
+
+    def test_a_project_with_no_lots_has_no_lots_sheet(self, tmp_path,
+                                                      monkeypatch):
+        """A sheet of headers and nothing under them is a sheet nobody
+        reads."""
+        opt = self._opt(tmp_path, monkeypatch)
+        self._save(opt, opt.results_from_workbook(self._filled(opt, lot=None)))
+        assert wording.LOTS_SHEET not in \
+            _book(opt.all_formulations_workbook()).sheetnames
+
+    def test_an_actual_cell_that_is_not_a_weight_is_refused(self, tmp_path,
+                                                            monkeypatch):
+        """Dropping it would file the printed amount under a formulation
+        nobody made."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="is not a number"):
+            opt.results_from_workbook(self._filled(opt, actual="about 80"))
+
+    def test_a_workbook_from_before_the_actual_column_reads_as_printed(
+            self, tmp_path, monkeypatch):
+        """The old layout: a summary sheet with no Lot column and formulation
+        pages with no Actual column. Every amount is the one that was
+        printed, and nothing about the round is lost."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = openpyxl.Workbook()
+        summary = book.active
+        summary.title = "Round 2"
+        summary.cell(row=1, column=1, value="Ingredient or process setting")
+        for c, number in ((2, 1), (3, 2)):
+            summary.cell(row=1, column=c, value=f"Formulation {number}")
+        summary.cell(row=2, column=1, value="Pea protein (g)")
+        summary.cell(row=3, column=1, value=wording.MEASURED_COLUMN)
+        summary.cell(row=4, column=1, value="Firmness · target 6 N")
+        summary.cell(row=4, column=2, value=6.0)
+        summary.cell(row=5, column=1, value="Juiciness (/10) · higher is better")
+        summary.cell(row=5, column=2, value=7.0)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        sheet = opt.results_from_workbook(out)
+        assert list(sheet["Formulation"]) == [1]
+        self._save(opt, sheet)
+        assert opt.recipe_history[0] == {"Pea protein": 20.0, "Water": 80.0,
+                                         "Cook temperature": 180.0}
+        assert opt.notes_history[0] == ""       # nothing was weighed differently
+        assert opt.lots == {}
+
+    def test_a_copy_with_a_broken_lots_section_is_refused(self, tmp_path,
+                                                          monkeypatch):
+        """import_json walks the lots, so a bad one has to be caught before
+        anything is assigned."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.lots = {2: {"Water": "L-7"}}
+        state = opt.export_json()
+        assert state['lots'] == {"2": {"Water": "L-7"}}
+        FoodOptimizer.validate_state(state)      # the good one passes
+        for broken in ("L-7", {"two": {"Water": "L-7"}}, {"2": "L-7"}):
+            state['lots'] = broken
+            with pytest.raises(ValueError, match="'lots' section"):
+                FoodOptimizer.validate_state(state)

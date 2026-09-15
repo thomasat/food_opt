@@ -766,7 +766,13 @@ def _upload(opt):
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
             try:
                 for number, results, note in parsed:
-                    opt.tell(by_number[number], results, formulation_no=number,
+                    # What was weighed, where the sheet's Actual cells say
+                    # something different from what was printed. The note
+                    # already says so: parse_batch_results put the marker in
+                    # front of it.
+                    opt.tell(opt.amounts_as_weighed(sheet, number,
+                                                    by_number[number]),
+                             results, formulation_no=number,
                              batch_no=batch_no, note=note)
                     # Stop at the first row that did not reach the disk rather
                     # than telling the user a whole sheet was recorded.
@@ -776,11 +782,18 @@ def _upload(opt):
                     # The box was ticked on the sheet, so the row is recorded
                     # as not scored in the same words the grid's tick writes.
                     opt.record_skipped(
-                        number, batch_no, by_number[number],
+                        number, batch_no,
+                        opt.amounts_as_weighed(sheet, number,
+                                               by_number[number]),
                         note=(wording.not_scored_with_note(note) if note
                               else wording.NOT_SCORED))
                     if not saved_ok(opt):
                         return
+                # The lots the sheet came back with belong to the round, not
+                # to any one formulation, so they are kept once at the end.
+                opt.store_lots(batch_no, sheet)
+                if not saved_ok(opt):
+                    return
             except (ValueError, TypeError, KeyError) as e:
                 st.error(wording.could_not_save(e))
                 return
