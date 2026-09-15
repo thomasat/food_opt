@@ -200,10 +200,10 @@ def _own_key(name):
 def _own_recipe(opt):
     """What the boxes hold, or None while any of them is empty.
 
-    A paused variable is pinned exactly as a generated formulation pins it
+    A held variable is pinned exactly as a generated formulation pins it
     (opt._frozen_value), so the stored amounts name every variable the
     project has — which is what the batch table, the sheets and tell() all
-    expect. Inventing a second rule here would put one formulation's paused
+    expect. Inventing a second rule here would put one formulation's held
     ingredient at a different amount from its neighbour's in the same batch.
     """
     recipe = {}

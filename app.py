@@ -583,7 +583,7 @@ if opt is None:
 
 
 # A damaged project must never be silently overwritten: every edit below
-# calls save(), so pause the editing UI until the user opens a saved copy or
+# calls save(), so stop the editing UI until the user opens a saved copy or
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)

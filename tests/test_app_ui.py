@@ -1350,14 +1350,14 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
     assert not any("Added" in m.value for m in at.success), [m.value for m in at.success]
 
 
-def test_a_pause_that_discards_the_trial_says_so(burger):
+def test_a_hold_that_discards_the_batch_says_so(burger):
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
     at.run()
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
@@ -1457,7 +1457,7 @@ def test_the_range_labels_are_sentence_case(burger):
     assert "Lowest measurable" in labels and "Highest measurable" in labels, labels
 
 
-def test_the_ingredient_table_has_no_status_column_until_something_is_paused(burger):
+def test_the_ingredient_table_has_no_status_column_until_something_is_held(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
@@ -1465,10 +1465,10 @@ def test_the_ingredient_table_has_no_status_column_until_something_is_paused(bur
                                    "Unit"], list(table.columns)
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table["Status"]) == ["active", "paused · held at 0.00 g"], \
+    assert list(table["Status"]) == ["active", "held at 0.00 g"], \
         list(table["Status"])
 
 
@@ -4114,14 +4114,14 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     assert FoodOptimizer("mixed").quantity_constraints == []
 
 
-def test_a_paused_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
+def test_a_held_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
     mixed_units.add_process_parameter("Cook temperature", 160, 200, unit="°C")
     mixed_units.deactivate_variable("Water", value=30.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
     assert dict(zip(table["Name"], table["Status"])) == {
-        "Pea protein": "active", "Water": "paused · held at 30.00 ml",
+        "Pea protein": "active", "Water": "held at 30.00 ml",
         "Cook temperature": "active"}
 
 
@@ -4528,20 +4528,19 @@ def test_the_set_unit_picker_is_not_called_a_measurement(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").label == \
-        "Choose one to pause, delete or change its unit"
+        "Choose one to hold, edit, delete or change its unit"
 
 
-def test_pausing_speaks_for_settings_as_well_as_ingredients(ferment):
+def test_holding_speaks_for_settings_as_well_as_ingredients(ferment):
     """In a fermentation project the picker offers process settings only."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").options == ["Incubation temperature",
                                                     "Incubation time"]
-    # The button names the row it will act on, like the Delete beside it,
-    # and the help says what Pause does to it — in the setting's own unit.
-    button = _submit_button(at, wording.pause_button("Incubation temperature"))
-    assert button.proto.help == ("Held at 30 °C in new suggestions; results "
-                                 "already recorded keep it.")
+    # The button names the row it will act on and the value it will hold it
+    # at — in the setting's own unit, not in grams.
+    button = _submit_button(at, "Hold Incubation temperature at 30 °C")
+    assert button.proto.help == "Results already recorded keep their amounts."
 
 
 def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
@@ -5031,47 +5030,51 @@ def test_the_table_names_the_type_of_every_row(burger):
     assert list(table["Unit"]) == ["g", "g", "°C"]
 
 
-def test_a_paused_row_is_the_only_reason_for_a_status_column(burger):
+def test_a_held_row_is_the_only_reason_for_a_status_column(burger):
     burger.deactivate_variable("Methylcellulose", value=1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in _tab1(at).dataframe if "Type" in d.value.columns)
     assert "Status" in table.columns
-    assert list(table["Status"]) == ["active", "paused · held at 1.00 g"]
+    assert list(table["Status"]) == ["active", "held at 1.00 g"]
 
 
-def test_the_control_row_pauses_and_resumes_one_row(burger):
+def test_the_control_row_holds_one_row_and_varies_it_again(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    # The amount the row will be held at is in the button, not only in the
+    # help: it is the whole of what the click does.
+    _submit_button(at, "Hold Methylcellulose at 0.00 g").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Methylcellulose paused." for s in at.success), \
-        [s.value for s in at.success]
+    assert any(s.value == "Methylcellulose is held at 0.00 g."
+               for s in at.success), [s.value for s in at.success]
     assert [v["name"] for v in FoodOptimizer("burger").inactive_variables()] \
         == ["Methylcellulose"]
-    # The same button is now the way back.
-    assert wording.pause_button("Methylcellulose") not in _labels(at)
-    _submit_button(at, wording.resume_button("Methylcellulose")).click()
+    # The same place on the row is now the way back.
+    assert "Hold Methylcellulose at 0.00 g" not in _labels(at)
+    vary = _submit_button(at, "Vary Methylcellulose again")
+    assert vary.proto.help == "New suggestions vary it again."
+    vary.click()
     at.run()
-    assert any(s.value == "Methylcellulose resumed." for s in at.success), \
+    assert any(s.value == "Methylcellulose varies again." for s in at.success), \
         [s.value for s in at.success]
     assert FoodOptimizer("burger").inactive_variables() == []
 
 
-def test_pause_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
+def test_hold_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("one_only")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    pause = _submit_button(at, wording.pause_button("Water"))
-    assert pause.disabled
-    assert pause.proto.help == ("At least two ingredients or settings must "
-                                "stay active before one can be paused.")
+    hold = _submit_button(at, "Hold Water at 0.00 g")
+    assert hold.disabled
+    assert hold.proto.help == ("At least two ingredients or settings must "
+                               "stay active before one can be held.")
 
 
 def test_the_control_row_sets_one_ingredient_unit(burger):
@@ -7978,7 +7981,7 @@ def test_only_an_ingredient_add_says_the_total_still_holds(burger):
 
 
 def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
-    """'Your set-up changed' is true of the ingredient list, a pause and the
+    """'Your set-up changed' is true of the ingredient list, a hold and the
     allowed amounts. When it was the total, the notice names the total."""
     burger.set_formulation_total(20.0)
     burger.set_pending_batch([{"Pea protein": 17.0, "Methylcellulose": 3.0}])

@@ -670,8 +670,8 @@ class TestPropertyLimitsPerHundred:
                 "g. Loosen the limit first." in str(caught.value)), \
             str(caught.value)
 
-    def test_pausing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
-        """Pausing the only ingredient that carries the fat leaves a minimum
+    def test_holding_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
+        """Holding the only ingredient that carries the fat leaves a minimum
         nothing can reach."""
         opt = self._fatty(opt)
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
@@ -1019,7 +1019,7 @@ class TestActiveSet:
         opt_configured.deactivate_variable("Flour")
         opt_configured.deactivate_variable("Sugar")
         opt_configured._var_by_name("Water")["active"] = False
-        with pytest.raises(ValueError, match="Everything is paused"):
+        with pytest.raises(ValueError, match="Everything is held"):
             opt_configured.ask(n_suggestions=1)
 
     def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
@@ -1068,7 +1068,7 @@ class TestActiveSet:
         )
         opt_configured.deactivate_variable("Flour")
         text = opt_configured.export_trajectory()
-        assert "Paused" in text
+        assert "Held" in text
         assert "Flour=20" in text, "a pruned variable's past usage must stay visible"
 
 
@@ -1393,11 +1393,11 @@ def test_a_name_differing_only_by_case_is_refused(tmp_path, monkeypatch):
     assert opt.variables[0]['bounds'] == (0.0, 60.0)
 
 
-def test_the_changes_leave_out_a_paused_ingredient(tmp_path, monkeypatch):
-    """A paused ingredient is held at one value in every new formulation, so
+def test_the_changes_leave_out_a_held_ingredient(tmp_path, monkeypatch):
+    """A held ingredient is held at one value in every new formulation, so
     it cannot be a change this batch made."""
     monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("paused_changes")
+    opt = FoodOptimizer("held_changes")
     opt.add_ingredient("Water", 0, 100)
     opt.add_ingredient("Oil", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
@@ -2985,6 +2985,11 @@ _BACKUP = re.compile(r"\bbackups?\b", re.I)
 # no longer on screen.
 _BENCH_SHEET = re.compile(r"\bbench sheets?\b", re.I)
 
+# 0.4.1: a row left out of the search is HELD at one amount, and the button
+# says which amount. Pause named a state and said nothing about the number
+# the row would sit at, and "resume" was the only way back out of it.
+_PAUSE = re.compile(r"\bpaus(e|ed|ing)\b", re.I)
+
 # 0.4.0: a file is an Excel workbook or a comma-separated file, and the user
 # chooses between them. CSV may therefore be SAID — but only inside the label
 # that offers the choice, never as the name of the route out of the app.
@@ -3052,6 +3057,8 @@ _BANNED = [
     # 0.4.0: the batch leaves as a workbook, and nothing on screen calls a
     # sheet a bench sheet.
     _BENCH_SHEET,
+    # 0.4.1: Hold replaces Pause, everywhere the user can read it.
+    _PAUSE,
 ]
 
 class TestRoundTwoFixes:
@@ -3211,7 +3218,9 @@ _SINGLE_WORDS = re.compile(
     # literal never has room for that trailing phrase, so it needs its own
     # ban here.
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
-    r"|priority|trials?|kind|scales?|remove|remake|share|backups?)$", re.I)
+    r"|priority|trials?|kind|scales?|remove|remake|share|backups?"
+    # 0.4.1: a one-word "Paused" column value is the shape this one took.
+    r"|pause[ds]?|pausing)$", re.I)
 
 
 def _how_it_works():
@@ -4054,9 +4063,9 @@ class TestWhatEachFormulationIsTrying:
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
             "close to the best"
 
-    def test_a_paused_variable_does_not_decide_the_kind(self, tmp_path,
+    def test_a_held_variable_does_not_decide_the_kind(self, tmp_path,
                                                         monkeypatch):
-        """A paused ingredient is held at one value in every new formulation,
+        """A held ingredient is held at one value in every new formulation,
         so it cannot be what this batch is trying."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_ingredient("Salt", 0, 10)
@@ -4312,9 +4321,9 @@ class TestTheTotalIsAlwaysReachable:
         waters = {round(row["Water"], 3) for row in rows}
         assert len(waters) == 3, waters
 
-    def test_a_paused_ingredient_keeps_its_frozen_amount(self, tmp_path,
+    def test_a_held_ingredient_keeps_its_frozen_amount(self, tmp_path,
                                                          monkeypatch):
-        """A paused ingredient is held at one value and takes no part in the
+        """A held ingredient is held at one value and takes no part in the
         projection: its amount comes off the target first."""
         opt = self._sample(tmp_path, monkeypatch)
         opt.set_formulation_total(100)
@@ -4323,7 +4332,7 @@ class TestTheTotalIsAlwaysReachable:
             assert row["Salt"] == pytest.approx(2.0)
             assert sum(row.values()) == pytest.approx(100.0, abs=0.5)
 
-    def test_pausing_that_puts_the_total_out_of_reach_names_the_total(
+    def test_holding_that_puts_the_total_out_of_reach_names_the_total(
             self, tmp_path, monkeypatch):
         """Not eight ingredients and a limit the user never wrote."""
         opt = self._sample(tmp_path, monkeypatch)
@@ -4332,8 +4341,8 @@ class TestTheTotalIsAlwaysReachable:
         with pytest.raises(ValueError) as refused:
             opt.deactivate_variable("Water", value=20.0)
         assert str(refused.value) == (
-            "Pausing these would leave no formulation adding up to 120 g. "
-            "Clear the total of each formulation first, or resume enough "
+            "Holding these would leave no formulation adding up to 120 g. "
+            "Clear the total of each formulation first, or vary enough "
             "ingredients to reach it.")
 
     def test_a_total_of_nothing_is_refused_in_the_reach_words(self, tmp_path,
@@ -4962,9 +4971,9 @@ class TestTotalsAndBatchesFinalWave:
                           min_val=0, max_val=10, unit="/10")
         return opt
 
-    # ---- F2: the reach counts a paused ingredient's frozen value -----
+    # ---- F2: the reach counts a held ingredient's frozen value -----
 
-    def test_total_reach_counts_a_paused_ingredient_where_it_is_held(
+    def test_total_reach_counts_a_held_ingredient_where_it_is_held(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.total_reach() == (0.0, 140.0)
@@ -4972,7 +4981,7 @@ class TestTotalsAndBatchesFinalWave:
         # Pea protein can no longer move: it adds exactly 10 g at both ends.
         assert opt.total_reach() == (10.0, 90.0)
 
-    def test_a_total_beyond_the_paused_reach_is_refused_and_says_why(
+    def test_a_total_beyond_the_held_reach_is_refused_and_says_why(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.deactivate_variable("Pea protein", value=10.0)
@@ -4980,18 +4989,18 @@ class TestTotalsAndBatchesFinalWave:
             opt.set_formulation_total(120.0)
         message = str(excinfo.value)
         assert "90 g" in message
-        # The pause is why, so the pause is named and the way back is the
-        # pause, not the Lowest and Highest of eight ingredients.
-        assert "Pea protein" in message and "paused" in message
+        # The hold is why, so the hold is named and the way back is the
+        # hold, not the Lowest and Highest of eight ingredients.
+        assert "Pea protein" in message and "held where it is" in message
         assert opt.formulation_total is None
 
-    def test_a_total_out_of_reach_for_the_amounts_does_not_blame_the_pause(
+    def test_a_total_out_of_reach_for_the_amounts_does_not_blame_the_hold(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.deactivate_variable("Pea protein", value=10.0)
         with pytest.raises(ValueError) as excinfo:
             opt.set_formulation_total(400.0)
-        assert "paused" not in str(excinfo.value)
+        assert "held where it is" not in str(excinfo.value)
 
     # ---- F1 / G-e2 / C4: nothing is rescaled under a project total ----
 

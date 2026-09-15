@@ -53,7 +53,7 @@ def _note_discarded_batch(opt, batch_no_before,
     is about.
 
     `reason` is what discarded it. The tab as a whole is the honest answer
-    for the ingredient list, a pause and the allowed amounts — three ways to
+    for the ingredient list, a hold and the allowed amounts — three ways to
     one place — but the total is one control the reader has just touched,
     and blaming "your set-up" sent them looking for what else they had
     done."""
@@ -454,9 +454,9 @@ def _ordered_variables(opt):
 
 
 def _held_at(opt, var):
-    """What a paused row is held at in every new formulation. A cook
+    """What a held row is held at in every new formulation. A cook
     temperature is dialled in, an ingredient is weighed out, and each is
-    written in its own unit — a paused setting 'held at 175 g' priced a
+    written in its own unit — a held setting 'held at 175 g' priced a
     setting in grams."""
     unit = opt.unit_of(var['name'])
     value = opt._frozen_value(var)
@@ -480,9 +480,9 @@ def _variable_table(opt):
         return
     properties = opt.properties()
     # A column that says the same thing on every row is a column of noise, so
-    # Status arrives with the first paused row and Baseline with the first
+    # Status arrives with the first held row and Baseline with the first
     # setting that has one.
-    any_paused = any(not v.get('active', True) for v in rows)
+    any_held = any(not v.get('active', True) for v in rows)
     any_baseline = any(v.get('_absent_value') is not None for v in rows)
     # The three headers are the add form's own labels, so the table and the
     # boxes above it name the same four answers with the same four words.
@@ -502,8 +502,8 @@ def _variable_table(opt):
                          if v.get('_absent_value') is not None else "")}
            if any_baseline else {}),
         **({wording.STATUS_LABEL: (wording.ACTIVE_STATUS if v.get('active', True)
-                       else wording.paused_status(_held_at(opt, v)))}
-           if any_paused else {}),
+                       else wording.held_status(_held_at(opt, v)))}
+           if any_held else {}),
         # One column per property, blank where an ingredient has no value —
         # a 0 is a value and must not read like a gap. A process setting is
         # weighed into nothing, so its cells are blank too.
@@ -523,13 +523,13 @@ def _disarm_other_removals(pick):
 
 
 def _variable_controls(opt, storage):
-    """One row for everything you can do to a row of the table: pause it or
-    resume it, set its unit, delete it."""
+    """One row for everything you can do to a row of the table: hold it at
+    one amount or vary it again, set its unit, delete it."""
     rows = _ordered_variables(opt)
     if not rows:
         return
     properties = opt.properties()
-    widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
+    widths = [2.4, 2, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
         pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
@@ -539,7 +539,7 @@ def _variable_controls(opt, storage):
     is_ingredient = var.get('category', 'ingredient') == 'ingredient'
     _disarm_other_removals(pick)
     with cols[1]:
-        _pause_or_resume(opt, var, pick)
+        _hold_or_vary(opt, var, pick)
     with cols[2]:
         st.session_state.setdefault("unit_value", "")
         # "New unit", not "Unit": the add form above has a Unit box of its
@@ -611,30 +611,34 @@ def _property_value_editor(opt, pick, properties):
             st.rerun()
 
 
-def _pause_or_resume(opt, var, pick):
-    """Whichever of the two applies to the row that is picked. A paused row is
-    left out of new formulations; nothing is removed."""
+def _hold_or_vary(opt, var, pick):
+    """Whichever of the two applies to the row that is picked. A held row is
+    pinned at one amount in every new formulation; nothing is removed."""
     batch_no = opt.pending_batch_no
+    held_text = _held_at(opt, var)
     if not var.get('active', True):
-        if st.button(wording.resume_button(pick), key="resume_var",
-                     help=wording.RESUME_HELP):
+        if st.button(wording.vary_button(pick), key="vary_var",
+                     help=wording.VARY_HELP):
             opt.reactivate_variable(pick)
             if saved_ok(opt):
-                flash("success", wording.resumed(pick))
+                flash("success", wording.varies_again(pick))
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
         return
     alone = len(opt.active_variables()) <= 1
-    if st.button(wording.pause_button(pick), key="pause_var", disabled=alone,
-                 help=(wording.PAUSE_DISABLED_HELP if alone else
-                       wording.pause_help(_held_at(opt, var)))):
+    # The amount is in the label, so the help says the other half: what a
+    # hold does NOT touch.
+    if st.button(wording.hold_button(pick, held_text), key="hold_var",
+                 disabled=alone,
+                 help=(wording.HOLD_DISABLED_HELP if alone
+                       else wording.HOLD_HELP)):
         try:
             opt.deactivate_variable(pick)
         except ValueError as e:
             st.error(str(e))
         else:
             if saved_ok(opt):
-                flash("success", wording.paused(pick))
+                flash("success", wording.held(pick, held_text))
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
 
@@ -698,7 +702,7 @@ def _remove_variable(opt, storage, pick, is_ingredient):
     # is armed — deleting an ingredient that was used above 0 would rewrite
     # formulations nobody made.
     if armed and is_ingredient:
-        st.caption(wording.DELETE_VS_PAUSE_CAPTION)
+        st.caption(wording.DELETE_VS_HOLD_CAPTION)
         st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX,
                     key="delete_ing_force")
     elif not armed:
