@@ -259,14 +259,17 @@ def _formulation_total(opt):
 
 def _variables(opt, storage):
     """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
-    of controls, with the file upload folded away beneath.
+    of controls, with the file upload folded away beneath. Returns True while
+    a row is open for editing: `Save <name>` is then the tab's one lit action
+    and the foot steps aside, exactly as the measurement editor does.
 
     They were four places — an Ingredients subheader with its own uploader, a
     Change the ingredient list expander, a Process settings expander and an
     Ingredients fold — which asked the same question ('what changes between
     formulations?') in four different shapes."""
     st.subheader(wording.VARIABLES_HEADER)
-    _add_variable(opt)
+    editing = _variable_being_edited(opt)
+    _add_variable(opt, editing)
     _variable_table(opt)
     _formulation_total(opt)
     if getattr(opt, "amount_unit_backfilled", False):
@@ -274,15 +277,80 @@ def _variables(opt, storage):
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
         st.caption(wording.made_before_units_caption(opt.amount_unit))
-    _variable_controls(opt, storage)
+    _variable_controls(opt, storage, editing)
     with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
         _upload_ingredients(opt)
+    return editing is not None
 
 
-def _add_variable(opt):
-    """One form for both types. Type is a radio rather than two forms: an
-    ingredient and a setting are the same four answers — what it is called,
-    how low, how high, and in what."""
+_EDITING = "_editing_variable"
+
+
+def _variable_being_edited(opt):
+    """The row the add form is open on, or None while it is adding.
+
+    Looked up by name on every run, like the measurement editor's: the row
+    may have been deleted, or the project switched, and a form left open on
+    a row that is gone would offer to save it back."""
+    name = st.session_state.get(_EDITING)
+    if name is None:
+        return None
+    # Picking another row in the control row below is a change of subject:
+    # the form would otherwise sit there holding the old row's answers under
+    # a Save button naming it, one click from writing them.
+    picked = st.session_state.get("var_pick")
+    if picked is not None and picked != name:
+        st.session_state.pop(_EDITING, None)
+        return None
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    if var is None:
+        # Deleted, or a project opened that never had it. A name left behind
+        # here would open the editor again the day another row is given it.
+        st.session_state.pop(_EDITING, None)
+    return var
+
+
+def _open_editor(opt, var):
+    """Fill the add form with one row's answers and open it on that row.
+
+    Seeded here, the one moment a widget's value can be set: the boxes do not
+    exist yet on the run that follows, which is what lets the same six boxes
+    be the editor as well as the add form."""
+    setting = var.get('category') == 'process'
+    kind = KIND_SETTING if setting else KIND_INGREDIENT
+    park_clear("var_name", var['name'])
+    park_clear("var_kind", kind)
+    # _add_variable swaps the unit box's default when Type changes; telling it
+    # which type is on screen stops it wiping the unit just seeded here.
+    st.session_state["_var_kind_shown"] = kind
+    park_clear("var_low", float(var['bounds'][0]))
+    park_clear("var_high", float(var['bounds'][1]))
+    park_clear("var_unit", opt.unit_of(var['name']) or "")
+    baseline = var.get('_absent_value')
+    park_clear("var_base", None if baseline is None else float(baseline))
+    st.session_state[_EDITING] = var['name']
+
+
+def _close_editor(opt, setting):
+    """Back to an empty add form, in the browser as well as in session
+    state: a box left holding an edited row's answer is one click from
+    adding a second row with them. The unit goes back to what the type on
+    screen opens with — g for an ingredient, blank for a setting."""
+    park_clear("var_name", "")
+    park_clear("var_low", 0.0)
+    park_clear("var_high", 100.0)
+    park_clear("var_base", None)
+    park_clear("var_unit", "" if setting else (opt.amount_unit or ""))
+    st.session_state.pop(_EDITING, None)
+
+
+def _add_variable(opt, editing=None):
+    """One form for both types, and the editor for a row that already exists.
+    Type is a radio rather than two forms: an ingredient and a setting are the
+    same four answers — what it is called, how low, how high, and in what.
+
+    `editing` is the row being changed, or None while adding. The same boxes
+    do both jobs: an edit is the same four answers, already filled in."""
     mid_run = bool(opt.X_history)
     st.session_state.setdefault("var_kind", KIND_INGREDIENT)
     kind = st.session_state["var_kind"]
@@ -303,7 +371,15 @@ def _add_variable(opt):
             st.session_state["var_unit"] = ("" if setting
                                             else (opt.amount_unit or ""))
         st.session_state["_var_kind_shown"] = kind
-    wants_baseline = setting and mid_run
+    # A baseline is what a setting added MID-RUN is read as in the
+    # formulations already made. A row that has one can change it; a row that
+    # never needed one is not asked for it now.
+    wants_baseline = setting and mid_run and (
+        editing is None or editing.get('_absent_value') is not None)
+    # Lowest is fixed at 0 for a NEW ingredient added mid-run (absent-in-past
+    # encodes as 0). A row that already exists was encoded at its own amounts,
+    # so its Lowest is its own to change.
+    fixed_low = mid_run and not setting and editing is None
     widths = [2, 2, 1, 1, 1] + ([1] if wants_baseline else [])
     cols = st.columns(widths)
     with cols[0]:
@@ -321,15 +397,15 @@ def _add_variable(opt):
         # _FORM_FRESH), and Streamlit warns on screen when a widget is given
         # both a default and a session-state value.
         st.session_state.setdefault("var_low", 0.0)
-        if mid_run and not setting:
+        if fixed_low:
             # Fixed at 0 and shown as 0: a number left in the box by a
             # setting typed a moment ago would go on to be sent as the
             # ingredient's lowest, which the box says it cannot be.
             st.session_state["var_low"] = 0.0
         st.number_input(
-            wording.LOWEST_LABEL, key="var_low", disabled=mid_run and not setting,
+            wording.LOWEST_LABEL, key="var_low", disabled=fixed_low,
             help=(wording.NEW_INGREDIENT_FIXED_LOW_HELP
-                  if mid_run and not setting else None),
+                  if fixed_low else None),
         )
     with cols[3]:
         st.session_state.setdefault("var_high", 100.0)
@@ -343,7 +419,11 @@ def _add_variable(opt):
         with cols[5]:
             st.session_state.setdefault("var_base", None)
             st.number_input(
-                wording.BASELINE_ADD_LABEL, key="var_base",
+                # "(required)" only where it is being asked for: an edit
+                # opens on the baseline this setting already has.
+                wording.BASELINE_LABEL if editing is not None
+                else wording.BASELINE_ADD_LABEL,
+                key="var_base",
                 placeholder=wording.BASELINE_PLACEHOLDER,
                 help=wording.BASELINE_HELP,
             )
@@ -352,7 +432,8 @@ def _add_variable(opt):
     # is this form while Set properties is open below it, or the same
     # property would have two boxes on one screen.
     editing_values = st.session_state.get("_props_for") is not None
-    properties = [] if (setting or editing_values) else opt.properties()
+    properties = ([] if (setting or editing_values or editing is not None)
+                  else opt.properties())
     if properties:
         prop_cols = st.columns(min(4, len(properties)))
         for j, prop in enumerate(properties):
@@ -361,9 +442,29 @@ def _add_variable(opt):
                 st.number_input(prop, key=_prop_key(prop),
                                 placeholder=wording.PROPERTY_PLACEHOLDER,
                                 help=wording.PROPERTY_BOX_HELP)
-    # Grey: the tab's one coloured button is Continue at the foot.
-    if st.button(wording.ADD_VARIABLE_BUTTON, key="add_variable"):
-        _add_variable_now(opt, setting, wants_baseline, properties)
+    if editing is None:
+        # Grey: the tab's one coloured button is Continue at the foot.
+        if st.button(wording.ADD_VARIABLE_BUTTON, key="add_variable"):
+            _add_variable_now(opt, setting, wants_baseline, properties)
+        return
+    b1, b2 = st.columns(2)
+    # The edit being made is the one thing to do while its row is open, as it
+    # is in the measurement editor: Save is the lit button and the foot's
+    # Continue steps aside, because moving on would throw the edit away.
+    lit = not confirmation_open()
+    with b1:
+        save = st.button(wording.save_variable_button(editing['name']),
+                         key="save_variable",
+                         type="primary" if lit else "secondary",
+                         disabled=not lit, use_container_width=True) and lit
+    with b2:
+        if st.button(wording.CANCEL, key="cancel_variable",
+                     use_container_width=True):
+            _close_editor(opt, setting)
+            st.rerun()
+    if save:
+        _add_variable_now(opt, setting, wants_baseline, properties,
+                          editing=editing)
 
 
 def _prop_key(prop):
@@ -383,7 +484,7 @@ def _set_typed_properties(opt, name, properties):
         park_clear(_prop_key(prop), None)
 
 
-def _added_line(opt, name, ingredient=True):
+def _added_line(opt, name, ingredient=True, saved=False):
     """'Onion powder added. Each formulation still totals 100 g.'
 
     The total's limit is over every ingredient, so every ingredient added
@@ -392,17 +493,39 @@ def _added_line(opt, name, ingredient=True):
     standing. Said only when there is a total, and only for an INGREDIENT: a
     process setting is not an amount and is in no sum, so a total is not a
     thing adding one could have put at risk."""
-    added = wording.added(str(name).strip())
+    name = str(name).strip()
+    added = wording.saved(name) if saved else wording.added(name)
     if not ingredient or not opt.has_formulation_total():
         return added
     return f"{added} {wording.total_still_holds(opt.batch_total_text(opt.formulation_total))}"
 
 
-def _add_variable_now(opt, setting, wants_baseline, properties=()):
+def _add_variable_now(opt, setting, wants_baseline, properties=(),
+                      editing=None):
+    """Add the row the form describes, or save it back onto `editing`.
+
+    An edit goes through the same paths an add does: re-adding a name the
+    project already has updates its allowed amounts and its unit, so every
+    consequence the screen owes — the total dropped or kept, the limits
+    pruned, the open batch retired — fires exactly once, in the same words.
+    The name is the one thing those paths cannot change, because it is the
+    key everything recorded is filed under; rename_variable moves all of it,
+    and it is asked FIRST (without writing) so a name that is taken refuses
+    the whole save rather than half of it."""
     name = st.session_state["var_name"]
     low, high = st.session_state["var_low"], st.session_state["var_high"]
     unit = st.session_state.get("var_unit", "")
     batch_no = opt.pending_batch_no
+    rename_to = None
+    if editing is not None:
+        try:
+            rename_to = opt._check_rename(editing['name'], name)
+        except ValueError as e:
+            st.error(str(e))
+            return
+        # Every path below acts on the row as it is filed today; the rename
+        # follows, once they have all gone through.
+        name = editing['name']
     if setting:
         if wants_baseline and st.session_state.get("var_base") is None:
             st.error(wording.ADD_BASELINE_ERROR)
@@ -417,10 +540,17 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
         except ValueError as e:
             st.error(str(e))
             return
-        if saved_ok(opt):
-            flash("success", _added_line(opt, name, ingredient=False))
-            _note_discarded_batch(opt, batch_no)
-            st.rerun()
+        if not saved_ok(opt):
+            return
+        name = _rename_after_edit(opt, name, rename_to)
+        if name is None:
+            return
+        flash("success", _added_line(opt, name, ingredient=False,
+                                     saved=editing is not None))
+        _note_discarded_batch(opt, batch_no)
+        if editing is not None:
+            _close_editor(opt, setting)
+        st.rerun()
         return
 
     scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
@@ -436,12 +566,28 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
         _set_typed_properties(opt, str(name).strip(), properties)
         if not saved_ok(opt):
             return
-        added_line = _added_line(opt, name)
+        name = _rename_after_edit(opt, name, rename_to)
+        if name is None:
+            return
+        added_line = _added_line(opt, name, saved=editing is not None)
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
         _note_discarded_batch(opt, batch_no)
+        if editing is not None:
+            _close_editor(opt, setting)
         st.rerun()
+
+
+def _rename_after_edit(opt, name, rename_to):
+    """Carry the row's new name across everything recorded under the old one,
+    and hand back the name the flash should say. None means the write did not
+    reach the file, and the caller stops: _check_rename has already refused
+    every name this could have been refused for."""
+    if rename_to is None or rename_to == name:
+        return name
+    opt.rename_variable(name, rename_to)
+    return rename_to if saved_ok(opt) else None
 
 
 def _ordered_variables(opt):
@@ -522,14 +668,14 @@ def _disarm_other_removals(pick):
         disarm(armed)
 
 
-def _variable_controls(opt, storage):
+def _variable_controls(opt, storage, editing=None):
     """One row for everything you can do to a row of the table: hold it at
-    one amount or vary it again, set its unit, delete it."""
+    one amount or vary it again, edit it, set its unit, delete it."""
     rows = _ordered_variables(opt)
     if not rows:
         return
     properties = opt.properties()
-    widths = [2.4, 2, 1.2, 1, 1.6] + ([1.6] if properties else [])
+    widths = [2.2, 2, 1.2, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
         pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
@@ -541,19 +687,27 @@ def _variable_controls(opt, storage):
     with cols[1]:
         _hold_or_vary(opt, var, pick)
     with cols[2]:
+        # The form above is the editor, so this button fills it in and names
+        # the row it was filled from. Greyed while it is already open on this
+        # row: clicking it again would throw away what has been typed there.
+        if st.button(wording.edit_button(pick), key="edit_var",
+                     disabled=editing is not None):
+            _open_editor(opt, var)
+            st.rerun()
+    with cols[3]:
         st.session_state.setdefault("unit_value", "")
         # "New unit", not "Unit": the add form above has a Unit box of its
         # own, and two of them on one row asked the reader which was which.
         # The placeholder is the unit the picked row is in today.
         typed = st.text_input(wording.NEW_UNIT_LABEL, key="unit_value",
                               placeholder=opt.unit_of(pick) or "g")
-    with cols[3]:
+    with cols[4]:
         if st.button(wording.SET_UNIT_BUTTON, key="set_unit"):
             _set_unit_now(opt, pick, typed)
-    with cols[4]:
+    with cols[5]:
         _remove_variable(opt, storage, pick, is_ingredient)
     if properties:
-        with cols[5]:
+        with cols[6]:
             # Disabled rather than hidden for a setting: a control that comes
             # and goes as the pick changes reads as a fault in the app.
             if st.button(wording.SET_PROPERTIES_BUTTON, key="set_props",
@@ -1447,8 +1601,9 @@ def _foot(opt, editing=False):
     ready, missing = readiness(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; moving on can wait a click. An open
-    # measurement editor is the same case: Save changes is the lit one, and
-    # Continue would leave the tab and throw the edit away.
+    # editor — a measurement's, or an ingredient's — is the same case: its
+    # Save is the lit one, and Continue would leave the tab and throw the
+    # edit away.
     lit = ready and not confirmation_open() and not editing
     if st.button(wording.NEXT_MAKE_BATCH_BUTTON,
                  type="primary" if lit else "secondary",
@@ -1466,9 +1621,9 @@ def render(opt, storage):
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
         st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
-    _variables(opt, storage)
+    editing = _variables(opt, storage)
     st.divider()
-    editing = _measurements(opt, storage)
+    editing = _measurements(opt, storage) or editing
     st.divider()
     _limits(opt, storage)
     _advanced(opt)

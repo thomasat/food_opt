@@ -141,6 +141,7 @@ def _reset_project_session():
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
+              "_editing_variable",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_var_kind_shown", "_props_for",
               "_targets_source_open", ARMED_KEY):

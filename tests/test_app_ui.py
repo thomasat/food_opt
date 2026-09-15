@@ -5039,6 +5039,232 @@ def test_a_held_row_is_the_only_reason_for_a_status_column(burger):
     assert list(table["Status"]) == ["active", "held at 1.00 g"]
 
 
+def _open_variable_editor(at, name):
+    """Pick a row and open the add form on it, the way the tab does."""
+    at.selectbox(key="var_pick").select(name)
+    at.run()
+    _submit_button(at, wording.edit_button(name)).click()
+    at.run()
+    return at
+
+
+def test_edit_opens_the_add_form_on_the_row_it_names(burger):
+    """The same six boxes, already filled in: an edit is the same four
+    answers as an add, and a second form for them would be a second place to
+    learn."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    assert at.text_input(key="var_name").value == "Methylcellulose"
+    assert at.radio(key="var_kind").value == "Ingredient"
+    assert at.number_input(key="var_low").value == 0.0
+    assert at.number_input(key="var_high").value == 3.0
+    assert at.text_input(key="var_unit").value == "g"
+    # Add is gone while it is open: the form is on one row, and it is this one.
+    assert wording.ADD_VARIABLE_BUTTON not in _labels(at)
+    assert "Save Methylcellulose" in _labels(at)
+    assert wording.CANCEL in _labels(at)
+
+
+def test_the_open_editor_is_the_tabs_one_lit_button(burger):
+    """The measurement editor's rule, on the row above it: Save is the lit
+    one, and Continue steps aside because it would leave the tab and throw
+    the edit away."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    save = next(b for b in at.button if b.key == "save_variable")
+    foot = next(b for b in at.button if b.key == "continue_to_batch")
+    assert save.proto.type == "primary" and not save.disabled
+    assert foot.proto.type == "secondary" and foot.disabled
+
+
+def test_saving_the_editor_changes_the_allowed_amounts_and_says_so(burger):
+    burger.set_formulation_total(25.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Methylcellulose saved. Each formulation still "
+               "totals 25 g." for s in at.success), [s.value for s in at.success]
+    assert FoodOptimizer("burger")._var_by_name("Methylcellulose")["bounds"] \
+        == (0.0, 6.0)
+    # Closed, and the form is back to adding.
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert at.text_input(key="var_name").value == ""
+
+
+def test_saving_the_editor_retires_the_open_batch_with_the_notice(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert FoodOptimizer("burger").pending_batch is None
+    assert any(f"{wording.BATCH_CAP} 1 was discarded" in i.value
+               for i in at.info), [i.value for i in at.info]
+
+
+def test_a_rename_through_the_editor_keeps_what_was_recorded(burger):
+    """The results already recorded are the whole reason a rename is not a
+    delete-and-add: they are filed under the name being changed."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.add_quantity_constraint(["Methylcellulose"], max_val=2.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.text_input(key="var_name").set_value("Methyl cellulose")
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Methyl cellulose saved." for s in at.success), \
+        [s.value for s in at.success]
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methyl cellulose"]
+    assert saved.recipe_history[0] == {"Pea protein": 10.0,
+                                       "Methyl cellulose": 1.0}
+    assert saved.quantity_constraints[0]["ingredients"] == ["Methyl cellulose"]
+    table = next(d.value for d in _tab1(at).dataframe
+                 if "Type" in d.value.columns)
+    assert "Methyl cellulose" in list(table["Name"])
+
+
+def test_a_rename_onto_a_name_that_is_taken_refuses_and_changes_nothing(burger):
+    """The refusal comes before anything is written: a half-saved edit would
+    leave the allowed amounts changed under the old name."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.text_input(key="var_name").set_value("Pea protein")
+    at.run()
+    at.number_input(key="var_high").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save Methylcellulose").click()
+    at.run()
+    assert [e.value for e in at.error] == [
+        "Pea protein is already the name of an ingredient. Choose another name."]
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methylcellulose"]
+    assert saved._var_by_name("Methylcellulose")["bounds"] == (0.0, 3.0)
+    # Still open on the row, with what was typed still in the box.
+    assert "Save Methylcellulose" in _labels(at)
+
+
+def test_cancel_closes_the_editor_and_changes_nothing(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_high").set_value(9.0)
+    at.run()
+    _submit_button(at, wording.CANCEL).click()
+    at.run()
+    assert FoodOptimizer("burger")._var_by_name("Methylcellulose")["bounds"] \
+        == (0.0, 3.0)
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert at.text_input(key="var_name").value == ""
+    assert at.number_input(key="var_high").value == 100.0
+
+
+def test_picking_another_row_closes_the_editor(burger):
+    """The form would otherwise sit there holding one row's answers under a
+    Save button naming it, while the controls beneath act on another."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Methylcellulose")
+    at.selectbox(key="var_pick").select("Pea protein")
+    at.run()
+    assert wording.ADD_VARIABLE_BUTTON in _labels(at)
+    assert "Save Methylcellulose" not in _labels(at)
+
+
+def test_a_setting_is_edited_in_its_own_words(ferment):
+    """Type, Lowest, Highest and the setting's own unit — and a baseline only
+    where the project has one to change."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _open_variable_editor(at, "Incubation time")
+    assert at.radio(key="var_kind").value == "Process setting"
+    assert at.text_input(key="var_unit").value == "h"
+    assert at.number_input(key="var_low").value == 4.0
+    at.number_input(key="var_high").set_value(24.0)
+    at.run()
+    _submit_button(at, "Save Incubation time").click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Incubation time saved." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("ferment")._var_by_name("Incubation time")["bounds"] \
+        == (4.0, 24.0)
+
+
+@pytest.fixture
+def mid_run(tmp_path, monkeypatch):
+    """A project with one formulation recorded and a setting added after it,
+    so the setting carries a baseline the recorded formulation is read at."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mid_run")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                              unit="°C")
+    return opt
+
+
+def test_the_editor_opens_on_the_baseline_a_setting_already_has(mid_run):
+    """Not '(required)': it is not being asked for, it is being shown. And
+    changing it moves the formulations already made with it, because the
+    baseline is what they were read at."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    _open_variable_editor(at, "Cook temperature")
+    box = at.number_input(key="var_base")
+    assert box.label == "Baseline" and box.value == 175.0
+    box.set_value(180.0)
+    at.run()
+    _submit_button(at, "Save Cook temperature").click()
+    at.run()
+    assert not at.exception, at.exception
+    saved = FoodOptimizer("mid_run")
+    assert saved._var_by_name("Cook temperature")["_absent_value"] == 180.0
+    assert saved.X_history == [saved._encode(r) for r in saved.recipe_history]
+
+
+def test_an_ingredient_that_already_exists_may_set_its_own_lowest(mid_run):
+    """Lowest is fixed at 0 for an ingredient ADDED mid-run, because it was
+    absent from every formulation already made. One that has been there all
+    along was recorded at its own amounts, so its Lowest is its own."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    assert at.number_input(key="var_low").disabled      # the add form
+    _open_variable_editor(at, "Water")
+    assert not at.number_input(key="var_low").disabled
+    at.number_input(key="var_low").set_value(5.0)
+    at.run()
+    _submit_button(at, "Save Water").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("mid_run")._var_by_name("Water")["bounds"] == (5.0, 100.0)
+
+
 def test_the_control_row_holds_one_row_and_varies_it_again(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

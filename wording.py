@@ -784,6 +784,19 @@ BASELINE_PLACEHOLDER = "e.g. 180"
 BASELINE_HELP = ("The setting you used for every formulation already made, "
                  "so those results still count.")
 ADD_VARIABLE_BUTTON = "Add ingredient or setting"
+
+
+def save_variable_button(name):
+    """'Save Pea protein isolate' — the add form, named for the row it is
+    open on, like the Edit and Delete buttons that lead to it. Only Add is a
+    bare verb: it is the one that has no row yet."""
+    return f"Save {name}"
+
+
+def saved(name):
+    """Subject first, like added() above it and every other flash on the
+    tab."""
+    return f"{name} saved."
 # An example, not a rule: "0 if blank" and "leave a box empty for no
 # value" sat on one screen contradicting each other, and the app never knows
 # an ingredient is fat-free — only that a box was left empty.

@@ -745,8 +745,25 @@ class FoodOptimizer:
         unit = str(unit or "").strip()
         for var in self.variables:
             if var['name'] == name:
+                # A setting that carries a baseline can have it corrected:
+                # it is what every formulation already made is read at, so
+                # the encoded history moves with it. And it has to stay
+                # inside the allowed amounts either way — a baseline outside
+                # them is an amount the history encodes at and the setting
+                # says it cannot take.
+                stored = var.get('_absent_value')
+                held = (float(baseline) if baseline is not None
+                        and stored is not None else stored)
+                if held is not None and not (min_val <= float(held) <= max_val):
+                    raise ValueError(
+                        f"Baseline {float(held):g} must be between "
+                        f"{min_val:g} and {max_val:g}."
+                    )
                 var['bounds'] = (min_val, max_val)
                 var['unit'] = unit
+                if held is not None and float(held) != float(stored):
+                    var['_absent_value'] = float(held)
+                    self._reencode_history()
                 self._drop_pending_batch()
                 self.save()
                 return
@@ -4440,6 +4457,88 @@ class FoodOptimizer:
         var['active'] = True
         var.pop('_frozen_at', None)
         self._drop_pending_batch()
+        self.save()
+
+    def _check_rename(self, name, new_name):
+        """The stripped name `rename_variable` would give this row, or a
+        ValueError saying why it cannot have it. Separate from the rename
+        itself so a caller with other writes to make can ask first and refuse
+        the whole edit, rather than renaming and then failing."""
+        var = self._var_by_name(name)
+        new_name = str(new_name).strip()
+        if not new_name:
+            raise ValueError("Name cannot be empty.")
+        if new_name == name:
+            return name
+        if is_reserved_name(new_name):
+            raise ValueError(
+                f"{new_name} is a column name Food Optimizer uses for its own "
+                f"tables. Choose another name, for example {new_name}s."
+            )
+        lowered = new_name.lower()
+        for other in self.variables:
+            if other is var or other['name'].lower() != lowered:
+                continue
+            kind = ("an ingredient"
+                    if other.get('category', 'ingredient') == 'ingredient'
+                    else "a process setting")
+            raise ValueError(
+                f"{other['name']} is already the name of {kind}. Choose "
+                f"another name.")
+        for obj in self.objectives:
+            if obj['name'].lower() == lowered:
+                raise ValueError(
+                    f"{obj['name']} is already the name of a measurement. "
+                    f"Choose another name.")
+        return new_name
+
+    def rename_variable(self, name, new_name):
+        """Give one ingredient or process setting a different name, keeping
+        everything recorded under the old one.
+
+        A name is a KEY here, not a label: the amounts of every formulation
+        are stored against it, the open batch and every not-scored row hold
+        it, an amount limit lists it, the total's own limit lists it, and an
+        ingredient's property values are filed under it. Renaming rewrites
+        all six and re-encodes the history, so the project after the rename
+        holds exactly what it held before, under the new name.
+
+        Refused for a name that is empty, reserved, or already the name of
+        something else in this project — the same refusals adding one gives,
+        in the same words. Nothing is written until every one of them has
+        passed, and _check_rename answers the same question without writing
+        anything, so a screen can refuse before it starts.
+        """
+        var = self._var_by_name(name)
+        new_name = self._check_rename(name, new_name)
+        if new_name == name:
+            return
+
+        var['name'] = new_name
+        for recipe in self.recipe_history:
+            if name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for row in (self.pending_batch or []):
+            recipe = row.get('recipe', row) if isinstance(row, dict) else row
+            if isinstance(recipe, dict) and name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for row in self.skipped:
+            recipe = row.get('recipe') or {}
+            if name in recipe:
+                recipe[new_name] = recipe.pop(name)
+        for qc in getattr(self, 'quantity_constraints', []):
+            # The total's own limit is in here too: it lists every ingredient
+            # by name, so it is rewritten with the rest rather than dropped
+            # and rebuilt.
+            qc['ingredients'] = [new_name if n == name else n
+                                 for n in qc['ingredients']]
+        if name in self.ingredient_properties:
+            self.ingredient_properties[new_name] = \
+                self.ingredient_properties.pop(name)
+        # The columns are in the same order and hold the same numbers, but
+        # encoding reads the recipes by name: a history left keyed to the old
+        # name would encode every amount as absent.
+        self._reencode_history()
         self.save()
 
     def remove_ingredient(self, name, force=False):

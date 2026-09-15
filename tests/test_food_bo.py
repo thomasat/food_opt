@@ -5430,3 +5430,150 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
         frame = opt.results_from_workbook(self._handed_back(opt, edit))
         assert list(frame["Firmness"]) == [5.5]
         assert list(frame["Juiciness"]) == [8.0]
+
+
+class TestRenameVariable:
+    """A name is a KEY: the amounts of every formulation are filed under it,
+    the open batch and the not-scored rows hold it, the limits list it and an
+    ingredient's property values are filed under it. Renaming moves all of
+    it, or it is not a rename — it is a deletion and an addition wearing one
+    button."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("rename")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 60)
+        opt.add_ingredient("Water", 0, 60)
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Pea protein", "Fat per 100 g", 8.0)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_quantity_constraint(["Pea protein"], max_val=40.0)
+        opt.tell({"Pea protein": 20.0, "Water": 40.0}, {"Firmness": 5.5},
+                 formulation_no=1, batch_no=1)
+        opt.record_skipped(2, 1, {"Pea protein": 25.0, "Water": 35.0})
+        opt.set_formulation_total(60.0)
+        # Last: a set-up change retires the open batch, and this one has to
+        # still be open when the rename reaches it.
+        opt.set_pending_batch([{"Pea protein": 30.0, "Water": 30.0}],
+                              batch_no=2)
+        return opt
+
+    def test_everything_filed_under_the_old_name_moves(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        before = list(opt.X_history)
+        opt.rename_variable("Pea protein", "Pea protein isolate")
+        reloaded = FoodOptimizer("rename")
+        assert [v['name'] for v in reloaded.variables] == \
+            ["Pea protein isolate", "Water"]
+        # The formulation already recorded keeps its amount, under the new
+        # name, and encodes to the same vector it always did.
+        assert reloaded.recipe_history[0] == {"Pea protein isolate": 20.0,
+                                              "Water": 40.0}
+        assert reloaded.X_history == before
+        # The open batch and the row nobody scored.
+        assert reloaded.pending_batch[0]['recipe'] == \
+            {"Pea protein isolate": 30.0, "Water": 30.0}
+        assert reloaded.skipped[0]['recipe'] == \
+            {"Pea protein isolate": 25.0, "Water": 35.0}
+        # The limit that named it, and the total's own limit over every
+        # ingredient.
+        chosen = [qc for qc in reloaded.quantity_constraints
+                  if qc.get('source') != 'formulation_total']
+        assert chosen[0]['ingredients'] == ["Pea protein isolate"]
+        total = next(qc for qc in reloaded.quantity_constraints
+                     if qc.get('source') == 'formulation_total')
+        assert sorted(total['ingredients']) == ["Pea protein isolate", "Water"]
+        assert reloaded.formulation_total == 60.0
+        # The property value follows the ingredient it was measured on.
+        assert reloaded.property_value("Pea protein isolate",
+                                       "Fat per 100 g") == 8.0
+        assert "Pea protein" not in reloaded.ingredient_properties
+
+    def test_a_held_row_keeps_its_hold(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Pea protein", value=20.0)
+        opt.rename_variable("Pea protein", "Pea protein isolate")
+        held = opt.inactive_variables()
+        assert [v['name'] for v in held] == ["Pea protein isolate"]
+        assert opt._frozen_value(held[0]) == 20.0
+
+    def test_a_name_that_is_taken_is_refused_and_nothing_moves(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                                  unit="°C")
+        for taken, says in (("Water", "already the name of an ingredient"),
+                            ("water", "already the name of an ingredient"),
+                            ("Cook temperature",
+                             "already the name of a process setting"),
+                            ("Firmness", "already the name of a measurement"),
+                            ("Total", "column name Food Optimizer"),
+                            ("   ", "Name cannot be empty")):
+            with pytest.raises(ValueError, match=says):
+                opt.rename_variable("Pea protein", taken)
+        assert [v['name'] for v in opt.variables][0] == "Pea protein"
+        assert opt.recipe_history[0]["Pea protein"] == 20.0
+
+    def test_its_own_name_is_not_a_rename(self, tmp_path, monkeypatch):
+        """Saving the form without touching the Name box must not be a write
+        that renames a row onto itself."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.rename_variable("Pea protein", "  Pea protein  ")
+        assert [v['name'] for v in opt.variables] == ["Pea protein", "Water"]
+        assert opt.recipe_history[0]["Pea protein"] == 20.0
+
+    def test_only_the_capitals_change(self, tmp_path, monkeypatch):
+        """A row is allowed to correct its own capitals: the clash rule is
+        about OTHER rows."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.rename_variable("Pea protein", "Pea Protein")
+        assert [v['name'] for v in opt.variables] == ["Pea Protein", "Water"]
+        assert opt.recipe_history[0] == {"Pea Protein": 20.0, "Water": 40.0}
+
+
+class TestEditingASetting:
+    """Re-adding a name the project already has is how the screen saves an
+    edit, so that path owes the setting everything the add did — including
+    the baseline, which is what the formulations already made are read at."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("edit_setting")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.tell({"Water": 50.0}, {"Taste": 7.0})
+        opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                                  unit="°C")
+        return opt
+
+    def test_a_corrected_baseline_re_encodes_the_history(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        before = list(opt.X_history)
+        opt.add_process_parameter("Cook temperature", 150, 200, baseline=160,
+                                  unit="°C")
+        var = opt._var_by_name("Cook temperature")
+        assert var['_absent_value'] == 160.0
+        # The formulation already made is read at the new baseline, so its
+        # encoded vector moves with it.
+        assert opt.X_history != before
+        assert opt.X_history == [opt._encode(r) for r in opt.recipe_history]
+
+    def test_a_baseline_outside_the_new_amounts_is_refused_whole(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="must be between"):
+            opt.add_process_parameter("Cook temperature", 150, 170,
+                                      baseline=175, unit="°C")
+        var = opt._var_by_name("Cook temperature")
+        assert var['bounds'] == (150.0, 200.0) and var['_absent_value'] == 175.0
+
+    def test_the_baseline_is_left_alone_when_none_is_passed(self, tmp_path,
+                                                            monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 140, 210, unit="°C")
+        var = opt._var_by_name("Cook temperature")
+        assert var['bounds'] == (140.0, 210.0) and var['_absent_value'] == 175.0
