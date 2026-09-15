@@ -3,8 +3,8 @@ collapsed section — `Edit past formulations` — for every way the record is
 fixed after the fact: a correction, a deletion, and a formulation made before
 this project existed, typed in or read off a CSV.
 
-The one coloured button is at the foot: `Start the next batch`, or `Back to
-batch N` while a batch is still unrecorded. Everything destructive is behind a
+The one coloured button is at the foot: `Start the next round`, or `Back to
+Round N` while a round is still unrecorded. Everything destructive is behind a
 confirmation that keeps a copy first and says so — once, in the confirmation.
 """
 import pandas as pd
@@ -12,7 +12,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
-from food_bo import WORKBOOK_MIME
+from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
     best_formulation_no, best_move_sentence,
@@ -371,7 +371,7 @@ def _score_row(opt, choice):
     # generated, so when this row's batch was printed to a total the sheet
     # carried different numbers, and the heading names which of the two is
     # on screen.
-    batch = row.get('batch')
+    batch = row.get(ROUND_FIELD)
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
     # No note here: a not-scored row's note says why nobody scored it, not
@@ -686,7 +686,8 @@ def _batch_numbers(opt):
     The open batch is not offered: its rows are still on the bench, and the
     list beside this box cannot hold them."""
     seen = {int(b) for b in opt.batch_history if b is not None}
-    seen |= {int(s['batch']) for s in opt.skipped if s.get('batch') is not None}
+    seen |= {int(s[ROUND_FIELD]) for s in opt.skipped
+             if s.get(ROUND_FIELD) is not None}
     seen.discard(opt.pending_batch_no)
     return sorted(seen)
 
@@ -697,8 +698,8 @@ def _formulations_of_batch(opt, batch_no):
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history)
                if b is not None and int(b) == int(batch_no)]
     numbers += [int(s['formulation']) for s in opt.skipped
-                if s.get('batch') is not None
-                and int(s['batch']) == int(batch_no)]
+                if s.get(ROUND_FIELD) is not None
+                and int(s[ROUND_FIELD]) == int(batch_no)]
     return sorted(numbers)
 
 
@@ -831,7 +832,7 @@ def _type_in_past(opt):
     _measurement_boxes(ordered, _past_measurement_key)
     st.session_state.setdefault("past_note", wording.IMPORTED_NOTE)
     st.text_input(wording.NOTE, key="past_note")
-    # Secondary: the foot's Start the next batch is this tab's coloured
+    # Secondary: the foot's Start the next round is this tab's coloured
     # button, and answering an armed confirmation outranks both.
     if st.button(wording.ADD_THIS_FORMULATION, key="add_past_formulation",
                  disabled=confirmation_open()):

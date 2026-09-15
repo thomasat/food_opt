@@ -1700,10 +1700,11 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
                                    "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
-    # Prefilled: no stored size and no project default, so the box opens at
-    # what the round already weighs — the mean of 11 g and 22 g, rounded.
-    assert box.value == 16.0
-    assert box.proto.placeholder == "e.g. 150"
+    # Blank: no stored size and no default, so the box has no number to open
+    # at. It opened at the mean of the rows' own sums for a while, which put
+    # a size on screen that no formulation weighed.
+    assert box.value is None
+    assert box.proto.placeholder == "e.g. 100"
 
 
 def test_a_batch_size_rescales_the_screen_the_sheet_and_the_record(open_batch):
@@ -2187,11 +2188,11 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
     assert (at.number_input(key="scale_total").proto.placeholder
-           == "e.g. 150")
+           == "e.g. 100")
     amounts = _sheet_amounts(at)
     # The sheets carry the amounts as generated, to the balance's own two
-    # decimals. The box opens prefilled, but a prefill is not an answer: the
-    # round is only rewritten once the bench CHANGES the size.
+    # decimals. The box is blank until the bench types a size, and a size
+    # nobody typed rewrites nothing.
     assert ("Pea protein", 20.0) in amounts, amounts
     assert ("Methylcellulose", 1.0) in amounts, amounts
 
@@ -4404,7 +4405,7 @@ def test_a_unit_change_that_splits_the_units_says_the_trial_is_unscaled(burger):
     at.run()
     assert not at.exception
     assert any(s.value == (wording.unit_changed("Methylcellulose", "ml", True)
-                           + " " + wording.unscaled_tail(2, "400 g"))
+                           + " " + wording.unscaled_tail(2))
                for s in at.success), [s.value for s in at.success]
     # ...and the box that held the total is empty, not quietly meaning nothing.
     assert ("scale_total" not in at.session_state
@@ -6687,7 +6688,7 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     # Not "Default batch size": that is Set up's box, for every round still
     # to come. This one is the round on screen.
     assert box.label == "Batch size (g)"
-    assert box.proto.placeholder == "e.g. 150"
+    assert box.proto.placeholder == "e.g. 100"
     assert box.help == ("Every formulation in this round adds up to this. "
                         "Change it and the sheets scale with it.")
     box.set_value(150.0)
@@ -6706,6 +6707,35 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
         "allowed. Print at a smaller total, or widen them in Set up.",
         "Sheets show each formulation made to 150 g."], \
         [c.value for c in at.caption]
+
+
+def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(
+        tmp_path, monkeypatch):
+    """A prefilled guess was worse than a blank box in two ways: it named a
+    size no formulation weighed, and it fired the reach refusal at a number
+    nobody had typed. Here the two rows weigh 30 g and 40 g while the allowed
+    amounts reach 20 g, so the old mean of 35 g would have been refused out
+    loud on the very first render."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("unreachable_mean")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 0, 10)
+    opt.add_ingredient("Water", 0, 10)
+    opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                      min_val=0, max_val=10, unit="N")
+    opt.set_pending_batch([{"Pea protein": 20.0, "Water": 10.0},
+                           {"Pea protein": 20.0, "Water": 20.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value is None
+    said = [c.value for c in at.caption] + [e.value for e in at.error]
+    assert not any("is not reachable" in s for s in said), said
+    # ...and nothing was rewritten behind the blank box.
+    assert [r['recipe'] for r in FoodOptimizer("unreachable_mean").pending_batch] \
+        == [{"Pea protein": 20.0, "Water": 10.0},
+            {"Pea protein": 20.0, "Water": 20.0}]
+    assert FoodOptimizer("unreachable_mean").pending_batch_total is None
 
 
 def test_there_is_no_change_the_total_button_any_more(open_batch):
@@ -7223,7 +7253,7 @@ def test_a_restored_total_opens_a_box_the_session_had_seen_empty(open_batch):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert at.number_input(key="scale_total").value == 16.0   # the prefill
+    assert at.number_input(key="scale_total").value is None
     at.session_state["_restore_candidate"] = state
     at.run()
     _submit_button(at, wording.YES_REPLACE).click()
@@ -7242,7 +7272,7 @@ def test_a_reloaded_total_opens_a_box_the_session_had_seen_empty(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert at.number_input(key="scale_total").value == 16.0   # the prefill
+    assert at.number_input(key="scale_total").value is None
     # The file says 150 now; this session never saw it typed.
     FoodOptimizer("burger").set_pending_batch_total(150.0)
     at.session_state["optimizer"].save_error = (

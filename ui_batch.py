@@ -64,26 +64,20 @@ def _seed_mark(opt, size):
 
 
 def _prefill(opt):
-    """What the Batch size box opens holding.
+    """What the Batch size box opens holding, or None for a blank box.
 
-    The size this round is stored with, else the project's default batch
-    size — both of which the round is already made to — else what the round
-    weighs now: the mean of the rows' own sums, rounded. A blank box said
-    nothing about a number the bench needs before it can weigh anything, and
-    the mean is the one number already on the table.
+    Only a number the round is ALREADY made to: the size it is stored with,
+    else the project's default batch size. Nothing else — a box that opened
+    at the mean of the rows' own sums put a number on screen that no
+    formulation weighed, refused it out loud when the allowed amounts could
+    not reach it, and could not be confirmed by typing it back. A blank box
+    and the placeholder ask the question without answering it.
     """
     stored = getattr(opt, 'pending_batch_total', None)
     if stored is not None:
         return float(stored)
     project = getattr(opt, 'formulation_total', None)
-    if project is not None:
-        return float(project)
-    sums = [opt.ingredient_total(row['recipe'])
-            for row in (opt.pending_batch or [])]
-    sums = [s for s in sums if s > 0]
-    if not sums:
-        return None
-    return float(round(sum(sums) / len(sums)))
+    return None if project is None else float(project)
 
 
 def _seed_batch_size(opt):
@@ -399,7 +393,7 @@ def _batch_table(opt, scale_to):
         st.caption(wording.HOW_CHOSEN)
 
 
-def _scaled_cautions(opt, rows, scale_to):
+def _scaled_cautions(opt, rows, scale_to, sized):
     """The amounts on the table, checked against what the project allows.
 
     ONE line, however many ingredients on however many rows are outside: the
@@ -407,11 +401,11 @@ def _scaled_cautions(opt, rows, scale_to):
     per ingredient per row put eight lines of raw numbers between the box and
     the step below it, and said nothing the one line does not.
     """
-    for caution in opt.scaled_cautions(rows, scale_to):
+    for caution in opt.scaled_cautions(rows, scale_to, sized):
         st.caption(caution)
 
 
-def _batch_size_control(opt, unit, typed, scale_to):
+def _batch_size_control(opt, unit, typed, scale_to, sized):
     """The Batch size box, above the round table, and the lines under it.
     `unit` is the unit the ingredients share, or None when they differ.
 
@@ -459,10 +453,10 @@ def _batch_size_control(opt, unit, typed, scale_to):
                 noun=wording.BATCH_SIZE_NOUN))
     # The size is what pushed an amount out of what the project allows, so
     # the line reads under the box that did it.
-    _scaled_cautions(opt, opt.pending_batch, scale_to)
+    _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
 
 
-def _downloads(opt, scale_to):
+def _downloads(opt, scale_to, sized):
     """Step 2: the one file the bench works from, the size it is written to,
     and the one line that names it.
 
@@ -483,7 +477,7 @@ def _downloads(opt, scale_to):
     lit = not _any_value_typed(opt) and not confirmation_open()
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
-        data=opt.workbook_bytes(rows, scale_to),
+        data=opt.workbook_bytes(rows, scale_to, sized),
         file_name=wording.workbook_file_name(opt.project_name,
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
@@ -858,11 +852,15 @@ def render(opt, storage):
     # accessor is what keeps the table, the workbook and tab 3 naming the
     # same number.
     scale_to = opt.open_round_size()
+    # Whether scale_round has been over these rows. Only this screen knows
+    # it, so it is said here once and handed to everything that draws a
+    # caution off it rather than being guessed at inside the model.
+    sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)
     # Above the table: the size is what the table is a table of.
-    _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to)
+    _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to, sized)
     _batch_table(opt, scale_to)
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()
@@ -894,7 +892,7 @@ def render(opt, storage):
     )
 
     with print_slot:
-        _downloads(opt, scale_to)
+        _downloads(opt, scale_to, sized)
     with record_slot:
         _record_results(opt)
     with own_slot:

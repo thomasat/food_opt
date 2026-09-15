@@ -527,7 +527,7 @@ BATCH_SIZE_HELP = (f"Every {FORMULATION} in this {ROUND} adds up to this. "
                    "Change it and the sheets scale with it.")
 # An example, not a description: the help above already says what the box is
 # for.
-BATCH_SIZE_PLACEHOLDER = "e.g. 150"
+BATCH_SIZE_PLACEHOLDER = "e.g. 100"
 
 NO_BATCH_SIZE_OF_ITS_OWN = f"This {ROUND} has no {BATCH_SIZE_NOUN} of its own."
 
@@ -718,12 +718,13 @@ LIMIT_KEPT = (f"Formulations already made are kept. The next {ROUND} will "
 NO_FORMULATION_FITS_LIMIT = "No formulation you have made fits this limit."
 
 
-def unscaled_tail(batch_no, total_text):
+def unscaled_tail(batch_no):
     """A batch size needs one unit, and a unit change may have just taken it
     away: the round keeps the amounts it already has, but nothing on the
     round screen can change their size any more, and only this sentence says
     so. Nothing is undone — since 0.5.0 the size moves the amounts
-    themselves, so there is no as-generated to go back to."""
+    themselves, so there is no as-generated to go back to, and the old size
+    is not worth naming: it is not a number anything can be typed back to."""
     return (f"{ROUND_CAP} {batch_no} keeps the amounts it has: your "
             "ingredients no longer share one unit.")
 

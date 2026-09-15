@@ -3235,9 +3235,9 @@ _ALLOWED_PREFIXES = ("Delete **", "Deleted ")
 _ALLOWED_SINGLE_WORDS = {
     # Legacy CSV column headers an import still accepts, and the reserved
     # names a 0.2.x project could collide with (RESERVED_VARIABLE_NAMES,
-    # which keeps Trial and Batch reserved too: a project stored before
-    # either wording wave may carry that column).
-    "Recipe", "Experiment", "Trial", "Batch",
+    # which keeps Trial reserved too: a project stored before that wording
+    # wave may carry that column).
+    "Recipe", "Experiment", "Trial",
     # The ingredient file's own column headers. The boxes on screen say
     # Lowest and Highest; a sheet may head its columns either way, and the
     # loader reads both.
@@ -3245,11 +3245,32 @@ _ALLOWED_SINGLE_WORDS = {
     # Stored field names and JSON keys. The spec keeps the stored spelling of
     # importance ('weight') and of a formulation's amounts ('recipe').
     "recipe", "experiment", "experiments", "objectives", "weight",
-    # ...including the key each row of the record keeps its round number
-    # under, and the widget keys built on it. A one-word 'batch' literal in
-    # these files is always one of those; "Round" is what a screen says.
-    "batch",
 }
+
+# Allowances that belong to ONE file. A blanket entry would have waved the
+# same word through everywhere, and "Batch" waved through in wording.py is a
+# screen label: that module is nothing but screen text, so a bare "Batch"
+# there is exactly the mistake this guard exists to catch. In food_bo.py the
+# same two literals are machinery — the reserved column name a 0.2.x project
+# could collide with, and the key each row of the record keeps its round
+# number under — and nothing in that file is a label.
+_ALLOWED_SINGLE_WORDS_BY_FILE = {
+    "food_bo.py": {"Batch", "batch"},
+}
+
+
+def _allowed_single_words(name):
+    """The one-word literals `name` may keep: the ones every file may keep,
+    plus that file's own."""
+    return _ALLOWED_SINGLE_WORDS | _ALLOWED_SINGLE_WORDS_BY_FILE.get(name, set())
+
+
+def _single_word_offenders(name, words):
+    """The one-word literals of `words` that the guard refuses in `name`.
+    Split out from the sweep so a test can hand it words no file contains."""
+    allowed = _allowed_single_words(name)
+    return [(name, word) for word in words
+            if word not in allowed and _SINGLE_WORDS.fullmatch(word)]
 # Fragments removed from the Swift wrapper before it is scanned: CSS property
 # names inside the setup page's inline styles, not prose.
 _SWIFT_NOT_PROSE = ("font-weight",)
@@ -3331,12 +3352,30 @@ def test_no_old_vocabulary_reaches_the_user():
                 continue
             if any(pattern.search(text) for pattern in _BANNED):
                 offenders.append((name, text))
-        for word in _single_word_constants(root / name):
-            if word in _ALLOWED_SINGLE_WORDS:
-                continue
-            if _SINGLE_WORDS.fullmatch(word):
-                offenders.append((name, word))
+        offenders += _single_word_offenders(
+            name, _single_word_constants(root / name))
     assert offenders == [], offenders
+
+
+@pytest.mark.parametrize("word", ["Batch", "batch", "BATCH"])
+def test_a_bare_batch_is_refused_everywhere_but_food_bo(word):
+    """The allowance is scoped, and this is the proof. Until it was, a
+    "Batch" column header typed into wording.py — the module that is nothing
+    but screen text — passed the guard on the strength of an entry that
+    exists for food_bo's reserved names."""
+    for name in _USER_FACING_SOURCES:
+        refused = _single_word_offenders(name, [word])
+        if name == "food_bo.py" and word in {"Batch", "batch"}:
+            assert refused == [], (name, word)
+        else:
+            assert refused == [(name, word)], (name, word)
+
+
+def test_even_food_bo_may_not_say_batches():
+    """The scoped allowance is two exact literals, not the word. A plural is
+    not a stored key or a reserved column name, so nothing wants one."""
+    assert _single_word_offenders("food_bo.py", ["batches", "Batches"]) == [
+        ("food_bo.py", "batches"), ("food_bo.py", "Batches")]
 
 
 def test_no_old_vocabulary_reaches_the_user_outside_python():
@@ -5805,6 +5844,21 @@ class TestScaleRound:
         opt.scale_round(100.0)
         assert not opt.pending_batch
         assert opt.pending_batch_total is None
+
+    def test_a_non_positive_size_is_not_a_size(self, tmp_path, monkeypatch):
+        """Zero and below are the same answer as None: the round has no size
+        of its own. Nothing is rewritten — the box moved the amounts once and
+        there is no going back to what the model proposed — and nothing
+        non-positive is stored, because a sheet cannot be printed to it."""
+        opt = self._opt(tmp_path, monkeypatch, name="scale_round_zero_size")
+        opt.scale_round(100.0)
+        made = [dict(r['recipe']) for r in opt.pending_batch]
+        for refused in (0.0, -5.0, None):
+            opt.scale_round(refused)
+            assert opt.pending_batch_total is None
+            assert [r['recipe'] for r in opt.pending_batch] == made
+            opt.scale_round(100.0)          # and a real size still lands
+            assert opt.pending_batch_total == 100.0
 
     def test_a_row_that_adds_up_to_nothing_is_left_alone(self, tmp_path,
                                                         monkeypatch):

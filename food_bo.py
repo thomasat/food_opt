@@ -39,6 +39,14 @@ from storage import LocalStorage, StorageError
 import wording
 
 
+# The stored name of the round a recorded formulation belongs to. It is
+# spelled the old way — `batch` — because stored field names never change, and
+# it lives here rather than as a bare literal in every file that reads the
+# record: a one-word "batch" or "Batch" in a screen module is a label, and the
+# vocabulary guard refuses one there.
+ROUND_FIELD = "batch"
+
+
 # Column names history_frame() (and any future export) reserves for itself;
 # a variable with one of these names would silently overwrite that column.
 RESERVED_VARIABLE_NAMES = {
@@ -2131,16 +2139,18 @@ class FoodOptimizer:
         return wording.sheet_measurement_label(
             label_with_unit(obj['name'], obj.get('unit')), goal_line(obj))
 
-    def workbook_bytes(self, batch, total=None):
-        """The open batch as one Excel file: a summary sheet the whole batch
+    def workbook_bytes(self, batch, total=None, sized=False):
+        """The open round as one Excel file: a summary sheet the whole round
         is weighed out from, and one sheet per formulation to carry, tick and
         write on.
 
-        `total` is what every formulation is made to — the project's own
-        total, or the one typed on tab 2 — and the amounts are written for
-        it, so the file and the screen can never show different numbers.
-        With no total the amounts are as generated and each `%` is a share of
-        that formulation's own sum.
+        `total` is the batch size every formulation is made to — the
+        project's default, or the one typed on the round screen — and the
+        amounts are written for it, so the file and the screen can never show
+        different numbers. With no size the amounts are as generated and each
+        `%` is a share of that formulation's own sum. `sized` says the box
+        has already moved these rows onto `total` (see _rewritten); it only
+        decides which cautions the sheets carry.
 
         The file comes back the same way: the summary sheet's Measured cells
         are read straight back off it by results_from_workbook.
@@ -2149,12 +2159,12 @@ class FoodOptimizer:
         book = Workbook()
         summary = book.active
         summary.title = wording.batch_sheet_name(self.pending_batch_no)
-        self._write_summary_sheet(summary, rows, total)
+        self._write_summary_sheet(summary, rows, total, sized)
         for row in rows:
             self._write_formulation_sheet(
                 book.create_sheet(
                     wording.formulation_sheet_name(row['formulation'])),
-                row, total)
+                row, total, sized)
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()
@@ -2196,7 +2206,7 @@ class FoodOptimizer:
         as one column of numbers."""
         return name if self._shows_shares() else self._amount_column(name)
 
-    def _write_summary_sheet(self, sheet, rows, total):
+    def _write_summary_sheet(self, sheet, rows, total, sized=False):
         """One column per formulation, one row per ingredient: the sheet a
         bench weighs a whole batch out from, and the one it writes the
         results back onto.
@@ -2273,7 +2283,7 @@ class FoodOptimizer:
         # row that does not add up to the total says so on its own line: the
         # bench weighs out what is printed above, and nothing else on the
         # page would say the column is not the total in the title.
-        for line in (self.scaled_cautions(rows, total)
+        for line in (self.scaled_cautions(rows, total, sized)
                      + self.total_mismatch_lines(rows, total)):
             _write_cell(sheet, r, 1, line)
             r += 1
@@ -2315,7 +2325,7 @@ class FoodOptimizer:
         # print it in slices.
         _fit_to_page(sheet, r, 1 + stride * len(rows), landscape=len(rows) > 2)
 
-    def _write_formulation_sheet(self, sheet, row, total):
+    def _write_formulation_sheet(self, sheet, row, total, sized=False):
         """One formulation, as the page a technician carries to the bench:
         what it is trying, what to weigh out in the order it is set up, what
         to dial in, what to measure, and room to sign it."""
@@ -2381,7 +2391,7 @@ class FoodOptimizer:
             # the table and stops at the line that says these numbers are
             # outside what the project allows, or that they do not add up to
             # the total the title names.
-            for line in (self.scaled_cautions([row], total)
+            for line in (self.scaled_cautions([row], total, sized)
                          + self.total_mismatch_lines([row], total)):
                 _write_cell(sheet, r, 2, line)
                 r += 1
@@ -2898,26 +2908,24 @@ class FoodOptimizer:
         return outside_message(name, value, low, high, self.unit_of(name),
                                wording.ALLOWED_AMOUNTS)
 
-    def scaled_caution(self, recipes, total):
+    def scaled_caution(self, recipes, total, sized=False):
         """The one line for the ingredients whose amounts fall outside what
         the project allows once these formulations are made to `total`, or ""
         when they all fit. Up to three it names them; above that it counts
         them.
 
         The stored amounts were chosen inside the project's own Lowest and
-        Highest; a formulation total they were never chosen for scales them
-        past it, and the sheets are made from those numbers — so the bench
-        weighs out an amount the project says it does not allow. Tab 2's box,
+        Highest; a batch size they were never chosen for moves them past it,
+        and the sheets are made from those numbers — so the bench weighs out
+        an amount the project says it does not allow. The round screen's box,
         tab 3's amounts table and the workbook's own sheets all say so in
         these words, from here, so the three can never drift apart.
 
-        `recipes` may be plain amounts or whole batch rows. A row of the
-        user's own is never rewritten, so it is never one of these numbers,
-        and nothing at all is rewritten under a project total — the line is
-        silent there, and a row that misses the total says so in its own
-        words instead.
+        `recipes` may be plain amounts or whole rows. `sized` is the caller
+        saying these rows are an open round scale_round has already made to
+        `total` — see _rewritten.
         """
-        scaled = self._rewritten(recipes, total)
+        scaled = self._rewritten(recipes, total, sized)
         if not scaled:
             return ""
         ingredients = [var['name'] for var in self._ingredients()]
@@ -2931,7 +2939,7 @@ class FoodOptimizer:
             names_text=number_list(names) if len(names) <= 3 else "",
             n_outside=len(names), n_total=len(ingredients))
 
-    def _rewritten(self, recipes, total):
+    def _rewritten(self, recipes, total, sized=False):
         """The amounts a batch size actually put where the model did not
         choose them, ready to be checked against the project's own rules.
         Empty when nothing was moved.
@@ -2943,10 +2951,15 @@ class FoodOptimizer:
         bench's own rows included, and whether or not the project has a
         default — so once that round has a size of its own every one of its
         rows is checked, however it is displayed.
+
+        `sized` is that second case, and it is the CALLER's to answer: only
+        the round screen and the workbook it prints know that these rows are
+        the open round and that scale_round has been over them. Working it
+        out here meant matching formulation numbers against pending_batch,
+        which guessed at what the caller already knew.
         """
         if total is None:
             return []
-        sized = self._round_was_sized(recipes)
         out = []
         for row in recipes:
             recipe, basis = self.shown_recipe(row, total)
@@ -2954,29 +2967,16 @@ class FoodOptimizer:
                 out.append(recipe)
         return out
 
-    def _round_was_sized(self, recipes):
-        """True when `recipes` are rows of the OPEN round and the bench has
-        given that round a batch size of its own. Recorded formulations and
-        bare amount dicts are not: nothing has moved them."""
-        if getattr(self, 'pending_batch_total', None) is None:
-            return False
-        numbers = {int(r['formulation'])
-                   for r in self._batch_rows(self.pending_batch)}
-        rows = [r for r in recipes
-                if isinstance(r, dict) and 'formulation' in r]
-        return bool(numbers) and bool(rows) and all(
-            int(r['formulation']) in numbers for r in rows)
-
-    def scaled_limit_caution(self, recipes, total):
-        """The line for a limit the total broke on its way past it, or "" when
-        they all hold.
+    def scaled_limit_caution(self, recipes, total, sized=False):
+        """The line for a limit the batch size broke on its way past it, or ""
+        when they all hold.
 
         An amount still inside its own Lowest and Highest can carry a limit
         over — 'Pea protein isolate + Wheat gluten at most 20 g' became
-        20.32 g when the batch was printed at 150 g — and a limit is
+        20.32 g when the round was printed at 150 g — and a limit is
         documented as a hard rule. One line, naming the first limit that does
         not hold, in the words the Limits list writes it in."""
-        for recipe in self._rewritten(recipes, total):
+        for recipe in self._rewritten(recipes, total, sized):
             for qc in getattr(self, 'quantity_constraints', []):
                 if qc.get('source') == 'formulation_total':
                     continue     # the total is the thing being asked about
@@ -3006,13 +3006,15 @@ class FoodOptimizer:
             return False
         return True
 
-    def scaled_cautions(self, recipes, total):
-        """Every line a scaled batch owes the bench: the amounts pushed past
-        what the project allows, and the limit the total broke. Callers draw
+    def scaled_cautions(self, recipes, total, sized=False):
+        """Every line a re-sized round owes the bench: the amounts pushed past
+        what the project allows, and the limit the size broke. Callers draw
         them in order — the screen as captions, the sheets as rows — so one
-        list is the whole answer."""
-        return [line for line in (self.scaled_caution(recipes, total),
-                                  self.scaled_limit_caution(recipes, total))
+        list is the whole answer. `sized` is passed straight through to
+        _rewritten, which says what it means."""
+        return [line
+                for line in (self.scaled_caution(recipes, total, sized),
+                             self.scaled_limit_caution(recipes, total, sized))
                 if line]
 
     # ------------------------------------------------------------------ #
@@ -4331,12 +4333,19 @@ class FoodOptimizer:
         remembers the size, so a reopened window and the Results tab both
         still know what the bench weighed out. With no round open there is
         nothing to size and nothing to remember it by, so this does nothing.
+
+        A size of nothing is not a size. None and anything at or below zero
+        mean the same thing here — the round has no size of its own — and
+        both leave the amounts alone: the box moved them once and there is no
+        going back to what the model proposed.
         """
         if not self.pending_batch:
             return          # no round to size; nothing to remember it by
         size = None if batch_size is None else float(batch_size)
+        if size is not None and size <= 0:
+            size = None
         rows = self._batch_rows(self.pending_batch)
-        if size is not None and size > 0:
+        if size is not None:
             rows = [self._batch_row(row['formulation'],
                                     self.scaled_recipe(row['recipe'], size),
                                     row.get('note'))

@@ -322,28 +322,28 @@ def park_clear(key, value):
 
 
 def clear_scale_total():
-    """Empty tab 2's own `Total of each formulation` box for the next batch.
+    """Empty the round screen's own `Batch size` box for the next round.
 
     Parked, not popped. Popping a widget's key does not reach the browser —
     the mounted box posts its old value straight back — so a regenerated
-    batch came up re-scaled to the total the batch before it was made to,
-    and the sheets were printed for it. The parked value lands before the
-    box is drawn again (drain_clears).
+    round came up re-sized to the size the round before it was made to, and
+    the sheets were printed for it. The parked value lands before the box is
+    drawn again (drain_clears).
 
     Call it AFTER preserve_tab_forms() wherever both are used: that parks
-    every tab form at what it is still holding, which would put the old
-    total back.
+    every tab form at what it is still holding, which would put the old size
+    back.
     """
     park_clear("scale_total", None)
 
 
 def clear_formulation_total_box():
-    """Empty tab 1's `Total of each formulation` box.
+    """Empty Set up's `Default batch size` box.
 
-    Parked for the same reason tab 2's is: popping a widget's key does not
-    reach the browser, so a box left holding a total the project no longer
-    has would write it straight back on the next run — and the notice saying
-    the total went would be followed by the total coming back."""
+    Parked for the same reason the round screen's is: popping a widget's key
+    does not reach the browser, so a box left holding a size the project no
+    longer has would write it straight back on the next run — and the notice
+    saying the default went would be followed by the default coming back."""
     park_clear("formulation_total", None)
 
 

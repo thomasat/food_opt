@@ -119,20 +119,22 @@ def _scaled_now(opt):
     return float(value)
 
 
-def _unscaled_tail(opt, before, before_unit):
+def _unscaled_tail(opt, before):
     """The sentence a unit change owes the open round when it has just split
     the ingredients across units: a batch size needs one unit, so there is no
     longer a box to change it in. Nothing is undone — since 0.5.0 the size
     moves the amounts themselves — so the sentence says the round keeps what
     it has. Empties the box too: a number left in it would go on quietly
-    meaning nothing."""
+    meaning nothing.
+
+    `before` is only asked whether there was a size at all; the number itself
+    is not named, because it is not one anything can be typed back to."""
     if before is None or opt.one_amount_unit() is not None:
         return ""
     clear_scale_total()
     if opt.pending_batch_no is None:
         return ""
-    total_text = join_unit(f"{before:g}", before_unit)
-    return wording.unscaled_tail(opt.pending_batch_no, total_text)
+    return wording.unscaled_tail(opt.pending_batch_no)
 
 
 # The (project, stored total) tab 1's total box has already been opened for.
@@ -600,7 +602,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         st.rerun()
         return
 
-    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
+    scaled = _scaled_now(opt)
     try:
         # Adding a name the project already has is an edit, and it can set
         # that ingredient's unit — so it can leave an amount limit adding
@@ -617,7 +619,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         if name is None:
             return
         added_line = _added_line(opt, name, saved=editing is not None)
-        tail = _unscaled_tail(opt, scaled, scaled_unit)
+        tail = _unscaled_tail(opt, scaled)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
         _note_discarded_batch(opt, batch_no)
@@ -831,7 +833,7 @@ def _set_unit_now(opt, pick, typed):
         # ingredient to no unit at all, and could take an amount limit with it.
         st.error(wording.UNIT_REQUIRED_ERROR)
         return
-    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
+    scaled = _scaled_now(opt)
     try:
         removed = opt.set_variable_unit(pick, typed)
     except ValueError as e:
@@ -848,7 +850,7 @@ def _set_unit_now(opt, pick, typed):
         said = wording.unit_changed(pick, written, is_ingredient)
         # A batch size needs one unit, and this change may have taken it
         # away; the round keeps the amounts it has, so say so.
-        tail = _unscaled_tail(opt, scaled, scaled_unit)
+        tail = _unscaled_tail(opt, scaled)
         flash("success", f"{said} {tail}" if tail else said)
         # An amount limit is a sum, and this change may have left one adding
         # grams to millilitres. It is gone; say which.

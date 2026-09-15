@@ -642,8 +642,8 @@ if getattr(_opt, "pending_batch", None):
 
 
 # The landing rule. This is one of the seven places allowed to change tabs
-# (the other six are go_to_tab's callers: Next: make a batch, Back to set up,
-# Save results, Save uploaded results, Start the next batch, Change a
+# (the other six are go_to_tab's callers: Next: make a round, Back to set up,
+# Save results, Save uploaded results, Start the next round, Change a
 # measurement or an ingredient), and it fires only on the run that follows
 # opening a project.
 if st.session_state.pop("_land_on_open", False):
