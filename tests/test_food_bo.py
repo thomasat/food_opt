@@ -1405,7 +1405,7 @@ def test_a_name_differing_only_by_case_is_refused(tmp_path, monkeypatch):
     assert opt.variables[0]['bounds'] == (0.0, 60.0)
 
 
-def test_biggest_changes_leaves_out_a_paused_ingredient(tmp_path, monkeypatch):
+def test_the_changes_leave_out_a_paused_ingredient(tmp_path, monkeypatch):
     """A paused ingredient is held at one value in every new formulation, so
     it cannot be a change this batch made."""
     monkeypatch.chdir(tmp_path)
@@ -1415,8 +1415,8 @@ def test_biggest_changes_leaves_out_a_paused_ingredient(tmp_path, monkeypatch):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0, "Oil": 50.0}, {"Taste": 5.0})
     opt.deactivate_variable("Oil", value=50.0)
-    changes = opt.biggest_changes({"Water": 12.0, "Oil": 90.0},
-                                  {"Water": 10.0, "Oil": 50.0})
+    changes = opt._variable_deltas({"Water": 12.0, "Oil": 90.0},
+                                   {"Water": 10.0, "Oil": 50.0}, 'ingredient')
     assert [name for name, _ in changes] == ["Water"]
 
 
@@ -2395,25 +2395,33 @@ class TestUnitsAndImportance:
         assert opt.closeness_details(None) == []
         assert opt.closeness_details(-1) == []
 
-    def test_biggest_changes_are_largest_first(self, tmp_path, monkeypatch):
+    def test_the_changes_are_largest_first(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        changes = opt.biggest_changes({"Pea protein": 8.0, "Methylcellulose": 1.8},
-                                      {"Pea protein": 10.1, "Methylcellulose": 1.0})
+        changes = opt._variable_deltas(
+            {"Pea protein": 8.0, "Methylcellulose": 1.8},
+            {"Pea protein": 10.1, "Methylcellulose": 1.0}, 'ingredient')
         assert changes[0][0] == "Pea protein"
         assert changes[0][1] == pytest.approx(-2.1)
         assert changes[1][0] == "Methylcellulose"
         assert changes[1][1] == pytest.approx(0.8)
 
-    def test_biggest_changes_leaves_process_settings_out(self, tmp_path, monkeypatch):
+    def test_the_amounts_are_asked_for_without_the_settings(self, tmp_path,
+                                                            monkeypatch):
         """A setting is not an amount: a cook temperature reported as
         '+180.00 g' priced an oven in grams, and against a formulation made
         before the setting existed the change was the whole baseline."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_process_parameter("Cook temperature", 160, 200, unit="°C")
-        changes = opt.biggest_changes(
-            {"Pea protein": 8.0, "Methylcellulose": 1.8, "Cook temperature": 180.0},
-            {"Pea protein": 10.1, "Methylcellulose": 1.0, "Cook temperature": 0.0})
-        assert [name for name, _ in changes] == ["Pea protein", "Methylcellulose"]
+        recipe = {"Pea protein": 8.0, "Methylcellulose": 1.8,
+                  "Cook temperature": 180.0}
+        ref = {"Pea protein": 10.1, "Methylcellulose": 1.0,
+               "Cook temperature": 0.0}
+        assert [name for name, _ in
+                opt._variable_deltas(recipe, ref, 'ingredient')] == \
+            ["Pea protein", "Methylcellulose"]
+        assert [name for name, _ in
+                opt._variable_deltas(recipe, ref, 'process')] == \
+            ["Cook temperature"]
 
     def test_scaled_recipe_scales_amounts_and_leaves_settings_alone(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2745,13 +2753,14 @@ class TestUnitPerIngredient:
         opt.add_total_mass_constraint(max_val=400)
         assert len(opt.quantity_constraints) == 2
 
-    def test_the_biggest_changes_are_reported_with_each_own_unit(
+    def test_the_changes_are_reported_with_each_own_unit(
             self, tmp_path, monkeypatch):
-        """biggest_changes hands back the names; the caller writes each one
+        """_variable_deltas hands back the names; the caller writes each one
         with that ingredient's unit."""
         opt = self._opt(tmp_path, monkeypatch)
-        changes = opt.biggest_changes({"Pea protein": 12.0, "Water": 40.0},
-                                      {"Pea protein": 10.0, "Water": 30.0})
+        changes = opt._variable_deltas({"Pea protein": 12.0, "Water": 40.0},
+                                       {"Pea protein": 10.0, "Water": 30.0},
+                                       'ingredient')
         assert [n for n, _ in changes] == ["Water", "Pea protein"]
         assert [opt.unit_of(n) for n, _ in changes] == ["ml", "g"]
 
@@ -2882,8 +2891,8 @@ class TestSettingsOnlyProject:
         assert opt.best_index() == 0
         assert opt.ingredient_total(row['recipe']) == 0.0
         # Nothing was weighed out, so no change can be reported as an amount.
-        assert opt.biggest_changes(opt.pending_batch[1]['recipe'],
-                                   row['recipe']) == []
+        assert opt._variable_deltas(opt.pending_batch[1]['recipe'],
+                                    row['recipe'], 'ingredient') == []
 
 
 class TestParseBatchResultsByFormulation:
@@ -3103,6 +3112,24 @@ class TestRoundTwoFixes:
         with pytest.raises(ValueError, match="column name Food Optimizer"):
             opt.add_objective("Total", 1.0, goal="max")
         assert [v['name'] for v in opt.variables] == ["Pea protein", "Water"]
+
+    def test_the_compared_with_column_is_reserved_too(self, tmp_path,
+                                                      monkeypatch):
+        """The batch table's last column is headed with the best
+        formulation's number, or with the allowed amounts during the cold
+        start; an ingredient of either name would collide with it exactly as
+        one named 'Total (g)' collides with the total."""
+        opt = self._opt(tmp_path, monkeypatch)
+        for name in ("Compared with Formulation 3", "compared with the "
+                     "allowed amounts", "Compared with Formulation3"):
+            with pytest.raises(ValueError, match="column name Food Optimizer"):
+                opt.add_ingredient(name, 0, 10)
+        with pytest.raises(ValueError, match="column name Food Optimizer"):
+            opt.add_process_parameter("Compared with Formulation 1", 0, 10)
+        # An ingredient whose name merely starts the same way is fine: the
+        # header is one of those two shapes and nothing else.
+        opt.add_ingredient("Compared with last season", 0, 10)
+        assert "Compared with last season" in [v['name'] for v in opt.variables]
 
     def test_total_is_refused_in_an_ingredient_csv_too(self, tmp_path,
                                                        monkeypatch):
@@ -4121,6 +4148,42 @@ class TestWhatEachFormulationIsTrying:
         assert cell == ("Close to the best · Water +6.67 g, "
                         "Wheat gluten −6.67 g"), cell
         assert df["Water (g)"].iloc[0] == pytest.approx(86.666666, rel=1e-5)
+
+    def test_the_settings_are_counted_apart_from_the_amounts(self, tmp_path,
+                                                             monkeypatch):
+        """Three amounts and three settings, each counted on its own, so
+        asking for more amounts does not also lengthen the list of dials."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("counts")
+        best = {}
+        for i in range(4):
+            opt.add_ingredient(f"Powder {i}", 0, 100)
+            opt.add_process_parameter(f"Dial {i}", 0, 100, unit="rpm")
+            best[f"Powder {i}"] = 10.0
+            best[f"Dial {i}"] = 10.0
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        opt.tell(best, {"Firmness": 9.0}, formulation_no=1, batch_no=1)
+        moved = {k: v + 1.0 for k, v in best.items()}
+        names = [part.split(" +")[0]
+                 for part in opt.vs_best_text(moved).split(", ")]
+        assert names == ["Powder 0", "Powder 1", "Powder 2",
+                         "Dial 0", "Dial 1", "Dial 2"], names
+        # A wider list of amounts leaves the settings' own count alone.
+        names = [part.split(" +")[0]
+                 for part in opt.vs_best_text(moved, n=4).split(", ")]
+        assert names == ["Powder 0", "Powder 1", "Powder 2", "Powder 3",
+                         "Dial 0", "Dial 1", "Dial 2"], names
+
+    def test_the_sheet_line_says_what_it_is_compared_with(self, tmp_path,
+                                                          monkeypatch):
+        """A sheet carries one formulation and no column header, so the line
+        on paper names the formulation the changes are measured from."""
+        opt = self._warm(self._opt(tmp_path, monkeypatch))
+        recipe = {"Water": 41.0, "Wheat gluten": 20.0}
+        assert wording.compared_with_line(opt.compared_with_column(),
+                                          opt.compared_with_text(recipe)) == \
+            ("Compared with Formulation 1: Close to the best · "
+             "Water +1.00 g")
 
 
 class TestTheTotalIsAlwaysReachable:

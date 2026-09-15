@@ -1709,18 +1709,6 @@ def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
     assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 10.0
 
 
-def test_biggest_changes_line_appears_from_batch_two(burger):
-    burger.tell({"Pea protein": 10.1, "Methylcellulose": 1.0},
-                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
-    burger.set_pending_batch([{"Pea protein": 8.0, "Methylcellulose": 1.8}],
-                             batch_no=2)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert any(c.value == wording.biggest_changes_caption(
-                   2, 1, "Pea protein −2.10 g, Methylcellulose +0.80 g")
-               for c in at.caption), [c.value for c in at.caption]
-
-
 def test_both_downloads_are_offered_and_only_the_bench_sheet_is_lit(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -4056,19 +4044,6 @@ def test_the_printable_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     assert "Total: 10.00 g · 40.00 ml" in lines, lines
 
 
-def test_the_biggest_changes_line_uses_each_ingredients_unit(mixed_units):
-    mixed_units.tell({"Pea protein": 10.0, "Water": 30.0}, {"Firmness": 6.0},
-                     formulation_no=1, batch_no=1)
-    mixed_units.set_pending_batch([{"Pea protein": 12.0, "Water": 40.0}],
-                                  batch_no=2)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    line = next((c.value for c in at.caption
-                 if c.value.startswith("Biggest changes")), "")
-    assert line == wording.biggest_changes_caption(
-        2, 1, "Water +10.00 ml, Pea protein +2.00 g"), line
-
-
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
     mixed_units.tell({"Pea protein": 10.0, "Water": 40.0}, {"Firmness": 6.0},
                      formulation_no=1, batch_no=1)
@@ -4536,28 +4511,30 @@ def test_the_tab_three_foot_never_offers_a_first_trial_over_an_open_one(burger):
         _tab_primaries(at, 2)
 
 
-def test_the_biggest_changes_line_reads_the_amounts_on_the_table(burger):
+def test_the_compared_with_column_reads_the_amounts_on_the_table(burger):
     """While the batch is scaled, a change read off the generated amounts is
     a number nothing on screen shows."""
-    burger.tell({"Pea protein": 10.0, "Methylcellulose": 10.0},
-                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
-                batch_no=1)
-    burger.set_pending_batch([{"Pea protein": 30.0, "Methylcellulose": 10.0}],
-                             batch_no=2)
+    for i in range(5):
+        burger.tell({"Pea protein": 10.0, "Methylcellulose": 10.0 + i},
+                    {"Juiciness": 7.0, "Firmness": 6.0 if i == 0 else 1.0},
+                    formulation_no=i + 1, batch_no=1)
+    burger.set_pending_batch([{"Pea protein": 30.0, "Methylcellulose": 10.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
+    column = "Compared with Formulation 1"
     # As generated, the only change is +20.00 g of protein.
-    assert any(c.value == wording.biggest_changes_caption(
-                   2, 1, "Pea protein +20.00 g")
-               for c in at.caption), [c.value for c in at.caption]
+    table = next(d.value for d in at.dataframe if column in d.value.columns)
+    assert table[column].iloc[0] == \
+        "Trying something different · Pea protein +20.00 g"
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
     # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00, and
-    # the line reads the table: the reference is scaled to the same total.
-    line = next((c.value for c in at.caption
-                 if c.value.startswith("Biggest changes")), "")
-    assert line == wording.biggest_changes_caption(
-        2, 1, "Pea protein +5.00 g, Methylcellulose −5.00 g"), line
+    # the cell reads the table: the best is scaled to the same total.
+    table = next(d.value for d in at.dataframe if column in d.value.columns)
+    assert table[column].iloc[0] == (
+        "Trying something different · Pea protein +5.00 g, "
+        "Methylcellulose −5.00 g"), table[column].iloc[0]
 
 
 def _uploader_keys(at):
@@ -7385,9 +7362,11 @@ def test_each_formulation_says_what_it_is_trying(burger):
     assert list(table.columns)[-1] == "Compared with Formulation 1"
     line = "Close to the best · Pea protein +1.00 g"
     assert table["Compared with Formulation 1"].iloc[0] == line
+    # On paper there is no column header to read the cell against, so the
+    # line carries it.
     sheet = _sheet_lines(at)
     assert sheet[1] == "Formulation 6 · Batch 2", sheet
-    assert sheet[2] == line, sheet
+    assert sheet[2] == f"Compared with Formulation 1: {line}", sheet
 
 
 def test_an_own_formulation_gets_the_same_line(burger):

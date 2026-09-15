@@ -405,11 +405,6 @@ def batch_discarded_caption(numbers_text, many=True):
     return f"{word} {numbers_text} {verb} discarded."
 
 
-def biggest_changes_caption(row_no, best_no, parts):
-    return (f"Biggest changes in {FORMULATION_CAP} {row_no} from "
-            f"{FORMULATION_CAP} {best_no}: {parts}.")
-
-
 def change_text(name, delta, size):
     """'Water +12.00 g' — one change in one ingredient or setting. The sign is
     the typographic minus, not a hyphen: beside a plus of the same weight a
@@ -434,6 +429,15 @@ def compared_with_column(best_no):
     formulation the changes are measured from once, at the top, so no cell
     under it has to repeat it."""
     return f"Compared with {FORMULATION_CAP} {best_no}"
+
+
+def compared_with_line(column, cell):
+    """The same line on paper: 'Compared with Formulation 2: Close to the
+    best · Pea protein +0.28 g'. The table writes the column header once, at
+    the top, and every cell under it is read against that; a sheet carries
+    one formulation and nothing else, so the line has to say what it is
+    compared with itself."""
+    return f"{column}: {cell}"
 
 
 def compared_with_cell(kind, changes=""):

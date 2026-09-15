@@ -356,36 +356,15 @@ def _title(opt):
 
 
 def _batch_table(opt, scale_to):
-    rows = opt.pending_batch
-    frame = opt.batch_frame(rows, scale_to=scale_to)
+    """The make-these table, and nothing under it. A caption used to say what
+    the first row changed from the best; the table's own last column now says
+    that for every row, in the same words, and the two together said one
+    thing twice."""
+    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     st.dataframe(
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-
-    best_no = best_formulation_no(opt)
-    if (opt.pending_batch_no or 0) > 1 and best_no is not None:
-        index = opt.index_of_formulation(best_no)
-        if index is not None:
-            # Against the amounts on the table above, not the ones underneath
-            # them: while the batch is scaled to a total, a change read off
-            # the generated amounts is a number nothing on screen shows. The
-            # formulation it compares is scaled to that same total.
-            changes = opt.biggest_changes(
-                opt.scaled_recipe(rows[0]['recipe'], scale_to),
-                opt.scaled_recipe(opt.recipe_history[index], scale_to), n=2)
-            if changes:
-                # Each change in that ingredient's own unit: +10.00 ml of
-                # water beside +2.00 g of protein.
-                parts = ", ".join(
-                    wording.change_text(
-                        name, delta, fmt_amount(abs(delta), opt.unit_of(name)))
-                    for name, delta in changes
-                )
-                # Named: the line reads one row of the batch, so a batch of
-                # three must not sound as though it describes all of them.
-                st.caption(wording.biggest_changes_caption(
-                    rows[0]['formulation'], best_no, parts))
 
 
 def _scaled_cautions(opt, rows, scale_to):
@@ -456,9 +435,14 @@ def _sheet_lines(opt, row, scale_to):
              # Directly under the title, in the same words the batch table
              # uses: the technician holding the sheet is the one who asks why
              # this bowl differs from the last, and the screen is two rooms
-             # away by then. The CSV sheet gets nothing — it is a grid to
-             # fill in, and a column of prose is not something to weigh.
-             (opt.compared_with_text(row['recipe'], scale_to=scale_to), _PROSE),
+             # away by then. The sheet carries the table's column header too —
+             # on paper there is no column to read the cell against. The CSV
+             # sheet gets nothing: it is a grid to fill in, and a column of
+             # prose is not something to weigh.
+             (wording.compared_with_line(
+                 opt.compared_with_column(),
+                 opt.compared_with_text(row['recipe'], scale_to=scale_to)),
+              _PROSE),
              ("", _PROSE)]
     for var in ingredients:
         lines.append((f"{var['name']}: "

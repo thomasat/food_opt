@@ -56,12 +56,23 @@ _TOTAL_COLUMN_RE = re.compile(r"^total(\s*\(.*\))?$", re.IGNORECASE)
 _FILE_COLUMNS = {'Name': 'Name', 'Min': 'Lowest', 'Max': 'Highest'}
 
 
+# The what-is-it-trying column is headed with the best formulation's number,
+# or with the allowed amounts while the cold start is still spreading them
+# out. An ingredient of either name collides with that column exactly as one
+# named 'Total (g)' collides with the total, so both headers are read off the
+# wording that writes them rather than spelled out a second time here.
+_COMPARED_COLUMN_RE = re.compile(
+    "^(" + re.escape(wording.compared_with_column("").strip()) + r"\s*\d+"
+    + "|" + re.escape(wording.COMPARED_WITH_ALLOWED) + ")$", re.IGNORECASE)
+
+
 def is_reserved_name(name):
     """True when a variable name would overwrite a column the app owns.
     Capitalisation is ignored: 'total' and 'Total (g)' are the same column."""
     name = str(name).strip()
     return (name.lower() in {r.lower() for r in RESERVED_VARIABLE_NAMES}
-            or bool(_TOTAL_COLUMN_RE.match(name)))
+            or bool(_TOTAL_COLUMN_RE.match(name))
+            or bool(_COMPARED_COLUMN_RE.match(name)))
 
 
 # How many results the cold start spreads across the allowed amounts before
@@ -69,6 +80,10 @@ def is_reserved_name(name):
 # variable's own allowed range — still counts as staying close to the best.
 COLD_START_RUNS = 5
 CLOSE_TO_THE_BEST = 0.15
+# How many process settings one what-is-it-trying line names, on its own so
+# that a project of eight settings does not bury the amounts under them. The
+# ingredients have their own count, which vs_best_text takes as an argument.
+SETTINGS_SHOWN = 3
 
 
 def join_unit(text, unit):
@@ -1281,33 +1296,30 @@ class FoodOptimizer:
                          'measured': measured, 'off_by': off_by})
         return rows
 
-    def biggest_changes(self, recipe, ref_recipe, n=2):
-        """The n largest amount changes from ref_recipe to recipe, largest
-        first, as (name, change) pairs. Amounts that did not move are left out.
+    def _variable_deltas(self, recipe, ref_recipe, category=None, floor=0.005):
+        """Every change from ref_recipe to recipe — largest first, as
+        (name, change) pairs. `category` keeps to the ingredients or to the
+        process settings; None takes both. A change smaller than `floor` is
+        left out, and so is a paused variable: it is held at one value in
+        every new formulation, so it cannot be a change this batch made;
+        naming it as the biggest one pointed at the row nobody moved.
 
-        Ingredients only. A process setting is not an amount: reporting a cook
-        temperature as "+198.65 g" priced a setting in grams, and against a
-        formulation made before the setting existed the change was the whole
-        baseline rather than anything the batch actually moved."""
-        return self._variable_deltas(recipe, ref_recipe, 'ingredient')[:n]
-
-    def _variable_deltas(self, recipe, ref_recipe, category):
-        """Every change from ref_recipe to recipe in one category — largest
-        first, as (name, change) pairs. An amount that did not move is left
-        out, and so is a paused variable: it is held at one value in every new
-        formulation, so it cannot be a change this batch made; naming it as
-        the biggest one pointed at the row nobody moved.
+        Amounts and settings are asked for separately wherever they are
+        written out, because they are not comparable numbers: reporting a
+        cook temperature as "+198.65 g" priced an oven in grams.
 
         A key missing from either side is read as the variable's 'absent'
         value — 0 for an ingredient, its baseline for a process setting —
         which is the rule _encode follows, so a setting added mid-run is not
-        reported as having moved by the whole of that baseline.
+        reported as having moved by the whole of that baseline. A categorical
+        variable has no change to subtract and falls out here.
 
         The sort is stable, so two changes of the same size stay in set-up
         order rather than swapping between two runs of the same batch."""
         pairs = []
         for var in self.variables:
-            if var.get('category', 'ingredient') != category:
+            if category is not None and \
+                    var.get('category', 'ingredient') != category:
                 continue
             if not var.get('active', True):
                 continue
@@ -1318,7 +1330,7 @@ class FoodOptimizer:
                          - float(ref_recipe.get(name, absent)))
             except (TypeError, ValueError):
                 continue
-            if abs(delta) < 0.005:
+            if abs(delta) < floor:
                 continue
             pairs.append((name, delta))
         pairs.sort(key=lambda kv: abs(kv[1]), reverse=True)
@@ -1330,10 +1342,29 @@ class FoodOptimizer:
         i = self.best_index()
         return None if i is None else int(self.formulation_ids[i])
 
+    def _best_recipe_index(self):
+        """The best formulation's position while its amounts are on file, so
+        that there is something to subtract from. None otherwise."""
+        best = self.best_index()
+        if best is None or best >= len(self.recipe_history):
+            return None
+        return best
+
+    def _best_to_compare(self):
+        """The best formulation's position while it is what the next batch is
+        measured against. During the cold start it is not: those formulations
+        are spread across the allowed amounts rather than stepped away from a
+        best, so there is a best-so-far but nothing to compare with."""
+        if len(self.X_history) < COLD_START_RUNS:
+            return None
+        return self._best_recipe_index()
+
     def vs_best_text(self, recipe, n=3, scale_to=None):
         """What this formulation changes from the best one so far: the `n`
         largest amount changes among the ingredients, largest first, then the
-        `n` largest among the process settings. '' while there is no best.
+        SETTINGS_SHOWN largest among the process settings — the settings have
+        a count of their own, so widening the amounts does not also lengthen
+        the list of dials. '' while there is no best.
 
         Amounts and settings are never ranked against each other — a change
         of 12 g and a change of 12 °C are not comparable numbers — and the
@@ -1345,8 +1376,8 @@ class FoodOptimizer:
         `scale_to` rewrites this formulation AND the best one to that total
         before the two are compared, so a change read beside a scaled table
         is the difference between two numbers the screen actually shows."""
-        best = self.best_index()
-        if best is None or best >= len(self.recipe_history):
+        best = self._best_recipe_index()
+        if best is None:
             return ""
         mine = self.scaled_recipe(recipe, scale_to)
         ref = self.scaled_recipe(self.recipe_history[best], scale_to)
@@ -1358,7 +1389,8 @@ class FoodOptimizer:
         parts += [
             wording.change_text(name, delta,
                                 fmt_setting(abs(delta), self.unit_of(name)))
-            for name, delta in self._variable_deltas(mine, ref, 'process')[:n]
+            for name, delta
+            in self._variable_deltas(mine, ref, 'process')[:SETTINGS_SHOWN]
         ]
         return ", ".join(parts)
 
@@ -1376,27 +1408,19 @@ class FoodOptimizer:
 
         The amounts are the ones the project stores, never a scaled copy: the
         allowed amounts this is a fraction of are the project's own."""
-        if len(self.X_history) < COLD_START_RUNS:
+        best = self._best_to_compare()
+        if best is None:
             return wording.SUGGESTION_SPREAD
-        best = self.best_index()
-        if best is None or best >= len(self.recipe_history):
-            return wording.SUGGESTION_SPREAD
-        ref = self.recipe_history[best]
-        largest = 0.0
-        for var in self.active_variables():
-            if var['type'] != 'continuous':
-                continue
-            low, high = float(var['bounds'][0]), float(var['bounds'][1])
-            span = high - low
-            if span <= 0:
-                continue
-            absent = var.get('_absent_value', 0.0)
-            try:
-                delta = (float(recipe.get(var['name'], absent))
-                         - float(ref.get(var['name'], absent)))
-            except (TypeError, ValueError):
-                continue
-            largest = max(largest, abs(delta) / span)
+        # Every kind of variable at once, and no floor: a move of half a gram
+        # is too small to be worth naming on the sheet but not too small to
+        # decide what this formulation is, if half a gram is what it is
+        # allowed to move at all.
+        deltas = self._variable_deltas(recipe, self.recipe_history[best],
+                                       floor=0.0)
+        spans = {v['name']: float(v['bounds'][1]) - float(v['bounds'][0])
+                 for v in self.variables if v['type'] == 'continuous'}
+        largest = max((abs(delta) / spans[name] for name, delta in deltas
+                       if spans.get(name)), default=0.0)
         return (wording.SUGGESTION_CLOSE if largest <= CLOSE_TO_THE_BEST
                 else wording.SUGGESTION_DIFFERENT)
 
@@ -1404,10 +1428,9 @@ class FoodOptimizer:
         """The header of the what-is-it-trying column: the best formulation's
         number, or — while the cold start is still spreading formulations out
         — the allowed amounts they are spread across."""
-        best_no = self.best_formulation_no()
-        if len(self.X_history) < COLD_START_RUNS or best_no is None:
+        if self._best_to_compare() is None:
             return wording.COMPARED_WITH_ALLOWED
-        return wording.compared_with_column(best_no)
+        return wording.compared_with_column(self.best_formulation_no())
 
     def compared_with_text(self, recipe, scale_to=None):
         """One cell of the batch table, and the same line on the sheet: what
