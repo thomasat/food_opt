@@ -50,7 +50,7 @@ YOUR DATA STAYS ON YOUR COMPUTER
 NEED HELP?
 Write to the Food Intelligence Lab at
 https://github.com/thomasat/food_opt/issues. Describe the problem in
-words, and do not attach project files, backups or formulations, because
+words, and do not attach project files, saved copies or formulations, because
 that page is public.
 
 Attaching the app's log file helps us find the problem faster. Inside

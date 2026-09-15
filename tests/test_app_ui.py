@@ -106,7 +106,7 @@ def test_restore_rejects_empty_json(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_restore_candidate"] = {}
     at.run()
-    assert any("not a Food Optimizer backup" in e.value for e in at.error), \
+    assert any("not a Food Optimizer copy" in e.value for e in at.error), \
         [e.value for e in at.error]
     assert len(FoodOptimizer("my_project").X_history) == 1
 
@@ -840,7 +840,7 @@ def test_restore_accepts_any_file_name(project_with_history):
     """Contents decide, not the extension: the uploader must not filter."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    restore = _unknown(at.sidebar, "file_uploader", "Restore from backup")
+    restore = _unknown(at.sidebar, "file_uploader", "Open a saved copy")
     assert list(restore.proto.type) == []
 
 
@@ -1953,10 +1953,10 @@ def test_saving_records_partials_notes_and_moves_to_results(open_batch):
     assert reloaded.results_history[1] == {"Firmness": 2.0}
     assert reloaded.pending_batch is None
     assert at.session_state["main_tab"] == wording.TAB_RESULTS
-    # A real save also puts the saved line in the sidebar and no backup nag.
+    # A real save also puts the saved line in the sidebar and no save nag.
     assert any("Saved automatically at " in c.value for c in at.sidebar.caption), \
         [c.value for c in at.sidebar.caption]
-    assert not any("Download a backup now" in w.value for w in at.warning)
+    assert not any("Save a copy now" in w.value for w in at.warning)
 
 
 def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monkeypatch):
@@ -3865,7 +3865,7 @@ def test_get_help_gives_an_address_to_write_to():
     swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text())
     assert "https://github.com/thomasat/food_opt/issues" in swift
     assert ("Describe the problem in words, and do not attach project files, "
-            "backups or formulations, because that page is public.") in swift
+            "saved copies or formulations, because that page is public.") in swift
 
 
 def test_emptying_the_forms_raises_no_widget_warning_on_screen(open_batch):
@@ -4660,7 +4660,7 @@ def test_the_restore_warning_counts_every_formulation_and_names_settings(scored)
     at.session_state["_restore_candidate"] = scored.export_json()
     at.run()
     assert not at.exception
-    assert any(w.value == ("This backup holds **burger**: 3 formulations, "
+    assert any(w.value == ("This copy holds **burger**: 3 formulations, "
                            "2 ingredients. Replace **burger**, which has "
                            "3 formulations? " + wording.COPY_KEPT)
                for w in at.warning), [w.value for w in at.warning]
@@ -4673,7 +4673,7 @@ def test_the_restore_warning_names_a_settings_only_project(ferment):
     at.session_state["_restore_candidate"] = ferment.export_json()
     at.run()
     assert not at.exception
-    assert any(w.value.startswith("This backup holds **ferment**: "
+    assert any(w.value.startswith("This copy holds **ferment**: "
                                   "1 formulation, 0 ingredients, "
                                   "2 process settings.")
                for w in at.warning), [w.value for w in at.warning]
@@ -6076,15 +6076,15 @@ def test_a_formulation_recorded_later_is_noted_as_made_earlier(burger):
 def test_the_restore_uploader_says_what_to_give_it(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Choose a project backup (.json) you downloaded "
-                           "earlier. Your current project is copied first.")
+    assert any(c.value == ("A copy you saved earlier (.json). The current "
+                           "project is copied first.")
                for c in at.sidebar.caption), \
         [c.value for c in at.sidebar.caption]
 
 
 def test_restore_accepts_the_copy_every_confirmation_promises(burger, tmp_path):
-    """Every destructive confirmation says a copy is kept and that Restore
-    from backup can load it, so it has to be able to."""
+    """Every destructive confirmation says a copy is kept and that Open a
+    saved copy can load it, so it has to be able to."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
                 batch_no=1)
@@ -6098,7 +6098,7 @@ def test_restore_accepts_the_copy_every_confirmation_promises(burger, tmp_path):
     at.run()
     assert not at.exception
     assert not at.sidebar.error, [e.value for e in at.sidebar.error]
-    assert any("This backup holds **burger**" in w.value
+    assert any("This copy holds **burger**" in w.value
                for w in at.warning), [w.value for w in at.warning]
 
 
@@ -7119,7 +7119,7 @@ def test_the_damaged_file_banner_says_the_two_ways_out(tmp_path, monkeypatch):
     assert not at.exception
     assert wording.project_load_error_info() == (
         "This project file is damaged, so editing is off. Two ways out, both "
-        "in the sidebar: Restore from backup, if you downloaded one. Or "
+        "in the sidebar: Open a saved copy, if you saved one. Or "
         "Manage project › Start this project over — the damaged file is "
         "copied first.")
     assert any(i.value == wording.project_load_error_info() for i in at.info), \

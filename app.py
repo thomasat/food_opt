@@ -208,7 +208,7 @@ def _batch_line(opt):
 
 
 # ================================================================== #
-#  Sidebar: projects, backup and restore, manage project
+#  Sidebar: projects, saved copies, manage project
 # ================================================================== #
 
 with st.sidebar:
@@ -316,27 +316,30 @@ with st.sidebar:
             if _saved is not None:
                 st.caption(saved_line(_saved))
 
+        st.markdown(wording.SAVED_COPIES_HEADING)
+        st.caption(wording.SAVED_COPIES_CAPTION)
+
         if getattr(opt, "load_error", None):
-            # Never offer a "backup" of a project that failed to load — it
+            # Never offer a "copy" of a project that failed to load — it
             # would be an empty file wearing the project's name.
-            st.caption(wording.BACKUP_UNAVAILABLE)
+            st.caption(wording.COPY_UNAVAILABLE)
         else:
             st.download_button(
-                wording.DOWNLOAD_PROJECT_BACKUP,
+                wording.SAVE_A_COPY,
                 data=json.dumps(opt.export_json(), indent=2),
-                file_name=f"{opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
+                file_name=f"{opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
                 mime="application/json",
             )
 
         # Any file name: what is inside decides, not the extension.
-        uploaded_json = st.file_uploader(wording.RESTORE_FROM_BACKUP, key="restore_json")
-        st.caption(wording.RESTORE_CAPTION)
-        if uploaded_json is not None and st.button(wording.CHECK_THIS_BACKUP):
+        uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
+        st.caption(wording.OPEN_SAVED_COPY_CAPTION)
+        if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
             try:
                 st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
             except ValueError:
                 st.session_state.pop("_restore_candidate", None)
-                st.error(wording.BACKUP_UNREADABLE)
+                st.error(wording.COPY_UNREADABLE)
 
         candidate = st.session_state.get("_restore_candidate")
         if candidate is not None:
@@ -347,14 +350,14 @@ with st.sidebar:
                 st.session_state.pop("_restore_candidate", None)
             else:
                 # Both halves count the same way — scored and left out — or
-                # replacing a project with its own backup reads as losing one.
-                # A settings-only project is named by its settings: "0
+                # replacing a project with its own saved copy reads as losing
+                # one. A settings-only project is named by its settings: "0
                 # ingredients" alone described a fully set-up project as empty.
                 _holds = [plural(summary['formulations'], wording.FORMULATION),
                           plural(summary['ingredients'], wording.INGREDIENT)]
                 if summary['settings']:
                     _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
-                st.warning(wording.restore_backup_warning(
+                st.warning(wording.open_saved_copy_warning(
                     summary['name'], _holds, opt.project_name,
                     plural(_held(opt), wording.FORMULATION)))
                 rc1, rc2 = st.columns(2)
@@ -381,7 +384,7 @@ with st.sidebar:
                             except storage_backend.StorageError as e:
                                 st.error(str(e))
                             except Exception:
-                                st.error(wording.BACKUP_APPLY_FAILED)
+                                st.error(wording.COPY_APPLY_FAILED)
                                 st.session_state.pop("_restore_candidate", None)
                             else:
                                 if new_opt.save_error:
@@ -507,7 +510,7 @@ if opt is None:
 
 
 # A damaged project must never be silently overwritten: every edit below
-# calls save(), so pause the editing UI until the user restores a backup or
+# calls save(), so pause the editing UI until the user opens a saved copy or
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
@@ -522,9 +525,9 @@ if getattr(st.session_state.optimizer, "save_error", None):
     st.warning(wording.SAVE_ERROR_WARNING)
     b1, b2 = st.columns(2)
     with b1:
-        st.download_button(wording.DOWNLOAD_BACKUP,
+        st.download_button(wording.SAVE_COPY_NOW,
                            data=json.dumps(_err_opt.export_json(), indent=2),
-                           file_name=f"{_err_opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
+                           file_name=f"{_err_opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
                            mime="application/json", use_container_width=True,
                            key="download_after_save_error")
     with b2:
@@ -547,7 +550,7 @@ if getattr(_opt, "pending_batch", None):
         # batch perfectly makeable.
         _batch_ok = all(set(r['recipe']) == _var_names for r in _opt.pending_batch)
     except (TypeError, AttributeError, KeyError):
-        _batch_ok = False           # malformed backup rows; treat as a mismatch
+        _batch_ok = False           # malformed copy rows; treat as a mismatch
     if not _batch_ok:
         _discarded_no = _opt.pending_batch_no
         _opt.set_pending_batch(None)

@@ -1131,11 +1131,11 @@ class TestRemoveIngredient:
 
 class TestValidateState:
     def test_empty_dict_is_rejected(self):
-        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+        with pytest.raises(ValueError, match="not a Food Optimizer copy"):
             FoodOptimizer.validate_state({})
 
     def test_non_dict_is_rejected(self):
-        with pytest.raises(ValueError, match="not a Food Optimizer backup"):
+        with pytest.raises(ValueError, match="not a Food Optimizer copy"):
             FoodOptimizer.validate_state([1, 2, 3])
 
     def test_wrong_shape_is_rejected(self, tmp_path, monkeypatch):
@@ -3016,6 +3016,10 @@ _USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
 # rename on its own, so the two can never disagree about what is banned.
 _NOT_MADE = re.compile(r"\bnot made\b", re.I)
 
+# 0.4.0: the sidebar's export/import pair is SAVED COPIES in plain words, not
+# the engineering term. Same reuse as _NOT_MADE above.
+_BACKUP = re.compile(r"\bbackups?\b", re.I)
+
 _BANNED = [
     re.compile(r"\brecipes?\b", re.I),
     re.compile(r"\bexperiments?\b", re.I),
@@ -3066,6 +3070,10 @@ _BANNED = [
     # The screen said "Not made" of a bowl that was made and never measured,
     # and there was then no way to score it later.
     _NOT_MADE,
+    # 0.4.0: the sidebar's export/import pair is named in plain words —
+    # Saved copies, Save a copy of this project, Open a saved copy — not the
+    # engineering term for what they are.
+    _BACKUP,
 ]
 
 class TestRoundTwoFixes:
@@ -3207,7 +3215,7 @@ _SINGLE_WORDS = re.compile(
     # literal never has room for that trailing phrase, so it needs its own
     # ban here.
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
-    r"|priority|trials?|kind|scales?|remove|remake|share)$", re.I)
+    r"|priority|trials?|kind|scales?|remove|remake|share|backups?)$", re.I)
 
 
 def _how_it_works():
@@ -3311,6 +3319,26 @@ def test_no_screen_says_not_made():
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _NOT_MADE.search(literal)]
+    assert offenders == [], offenders
+
+
+def test_no_screen_says_backup():
+    """0.4.0: the sidebar's export/import pair is Saved copies — Save a copy
+    of this project, Open a saved copy — in the words a formulation
+    scientist already uses, not the engineering term for what they are."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = []
+    for name in _USER_FACING_SOURCES:
+        offenders += [(name, text) for text in _string_constants(root / name)
+                      if _BACKUP.search(text)]
+    for name in _USER_FACING_TEXT:
+        offenders += [(name, i) for i, line
+                      in enumerate((root / name).read_text().splitlines(), 1)
+                      if _BACKUP.search(line)]
+    swift = (root / _USER_FACING_SWIFT).read_text()
+    offenders += [(_USER_FACING_SWIFT, literal) for literal
+                  in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
+                  if _BACKUP.search(literal)]
     assert offenders == [], offenders
 
 

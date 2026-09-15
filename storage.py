@@ -108,12 +108,12 @@ class LocalStorage:
             # header on purpose), so one message covers both cases.
             raise StorageError(
                 "This project file is damaged, or was saved by an early version "
-                "of Food Optimizer, and could not be opened. If you have a "
-                "backup, use Restore from backup; otherwise look in your "
+                "of Food Optimizer, and could not be opened. If you saved a "
+                "copy, use Open a saved copy; otherwise look in your "
                 "FoodOptimizer folder for a recent copy. An early-version "
                 "file can be converted by opening "
                 "it in the version of Food Optimizer that created it and "
-                "downloading a backup."
+                "saving a copy."
             )
 
     def save(self, name, state):

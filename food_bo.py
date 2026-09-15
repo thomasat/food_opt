@@ -435,8 +435,8 @@ class FoodOptimizer:
         if self.X_history:
             raise ValueError(
                 "Cannot reload ingredients after results have been recorded. "
-                "Use Manage project > Start this project over, or restore "
-                "from a backup."
+                "Use Manage project > Start this project over, or open a "
+                "saved copy."
             )
 
         # Accept any capitalization/whitespace for the required headers, and
@@ -3304,7 +3304,7 @@ class FoodOptimizer:
         except Exception:
             self.load_error = (
                 "This project file is damaged and could not be opened. If you "
-                "have a backup, use Restore from backup; otherwise look in your "
+                "saved a copy, use Open a saved copy; otherwise look in your "
                 "FoodOptimizer folder for a recent copy."
             )
             return False
@@ -3377,7 +3377,7 @@ class FoodOptimizer:
         message suitable for the UI. import_json assigns attributes one by
         one, so validating first is what keeps a bad file from leaving the
         optimizer half-mutated."""
-        bad = "This file is not a Food Optimizer backup."
+        bad = "This file is not a Food Optimizer copy."
         if not isinstance(state, dict):
             raise ValueError(bad)
         required = {
@@ -3388,25 +3388,25 @@ class FoodOptimizer:
             raise ValueError(bad)
         for key, typ in required.items():
             if not isinstance(state[key], typ):
-                raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+                raise ValueError(f"This copy's '{key}' section has the wrong shape.")
         for key in ('variables', 'objectives'):
             for item in state[key]:
                 if not isinstance(item, dict) or not isinstance(item.get('name'), str):
-                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+                    raise ValueError(f"This copy's '{key}' section has the wrong shape.")
         for key in ('recipe_history', 'results_history'):
             for item in state[key]:
                 if not isinstance(item, dict):
-                    raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+                    raise ValueError(f"This copy's '{key}' section has the wrong shape.")
         version = state.get('CLASS_VERSION')
         if not isinstance(version, int):
             raise ValueError(bad)
         if version > FoodOptimizer.CLASS_VERSION:
             raise ValueError(
-                "This backup was made with a newer version of Food Optimizer. "
+                "This copy was made with a newer version of Food Optimizer. "
                 "Update the app, then try again."
             )
         if len(state['recipe_history']) != len(state['results_history']):
-            raise ValueError("This backup is inconsistent: formulations and results differ in count.")
+            raise ValueError("This copy is inconsistent: formulations and results differ in count.")
         # The 0.3.0 identity lists. They are optional (a 0.2.x file has none),
         # but a present-and-malformed one must be refused here: import_json
         # assigns attributes one by one, so a TypeError raised halfway through
@@ -3453,25 +3453,25 @@ class FoodOptimizer:
             # import_json iterates it and would raise a TypeError halfway
             # through, leaving the optimizer wearing half of a bad backup.
             if not isinstance(state[key], list) or not all(ok(i) for i in state[key]):
-                raise ValueError(f"This backup's '{key}' section has the wrong shape.")
+                raise ValueError(f"This copy's '{key}' section has the wrong shape.")
         if state.get('next_formulation_no') is not None and not _whole(
                 state['next_formulation_no']):
             raise ValueError(
-                "This backup's 'next_formulation_no' section has the wrong shape.")
+                "This copy's 'next_formulation_no' section has the wrong shape.")
         # Properties named in the app. A malformed list would reach the
         # property picker and the limits list, so it is refused here.
         names = state.get('property_names')
         if names is not None and (not isinstance(names, list)
                                   or not all(isinstance(n, str) for n in names)):
             raise ValueError(
-                "This backup's 'property_names' section has the wrong shape.")
+                "This copy's 'property_names' section has the wrong shape.")
         # Where the targets came from: optional, but a present value must be
         # text — import_json would otherwise store a number or a list as the
         # caption the measurements table shows.
         targets_source = state.get('targets_source')
         if targets_source is not None and not isinstance(targets_source, str):
             raise ValueError(
-                "This backup's 'targets_source' section has the wrong shape.")
+                "This copy's 'targets_source' section has the wrong shape.")
         # The total a batch was made to. A bad one would silently rewrite
         # every amount tab 3 shows for the best formulation.
         def _total(x):
@@ -3481,30 +3481,30 @@ class FoodOptimizer:
         open_total = state.get('pending_batch_total')
         if open_total is not None and not _total(open_total):
             raise ValueError(
-                "This backup's 'pending_batch_total' section has the wrong shape.")
+                "This copy's 'pending_batch_total' section has the wrong shape.")
         # The total every suggested formulation is built to. A bad one would
         # be written straight back out as the limit the next batch is held to.
         project_total = state.get('formulation_total')
         if project_total is not None and not _total(project_total):
             raise ValueError(
-                "This backup's 'formulation_total' section has the wrong shape.")
+                "This copy's 'formulation_total' section has the wrong shape.")
         totals = state.get('batch_totals')
         if totals is not None and not isinstance(totals, dict):
             raise ValueError(
-                "This backup's 'batch_totals' section has the wrong shape.")
+                "This copy's 'batch_totals' section has the wrong shape.")
         for key, value in (totals or {}).items():
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
                     or not _total(value):
                 raise ValueError(
-                    "This backup's 'batch_totals' section has the wrong shape.")
+                    "This copy's 'batch_totals' section has the wrong shape.")
         pending = state.get('pending_batch')
         if pending is not None and not isinstance(pending, list):
-            raise ValueError("This backup's 'pending_batch' section has the wrong shape.")
+            raise ValueError("This copy's 'pending_batch' section has the wrong shape.")
         for item in pending or []:
             if (isinstance(item, dict) and item.get('formulation') is not None
                     and not _number(item['formulation'])):
                 raise ValueError(
-                    "This backup's 'pending_batch' section has the wrong shape.")
+                    "This copy's 'pending_batch' section has the wrong shape.")
         # A formulation's number is permanent and never reissued. A file that
         # numbers two rows the same breaks that for good — index_of_formulation
         # finds only the first, so deleting one leaves the others behind — and
@@ -3519,12 +3519,12 @@ class FoodOptimizer:
                     if isinstance(r, dict) and r.get('formulation') is not None]
         if len(set(stored)) != len(stored) or len(set(in_batch)) != len(in_batch):
             raise ValueError(
-                "This backup gives two formulations the same number, and a "
+                "This copy gives two formulations the same number, and a "
                 "formulation number is permanent. It cannot be restored.")
         counter = state.get('next_formulation_no')
         if _whole(counter) and any(n >= counter for n in stored + in_batch):
             raise ValueError(
-                "This backup holds a formulation number its own counter never "
+                "This copy holds a formulation number its own counter never "
                 "issued. It cannot be restored.")
         ingredients = sum(
             1 for v in state['variables']

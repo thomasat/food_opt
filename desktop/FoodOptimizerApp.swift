@@ -18,6 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
     var pollTicks = 0
     var deferDeadline: Int?   // pollTicks limit after our launcher deferred to another launch
+    // The tick the server's port file first appeared, once the launcher is
+    // done with its own setup steps and Streamlit is expected to answer any
+    // moment. nil while still waiting for that file. Bounds the otherwise
+    // unbounded wait for the first health check to succeed, so a Streamlit
+    // that started but never answers still fails kindly instead of leaving
+    // "Almost there." on screen forever.
+    var awaitingHealthSince: Int?
     var lastStatusLine: String?   // raw "<text>|<percent>" last read from status.txt
     var lastStepText: String?     // its text half, so a re-render keeps the step
     var lastProgress: Int?        // its percent half, so a re-render keeps the bar
@@ -91,7 +98,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         showInitialStatus()
         startLauncher()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+        // Half-second ticks so the health check that decides when to swap in
+        // the web view (see poll()) notices the first HTTP 200 promptly —
+        // the status screen must never sit on a stale page once the app is
+        // actually ready. Every tick-counted threshold below is doubled to
+        // match, so the real-world timing they describe is unchanged.
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
             [weak self] _ in self?.poll()
         }
     }
@@ -181,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         alert.informativeText =
             "Write to us at https://github.com/thomasat/food_opt/issues. "
             + "Describe the problem in words, and do not attach project "
-            + "files, backups or formulations, because that page is public. "
+            + "files, saved copies or formulations, because that page is public. "
             + "Attaching the app's log file helps — Help › Show Log File "
             + "finds it for you."
         alert.runModal()
@@ -292,6 +304,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         showStatus(title, body, spinner: true, step: step, progress: progress)
     }
 
+    // The last page before the web view: setup (if any) is over and the
+    // launcher's own port file exists, so nothing is left to report except
+    // waiting for Streamlit to answer. A fixed, short line beats a stale step
+    // that stopped moving once there were no more steps to name.
+    func showAlmostThereStatus() {
+        showStatus("Starting Food Optimizer…", "Almost there.", spinner: true)
+    }
+
     // `indeterminate` draws a looping bar for work with no measurable
     // progress; it is what marks a page as the opening page.
     func showStatus(_ title: String, _ body: String, spinner: Bool = false,
@@ -398,6 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         loaded = false
         pollTicks = 0
         deferDeadline = nil
+        awaitingHealthSince = nil
         lastStatusLine = nil
         lastStepText = nil
         lastProgress = nil
@@ -448,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pendingOldLauncher = nil
         startLauncher()
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
             [weak self] _ in self?.poll()
         }
     }
@@ -462,7 +483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // a server (e.g. a stale launch lock that wrongly looks alive), fail
         // with guidance instead of spinning indefinitely.
         if code == 0 {
-            deferDeadline = pollTicks + 900   // ~15 minutes
+            deferDeadline = pollTicks + 1800   // ~15 minutes, at 500ms ticks
             return
         }
         pollTimer?.invalidate()
@@ -509,7 +530,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // a second during setup. Update the page in place rather than reloading
     // it, so the spinner and the bar animate instead of restarting.
     func readStatusFile() {
-        guard !loaded,
+        // Once the port file exists there are no more setup lines coming —
+        // poll() has already swapped in the "Almost there." page — so a
+        // stray leftover status.txt line must not paint over it.
+        guard !loaded, awaitingHealthSince == nil,
               let raw = try? String(contentsOfFile: supportPath("status.txt"),
                                     encoding: .utf8)
         else { return }
@@ -565,7 +589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Keep the setup message honest on slow connections.
         pollTicks += 1
         readStatusFile()
-        if pollTicks == 360 {   // ~6 minutes in
+        if pollTicks == 720 {   // ~6 minutes in, at 500ms ticks
             showStatus("Still setting up…",
                        "The downloads are taking a while — slow connections "
                        + "can take longer than usual. Leave this window open; "
@@ -586,6 +610,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let port = readServerPort(),
               let health = URL(string: "http://127.0.0.1:\(port)/_stcore/health")
         else { return }
+        // The launcher is done and Streamlit should answer any moment: swap
+        // the (possibly stale) setup page for a fixed "Almost there." rather
+        // than leaving a step line that stopped moving. Never a blank
+        // window: the status page stays up until the health check below
+        // actually succeeds.
+        if awaitingHealthSince == nil {
+            awaitingHealthSince = pollTicks
+            showAlmostThereStatus()
+        } else if pollTicks - awaitingHealthSince! >= 120 {   // 60s at 500ms ticks
+            pollTimer?.invalidate()
+            showStatus("The app could not start",
+                       "Please click Try again. If this keeps happening, reach "
+                       + "out to the Food Intelligence Lab and attach the file "
+                       + "from Help › Show Log File.",
+                       retry: true)
+            return
+        }
         URLSession.shared.dataTask(with: health) { [weak self] _, resp, _ in
             guard let self, !self.loaded,
                   let http = resp as? HTTPURLResponse, http.statusCode == 200

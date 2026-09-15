@@ -145,8 +145,8 @@ warnings entirely, and the checklist below gates distribution on that.
 4. The app window opens immediately with the setup message, then loads
    the app when setup finishes. Dock shows the Food Optimizer icon and
    name (not a browser).
-5. In-window plumbing: upload a CSV (file picker opens), download a
-   backup (lands in ~/Downloads), Cmd-Q and window-close both stop the
+5. In-window plumbing: upload a CSV (file picker opens), save a
+   copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
 6. UI walkthrough: click "Try the sample project" (eight ingredients,
    Juiciness and Firmness), go to Make a batch and generate one, record

@@ -85,7 +85,7 @@ RESTORE_KEY = "_restore_candidate"
 
 
 def restore_armed():
-    """True while a checked backup is waiting for `Yes, replace`.
+    """True while a checked saved copy is waiting for `Yes, replace`.
 
     Restore is the one confirmation that is not a confirm_action: it is drawn
     by hand in the sidebar because it has a file to read and a summary to

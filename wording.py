@@ -38,7 +38,7 @@ TAB_RESULTS = "3 · Results"
 # Archived copies are written beside the project's own file, which on the
 # desktop app is the FoodOptimizer folder. Every tab and the sidebar use it,
 # so the sentence exists once.
-COPY_KEPT = ("A copy is saved first. Restore from backup can bring it "
+COPY_KEPT = ("A copy is saved first. Open a saved copy can bring it "
              "back.")
 
 NAME_RULE = "Up to 64 characters. Start with a letter or a number."
@@ -103,7 +103,7 @@ def best_moved(before, after):
 
 
 # ------------------------------------------------------------------ #
-# Sidebar: projects, backup and restore, manage project.
+# Sidebar: projects, saved copies, manage project.
 # ------------------------------------------------------------------ #
 PROJECTS_HEADER = "Projects"
 
@@ -149,16 +149,20 @@ SAMPLE_TAB1_DESCRIPTION = (
 PROJECT_LOAD_ERROR_SIDEBAR_NOTE = ("This project could not be opened. The "
                                    "main screen says why.")
 
-BACKUP_UNAVAILABLE = ("Backup download is unavailable while the project "
-                      "file cannot be read.")
-DOWNLOAD_PROJECT_BACKUP = "Download project backup"
+SAVED_COPIES_HEADING = "**Saved copies**"
+SAVED_COPIES_CAPTION = ("A copy holds everything: ingredients, "
+                        "measurements, every formulation and result.")
 
-RESTORE_FROM_BACKUP = "Restore from backup"
-RESTORE_CAPTION = ("Choose a project backup (.json) you downloaded "
-                   "earlier. Your current project is copied first.")
-CHECK_THIS_BACKUP = "Check this backup"
-BACKUP_UNREADABLE = (
-    "This file could not be read as a Food Optimizer backup. "
+COPY_UNAVAILABLE = ("Saving a copy is unavailable while the project "
+                    "file cannot be read.")
+SAVE_A_COPY = "Save a copy of this project"
+
+OPEN_A_SAVED_COPY = "Open a saved copy"
+OPEN_SAVED_COPY_CAPTION = ("A copy you saved earlier (.json). The current "
+                           "project is copied first.")
+CHECK_THIS_COPY = "Check this copy"
+COPY_UNREADABLE = (
+    "This file could not be read as a Food Optimizer copy. "
     "If you have another copy, try that one; recent copies are "
     "saved in your FoodOptimizer folder."
 )
@@ -166,17 +170,17 @@ RECENT_COPIES_HINT = (" Recent copies of your own projects are saved in "
                       "your FoodOptimizer folder.")
 
 
-def restore_backup_warning(name, holds, project_name, held):
+def open_saved_copy_warning(name, holds, project_name, held):
     """`holds` is the list of 'N formulations'/'N ingredients'/'N process
-    settings' phrases the backup contains; `held` is the same phrase for
+    settings' phrases the saved copy contains; `held` is the same phrase for
     what replacing it would give up."""
-    return (f"This backup holds **{name}**: " + ", ".join(holds)
+    return (f"This copy holds **{name}**: " + ", ".join(holds)
             + f". Replace **{project_name}**, which has {held}? " + COPY_KEPT)
 
 
 YES_REPLACE = "Yes, replace"
-BACKUP_APPLY_FAILED = ("This backup could not be applied. Your current "
-                       "project was not changed.")
+COPY_APPLY_FAILED = ("This copy could not be applied. Your current "
+                     "project was not changed.")
 
 
 def restored_flash(count_text, project_name, archived=None):
@@ -251,15 +255,15 @@ DOWNLOAD_CSV_TEMPLATE = "Download CSV template"
 def project_load_error_info():
     return (
         "This project file is damaged, so editing is off. Two ways out, both "
-        f"in the sidebar: {RESTORE_FROM_BACKUP}, if you downloaded one. Or "
+        f"in the sidebar: {OPEN_A_SAVED_COPY}, if you saved one. Or "
         f"{MANAGE_PROJECT} › {START_OVER_LABEL} — the damaged file is copied "
         "first."
     )
 
 
-SAVE_ERROR_WARNING = ("**Your last change was not saved.** Download a "
-                      "backup now, then click Reload project.")
-DOWNLOAD_BACKUP = "Download backup"
+SAVE_ERROR_WARNING = ("**Your last change was not saved.** Save a "
+                      "copy now, then click Reload project.")
+SAVE_COPY_NOW = "Save a copy"
 RELOAD_PROJECT = "Reload project"
 PROJECT_RELOADED = "Project reloaded from the latest saved copy."
 

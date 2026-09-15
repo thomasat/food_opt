@@ -52,7 +52,7 @@ def _seed_mark(opt, total):
     """What the box is up to date with: whose batch it belongs to AND the
     number stored on it. The batch's identity alone was not enough — the
     stored total can change under a session that has already rendered that
-    same batch (Restore from backup, Reload project after a save error,
+    same batch (Open a saved copy, Reload project after a save error,
     reopening a project whose new batch is number 1 again), and the seed was
     skipped every time."""
     return (opt.project_name, opt.pending_batch_no, total)
@@ -62,7 +62,7 @@ def _seed_scale_total(opt):
     """Open the box at the total its batch is stored with.
 
     A session that did not type the number knows nothing about it — a
-    reopened window, a project switched back to, a backup just restored — and
+    reopened window, a project switched back to, a saved copy just opened — and
     drew an empty box. The empty box then wrote its own blank over the saved
     total on the very first render, taking `batch_totals` down with it once
     results were in.
