@@ -42,6 +42,31 @@ assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
 assert "starting line carries no percent" grep -qF -- 'status "Starting the app…|"' "$DESKTOP_DIR/launcher.sh"
+# The window shows the app on Streamlit's first healthy answer, which lands
+# before app.py has imported torch and friends. The launcher imports them
+# first, behind its own progress page, so that window is never blank.
+assert "launcher warms the components before the server" \
+  grep -qF 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh"
+assert "the warm-up publishes a step line" \
+  grep -qF 'WARM_MSG="Loading the model components' "$DESKTOP_DIR/launcher.sh"
+# Order is the whole point: warming the imports AFTER the server is spawned
+# would leave the blank window exactly where it was.
+WARM_AT="$(grep -n 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh" | head -n 1 | cut -d: -f1)"
+RUN_AT="$(grep -n -- '-m streamlit run' "$DESKTOP_DIR/launcher.sh" | head -n 1 | cut -d: -f1)"
+if [ -n "$WARM_AT" ] && [ -n "$RUN_AT" ] && [ "$WARM_AT" -lt "$RUN_AT" ]; then
+  ok "the warm-up runs before the server is spawned"
+else
+  fail "the warm-up runs before the server is spawned"
+fi
+# A hung import must not strand the launch: it runs before the port file
+# exists, so nothing else can give up on it.
+assert "the warm-up wait is bounded" \
+  grep -qF 'WARM_WAITED" -ge 120' "$DESKTOP_DIR/launcher.sh"
+# ...and the window lists that step under the same name, or it would tick a
+# step nobody is running.
+assert "the window names the same step" \
+  grep -qF 'let loadStepLabel = "Loading the model components"' \
+  "$DESKTOP_DIR/FoodOptimizerApp.swift"
 # The bar must exist from the first second of a first run, so the very first
 # setup line the launcher publishes has to carry a percent, not an empty field.
 assert "first setup line carries a percent" grep -qF '(step 1 of 3)|2' "$DESKTOP_DIR/launcher.sh"
@@ -55,7 +80,7 @@ assert "progress counts the environment"    grep -q 'du -sk .*VENV_DIR' "$DESKTO
 
 echo "== Level 1: lock file is a real compiled lock =="
 LOCK="$DESKTOP_DIR/requirements.lock.txt"
-for pkg in streamlit botorch gpytorch torch pandas numpy tornado; do
+for pkg in streamlit botorch gpytorch torch pandas numpy tornado openpyxl; do
   assert "lock pins $pkg" grep -qi "^$pkg==" "$LOCK"
 done
 # The macOS lock must never inherit the Linux-only +cpu wheel variant.
@@ -345,6 +370,85 @@ print("WAVE_OK")
 PY
 )"
 if echo "$WAVE_OUT" | grep -q WAVE_OK; then ok "second wording wave controls in packaged app"; else fail "second wording wave controls in packaged app ($WAVE_OUT)"; fi
+
+echo "-- test 5d: openpyxl importable in the bundled venv --"
+assert "import openpyxl" env PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
+  "$SUPPORT/venv/bin/python" -c "import openpyxl"
+
+echo "-- test 5e: kitchen-trust controls (0.4.0) are in the packaged app --"
+KT_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
+  APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
+  "$SUPPORT/venv/bin/python" - <<'PY'
+import os
+import wording
+from streamlit.testing.v1 import AppTest
+from food_bo import FoodOptimizer
+
+opt = FoodOptimizer("Kitchen_Check")
+opt.add_ingredient("water", 0.0, 100.0)
+opt.add_ingredient("flour", 0.0, 100.0)
+opt.add_objective("taste", 1.0, goal="max")
+opt.set_formulation_total(50.0)
+# Five scored rows: the Compared-with column is drawn only once the cold
+# start is over (the first five formulations are spread out, not compared).
+for no, water in enumerate((20.0, 22.0, 24.0, 26.0, 28.0), start=1):
+    opt.tell({"water": water, "flour": 50.0 - water}, {"taste": 5.0 + no * 0.4},
+             formulation_no=no, batch_no=1)
+opt.set_pending_batch([{"water": 25.0, "flour": 25.0}])
+
+
+def _unknown(node, kind, label):
+    """AppTest has no accessor for st.download_button or st.file_uploader:
+    both arrive as UnknownElement carrying the raw proto."""
+    def walk(n):
+        children = getattr(n, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for child in children:
+            if (type(child).__name__ == "UnknownElement"
+                    and getattr(child, "type", None) == kind
+                    and getattr(child.proto, "label", None) == label):
+                return child
+            found = walk(child)
+            if found is not None:
+                return found
+        return None
+    return walk(node)
+
+
+at = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+at.session_state["_loaded_project"] = "Kitchen_Check"
+at.run()
+assert not at.exception, at.exception
+
+# Sidebar: Saved copies in plain words, not the retired backup language.
+assert any(m.value == wording.SAVED_COPIES_HEADING for m in at.sidebar.markdown), \
+    [m.value for m in at.sidebar.markdown]
+assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY) is not None
+assert _unknown(at.sidebar, "file_uploader", wording.OPEN_A_SAVED_COPY) is not None
+
+# Tab 1 - Set up: the total of each formulation box.
+assert wording.formulation_total_label("g") in [n.label for n in at.number_input], \
+    [n.label for n in at.number_input]
+
+# Tab 2 - Make a batch: one workbook download, and the last column of the
+# batch table says what each formulation is trying, against the best so far.
+at.session_state["main_tab"] = wording.TAB_BATCH
+at.run()
+assert not at.exception, at.exception
+assert _unknown(at.main, "download_button",
+                wording.DOWNLOAD_BATCH_SHEETS) is not None
+table = next(d.value for d in at.dataframe
+             if any(str(c).startswith("Compared with") for c in d.value.columns))
+assert any(str(c).startswith("Compared with") for c in table.columns), \
+    list(table.columns)
+print("KITCHEN_TRUST_OK")
+PY
+)"
+if echo "$KT_OUT" | grep -q KITCHEN_TRUST_OK; then ok "kitchen-trust controls in packaged app"; else fail "kitchen-trust controls in packaged app ($KT_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"

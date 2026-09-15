@@ -13,13 +13,18 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+from food_bo import (
+    WORKBOOK_MIME, goal_text, ingredients_template_workbook,
+    measurement_range_text,
+)
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
-    best_move_sentence, clear_scale_total, confirm_action, confirmation_open,
+    best_move_sentence, clear_formulation_total_box, clear_scale_total,
+    confirm_action, confirmation_open,
     disarm, flash,
     fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
-    number_list, other_confirmation, park_clear, plural, readiness, saved_ok,
-    table_height, unit_after_number,
+    number_list, other_confirmation, park_clear, plural, preserve_tab_forms,
+    readiness, saved_ok, table_height,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -41,26 +46,29 @@ def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
 
 
-def _note_discarded_batch(opt, batch_no_before):
+def _note_discarded_batch(opt, batch_no_before,
+                          reason=wording.SETUP_CHANGED_REASON):
     """Flash the notice when the write just now retired the open batch. The
     batch is named: the notice lands above the tabs, away from the table it
-    is about."""
+    is about.
+
+    `reason` is what discarded it. The tab as a whole is the honest answer
+    for the ingredient list, a pause and the allowed amounts — three ways to
+    one place — but the total is one control the reader has just touched,
+    and blaming "your set-up" sent them looking for what else they had
+    done."""
     if batch_no_before is not None and opt.pending_batch_no is None:
-        flash("info", wording.batch_discarded_notice(batch_no_before))
+        flash("info", wording.batch_discarded_notice(batch_no_before, reason))
 
 
 def _goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better'. A '/10' rides on
-    the measurement's own name instead of on every number in its row."""
-    if obj['goal'] == 'target':
-        return join_unit(wording.target_value(obj['target']),
-                         unit_after_number(obj.get('unit')))
-    return wording.GOAL_LABELS.get(obj['goal'], obj['goal'])
+    """'Target 6 N', 'Higher is better', 'Lower is better'. It lives in
+    food_bo, because the workbook's Set-up sheet says it too."""
+    return goal_text(obj)
 
 
 def _range_text(obj):
-    return join_unit(wording.range_text(obj['min_val'], obj['max_val']),
-                     unit_after_number(obj.get('unit')))
+    return measurement_range_text(obj)
 
 
 def _mkey(editing, field):
@@ -124,6 +132,131 @@ def _unscaled_tail(opt, before, before_unit):
     return wording.unscaled_tail(opt.pending_batch_no, total_text)
 
 
+# The (project, stored total) tab 1's total box has already been opened for.
+# After that an empty box means the user emptied it, which is an answer of its
+# own and must reach the file.
+_SEEDED_FORMULATION_TOTAL = "_formulation_total_seeded"
+# The number the box was last put on screen holding. A widget's own key
+# cannot answer this — it holds whatever the browser posted back, which is
+# the same thing whether the user typed it or the app seeded it — so the one
+# value a returned number can be compared against is tracked here.
+_SHOWN_FORMULATION_TOTAL = "_formulation_total_shown"
+
+
+def _formulation_total_mark(opt, total):
+    """What the box is up to date with: whose project it belongs to AND the
+    number stored on it. The project alone is not enough — the stored total
+    can move under a session that has already drawn the box (a saved copy
+    opened, a unit change that cleared it, the sample opened twice) and the
+    seed would be skipped every time."""
+    return (opt.project_name, total)
+
+
+def _seed_formulation_total(opt):
+    """Open the box at the total the project is stored with.
+
+    The same debt tab 2's `_seed_scale_total` settles, for the same reason: a
+    session that did not type the number draws an empty box, and the empty
+    box then writes its own blank over the saved total on the very first
+    render — here that would take the limit every suggestion is held to with
+    it. Assigning a widget's key is legal only before the widget exists,
+    which is why this runs first."""
+    stored = getattr(opt, 'formulation_total', None)
+    mark = _formulation_total_mark(opt, stored)
+    # ... and re-seeded whenever the key has gone, whatever the mark says.
+    # Streamlit discards the session-state entry of every widget a run did
+    # not create, so any rerun raised ABOVE this box (a Cancel in the
+    # sidebar, which runs before all three tabs) leaves the mark stamped and
+    # the number gone. The box then opened empty over a project that has a
+    # total — and an empty box used to mean "the user cleared it".
+    if (st.session_state.get(_SEEDED_FORMULATION_TOTAL) == mark
+            and "formulation_total" in st.session_state):
+        return
+    st.session_state[_SEEDED_FORMULATION_TOTAL] = mark
+    st.session_state[_SHOWN_FORMULATION_TOTAL] = (
+        None if stored is None else float(stored))
+    if stored is not None:
+        st.session_state["formulation_total"] = float(stored)
+
+
+def _store_formulation_total(opt, typed, shown):
+    """Keep what the box holds with the project, on a change only: this runs
+    on every rerun, and a save per rerun would bump the file's mtime and make
+    another open window see a false conflict.
+
+    `shown` is the value the box was DRAWN with on this run. The write
+    happens only when the two differ — that is, only when the user themselves
+    moved the number — never because the box came up holding something else.
+    Comparing against the stored total instead read a widget Streamlit had
+    just thrown away as an answer of the user's: a Cancel in the sidebar, or
+    an ingredient added, and the 100 g every suggestion was held to was gone
+    with no message anywhere.
+
+    A refusal is left on screen with the number still in the box — the mark
+    is not re-stamped, so the next run does not quietly put the old total
+    back over what the user is still typing."""
+    stored = getattr(opt, 'formulation_total', None)
+    if typed == shown:
+        return
+    if typed is None and stored is None:
+        return
+    try:
+        if typed is None:
+            opt.clear_formulation_total()
+        else:
+            opt.set_formulation_total(typed)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    st.session_state[_SEEDED_FORMULATION_TOTAL] = _formulation_total_mark(
+        opt, getattr(opt, 'formulation_total', None))
+    st.session_state[_SHOWN_FORMULATION_TOTAL] = typed
+
+
+def _formulation_total(opt):
+    """The one box that says how big a formulation is.
+
+    It sits under the ingredients table because it is a fact about the
+    ingredients, not an optional rule: it writes the limit over every one of
+    them that both the space-filling opening and the model obey, and the
+    Limits list below shows what it wrote.
+
+    Two projects are offered nothing: one that weighs nothing out, which has
+    no total to build to, and one whose ingredients are in different units —
+    a sum of 10 g and 40 ml is not a total of anything, and the line that
+    says so is the one tab 2 has always shown."""
+    if not opt.has_ingredients():
+        return
+    if opt.one_amount_unit() is None:
+        st.caption(wording.NEEDS_ONE_UNIT)
+        return
+    _seed_formulation_total(opt)
+    st.session_state.setdefault("formulation_total", None)
+    # What the box was last put on screen holding. Not its own key: that
+    # holds whatever the browser posted back, which reads the same whether
+    # the user typed it or the app seeded it a moment ago.
+    shown = st.session_state.get(_SHOWN_FORMULATION_TOTAL)
+    shown = None if not shown else float(shown)
+    batch_no = opt.pending_batch_no
+    typed = st.number_input(
+        wording.formulation_total_label(opt.one_amount_unit()),
+        min_value=0.0, step=1.0,
+        placeholder=wording.FORMULATION_TOTAL_PLACEHOLDER,
+        key="formulation_total",
+        help=wording.FORMULATION_TOTAL_HELP,
+    )
+    _store_formulation_total(opt, None if not typed else float(typed), shown)
+    # The open batch was built to the old answer, so a changed total retires
+    # it like every other set-up change — with the same notice. The notice
+    # lands above the tabs on the NEXT run, so this one is ended here:
+    # otherwise the batch vanished from tab 2 with nothing said until the
+    # user's next click.
+    if batch_no is not None and opt.pending_batch_no is None:
+        _note_discarded_batch(opt, batch_no, wording.TOTAL_CHANGED_REASON)
+        preserve_tab_forms()
+        st.rerun()
+
+
 def _variables(opt, storage):
     """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
     of controls, with the file upload folded away beneath.
@@ -135,6 +268,7 @@ def _variables(opt, storage):
     st.subheader(wording.VARIABLES_HEADER)
     _add_variable(opt)
     _variable_table(opt)
+    _formulation_total(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
@@ -156,9 +290,19 @@ def _add_variable(opt):
     # The unit box opens on what that type is written in: g for an ingredient,
     # blank for a setting, because a cook temperature is never 175 g. Assigned
     # before the box is created, which is the one moment Streamlit allows it.
-    if st.session_state.get("_var_kind_shown") != kind:
+    #
+    # Only while the box still holds the OTHER type's default, though. A unit
+    # the user typed is an answer: switching Type after typing "min" wiped it
+    # and the form came back a field short of what had been filled in.
+    shown_kind = st.session_state.get("_var_kind_shown")
+    if shown_kind != kind:
+        default_before = ("" if shown_kind == KIND_SETTING
+                          else (opt.amount_unit or ""))
+        if (shown_kind is None
+                or str(st.session_state.get("var_unit", "")) == default_before):
+            st.session_state["var_unit"] = ("" if setting
+                                            else (opt.amount_unit or ""))
         st.session_state["_var_kind_shown"] = kind
-        st.session_state["var_unit"] = "" if setting else (opt.amount_unit or "")
     wants_baseline = setting and mid_run
     widths = [2, 2, 1, 1, 1] + ([1] if wants_baseline else [])
     cols = st.columns(widths)
@@ -239,6 +383,21 @@ def _set_typed_properties(opt, name, properties):
         park_clear(_prop_key(prop), None)
 
 
+def _added_line(opt, name, ingredient=True):
+    """'Onion powder added. Each formulation still totals 100 g.'
+
+    The total's limit is over every ingredient, so every ingredient added
+    rewrites it. The reader has just been told limits are hard rules; the
+    success line is where they find out the one they typed is still
+    standing. Said only when there is a total, and only for an INGREDIENT: a
+    process setting is not an amount and is in no sum, so a total is not a
+    thing adding one could have put at risk."""
+    added = wording.added(str(name).strip())
+    if not ingredient or not opt.has_formulation_total():
+        return added
+    return f"{added} {wording.total_still_holds(opt.batch_total_text(opt.formulation_total))}"
+
+
 def _add_variable_now(opt, setting, wants_baseline, properties=()):
     name = st.session_state["var_name"]
     low, high = st.session_state["var_low"], st.session_state["var_high"]
@@ -259,7 +418,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
             st.error(str(e))
             return
         if saved_ok(opt):
-            flash("success", wording.added(str(name).strip()))
+            flash("success", _added_line(opt, name, ingredient=False))
             _note_discarded_batch(opt, batch_no)
             st.rerun()
         return
@@ -277,7 +436,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=()):
         _set_typed_properties(opt, str(name).strip(), properties)
         if not saved_ok(opt):
             return
-        added_line = wording.added(str(name).strip())
+        added_line = _added_line(opt, name)
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
@@ -373,7 +532,7 @@ def _variable_controls(opt, storage):
     widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
-        pick = st.selectbox(wording.INGREDIENT_OR_SETTING_LABEL,
+        pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
                             [v['name'] for v in rows],
                             key="var_pick")
     var = opt._var_by_name(pick)
@@ -457,7 +616,7 @@ def _pause_or_resume(opt, var, pick):
     left out of new formulations; nothing is removed."""
     batch_no = opt.pending_batch_no
     if not var.get('active', True):
-        if st.button(wording.RESUME_BUTTON, key="resume_var",
+        if st.button(wording.resume_button(pick), key="resume_var",
                      help=wording.RESUME_HELP):
             opt.reactivate_variable(pick)
             if saved_ok(opt):
@@ -466,9 +625,9 @@ def _pause_or_resume(opt, var, pick):
                 st.rerun()
         return
     alone = len(opt.active_variables()) <= 1
-    if st.button(wording.PAUSE_BUTTON, key="pause_var", disabled=alone,
+    if st.button(wording.pause_button(pick), key="pause_var", disabled=alone,
                  help=(wording.PAUSE_DISABLED_HELP if alone else
-                       wording.PAUSE_HELP)):
+                       wording.pause_help(_held_at(opt, var)))):
         try:
             opt.deactivate_variable(pick)
         except ValueError as e:
@@ -548,10 +707,13 @@ def _remove_variable(opt, storage, pick, is_ingredient):
         st.session_state.pop("delete_ing_force", None)
     if confirmed:
         batch_no = opt.pending_batch_no
+        removed = []
         try:
             storage.archive(opt.project_name, "pre_delete", copy=True)
             if is_ingredient:
-                opt.remove_ingredient(pick, force=force)
+                # The total is over every ingredient, so deleting one can put
+                # it out of reach; what went comes back here to be said.
+                removed = opt.remove_ingredient(pick, force=force) or []
             else:
                 opt.remove_process_parameter(pick)
         except (ValueError, storage_backend.StorageError) as e:
@@ -559,6 +721,7 @@ def _remove_variable(opt, storage, pick, is_ingredient):
         else:
             if saved_ok(opt):
                 flash("success", wording.deleted(pick))
+                _flash_removed_limits(opt, removed)
                 _note_discarded_batch(opt, batch_no)
                 st.rerun()
 
@@ -572,31 +735,40 @@ def _load_label(opt):
             else wording.LOAD_INGREDIENTS_BUTTON)
 
 
+def _read_ingredients_file(uploaded):
+    """An ingredient list in either shape: the template workbook's first
+    sheet, or a comma-separated file with the same columns."""
+    if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
+        return pd.read_excel(uploaded, sheet_name=0)
+    return pd.read_csv(uploaded)
+
+
 def _upload_ingredients(opt):
     """The ingredient file, folded away: typing one ingredient is the common
     case, and a file is the shortcut for a project that already has one."""
-    st.caption(wording.INGREDIENTS_CSV_CAPTION)
+    st.caption(wording.INGREDIENTS_FILE_CAPTION)
     uploaded = st.file_uploader(
-        wording.UPLOAD_INGREDIENTS_CSV_LABEL, type=["csv"],
+        wording.UPLOAD_INGREDIENTS_FILE_LABEL, type=["xlsx", "csv"],
         # Keyed to the project: a file uploader cannot be emptied from session
         # state, so a shared key handed the next project the sheet this one
         # loaded, with a live Load ingredients under it.
-        key=f"ingredients_csv_{opt.project_name}",
+        key=f"ingredients_file_{opt.project_name}",
         # The caption above lists the columns; the one thing it does not say
         # is what a blank Unit cell means, which is this project's own unit.
         help=wording.blank_unit_cell_help(opt.amount_unit),
     )
     if os.path.exists(_SAMPLE_CSV):
-        with open(_SAMPLE_CSV, "rb") as handle:
-            st.download_button(wording.DOWNLOAD_CSV_TEMPLATE, data=handle.read(),
-                               file_name="ingredients_template.csv",
-                               mime="text/csv", key="ingredients_template")
+        st.download_button(
+            wording.DOWNLOAD_TEMPLATE,
+            data=ingredients_template_workbook(_SAMPLE_CSV),
+            file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+            mime=WORKBOOK_MIME, key="ingredients_template")
     df = None
     if uploaded is not None:
         try:
-            df = pd.read_csv(uploaded)
+            df = _read_ingredients_file(uploaded)
         except Exception:
-            st.error(wording.CSV_UNREADABLE_RETRY)
+            st.error(wording.FILE_UNREADABLE_RETRY)
     # The file itself is left alone. Taking it out of the uploader changed
     # the widget's identity, which shut every open expander on the page under
     # the user's hands; remembering which file was loaded stops a second Load
@@ -635,6 +807,18 @@ def _flash_removed_limits(opt, removed):
             # list of its own to name.
             flash("warning", wording.property_limit_removed(qc['metric']))
             continue
+        if qc.get('source') == 'formulation_total':
+            # The total is one number the user typed on this tab, not a rule
+            # about a few ingredients: it says the number and why it went.
+            total_text = join_unit(f"{float(qc.get('total')):g}",
+                                   qc.get('unit') or "")
+            flash("warning",
+                  wording.formulation_total_gone_unit(total_text)
+                  if qc.get('reason') == 'unit'
+                  else wording.formulation_total_gone_unreachable(total_text))
+            # The number goes out of the box as well as out of the file.
+            clear_formulation_total_box()
+            continue
         label = _limit_label(opt, qc)
         if qc.get('reason') == 'missing':
             gone = qc.get('missing') or []
@@ -647,9 +831,11 @@ def _flash_removed_limits(opt, removed):
 
 
 def _limit_who(opt, qc):
-    """How one ingredient limit is named inside a sentence — 'all
-    ingredients' or 'Water + Oil'. The same list _limit_label heads the row
-    with, in the register a sentence needs."""
+    """How one ingredient limit is named inside a sentence — 'the total of
+    each formulation', 'all ingredients' or 'Water + Oil'. The same list
+    _limit_label heads the row with, in the register a sentence needs."""
+    if qc.get('source') == 'formulation_total':
+        return wording.FORMULATION_TOTAL_LOWER
     if _limit_label(opt, qc) == wording.ALL_INGREDIENTS_LABEL:
         return wording.ALL_INGREDIENTS_LOWER
     return " + ".join(qc['ingredients'])
@@ -679,14 +865,12 @@ def _delete_limit(opt, storage, key, who, remove):
 
 
 def _limit_label(opt, qc):
-    """How one ingredient limit is named on screen — 'All ingredients' or
-    'Water + Oil'. The list under Limits and the line that reports a limit
-    removed both read from here, so they name it alike."""
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
-    if names and set(qc['ingredients']) == set(names):
-        return wording.ALL_INGREDIENTS_LABEL
-    return " + ".join(qc['ingredients'])
+    """How one ingredient limit is named on screen — 'Total of each
+    formulation', 'All ingredients' or 'Water + Oil'. It lives on the
+    optimizer: the list under Limits, the line that reports a limit removed
+    and the workbook's Set-up sheet all read from there, so they name it
+    alike."""
+    return opt.limit_label(qc)
 
 
 def _measurement_editor(opt, storage, editing):
@@ -878,6 +1062,48 @@ def _remove_measurement(opt, storage, name):
     st.rerun()
 
 
+_TARGETS_SOURCE_OPEN = "_targets_source_open"
+_TARGETS_SOURCE_BOX = "targets_source_box"
+
+
+def _targets_source_editor(opt):
+    """The optional note on where the measurement targets came from: a
+    caption once it is set, and a button that opens a one-line box to set or
+    change it. Its Save is always secondary — unlike the measurement editor,
+    opening this box does not take the foot's lit Continue away. Cancel
+    closes it without saving, same word and same act as the measurement
+    editor's own Cancel."""
+    if opt.targets_source:
+        st.caption(wording.targets_from_caption(opt.targets_source))
+    if st.session_state.get(_TARGETS_SOURCE_OPEN):
+        st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
+        text = st.text_input(wording.TARGETS_SOURCE_LABEL,
+                             key=_TARGETS_SOURCE_BOX,
+                             placeholder=wording.TARGETS_SOURCE_PLACEHOLDER)
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button(wording.SAVE_BUTTON, key="save_targets_source",
+                         use_container_width=True):
+                opt.set_targets_source(text)
+                if saved_ok(opt):
+                    st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
+                    st.rerun()
+        with b2:
+            if st.button(wording.CANCEL, key="cancel_targets_source",
+                         use_container_width=True):
+                st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
+                st.session_state.pop(_TARGETS_SOURCE_BOX, None)
+                st.rerun()
+    else:
+        # Edit when there is a note above it, Add when there is not: a bare
+        # "Edit this note" over nothing names a note the reader cannot see.
+        label = (wording.TARGETS_SOURCE_BUTTON if opt.targets_source
+                 else wording.ADD_TARGETS_SOURCE_BUTTON)
+        if st.button(label, key="edit_targets_source"):
+            st.session_state[_TARGETS_SOURCE_OPEN] = True
+            st.rerun()
+
+
 def _measurements(opt, storage):
     """Draw the measurements section. Returns True while a measurement is
     open for editing: `Save changes` is then the tab's one lit action and the
@@ -923,6 +1149,7 @@ def _measurements(opt, storage):
                 _remove_measurement(opt, storage, obj['name'])
 
     st.caption(opt.score_function_line())
+    _targets_source_editor(opt)
 
     # Four flat bullets, then the arithmetic behind the second one folded
     # directly beneath: one fold of nine bullets answered a question most
@@ -1089,13 +1316,14 @@ def _limits(opt, storage):
         names = [v['name'] for v in opt.variables
                  if v.get('category', 'ingredient') == 'ingredient']
 
-        # ONE amount limit. There used to be two controls for one idea: a
-        # group limit whose picker, with every ingredient ticked, wrote
-        # exactly what the second control wrote. The picker's empty state is
-        # now every ingredient, which is the common case and reads as one.
+        # ONE amount limit, on the ingredients the user names. The total
+        # over ALL of them is not written here — it is the box under the
+        # ingredients table, and this picker asks for a choice like every
+        # other picker in the app.
         st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
         picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
-                                key="qty_pick", placeholder=wording.ALL_INGREDIENTS_LABEL)
+                                key="qty_pick",
+                                placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
         q1, q2 = st.columns(2)
         with q1:
             st.session_state.setdefault("qc_min", None)
@@ -1107,36 +1335,42 @@ def _limits(opt, storage):
                             placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
         # No "Set a maximum" tick box: a blank field already means no limit,
         # and a box the user forgot to tick silently threw their number away.
-        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit"):
+        # Nothing picked is no longer "every ingredient": the total over all
+        # of them has its own box under the ingredients table, and a picker
+        # that quietly meant all eight while showing none was the harder
+        # half of that one idea to read.
+        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
+                     disabled=not picked) and picked:
             low, high = st.session_state["qc_min"], st.session_state["qc_max"]
             if low is None and high is None:
                 st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
             else:
                 try:
-                    if picked:
-                        opt.add_quantity_constraint(picked, min_val=low,
-                                                    max_val=high)
-                    else:
-                        opt.add_total_mass_constraint(min_val=low, max_val=high)
+                    opt.add_quantity_constraint(picked, min_val=low,
+                                                max_val=high)
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    who = " + ".join(picked) if picked else wording.ALL_INGREDIENTS_LOWER
-                    _report_limit(opt, wording.limit_added_on(who))
+                    _report_limit(opt,
+                                  wording.limit_added_on(" + ".join(picked)))
 
         for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
-            label = _limit_label(opt, qc)
-            # A limit sums ingredients that share a unit, so the
-            # limit is written in it: "at most 400 g", never a bare 400.
-            limited = {opt.unit_of(n) for n in qc['ingredients']}
-            qc_unit = limited.pop() if len(limited) == 1 else ""
-            bounds = ([join_unit(wording.at_least(qc['min']), qc_unit)]
-                      if qc['min'] is not None else [])
-            bounds += ([join_unit(wording.at_most(qc['max']), qc_unit)]
-                       if qc['max'] is not None else [])
             l1, l2 = st.columns([3, 1])
             with l1:
-                st.text(f"{label}: {' and '.join(bounds)}")
+                # One line per limit, written by the optimizer: a limit sums
+                # ingredients that share a unit, so it is written in that
+                # unit ("at most 400 g", never a bare 400), and the total
+                # reads as the one number it is rather than as the
+                # half-percent band it is enforced as.
+                st.text(opt.limit_text(qc))
+            if qc.get('source') == 'formulation_total':
+                # The total's row is a reading of the box at the top of this
+                # tab, not a second control for it. A Delete here let one
+                # rule be taken off in two places, and the cold read could
+                # not tell which of the two was the real one.
+                with l1:
+                    st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
+                continue
             with l2:
                 _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
                               lambda i=i: opt.remove_quantity_constraint(i))
@@ -1221,6 +1455,13 @@ def _foot(opt, editing=False):
 
 
 def render(opt, storage):
+    # The sample's own welcome, directly under the tab's title: gone the
+    # moment any formulation exists, scored or not — a batch whose one row
+    # was ticked Not scored has still been made, and "Next: make a batch"
+    # would be wrong about it.
+    if (not opt.X_history and not opt.skipped
+            and opt.project_name == wording.SAMPLE_PROJECT_NAME):
+        st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
     _variables(opt, storage)
     st.divider()
     editing = _measurements(opt, storage)

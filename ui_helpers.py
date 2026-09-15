@@ -11,12 +11,13 @@ from datetime import datetime
 import streamlit as st
 
 import wording
-# join_unit and goal_line live in food_bo (they are pure data formatting and
-# closeness_details needs them too); the tab modules import them from here so
-# there is one import site for screen helpers.
+# join_unit, goal_line and the two number formatters live in food_bo (they are
+# pure data formatting, and closeness_details, the batch table and the
+# what-is-it-trying column all need them there); the tab modules import them
+# from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
-    goal_line, join_unit, label_with_unit, number_list, outside_message,
-    unit_after_number,
+    fmt_amount, fmt_setting, goal_line, join_unit, label_with_unit,
+    number_list, outside_message, unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do
@@ -84,7 +85,7 @@ RESTORE_KEY = "_restore_candidate"
 
 
 def restore_armed():
-    """True while a checked backup is waiting for `Yes, replace`.
+    """True while a checked saved copy is waiting for `Yes, replace`.
 
     Restore is the one confirmation that is not a confirm_action: it is drawn
     by hand in the sidebar because it has a file to read and a summary to
@@ -194,8 +195,11 @@ _TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
 #
 # Losing the formulation total is not a blank box: the batch table and the
 # sheets silently go back to as-generated, and the bench weighs out different
-# numbers from the ones that were on screen a click ago.
-_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size")
+# numbers from the ones that were on screen a click ago. Tab 1's own total
+# box and the where-the-targets-come-from box are here for the same reason —
+# both sit below the sidebar, so every sidebar Cancel ran above them.
+_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size",
+                  "formulation_total", "targets_source_box")
 _GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
 
 
@@ -213,10 +217,11 @@ def preserve_tab_forms():
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from six handlers only: Next: make a batch,
+    tabs, and it is called from seven handlers only: Next: make a batch,
     Back to set up, Save results, Save uploaded results, Start the next batch,
-    and opening a project. A set-up edit, Generate, a correction or a plain
-    rerun must never call it, and neither must a handler whose write failed.
+    Change a measurement or an ingredient, and opening a project. A set-up
+    edit, Generate, a correction or a plain rerun must never call it, and
+    neither must a handler whose write failed.
 
     The move is deferred: the tabs widget already exists on this run, so
     assigning its key now would raise, and a write the frontend never asked
@@ -241,36 +246,6 @@ def plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def fmt_amount(value, unit="", decimals=2):
-    """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
-
-    Always two decimals. A weighing sheet that mixes '0.3 g', '33.9 g' and
-    '11.88 g' cannot be read down the column, and 0.30 g is the precision a
-    balance works to. A process setting is not an amount and does not come
-    through here: a cook temperature is 180 °C, never 180.00 °C."""
-    if value is None:
-        return ""
-    txt = f"{float(value):.{decimals}f}"
-    if float(txt) == 0:
-        txt = f"{0.0:.{decimals}f}"     # never '-0.00'
-    return join_unit(txt, unit)
-
-
-def fmt_setting(value, unit=""):
-    """A process setting as prose: '188.49 °C', '180 °C', '' for a missing
-    value. A setting is dialled in, not weighed: at most two decimals, and no
-    trailing zeros, because 188.494 is a precision no oven dial has and
-    180.00 is a precision nobody typed. Every screen that shows a setting —
-    the batch table, the printable sheets, the amounts table — goes through
-    here, so the three always agree."""
-    if value is None:
-        return ""
-    txt = f"{float(value):.2f}".rstrip("0").rstrip(".")
-    if txt in ("", "-0"):
-        txt = "0"
-    return join_unit(txt, unit)
-
-
 def scale_error(obj, value):
     """The refusal for a measured value outside its range, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 range is either a
@@ -284,16 +259,6 @@ def scale_error(obj, value):
                            wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
 
 
-def bounds_warning(name, value, low, high, unit):
-    """The caution for an amount outside what the project allows, or '' when it
-    fits. Same builder as scale_error, so the two lines never drift apart."""
-    if value is None:
-        return ""
-    if float(low) <= float(value) <= float(high):
-        return ""
-    return outside_message(name, value, low, high, unit, wording.ALLOWED_AMOUNTS)
-
-
 def bounds_caution(opt, name, value):
     """The line for an amount outside what the project allows, or '' when it
     fits. Built by the same helper that refuses an out-of-range measurement,
@@ -303,45 +268,18 @@ def bounds_caution(opt, name, value):
     is a fact about work already done, and a formulation of the user's own is
     a formulation they mean to make. Both teach the model more than a blank.
     """
-    var = next((v for v in opt.variables if v['name'] == name), None)
-    if var is None or value is None:
-        return ""
-    low, high = (float(b) for b in var['bounds'])
-    return bounds_warning(name, value, low, high, opt.unit_of(name))
+    return opt.bounds_caution(name, value)
 
 
 def scaled_caution(opt, recipes, total):
     """The one line for the ingredients whose amounts fall outside what the
     project allows once these formulations are made to `total`, or "" when
-    they all fit. Up to three it names them; above that it counts them.
+    they all fit.
 
-    The stored amounts were chosen inside the project's own Lowest and
-    Highest; a formulation total they were never chosen for scales them past
-    it, and the sheets are printed from those numbers — so the bench weighs
-    out an amount the project says it does not allow. Tab 2's box, tab 3's
-    amounts table and the printed sheet all say so in these words, from here,
-    so the three can never drift apart.
+    It lives on the optimizer, because the workbook's own sheets carry it and
+    food_bo cannot import this module.
     """
-    if total is None:
-        return ""
-    scaled = [opt.scaled_recipe(recipe, total) for recipe in recipes]
-    # Ingredients only, in project order: a formulation total scales what you
-    # weigh out and leaves a cook temperature exactly where it was, and the
-    # names read as they are listed everywhere else on screen.
-    ingredients = [var['name'] for var in opt.variables
-                   if var.get('category', 'ingredient') == 'ingredient']
-    names = [name for name in ingredients
-             if any(bounds_caution(opt, name, recipe.get(name))
-                    for recipe in scaled)]
-    if not names:
-        return ""
-    # Three names read as a list; eight read as a wall. Above three the line
-    # counts them instead — the fix named in the second half is the same one
-    # either way.
-    return wording.scaled_amounts_caution(
-        opt.batch_total_text(total),
-        names_text=number_list(names) if len(names) <= 3 else "",
-        n_outside=len(names), n_total=len(ingredients))
+    return opt.scaled_caution(recipes, total)
 
 
 def table_height(n_rows, max_rows=12):
@@ -383,7 +321,7 @@ def park_clear(key, value):
 
 
 def clear_scale_total():
-    """Empty tab 2's `Make each formulation to` box for the next batch.
+    """Empty tab 2's own `Total of each formulation` box for the next batch.
 
     Parked, not popped. Popping a widget's key does not reach the browser —
     the mounted box posts its old value straight back — so a regenerated
@@ -396,6 +334,16 @@ def clear_scale_total():
     total back.
     """
     park_clear("scale_total", None)
+
+
+def clear_formulation_total_box():
+    """Empty tab 1's `Total of each formulation` box.
+
+    Parked for the same reason tab 2's is: popping a widget's key does not
+    reach the browser, so a box left holding a total the project no longer
+    has would write it straight back on the next run — and the notice saying
+    the total went would be followed by the total coming back."""
+    park_clear("formulation_total", None)
 
 
 def take_clear(key, fresh=None):
@@ -432,8 +380,7 @@ def best_formulation_no(opt):
     """The number of the best formulation, or None. Three tabs name it —
     `Start from the best so far`, the biggest-changes line and every 'Best
     moved' sentence — and they must all mean the same formulation."""
-    i = opt.best_index()
-    return None if i is None else int(opt.formulation_ids[i])
+    return opt.best_formulation_no()
 
 
 def best_move_sentence(before, after):
@@ -466,7 +413,7 @@ def landing_tab(opt):
     A project with no formulations sent the user to an empty Results tab, and
     the sample project skipped its own set-up entirely. Confirming the set-up
     is the step before making anything, so that is where those land. A
-    formulation nobody made counts as one the project holds: it has a
+    not-scored formulation counts as one the project holds: it has a
     number, its amounts and a note, and tab 3 lists it."""
     ready, _ = readiness(opt)
     if not ready:

@@ -15,7 +15,7 @@ mostly mechanical — the thinking is done on the macOS side.
    4 (not enough disk space) / server death, quit terminates the launcher and awaits
    its cleanup. Cannot be Python: it must run before the venv exists.
 2. **Launcher:** `launcher.ps1` — line-by-line port of `../launcher.sh`
-   (same exit codes, port file, marker/lock/backup logic, idle watchdog).
+   (same exit codes, port file, marker/lock/saved-copy logic, idle watchdog).
    Paths: environment under `%LOCALAPPDATA%\FoodOptimizer`, projects in
    `%USERPROFILE%\FoodOptimizer` (home-folder root for parity with macOS,
    where ~/Documents is privacy-gated; Windows has no TCC, so those

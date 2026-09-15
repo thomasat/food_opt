@@ -1,30 +1,55 @@
-import json
-import os
-import re as _re
-from datetime import datetime
-
+# The imports are split in two on purpose, and the order below is load
+# bearing. The desktop wrapper shows the web view on Streamlit's first
+# healthy answer, which arrives before this file has finished importing
+# food_bo (torch, botorch, gpytorch — seconds, even warm), so anything drawn
+# after those imports is a blank window until they are done. Streamlit sends
+# each element as it is produced, so the two light imports, the page config
+# and the placeholder come FIRST, and the heavy ones after: the line is on
+# screen for the whole import and is cleared at _starting.empty() below.
 import streamlit as st
-import pandas as pd
 
-import storage as storage_backend
-import ui_batch
-import ui_results
-import ui_setup
 import wording
-from food_bo import FoodOptimizer
-from ui_helpers import (
+
+# Must be the first Streamlit call of the run — before the placeholder.
+st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
+# Only the first run of a session pays for the imports; every rerun after it
+# has them in memory, and a line promising a wait that is already over would
+# flicker on every click.
+_starting = None
+if "_imports_warmed" not in st.session_state:
+    st.session_state["_imports_warmed"] = True
+    _starting = st.empty()
+    _starting.info(wording.STARTING_APP)
+
+import json                                   # noqa: E402
+import os                                     # noqa: E402
+import re as _re                              # noqa: E402
+from datetime import datetime                 # noqa: E402
+
+import pandas as pd                           # noqa: E402
+
+import storage as storage_backend             # noqa: E402
+import ui_batch                               # noqa: E402
+import ui_results                             # noqa: E402
+import ui_setup                               # noqa: E402
+from food_bo import (                         # noqa: E402
+    WORKBOOK_MIME, FoodOptimizer, ingredients_template_workbook,
+)
+from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
     confirm_action, confirmation_open, drain_clears, flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
     render_flash, saved_line, saved_ok, take_clear,
 )
 
+if _starting is not None:
+    _starting.empty()   # the app itself is what the window shows from here on
+
 STORAGE = storage_backend.LocalStorage()
 
 _SAMPLE_CSV = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
 
-st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
 st.title(wording.APP_TITLE)
 # The container the flash messages live in. The sidebar below runs later and
 # can queue one of its own, so it is drained a second time once the sidebar
@@ -52,9 +77,9 @@ _FORM_KEY_PREFIXES = (
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
     # mounted widget holding the file — so each is keyed to its project
-    # (ingredients_csv_<project>) and a new project renders a new, empty one.
-    # These pops only clear the state the old widgets left behind.
-    "ingredients_csv", "results_csv", "import_csv",
+    # (ingredients_file_<project>) and a new project renders a new, empty
+    # one. These pops only clear the state the old widgets left behind.
+    "ingredients_file", "results_file", "import_file",
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
 
@@ -74,6 +99,8 @@ _FORM_FRESH = {
     "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
     "batch_size": 3, "scale_total": None, "own_note": "",
+    "formulation_total": None,
+    "targets_source_box": "",
     # Tab 3's "Add a formulation you already made": the note box opens
     # holding the word an imported row is marked with, and the radio opens
     # on the typed-in half.
@@ -98,8 +125,8 @@ _PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_",
 
 
 def _grid_fresh(key):
-    """The empty value of one result-grid box: a note is text, Not made is a
-    tick, and a measurement is an empty number box."""
+    """The empty value of one result-grid box: a note is text, Not scored is
+    a tick, and a measurement is an empty number box."""
     if key.endswith("_note"):
         return ""
     if key.endswith("_leave_out"):
@@ -115,7 +142,8 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_var_kind_shown", "_props_for", ARMED_KEY):
+              "_pending_tab", "_var_kind_shown", "_props_for",
+              "_targets_source_open", ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
@@ -156,29 +184,81 @@ def _open_project(name, create=False, made=False):
     st.rerun()
 
 
+class _FreshStart:
+    """A storage backend that reports every project as new.
+
+    Building the sample needs a blank project under the sample's own name,
+    and FoodOptimizer reads the file whenever the name it is given already
+    exists. This stands in for the real backend just long enough to skip that
+    read; _build_sample_project swaps the real one back in before the first
+    save, so the sample is written where it belongs — over whatever that name
+    held.
+    """
+    persist_empty_on_init = False   # nothing is written until the build starts
+    persist_after_load = True
+
+    def exists(self, name):
+        return False
+
+
+def _build_sample_project(name):
+    """The current sample, built from nothing onto `name`. Every setter below
+    saves, and a save writes the whole project, so the first one replaces an
+    older sample outright rather than editing it."""
+    _sample = FoodOptimizer(name, storage=_FreshStart())
+    _sample.storage = STORAGE
+    _sample.set_amount_unit("g")
+    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+    # A plant-based burger rated by a trained panel for intensity, 0 to
+    # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
+    # is a puck), so both are targets; firmness matters a little more.
+    _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+    _sample.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+    _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
+    # A burger patty is made to a weight, and the panel is served
+    # one size. 100 g is what the sample's allowed amounts are
+    # written around, so every batch it suggests comes off the bench
+    # ready to grill.
+    _sample.set_formulation_total(100.0)
+    return _sample
+
+
 def _open_sample_project():
-    _name = "Sample project"
+    """Open the sample, building it first unless there is one worth keeping.
+
+    A Mac that met an earlier version has that version's sample on disk, and
+    reopening it unchanged is how someone ends up with a sample that has no
+    formulation total and batches that come out at different weights. So a
+    sample nobody has used yet is rebuilt as the current one. The moment it
+    holds any work of the user's it is their project, and it is opened
+    exactly as it stands.
+    """
+    _name = wording.SAMPLE_PROJECT_NAME
+    _existing = None
     if STORAGE.exists(_name):
-        _open_project(_name)          # already created earlier; just open it
+        _existing = FoodOptimizer(_name, storage=STORAGE)
+        # Used, or unreadable: either way this is not ours to rewrite. Used
+        # means more than a recorded result — an open batch is on someone's
+        # bench, and a formulation number already issued says a batch was
+        # made and then deleted, which is still their history. A damaged file
+        # reports itself on the page it opens onto.
+        if (_existing.load_error or _existing.X_history or _existing.skipped
+                or _existing.pending_batch or _existing.next_formulation_no > 1):
+            _open_project(_name)
+            return
+    try:
+        _sample = _build_sample_project(_name)
+    except ValueError as e:
+        st.error(wording.sample_project_failed(e))
     else:
-        try:
-            _sample = FoodOptimizer(_name, storage=STORAGE)
-            _sample.set_amount_unit("g")
-            _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-            # A plant-based burger rated by a trained panel for intensity, 0 to
-            # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
-            # is a puck), so both are targets; firmness matters a little more.
-            _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
-                                  min_val=0, max_val=10, unit="/10")
-            _sample.add_objective("Firmness", 1.5, goal="target", target=6,
-                                  min_val=0, max_val=10, unit="/10")
-        except ValueError as e:
-            st.error(wording.sample_project_failed(e))
+        if _sample.save_error:
+            st.error(_sample.save_error)
         else:
-            if _sample.save_error:
-                st.error(_sample.save_error)
-            else:
-                _open_project(_name, made=True)
+            # "Created" only the first time: rebuilding a sample the user
+            # never used is still, to them, opening the sample.
+            _open_project(_name, made=_existing is None)
 
 
 def _held(opt):
@@ -199,7 +279,7 @@ def _batch_line(opt):
 
 
 # ================================================================== #
-#  Sidebar: projects, backup and restore, manage project
+#  Sidebar: projects, saved copies, manage project
 # ================================================================== #
 
 with st.sidebar:
@@ -307,27 +387,30 @@ with st.sidebar:
             if _saved is not None:
                 st.caption(saved_line(_saved))
 
+        st.markdown(wording.SAVED_COPIES_HEADING)
+        st.caption(wording.SAVED_COPIES_CAPTION)
+
         if getattr(opt, "load_error", None):
-            # Never offer a "backup" of a project that failed to load — it
+            # Never offer a "copy" of a project that failed to load — it
             # would be an empty file wearing the project's name.
-            st.caption(wording.BACKUP_UNAVAILABLE)
+            st.caption(wording.COPY_UNAVAILABLE)
         else:
             st.download_button(
-                wording.DOWNLOAD_PROJECT_BACKUP,
+                wording.SAVE_A_COPY,
                 data=json.dumps(opt.export_json(), indent=2),
-                file_name=f"{opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
+                file_name=f"{opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
                 mime="application/json",
             )
 
         # Any file name: what is inside decides, not the extension.
-        uploaded_json = st.file_uploader(wording.RESTORE_FROM_BACKUP, key="restore_json")
-        st.caption(wording.RESTORE_CAPTION)
-        if uploaded_json is not None and st.button(wording.CHECK_THIS_BACKUP):
+        uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
+        st.caption(wording.OPEN_SAVED_COPY_CAPTION)
+        if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
             try:
                 st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
             except ValueError:
                 st.session_state.pop("_restore_candidate", None)
-                st.error(wording.BACKUP_UNREADABLE)
+                st.error(wording.COPY_UNREADABLE)
 
         candidate = st.session_state.get("_restore_candidate")
         if candidate is not None:
@@ -338,14 +421,14 @@ with st.sidebar:
                 st.session_state.pop("_restore_candidate", None)
             else:
                 # Both halves count the same way — scored and left out — or
-                # replacing a project with its own backup reads as losing one.
-                # A settings-only project is named by its settings: "0
+                # replacing a project with its own saved copy reads as losing
+                # one. A settings-only project is named by its settings: "0
                 # ingredients" alone described a fully set-up project as empty.
                 _holds = [plural(summary['formulations'], wording.FORMULATION),
                           plural(summary['ingredients'], wording.INGREDIENT)]
                 if summary['settings']:
                     _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
-                st.warning(wording.restore_backup_warning(
+                st.warning(wording.open_saved_copy_warning(
                     summary['name'], _holds, opt.project_name,
                     plural(_held(opt), wording.FORMULATION)))
                 rc1, rc2 = st.columns(2)
@@ -372,7 +455,7 @@ with st.sidebar:
                             except storage_backend.StorageError as e:
                                 st.error(str(e))
                             except Exception:
-                                st.error(wording.BACKUP_APPLY_FAILED)
+                                st.error(wording.COPY_APPLY_FAILED)
                                 st.session_state.pop("_restore_candidate", None)
                             else:
                                 if new_opt.save_error:
@@ -382,7 +465,8 @@ with st.sidebar:
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
                                     # Counted exactly as the preview above
-                                    # counts it — scored and not made alike.
+                                    # counts it — scored and not-scored
+                                    # alike.
                                     # A flash that counted only the scored
                                     # rows reported restoring fewer
                                     # formulations than the file had just
@@ -490,14 +574,16 @@ if opt is None:
             _open_sample_project()
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
-            with open(_SAMPLE_CSV, "rb") as f:
-                st.download_button(wording.DOWNLOAD_CSV_TEMPLATE, data=f.read(),
-                                   file_name="ingredients_template.csv", mime="text/csv")
+            st.download_button(
+                wording.DOWNLOAD_TEMPLATE,
+                data=ingredients_template_workbook(_SAMPLE_CSV),
+                file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+                mime=WORKBOOK_MIME)
     st.stop()
 
 
 # A damaged project must never be silently overwritten: every edit below
-# calls save(), so pause the editing UI until the user restores a backup or
+# calls save(), so pause the editing UI until the user opens a saved copy or
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
@@ -512,9 +598,9 @@ if getattr(st.session_state.optimizer, "save_error", None):
     st.warning(wording.SAVE_ERROR_WARNING)
     b1, b2 = st.columns(2)
     with b1:
-        st.download_button(wording.DOWNLOAD_BACKUP,
+        st.download_button(wording.SAVE_COPY_NOW,
                            data=json.dumps(_err_opt.export_json(), indent=2),
-                           file_name=f"{_err_opt.project_name} backup {datetime.now():%Y-%m-%d}.json",
+                           file_name=f"{_err_opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
                            mime="application/json", use_container_width=True,
                            key="download_after_save_error")
     with b2:
@@ -537,7 +623,7 @@ if getattr(_opt, "pending_batch", None):
         # batch perfectly makeable.
         _batch_ok = all(set(r['recipe']) == _var_names for r in _opt.pending_batch)
     except (TypeError, AttributeError, KeyError):
-        _batch_ok = False           # malformed backup rows; treat as a mismatch
+        _batch_ok = False           # malformed copy rows; treat as a mismatch
     if not _batch_ok:
         _discarded_no = _opt.pending_batch_no
         _opt.set_pending_batch(None)
@@ -554,10 +640,11 @@ if getattr(_opt, "pending_batch", None):
 # ================================================================== #
 
 
-# The landing rule. This is one of the six places allowed to change tabs (the
-# other five are go_to_tab's callers: Next: make a batch, Back to set up,
-# Save results, Save uploaded results, Start the next batch), and it fires only
-# on the run that follows opening a project.
+# The landing rule. This is one of the seven places allowed to change tabs
+# (the other six are go_to_tab's callers: Next: make a batch, Back to set up,
+# Save results, Save uploaded results, Start the next batch, Change a
+# measurement or an ingredient), and it fires only on the run that follows
+# opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
 

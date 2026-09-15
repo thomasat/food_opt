@@ -12,6 +12,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+from food_bo import WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
@@ -44,11 +45,17 @@ def _deletable_numbers(opt):
 
 
 def _amount_rows(opt, recipe):
-    """The `Amounts to make it` rows: ingredients by amount, largest first,
-    then the process settings, each written with its own unit — the water in
-    ml beside the protein in g, and a cook temperature never in either."""
+    """The `Amounts to make it` rows: ingredients in SET-UP order, then the
+    process settings, each written with its own unit — the water in ml beside
+    the protein in g, and a cook temperature never in either.
+
+    Set-up order, not largest first: it is the order every sheet lists them
+    in and the order the table on tab 1 reads down, and the same recipe in
+    two orders on two screens made the reader check it line by line."""
     category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
-    pairs = opt.recipe_lines(recipe)
+    shown = {name for name, _ in opt.recipe_lines(recipe)}
+    pairs = [(v['name'], float(recipe[v['name']])) for v in opt.variables
+             if v['name'] in shown and v['name'] in recipe]
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
     settings = [p for p in pairs if category.get(p[0]) == 'process']
 
@@ -127,17 +134,24 @@ def _best(opt):
     # the sheets used, and with the total named in the heading so the two
     # cannot be confused. `Start from the best so far` still opens at the
     # recorded amounts: those are the ones the model was told about.
-    total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
-    shown = opt.scaled_recipe(recipe, total) if total else recipe
+    total = (opt.recorded_total(batch)
+             if opt.one_amount_unit() is not None else None)
+    # The row as the sheet carried it: a formulation of the user's own — the
+    # note is what marks one — was printed exactly as typed, and nothing at
+    # all is rewritten under a project total.
+    note = opt.notes_history[index] if index < len(opt.notes_history) else ""
+    row = {'formulation': number, 'recipe': recipe, 'note': note}
+    shown, _ = opt.shown_recipe(row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
-    # The amounts above are the ones the bench weighed out, so the same line
-    # tab 2 shows under the box belongs under the table that shows them: it
-    # is the total, not the formulation, that pushed them out.
-    caution = scaled_caution(opt, [recipe], total)
-    if caution:
+    # The amounts above are the ones the bench weighed out, so the same lines
+    # tab 2 shows under the box belong under the table that shows them: it
+    # is the total, not the formulation, that pushed them out — and a row
+    # that does not add up to the total says so rather than being rewritten.
+    for caution in (opt.scaled_cautions([row], total)
+                    + opt.total_mismatch_lines([row], total)):
         st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
@@ -175,14 +189,14 @@ def _amount_format(opt, frame):
     """How each amount column of the All formulations table is written out:
     two decimals, because that is the precision a balance works to and what
     every other table in the app shows — `Show amounts` printed 11.875 beside
-    the bench sheet's 11.88. A process setting is not an amount and keeps
+    the batch sheet's 11.88. A process setting is not an amount and keeps
     fmt_setting's own rule."""
     settings = {opt._amount_column(v['name']) for v in opt.variables
                 if v.get('category') == 'process'}
     amounts = {opt._amount_column(v['name']) for v in opt.variables}
 
     def weighed(value):
-        # A row nobody made may hold no amount for a variable added later,
+        # A not-scored row may hold no amount for a variable added later,
         # and a measurement left blank stays blank rather than reading "nan".
         if value is None or pd.isna(value):
             return ""
@@ -222,9 +236,15 @@ def _all_formulations(opt, said_partial=False):
     if not said_partial and any(wording.NOT_MEASURED in str(v)
                                 for v in frame["Overall score"]):
         st.caption(wording.PARTIAL_SCORES_CAPTION)
-    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON, data=opt.history_csv(),
-                       file_name=f"{opt.project_name} formulations.csv",
-                       mime="text/csv", key="download_formulations",
+    # One workbook, not a comma-separated file: the same table the screen
+    # shows, and a Set-up sheet beside it saying what the targets and the
+    # allowed amounts were. A column of numbers with nothing to read it
+    # against is a file nobody can use six months later.
+    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON,
+                       data=opt.all_formulations_workbook(),
+                       file_name=wording.all_formulations_file_name(
+                           opt.project_name),
+                       mime=WORKBOOK_MIME, key="download_formulations",
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
 
 
@@ -237,6 +257,12 @@ def _correct_amount_key(no, name):
 
 def _correct_measurement_key(no, name):
     return f"correct_{no}_{name}"
+
+
+def _correct_note_key(no):
+    """The Note box on a not-scored formulation's scoring row. `correct_` is
+    what preserve_tab_forms keeps across a rerun that does not draw it."""
+    return f"correct_note_{no}"
 
 
 def _past_key(name):
@@ -278,7 +304,7 @@ def _amount_boxes(opt, key_of, recipe=None):
     boxes open on what that row recorded; without one they open blank.
 
     A formulation is corrected as often for what went into the bowl — a
-    misread balance, a line transposed off the bench sheet — as for what came
+    misread balance, a line transposed off the batch sheet — as for what came
     off the panel, and until now only the measurements could be fixed."""
     typed = {}
     for var, col in _in_fours(opt.variables):
@@ -289,14 +315,18 @@ def _amount_boxes(opt, key_of, recipe=None):
             # allows is a fact about work already done, and clamping it would
             # quietly record a formulation nobody made. It is a caution on
             # the way out, exactly as an imported amount is.
+            # Two decimals, as the sheet the bench weighed from printed it:
+            # a box holding 22.241068936455125 under a label that says (g)
+            # claims the balance read that, and the sheet said 22.24.
             st.session_state.setdefault(
                 key_of(name),
-                None if recipe is None else _recorded_amount(var, recipe))
+                None if recipe is None
+                else round(_recorded_amount(var, recipe), 2))
             # The All formulations table's own header, so an amount is typed
             # in the unit that table prints it in.
             typed[name] = st.number_input(
                 opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
-                key=key_of(name))
+                key=key_of(name), format="%.2f")
     return typed
 
 
@@ -320,6 +350,58 @@ def _measurement_boxes(ordered, key_of, current=None):
     return typed
 
 
+def _score_row(opt, choice):
+    """The row a not-scored formulation opens under `Correct a formulation`.
+
+    Nothing recorded is being changed here: the amounts are the ones the
+    project generated and stored, shown as they are shown everywhere else,
+    and the one thing missing is a result. So they are read, not offered in
+    boxes — an editable amount invites an edit nobody came here to make —
+    and the measurement boxes open empty. The Note box opens on why the row
+    was not scored, which is the only thing anybody has typed about it."""
+    row = next((s for s in opt.skipped
+                if int(s['formulation']) == int(choice)), None)
+    if row is None:
+        return None
+    recipe = dict(row.get('recipe') or {})
+    # The amounts the bench would have weighed out, handed back exactly as
+    # the best-so-far block hands them back: the stored ones are as
+    # generated, so when this row's batch was printed to a total the sheet
+    # carried different numbers, and the heading names which of the two is
+    # on screen.
+    batch = row.get('batch')
+    total = (opt.recorded_total(batch)
+             if opt.one_amount_unit() is not None else None)
+    # No note here: a not-scored row's note says why nobody scored it, not
+    # that the user wrote the formulation out themselves.
+    shown_row = {'formulation': int(choice), 'recipe': recipe}
+    shown, _ = opt.shown_recipe(shown_row, total)
+    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.table(pd.DataFrame(_amount_rows(opt, shown),
+                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
+                                   wording.AMOUNT_COLUMN]))
+    # It is the total, not the formulation, that pushes an amount out of the
+    # allowed ones — the same lines tab 2 shows under its box, and the best
+    # block under the same table.
+    for caution in (opt.scaled_cautions([shown_row], total)
+                    + opt.total_mismatch_lines([shown_row], total)):
+        st.caption(caution)
+    ordered = opt.measurements_by_importance()
+    typed = _measurement_boxes(
+        ordered, lambda name: _correct_measurement_key(choice, name))
+    # Why it was not scored is the only thing anyone typed about this row,
+    # and it stays the row's note: the box opens on the reason, without the
+    # marker in front of it, and what is left here is what the scored row
+    # carries. Emptying it is allowed — the reason may be exactly what
+    # stopped being true.
+    st.session_state.setdefault(_correct_note_key(choice),
+                                wording.note_reason(row.get('note')))
+    note = st.text_input(wording.NOTE, key=_correct_note_key(choice))
+    return {"choice": int(choice), "index": None, "ordered": ordered,
+            "current": {}, "typed": typed, "recipe": recipe, "note": note,
+            "amounts": None, "skipped": True, "slot": st.container()}
+
+
 def _correct(opt):
     """The correction row: the select box, the amounts the formulation was
     really made with, and the measurements to retype. Returns the open
@@ -330,7 +412,12 @@ def _correct(opt):
     sections below does not rerun, so a Save correction drawn now would still
     be coloured on the very run that puts a Yes beside it; render() fills the
     slot once the confirmations have had their say."""
-    numbers = [int(n) for n in opt.formulation_ids]
+    scored = [int(n) for n in opt.formulation_ids]
+    not_scored = [int(s['formulation']) for s in opt.skipped]
+    # One run of numbers, in number order: the list came out 1, 2, 4, 3 —
+    # scored ones first and the rest after — which is not an order anybody
+    # could read. A not-scored one says so on its own line instead.
+    numbers = sorted(scored + not_scored)
     if not numbers:
         # Not "No results yet.": that sentence is already the whole screen
         # above this section on a project holding nothing.
@@ -340,15 +427,20 @@ def _correct(opt):
     # The label says what picking one DOES; the placeholder says what the box
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
-    choice = st.selectbox(wording.CORRECT_WHICH_LABEL, numbers, index=None,
-                          placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
-                          key="correct_formulation")
-    if opt.skipped:
-        # The picker offers fewer numbers than All formulations lists, and
-        # the reason is not visible from the box.
-        st.caption(wording.FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION)
+    choice = st.selectbox(
+        wording.CORRECT_WHICH_LABEL, numbers, index=None,
+        placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
+        format_func=lambda n: (wording.not_scored_option(n)
+                               if n in not_scored else str(n)),
+        key="correct_formulation")
+    if not_scored:
+        # A not-scored number in the list is not a correction, and nothing
+        # about the box says what picking one does.
+        st.caption(wording.NOT_SCORED_CAN_BE_SCORED_CAPTION)
     if choice is None:
         return None
+    if int(choice) in not_scored:
+        return _score_row(opt, int(choice))
     index = opt.index_of_formulation(choice)
     if index is None:
         return None
@@ -362,9 +454,17 @@ def _correct(opt):
     current = opt.results_history[index]
     typed = _measurement_boxes(
         ordered, lambda name: _correct_measurement_key(choice, name), current)
+    # The same field a not-scored row gets. A note is part of the record —
+    # which bowl it was, what went wrong — and it was the one thing a scored
+    # formulation could not have corrected.
+    recorded_note = (opt.notes_history[index]
+                     if index < len(opt.notes_history) else "")
+    st.session_state.setdefault(_correct_note_key(choice), recorded_note)
+    note = st.text_input(wording.NOTE, key=_correct_note_key(choice))
     return {"choice": choice, "index": index, "ordered": ordered,
             "current": current, "typed": typed, "recipe": recipe,
-            "amounts": amounts, "slot": st.container()}
+            "amounts": amounts, "note": note, "recorded_note": recorded_note,
+            "slot": st.container()}
 
 
 def _close_correction(opt, choice):
@@ -375,6 +475,7 @@ def _close_correction(opt, choice):
         st.session_state.pop(_correct_amount_key(choice, var['name']), None)
     for obj in opt.objectives:
         st.session_state.pop(_correct_measurement_key(choice, obj['name']), None)
+    st.session_state.pop(_correct_note_key(choice), None)
     clear_selection("correct_formulation")
 
 
@@ -389,7 +490,10 @@ def _save_correction(opt, storage, pending):
     # lit — unless a confirmation is armed, which outranks everything.
     lit = not confirmation_open()
     with b1:
-        save = st.button(wording.SAVE_CORRECTION_BUTTON, key="save_correction",
+        # A not-scored row has no result to correct: this writes its first.
+        label = (wording.SAVE_RESULT_BUTTON if pending.get("skipped")
+                 else wording.SAVE_CORRECTION_BUTTON)
+        save = st.button(label, key="save_correction",
                          type="primary" if lit else "secondary",
                          disabled=not lit, use_container_width=True) and lit
     with b2:
@@ -398,6 +502,11 @@ def _save_correction(opt, storage, pending):
             _close_correction(opt, choice)
             st.rerun()
     if not save:
+        return
+    if pending.get("skipped"):
+        # A not-scored formulation has no recorded result to change: this
+        # writes its first one.
+        _save_score(opt, storage, pending)
         return
     # Amounts first, and a blank one is a refusal: nothing is written, no
     # copy is kept, and what was typed stays on screen to be finished.
@@ -433,7 +542,10 @@ def _save_correction(opt, storage, pending):
         if was is None or abs(float(was) - float(value)) > 1e-9:
             changes.append(obj['name'])
         final[obj['name']] = float(value)
-    if not changes and not amount_changes:
+    note_changed = (not pending.get("skipped")
+                    and str(pending.get("note") or "").strip()
+                    != str(pending.get("recorded_note") or "").strip())
+    if not changes and not amount_changes and not note_changed:
         # Nothing to write, so nothing to copy first, and nothing to claim.
         flash("success", wording.formulation_unchanged(choice))
         st.rerun()
@@ -455,6 +567,10 @@ def _save_correction(opt, storage, pending):
         opt.edit_result(index, final)
         if not saved_ok(opt):
             return
+    if note_changed:
+        opt.edit_note(index, str(pending.get("note") or "").strip())
+        if not saved_ok(opt):
+            return
     after = best_formulation_no(opt)
     # One sentence for the whole correction: a row can change its amounts and
     # its measurements in one save, and naming every number that moved made a
@@ -472,6 +588,53 @@ def _save_correction(opt, storage, pending):
     # The correction is done, so the row closes itself exactly as Close
     # closes it. Left open, its lit Save correction stayed the one coloured
     # thing on the tab and the foot had no next action to offer.
+    _close_correction(opt, choice)
+    st.rerun()
+
+
+def _save_score(opt, storage, pending):
+    """Score a formulation that was left not scored. Its row moves into the
+    scored history under the number and the batch it was generated with —
+    nothing is renumbered — and the model reads it from the next batch on."""
+    choice, ordered, typed = (pending['choice'], pending['ordered'],
+                              pending['typed'])
+    for obj in ordered:
+        problem = scale_error(obj, typed[obj['name']])
+        if problem:
+            st.error(problem)
+            return
+    # A measurement nobody took is left out, exactly as tab 2 leaves it out,
+    # and the row is stored partial. Every box empty is not a result at all,
+    # and is refused in the sentence tab 2 uses.
+    results = {obj['name']: float(typed[obj['name']]) for obj in ordered
+               if typed[obj['name']] is not None}
+    if not results:
+        st.error(wording.ENTER_A_MEASUREMENT)
+        return
+    before = best_formulation_no(opt)
+    # The row leaves `skipped` for good, so the project is copied first — as
+    # it is before every other write that cannot be retyped from memory.
+    try:
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    try:
+        opt.score_skipped(choice, results,
+                          note=str(pending.get('note') or "").strip())
+    except (ValueError, TypeError) as e:
+        st.error(wording.could_not_save(e))
+        return
+    if not saved_ok(opt):
+        return
+    sentences = [wording.formulation_scored(choice)]
+    move = best_move_sentence(before, best_formulation_no(opt))
+    if move:
+        sentences.append(move)
+    # The row left `skipped` for good and a copy was kept first, so this says
+    # so in the same sentence every correction ends with.
+    sentences.append(COPY_KEPT)
+    flash("success", " ".join(sentences))
     _close_correction(opt, choice)
     st.rerun()
 
@@ -527,8 +690,8 @@ def _batch_numbers(opt):
 
 
 def _formulations_of_batch(opt, batch_no):
-    """Every number that batch issued and the project still holds, recorded
-    and not made alike."""
+    """Every number that batch issued and the project still holds, scored
+    and not scored alike."""
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history)
                if b is not None and int(b) == int(batch_no)]
     numbers += [int(s['formulation']) for s in opt.skipped
@@ -551,7 +714,7 @@ def _disarm_delete():
 
 
 def _delete_formulations(opt, storage):
-    """Any number of formulations, recorded or not made, behind one
+    """Any number of formulations, scored or not, behind one
     confirmation.
 
     `Delete the last batch` was a button of its own that could only ever
@@ -621,7 +784,7 @@ def _delete_formulations(opt, storage):
     park_clear("delete_formulations", [])
     # The form below this section is not what the user just deleted from.
     preserve_tab_forms()
-    # A scaled table and a parsed bench sheet both name formulations that may
+    # A scaled table and a parsed batch sheet both name formulations that may
     # have just left the project — but the open batch's own rows are never in
     # the list above (see _deletable_numbers), so an open batch keeps both:
     # its sheet was read for formulations this delete cannot have touched.
@@ -641,10 +804,10 @@ def _add_past(opt):
     the same note, and the CSV is no longer a section of its own that had to
     be found before past work could be entered at all."""
     mode = st.radio(wording.ADD_PAST_FORMULATION_LABEL,
-                    [wording.TYPE_IT_IN, wording.UPLOAD_A_CSV],
+                    [wording.TYPE_IT_IN, wording.UPLOAD_A_FILE],
                     horizontal=True, label_visibility="collapsed",
                     key="add_past_mode")
-    if mode == wording.UPLOAD_A_CSV:
+    if mode == wording.UPLOAD_A_FILE:
         _import(opt)
     else:
         _type_in_past(opt)
@@ -737,6 +900,25 @@ def _import_columns(opt, rows):
     return col_for, missing
 
 
+def _read_past_formulations(uploaded):
+    """Formulations made before this project existed, in either shape: the
+    first sheet of a workbook, or a comma-separated file."""
+    if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
+        raw = pd.read_excel(uploaded, sheet_name=0, header=None)
+        # The app's own export opens with a one-cell title row ("Recorded
+        # amounts"); the header is the first row that names more than one
+        # column. A plain sheet whose first row is the header still works.
+        header_row = 0
+        for i in range(min(len(raw), 5)):
+            if raw.iloc[i].notna().sum() > 1:
+                header_row = i
+                break
+        frame = raw.iloc[header_row + 1:].reset_index(drop=True)
+        frame.columns = [str(c) for c in raw.iloc[header_row]]
+        return frame.dropna(how="all")
+    return pd.read_csv(uploaded)
+
+
 def _import(opt):
     variables = [v['name'] for v in opt.variables]
     # By importance, as every other list of measurements on every tab.
@@ -747,20 +929,20 @@ def _import(opt):
     else:
         st.caption(wording.import_columns_caption_empty())
     uploaded = st.file_uploader(
-        wording.UPLOAD_FORMULATIONS_CSV_LABEL, type=["csv"],
+        wording.UPLOAD_FORMULATIONS_FILE_LABEL, type=["xlsx", "csv"],
         # Per project: an uploader cannot be emptied from session state,
         # so a shared key offered the next project this one's file.
-        key=f"import_csv_{opt.project_name}")
+        key=f"import_file_{opt.project_name}")
     # The parse is behind a button, as it is on tab 2: reading the file on
     # every rerun left the sheet on screen after it had been imported, and
     # a second click on Import recorded every row twice.
     if uploaded is not None and st.button(wording.CHECK_THIS_FILE,
                                           key="check_import"):
         try:
-            st.session_state["_import_rows"] = pd.read_csv(uploaded)
+            st.session_state["_import_rows"] = _read_past_formulations(uploaded)
         except Exception:
             st.session_state.pop("_import_rows", None)
-            st.error(wording.CSV_UNREADABLE_RETRY)
+            st.error(wording.FILE_UNREADABLE_RETRY)
     rows = st.session_state.get("_import_rows")
     if rows is None:
         return
@@ -798,18 +980,18 @@ def _import(opt):
         for position, (_, row) in enumerate(rows.iterrows(), start=1):
             reached = position
             # A blank measurement is a partial result here too, exactly as
-            # it is in the results grid and in an uploaded bench sheet.
+            # it is in the results grid and in an uploaded batch sheet.
             results = {name: float(row[col_for[name]]) for name in measurements
                        if not pd.isna(row[col_for[name]])}
             if not results:
-                # A formulation nobody made: `Download all formulations`
+                # A not-scored formulation: `Download all formulations`
                 # includes those rows, amounts and note and all, and they
                 # have no result to teach the model. Left out, and counted,
                 # rather than stopping a file that is otherwise importable.
                 nothing_measured += 1
                 continue
             # The file's own Note column, when it has one: a round trip of
-            # `Download all formulations (CSV)` otherwise turned every note
+            # `Download all formulations (Excel)` otherwise turned every note
             # in the project into "Made earlier". A blank cell still means
             # the row came from before this project, and says so.
             note = ""
@@ -854,7 +1036,14 @@ def _edit_past(opt, storage):
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
     with st.expander(wording.EDIT_PAST_FORMULATIONS_EXPANDER):
-        st.markdown(wording.CORRECT_A_FORMULATION_HEADING)
+        # The heading follows the pick: with a not-scored row picked, the
+        # section is writing that row's FIRST result, and "Correct" named
+        # something there was nothing of yet.
+        picked = st.session_state.get("correct_formulation")
+        scoring = picked is not None and any(
+            int(row['formulation']) == int(picked) for row in opt.skipped)
+        st.markdown(wording.SCORE_A_FORMULATION_HEADING if scoring
+                    else wording.CORRECT_A_FORMULATION_HEADING)
         pending = _correct(opt)
         st.divider()
         st.markdown(wording.DELETE_FORMULATIONS_HEADING)
@@ -897,6 +1086,13 @@ def render(opt, storage):
     if not opt.objectives:
         st.info(wording.ADD_MEASUREMENT_RESCORE_INFO)
     said_partial = _best(opt)
+    # A measurement's range too narrow, or an ingredient's amount capped too
+    # low, is often exactly what a formulation on screen reveals — so the
+    # one way back to Set up is right here, not several sections down. Its
+    # slot is reserved now but drawn last, same as the foot below, so a
+    # confirmation armed in one of the collapsed sections beneath it still
+    # greys this button on the same run.
+    change_setup = st.container()
     st.divider()
     _all_formulations(opt, said_partial)
     st.divider()
@@ -908,6 +1104,11 @@ def render(opt, storage):
     st.divider()
     _progress_chart(opt)
     pending = _edit_past(opt, storage)
+    with change_setup:
+        lit = not confirmation_open()
+        if st.button(wording.CHANGE_SETUP_FROM_RESULTS_BUTTON,
+                     key="change_setup_from_results", disabled=not lit) and lit:
+            go_to_tab(TAB_SETUP)
     with foot:
         _foot(opt, pending is not None)
     if pending is not None:

@@ -2,19 +2,17 @@
 
 Nothing here fits a model or writes to disk on a plain rerun, and the result
 grid deliberately avoids st.form so `Save results` can light up the moment
-every kept row has a value. What the screen shows, the bench sheet and the
-printable sheets show too: all three go through `scaled_recipe`.
+every kept row has a value. What the screen shows, the workbook the bench
+carries away shows too: both go through `scaled_recipe`.
 """
-import html
-from datetime import datetime
-
 import pandas as pd
 import streamlit as st
 
 import wording
+from food_bo import WORKBOOK_MIME
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
-    confirmation_open, flash, fmt_amount, fmt_setting, go_to_tab, goal_line,
+    confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
     park_clear, readiness, saved_ok, scale_error, scaled_caution,
     table_height, unit_after_number,
@@ -23,10 +21,6 @@ from ui_helpers import (
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
 _PER_ROW = 4
-
-# What follows a line on a printable sheet: nothing, a ruled line to write one
-# number on, or a ruled area for the note.
-_PROSE, _RULE, _AREA = "prose", "rule", "area"
 
 
 def _result_key(formulation_no, measurement):
@@ -37,7 +31,7 @@ def _result_key(formulation_no, measurement):
 
 
 def _left_out(formulation_no):
-    """Read the Not made flag before its checkbox is drawn — the checkbox is
+    """Read the Not scored flag before its checkbox is drawn — the checkbox is
     rendered last in the row, after the boxes the user came to fill."""
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
 
@@ -52,7 +46,7 @@ def _seed_mark(opt, total):
     """What the box is up to date with: whose batch it belongs to AND the
     number stored on it. The batch's identity alone was not enough — the
     stored total can change under a session that has already rendered that
-    same batch (Restore from backup, Reload project after a save error,
+    same batch (Open a saved copy, Reload project after a save error,
     reopening a project whose new batch is number 1 again), and the seed was
     skipped every time."""
     return (opt.project_name, opt.pending_batch_no, total)
@@ -62,7 +56,7 @@ def _seed_scale_total(opt):
     """Open the box at the total its batch is stored with.
 
     A session that did not type the number knows nothing about it — a
-    reopened window, a project switched back to, a backup just restored — and
+    reopened window, a project switched back to, a saved copy just opened — and
     drew an empty box. The empty box then wrote its own blank over the saved
     total on the very first render, taking `batch_totals` down with it once
     results were in.
@@ -72,6 +66,8 @@ def _seed_scale_total(opt):
     arrives, and `setdefault` would have passed straight over it. Assigning a
     widget's key is legal here and nowhere later — this runs before the box
     is created."""
+    if opt.has_formulation_total():
+        return          # no box on this tab to seed: tab 1 holds the total
     stored = getattr(opt, 'pending_batch_total', None)
     mark = _seed_mark(opt, stored)
     if st.session_state.get(_SEEDED_TOTAL) == mark:
@@ -96,6 +92,12 @@ def _store_total(opt, scale_to):
     back in."""
     if scale_to is None and not opt.has_ingredients():
         return
+    if opt.has_formulation_total():
+        # The box is not drawn while the project has a total of its own, so
+        # there is no answer of the user's to record — and a value left
+        # behind in the session must not blank the total a past batch of this
+        # project was made to.
+        return
     opt.set_pending_batch_total(scale_to)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, scale_to)
 
@@ -114,6 +116,8 @@ def _scale_to(opt):
     scaling."""
     if opt.one_amount_unit() is None:
         return None
+    if opt.has_formulation_total():
+        return None     # tab 1's total is the answer; the box is not drawn
     value = st.session_state.get("scale_total")
     if value is None or float(value) <= 0:
         return None
@@ -122,8 +126,8 @@ def _scale_to(opt):
 
 def _any_value_typed(opt):
     """True once a result has been typed into a row that is still being kept.
-    A row nobody made is skipped: a disabled number_input still returns its stored
-    value, which would flip the bench sheet grey on a tick."""
+    A not-scored row is skipped: a disabled number_input still returns its stored
+    value, which would flip the batch sheets grey on a tick."""
     for row in open_rows(opt):
         number = row['formulation']
         if _left_out(number):
@@ -346,36 +350,35 @@ def _title(opt):
 
 
 def _batch_table(opt, scale_to):
-    rows = opt.pending_batch
-    frame = opt.batch_frame(rows, scale_to=scale_to)
+    """The make-these table and the lines it owes the reader.
+
+    Nothing is rewritten to make a row add up: a suggestion that could not be
+    moved onto the total without breaking a limit stands at the band edge,
+    and a formulation of the user's own stands exactly as typed. Each such
+    row gets one line saying what it does add up to — the same sentence the
+    sheet carries — because the table is what the bench reads before it
+    prints anything.
+
+    With no total in force at all, one line says so. The cold read watched a
+    batch come out at 73 to 89 g with nothing on the screen to say the 100 g
+    rule had stopped applying.
+    """
+    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     st.dataframe(
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-
-    best_no = best_formulation_no(opt)
-    if (opt.pending_batch_no or 0) > 1 and best_no is not None:
-        index = opt.index_of_formulation(best_no)
-        if index is not None:
-            # Against the amounts on the table above, not the ones underneath
-            # them: while the batch is scaled to a total, a change read off
-            # the generated amounts is a number nothing on screen shows. The
-            # formulation it compares is scaled to that same total.
-            changes = opt.biggest_changes(
-                opt.scaled_recipe(rows[0]['recipe'], scale_to),
-                opt.scaled_recipe(opt.recipe_history[index], scale_to), n=2)
-            if changes:
-                # Each change in that ingredient's own unit: +10.00 ml of
-                # water beside +2.00 g of protein.
-                parts = ", ".join(
-                    f"{name} {'+' if delta > 0 else '−'}"
-                    f"{fmt_amount(abs(delta), opt.unit_of(name))}"
-                    for name, delta in changes
-                )
-                # Named: the line reads one row of the batch, so a batch of
-                # three must not sound as though it describes all of them.
-                st.caption(wording.biggest_changes_caption(
-                    rows[0]['formulation'], best_no, parts))
+    if scale_to is None:
+        if opt.has_ingredients():
+            st.caption(wording.NOT_HELD_TO_A_TOTAL)
+    else:
+        for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
+            st.caption(line)
+    # The what-is-it-trying column is not drawn during the cold start (every
+    # cell under it repeated its own header); this is the line that says what
+    # those formulations are instead.
+    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
+        st.caption(wording.HOW_CHOSEN)
 
 
 def _scaled_cautions(opt, rows, scale_to):
@@ -386,8 +389,7 @@ def _scaled_cautions(opt, rows, scale_to):
     per ingredient per row put eight lines of raw numbers between the box and
     the step below it, and said nothing the one line does not.
     """
-    caution = scaled_caution(opt, [row['recipe'] for row in rows], scale_to)
-    if caution:
+    for caution in opt.scaled_cautions(rows, scale_to):
         st.caption(caution)
 
 
@@ -402,6 +404,12 @@ def _scale_control(opt, unit, scale_to):
     """
     if not opt.has_ingredients():
         return
+    if opt.has_formulation_total():
+        # The project already says how big a formulation is, and every row in
+        # the table was BUILT to that total rather than rewritten to it. A
+        # second box for the same number would let the bench answer the
+        # question twice, differently.
+        return
     if unit is None:
         st.caption(wording.NEEDS_ONE_UNIT)
         return
@@ -414,171 +422,62 @@ def _scale_control(opt, unit, scale_to):
         key="scale_total",
         help=wording.BATCH_TOTAL_HELP,
     )
+    # The same refusal tab 1's box gives the same number: a total the allowed
+    # amounts cannot add up to is arithmetic with no answer, and printing the
+    # sheets for it sends the bench out with amounts the project says it does
+    # not allow. A warning, not a block — these rows already exist and the
+    # cautions below say what it did to them.
+    if scale_to is not None:
+        lowest, highest = opt.total_reach()
+        if scale_to > highest:
+            st.caption(wording.total_not_reachable_at_most(
+                opt.batch_total_text(scale_to),
+                opt.batch_total_text(highest)))
+        elif scale_to < lowest:
+            st.caption(wording.total_not_reachable_at_least(
+                opt.batch_total_text(scale_to),
+                opt.batch_total_text(lowest)))
     # No "Amounts shown for this total." under the box: the box holds the
     # total, the help says what it does, and the line under the two download
     # buttons names the number the files were written for. Three sentences
     # for one fact; this was the one that carried nothing of its own.
 
 
-def _sheet_lines(opt, row, scale_to):
-    """One printable sheet as (text, kind) pairs, kind being what follows the
-    text on paper: nothing, a ruled line to write one number on, or a ruled
-    area for the note. Shared by the in-app preview and the downloadable HTML
-    so the two can never drift apart.
-
-    The rules are drawn in CSS, never typed. A run of underscores wandered out
-    of line the moment a measurement had a longer name than its neighbour, and
-    it is not something a pen can write on straight."""
-    recipe = opt.scaled_recipe(row['recipe'], scale_to)
-    made_on = opt.pending_batch_created or datetime.now().astimezone().strftime("%Y-%m-%d")
-    ingredients = [v for v in opt.variables
-                   if v.get('category', 'ingredient') == 'ingredient']
-    process = [v for v in opt.variables if v.get('category') == 'process']
-    lines = [(f"{opt.project_name} · {made_on}", _PROSE),
-             (f"{wording.FORMULATION_CAP} {row['formulation']} · "
-              f"{wording.BATCH_CAP} {opt.pending_batch_no}", _PROSE),
-             ("", _PROSE)]
-    for var in ingredients:
-        lines.append((f"{var['name']}: "
-                      + fmt_amount(recipe.get(var['name'], 0.0),
-                                   opt.unit_of(var['name'])), _PROSE))
-    if ingredients:
-        # One total per unit: "10.00 g · 40.00 ml" when the sheet mixes them.
-        # A sheet with nothing to weigh out claims no total at all.
-        lines.append((wording.TOTAL_PREFIX + opt.total_text(recipe), _PROSE))
-    if process:
-        if ingredients:
-            lines.append(("", _PROSE))   # a blank line only separates two lists
-        for var in process:
-            # A setting is not an amount, so it never wears the project's unit
-            # and never the two decimals a balance works to.
-            lines.append((f"{var['name']}: "
-                          + fmt_setting(recipe.get(var['name'], 0.0),
-                                        var.get('unit')), _PROSE))
-    lines.append(("", _PROSE))
-    for obj in opt.measurements_by_importance():
-        lines.append((f"{label_with_unit(obj['name'], obj.get('unit'))}"
-                      f"{wording.SHEET_GOAL_SEPARATOR}{goal_line(obj)}:",
-                      _RULE))
-    lines.append(("", _PROSE))
-    # A repeat says so on the sheet the technician carries: two sheets with
-    # identical amounts and nothing printed to say why is how a formulation
-    # gets made twice by mistake.
-    note = str(row.get('note') or "").strip()
-    lines.append((wording.note_line(note), _PROSE) if note
-                 else (wording.NOTE_SHEET_LABEL, _AREA))
-    lines.append((wording.NOT_MADE_CHECKBOX_SHEET, _PROSE))
-    # The sheet leaves the app, and it is what the amounts are weighed out
-    # from: a caution that lived only on screen was not on the page in the
-    # technician's hand. Same sentence, last line, one per sheet.
-    caution = scaled_caution(opt, [row['recipe']], scale_to)
-    if caution:
-        lines.append((caution, _PROSE))
-    return lines
-
-
-# Every rule is scoped to .fo-sheet. The preview is injected into the app's
-# own page, where a bare body{} rule would restyle the whole window; the
-# download wraps the same block in a document of its own.
-_SHEET_CSS = (
-    ".fo-sheet{font-family:ui-monospace,Menlo,Consolas,monospace;"
-    "font-size:13px;line-height:1.6;padding:24px 32px;"
-    "page-break-after:always;break-after:page}"
-    ".fo-sheet:last-child{page-break-after:auto;break-after:auto}"
-    ".fo-sheet p{margin:0;white-space:pre-wrap}"
-    # currentColor, so the rules print black on paper and stay visible in
-    # either of the app's themes on screen.
-    ".fo-rule{display:block;height:1.4em;opacity:.5;"
-    "border-bottom:1px solid currentColor}"
-    ".fo-area{display:block;height:4.2em;opacity:.5;border-radius:3px;"
-    "border:1px solid currentColor}"
-)
-
-
-def _sheets_body(opt, scale_to):
-    """Every sheet as one block of HTML, styles included. This is what the
-    preview renders and what the download wraps, so the printed page and the
-    screen can never disagree."""
-    blocks = []
-    for row in opt.pending_batch:
-        parts = []
-        for text, kind in _sheet_lines(opt, row, scale_to):
-            safe = html.escape(text)
-            if kind == _RULE:
-                parts.append(f"<p>{safe}<span class='fo-rule'></span></p>")
-            elif kind == _AREA:
-                parts.append(f"<p>{safe}<span class='fo-area'></span></p>")
-            else:
-                # A blank line is a blank line on paper, and an empty <p>
-                # has no height at all.
-                parts.append(f"<p>{safe or '&nbsp;'}</p>")
-        blocks.append("<div class='fo-sheet'>" + "".join(parts) + "</div>")
-    return f"<style>{_SHEET_CSS}</style>" + "".join(blocks)
-
-
-def _sheets_html(opt, scale_to):
-    """Every sheet in one self-contained file, one page each. The in-app
-    expander cannot be printed on its own — Cmd-P would take the sidebar and
-    the other tabs with it."""
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>{html.escape(opt.project_name)} · {wording.BATCH_CAP} "
-        f"{opt.pending_batch_no}</title>"
-        "<style>body{margin:0}</style></head><body>"
-        + _sheets_body(opt, scale_to) + "</body></html>"
-    )
-
-
-def _printable(opt, scale_to):
-    # The same HTML the download carries, rather than a text rendering of it:
-    # two renderings of one sheet is two sheets to keep in step, and st.text
-    # cannot draw a line to write on. (st.markdown is still no use here — it
-    # would italicise a measurement named L_a_b.)
-    st.html(_sheets_body(opt, scale_to))
-
-
 def _downloads(opt, scale_to):
-    """Step 2: the two files to print, the total they are written to, and the
-    one line that names it."""
-    rows = opt.pending_batch
-    # The bench sheet is the lit thing until the first result is typed, and it
-    # steps aside while a confirmation is waiting for an answer.
-    lit = not _any_value_typed(opt) and not confirmation_open()
+    """Step 2: the one file the bench works from, the total it is written to,
+    and the one line that names it.
 
-    d1, d2 = st.columns(2)
-    with d1:
-        st.download_button(
-            wording.DOWNLOAD_BENCH_SHEET,
-            data=opt.batch_csv(rows, scale_to=scale_to),
-            file_name=f"{opt.project_name} {wording.BATCH} {opt.pending_batch_no}.csv",
-            mime="text/csv", key="download_batch_sheet",
-            type="primary" if lit else "secondary",
-            use_container_width=True,
-        )
-    with d2:
-        st.download_button(
-            wording.DOWNLOAD_FORMULATION_SHEETS,
-            data=_sheets_html(opt, scale_to),
-            file_name=f"{opt.project_name} {wording.BATCH} {opt.pending_batch_no} sheets.html",
-            mime="text/html", key="download_sheets", use_container_width=True,
-        )
-    # The box belongs with the files it changes, not with the table: the
-    # table shows what it does, the sheets are what it is for.
+    One download, not three. A batch used to leave the app as a sheet to fill
+    in, a set of sheets to print and a preview of those sheets on screen —
+    three things to choose between before any of them could be carried to a
+    bench. The workbook is all three: a summary sheet the whole batch is
+    weighed out from and written back onto, and one sheet per formulation to
+    print and carry."""
+    rows = opt.pending_batch
+    # The sheets are the lit thing until the first result is typed, and they
+    # step aside while a confirmation is waiting for an answer.
+    lit = not _any_value_typed(opt) and not confirmation_open()
+    st.download_button(
+        wording.DOWNLOAD_BATCH_SHEETS,
+        data=opt.workbook_bytes(rows, scale_to),
+        file_name=wording.workbook_file_name(opt.project_name,
+                                             opt.pending_batch_no),
+        mime=WORKBOOK_MIME, key="download_batch_sheets",
+        type="primary" if lit else "secondary",
+        use_container_width=True,
+    )
+    # The box belongs with the file it changes, not with the table: the table
+    # shows what it does, the sheets are what it is for.
     _scale_control(opt, opt.one_amount_unit(), scale_to)
     if scale_to is not None:
-        # Both files carry the amounts on screen, so the size they were
-        # written for is named directly under them.
+        # The file carries the amounts on screen, so the size it was written
+        # for is named directly under it.
         st.caption(wording.sheets_show_total_caption(
             opt.batch_total_text(scale_to)))
     # The total is what pushed an amount out of what the project allows, so
     # the line reads under the box that did it rather than under a table two
     # steps above.
     _scaled_cautions(opt, rows, scale_to)
-
-
-def _preview(opt, scale_to):
-    with st.expander(wording.PREVIEW_SHEETS):
-        _printable(opt, scale_to)
 
 
 def _regenerate(opt, rows, numbers):
@@ -672,13 +571,13 @@ def _record_results(opt):
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
-        # Never disabled: why a formulation was not made is the only record
-        # of what went wrong, and a Note that greys out on the tick can only
-        # be typed by someone who knew to type it first.
+        # Never disabled: why a formulation was not scored is the only
+        # record of what went wrong, and a Note that greys out on the tick
+        # can only be typed by someone who knew to type it first.
         st.text_input(wording.NOTE, key=f"f{number}_note")
         # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox(wording.NOT_MADE, key=f"f{number}_leave_out",
-                    help=wording.NOT_MADE_HELP)
+        st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
+                    help=wording.NOT_SCORED_HELP)
         if not skip:
             # Complete means EVERY measurement has a number. One of three
             # typed is not a third of a result, and counting it as complete
@@ -700,11 +599,15 @@ def _record_results(opt):
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Batch 2 · 2 to record"). One word could not mean both.
-    counter = wording.complete_counter(entered, len(kept))
+    #
+    # The denominator is every row still open, ticked ones included, so it
+    # matches the sheets in the technician's hand: "1 of 1 complete · 1 not
+    # scored" counted a batch of two as a batch of one.
+    counter = wording.complete_counter(entered, len(to_record))
     if partly:
         counter += wording.partly_filled_suffix(partly)
     if left_out:
-        counter += wording.not_made_counter_suffix(len(left_out))
+        counter += wording.not_scored_counter_suffix(len(left_out))
     st.caption(counter)
     lit = ready and not confirmation_open()
     if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
@@ -743,15 +646,15 @@ def _save_results(opt, kept, left_out, to_record):
     for row in to_record:
         number = row['formulation']
         if number in left_out:
-            # Why it was not made is often typed before the box is ticked, and
-            # it is the only record of what went wrong.
+            # Why it was not scored is often typed before the box is
+            # ticked, and it is the only record of what went wrong.
             note = str(st.session_state.get(f"f{number}_note") or "").strip()
-            # "Not made" first, always: with only the typed note, the All
-            # formulations row for a formulation nobody made said nothing
-            # about not having been made.
+            # "Not scored" first, always: with only the typed note, the All
+            # formulations row for a not-scored formulation said nothing
+            # about having no result.
             opt.record_skipped(number, batch_no, row['recipe'],
-                               note=(wording.not_made_with_note(note) if note
-                                     else wording.NOT_MADE))
+                               note=(wording.not_scored_with_note(note) if note
+                                     else wording.NOT_SCORED))
     opt.set_pending_batch(None)
     clear_scale_total()
     st.session_state.pop("_results_upload", None)
@@ -762,33 +665,91 @@ def _save_results(opt, kept, left_out, to_record):
     go_to_tab(TAB_RESULTS)
 
 
+def _read_results_file(opt, uploaded):
+    """An uploaded results file in either shape it can arrive in: the
+    workbook's own summary sheet, read back as one row per formulation, or a
+    comma-separated file with the columns that sheet's rows are named for."""
+    if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
+        return opt.results_from_workbook(uploaded)
+    return pd.read_csv(uploaded)
+
+
+def _upload_preview(opt, parsed, left_out):
+    """The numbers the file was read as, before anything is saved.
+
+    The check step counted the formulations it found and showed none of
+    them: a firmness of 74 written where 7.4 was meant passed it without
+    anybody seeing the number. One row per formulation, in the columns the
+    grid above uses.
+    """
+    ordered = opt.measurements_by_importance()
+    rows = [{wording.FORMULATION_CAP: int(no),
+             **{label_with_unit(o['name'], o.get('unit')):
+                results.get(o['name']) for o in ordered},
+             wording.NOT_SCORED: "", wording.NOTE: note or ""}
+            for no, results, note in parsed]
+    rows += [{wording.FORMULATION_CAP: int(no),
+              **{label_with_unit(o['name'], o.get('unit')): None
+                 for o in ordered},
+              wording.NOT_SCORED: wording.TICKED_BOX, wording.NOTE: note or ""}
+             for no, note in left_out]
+    if not rows:
+        return
+    rows.sort(key=lambda r: r[wording.FORMULATION_CAP])
+    frame = pd.DataFrame(rows)
+    st.caption(wording.UPLOAD_PREVIEW_CAPTION)
+    st.dataframe(frame.style.format(
+        {c: _blank_or_number for c in frame.columns
+         if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
+        hide_index=True, key="upload_preview",
+        height=table_height(len(frame)))
+
+
+def _blank_or_number(value):
+    """A measurement nobody took is a blank cell, never 'nan'."""
+    if value is None or pd.isna(value):
+        return ""
+    return f"{float(value):g}"
+
+
 def _upload(opt):
     with st.expander(wording.UPLOAD_EXPANDER):
         st.caption(wording.UPLOAD_HELP_CAPTION)
         sheet_file = st.file_uploader(
-            wording.UPLOAD_RESULTS_CSV, type=["csv"],
+            wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
-            key=f"results_csv_{opt.project_name}")
+            key=f"results_file_{opt.project_name}")
         if sheet_file is not None and st.button(wording.CHECK_THIS_FILE,
                                                 key="check_sheet"):
             try:
-                st.session_state["_results_upload"] = pd.read_csv(sheet_file)
+                st.session_state["_results_upload"] = _read_results_file(
+                    opt, sheet_file)
+            except ValueError as e:
+                # The workbook reader knows which sheet it wanted and which
+                # ones the file has; that is worth more than one sentence
+                # about files in general.
+                st.session_state.pop("_results_upload", None)
+                st.error(str(e))
             except Exception:
                 st.session_state.pop("_results_upload", None)
-                st.error(wording.CSV_UNREADABLE)
+                st.error(wording.FILE_UNREADABLE)
         sheet = st.session_state.get("_results_upload")
         if sheet is None:
             return
         try:
-            parsed = opt.parse_batch_results(sheet, opt.pending_batch)
+            parsed, left_out = opt.parse_batch_results(
+                sheet, opt.pending_batch, with_skipped=True)
         except ValueError as e:
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
             return
         st.info(wording.upload_found_caption(
             len(parsed), len(opt.pending_batch),
-            ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed)))
+            ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
+            + (wording.not_scored_counter_suffix(len(left_out)) if left_out
+               else ""))
+        _upload_preview(opt, parsed, left_out)
         if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
@@ -800,16 +761,32 @@ def _upload(opt):
                     # than telling the user a whole sheet was recorded.
                     if not saved_ok(opt):
                         return
+                for number, note in left_out:
+                    # The box was ticked on the sheet, so the row is recorded
+                    # as not scored in the same words the grid's tick writes.
+                    opt.record_skipped(
+                        number, batch_no, by_number[number],
+                        note=(wording.not_scored_with_note(note) if note
+                              else wording.NOT_SCORED))
+                    if not saved_ok(opt):
+                        return
             except (ValueError, TypeError, KeyError) as e:
                 st.error(wording.could_not_save(e))
                 return
             st.session_state.pop("_results_upload", None)
-            left = open_rows(opt)
+            # A row ticked Not scored has been dealt with, and open_rows
+            # counts only the scored ones — without this the file that
+            # finished a batch left it open on a row it had just recorded.
+            done = ({no for no, _, _ in parsed}
+                    | {no for no, _ in left_out})
+            left = [row for row in open_rows(opt)
+                    if row['formulation'] not in done]
             if left:
                 # Rows still to record: the batch stays open, numbers and all,
                 # so the whole-batch sentence would be a lie.
                 flash("success", wording.upload_partial_flash(
-                    len(parsed), len(opt.pending_batch), batch_no, len(left)))
+                    len(parsed) + len(left_out), len(opt.pending_batch),
+                    batch_no, len(left)))
                 st.rerun()
             opt.set_pending_batch(None)
             clear_scale_total()
@@ -853,10 +830,13 @@ def render(opt, storage):
 
     rows = opt.pending_batch
     _seed_scale_total(opt)
-    scale_to = _scale_to(opt)
+    typed = _scale_to(opt)
     # Kept with the batch, so tab 3 can still say what the bench weighed out
     # once the batch is closed. A no-op on a rerun that changed nothing.
-    _store_total(opt, scale_to)
+    _store_total(opt, typed)
+    # The project's own total wins over the box, and the one accessor is what
+    # keeps the table, the workbook and tab 3 naming the same number.
+    scale_to = opt.sheet_total(typed)
 
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)
@@ -866,7 +846,6 @@ def render(opt, storage):
     st.markdown(wording.STEP_RECORD_HEADING)
     record_slot = st.container()
     own_slot = st.container()
-    preview_slot = st.container()
     upload_slot = st.container()
 
     # Only a formulation of the user's own carries a note when the batch is
@@ -897,8 +876,6 @@ def render(opt, storage):
         _record_results(opt)
     with own_slot:
         _own_formulation(opt)
-    with preview_slot:
-        _preview(opt, scale_to)
     with upload_slot:
         _upload(opt)
 

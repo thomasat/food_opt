@@ -280,6 +280,49 @@ if [ -e "$1" ]; then
   fi
 fi
 
+# ---------- warm the components behind the progress page ----------
+# Streamlit answers its health check the moment its server is up, but app.py
+# then spends 15-30 s importing what it runs on (torch, botorch, gpytorch,
+# behind food_bo) before it can draw anything. The wrapper shows the web view
+# on that first 200, so without this the window goes blank for the whole
+# import. Importing the same modules here, in the same venv, happens while
+# there is no server and no port file yet — so the wrapper stays on its
+# progress page — and leaves the files in the OS cache, which is what makes
+# the same import inside Streamlit a couple of seconds rather than half a
+# minute.
+#
+# Empty percent, like the line below it: this step has no measurable
+# progress, and the wrapper shows it as one step of its own with a live
+# elapsed counter rather than a bar that would have to be invented.
+WARM_MSG="Loading the model components…"
+status "$WARM_MSG|"
+WARM_START=$SECONDS
+# Quitting mid-warm-up must not orphan the interpreter: this replaces the
+# setup-phase trap and is itself replaced by cleanup() once the server runs.
+trap 'kill "${WARM_PID:-}" 2>/dev/null; rm -f "$STATUS_FILE" "$STATUS_FILE.tmp"; exit 143' TERM INT
+"$VENV_DIR/bin/python" -c "import torch, botorch, gpytorch, pandas, openpyxl" &
+WARM_PID=$!
+# Bounded, because this step runs BEFORE the port file exists and so before
+# anything can give up on it: an import that hangs (a half-written cache, a
+# file server that stopped answering) would otherwise strand every launch on
+# this page forever. The warm-up is an optimisation, never a gate — at the
+# bound it is killed and the server starts anyway, which is also what happens
+# when the import simply fails.
+WARM_WAITED=0
+while kill -0 "$WARM_PID" 2>/dev/null; do
+  if [ "$WARM_WAITED" -ge 120 ]; then
+    say "warm-up import still running after ${WARM_WAITED}s - giving up on it"
+    kill "$WARM_PID" 2>/dev/null
+    break
+  fi
+  sleep 1
+  WARM_WAITED=$((WARM_WAITED + 1))
+done
+# A failed (or killed) import is not fatal here: Streamlit imports the same
+# modules a moment later, and its traceback is the one worth showing.
+wait "$WARM_PID" 2>/dev/null || say "warm-up import did not finish - starting the server anyway"
+say "components loaded in $((SECONDS - WARM_START)) s"
+
 # Empty percent on purpose: a percent here would make the window treat a
 # plain warm launch as a setup page ("Updating Food Optimizer").
 status "Starting the app…|"

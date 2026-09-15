@@ -619,8 +619,37 @@ def test_the_dropped_sentences_are_gone_from_wording():
         "recorded.")
 
 
+def test_the_not_made_names_are_gone_from_wording():
+    """The rename is not a second spelling of the same idea: nothing may
+    still read the old names, on screen or in a test."""
+    for name in ("NOT_MADE", "NOT_MADE_HELP", "NOT_MADE_CHECKBOX_SHEET",
+                 "not_made_counter_suffix", "not_made_with_note",
+                 "FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION"):
+        assert not hasattr(wording, name), name
+    assert wording.NOT_SCORED == "Not scored"
+    # A box to tick with a pen, on a sheet a spreadsheet now prints.
+    assert wording.NOT_SCORED_CHECKBOX_SHEET == "Not scored ☐"
+    assert wording.NOT_SCORED_CAN_BE_SCORED_CAPTION == (
+        "Not-scored formulations can be scored here.")
+    assert wording.formulation_scored(5) == "Formulation 5 scored."
+
+
+def test_a_stored_note_reads_back_as_the_reason():
+    """The marker the screen puts in front of a typed reason comes off again
+    when the row is scored: the box holds what the technician wrote."""
+    assert wording.note_reason(
+        wording.not_scored_with_note("burner failed")) == "burner failed"
+    # The tick with nothing typed against it leaves the marker alone, and it
+    # is not a reason.
+    assert wording.note_reason(wording.NOT_SCORED) == ""
+    assert wording.note_reason("") == ""
+    assert wording.note_reason(None) == ""
+    # Anything else is a note like any other and is read whole.
+    assert wording.note_reason("second try") == "second try"
+
+
 def test_the_results_counter_says_complete():
     assert wording.complete_counter(1, 2) == "1 of 2 complete"
     assert not hasattr(wording, "filled_in_counter")
     assert wording.partly_filled_suffix(1) == " · 1 partly filled"
-    assert wording.not_made_counter_suffix(1) == " · 1 not made"
+    assert wording.not_scored_counter_suffix(1) == " · 1 not scored"
