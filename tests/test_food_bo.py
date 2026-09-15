@@ -1956,6 +1956,17 @@ class TestFormulationIdentity:
         assert [s["formulation"] for s in opt.skipped] == [1]
         assert FoodOptimizer("scoreskipped2").skipped[0]["formulation"] == 1
 
+    def test_score_skipped_stores_the_note_it_is_given(self, tmp_path,
+                                                       monkeypatch):
+        """The reason it was not scored is reopened on screen and saved back
+        as the row's note; a row scored with nothing typed carries none."""
+        opt = self._opt(tmp_path, monkeypatch, name="scorednote")
+        opt.record_skipped(1, 1, {"Water": 10.0},
+                           note="Not scored · burner failed")
+        opt.score_skipped(1, {"Firmness": 6.0}, note="burner failed")
+        assert opt.notes_history == ["burner failed"]
+        assert FoodOptimizer("scorednote").notes_history == ["burner failed"]
+
     def test_score_skipped_refuses_a_number_it_does_not_hold(self, tmp_path,
                                                              monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="scoreskipped3")
@@ -2994,6 +3005,11 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
 _USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
 
+# 0.4.0: a formulation with no result is NOT SCORED, whether or not it was
+# made. One object, used by the sweep below and by the test that names this
+# rename on its own, so the two can never disagree about what is banned.
+_NOT_MADE = re.compile(r"\bnot made\b", re.I)
+
 _BANNED = [
     re.compile(r"\brecipes?\b", re.I),
     re.compile(r"\bexperiments?\b", re.I),
@@ -3014,8 +3030,9 @@ _BANNED = [
     # Lowest/Highest for the ends of a range (Min and Max survive only as
     # column headers an ingredient CSV may carry); Remove for anything taken
     # out of a project, with Delete kept for the project itself; Not scored
-    # for a formulation with no result; Formulation total for the total a batch is written
-    # to; and no Priority column beside the importance it was a rank of.
+    # for a formulation with no result; Formulation total for the total a
+    # batch is written to; and no Priority column beside the importance it
+    # was a rank of.
     re.compile(r"\bMin\b"),
     re.compile(r"\bMax\b"),
     re.compile(r"\bhard reset\b", re.I),
@@ -3040,10 +3057,9 @@ _BANNED = [
     re.compile(r"\bRemove\b"),
     re.compile(r"\bRemake\b"),
     re.compile(r"\bShare\b(?! of score)"),
-    # 0.4.0: a formulation with no result is NOT SCORED, whether or not it
-    # was made. The screen said "Not made" of a bowl that was made and never
-    # measured, and there was then no way to score it later.
-    re.compile(r"\bnot made\b", re.I),
+    # The screen said "Not made" of a bowl that was made and never measured,
+    # and there was then no way to score it later.
+    _NOT_MADE,
 ]
 
 class TestRoundTwoFixes:
@@ -3269,9 +3285,6 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
         if any(pattern.search(literal) for pattern in _BANNED):
             offenders.append((_USER_FACING_SWIFT, literal))
     assert offenders == [], offenders
-
-
-_NOT_MADE = re.compile(r"\bnot made\b", re.I)
 
 
 def test_no_screen_says_not_made():

@@ -541,6 +541,19 @@ def not_scored_with_note(note):
     return f"{NOT_SCORED} · {note}"
 
 
+def note_reason(note):
+    """The reason out of a stored note. A row left not scored carries
+    "Not scored · burner failed": the marker the screen puts in front, and
+    the reason the technician typed behind it. Scoring the row later reopens
+    the reason in a Note box — the marker is about to stop being true, and
+    the reason is what the row has always said about itself."""
+    text = str(note or "").strip()
+    prefix = not_scored_with_note("")
+    if text.startswith(prefix):
+        return text[len(prefix):].strip()
+    return "" if text == NOT_SCORED else text
+
+
 def batch_recorded_flash(no):
     return f"{BATCH_CAP} {no} recorded."
 

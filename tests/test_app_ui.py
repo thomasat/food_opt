@@ -5601,19 +5601,114 @@ def test_scoring_a_not_scored_formulation_from_results(scored, tmp_path):
     at.run()
     assert not at.exception
     said = next(s.value for s in at.success if "scored" in s.value)
+    # A copy is kept first, exactly as it is for a correction, and the flash
+    # ends with the same sentence.
     assert said == (wording.formulation_scored(3) + " "
-                    + wording.best_moved(2, 3))
+                    + wording.best_moved(2, 3) + " " + wording.COPY_KEPT)
     opt = FoodOptimizer("burger")
     assert opt.skipped == []
     assert opt.formulation_ids == [1, 2, 3]
     assert opt.batch_history == [1, 1, 1]
     assert opt.recipe_history[2] == {"Pea protein": 25.0,
                                      "Methylcellulose": 3.0}
+    # The row was ticked with no reason typed against it, so the note it
+    # carried was the marker alone and the scored row carries nothing.
+    assert opt.notes_history[2] == ""
     assert opt.next_formulation_no == 4
     # The row is done, so it closes itself exactly as a correction does.
     assert at.session_state["correct_formulation"] is None
     assert (tmp_path / "burger_pre_edit.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
+
+
+@pytest.fixture
+def not_scored_at_a_total(burger):
+    """Batch 1 printed to 100 g: one formulation scored, one left not scored
+    with a reason typed against it."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
+                              {"Pea protein": 15.0, "Methylcellulose": 3.0}],
+                             batch_no=1)
+    burger.set_pending_batch_total(100.0)
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 5.0}, formulation_no=1,
+                batch_no=1)
+    burger.record_skipped(2, 1, {"Pea protein": 15.0, "Methylcellulose": 3.0},
+                          note=wording.not_scored_with_note("burner failed"))
+    burger.set_pending_batch(None)
+    return burger
+
+
+def _amount_tables(at):
+    return [t.value for t in at.table
+            if wording.AMOUNT_COLUMN in t.value.columns]
+
+
+def test_the_scoring_row_shows_the_amounts_its_batch_was_made_to(
+        not_scored_at_a_total):
+    """The stored amounts are as generated; this batch's sheets were printed
+    to 100 g, and those are the numbers the bench had in front of it. The
+    best block eight lines up already says it that way."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    caution = next(c.value for c in at.caption
+                   if c.value.startswith("At 100 g,"))
+    assert sum(1 for c in at.caption if c.value == caution) == 1
+    at.selectbox(key="correct_formulation").set_value(2)
+    at.run()
+    assert not at.exception
+    assert sum(1 for m in at.markdown
+               if m.value == "**Amounts to make it (100 g)**") == 2, \
+        [m.value for m in at.markdown]
+    table = _amount_tables(at)[-1]
+    amounts = dict(zip(table[wording.INGREDIENT_OR_SETTING_LABEL],
+                       table[wording.AMOUNT_COLUMN]))
+    # 15 g and 3 g in the same proportion, made up to 100 g.
+    assert amounts == {"Pea protein": "83.33 g", "Methylcellulose": "16.67 g"}
+    # A total the amounts were never chosen for pushes them past what the
+    # project allows, and the row says so under the table, in the one
+    # sentence tab 2 and the best block both use.
+    assert sum(1 for c in at.caption if c.value == caution) == 2, \
+        [c.value for c in at.caption]
+
+
+def test_the_scoring_row_opens_on_the_reason_and_keeps_it_as_the_note(
+        not_scored_at_a_total):
+    """Why it was not scored is the only thing anyone typed about the row.
+    The box holds the reason, without the marker the screen put in front of
+    it, and what is left there is the scored row's note."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(2)
+    at.run()
+    assert at.text_input(key="correct_note_2").value == "burner failed"
+    at.number_input(key="correct_2_Firmness").set_value(6.0)
+    at.number_input(key="correct_2_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_CORRECTION_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").notes_history[-1] == "burner failed"
+
+
+def test_the_reason_can_be_rewritten_as_the_row_is_scored(
+        not_scored_at_a_total):
+    """It was typed to explain a missing result. The result is here now, so
+    the line that explains the row may be a different one."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(2)
+    at.run()
+    at.text_input(key="correct_note_2").set_value(
+        "made and panelled a day late")
+    at.number_input(key="correct_2_Firmness").set_value(6.0)
+    at.number_input(key="correct_2_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_CORRECTION_BUTTON).click()
+    at.run()
+    assert not at.exception
+    opt = FoodOptimizer("burger")
+    assert opt.notes_history[-1] == "made and panelled a day late"
+    assert opt.skipped == []
 
 
 def test_scoring_a_not_scored_formulation_with_nothing_typed_is_refused(scored):
@@ -6760,7 +6855,7 @@ def test_every_printed_sheet_ends_with_the_caution(open_batch):
         ui_batch._sheets_html(open_batch, None)
 
 
-def test_the_restore_flash_counts_the_rows_nobody_made_too(project_with_history,
+def test_the_restore_flash_counts_the_not_scored_rows_too(project_with_history,
                                                            tmp_path):
     """The preview counts scored and not-scored alike; a flash that counted
     only the scored ones reported losing formulations the restore had just

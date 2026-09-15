@@ -239,6 +239,12 @@ def _correct_measurement_key(no, name):
     return f"correct_{no}_{name}"
 
 
+def _correct_note_key(no):
+    """The Note box on a not-scored formulation's scoring row. `correct_` is
+    what preserve_tab_forms keeps across a rerun that does not draw it."""
+    return f"correct_note_{no}"
+
+
 def _past_key(name):
     """The amount box for one variable under `Add a formulation you already
     made`; `past_m_` is its measurement. Both prefixes are what app.py
@@ -327,21 +333,44 @@ def _score_row(opt, choice):
     project generated and stored, shown as they are shown everywhere else,
     and the one thing missing is a result. So they are read, not offered in
     boxes — an editable amount invites an edit nobody came here to make —
-    and the measurement boxes open empty."""
+    and the measurement boxes open empty. The Note box opens on why the row
+    was not scored, which is the only thing anybody has typed about it."""
     row = next((s for s in opt.skipped
                 if int(s['formulation']) == int(choice)), None)
     if row is None:
         return None
     recipe = dict(row.get('recipe') or {})
-    st.markdown(wording.AMOUNTS_TO_MAKE_IT_HEADING)
-    st.table(pd.DataFrame(_amount_rows(opt, recipe),
+    # The amounts the bench would have weighed out, handed back exactly as
+    # the best-so-far block hands them back: the stored ones are as
+    # generated, so when this row's batch was printed to a total the sheet
+    # carried different numbers, and the heading names which of the two is
+    # on screen.
+    batch = row.get('batch')
+    total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
+    shown = opt.scaled_recipe(recipe, total) if total else recipe
+    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.table(pd.DataFrame(_amount_rows(opt, shown),
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
                                    wording.AMOUNT_COLUMN]))
+    # It is the total, not the formulation, that pushes an amount out of the
+    # allowed ones — the same line tab 2 shows under its box, and the best
+    # block under the same table.
+    caution = scaled_caution(opt, [recipe], total)
+    if caution:
+        st.caption(caution)
     ordered = opt.measurements_by_importance()
     typed = _measurement_boxes(
         ordered, lambda name: _correct_measurement_key(choice, name))
+    # Why it was not scored is the only thing anyone typed about this row,
+    # and it stays the row's note: the box opens on the reason, without the
+    # marker in front of it, and what is left here is what the scored row
+    # carries. Emptying it is allowed — the reason may be exactly what
+    # stopped being true.
+    st.session_state.setdefault(_correct_note_key(choice),
+                                wording.note_reason(row.get('note')))
+    note = st.text_input(wording.NOTE, key=_correct_note_key(choice))
     return {"choice": int(choice), "index": None, "ordered": ordered,
-            "current": {}, "typed": typed, "recipe": recipe,
+            "current": {}, "typed": typed, "recipe": recipe, "note": note,
             "amounts": None, "skipped": True, "slot": st.container()}
 
 
@@ -407,6 +436,7 @@ def _close_correction(opt, choice):
         st.session_state.pop(_correct_amount_key(choice, var['name']), None)
     for obj in opt.objectives:
         st.session_state.pop(_correct_measurement_key(choice, obj['name']), None)
+    st.session_state.pop(_correct_note_key(choice), None)
     clear_selection("correct_formulation")
 
 
@@ -541,7 +571,8 @@ def _save_score(opt, storage, pending):
         st.error(str(e))
         return
     try:
-        opt.score_skipped(choice, results)
+        opt.score_skipped(choice, results,
+                          note=str(pending.get('note') or "").strip())
     except (ValueError, TypeError) as e:
         st.error(wording.could_not_save(e))
         return
@@ -551,6 +582,9 @@ def _save_score(opt, storage, pending):
     move = best_move_sentence(before, best_formulation_no(opt))
     if move:
         sentences.append(move)
+    # The row left `skipped` for good and a copy was kept first, so this says
+    # so in the same sentence every correction ends with.
+    sentences.append(COPY_KEPT)
     flash("success", " ".join(sentences))
     _close_correction(opt, choice)
     st.rerun()
