@@ -886,7 +886,9 @@ def _targets_source_editor(opt):
     """The optional note on where the measurement targets came from: a
     caption once it is set, and a button that opens a one-line box to set or
     change it. Its Save is always secondary — unlike the measurement editor,
-    opening this box does not take the foot's lit Continue away."""
+    opening this box does not take the foot's lit Continue away. Cancel
+    closes it without saving, same word and same act as the measurement
+    editor's own Cancel."""
     if opt.targets_source:
         st.caption(wording.targets_from_caption(opt.targets_source))
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
@@ -894,10 +896,19 @@ def _targets_source_editor(opt):
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
                              key=_TARGETS_SOURCE_BOX,
                              placeholder=wording.TARGETS_SOURCE_PLACEHOLDER)
-        if st.button(wording.SAVE_BUTTON, key="save_targets_source"):
-            opt.set_targets_source(text)
-            if saved_ok(opt):
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button(wording.SAVE_BUTTON, key="save_targets_source",
+                         use_container_width=True):
+                opt.set_targets_source(text)
+                if saved_ok(opt):
+                    st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
+                    st.rerun()
+        with b2:
+            if st.button(wording.CANCEL, key="cancel_targets_source",
+                         use_container_width=True):
                 st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
+                st.session_state.pop(_TARGETS_SOURCE_BOX, None)
                 st.rerun()
     else:
         if st.button(wording.TARGETS_SOURCE_BUTTON, key="edit_targets_source"):
@@ -1250,9 +1261,11 @@ def _foot(opt, editing=False):
 
 def render(opt, storage):
     # The sample's own welcome, directly under the tab's title: gone the
-    # moment its first formulation is scored, so it never talks past the
-    # point where the user has already made a batch.
-    if not opt.X_history and opt.project_name == wording.SAMPLE_PROJECT_NAME:
+    # moment any formulation exists, scored or not — a batch whose one row
+    # was ticked Not scored has still been made, and "Next: make a batch"
+    # would be wrong about it.
+    if (not opt.X_history and not opt.skipped
+            and opt.project_name == wording.SAMPLE_PROJECT_NAME):
         st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
     _variables(opt, storage)
     st.divider()

@@ -357,6 +357,26 @@ def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monke
             in captions)
 
 
+def test_the_sample_welcome_is_gone_once_a_formulation_is_not_scored(
+        tmp_path, monkeypatch):
+    """A batch whose only row was generated and then ticked Not scored has
+    still been made -- X_history stays empty, but 'Next: make a batch' would
+    be wrong about it."""
+    monkeypatch.chdir(tmp_path)
+    pre = FoodOptimizer("Sample project")
+    pre.add_ingredient("Water", 0, 100)
+    pre.add_objective("Taste", 1.0, goal="max")
+    pre.record_skipped(1, 1, {"Water": 50.0})
+    assert pre.X_history == [] and pre.skipped
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "Sample project"
+    at.session_state["_land_on_open"] = True
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[0].caption]
+    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+
+
 def test_the_welcome_never_shows_on_a_project_of_the_users_own(burger):
     """Only the sample gets the welcome line, matched by name -- a project
     the user named 'Sample project' of their own would be an odd coincidence,
@@ -391,6 +411,25 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     at.run()
     assert (at.text_input(key="targets_source_box").value
             == "Benchmark burger, panel of 8.")
+
+
+def test_the_targets_source_box_can_be_cancelled_without_saving(burger):
+    """Cancel closes the box and throws away what was typed -- the same word
+    and the same act as the measurement editor's own Cancel."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    at.text_input(key="targets_source_box").set_value("Half-typed note")
+    _submit_button(at, "Cancel").click()
+    at.run()
+    assert not at.exception
+    assert "_targets_source_open" not in at.session_state
+    assert FoodOptimizer("burger").targets_source == ""
+    # Reopening starts blank again, not from the discarded text.
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert at.text_input(key="targets_source_box").value == ""
 
 
 def test_the_targets_source_save_is_never_the_lit_button(burger):
