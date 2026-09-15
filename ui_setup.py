@@ -307,6 +307,11 @@ def _variable_being_edited(opt):
         # Deleted, or a project opened that never had it. A name left behind
         # here would open the editor again the day another row is given it.
         st.session_state.pop(_EDITING, None)
+        return None
+    # The invariant, held where the tab is drawn rather than only at the two
+    # buttons that open these editors: one editor, one lit Save. This one is
+    # higher up the page, so it is the one that stands.
+    _close_measurement_editor(opt)
     return var
 
 
@@ -315,7 +320,11 @@ def _open_editor(opt, var):
 
     Seeded here, the one moment a widget's value can be set: the boxes do not
     exist yet on the run that follows, which is what lets the same six boxes
-    be the editor as well as the add form."""
+    be the editor as well as the add form.
+
+    A measurement open for editing further down is closed first: each editor
+    lights its own Save, and the tab shows one coloured button at a time."""
+    _close_measurement_editor(opt)
     setting = var.get('category') == 'process'
     kind = KIND_SETTING if setting else KIND_INGREDIENT
     park_clear("var_name", var['name'])
@@ -329,6 +338,25 @@ def _open_editor(opt, var):
     baseline = var.get('_absent_value')
     park_clear("var_base", None if baseline is None else float(baseline))
     st.session_state[_EDITING] = var['name']
+
+
+def _close_measurement_editor(opt):
+    """Put away the measurement editor, emptying its boxes as its own Cancel
+    does — a box left holding a typed value would be what that measurement
+    reopened on, rather than what is stored."""
+    name = st.session_state.pop("_editing_measurement", None)
+    editing = next((o for o in opt.objectives if o['name'] == name), None)
+    if editing is not None:
+        _clear_measurement_keys(editing)
+
+
+def _close_variable_editor(opt):
+    """The mirror of _close_measurement_editor, for the row above."""
+    name = st.session_state.get(_EDITING)
+    if name is None:
+        return
+    var = next((v for v in opt.variables if v['name'] == name), None)
+    _close_editor(opt, var is not None and var.get('category') == 'process')
 
 
 def _close_editor(opt, setting):
@@ -511,7 +539,13 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
     The name is the one thing those paths cannot change, because it is the
     key everything recorded is filed under; rename_variable moves all of it,
     and it is asked FIRST (without writing) so a name that is taken refuses
-    the whole save rather than half of it."""
+    the whole save rather than half of it.
+
+    A save that changes ONLY the name skips those paths altogether: nothing
+    about the question the model is being asked has moved, so there is
+    nothing for the total, the limits or the batch on the bench to answer
+    for. Renaming rewrites the open batch's own rows in place, which is the
+    one way that batch survives an edit."""
     name = st.session_state["var_name"]
     low, high = st.session_state["var_low"], st.session_state["var_high"]
     unit = st.session_state.get("var_unit", "")
@@ -526,6 +560,16 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         # Every path below acts on the row as it is filed today; the rename
         # follows, once they have all gone through.
         name = editing['name']
+        if _only_the_name_changed(opt, editing, low, high, unit,
+                                  wants_baseline):
+            renamed = _rename_after_edit(opt, name, rename_to)
+            if renamed is None:
+                return
+            flash("success", wording.saved(renamed))
+            _close_editor(opt, setting)
+            st.rerun()
+            return
+    held_before = _held_at(opt, editing) if _is_held(editing) else None
     if setting:
         if wants_baseline and st.session_state.get("var_base") is None:
             st.error(wording.ADD_BASELINE_ERROR)
@@ -545,8 +589,9 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         name = _rename_after_edit(opt, name, rename_to)
         if name is None:
             return
-        flash("success", _added_line(opt, name, ingredient=False,
-                                     saved=editing is not None))
+        line = _added_line(opt, name, ingredient=False,
+                           saved=editing is not None)
+        flash("success", _with_moved_hold(opt, editing, held_before, line))
         _note_discarded_batch(opt, batch_no)
         if editing is not None:
             _close_editor(opt, setting)
@@ -569,7 +614,9 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         name = _rename_after_edit(opt, name, rename_to)
         if name is None:
             return
-        added_line = _added_line(opt, name, saved=editing is not None)
+        added_line = _with_moved_hold(
+            opt, editing, held_before,
+            _added_line(opt, name, saved=editing is not None))
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
@@ -577,6 +624,41 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         if editing is not None:
             _close_editor(opt, setting)
         st.rerun()
+
+
+def _is_held(var):
+    """True for a row that is held at one amount rather than varied."""
+    return var is not None and not var.get('active', True)
+
+
+def _only_the_name_changed(opt, editing, low, high, unit, wants_baseline):
+    """True when the form is saving the same answers under a different name.
+
+    The allowed amounts, the unit and a setting's baseline are what the next
+    batch is built from; a rename touches none of them."""
+    if (float(low) != float(editing['bounds'][0])
+            or float(high) != float(editing['bounds'][1])):
+        return False
+    if str(unit).strip() != (opt.unit_of(editing['name']) or ""):
+        return False
+    if wants_baseline:
+        typed, stored = st.session_state.get("var_base"), editing.get('_absent_value')
+        if typed is None or stored is None or float(typed) != float(stored):
+            return False
+    return True
+
+
+def _with_moved_hold(opt, editing, held_before, line):
+    """`line`, plus the one sentence a held row owes when the amounts just
+    typed no longer reach the amount it was held at. The hold is the thing
+    that gives — and the button, the table and the sheets would otherwise go
+    on naming the amount the search had already stopped using."""
+    if held_before is None or not _is_held(editing):
+        return line
+    held_now = _held_at(opt, editing)
+    if held_now == held_before:
+        return line
+    return f"{line} {wording.now_held_at(editing['name'], held_now)}"
 
 
 def _rename_after_edit(opt, name, rename_to):
@@ -668,6 +750,13 @@ def _disarm_other_removals(pick):
         disarm(armed)
 
 
+def _measurement_is_open(opt):
+    """True while the measurement editor further down the tab is open on a
+    measurement that still exists."""
+    name = st.session_state.get("_editing_measurement")
+    return any(o['name'] == name for o in opt.objectives)
+
+
 def _variable_controls(opt, storage, editing=None):
     """One row for everything you can do to a row of the table: hold it at
     one amount or vary it again, edit it, set its unit, delete it."""
@@ -690,8 +779,10 @@ def _variable_controls(opt, storage, editing=None):
         # The form above is the editor, so this button fills it in and names
         # the row it was filled from. Greyed while it is already open on this
         # row: clicking it again would throw away what has been typed there.
+        # Greyed too while a measurement is open below, so the edit in hand
+        # is finished or cancelled before another is begun.
         if st.button(wording.edit_button(pick), key="edit_var",
-                     disabled=editing is not None):
+                     disabled=editing is not None or _measurement_is_open(opt)):
             _open_editor(opt, var)
             st.rerun()
     with cols[3]:
@@ -769,7 +860,6 @@ def _hold_or_vary(opt, var, pick):
     """Whichever of the two applies to the row that is picked. A held row is
     pinned at one amount in every new formulation; nothing is removed."""
     batch_no = opt.pending_batch_no
-    held_text = _held_at(opt, var)
     if not var.get('active', True):
         if st.button(wording.vary_button(pick), key="vary_var",
                      help=wording.VARY_HELP):
@@ -780,6 +870,7 @@ def _hold_or_vary(opt, var, pick):
                 st.rerun()
         return
     alone = len(opt.active_variables()) <= 1
+    held_text = _held_at(opt, var)
     # The amount is in the label, so the help says the other half: what a
     # hold does NOT touch.
     if st.button(wording.hold_button(pick, held_text), key="hold_var",
@@ -1280,6 +1371,7 @@ def _measurements(opt, storage):
     if not opt.objectives:
         return editing is not None
 
+    editing_open = st.session_state.get(_EDITING) is not None
     ordered = opt.measurements_by_importance()
     st.dataframe(pd.DataFrame([{
         # No Priority column: it was the row's position in a table already
@@ -1294,7 +1386,12 @@ def _measurements(opt, storage):
     for obj in ordered:
         e1, e2 = st.columns(2)
         with e1:
-            if st.button(wording.edit_button(obj['name']), key=f"edit_meas_{obj['name']}"):
+            # Greyed while the ingredient editor above is open, for the same
+            # reason that one greys while this is: one editor, one lit Save.
+            if st.button(wording.edit_button(obj['name']),
+                         key=f"edit_meas_{obj['name']}",
+                         disabled=editing_open):
+                _close_variable_editor(opt)
                 st.session_state["_editing_measurement"] = obj['name']
                 st.rerun()
         with e2:

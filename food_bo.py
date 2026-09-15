@@ -531,6 +531,40 @@ class FoodOptimizer:
     #  Setup: Ingredients & Process Parameters
     # ------------------------------------------------------------------ #
 
+    def _name_is_free(self, name, skip=None):
+        """Raise unless `name` is free for something in this project to wear.
+
+        One name, one thing: an ingredient, a process setting, a measurement
+        and a property all head columns of the same tables, so no two of them
+        may share one. The three doors that name something — adding a
+        variable, renaming one, naming a property — ask here, so they refuse
+        the same clashes in the same words. `skip` is the row already wearing
+        the name and entitled to keep it (the one being renamed).
+
+        The variable pass is a plain refusal, which is the answer at two of
+        those doors. Adding is the third and has its own answers first:
+        re-adding a name the project already has is an EDIT, and a second
+        spelling of one has a sentence of its own — so add calls this with
+        the row it is editing as `skip`, once those have had their say.
+        """
+        lowered = name.lower()
+        for var in self.variables:
+            if var is skip or var['name'].lower() != lowered:
+                continue
+            kind = ("an ingredient"
+                    if var.get('category', 'ingredient') == 'ingredient'
+                    else "a process setting")
+            raise ValueError(
+                f"{var['name']} is already the name of {kind}. Choose "
+                f"another name.")
+        for obj in self.objectives:
+            if obj['name'].lower() == lowered:
+                raise ValueError(
+                    f"{obj['name']} is already the name of a measurement. "
+                    f"Choose another name.")
+        if self._known_property(name) is not None:
+            raise ValueError(f"{name} is already a property of this project.")
+
     def _check_new_variable(self, name, min_val, max_val, category):
         """Shared validation for add_ingredient / add_process_parameter.
         Returns the stripped name. Same-name same-category is allowed (the
@@ -542,10 +576,6 @@ class FoodOptimizer:
             raise ValueError(
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
-            )
-        if any(name.lower() == obj['name'].lower() for obj in self.objectives):
-            raise ValueError(
-                f"{name} is already the name of a measurement. Choose another name."
             )
         if float(min_val) >= float(max_val):
             raise ValueError("Lowest must be less than Highest.")
@@ -560,7 +590,31 @@ class FoodOptimizer:
             # would be a second row, with the same name on every table.
             if v['name'] != name and v['name'].lower() == name.lower():
                 raise ValueError(wording.name_differs_only_by_case(v['name']))
+        # The row this add is really an edit of, if there is one: it is
+        # allowed to go on wearing its own name.
+        editing = next((v for v in self.variables if v['name'] == name), None)
+        self._name_is_free(name, skip=editing)
         return name
+
+    def _keep_the_hold_inside(self, var):
+        """Bring a held row's amount back inside the amounts it is now
+        allowed, and say whether it moved.
+
+        A held row is pinned at one number, and that number is read in four
+        places — the Hold button, the Status column, the Set-up sheet and
+        every suggestion. Narrowing the row's Highest below it left the four
+        disagreeing: the screen said 20.00 g and the search used 5.00. The
+        hold is the thing that has to give, because the allowed amounts are
+        what the user has just typed."""
+        if '_frozen_at' not in var:
+            return False
+        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+        held = float(var['_frozen_at'])
+        inside = min(max(held, lo), hi)
+        if inside == held:
+            return False
+        var['_frozen_at'] = inside
+        return True
 
     def add_ingredient(self, name, min_val, max_val, unit=None):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
@@ -584,6 +638,7 @@ class FoodOptimizer:
                 var['bounds'] = (min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
+                self._keep_the_hold_inside(var)
                 removed = self.prune_amount_limits()
                 self._drop_pending_batch()
                 self.save()
@@ -764,6 +819,9 @@ class FoodOptimizer:
                 if held is not None and float(held) != float(stored):
                     var['_absent_value'] = float(held)
                     self._reencode_history()
+                # A held setting is pinned at its own number, which the new
+                # amounts may no longer reach.
+                self._keep_the_hold_inside(var)
                 self._drop_pending_batch()
                 self.save()
                 return
@@ -1044,22 +1102,7 @@ class FoodOptimizer:
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
             )
-        lowered = name.lower()
-        for var in self.variables:
-            if var['name'].lower() == lowered:
-                kind = ("an ingredient"
-                        if var.get('category', 'ingredient') == 'ingredient'
-                        else "a process setting")
-                raise ValueError(
-                    f"{var['name']} is already the name of {kind}. Choose "
-                    f"another name.")
-        for obj in self.objectives:
-            if obj['name'].lower() == lowered:
-                raise ValueError(
-                    f"{obj['name']} is already the name of a measurement. "
-                    f"Choose another name.")
-        if self._known_property(name) is not None:
-            raise ValueError(f"{name} is already a property of this project.")
+        self._name_is_free(name)
         self._remember_property(name)
         self.save()
         return name
@@ -4475,21 +4518,7 @@ class FoodOptimizer:
                 f"{new_name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {new_name}s."
             )
-        lowered = new_name.lower()
-        for other in self.variables:
-            if other is var or other['name'].lower() != lowered:
-                continue
-            kind = ("an ingredient"
-                    if other.get('category', 'ingredient') == 'ingredient'
-                    else "a process setting")
-            raise ValueError(
-                f"{other['name']} is already the name of {kind}. Choose "
-                f"another name.")
-        for obj in self.objectives:
-            if obj['name'].lower() == lowered:
-                raise ValueError(
-                    f"{obj['name']} is already the name of a measurement. "
-                    f"Choose another name.")
+        self._name_is_free(new_name, skip=var)
         return new_name
 
     def rename_variable(self, name, new_name):

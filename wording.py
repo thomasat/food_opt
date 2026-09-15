@@ -882,6 +882,13 @@ def hold_button(name, held_text):
     return f"Hold {name} at {held_text}"
 
 
+def now_held_at(name, held_text):
+    """The sentence an edit owes a held row when the amounts just typed no
+    longer reach the amount it was held at: the hold moves to the nearest
+    amount the row is now allowed, and four places say that number."""
+    return f"{name} is now held at {held_text}."
+
+
 VARY_HELP = "New suggestions vary it again."
 HOLD_HELP = "Results already recorded keep their amounts."
 HOLD_DISABLED_HELP = ("At least two ingredients or settings must stay "

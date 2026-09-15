@@ -5577,3 +5577,90 @@ class TestEditingASetting:
         opt.add_process_parameter("Cook temperature", 140, 210, unit="°C")
         var = opt._var_by_name("Cook temperature")
         assert var['bounds'] == (140.0, 210.0) and var['_absent_value'] == 175.0
+
+
+class TestAHoldFollowsTheAmounts:
+    """A held row is pinned at one number, and four places read it: the Hold
+    button, the Status column, the Set-up sheet and every suggestion. The
+    amounts the user has just typed are the answer they all have to give."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("clamped")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 60)
+        opt.add_ingredient("Flour", 0, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_a_narrowed_highest_brings_the_hold_with_it(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Water", value=20.0)
+        opt.add_ingredient("Water", 0, 5)
+        var = opt._var_by_name("Water")
+        assert var['_frozen_at'] == 5.0
+        assert opt._frozen_value(var) == 5.0
+        # And the search is held there too, not at the amount that went.
+        assert all(row["Water"] == pytest.approx(5.0)
+                   for row in opt.ask(n_suggestions=2))
+
+    def test_a_raised_lowest_brings_it_with_it_as_well(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Water", value=0.0)
+        opt.add_ingredient("Water", 10, 60)
+        assert opt._var_by_name("Water")['_frozen_at'] == 10.0
+
+    def test_a_hold_still_inside_the_amounts_is_left_alone(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.deactivate_variable("Water", value=20.0)
+        opt.add_ingredient("Water", 0, 40)
+        assert opt._var_by_name("Water")['_frozen_at'] == 20.0
+
+    def test_a_held_setting_follows_its_amounts_too(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+        opt.deactivate_variable("Cook temperature", value=190.0)
+        opt.add_process_parameter("Cook temperature", 150, 170, unit="°C")
+        assert opt._var_by_name("Cook temperature")['_frozen_at'] == 170.0
+
+
+class TestOneNameOneThing:
+    """A variable, a measurement and a property all head columns of the same
+    tables, so the three doors that name something refuse the same clashes."""
+
+    def _opt(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("one_name")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_property("Cost per 100 g")
+        return opt
+
+    def test_a_rename_onto_a_property_is_refused(self, tmp_path, monkeypatch):
+        """add_property already refuses an ingredient's name; this is the
+        same rule read from the other end."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="already a property"):
+            opt.rename_variable("Water", "Cost per 100 g")
+        assert [v['name'] for v in opt.variables] == ["Water"]
+
+    def test_adding_a_variable_named_like_a_property_is_refused_too(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="already a property"):
+            opt.add_ingredient("Cost per 100 g", 0, 10)
+        with pytest.raises(ValueError, match="already a property"):
+            opt.add_process_parameter("cost per 100 g", 0, 10)
+
+    def test_a_row_may_still_be_edited_and_may_keep_its_own_name(
+            self, tmp_path, monkeypatch):
+        """The one name a row is always free to wear is the one it has."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Water", 0, 50)          # an edit, not a clash
+        assert opt._var_by_name("Water")['bounds'] == (0.0, 50.0)
+        opt.rename_variable("Water", "Water")
+        assert [v['name'] for v in opt.variables] == ["Water"]
