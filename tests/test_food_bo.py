@@ -159,13 +159,16 @@ class TestVariables:
         with pytest.raises(ValueError, match="Cannot reload ingredients"):
             opt.load_ingredients_from_csv(df)
 
-    def test_load_csv_min_ge_max_raises(self, opt):
+    def test_load_csv_min_above_max_raises(self, opt):
+        """Equal is a FIXED row and is allowed; inverted is a range with
+        nothing in it."""
         df = pd.DataFrame({
             "Name": ["BadIngredient"],
             "Min": [50],
-            "Max": [50],
+            "Max": [10],
         })
-        with pytest.raises(ValueError, match="Lowest.*must be less than Highest"):
+        with pytest.raises(ValueError,
+                           match="Lowest.*cannot be above Highest"):
             opt.load_ingredients_from_csv(df)
 
     def test_csv_preserves_process_params(self, opt):
@@ -657,28 +660,28 @@ class TestPropertyLimitsPerHundred:
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("Fat per 100 g", min_val=25)
         with pytest.raises(ValueError) as caught:
-            opt.deactivate_variable("Fatty")
-        assert ("the remaining active ingredients can only reach 10 per 100 g "
+            opt.add_ingredient("Fatty", 0, 0)
+        assert ("the ingredients that can still vary only reach 10 per 100 g "
                 "at most. Loosen the limit first." in str(caught.value)), \
             str(caught.value)
 
         opt.remove_constraint(0)
         opt.add_constraint("Fat per 100 g", max_val=15)
         with pytest.raises(ValueError) as caught:
-            opt.deactivate_variable("Lean")
-        assert ("the remaining active ingredients cannot get below 30 per 100 "
-                "g. Loosen the limit first." in str(caught.value)), \
+            opt.add_ingredient("Lean", 0, 0)
+        assert ("the ingredients that can still vary cannot get below 30 per "
+                "100 g. Loosen the limit first." in str(caught.value)), \
             str(caught.value)
 
-    def test_holding_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
-        """Holding the only ingredient that carries the fat leaves a minimum
-        nothing can reach."""
+    def test_fixing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
+        """Fixing the only ingredient that carries the fat at nothing leaves
+        a minimum nothing can reach."""
         opt = self._fatty(opt)
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("Fat per 100 g", min_val=25)
         with pytest.raises(ValueError, match="impossible to meet"):
-            opt.deactivate_variable("Fatty")
-        assert opt.active_variables() == opt.variables
+            opt.add_ingredient("Fatty", 0, 0)
+        assert opt.fixed_variables() == []
 
 
 # ------------------------------------------------------------------ #
@@ -946,69 +949,73 @@ class TestFullJourney:
 
 
 # ------------------------------------------------------------------ #
-#  Non-monotone active set (adaptive EGBO pruning)
+#  Non-monotone active set (adaptive EGBO pruning), now read off the
+#  allowed amounts: a row whose Lowest is its Highest is out of the search.
 # ------------------------------------------------------------------ #
 
 
 class TestActiveSet:
     def test_no_pruning_is_a_noop(self, opt_configured):
-        """The monotone path must be untouched when nothing is pruned."""
+        """The monotone path must be untouched when nothing is fixed."""
         assert opt_configured._get_fixed_features() == {}
-        assert len(opt_configured.active_variables()) == 3
-        assert opt_configured.inactive_variables() == []
+        assert len(opt_configured.varying_variables()) == 3
+        assert opt_configured.fixed_variables() == []
 
-    def test_deactivate_pins_the_column(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
+    def test_fixing_pins_the_column(self, opt_configured):
+        opt_configured.add_ingredient("Flour", 0, 0)
         assert opt_configured._get_fixed_features() == {1: 0.0}
-        assert [v["name"] for v in opt_configured.inactive_variables()] == ["Flour"]
+        assert [v["name"] for v in opt_configured.fixed_variables()] == ["Flour"]
 
-    def test_deactivate_with_explicit_value_normalizes(self, opt_configured):
-        opt_configured.deactivate_variable("Flour", value=12.5)  # bounds (0, 50)
-        assert opt_configured._get_fixed_features() == {1: 0.25}
+    def test_a_fixed_column_is_pinned_inside_a_frame_that_has_a_width(
+            self, opt_configured):
+        """A point has no frame of its own: normalizing by a zero span is a
+        division by zero, and it is the history that goes through it."""
+        opt_configured.add_ingredient("Flour", 12.5, 12.5)  # was (0, 50)
+        assert opt_configured._get_fixed_features() == {1: 0.0}
+        bounds = opt_configured._get_bounds()
+        assert bounds[0][1].item() == 12.5 and bounds[1][1].item() == 13.5
 
-    def test_deactivate_rejects_out_of_bounds_pin(self, opt_configured):
-        with pytest.raises(ValueError, match="must lie within"):
-            opt_configured.deactivate_variable("Sugar", value=99.0)
+    def test_the_frame_stretches_to_cover_what_was_already_recorded(
+            self, opt_configured):
+        opt_configured.tell({"Water": 50.0, "Flour": 40.0, "Sugar": 5.0},
+                            {"Taste": 7.0})
+        opt_configured.add_ingredient("Flour", 10, 10)
+        bounds = opt_configured._get_bounds()
+        assert bounds[0][1].item() == 10.0 and bounds[1][1].item() == 40.0
+        # ...and the fixed value still lands on its own amount.
+        assert opt_configured._get_fixed_features() == {1: 0.0}
 
-    def test_deactivate_is_idempotent(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
-        opt_configured.deactivate_variable("Flour")
-        assert len(opt_configured.inactive_variables()) == 1
+    def test_an_inverted_range_is_refused(self, opt_configured):
+        with pytest.raises(ValueError, match="cannot be above Highest"):
+            opt_configured.add_ingredient("Sugar", 99.0, 1.0)
 
-    def test_deactivate_blocks_last_active_variable(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
-        opt_configured.deactivate_variable("Sugar")
-        with pytest.raises(ValueError, match="must stay active"):
-            opt_configured.deactivate_variable("Water")
-
-    def test_reactivate_restores_the_dimension(self, opt_configured):
-        opt_configured.deactivate_variable("Flour", value=10.0)
-        opt_configured.reactivate_variable("Flour")
-        assert opt_configured._get_fixed_features() == {}
-        assert "_frozen_at" not in opt_configured._var_by_name("Flour")
+    def test_fixing_twice_is_idempotent(self, opt_configured):
+        opt_configured.add_ingredient("Flour", 0, 0)
+        opt_configured.add_ingredient("Flour", 0, 0)
+        assert len(opt_configured.fixed_variables()) == 1
 
     def test_pruning_preserves_history_and_width(self, opt_configured):
-        """Pruning restricts the search domain, it must not touch observations."""
+        """Fixing restricts the search domain, it must not touch observations."""
         opt_configured.tell(
             {"Water": 50.0, "Flour": 20.0, "Sugar": 5.0}, {"Taste": 7.0}
         )
         before_x = [row[:] for row in opt_configured.X_history]
         before_y = list(opt_configured.Y_history)
 
-        opt_configured.deactivate_variable("Flour")
+        opt_configured.add_ingredient("Flour", 0, 0)
 
         assert opt_configured.X_history == before_x
         assert opt_configured.Y_history == before_y
         assert len(opt_configured.X_history[0]) == 3
 
     def test_ask_respects_pins_in_cold_start(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
+        opt_configured.add_ingredient("Flour", 0, 0)
         batch = opt_configured.ask(n_suggestions=3, n_init_random=5)
         assert all(r["Flour"] == 0.0 for r in batch)
         assert any(r["Water"] > 0.0 for r in batch)
 
     def test_ask_respects_pins_after_gp_fit(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
+        opt_configured.add_ingredient("Flour", 0, 0)
         for _ in range(6):
             rec = opt_configured.ask(n_suggestions=1, n_init_random=5)[0]
             opt_configured.tell(rec, {"Taste": 5.0 + rec["Water"] / 100.0})
@@ -1016,20 +1023,21 @@ class TestActiveSet:
         assert all(r["Flour"] == 0.0 for r in batch)
 
     def test_ask_guards_empty_active_set(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
-        opt_configured.deactivate_variable("Sugar")
-        opt_configured._var_by_name("Water")["active"] = False
-        with pytest.raises(ValueError, match="Everything is held"):
+        for name in ("Flour", "Sugar", "Water"):
+            opt_configured.add_ingredient(name, 1, 1)
+        with pytest.raises(ValueError, match="fixed at one amount"):
             opt_configured.ask(n_suggestions=1)
 
-    def test_deactivate_detects_stranded_quantity_constraint(self, opt_configured):
+    def test_fixing_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
         with pytest.raises(ValueError, match="impossible to meet"):
-            opt_configured.deactivate_variable("Flour")
-        opt_configured.deactivate_variable("Sugar")  # unrelated, still fine
-        assert [v["name"] for v in opt_configured.inactive_variables()] == ["Sugar"]
+            opt_configured.add_ingredient("Flour", 0, 0)
+        # Refused before anything was written.
+        assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 50.0)
+        opt_configured.add_ingredient("Sugar", 0, 0)  # unrelated, still fine
+        assert [v["name"] for v in opt_configured.fixed_variables()] == ["Sugar"]
 
-    def test_deactivate_detects_stranded_property_constraint(self, opt, monkeypatch):
+    def test_fixing_detects_stranded_property_constraint(self, opt, monkeypatch):
         opt.load_ingredients_from_csv(pd.DataFrame([
             {"Name": "a", "Min": 0, "Max": 10, "Protein": 1.0},
             {"Name": "b", "Min": 0, "Max": 10, "Protein": 1.0},
@@ -1037,38 +1045,47 @@ class TestActiveSet:
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
         with pytest.raises(ValueError, match="impossible to meet"):
-            opt.deactivate_variable("a")
+            opt.add_ingredient("a", 0, 0)
 
-    def test_pruned_state_survives_pkl_reload(self, opt_configured, monkeypatch):
-        opt_configured.deactivate_variable("Flour", value=2.5)
+    def test_a_narrowed_range_that_strands_a_limit_is_still_allowed(
+            self, opt_configured):
+        """Only a save that FIXES a row is guarded. Narrowing one has always
+        been the user's own business, and the guard must not quietly become
+        a rule about every edit."""
+        opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
+        opt_configured.add_ingredient("Flour", 0, 1)
+        assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 1.0)
+
+    def test_a_fixed_row_survives_a_reload(self, opt_configured, monkeypatch):
+        opt_configured.add_ingredient("Flour", 2.5, 2.5)
         reloaded = FoodOptimizer(project_name="test_project")
-        assert [v["name"] for v in reloaded.inactive_variables()] == ["Flour"]
-        assert reloaded._frozen_value(reloaded._var_by_name("Flour")) == 2.5
+        assert [v["name"] for v in reloaded.fixed_variables()] == ["Flour"]
+        assert reloaded._fixed_value(reloaded._var_by_name("Flour")) == 2.5
 
-    def test_pruned_state_survives_json_roundtrip(self, opt_configured):
-        opt_configured.deactivate_variable("Flour", value=12.5)
+    def test_a_fixed_row_survives_a_json_roundtrip(self, opt_configured):
+        opt_configured.add_ingredient("Flour", 12.5, 12.5)
         state = opt_configured.export_json()
         clone = FoodOptimizer(project_name="clone_project")
         clone.import_json(state)
-        assert [v["name"] for v in clone.inactive_variables()] == ["Flour"]
-        assert clone._get_fixed_features() == {1: 0.25}
+        assert [v["name"] for v in clone.fixed_variables()] == ["Flour"]
+        assert clone._get_fixed_features() == {1: 0.0}
 
-    def test_legacy_variables_default_to_active(self, opt_configured):
-        """Projects saved before pruning existed must load as fully active."""
+    def test_legacy_variables_default_to_varying(self, opt_configured):
+        """Projects saved before pruning existed must load fully in play."""
         for var in opt_configured.variables:
             var.pop("active", None)
         opt_configured.save()
         reloaded = FoodOptimizer(project_name="test_project")
-        assert len(reloaded.active_variables()) == 3
+        assert len(reloaded.varying_variables()) == 3
         assert reloaded._get_fixed_features() == {}
 
     def test_export_trajectory_reports_pruned_and_past_usage(self, opt_configured):
         opt_configured.tell(
             {"Water": 50.0, "Flour": 20.0, "Sugar": 5.0}, {"Taste": 7.0}
         )
-        opt_configured.deactivate_variable("Flour")
+        opt_configured.add_ingredient("Flour", 0, 0)
         text = opt_configured.export_trajectory()
-        assert "Held" in text
+        assert "Fixed" in text
         assert "Flour=20" in text, "a pruned variable's past usage must stay visible"
 
 
@@ -1110,10 +1127,11 @@ class TestRemoveIngredient:
         with pytest.raises(ValueError, match="process setting"):
             opt_configured.remove_ingredient("Temp")
 
-    def test_blocks_removing_last_active_variable(self, opt_configured):
-        opt_configured.deactivate_variable("Flour")
-        opt_configured.deactivate_variable("Sugar")
-        with pytest.raises(ValueError, match="last active variable"):
+    def test_blocks_removing_the_last_row_with_a_range(self, opt_configured):
+        opt_configured.add_ingredient("Flour", 0, 0)
+        opt_configured.add_ingredient("Sugar", 0, 0)
+        with pytest.raises(ValueError,
+                           match="last ingredient or setting with a range"):
             opt_configured.remove_ingredient("Water")
 
 
@@ -1328,11 +1346,15 @@ class TestSetupValidation:
             opt.add_process_parameter("   ", 0, 10)
 
     def test_inverted_bounds(self, tmp_path, monkeypatch):
+        """Equal is how a row is FIXED, so only Lowest ABOVE Highest is a
+        refusal."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
+        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
             opt.add_process_parameter("Temp", 200, 100)
-        with pytest.raises(ValueError, match="Lowest must be less than Highest"):
-            opt.add_ingredient("Water", 5, 5)
+        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
+            opt.add_ingredient("Water", 50, 5)
+        opt.add_ingredient("Water", 5, 5)
+        assert opt._var_by_name("Water")['bounds'] == (5.0, 5.0)
 
     def test_cross_category_name_collision(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -1393,16 +1415,16 @@ def test_a_name_differing_only_by_case_is_refused(tmp_path, monkeypatch):
     assert opt.variables[0]['bounds'] == (0.0, 60.0)
 
 
-def test_the_changes_leave_out_a_held_ingredient(tmp_path, monkeypatch):
-    """A held ingredient is held at one value in every new formulation, so
-    it cannot be a change this batch made."""
+def test_the_changes_leave_out_a_fixed_ingredient(tmp_path, monkeypatch):
+    """A fixed ingredient is at one amount in every new formulation, so it
+    cannot be a change this round made."""
     monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("held_changes")
+    opt = FoodOptimizer("fixed_changes")
     opt.add_ingredient("Water", 0, 100)
     opt.add_ingredient("Oil", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0, "Oil": 50.0}, {"Taste": 5.0})
-    opt.deactivate_variable("Oil", value=50.0)
+    opt.add_ingredient("Oil", 50, 50)
     changes = opt._variable_deltas({"Water": 12.0, "Oil": 90.0},
                                    {"Water": 10.0, "Oil": 50.0}, 'ingredient')
     assert [name for name, _ in changes] == ["Water"]
@@ -3066,6 +3088,12 @@ _BANNED = [
     _BENCH_SHEET,
     # 0.4.1: Hold replaces Pause, everywhere the user can read it.
     _PAUSE,
+    # 0.5.0: and then Hold itself goes. A row pinned at one amount is one
+    # whose Lowest IS its Highest, which the two boxes already say; there is
+    # no control called Hold, no "held at" status and no "vary it again".
+    # "holds" and "holding" are the ordinary English verb ("a copy holds
+    # everything") and are not this word.
+    re.compile(r"\b(hold|held)\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -3236,7 +3264,8 @@ _SINGLE_WORDS = re.compile(
     r"^(recipes?|experiments?|objectives?|weights?|ranges|rewind|pruned"
     r"|priority|trials?|batch(es)?|kind|scales?|remove|remake|share|backups?"
     # 0.4.1: a one-word "Paused" column value is the shape this one took.
-    r"|pause[ds]?|pausing)$", re.I)
+    # 0.5.0: and the one-word "Held" a Status cell could hold.
+    r"|pause[ds]?|pausing|hold|held)$", re.I)
 
 
 def _how_it_works():
@@ -4081,16 +4110,16 @@ class TestWhatEachFormulationIsTrying:
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
             "close to the best"
 
-    def test_a_held_variable_does_not_decide_the_kind(self, tmp_path,
+    def test_a_fixed_variable_does_not_decide_the_kind(self, tmp_path,
                                                         monkeypatch):
-        """A held ingredient is held at one value in every new formulation,
-        so it cannot be what this batch is trying."""
+        """A fixed ingredient is at one amount in every new formulation, so
+        it cannot be what this round is trying."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_ingredient("Salt", 0, 10)
         self._warm(opt)
         moved = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}
         assert opt.suggestion_kind(moved) == "trying something different"
-        opt.deactivate_variable("Salt")
+        opt.add_ingredient("Salt", 0, 0)
         assert opt.suggestion_kind(moved) == "close to the best"
 
     def test_the_cold_start_is_spread_across_the_allowed_amounts(
@@ -4339,29 +4368,28 @@ class TestTheTotalIsAlwaysReachable:
         waters = {round(row["Water"], 3) for row in rows}
         assert len(waters) == 3, waters
 
-    def test_a_held_ingredient_keeps_its_frozen_amount(self, tmp_path,
-                                                         monkeypatch):
-        """A held ingredient is held at one value and takes no part in the
-        projection: its amount comes off the target first."""
+    def test_a_fixed_ingredient_keeps_its_one_amount(self, tmp_path,
+                                                     monkeypatch):
+        """A fixed ingredient takes no part in the projection: its amount
+        comes off the target first."""
         opt = self._sample(tmp_path, monkeypatch)
         opt.set_formulation_total(100)
-        opt.deactivate_variable("Salt", value=2.0)
+        opt.add_ingredient("Salt", 2.0, 2.0)
         for row in opt.ask(n_suggestions=2):
             assert row["Salt"] == pytest.approx(2.0)
             assert sum(row.values()) == pytest.approx(100.0, abs=0.5)
 
-    def test_holding_that_puts_the_total_out_of_reach_names_the_total(
+    def test_fixing_that_puts_the_total_out_of_reach_names_the_total(
             self, tmp_path, monkeypatch):
         """Not eight ingredients and a limit the user never wrote."""
         opt = self._sample(tmp_path, monkeypatch)
         opt.set_formulation_total(120)
-        # Water is 20 to 60 g; held at 20, the rest reach 91 g at most.
+        # Water is 20 to 60 g; fixed at 20, the rest reach 91 g at most.
         with pytest.raises(ValueError) as refused:
-            opt.deactivate_variable("Water", value=20.0)
+            opt.add_ingredient("Water", 20.0, 20.0)
         assert str(refused.value) == (
-            "Holding these would leave no formulation adding up to 120 g. "
-            "Clear the default batch size first, or vary enough "
-            "ingredients to reach it.")
+            "Fixing these would leave no formulation adding up to 120 g. "
+            "Change the batch size, or let enough ingredients vary again.")
 
     def test_a_total_of_nothing_is_refused_in_the_reach_words(self, tmp_path,
                                                               monkeypatch):
@@ -4989,36 +5017,27 @@ class TestTotalsAndBatchesFinalWave:
                           min_val=0, max_val=10, unit="/10")
         return opt
 
-    # ---- F2: the reach counts a held ingredient's frozen value -----
+    # ---- F2: the reach counts a fixed ingredient at both ends -----
 
-    def test_total_reach_counts_a_held_ingredient_where_it_is_held(
+    def test_total_reach_counts_a_fixed_ingredient_at_both_ends(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.total_reach() == (0.0, 140.0)
-        opt.deactivate_variable("Pea protein", value=10.0)
+        opt.add_ingredient("Pea protein", 10.0, 10.0)
         # Pea protein can no longer move: it adds exactly 10 g at both ends.
         assert opt.total_reach() == (10.0, 90.0)
 
-    def test_a_total_beyond_the_held_reach_is_refused_and_says_why(
+    def test_a_total_beyond_the_fixed_reach_is_refused_in_the_numbers(
             self, tmp_path, monkeypatch):
+        """The reach is one pair of numbers now — a fixed row has no second
+        range behind it — so the refusal is the reach sentence and nothing
+        else."""
         opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Pea protein", value=10.0)
+        opt.add_ingredient("Pea protein", 10.0, 10.0)
         with pytest.raises(ValueError) as excinfo:
             opt.set_formulation_total(120.0)
-        message = str(excinfo.value)
-        assert "90 g" in message
-        # The hold is why, so the hold is named and the way back is the
-        # hold, not the Lowest and Highest of eight ingredients.
-        assert "Pea protein" in message and "held where it is" in message
+        assert "90 g" in str(excinfo.value)
         assert opt.formulation_total is None
-
-    def test_a_total_out_of_reach_for_the_amounts_does_not_blame_the_hold(
-            self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Pea protein", value=10.0)
-        with pytest.raises(ValueError) as excinfo:
-            opt.set_formulation_total(400.0)
-        assert "held where it is" not in str(excinfo.value)
 
     # ---- F1 / G-e2 / C4: nothing is rescaled under a project total ----
 
@@ -5510,13 +5529,13 @@ class TestRenameVariable:
                                        "Fat per 100 g") == 8.0
         assert "Pea protein" not in reloaded.ingredient_properties
 
-    def test_a_held_row_keeps_its_hold(self, tmp_path, monkeypatch):
+    def test_a_fixed_row_stays_fixed(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Pea protein", value=20.0)
+        opt.add_ingredient("Pea protein", 20.0, 20.0)
         opt.rename_variable("Pea protein", "Pea protein isolate")
-        held = opt.inactive_variables()
-        assert [v['name'] for v in held] == ["Pea protein isolate"]
-        assert opt._frozen_value(held[0]) == 20.0
+        fixed = opt.fixed_variables()
+        assert [v['name'] for v in fixed] == ["Pea protein isolate"]
+        assert opt._fixed_value(fixed[0]) == 20.0
 
     def test_a_name_that_is_taken_is_refused_and_nothing_moves(
             self, tmp_path, monkeypatch):
@@ -5597,10 +5616,12 @@ class TestEditingASetting:
         assert var['bounds'] == (140.0, 210.0) and var['_absent_value'] == 175.0
 
 
-class TestAHoldFollowsTheAmounts:
-    """A held row is pinned at one number, and four places read it: the Hold
-    button, the Status column, the Set-up sheet and every suggestion. The
-    amounts the user has just typed are the answer they all have to give."""
+class TestAFixedRowIsItsOwnTwoNumbers:
+    """0.5.0: a row pinned at one amount IS its Lowest and its Highest, so
+    there is nothing left to keep in step. Narrowing the range moves the
+    amount because the range is the amount; the class this replaces existed
+    only because a hold was stored beside the range and could disagree
+    with it."""
 
     def _opt(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -5611,39 +5632,42 @@ class TestAHoldFollowsTheAmounts:
         opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
         return opt
 
-    def test_a_narrowed_highest_brings_the_hold_with_it(self, tmp_path,
-                                                        monkeypatch):
+    def test_re_fixing_a_row_moves_it_and_the_search_with_it(
+            self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Water", value=20.0)
-        opt.add_ingredient("Water", 0, 5)
+        opt.add_ingredient("Water", 20, 20)
+        opt.add_ingredient("Water", 5, 5)
         var = opt._var_by_name("Water")
-        assert var['_frozen_at'] == 5.0
-        assert opt._frozen_value(var) == 5.0
-        # And the search is held there too, not at the amount that went.
+        assert var['bounds'] == (5.0, 5.0)
+        assert opt._fixed_value(var) == 5.0
+        # And the search is there too, not at the amount that went.
         assert all(row["Water"] == pytest.approx(5.0)
                    for row in opt.ask(n_suggestions=2))
 
-    def test_a_raised_lowest_brings_it_with_it_as_well(self, tmp_path,
-                                                       monkeypatch):
+    def test_giving_a_fixed_row_a_range_again_puts_it_back_in_play(
+            self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Water", value=0.0)
+        opt.add_ingredient("Water", 20, 20)
+        assert [v['name'] for v in opt.fixed_variables()] == ["Water"]
         opt.add_ingredient("Water", 10, 60)
-        assert opt._var_by_name("Water")['_frozen_at'] == 10.0
+        assert opt.fixed_variables() == []
+        assert opt._var_by_name("Water")['bounds'] == (10.0, 60.0)
 
-    def test_a_hold_still_inside_the_amounts_is_left_alone(self, tmp_path,
-                                                          monkeypatch):
+    def test_nothing_is_stored_beside_the_range_to_disagree_with_it(
+            self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        opt.deactivate_variable("Water", value=20.0)
-        opt.add_ingredient("Water", 0, 40)
-        assert opt._var_by_name("Water")['_frozen_at'] == 20.0
+        opt.add_ingredient("Water", 20, 20)
+        var = opt._var_by_name("Water")
+        assert '_frozen_at' not in var and 'active' not in var
 
-    def test_a_held_setting_follows_its_amounts_too(self, tmp_path,
-                                                    monkeypatch):
+    def test_a_setting_is_fixed_the_same_way(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_process_parameter("Cook temperature", 150, 200, unit="°C")
-        opt.deactivate_variable("Cook temperature", value=190.0)
-        opt.add_process_parameter("Cook temperature", 150, 170, unit="°C")
-        assert opt._var_by_name("Cook temperature")['_frozen_at'] == 170.0
+        opt.add_process_parameter("Cook temperature", 170, 170, unit="°C")
+        var = opt._var_by_name("Cook temperature")
+        assert var['bounds'] == (170.0, 170.0)
+        assert all(row["Cook temperature"] == pytest.approx(170.0)
+                   for row in opt.ask(n_suggestions=2))
 
 
 class TestOneNameOneThing:
@@ -5793,3 +5817,314 @@ class TestScaleRound:
         assert opt.pending_batch[0]['recipe'] == {"Pea protein": 0.0,
                                                   "Water": 0.0}
         assert opt.pending_batch_total == 100.0
+
+
+class TestFixedIsLowestEqualsHighest:
+    """0.5.0 §1.2: there is no Hold. A row whose Lowest is its Highest is
+    FIXED — the model pins it at that amount everywhere the old inactive
+    flag pinned it, and the two boxes the user already types into are the
+    whole of the control."""
+
+    def _opt(self, tmp_path, monkeypatch, name="fixed"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 60)
+        opt.add_ingredient("Water", 0, 80)
+        opt.add_ingredient("Salt", 20, 20)
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+        return opt
+
+    def _warm(self, opt):
+        """Five results, so the next ask goes through the GP rather than the
+        space-filling opening."""
+        for i in range(5):
+            opt.tell({"Pea protein": 20.0 + i, "Water": 60.0 - i,
+                      "Salt": 20.0}, {"Firmness": 5.0 + i * 0.1})
+
+    # ---- the model pins it, cold and warm ----
+
+    def test_a_fixed_row_is_read_off_its_two_boxes(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
+        assert [v['name'] for v in opt.varying_variables()] == \
+            ["Pea protein", "Water"]
+        assert opt._fixed_value(opt._var_by_name("Salt")) == 20.0
+
+    def test_the_cold_start_pins_a_fixed_ingredient_and_still_lands_on_the_size(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        rows = opt.ask(n_suggestions=3)
+        for recipe in rows:
+            assert recipe["Salt"] == pytest.approx(20.0)
+            assert sum(recipe.values()) == pytest.approx(100.0, abs=0.01)
+
+    def test_the_warm_search_pins_a_fixed_ingredient_too(self, tmp_path,
+                                                         monkeypatch):
+        """The GP still sees Salt's column — every past formulation had
+        some — but the acquisition is maximized with it held out."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        self._warm(opt)
+        for recipe in opt.ask(n_suggestions=2):
+            assert recipe["Salt"] == pytest.approx(20.0)
+            assert sum(recipe.values()) == pytest.approx(100.0, abs=0.5)
+
+    def test_the_reach_counts_a_fixed_ingredient_at_both_ends(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.total_reach() == (20.0, 160.0)
+        opt.add_ingredient("Pea protein", 10, 10)
+        assert opt.total_reach() == (30.0, 110.0)
+
+    def test_a_fixed_setting_is_dialled_to_its_one_number(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_setting")
+        opt.add_process_parameter("Cook temperature", 175, 175, unit="°C")
+        assert "Cook temperature" in [v['name'] for v in opt.fixed_variables()]
+        for recipe in opt.ask(n_suggestions=2):
+            assert recipe["Cook temperature"] == pytest.approx(175.0)
+        assert opt.fixed_at_text(opt._var_by_name("Cook temperature")) \
+            == "175 °C"
+
+    def test_a_fixed_row_is_not_one_of_the_changes_a_round_made(
+            self, tmp_path, monkeypatch):
+        """It is the same amount in every formulation, so it cannot be what
+        this round is trying."""
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_changes")
+        changes = opt._variable_deltas(
+            {"Pea protein": 30.0, "Water": 50.0, "Salt": 20.0},
+            {"Pea protein": 20.0, "Water": 60.0, "Salt": 20.0}, 'ingredient')
+        assert [name for name, _ in changes] == ["Pea protein", "Water"]
+
+    def test_generating_with_everything_fixed_says_what_to_do(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="all_fixed")
+        opt.add_ingredient("Pea protein", 10, 10)
+        opt.add_ingredient("Water", 70, 70)
+        with pytest.raises(ValueError) as refused:
+            opt.ask(n_suggestions=1)
+        assert "fixed at one amount" in str(refused.value)
+
+    # ---- equal is a fix; inverted is a refusal ----
+
+    def test_equal_amounts_are_accepted_and_inverted_ones_are_not(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="equal_bounds")
+        opt.add_ingredient("Oil", 5, 5)
+        assert opt._var_by_name("Oil")['bounds'] == (5.0, 5.0)
+        opt.add_process_parameter("Mixing time", 90, 90, unit="s")
+        assert opt._var_by_name("Mixing time")['bounds'] == (90.0, 90.0)
+        for lowest, highest in ((10, 5), (200, 100)):
+            with pytest.raises(ValueError,
+                               match="Lowest cannot be above Highest"):
+                opt.add_ingredient("Oil", lowest, highest)
+            with pytest.raises(ValueError,
+                               match="Lowest cannot be above Highest"):
+                opt.add_process_parameter("Mixing time", lowest, highest)
+        assert opt._var_by_name("Oil")['bounds'] == (5.0, 5.0)
+
+    def test_an_ingredient_file_may_fix_a_row_too(self, tmp_path,
+                                                  monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("fixed_csv")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Salt"], "Min": [0, 2], "Max": [100, 2]}))
+        assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
+        with pytest.raises(ValueError, match="cannot be above Highest"):
+            opt.load_ingredients_from_csv(pd.DataFrame({
+                "Name": ["Flour"], "Min": [50], "Max": [10]}))
+
+    # ---- the guard sentence ----
+
+    def test_fixing_a_row_out_of_the_batch_size_is_refused_in_those_words(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fix_guard")
+        opt.set_formulation_total(120.0)
+        # Water is 0 to 80 g; fixed at 0, the rest reach 80 g at most.
+        with pytest.raises(ValueError) as refused:
+            opt.add_ingredient("Water", 0, 0)
+        assert str(refused.value) == (
+            "Fixing these would leave no formulation adding up to 120 g. "
+            "Change the batch size, or let enough ingredients vary again.")
+        # Refused before anything was written: Water still varies.
+        assert opt._var_by_name("Water")['bounds'] == (0.0, 80.0)
+        assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
+
+    def test_a_fix_the_batch_size_still_reaches_is_allowed(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fix_ok")
+        opt.set_formulation_total(100.0)
+        opt.add_ingredient("Pea protein", 30, 30)
+        assert opt._var_by_name("Pea protein")['bounds'] == (30.0, 30.0)
+        for recipe in opt.ask(n_suggestions=2):
+            assert recipe["Pea protein"] == pytest.approx(30.0)
+
+    # ---- what the sheet says ----
+
+    def test_the_set_up_sheet_says_a_row_is_fixed_and_at_what(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_sheet")
+        opt.tell({"Pea protein": 20.0, "Water": 60.0, "Salt": 20.0},
+                 {"Firmness": 6.0})
+        book = openpyxl.load_workbook(
+            io.BytesIO(opt.all_formulations_workbook()))
+        sheet = book[wording.SET_UP_SHEET]
+        header = [c.value for c in sheet[2]]
+        assert header[6] == wording.STATUS_LABEL
+        said = {sheet.cell(row=r, column=1).value:
+                sheet.cell(row=r, column=7).value for r in (3, 4, 5)}
+        assert said == {"Pea protein": None, "Water": None,
+                        "Salt": "fixed at 20.00 g"}
+
+    def test_the_sheet_has_no_status_column_when_nothing_is_fixed(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="nothing_fixed")
+        opt.add_ingredient("Salt", 0, 5)
+        book = openpyxl.load_workbook(
+            io.BytesIO(opt.all_formulations_workbook()))
+        header = [c.value for c in book[wording.SET_UP_SHEET][2]]
+        assert wording.STATUS_LABEL not in header
+
+    # ---- a copy carries it ----
+
+    def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
+        state = opt.export_json()
+        assert state['CLASS_VERSION'] == 10
+        assert FoodOptimizer.validate_state(state)['ingredients'] == 3
+        restored = FoodOptimizer("fixed_copy_restored")
+        restored.import_json(state)
+        assert [v['name'] for v in restored.fixed_variables()] == ["Salt"]
+        assert restored._var_by_name("Salt")['bounds'] == (20.0, 20.0)
+        assert restored.lots == {}
+
+    def test_a_copy_from_a_newer_app_is_still_refused(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_newer")
+        state = opt.export_json()
+        state['CLASS_VERSION'] = FoodOptimizer.CLASS_VERSION + 1
+        with pytest.raises(ValueError, match="newer version"):
+            FoodOptimizer.validate_state(state)
+
+    def test_lot_numbers_ride_with_the_project(self, tmp_path, monkeypatch):
+        """Task 3 fills these in from the sheets; the shape on disk is
+        settled now so an older file needs no second migration."""
+        opt = self._opt(tmp_path, monkeypatch, name="fixed_lots")
+        opt.lots = {1: {"Salt": "LOT-7"}}
+        opt.save()
+        reloaded = FoodOptimizer("fixed_lots")
+        assert reloaded.lots == {1: {"Salt": "LOT-7"}}
+
+
+class TestMigratingAHeldProject:
+    """A 0.4.1 file spelled a fixed row as `active: False` plus `_frozen_at`.
+    It opens as a row whose Lowest is its Highest, and the two old keys are
+    never read again."""
+
+    def _state(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("pre_050")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 60)
+        opt.add_ingredient("Water", 0, 80)
+        opt.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+        opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+        state = opt.export_json()
+        state['CLASS_VERSION'] = 9
+        for var in state['variables']:
+            if var['name'] == "Water":
+                var['active'] = False
+                var['_frozen_at'] = 20.0
+            if var['name'] == "Cook temperature":
+                var['active'] = False
+                var['_frozen_at'] = 175.0
+        return state
+
+    def test_a_held_row_and_a_held_setting_open_as_fixed_rows(
+            self, tmp_path, monkeypatch):
+        state = self._state(tmp_path, monkeypatch)
+        opt = FoodOptimizer("migrated")
+        opt.import_json(state)
+        water = opt._var_by_name("Water")
+        assert water['bounds'] == (20.0, 20.0)
+        assert 'active' not in water and '_frozen_at' not in water
+        setting = opt._var_by_name("Cook temperature")
+        assert setting['bounds'] == (175.0, 175.0)
+        assert [v['name'] for v in opt.fixed_variables()] == \
+            ["Water", "Cook temperature"]
+        assert [v['name'] for v in opt.varying_variables()] == ["Pea protein"]
+
+    def test_the_migrated_amounts_are_what_the_next_round_uses(
+            self, tmp_path, monkeypatch):
+        state = self._state(tmp_path, monkeypatch)
+        opt = FoodOptimizer("migrated_ask")
+        opt.import_json(state)
+        for recipe in opt.ask(n_suggestions=2):
+            assert recipe["Water"] == pytest.approx(20.0)
+            assert recipe["Cook temperature"] == pytest.approx(175.0)
+
+    def test_a_row_held_without_a_number_of_its_own_keeps_the_old_answer(
+            self, tmp_path, monkeypatch):
+        """_frozen_value read an ingredient at nothing and a setting at its
+        Lowest when no `_frozen_at` was stored."""
+        state = self._state(tmp_path, monkeypatch)
+        for var in state['variables']:
+            var.pop('_frozen_at', None)
+            if var['name'] in ("Water", "Cook temperature"):
+                var['active'] = False
+        opt = FoodOptimizer("migrated_bare")
+        opt.import_json(state)
+        assert opt._var_by_name("Water")['bounds'] == (0.0, 0.0)
+        assert opt._var_by_name("Cook temperature")['bounds'] == (150.0, 150.0)
+
+    def test_a_setting_held_at_its_baseline_keeps_it(self, tmp_path,
+                                                     monkeypatch):
+        state = self._state(tmp_path, monkeypatch)
+        for var in state['variables']:
+            if var['name'] == "Cook temperature":
+                var.pop('_frozen_at')
+                var['_absent_value'] = 190.0
+        opt = FoodOptimizer("migrated_baseline")
+        opt.import_json(state)
+        assert opt._var_by_name("Cook temperature")['bounds'] == (190.0, 190.0)
+
+    def test_an_active_project_is_left_exactly_as_it_was(self, tmp_path,
+                                                         monkeypatch):
+        state = self._state(tmp_path, monkeypatch)
+        for var in state['variables']:
+            var['active'] = True
+            var.pop('_frozen_at', None)
+        opt = FoodOptimizer("migrated_none")
+        opt.import_json(state)
+        assert opt._var_by_name("Water")['bounds'] == (0.0, 80.0)
+        assert opt.fixed_variables() == []
+
+
+def test_a_setting_with_a_baseline_can_still_be_fixed_elsewhere(tmp_path,
+                                                                monkeypatch):
+    """The baseline is what the bakes already done ran at; the range is what
+    the next round will run at. Refusing "Baseline 175 must be between 190
+    and 190" refused a thing the bench is entitled to ask for."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("fixed_baseline")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 50.0}, {"Taste": 5.0})
+    opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                              unit="°C")
+    opt.add_process_parameter("Cook temperature", 190, 190, unit="°C")
+    var = opt._var_by_name("Cook temperature")
+    assert var['bounds'] == (190.0, 190.0)
+    assert var['_absent_value'] == 175.0     # the past is not rewritten
+    # The search frame stretches over both, so the history still normalizes.
+    assert all(row["Cook temperature"] == pytest.approx(190.0)
+               for row in opt.ask(n_suggestions=2))
+    # A baseline actually typed outside a range is still refused.
+    with pytest.raises(ValueError, match="must be between"):
+        opt.add_process_parameter("Cook temperature", 150, 170, baseline=200,
+                                  unit="°C")

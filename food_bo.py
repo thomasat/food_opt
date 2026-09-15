@@ -158,6 +158,15 @@ def fmt_setting(value, unit=""):
     return join_unit(txt, unit)
 
 
+def amount_range_placeholder(low, high):
+    """'0–60', and just '20' when a row is FIXED. A box whose placeholder
+    reads '20–20' asks the reader to work out that the two ends are the same
+    number; the one number says it outright."""
+    if float(low) == float(high):
+        return f"{float(low):g}"
+    return f"{float(low):g}–{float(high):g}"
+
+
 def outside_message(name, value, low, high, unit, what, tail=""):
     """'Firmness 12 N is outside your range of 0 to 10 N.' — the one builder
     for every out-of-bounds line, so a measurement typed into the grid, one
@@ -165,9 +174,12 @@ def outside_message(name, value, low, high, unit, what, tail=""):
     in the same words. `what` names the bounds, `tail` is any sentence that
     follows. A "/"-style unit stays off the numbers, as it does everywhere."""
     unit = unit_after_number(unit)
+    # A fixed row has one allowed amount, and "0 to 0" said it twice.
+    reach = (f"{float(low):g}" if float(low) == float(high)
+             else f"{float(low):g} to {float(high):g}")
     return (join_unit(f"{name} {float(value):g}", unit)
             + f" is outside {what} of "
-            + join_unit(f"{float(low):g} to {float(high):g}", unit)
+            + join_unit(reach, unit)
             + "." + tail)
 
 
@@ -423,7 +435,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 9  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 10  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -504,6 +516,10 @@ class FoodOptimizer:
         # was lost the moment the batch closed.
         self.pending_batch_total = None
         self.batch_totals = {}        # batch number -> the total it was made to
+        # Lot numbers written on the sheets and read back: round number ->
+        # {ingredient: the lot it was weighed from}. Empty until a sheet
+        # comes back carrying them.
+        self.lots = {}
         # The total every SUGGESTED formulation adds up to, or None for "any
         # total the allowed amounts reach". Unlike pending_batch_total, which
         # records what one batch was weighed out to after the fact, this is
@@ -578,8 +594,11 @@ class FoodOptimizer:
                 f"{name} is a column name Food Optimizer uses for its own "
                 f"tables. Choose another name, for example {name}s."
             )
-        if float(min_val) >= float(max_val):
-            raise ValueError("Lowest must be less than Highest.")
+        # Equal is allowed, and is how a row is FIXED: one amount, in every
+        # formulation. Only Lowest ABOVE Highest is a range with nothing in
+        # it, and that is what is refused.
+        if float(min_val) > float(max_val):
+            raise ValueError("Lowest cannot be above Highest.")
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
@@ -596,26 +615,6 @@ class FoodOptimizer:
         editing = next((v for v in self.variables if v['name'] == name), None)
         self._name_is_free(name, skip=editing)
         return name
-
-    def _keep_the_hold_inside(self, var):
-        """Bring a held row's amount back inside the amounts it is now
-        allowed, and say whether it moved.
-
-        A held row is pinned at one number, and that number is read in four
-        places — the Hold button, the Status column, the Set-up sheet and
-        every suggestion. Narrowing the row's Highest below it left the four
-        disagreeing: the screen said 20.00 g and the search used 5.00. The
-        hold is the thing that has to give, because the allowed amounts are
-        what the user has just typed."""
-        if '_frozen_at' not in var:
-            return False
-        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
-        held = float(var['_frozen_at'])
-        inside = min(max(held, lo), hi)
-        if inside == held:
-            return False
-        var['_frozen_at'] = inside
-        return True
 
     def add_ingredient(self, name, min_val, max_val, unit=None):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
@@ -636,10 +635,10 @@ class FoodOptimizer:
         min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
                 var['bounds'] = (min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
-                self._keep_the_hold_inside(var)
                 removed = self.prune_amount_limits()
                 self._drop_pending_batch()
                 self.save()
@@ -651,12 +650,17 @@ class FoodOptimizer:
                     "amounts. Start a fresh project or re-import your history."
                 )
             min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
+        self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
         var = {
             'name': name,
             'type': 'continuous',
             'bounds': (min_val, max_val),
             'category': 'ingredient',
-            'active': True,
+            # Printed on the sheets, never read by the model. Task 3 fills
+            # them in from the grid; every row carries them from the start so
+            # the shape on disk is one shape.
+            'vendor': "",
+            'sku': "",
         }
         if unit is not None:
             var['unit'] = str(unit).strip()
@@ -733,17 +737,18 @@ class FoodOptimizer:
                     f"Please check that column for text or blank cells and try "
                     f"again."
                 )
-            if min_val >= max_val:
+            if min_val > max_val:
                 raise ValueError(
-                    f"Ingredient '{name}': Lowest ({min_val}) must be less "
-                    f"than Highest ({max_val})"
+                    f"Ingredient '{name}': Lowest ({min_val}) cannot be above "
+                    f"Highest ({max_val})"
                 )
             var = {
                 'name': name,
                 'type': 'continuous',
                 'bounds': (min_val, max_val),
                 'category': 'ingredient',
-                'active': True,
+                'vendor': "",
+                'sku': "",
             }
             # A blank Unit cell means "the project's default", not a blank
             # unit: a file listing ml against the water alone should leave
@@ -808,30 +813,36 @@ class FoodOptimizer:
                 # them is an amount the history encodes at and the setting
                 # says it cannot take.
                 stored = var.get('_absent_value')
-                held = (float(baseline) if baseline is not None
-                        and stored is not None else stored)
-                if held is not None and not (min_val <= float(held) <= max_val):
+                carried = (float(baseline) if baseline is not None
+                           and stored is not None else stored)
+                # FIXING a setting is the one case where the baseline is
+                # allowed to sit outside: the range is then a decision about
+                # the next round, while the baseline is a fact about bakes
+                # already done at another setting. "Baseline 175 must be
+                # between 190 and 190" refused a thing the user is entitled
+                # to ask for, in a sentence that reads as a fault.
+                fixing = min_val == max_val and baseline is None
+                if (carried is not None and not fixing
+                        and not (min_val <= float(carried) <= max_val)):
                     raise ValueError(
-                        f"Baseline {float(held):g} must be between "
+                        f"Baseline {float(carried):g} must be between "
                         f"{min_val:g} and {max_val:g}."
                     )
+                self._check_fixed_feasible(name, min_val, max_val, 'process')
                 var['bounds'] = (min_val, max_val)
                 var['unit'] = unit
-                if held is not None and float(held) != float(stored):
-                    var['_absent_value'] = float(held)
+                if carried is not None and float(carried) != float(stored):
+                    var['_absent_value'] = float(carried)
                     self._reencode_history()
-                # A held setting is pinned at its own number, which the new
-                # amounts may no longer reach.
-                self._keep_the_hold_inside(var)
                 self._drop_pending_batch()
                 self.save()
                 return
+        self._check_fixed_feasible(name, min_val, max_val, 'process')
         var = {
             'name': name,
             'type': 'continuous',
             'bounds': (min_val, max_val),
             'category': 'process',
-            'active': True,
             'unit': unit,
         }
         if self.X_history:
@@ -1537,7 +1548,7 @@ class FoodOptimizer:
             if category is not None and \
                     var.get('category', 'ingredient') != category:
                 continue
-            if not var.get('active', True):
+            if self.is_fixed(var):
                 continue
             name = var['name']
             absent = var.get('_absent_value', 0.0)
@@ -2758,10 +2769,18 @@ class FoodOptimizer:
         r = 1
         _write_cell(sheet, r, 1, wording.VARIABLES_HEADER, bold=True)
         r += 1
-        for c, name in enumerate((wording.NAME_LABEL, wording.TYPE_LABEL,
-                                  wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
-                                  wording.UNIT_LABEL, wording.BASELINE_LABEL),
-                                 start=1):
+        # The Status column arrives with the first fixed row and not before:
+        # a column that says nothing on every row of a project where nothing
+        # is fixed is a column of noise. It is what the screen's own Status
+        # column used to say, now that the screen reads a fixed row off its
+        # one amount instead.
+        any_fixed = any(self.is_fixed(v) for v in self.variables)
+        headers = [wording.NAME_LABEL, wording.TYPE_LABEL,
+                   wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
+                   wording.UNIT_LABEL, wording.BASELINE_LABEL]
+        if any_fixed:
+            headers.append(wording.STATUS_LABEL)
+        for c, name in enumerate(headers, start=1):
             _write_cell(sheet, r, c, name, bold=True)
         r += 1
         for var in self.variables:
@@ -2775,6 +2794,10 @@ class FoodOptimizer:
             _write_cell(sheet, r, 5, self.unit_of(var['name']) or None)
             baseline = var.get('_absent_value')
             _write_cell(sheet, r, 6, None if baseline is None else float(baseline))
+            if any_fixed:
+                _write_cell(sheet, r, 7,
+                            wording.fixed_status(self.fixed_at_text(var))
+                            if self.is_fixed(var) else None)
             r += 1
         r += 1
 
@@ -3110,7 +3133,7 @@ class FoodOptimizer:
     #  Total of each formulation
     # ------------------------------------------------------------------ #
 
-    def total_reach(self, active_only=True):
+    def total_reach(self):
         """(lowest, highest) — the totals the allowed amounts can add up to.
 
         The sum of every ingredient's Lowest and the sum of every ingredient's
@@ -3119,23 +3142,14 @@ class FoodOptimizer:
         numbers rather than letting the search fail later with nothing to
         show for it.
 
-        A HELD ingredient counts at the one value it is held at, at both
-        ends — exactly as _snap_to_total takes its amount off the target
-        before moving anything. Reading its Lowest and Highest instead
-        offered a total the search could never reach: the box accepted it and
-        every Generate afterwards came back empty.
+        A FIXED ingredient needs no special case: its Lowest is its Highest,
+        so it adds the same amount at both ends — exactly as _snap_to_total
+        takes its amount off the target before moving anything.
 
-        `active_only` is False to ask the same question of the project with
-        nothing held, which is how a refusal knows whether the hold is
-        why."""
+        """
         lows = highs = 0.0
         for var in self.variables:
             if var.get('category', 'ingredient') != 'ingredient':
-                continue
-            if active_only and not var.get('active', True):
-                frozen = self._frozen_value(var)
-                lows += frozen
-                highs += frozen
                 continue
             low, high = var['bounds']
             lows += float(low)
@@ -3172,16 +3186,16 @@ class FoodOptimizer:
         stays spread out; it now spreads across the face of the box the
         total cuts, which is the only place a valid formulation lives.
 
-        A held ingredient is held at its frozen value and takes no part:
-        its amount comes off the target first."""
+        A fixed ingredient takes no part: its Lowest is its Highest, so its
+        amount comes off the target first and never moves."""
         names, lows, caps, start = [], [], [], []
         fixed = 0.0
         for var in self.variables:
             if var.get('category', 'ingredient') != 'ingredient':
                 continue
             value = float(recipe.get(var['name'], 0.0))
-            if not var.get('active', True):
-                fixed += value
+            if self.is_fixed(var):
+                fixed += self._fixed_value(var)
                 continue
             low, high = float(var['bounds'][0]), float(var['bounds'][1])
             names.append(var['name'])
@@ -3223,22 +3237,6 @@ class FoodOptimizer:
         return (value * (1.0 - self.FORMULATION_TOTAL_TOLERANCE),
                 value * (1.0 + self.FORMULATION_TOTAL_TOLERANCE))
 
-    def _held_reach_tail(self, total):
-        """'' unless a hold is why this total is out of reach — that is,
-        unless varying every held ingredient would bring it back inside
-        the reach. The two numbers in the refusal are the held project's,
-        so without this the answer to them ('raise an ingredient's Highest')
-        is the wrong one."""
-        held = [v['name'] for v in self.inactive_variables()
-                if v.get('category', 'ingredient') == 'ingredient']
-        if not held:
-            return ""
-        lowest, highest = self.total_reach(active_only=False)
-        if not lowest <= float(total) <= highest:
-            return ""
-        return wording.held_is_why_the_total_is_out_of_reach(
-            number_list(held), len(held) > 1)
-
     def set_formulation_total(self, total):
         """Every suggested formulation adds up to `total`.
 
@@ -3255,12 +3253,10 @@ class FoodOptimizer:
         lowest, highest = self.total_reach()
         if value > highest:
             raise ValueError(wording.total_not_reachable_at_most(
-                self.batch_total_text(value), self.batch_total_text(highest))
-                + self._held_reach_tail(value))
+                self.batch_total_text(value), self.batch_total_text(highest)))
         if value < lowest:
             raise ValueError(wording.total_not_reachable_at_least(
-                self.batch_total_text(value), self.batch_total_text(lowest))
-                + self._held_reach_tail(value))
+                self.batch_total_text(value), self.batch_total_text(lowest)))
         # A project every one of whose amounts can be 0 reaches 0, so the
         # sentence above lets a total of nothing through. It is refused in
         # the same shape rather than as the band's own "At least must be less
@@ -3560,18 +3556,40 @@ class FoodOptimizer:
                 idx += n_opts
         return recipe
 
-    def _get_bounds(self):
-        """Return a (2, dim) tensor of [mins, maxs] for all variables."""
-        bounds_min, bounds_max = [], []
+    def _search_bounds(self):
+        """[(low, high)] per column of the [0,1]^d frame the search runs in.
+
+        A FIXED row is one point, and a point has no frame: normalizing by a
+        zero span is a division by zero, and it is the encoded history that
+        is handed through that normalization to the GP. So a fixed column is
+        widened — to whatever the recorded formulations already span, so the
+        history still lands inside [0, 1], and to one unit when they span
+        nothing at all. The row itself does not move: _get_fixed_features
+        pins its coordinate inside the widened frame."""
+        spans = []
+        col = 0
         for var in self.variables:
             if var['type'] == 'continuous':
-                bounds_min.append(var['bounds'][0])
-                bounds_max.append(var['bounds'][1])
+                lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+                if hi <= lo:
+                    seen = [float(row[col]) for row in self.X_history
+                            if col < len(row)]
+                    lo, hi = min([lo] + seen), max([hi] + seen)
+                    if hi <= lo:
+                        hi = lo + 1.0
+                spans.append((lo, hi))
+                col += 1
             elif var['type'] == 'categorical':
                 for _ in var['options']:
-                    bounds_min.append(0.0)
-                    bounds_max.append(1.0)
-        return torch.tensor([bounds_min, bounds_max], dtype=torch.double)
+                    spans.append((0.0, 1.0))
+                    col += 1
+        return spans
+
+    def _get_bounds(self):
+        """Return a (2, dim) tensor of [mins, maxs] for all variables."""
+        spans = self._search_bounds()
+        return torch.tensor([[lo for lo, _ in spans], [hi for _, hi in spans]],
+                            dtype=torch.double)
 
     # ------------------------------------------------------------------ #
     #  Internal: Constraint Helpers
@@ -3626,9 +3644,14 @@ class FoodOptimizer:
                 if ing_name in var_indices:
                     idx = var_indices[ing_name]
                     var_def = next(v for v in self.variables if v['name'] == ing_name)
-                    v_min, v_max = var_def['bounds']
-                    indices.append(idx)
-                    coeffs.append(v_max - v_min)
+                    v_min, v_max = float(var_def['bounds'][0]), float(var_def['bounds'][1])
+                    # A fixed ingredient is the same number at both ends, so
+                    # it moves the limit rather than riding in it: a column
+                    # with a zero coefficient is a column the solver is being
+                    # asked about for nothing.
+                    if v_max != v_min:
+                        indices.append(idx)
+                        coeffs.append(v_max - v_min)
                     offset += v_min
 
             if not indices:
@@ -3687,9 +3710,9 @@ class FoodOptimizer:
             discarded=None):
         """Suggest the next batch of recipes to try.
 
-        Inactive variables (see deactivate_variable) are held at their frozen
-        value: the search runs over the active set only, while the surrogate
-        still sees every past observation.
+        A fixed variable (its Lowest is its Highest) is pinned at that one
+        amount: the search runs over the rest, while the surrogate still
+        sees every past observation.
 
         `batch_no` is for `Generate a different batch`, which keeps the number
         the batch it replaces was wearing; `discarded` are the formulation
@@ -3697,10 +3720,11 @@ class FoodOptimizer:
         Passing the number HERE rather than re-stamping the batch afterwards
         is what stops a regenerate spending a batch number nobody ever saw.
         """
-        if not self.active_variables():
+        if not self.varying_variables():
             raise ValueError(
-                "Everything is held — vary at least one ingredient before "
-                "generating formulations."
+                "Every ingredient and process setting is fixed at one amount. "
+                "Give at least one of them a range before generating "
+                "formulations."
             )
         bounds_tensor = self._get_bounds()
         dim = bounds_tensor.shape[1]
@@ -4355,7 +4379,7 @@ class FoodOptimizer:
             self.X_history = [self._encode(r) for r in self.recipe_history]
 
     # ------------------------------------------------------------------ #
-    #  Non-monotone active set: deactivate / reactivate / remove
+    #  Non-monotone active set: a row is FIXED when Lowest equals Highest
     #
     #  Standard EGBO grows the active set monotonically (S_1 <= S_2 <= ...),
     #  which means expert false positives accumulate and never leave: the
@@ -4364,21 +4388,61 @@ class FoodOptimizer:
     #  vanilla BO. Allowing the expert to prune gives the active set a bounded
     #  steady state instead.
     #
-    #  Pruning is implemented as *deactivation*, not deletion:
+    #  Pruning is not deletion, and as of 0.5.0 it is not a flag either: the
+    #  active set is read off the allowed amounts. A row whose Lowest is its
+    #  Highest is one number, so there is nothing for the search to choose;
+    #  everything else is in S_r. That is the same domain restriction as
+    #  before, said in the two boxes the user already types into:
     #    - the variable keeps its column in the encoded history, so every past
     #      observation stays in the GP (a recorded experiment is still a valid
     #      observation of f — it is only outside the current search domain);
-    #    - the acquisition function is maximized over the active set only;
-    #    - reactivation is free, which is what a non-monotone active set needs.
+    #    - the acquisition function is maximized over the varying set only;
+    #    - widening the range again is free, which is what a non-monotone
+    #      active set needs.
     # ------------------------------------------------------------------ #
 
-    def active_variables(self):
-        """Variables in the current active set S_r."""
-        return [v for v in self.variables if v.get('active', True)]
+    @staticmethod
+    def is_fixed(var):
+        """True for a row pinned at one amount: its Lowest is its Highest.
 
-    def inactive_variables(self):
-        """Variables pruned from S_r but still carried in the history/GP."""
-        return [v for v in self.variables if not v.get('active', True)]
+        A categorical variable has options rather than a range and can never
+        be fixed this way."""
+        if var.get('type') != 'continuous':
+            return False
+        return float(var['bounds'][0]) == float(var['bounds'][1])
+
+    @staticmethod
+    def _migrate_fixed(var):
+        """A project written before 0.5.0 spelled a fixed row as a row marked
+        inactive and pinned at `_frozen_at`. It becomes the range it was
+        pinned at — Lowest and Highest both that amount — which is the same
+        question asked in the two boxes the user already reads.
+
+        The two old keys are read here and nowhere else, ever again: a file
+        still carrying them opens, and is rewritten without them the first
+        time it is saved."""
+        was_held = not var.pop('active', True)
+        frozen = var.pop('_frozen_at', None)
+        if not was_held or var.get('type', 'continuous') != 'continuous':
+            return
+        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+        if frozen is None:
+            # What _frozen_value worked out for a row held without a number
+            # of its own: a process setting has no 'off', so it sat at its
+            # Lowest; an ingredient sat at nothing.
+            frozen = (float(var['_absent_value']) if '_absent_value' in var
+                      else (lo if var.get('category') == 'process'
+                            else min(max(0.0, lo), hi)))
+        value = float(frozen)
+        var['bounds'] = (value, value)
+
+    def varying_variables(self):
+        """Variables the search may move: everything not fixed."""
+        return [v for v in self.variables if not self.is_fixed(v)]
+
+    def fixed_variables(self):
+        """Variables pinned at one amount, still carried in the history/GP."""
+        return [v for v in self.variables if self.is_fixed(v)]
 
     def _var_by_name(self, name):
         for var in self.variables:
@@ -4386,19 +4450,26 @@ class FoodOptimizer:
                 return var
         raise ValueError(f"No variable named {name!r}.")
 
-    def _frozen_value(self, var):
-        """The value an inactive variable is held at during search."""
-        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
-        for key in ('_frozen_at', '_absent_value'):
-            if key in var:
-                return float(var[key])
-        if var.get('category') == 'process':
-            return lo  # a process parameter has no meaningful 'off' state
-        return min(max(0.0, lo), hi)
+    def _fixed_value(self, var):
+        """The one amount a fixed variable takes in every formulation."""
+        return float(var['bounds'][0])
 
-    def _achievable_range(self, coeff_of, pinned):
-        """Range of sum_i coeff_i * x_i attainable when `pinned` variables are held
-        fixed and the rest range over their bounds. Handles negative coefficients."""
+    def fixed_at_text(self, var):
+        """'20.00 g', '175 °C' — the one amount a fixed row is at, written in
+        its own unit. A cook temperature is dialled in and an ingredient is
+        weighed out, and a setting written as '175 g' priced it in grams."""
+        unit = self._unit_of(var)
+        value = self._fixed_value(var)
+        if var.get('category') == 'process':
+            return fmt_setting(value, unit)
+        return fmt_amount(value, unit)
+
+    def _achievable_range(self, coeff_of):
+        """Range of sum_i coeff_i * x_i attainable while every variable ranges
+        over its allowed amounts. Handles negative coefficients.
+
+        A fixed variable needs no special case: its Lowest is its Highest, so
+        it adds the same number at both ends."""
         lo = hi = 0.0
         for var in self.variables:
             if var['type'] != 'continuous':
@@ -4406,20 +4477,16 @@ class FoodOptimizer:
             coeff = coeff_of(var['name'])
             if coeff == 0:
                 continue
-            if var['name'] in pinned:
-                lo += coeff * pinned[var['name']]
-                hi += coeff * pinned[var['name']]
-            else:
-                a = coeff * float(var['bounds'][0])
-                b = coeff * float(var['bounds'][1])
-                lo += min(a, b)
-                hi += max(a, b)
+            a = coeff * float(var['bounds'][0])
+            b = coeff * float(var['bounds'][1])
+            lo += min(a, b)
+            hi += max(a, b)
         return lo, hi
 
-    def _achievable_property(self, metric, pinned):
+    def _achievable_property(self, metric):
         """The lowest and the highest one property can be per 100 g of the
-        finished formulation, with `pinned` variables held fixed and the rest
-        free within their allowed amounts.
+        finished formulation, with every variable free within its allowed
+        amounts (a fixed one has only the one).
 
         An average is a ratio, so it is not read off the bounds the way a sum
         is. It is found by asking of each candidate value whether any
@@ -4436,8 +4503,7 @@ class FoodOptimizer:
             return low, high
 
         def span(value):
-            return self._achievable_range(self._property_coeff(metric, value),
-                                          pinned)
+            return self._achievable_range(self._property_coeff(metric, value))
 
         # The lowest achievable average: the smallest value some formulation
         # can sit under.
@@ -4466,117 +4532,111 @@ class FoodOptimizer:
             highest = over
         return lowest, highest
 
-    def _assert_constraints_satisfiable(self, pinned):
-        """Raise if holding `pinned` ({name: value}) fixed makes any constraint
-        unsatisfiable. Pinning an ingredient to 0 can strand a lower bound that
+    def _assert_constraints_satisfiable(self):
+        """Raise if the allowed amounts, as they stand, make any limit
+        unsatisfiable. Fixing an ingredient at 0 can strand a lower bound that
         the ingredient was carrying, which would otherwise surface later as an
         opaque acquisition-optimization failure."""
         per = self.per_amount_text()
         for constr in self.constraints:
             metric = constr['metric']
-            lo, hi = self._achievable_property(metric, pinned)
+            lo, hi = self._achievable_property(metric)
             if constr['min'] is not None and hi < constr['min']:
                 raise ValueError(
-                    f"Holding these would make the limit on {metric} impossible "
-                    f"to meet: the remaining active ingredients can only reach "
+                    f"Fixing these would make the limit on {metric} impossible "
+                    f"to meet: the ingredients that can still vary only reach "
                     f"{hi:.4g} {per} at most. Loosen the limit first."
                 )
             if constr['max'] is not None and lo > constr['max']:
                 raise ValueError(
-                    f"Holding these would make the limit on {metric} impossible "
-                    f"to meet: the remaining active ingredients cannot get "
+                    f"Fixing these would make the limit on {metric} impossible "
+                    f"to meet: the ingredients that can still vary cannot get "
                     f"below {lo:.4g} {per}. Loosen the limit first."
                 )
 
         for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
             names = set(qc['ingredients'])
             label = " + ".join(qc['ingredients'])
-            lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0, pinned)
+            lo, hi = self._achievable_range(lambda n: 1.0 if n in names else 0.0)
             if qc.get('source') == 'formulation_total':
                 # The total is one number the user typed, not a rule about a
                 # list: naming its eight ingredients and telling the user to
                 # loosen a limit they never wrote helped nobody.
                 if ((qc['min'] is not None and hi < qc['min'])
                         or (qc['max'] is not None and lo > qc['max'])):
-                    raise ValueError(wording.holding_breaks_the_total(
+                    raise ValueError(wording.fixing_breaks_the_total(
                         self.batch_total_text(self.formulation_total)))
                 continue
             if qc['min'] is not None and hi < qc['min']:
                 raise ValueError(
-                    f"Holding these would make the limit on {label} impossible "
-                    f"to meet: the remaining active ingredients can only reach "
+                    f"Fixing these would make the limit on {label} impossible "
+                    f"to meet: the ingredients that can still vary only reach "
                     f"{hi:.4g} at most. Loosen the limit first."
                 )
             if qc['max'] is not None and lo > qc['max']:
                 raise ValueError(
-                    f"Holding these would make the limit on {label} impossible "
-                    f"to meet: the held items alone add up to {lo:.4g}. "
+                    f"Fixing these would make the limit on {label} impossible "
+                    f"to meet: the amounts pinned already add up to {lo:.4g}. "
                     f"Loosen the limit first."
                 )
 
+    def _check_fixed_feasible(self, name, min_val, max_val, category):
+        """Refuse a save that would fix `name` at one amount where nothing
+        could then be made.
+
+        Asked before the write, with the amounts the form is proposing put in
+        place for the length of the question and then taken out again: the
+        refusal has to name the amounts the user just typed, and a project
+        left half-written by a refusal is worse than the refusal.
+
+        Only a save that FIXES a row is asked. Narrowing a range is the
+        user's own business and has always been allowed to strand a limit;
+        what changed in 0.5.0 is that a row with no range left is how a hold
+        is spelled, so the guard that used to sit on the Hold button sits
+        here."""
+        if float(min_val) != float(max_val):
+            return
+        var = next((v for v in self.variables if v['name'] == name), None)
+        added = var is None
+        if added:
+            var = {'name': name, 'type': 'continuous',
+                   'bounds': (float(min_val), float(max_val)),
+                   'category': category}
+            self.variables.append(var)
+            before = None
+        else:
+            before = var['bounds']
+            var['bounds'] = (float(min_val), float(max_val))
+        try:
+            self._assert_constraints_satisfiable()
+        finally:
+            if added:
+                self.variables.remove(var)
+            else:
+                var['bounds'] = before
+
     def _get_fixed_features(self):
-        """{column: normalized_value} for the inactive columns, in the [0,1]^d frame
-        that `ask` hands to optimize_acqf. Returns {} when everything is active, so
-        the standard monotone behavior is byte-identical."""
+        """{column: normalized_value} for the fixed columns, in the [0,1]^d frame
+        that `ask` hands to optimize_acqf. Returns {} when everything varies, so
+        the standard monotone behavior is byte-identical.
+
+        The frame is _search_bounds, not the row's own Lowest and Highest: a
+        fixed row's are the same number, and the frame it is placed in has
+        been widened so it has a width at all."""
         fixed = {}
+        spans = self._search_bounds()
         col = 0
         for var in self.variables:
             if var['type'] == 'continuous':
-                if not var.get('active', True):
-                    lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+                if self.is_fixed(var):
+                    lo, hi = spans[col]
                     span = hi - lo
-                    z = 0.0 if span <= 0 else (self._frozen_value(var) - lo) / span
+                    z = 0.0 if span <= 0 else (self._fixed_value(var) - lo) / span
                     fixed[col] = float(min(max(z, 0.0), 1.0))
                 col += 1
             elif var['type'] == 'categorical':
-                n_opts = len(var['options'])
-                if not var.get('active', True):
-                    for j in range(n_opts):
-                        fixed[col + j] = 0.0
-                col += n_opts
+                col += len(var['options'])
         return fixed
-
-    def deactivate_variable(self, name, value=None):
-        """Prune `name` from the active set, pinning it at `value` (default: 0 for
-        an ingredient, the lower bound or stored baseline for a process parameter).
-
-        Nothing is destroyed: past experiments keep contributing to the GP, and
-        reactivate_variable puts the variable back. Raises if pruning would make a
-        constraint unsatisfiable or would empty the active set.
-        """
-        var = self._var_by_name(name)
-        if not var.get('active', True):
-            return
-        if len(self.active_variables()) <= 1:
-            raise ValueError(
-                "At least one ingredient or process setting must stay active."
-            )
-        frozen = self._frozen_value(var) if value is None else float(value)
-        lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
-        if not (lo <= frozen <= hi):
-            raise ValueError(
-                f"Frozen value {frozen} for '{name}' must lie within [{lo}, {hi}]."
-            )
-
-        pinned = {v['name']: self._frozen_value(v) for v in self.inactive_variables()}
-        pinned[name] = frozen
-        self._assert_constraints_satisfiable(pinned)
-
-        var['active'] = False
-        var['_frozen_at'] = frozen
-        self._drop_pending_batch()
-        self.save()
-
-    def reactivate_variable(self, name):
-        """Return a pruned variable to the active set (S_r is non-monotone, so a
-        variable removed in one round may be re-added in a later one)."""
-        var = self._var_by_name(name)
-        if var.get('active', True):
-            return
-        var['active'] = True
-        var.pop('_frozen_at', None)
-        self._drop_pending_batch()
-        self.save()
 
     def _check_rename(self, name, new_name):
         """The stripped name `rename_variable` would give this row, or a
@@ -4651,8 +4711,9 @@ class FoodOptimizer:
 
         Refuses by default if the ingredient was ever used at a nonzero amount,
         because dropping its column silently rewrites those experiments into
-        recipes that were never run. Prefer deactivate_variable, which keeps the
-        data. force=True deletes anyway and discards that information.
+        recipes that were never run. Prefer fixing it (Lowest = Highest),
+        which keeps the data. force=True deletes anyway and discards that
+        information.
         """
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
@@ -4663,8 +4724,8 @@ class FoodOptimizer:
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             raise ValueError(
                 "Cannot delete this: some formulations were recorded without "
-                "their amounts, so the history cannot be rebuilt. Hold it "
-                "instead, or start a fresh project."
+                "their amounts, so the history cannot be rebuilt. Fix it at "
+                "one amount instead, or start a fresh project."
             )
 
         used = [
@@ -4684,8 +4745,9 @@ class FoodOptimizer:
             )
 
         remaining = [v for v in self.variables if v['name'] != name]
-        if not any(v.get('active', True) for v in remaining):
-            raise ValueError("Cannot delete the last active variable.")
+        if not any(not self.is_fixed(v) for v in remaining):
+            raise ValueError(
+                "Cannot delete the last ingredient or setting with a range.")
 
         self.variables = remaining
         self.ingredient_properties.pop(name, None)
@@ -4732,20 +4794,20 @@ class FoodOptimizer:
         if not self.Y_history:
             return "No formulations recorded yet."
         best_i = int(np.argmax(self.Y_history))
-        active = [v['name'] for v in self.active_variables()]
+        active = [v['name'] for v in self.varying_variables()]
         inactive = [
-            f"{v['name']} (fixed at {self._frozen_value(v):.3g})"
-            for v in self.inactive_variables()
+            f"{v['name']} (fixed at {self._fixed_value(v):.3g})"
+            for v in self.fixed_variables()
         ]
         all_names = [v['name'] for v in self.variables]
         lines = [f"In play ({len(active)}): {', '.join(active)}"]
         if inactive:
-            lines.append(f"Held ({len(inactive)}): {', '.join(inactive)}")
+            lines.append(f"Fixed ({len(inactive)}): {', '.join(inactive)}")
         lines.append("")
         for i, y in enumerate(self.Y_history):
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
             # Show every variable that was actually used, including ones
-            # since held, so the expert can see what a held one contributed.
+            # since fixed, so the expert can see what it contributed.
             comp = ", ".join(f"{k}={rec[k]:.3g}" for k in all_names if rec.get(k))
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
@@ -4889,6 +4951,9 @@ class FoodOptimizer:
             'pending_batch_discarded': self.pending_batch_discarded,
             'pending_batch_total': getattr(self, 'pending_batch_total', None),
             'formulation_total': getattr(self, 'formulation_total', None),
+            # Round number -> {ingredient: the lot it was weighed from}.
+            'lots': {str(k): {str(i): str(v) for i, v in (row or {}).items()}
+                     for k, row in (getattr(self, 'lots', None) or {}).items()},
             # A None value is kept: it is this batch's own record that it
             # was made as generated, which is not the same as no record.
             'batch_totals': {str(k): (None if v is None else float(v))
@@ -5140,6 +5205,8 @@ class FoodOptimizer:
         self.batch_totals = {int(k): (None if v is None else float(v))
                              for k, v
                              in (state.get('batch_totals') or {}).items()}
+        self.lots = {int(k): {str(i): str(v) for i, v in (row or {}).items()}
+                     for k, row in (state.get('lots') or {}).items()}
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 
@@ -5147,11 +5214,17 @@ class FoodOptimizer:
             if 'bounds' in var and isinstance(var['bounds'], list):
                 var['bounds'] = tuple(var['bounds'])
             var.setdefault('category', 'ingredient')
-            var.setdefault('active', True)
+            self._migrate_fixed(var)
             if var['category'] == 'process':
                 # A 0.2.x setting was stored before settings could carry a
                 # unit; blank is what it had, and blank is what it keeps.
                 var.setdefault('unit', "")
+            else:
+                # 0.5.0: where an ingredient was bought, printed on the
+                # sheets and never read by the model. Blank is what every
+                # older project had.
+                var.setdefault('vendor', "")
+                var.setdefault('sku', "")
 
         for obj in self.objectives:
             obj.setdefault('unit', "")

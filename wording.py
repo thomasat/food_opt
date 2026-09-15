@@ -529,7 +529,7 @@ BATCH_SIZE_HELP = (f"Every {FORMULATION} in this {ROUND} adds up to this. "
 # for.
 BATCH_SIZE_PLACEHOLDER = "e.g. 150"
 
-NOT_HELD_TO_A_TOTAL = f"This {ROUND} is not held to a {BATCH_SIZE_NOUN}."
+NO_BATCH_SIZE_OF_ITS_OWN = f"This {ROUND} has no {BATCH_SIZE_NOUN} of its own."
 
 
 def total_mismatch_caption(no, made_text, total_text):
@@ -825,22 +825,24 @@ def added(name):
     return f"{name} added."
 
 
+# The Set-up sheet's own column. The screen has no Status column any more:
+# a row pinned at one amount says so in its Lowest and its Highest, which is
+# where the reader already looks. The sheet keeps one, because a sheet is
+# read away from the app and its two number columns are for re-importing.
 STATUS_LABEL = "Status"
-ACTIVE_STATUS = "active"
 
 
-def held_status(held_text):
-    """'held at 0.00 g' — the Status column of a row that is not being
-    varied. It used to read 'paused · held at 0.00 g', which said the same
-    thing twice: the row is held, and this is the amount it is held at."""
-    return f"held at {held_text}"
+def fixed_status(amount_text):
+    """'fixed at 0.00 g' — what the Set-up sheet writes beside a row whose
+    Lowest is its Highest."""
+    return f"fixed at {amount_text}"
 
 
 INGREDIENT_OR_SETTING_LABEL = "Ingredient or process setting"
 # The picker at the head of the control row. It carried the label above
 # word for word, which is also tab 3's Amounts column header: one label on
 # two unrelated controls, saying nothing about what picking a row does.
-VARIABLE_PICK_LABEL = "Choose one to hold, edit, delete or change its unit"
+VARIABLE_PICK_LABEL = "Choose one to edit, delete or change its unit"
 NEW_UNIT_LABEL = "New unit"
 SET_UNIT_BUTTON = "Set unit"
 
@@ -874,42 +876,6 @@ def properties_saved(names_text, name):
     return f"Saved {names_text} for {name}."
 
 
-def vary_button(name):
-    """'Vary Pea protein isolate again' — named, like the Delete button
-    beside it, and it says what the click does rather than naming a state
-    the reader has to remember being in."""
-    return f"Vary {name} again"
-
-
-def hold_button(name, held_text):
-    """'Hold Pea protein isolate at 0.00 g' — the amount is in the button,
-    because holding a row pins it to one number and that number is the whole
-    of what the click does. A bare 'Pause Pea protein isolate' named a state
-    and left the reader to work out what the row would be held at."""
-    return f"Hold {name} at {held_text}"
-
-
-def now_held_at(name, held_text):
-    """The sentence an edit owes a held row when the amounts just typed no
-    longer reach the amount it was held at: the hold moves to the nearest
-    amount the row is now allowed, and four places say that number."""
-    return f"{name} is now held at {held_text}."
-
-
-VARY_HELP = "New suggestions vary it again."
-HOLD_HELP = "Results already recorded keep their amounts."
-HOLD_DISABLED_HELP = ("At least two ingredients or settings must stay "
-                      "active before one can be held.")
-
-
-def varies_again(name):
-    return f"{name} varies again."
-
-
-def held(name, held_text):
-    return f"{name} is held at {held_text}."
-
-
 UNIT_REQUIRED_ERROR = "A unit is required; use g if the amount is a mass."
 
 
@@ -918,8 +884,8 @@ def unit_changed(name, written, is_ingredient):
     says so — so it asks for the one thing the reader can do about it."""
     if not written:
         return f"{name} is shown without a unit."
-    held = "amounts" if is_ingredient else "numbers"
-    return (f"{name} is now in {written}. The {held} you already recorded "
+    recorded = "amounts" if is_ingredient else "numbers"
+    return (f"{name} is now in {written}. The {recorded} you already recorded "
             "were not converted — check them.")
 
 
@@ -937,8 +903,9 @@ def delete_variable_warning(name, is_ingredient):
             + COPY_KEPT)
 
 
-DELETE_VS_HOLD_CAPTION = ("Deleting takes it out of every formulation "
-                          "already made; holding keeps the data.")
+DELETE_VS_FIXING_CAPTION = ("Deleting takes it out of every formulation "
+                          "already made; setting Lowest and Highest to the "
+                          "same amount keeps the data.")
 DELETE_EVEN_IF_USED_CHECKBOX = ("Delete even though formulations used it "
                                 "— those amounts go too")
 
@@ -1162,12 +1129,12 @@ def delete_limit_button(who):
 
 
 def delete_limit_warning(who):
-    return (f"Delete the {LIMIT} on {who}? The next {ROUND} is no longer "
-            f"held to it. " + COPY_KEPT)
+    return (f"Delete the {LIMIT} on {who}? The next {ROUND} no longer has "
+            f"to obey it. " + COPY_KEPT)
 
 
 def limit_deleted(who):
-    return f"Limit on {who} deleted. The next {ROUND} is no longer held to it."
+    return f"Limit on {who} deleted. The next {ROUND} no longer has to obey it."
 
 
 LIMIT_ON_CHOSEN_INGREDIENTS_HEADING = "**Limit on chosen ingredients**"
@@ -1266,28 +1233,14 @@ def no_formulation_reaches_total(total_text):
             "amounts.")
 
 
-# The one way back out of a hold that has put a total out of reach. Said by
-# the hold guard and by the total box's own refusal, so the two answers to
-# the same predicament are one sentence.
-VARY_ENOUGH = "vary enough ingredients to reach it"
-
-
-def holding_breaks_the_total(total_text):
-    """Holding pins an ingredient at one value, which can put the total out
-    of reach of the ones still moving. The fix is the total, not the eight
-    ingredients its limit happens to name."""
-    return (f"Holding these would leave no formulation adding up to "
-            f"{total_text}. Clear {FORMULATION_TOTAL_LOWER} first, or "
-            f"{VARY_ENOUGH}.")
-
-
-def held_is_why_the_total_is_out_of_reach(names_text, many=False):
-    """The tail the total box's refusal carries when the numbers it names are
-    a project with a row held: an ingredient held where it is adds the same
-    amount at both ends of the reach, so the way back is the hold and not
-    sixteen Lowest and Highest boxes."""
-    return (f" {names_text} {'are' if many else 'is'} held where "
-            f"{'they are' if many else 'it is'}; {VARY_ENOUGH}.")
+def fixing_breaks_the_total(total_text):
+    """A row whose Lowest is its Highest is one amount, and one amount can
+    put the batch size out of reach of the rows still moving. The two ways
+    back are the size and the ranges — not the eight ingredients the size's
+    own limit happens to name."""
+    return (f"Fixing these would leave no formulation adding up to "
+            f"{total_text}. Change the {BATCH_SIZE_NOUN}, or let enough "
+            f"ingredients vary again.")
 
 
 def formulation_total_gone_unit(total_text):

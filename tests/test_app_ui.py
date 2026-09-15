@@ -1350,14 +1350,16 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
     assert not any("Added" in m.value for m in at.success), [m.value for m in at.success]
 
 
-def test_a_hold_that_discards_the_batch_says_so(burger):
+def test_fixing_a_row_discards_the_round_and_says_so(burger):
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
+    _open_variable_editor(at, "Methylcellulose")
+    at.number_input(key="var_low").set_value(1.0)
+    at.number_input(key="var_high").set_value(1.0)
     at.run()
-    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
+    _submit_button(at, "Save Methylcellulose").click()
     at.run()
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
@@ -1457,19 +1459,17 @@ def test_the_range_labels_are_sentence_case(burger):
     assert "Lowest measurable" in labels and "Highest measurable" in labels, labels
 
 
-def test_the_ingredient_table_has_no_status_column_until_something_is_held(burger):
+def test_the_ingredient_table_has_no_status_column_at_all(burger):
+    """0.5.0: a row pinned at one amount says so in a Lowest that is its
+    Highest, which is where the reader already looks."""
+    burger.add_ingredient("Methylcellulose", 1.0, 1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
     assert list(table.columns) == ["Type", "Name", "Lowest", "Highest",
                                    "Unit"], list(table.columns)
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    _submit_button(at, wording.hold_button("Methylcellulose", "0.00 g")).click()
-    at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table["Status"]) == ["active", "held at 0.00 g"], \
-        list(table["Status"])
+    row = table[table["Name"] == "Methylcellulose"].iloc[0]
+    assert (row["Lowest"], row["Highest"]) == (1.0, 1.0)
 
 
 @pytest.fixture
@@ -4121,15 +4121,19 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     assert FoodOptimizer("mixed").quantity_constraints == []
 
 
-def test_a_held_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
+def test_a_fixed_ingredient_reads_as_one_amount_in_its_own_unit(mixed_units):
+    """The table says it in Lowest and Highest; the workbook's Set-up sheet
+    says it in words, in the row's own unit."""
     mixed_units.add_process_parameter("Cook temperature", 160, 200, unit="°C")
-    mixed_units.deactivate_variable("Water", value=30.0)
+    mixed_units.add_ingredient("Water", 30.0, 30.0, unit="ml")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert dict(zip(table["Name"], table["Status"])) == {
-        "Pea protein": "active", "Water": "held at 30.00 ml",
-        "Cook temperature": "active"}
+    assert "Status" not in table.columns
+    row = table[table["Name"] == "Water"].iloc[0]
+    assert (row["Lowest"], row["Highest"], row["Unit"]) == (30.0, 30.0, "ml")
+    saved = FoodOptimizer("mixed")
+    assert saved.fixed_at_text(saved._var_by_name("Water")) == "30.00 ml"
 
 
 def test_the_set_unit_box_survives_a_switch_to_a_project_without_that_row(
@@ -4535,19 +4539,21 @@ def test_the_set_unit_picker_is_not_called_a_measurement(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").label == \
-        "Choose one to hold, edit, delete or change its unit"
+        "Choose one to edit, delete or change its unit"
 
 
-def test_holding_speaks_for_settings_as_well_as_ingredients(ferment):
+def test_the_control_row_speaks_for_settings_as_well_as_ingredients(ferment):
     """In a fermentation project the picker offers process settings only."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="var_pick").options == ["Incubation temperature",
                                                     "Incubation time"]
-    # The button names the row it will act on and the value it will hold it
-    # at — in the setting's own unit, not in grams.
-    button = _submit_button(at, "Hold Incubation temperature at 30 °C")
-    assert button.proto.help == "Results already recorded keep their amounts."
+    # And a setting is fixed the same way an ingredient is: one number in
+    # both boxes, written in the setting's own unit.
+    ferment.add_process_parameter("Incubation temperature", 30, 30, unit="°C")
+    saved = FoodOptimizer(ferment.project_name)
+    assert saved.fixed_at_text(
+        saved._var_by_name("Incubation temperature")) == "30 °C"
 
 
 def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
@@ -5037,13 +5043,14 @@ def test_the_table_names_the_type_of_every_row(burger):
     assert list(table["Unit"]) == ["g", "g", "°C"]
 
 
-def test_a_held_row_is_the_only_reason_for_a_status_column(burger):
-    burger.deactivate_variable("Methylcellulose", value=1.0)
+def test_a_fixed_row_adds_no_column_to_the_table(burger):
+    burger.add_ingredient("Methylcellulose", 1.0, 1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     table = next(d.value for d in _tab1(at).dataframe if "Type" in d.value.columns)
-    assert "Status" in table.columns
-    assert list(table["Status"]) == ["active", "held at 1.00 g"]
+    assert "Status" not in table.columns
+    assert list(table["Lowest"]) == [0.0, 1.0]
+    assert list(table["Highest"]) == [25.0, 1.0]
 
 
 def _open_variable_editor(at, name):
@@ -5308,36 +5315,33 @@ def test_the_measurement_editor_closes_the_ingredient_one(burger):
     assert "_editing_measurement" not in at.session_state
 
 
-def test_a_held_amount_follows_a_narrowed_range(burger):
-    """The hold is a number the button, the table, the sheets and every
-    suggestion all read. Narrowing the row's Highest below it moved the
-    search and left the other three saying the old number."""
-    burger.deactivate_variable("Pea protein", value=20.0)
+def test_the_editor_fixes_a_row_by_typing_one_number_in_both_boxes(burger):
+    """There is no Hold button: a row is pinned at one amount by saying so
+    in Lowest and Highest, and the search obeys the two boxes."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    assert "Hold Pea protein at 20.00 g" not in _labels(at)   # already held
     _open_variable_editor(at, "Pea protein")
+    at.number_input(key="var_low").set_value(5.0)
     at.number_input(key="var_high").set_value(5.0)
     at.run()
     _submit_button(at, "Save Pea protein").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Pea protein saved. Pea protein is now held at "
-               "5.00 g." for s in at.success), [s.value for s in at.success]
+    assert any(s.value == "Pea protein saved." for s in at.success), \
+        [s.value for s in at.success]
     saved = FoodOptimizer("burger")
     var = saved._var_by_name("Pea protein")
-    assert var["_frozen_at"] == 5.0
-    assert saved._frozen_value(var) == 5.0
+    assert var["bounds"] == (5.0, 5.0)
+    assert saved._fixed_value(var) == 5.0
     table = next(d.value for d in _tab1(at).dataframe
                  if "Type" in d.value.columns)
-    assert dict(zip(table["Name"], table["Status"]))["Pea protein"] == \
-        "held at 5.00 g"
-    assert "Vary Pea protein again" in _labels(at)
+    row = table[table["Name"] == "Pea protein"].iloc[0]
+    assert (row["Lowest"], row["Highest"]) == (5.0, 5.0)
 
 
-def test_an_edit_that_leaves_the_hold_reachable_says_nothing_extra(burger):
-    burger.deactivate_variable("Pea protein", value=20.0)
+def test_a_fixed_row_is_given_a_range_again_from_the_same_form(burger):
+    burger.add_ingredient("Pea protein", 20.0, 20.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
@@ -5346,8 +5350,10 @@ def test_an_edit_that_leaves_the_hold_reachable_says_nothing_extra(burger):
     at.run()
     _submit_button(at, "Save Pea protein").click()
     at.run()
+    assert not at.exception
     assert any(s.value == "Pea protein saved." for s in at.success), \
         [s.value for s in at.success]
+    assert FoodOptimizer("burger").fixed_variables() == []
 
 
 def test_a_rename_on_its_own_keeps_the_open_batch(burger):
@@ -5384,42 +5390,38 @@ def test_saving_the_editor_unchanged_keeps_the_open_batch_too(burger):
     assert FoodOptimizer("burger").pending_batch is not None
 
 
-def test_the_control_row_holds_one_row_and_varies_it_again(burger):
+def test_the_control_row_has_no_hold_or_vary_button(burger):
+    """0.5.0: pinning a row at one amount is Lowest and Highest, typed in
+    the form above. The control row is Edit, New unit, Delete."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.selectbox(key="var_pick").select("Methylcellulose")
     at.run()
-    # The amount the row will be held at is in the button, not only in the
-    # help: it is the whole of what the click does.
-    _submit_button(at, "Hold Methylcellulose at 0.00 g").click()
-    at.run()
-    assert not at.exception
-    assert any(s.value == "Methylcellulose is held at 0.00 g."
-               for s in at.success), [s.value for s in at.success]
-    assert [v["name"] for v in FoodOptimizer("burger").inactive_variables()] \
-        == ["Methylcellulose"]
-    # The same place on the row is now the way back.
-    assert "Hold Methylcellulose at 0.00 g" not in _labels(at)
-    vary = _submit_button(at, "Vary Methylcellulose again")
-    assert vary.proto.help == "New suggestions vary it again."
-    vary.click()
-    at.run()
-    assert any(s.value == "Methylcellulose varies again." for s in at.success), \
-        [s.value for s in at.success]
-    assert FoodOptimizer("burger").inactive_variables() == []
+    labels = _labels(at)
+    assert not [b for b in labels
+                if b.startswith(("Hold ", "Vary ")) or " again" in b], labels
+    assert "Edit Methylcellulose" in labels and "Delete Methylcellulose" in labels
 
 
-def test_hold_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
+def test_a_project_with_one_row_can_still_fix_it(tmp_path, monkeypatch):
+    """The old Hold button was greyed on the last active row. A range is not
+    a button and nothing greys it: the refusal, when it comes, is Generate
+    saying every row is fixed."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("one_only")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    hold = _submit_button(at, "Hold Water at 0.00 g")
-    assert hold.disabled
-    assert hold.proto.help == ("At least two ingredients or settings must "
-                               "stay active before one can be held.")
+    _open_variable_editor(at, "Water")
+    at.number_input(key="var_low").set_value(50.0)
+    at.number_input(key="var_high").set_value(50.0)
+    at.run()
+    _submit_button(at, "Save Water").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("one_only")._var_by_name("Water")["bounds"] == \
+        (50.0, 50.0)
 
 
 def test_the_control_row_sets_one_ingredient_unit(burger):
@@ -6211,7 +6213,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     _submit_button(at, "Delete limit on Fat per 100 g").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
-                           "round is no longer held to it. " + wording.COPY_KEPT)
+                           "round no longer has to obey it. " + wording.COPY_KEPT)
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").constraints != []   # not yet
     _submit_button(at, wording.YES_DELETE).click()
@@ -6220,8 +6222,8 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     assert FoodOptimizer("burger").constraints == []
     assert (tmp_path / "burger_pre_delete.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
-    assert any(s.value == "Limit on Fat per 100 g deleted. The next round is "
-                          "no longer held to it." for s in at.success), \
+    assert any(s.value == "Limit on Fat per 100 g deleted. The next round no "
+                          "longer has to obey it." for s in at.success), \
         [s.value for s in at.success]
 
 
@@ -8145,11 +8147,12 @@ def test_adding_an_ingredient_keeps_the_total_and_says_so(burger):
         [s.value for s in at.success]
 
 
-def test_a_batch_held_to_no_total_says_so_under_the_table(open_batch):
+def test_a_round_with_no_batch_size_of_its_own_says_so_under_the_table(
+        open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This round is not held to a batch size."
+    assert any(c.value == "This round has no batch size of its own."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 

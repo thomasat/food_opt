@@ -14,7 +14,8 @@ import streamlit as st
 import wording
 from food_bo import WORKBOOK_MIME
 from ui_helpers import (
-    TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
+    TAB_RESULTS, TAB_SETUP, amount_range_placeholder, best_formulation_no,
+    bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
     park_clear, readiness, saved_ok, scale_error,
@@ -216,20 +217,21 @@ def _own_key(name):
 def _own_recipe(opt):
     """What the boxes hold, or None while any of them is empty.
 
-    A held variable is pinned exactly as a generated formulation pins it
-    (opt._frozen_value), so the stored amounts name every variable the
-    project has — which is what the batch table, the sheets and tell() all
-    expect. Inventing a second rule here would put one formulation's held
-    ingredient at a different amount from its neighbour's in the same batch.
+    A fixed variable is pinned exactly as a generated formulation pins it —
+    at the one amount its Lowest and Highest agree on — so the stored amounts
+    name every variable the project has, which is what the batch table, the
+    sheets and tell() all expect. Inventing a second rule here would put one
+    formulation's fixed ingredient at a different amount from its
+    neighbour's in the same batch.
     """
     recipe = {}
-    for var in opt.active_variables():
+    for var in opt.varying_variables():
         value = st.session_state.get(_own_key(var['name']))
         if value is None:
             return None
         recipe[var['name']] = float(value)
-    for var in opt.inactive_variables():
-        recipe[var['name']] = opt._frozen_value(var)
+    for var in opt.fixed_variables():
+        recipe[var['name']] = opt._fixed_value(var)
     return recipe
 
 
@@ -237,7 +239,7 @@ def _clear_own(opt):
     """Empty the form for the next one. Popping a widget key does not reach
     the browser — the mounted box posts its old value straight back — so each
     is parked and assigned before the boxes are drawn again."""
-    for var in opt.active_variables():
+    for var in opt.varying_variables():
         park_clear(_own_key(var['name']), None)
     park_clear("own_note", "")
 
@@ -251,7 +253,7 @@ def _start_from_best(opt, best_no):
     if index is None:
         return
     recipe = opt.recipe_history[index]
-    for var in opt.active_variables():
+    for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount
         # in it. Its box opens EMPTY rather than at zero: zero is an amount
         # the user never chose, and Add refuses a blank, which is the ask.
@@ -276,7 +278,7 @@ def _add_own(opt):
     # A caution, never a refusal: an amount outside what the project allows is
     # still a formulation the user means to make, and the model learns from it.
     cautions = [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
-                            for v in opt.active_variables()) if c]
+                            for v in opt.varying_variables()) if c]
     _clear_own(opt)
     flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
     for caution in cautions:
@@ -298,7 +300,7 @@ def _own_formulation(opt):
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
             st.caption(wording.ADD_OWN_NO_BATCH_CAPTION)
-        for var in opt.active_variables():
+        for var in opt.varying_variables():
             low, high = (float(b) for b in var['bounds'])
             # No min_value/max_value: clamping would turn a deliberate 30 g
             # into a silent 25, exactly as it would a measured value. The
@@ -310,7 +312,7 @@ def _own_formulation(opt):
             # cook temperature in °C rather than in nothing at all.
             st.number_input(
                 opt._amount_column(var['name']),
-                placeholder=f"{low:g}–{high:g}",
+                placeholder=amount_range_placeholder(low, high),
                 key=_own_key(var['name']),
             )
         st.session_state.setdefault("own_note", "")
@@ -386,7 +388,7 @@ def _batch_table(opt, scale_to):
     )
     if scale_to is None:
         if opt.has_ingredients():
-            st.caption(wording.NOT_HELD_TO_A_TOTAL)
+            st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)

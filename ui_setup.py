@@ -22,7 +22,7 @@ from ui_helpers import (
     best_move_sentence, clear_formulation_total_box, clear_scale_total,
     confirm_action, confirmation_open,
     disarm, flash,
-    fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
+    fmt_setting, go_to_tab, join_unit, label_with_unit,
     number_list, other_confirmation, park_clear, plural, preserve_tab_forms,
     readiness, saved_ok, table_height,
 )
@@ -53,7 +53,7 @@ def _note_discarded_batch(opt, batch_no_before,
     is about.
 
     `reason` is what discarded it. The tab as a whole is the honest answer
-    for the ingredient list, a hold and the allowed amounts — three ways to
+    for the ingredient list and the allowed amounts — two ways to
     one place — but the total is one control the reader has just touched,
     and blaming "your set-up" sent them looking for what else they had
     done."""
@@ -572,7 +572,6 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
             _close_editor(opt, setting)
             st.rerun()
             return
-    held_before = _held_at(opt, editing) if _is_held(editing) else None
     if setting:
         if wants_baseline and st.session_state.get("var_base") is None:
             st.error(wording.ADD_BASELINE_ERROR)
@@ -594,7 +593,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
             return
         line = _added_line(opt, name, ingredient=False,
                            saved=editing is not None)
-        flash("success", _with_moved_hold(opt, editing, held_before, line))
+        flash("success", line)
         _note_discarded_batch(opt, batch_no)
         if editing is not None:
             _close_editor(opt, setting)
@@ -617,9 +616,7 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         name = _rename_after_edit(opt, name, rename_to)
         if name is None:
             return
-        added_line = _with_moved_hold(
-            opt, editing, held_before,
-            _added_line(opt, name, saved=editing is not None))
+        added_line = _added_line(opt, name, saved=editing is not None)
         tail = _unscaled_tail(opt, scaled, scaled_unit)
         flash("success", f"{added_line} {tail}" if tail else added_line)
         _flash_removed_limits(opt, removed)
@@ -627,11 +624,6 @@ def _add_variable_now(opt, setting, wants_baseline, properties=(),
         if editing is not None:
             _close_editor(opt, setting)
         st.rerun()
-
-
-def _is_held(var):
-    """True for a row that is held at one amount rather than varied."""
-    return var is not None and not var.get('active', True)
 
 
 def _only_the_name_changed(opt, editing, low, high, unit, wants_baseline):
@@ -649,19 +641,6 @@ def _only_the_name_changed(opt, editing, low, high, unit, wants_baseline):
         if typed is None or stored is None or float(typed) != float(stored):
             return False
     return True
-
-
-def _with_moved_hold(opt, editing, held_before, line):
-    """`line`, plus the one sentence a held row owes when the amounts just
-    typed no longer reach the amount it was held at. The hold is the thing
-    that gives — and the button, the table and the sheets would otherwise go
-    on naming the amount the search had already stopped using."""
-    if held_before is None or not _is_held(editing):
-        return line
-    held_now = _held_at(opt, editing)
-    if held_now == held_before:
-        return line
-    return f"{line} {wording.now_held_at(editing['name'], held_now)}"
 
 
 def _rename_after_edit(opt, name, rename_to):
@@ -684,18 +663,6 @@ def _ordered_variables(opt):
     return ingredients + settings
 
 
-def _held_at(opt, var):
-    """What a held row is held at in every new formulation. A cook
-    temperature is dialled in, an ingredient is weighed out, and each is
-    written in its own unit — a held setting 'held at 175 g' priced a
-    setting in grams."""
-    unit = opt.unit_of(var['name'])
-    value = opt._frozen_value(var)
-    if var.get('category') == 'process':
-        return fmt_setting(value, unit)
-    return fmt_amount(value, unit)
-
-
 def _property_cell(opt, var, prop):
     """One ingredient's value for one property, as the table writes it."""
     if var.get('category', 'ingredient') != 'ingredient':
@@ -711,9 +678,9 @@ def _variable_table(opt):
         return
     properties = opt.properties()
     # A column that says the same thing on every row is a column of noise, so
-    # Status arrives with the first held row and Baseline with the first
-    # setting that has one.
-    any_held = any(not v.get('active', True) for v in rows)
+    # Baseline arrives with the first setting that has one. There is no
+    # Status column any more: a row pinned at one amount says so where the
+    # reader already looks, in a Lowest that is its Highest.
     any_baseline = any(v.get('_absent_value') is not None for v in rows)
     # The three headers are the add form's own labels, so the table and the
     # boxes above it name the same four answers with the same four words.
@@ -732,9 +699,6 @@ def _variable_table(opt):
                                      opt.unit_of(v['name']))
                          if v.get('_absent_value') is not None else "")}
            if any_baseline else {}),
-        **({wording.STATUS_LABEL: (wording.ACTIVE_STATUS if v.get('active', True)
-                       else wording.held_status(_held_at(opt, v)))}
-           if any_held else {}),
         # One column per property, blank where an ingredient has no value —
         # a 0 is a value and must not read like a gap. A process setting is
         # weighed into nothing, so its cells are blank too.
@@ -761,13 +725,14 @@ def _measurement_is_open(opt):
 
 
 def _variable_controls(opt, storage, editing=None):
-    """One row for everything you can do to a row of the table: hold it at
-    one amount or vary it again, edit it, set its unit, delete it."""
+    """One row for everything you can do to a row of the table: edit it, set
+    its unit, delete it. Pinning a row at one amount is not here any more —
+    it is Lowest and Highest typed as the same number, in the form above."""
     rows = _ordered_variables(opt)
     if not rows:
         return
     properties = opt.properties()
-    widths = [2.2, 2, 1.2, 1.2, 1, 1.6] + ([1.6] if properties else [])
+    widths = [2.2, 1.2, 1.2, 1, 1.6] + ([1.6] if properties else [])
     cols = st.columns(widths)
     with cols[0]:
         pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
@@ -777,8 +742,6 @@ def _variable_controls(opt, storage, editing=None):
     is_ingredient = var.get('category', 'ingredient') == 'ingredient'
     _disarm_other_removals(pick)
     with cols[1]:
-        _hold_or_vary(opt, var, pick)
-    with cols[2]:
         # The form above is the editor, so this button fills it in and names
         # the row it was filled from. Greyed while it is already open on this
         # row: clicking it again would throw away what has been typed there.
@@ -788,20 +751,20 @@ def _variable_controls(opt, storage, editing=None):
                      disabled=editing is not None or _measurement_is_open(opt)):
             _open_editor(opt, var)
             st.rerun()
-    with cols[3]:
+    with cols[2]:
         st.session_state.setdefault("unit_value", "")
         # "New unit", not "Unit": the add form above has a Unit box of its
         # own, and two of them on one row asked the reader which was which.
         # The placeholder is the unit the picked row is in today.
         typed = st.text_input(wording.NEW_UNIT_LABEL, key="unit_value",
                               placeholder=opt.unit_of(pick) or "g")
-    with cols[4]:
+    with cols[3]:
         if st.button(wording.SET_UNIT_BUTTON, key="set_unit"):
             _set_unit_now(opt, pick, typed)
-    with cols[5]:
+    with cols[4]:
         _remove_variable(opt, storage, pick, is_ingredient)
     if properties:
-        with cols[6]:
+        with cols[5]:
             # Disabled rather than hidden for a setting: a control that comes
             # and goes as the pick changes reads as a fault in the app.
             if st.button(wording.SET_PROPERTIES_BUTTON, key="set_props",
@@ -857,38 +820,6 @@ def _property_value_editor(opt, pick, properties):
         if st.button(wording.CLOSE_BUTTON, key="close_props", use_container_width=True):
             st.session_state.pop("_props_for", None)
             st.rerun()
-
-
-def _hold_or_vary(opt, var, pick):
-    """Whichever of the two applies to the row that is picked. A held row is
-    pinned at one amount in every new formulation; nothing is removed."""
-    batch_no = opt.pending_batch_no
-    if not var.get('active', True):
-        if st.button(wording.vary_button(pick), key="vary_var",
-                     help=wording.VARY_HELP):
-            opt.reactivate_variable(pick)
-            if saved_ok(opt):
-                flash("success", wording.varies_again(pick))
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
-        return
-    alone = len(opt.active_variables()) <= 1
-    held_text = _held_at(opt, var)
-    # The amount is in the label, so the help says the other half: what a
-    # hold does NOT touch.
-    if st.button(wording.hold_button(pick, held_text), key="hold_var",
-                 disabled=alone,
-                 help=(wording.HOLD_DISABLED_HELP if alone
-                       else wording.HOLD_HELP)):
-        try:
-            opt.deactivate_variable(pick)
-        except ValueError as e:
-            st.error(str(e))
-        else:
-            if saved_ok(opt):
-                flash("success", wording.held(pick, held_text))
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
 
 
 def _set_unit_now(opt, pick, typed):
@@ -950,7 +881,7 @@ def _remove_variable(opt, storage, pick, is_ingredient):
     # is armed — deleting an ingredient that was used above 0 would rewrite
     # formulations nobody made.
     if armed and is_ingredient:
-        st.caption(wording.DELETE_VS_HOLD_CAPTION)
+        st.caption(wording.DELETE_VS_FIXING_CAPTION)
         st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX,
                     key="delete_ing_force")
     elif not armed:

@@ -14,7 +14,8 @@ import storage as storage_backend
 import wording
 from food_bo import WORKBOOK_MIME
 from ui_helpers import (
-    COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
+    COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
+    best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
     go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
@@ -325,7 +326,8 @@ def _amount_boxes(opt, key_of, recipe=None):
             # The All formulations table's own header, so an amount is typed
             # in the unit that table prints it in.
             typed[name] = st.number_input(
-                opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
+                opt._amount_column(name),
+                placeholder=amount_range_placeholder(low, high),
                 key=key_of(name), format="%.2f")
     return typed
 
