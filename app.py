@@ -74,6 +74,7 @@ _FORM_FRESH = {
     "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
     "batch_size": 3, "scale_total": None, "own_note": "",
+    "targets_source_box": "",
     # Tab 3's "Add a formulation you already made": the note box opens
     # holding the word an imported row is marked with, and the radio opens
     # on the typed-in half.
@@ -115,7 +116,8 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows", "_editing_measurement",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_var_kind_shown", "_props_for", ARMED_KEY):
+              "_pending_tab", "_var_kind_shown", "_props_for",
+              "_targets_source_open", ARMED_KEY):
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
@@ -157,7 +159,7 @@ def _open_project(name, create=False, made=False):
 
 
 def _open_sample_project():
-    _name = "Sample project"
+    _name = wording.SAMPLE_PROJECT_NAME
     if STORAGE.exists(_name):
         _open_project(_name)          # already created earlier; just open it
     else:
@@ -172,6 +174,7 @@ def _open_sample_project():
                                   min_val=0, max_val=10, unit="/10")
             _sample.add_objective("Firmness", 1.5, goal="target", target=6,
                                   min_val=0, max_val=10, unit="/10")
+            _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
         except ValueError as e:
             st.error(wording.sample_project_failed(e))
         else:
@@ -555,10 +558,11 @@ if getattr(_opt, "pending_batch", None):
 # ================================================================== #
 
 
-# The landing rule. This is one of the six places allowed to change tabs (the
-# other five are go_to_tab's callers: Next: make a batch, Back to set up,
-# Save results, Save uploaded results, Start the next batch), and it fires only
-# on the run that follows opening a project.
+# The landing rule. This is one of the seven places allowed to change tabs
+# (the other six are go_to_tab's callers: Next: make a batch, Back to set up,
+# Save results, Save uploaded results, Start the next batch, Change a
+# measurement or an ingredient), and it fires only on the run that follows
+# opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
 

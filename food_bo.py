@@ -203,7 +203,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 8  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 9  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
@@ -259,6 +259,10 @@ class FoodOptimizer:
         # food scientist expects; a blank unit made every amount ambiguous.
         self.amount_unit = "g"
         self.amount_unit_backfilled = False  # True only for a file with no unit
+        # A free-text note on where the measurement targets came from — a
+        # benchmark product, a published panel, a brief from marketing. Blank
+        # says nothing was recorded; shown as a caption once it is set.
+        self.targets_source = ""
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.pending_batch_no = None  # its batch number
         self.pending_batch_created = None   # ISO date it was generated, for the sheets
@@ -1148,6 +1152,17 @@ class FoodOptimizer:
         # read as each one scoring it.
         return (f"Overall score = {terms}. A formulation that hits every "
                 f"goal scores {self.utility_ceiling():.2f}.")
+
+    def set_targets_source(self, text):
+        """Remember where the measurement targets came from. Written only on
+        a change: the box posts back on every render while it is open, and a
+        save with nothing new would bump the file's mtime and make another
+        open window see a false conflict."""
+        value = "" if text is None else str(text).strip()
+        if value == getattr(self, 'targets_source', ""):
+            return
+        self.targets_source = value
+        self.save()
 
     def closeness_details(self, index):
         """The best-formulation table, most important first: one dict per
@@ -2457,6 +2472,10 @@ class FoodOptimizer:
         # none is exactly right: those batches were made as generated.
         self.pending_batch_total = getattr(self, 'pending_batch_total', None)
         self._batch_totals()
+        # A file written before this was stored has no field at all; blank is
+        # exactly right — nothing was ever said about where the targets
+        # came from.
+        self.targets_source = getattr(self, 'targets_source', "") or ""
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
@@ -2980,6 +2999,7 @@ class FoodOptimizer:
             'batch_totals': {str(k): float(v)
                              for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
+            'targets_source': getattr(self, 'targets_source', "") or "",
             'pending_batch': self.pending_batch,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
@@ -3081,6 +3101,13 @@ class FoodOptimizer:
                                   or not all(isinstance(n, str) for n in names)):
             raise ValueError(
                 "This backup's 'property_names' section has the wrong shape.")
+        # Where the targets came from: optional, but a present value must be
+        # text — import_json would otherwise store a number or a list as the
+        # caption the measurements table shows.
+        targets_source = state.get('targets_source')
+        if targets_source is not None and not isinstance(targets_source, str):
+            raise ValueError(
+                "This backup's 'targets_source' section has the wrong shape.")
         # The total a batch was made to. A bad one would silently rewrite
         # every amount tab 3 shows for the best formulation.
         def _total(x):
@@ -3191,6 +3218,9 @@ class FoodOptimizer:
         self.amount_unit_backfilled = 'amount_unit' not in state
         self.amount_unit = ("g" if self.amount_unit_backfilled
                             else str(state.get('amount_unit') or ""))
+        # A file written before this was stored has no key at all; blank is
+        # backfilled below in _backfill_identity.
+        self.targets_source = str(state.get('targets_source') or "").strip()
         self.pending_batch = state.get('pending_batch', None)
         self.pending_batch_no = state.get('pending_batch_no', None)
         self.pending_batch_created = state.get('pending_batch_created', None)

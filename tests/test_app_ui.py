@@ -320,6 +320,120 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     assert list(table["Range"]) == ["0 to 10", "0 to 10"]
 
 
+def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, monkeypatch):
+    """The sample sets its own targets_source and shows the caption it
+    produces, plus the two-line welcome under the tab-1 title -- both gone
+    once the sample is not what is open."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    opt = FoodOptimizer("Sample project")
+    assert opt.targets_source == wording.SAMPLE_TARGETS_SOURCE
+    captions = [c.value for c in at.tabs[0].caption]
+    assert wording.SAMPLE_TAB1_DESCRIPTION in captions
+    assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
+            in captions)
+
+
+def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pre = FoodOptimizer("Sample project")
+    pre.add_ingredient("Water", 0, 100)
+    pre.add_objective("Taste", 1.0, goal="max")
+    pre.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
+    pre.tell({"Water": 50.0}, {"Taste": 7.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "Sample project"
+    at.session_state["_land_on_open"] = True
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[0].caption]
+    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+    # The targets_source caption is unrelated to X_history and stays.
+    assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
+            in captions)
+
+
+def test_the_welcome_never_shows_on_a_project_of_the_users_own(burger):
+    """Only the sample gets the welcome line, matched by name -- a project
+    the user named 'Sample project' of their own would be an odd coincidence,
+    but the check is the one the app has always used to recognise its own
+    sample."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[0].caption]
+    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+
+
+def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert not any(c.value.startswith("Targets from:")
+                  for c in at.tabs[0].caption)
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    box = at.text_input(key="targets_source_box")
+    assert box.value == ""   # nothing set yet: opens blank
+    box.set_value("Benchmark burger, panel of 8.")
+    _submit_button(at, "Save").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").targets_source == "Benchmark burger, panel of 8."
+    captions = [c.value for c in at.tabs[0].caption]
+    assert "Targets from: Benchmark burger, panel of 8." in captions
+    # The box reopens prefilled with what is stored, next time it is opened.
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert (at.text_input(key="targets_source_box").value
+            == "Benchmark burger, panel of 8.")
+
+
+def test_the_targets_source_save_is_never_the_lit_button(burger):
+    """One lit button per tab: the foot's Continue stays it, whether or not
+    this box is open."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    assert not _submit_button(at, "Save").disabled
+
+
+def test_targets_source_box_is_cleared_on_a_project_switch(tmp_path, monkeypatch):
+    """A half-typed note belongs to the project it was typed in -- the same
+    rule every other set-up box on this tab already follows."""
+    monkeypatch.chdir(tmp_path)
+    first = FoodOptimizer("first")
+    first.add_objective("Taste", 1.0, goal="max")
+    second = FoodOptimizer("second")
+    second.add_objective("Taste", 1.0, goal="max")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "first"
+    at.run()
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    at.text_input(key="targets_source_box").set_value("Half-typed note")
+    at.run()
+    at.selectbox(key="project_select").set_value("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    # The box itself closes on a project switch, same as every other set-up
+    # form -- and what it would open on next is the parked empty value, not
+    # the half-typed note left behind in "first".
+    assert "_targets_source_open" not in at.session_state
+    _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert at.text_input(key="targets_source_box").value == ""
+
+
 def test_sample_project_button_reopens_existing_without_recreating(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     # Pre-create "Sample project" with an experiment, simulating a shared host
@@ -2529,6 +2643,31 @@ def test_the_results_foot_steps_aside_for_a_confirmation(scored):
     assert _tab_primaries(at, 2) == ["Yes, delete"], _tab_primaries(at, 2)
     foot = _submit_button(at, wording.START_NEXT_BATCH)
     assert foot.proto.type == "secondary" and foot.disabled
+
+
+def test_change_setup_from_results_jumps_to_tab_1(scored):
+    """Directly under the best-so-far block: the one way back to Set up from
+    a formulation on screen, for a range too narrow or a limit too tight."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    button = _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON)
+    assert button.proto.type == "secondary"   # never the foot's colour
+    button.click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
+
+
+def test_change_setup_from_results_steps_aside_for_a_confirmation(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="delete_formulations").set_value([1])
+    at.run()
+    _submit_button(at, wording.delete_formulation_button(1)).click()
+    at.run()
+    assert _tab_primaries(at, 2) == ["Yes, delete"], _tab_primaries(at, 2)
+    button = _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON)
+    assert button.proto.type == "secondary" and button.disabled
 
 
 def test_the_empty_state_button_steps_aside_for_a_confirmation(burger):

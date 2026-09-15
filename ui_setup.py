@@ -878,6 +878,33 @@ def _remove_measurement(opt, storage, name):
     st.rerun()
 
 
+_TARGETS_SOURCE_OPEN = "_targets_source_open"
+_TARGETS_SOURCE_BOX = "targets_source_box"
+
+
+def _targets_source_editor(opt):
+    """The optional note on where the measurement targets came from: a
+    caption once it is set, and a button that opens a one-line box to set or
+    change it. Its Save is always secondary — unlike the measurement editor,
+    opening this box does not take the foot's lit Continue away."""
+    if opt.targets_source:
+        st.caption(wording.targets_from_caption(opt.targets_source))
+    if st.session_state.get(_TARGETS_SOURCE_OPEN):
+        st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
+        text = st.text_input(wording.TARGETS_SOURCE_LABEL,
+                             key=_TARGETS_SOURCE_BOX,
+                             placeholder=wording.TARGETS_SOURCE_PLACEHOLDER)
+        if st.button(wording.SAVE_BUTTON, key="save_targets_source"):
+            opt.set_targets_source(text)
+            if saved_ok(opt):
+                st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
+                st.rerun()
+    else:
+        if st.button(wording.TARGETS_SOURCE_BUTTON, key="edit_targets_source"):
+            st.session_state[_TARGETS_SOURCE_OPEN] = True
+            st.rerun()
+
+
 def _measurements(opt, storage):
     """Draw the measurements section. Returns True while a measurement is
     open for editing: `Save changes` is then the tab's one lit action and the
@@ -923,6 +950,7 @@ def _measurements(opt, storage):
                 _remove_measurement(opt, storage, obj['name'])
 
     st.caption(opt.score_function_line())
+    _targets_source_editor(opt)
 
     # Four flat bullets, then the arithmetic behind the second one folded
     # directly beneath: one fold of nine bullets answered a question most
@@ -1221,6 +1249,11 @@ def _foot(opt, editing=False):
 
 
 def render(opt, storage):
+    # The sample's own welcome, directly under the tab's title: gone the
+    # moment its first formulation is scored, so it never talks past the
+    # point where the user has already made a batch.
+    if not opt.X_history and opt.project_name == wording.SAMPLE_PROJECT_NAME:
+        st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
     _variables(opt, storage)
     st.divider()
     editing = _measurements(opt, storage)

@@ -3597,3 +3597,82 @@ class TestTheTotalABatchWasPrintedTo:
         assert opt.batch_total_text(150.0) == "150 g"
         assert opt.batch_total_text(12.5) == "12.5 g"
         assert opt.batch_total_text(None) == ""
+
+
+class TestWhereTheTargetsComeFrom:
+    """The optional free-text note on where the measurement targets came
+    from -- a benchmark product, a published panel, a brief from marketing.
+    Blank means nothing was ever recorded."""
+
+    def _opt(self, tmp_path, monkeypatch, name="targets_source"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_blank_by_default(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.targets_source == ""
+
+    def test_set_and_read_back_after_reload(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_targets_source("  Benchmark burger, panel of 8.  ")
+        assert opt.targets_source == "Benchmark burger, panel of 8."
+        assert (FoodOptimizer("targets_source").targets_source
+                == "Benchmark burger, panel of 8.")
+
+    def test_clearing_it_is_a_value_of_its_own(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_targets_source("Benchmark burger, panel of 8.")
+        opt.set_targets_source("")
+        assert opt.targets_source == ""
+        assert FoodOptimizer("targets_source").targets_source == ""
+
+    def test_setting_the_same_text_again_writes_nothing(self, tmp_path,
+                                                        monkeypatch):
+        """It is set only from an explicit Save click, but the same guard
+        every other per-project setter uses keeps a same-value click from
+        bumping the file's mtime and making another open window cry
+        conflict."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_targets_source("Benchmark burger, panel of 8.")
+        saved_at = opt.last_saved_at
+        opt.set_targets_source("Benchmark burger, panel of 8.")
+        assert opt.last_saved_at == saved_at
+
+    def test_round_trips_through_export_and_import(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_targets_source("Benchmark burger, panel of 8.")
+        state = opt.export_json()
+        assert state['targets_source'] == "Benchmark burger, panel of 8."
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("restored_targets_source")
+        fresh.import_json(state)
+        assert fresh.targets_source == "Benchmark burger, panel of 8."
+
+    def test_a_file_from_before_the_feature_opens_blank(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state.pop('targets_source', None)
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("old_file_targets_source")
+        fresh.import_json(state)
+        assert fresh.targets_source == ""
+
+    def test_a_malformed_value_is_refused_before_import(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state['targets_source'] = 123
+        with pytest.raises(ValueError, match="'targets_source' section"):
+            FoodOptimizer.validate_state(state)
+        state['targets_source'] = ["a list"]
+        with pytest.raises(ValueError, match="'targets_source' section"):
+            FoodOptimizer.validate_state(state)
+        state['targets_source'] = None
+        FoodOptimizer.validate_state(state)
+        state['targets_source'] = "Benchmark burger, panel of 8."
+        FoodOptimizer.validate_state(state)

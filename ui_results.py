@@ -977,6 +977,13 @@ def render(opt, storage):
     if not opt.objectives:
         st.info(wording.ADD_MEASUREMENT_RESCORE_INFO)
     said_partial = _best(opt)
+    # A measurement's range too narrow, or an ingredient's amount capped too
+    # low, is often exactly what a formulation on screen reveals — so the
+    # one way back to Set up is right here, not several sections down. Its
+    # slot is reserved now but drawn last, same as the foot below, so a
+    # confirmation armed in one of the collapsed sections beneath it still
+    # greys this button on the same run.
+    change_setup = st.container()
     st.divider()
     _all_formulations(opt, said_partial)
     st.divider()
@@ -988,6 +995,11 @@ def render(opt, storage):
     st.divider()
     _progress_chart(opt)
     pending = _edit_past(opt, storage)
+    with change_setup:
+        lit = not confirmation_open()
+        if st.button(wording.CHANGE_SETUP_FROM_RESULTS_BUTTON,
+                     key="change_setup_from_results", disabled=not lit) and lit:
+            go_to_tab(TAB_SETUP)
     with foot:
         _foot(opt, pending is not None)
     if pending is not None:

@@ -127,6 +127,25 @@ TRY_SAMPLE_HELP = (
     "for juiciness and firmness. Try it before setting up your own."
 )
 
+# The sample project's own name, so app.py and ui_setup.py agree on how it is
+# recognised: by name, the same way the app has always told it apart from a
+# project the user made.
+SAMPLE_PROJECT_NAME = "Sample project"
+
+# The sample's own targets_source, set once when it is built.
+SAMPLE_TARGETS_SOURCE = (
+    "A benchmark burger scored by a trained panel: firmer than 6 is "
+    "rubbery, juicier than 7 falls apart."
+)
+
+# Tab 1's two-line welcome for the sample project, shown only before its
+# first formulation is scored; the second sentence names the lit button so a
+# first-time visitor knows what to do next.
+SAMPLE_TAB1_DESCRIPTION = (
+    "A plant-based burger with eight ingredients and two panel scores. "
+    "Next: make a batch."
+)
+
 PROJECT_LOAD_ERROR_SIDEBAR_NOTE = ("This project could not be opened. The "
                                    "main screen says why.")
 
@@ -872,6 +891,21 @@ def delete_measurement_warning(name):
             "it. " + COPY_KEPT)
 
 
+# Where the targets came from: an optional free-text note under the
+# measurements table. One label serves both the button that opens the box and
+# the box itself, so the reader sees the same words twice rather than a
+# button and a form asking two different questions.
+TARGETS_SOURCE_BUTTON = "Where the targets come from"
+TARGETS_SOURCE_LABEL = "Where the targets come from"
+TARGETS_SOURCE_PLACEHOLDER = "e.g. Benchmark burger, panel of 8"
+
+
+def targets_from_caption(text):
+    """'Targets from: Benchmark burger, panel of 8.' shown under the
+    measurements table once a targets_source is set."""
+    return f"Targets from: {text}"
+
+
 HOW_IT_WORKS_EXPANDER = "How it works"
 
 ADD_PROPERTY_LABEL = "Add a property"
@@ -1042,6 +1076,11 @@ def best_so_far_heading(no, batch_no=None):
 
 MEASURED_COLUMN = "Measured"
 OFF_BY_COLUMN = "Off by"
+
+# Directly under the best-so-far block: the one way back to Set up from
+# Results, for a measurement that needs its range widened or an ingredient
+# that needs a new limit once a formulation is on screen.
+CHANGE_SETUP_FROM_RESULTS_BUTTON = "Change a measurement or an ingredient"
 AMOUNTS_TO_MAKE_IT_HEADING = "**Amounts to make it**"
 
 
