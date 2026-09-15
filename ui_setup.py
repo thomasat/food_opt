@@ -124,6 +124,99 @@ def _unscaled_tail(opt, before, before_unit):
     return wording.unscaled_tail(opt.pending_batch_no, total_text)
 
 
+# The (project, stored total) tab 1's total box has already been opened for.
+# After that an empty box means the user emptied it, which is an answer of its
+# own and must reach the file.
+_SEEDED_FORMULATION_TOTAL = "_formulation_total_seeded"
+
+
+def _formulation_total_mark(opt, total):
+    """What the box is up to date with: whose project it belongs to AND the
+    number stored on it. The project alone is not enough — the stored total
+    can move under a session that has already drawn the box (a saved copy
+    opened, a unit change that cleared it, the sample opened twice) and the
+    seed would be skipped every time."""
+    return (opt.project_name, total)
+
+
+def _seed_formulation_total(opt):
+    """Open the box at the total the project is stored with.
+
+    The same debt tab 2's `_seed_scale_total` settles, for the same reason: a
+    session that did not type the number draws an empty box, and the empty
+    box then writes its own blank over the saved total on the very first
+    render — here that would take the limit every suggestion is held to with
+    it. Assigning a widget's key is legal only before the widget exists,
+    which is why this runs first."""
+    stored = getattr(opt, 'formulation_total', None)
+    mark = _formulation_total_mark(opt, stored)
+    if st.session_state.get(_SEEDED_FORMULATION_TOTAL) == mark:
+        return
+    st.session_state[_SEEDED_FORMULATION_TOTAL] = mark
+    if stored is not None:
+        st.session_state["formulation_total"] = float(stored)
+
+
+def _store_formulation_total(opt, typed):
+    """Keep what the box holds with the project, on a change only: this runs
+    on every rerun, and a save per rerun would bump the file's mtime and make
+    another open window see a false conflict.
+
+    A refusal is left on screen with the number still in the box — the mark
+    is not re-stamped, so the next run does not quietly put the old total
+    back over what the user is still typing."""
+    stored = getattr(opt, 'formulation_total', None)
+    if typed is None and stored is None:
+        return
+    try:
+        if typed is None:
+            opt.clear_formulation_total()
+        else:
+            opt.set_formulation_total(typed)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    st.session_state[_SEEDED_FORMULATION_TOTAL] = _formulation_total_mark(
+        opt, getattr(opt, 'formulation_total', None))
+
+
+def _formulation_total(opt):
+    """The one box that says how big a formulation is.
+
+    It sits under the ingredients table because it is a fact about the
+    ingredients, not an optional rule: it writes the limit over every one of
+    them that both the space-filling opening and the model obey, and the
+    Limits list below shows what it wrote.
+
+    Two projects are offered nothing: one that weighs nothing out, which has
+    no total to build to, and one whose ingredients are in different units —
+    a sum of 10 g and 40 ml is not a total of anything, and the line that
+    says so is the one tab 2 has always shown."""
+    if not opt.has_ingredients():
+        return
+    if opt.one_amount_unit() is None:
+        st.caption(wording.NEEDS_ONE_UNIT)
+        return
+    _seed_formulation_total(opt)
+    st.session_state.setdefault("formulation_total", None)
+    typed = st.number_input(
+        wording.formulation_total_label(opt.one_amount_unit()),
+        min_value=0.0, step=1.0,
+        placeholder=wording.FORMULATION_TOTAL_PLACEHOLDER,
+        key="formulation_total",
+        help=wording.FORMULATION_TOTAL_HELP,
+    )
+    _store_formulation_total(opt, None if not typed else float(typed))
+
+
+def _clear_formulation_total(opt):
+    """Take the total out, and empty the box that holds it. Parked, not
+    popped: the mounted box posts its old value straight back, and this run's
+    Delete would be undone by the next run's write."""
+    opt.clear_formulation_total()
+    park_clear("formulation_total", None)
+
+
 def _variables(opt, storage):
     """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
     of controls, with the file upload folded away beneath.
@@ -135,6 +228,7 @@ def _variables(opt, storage):
     st.subheader(wording.VARIABLES_HEADER)
     _add_variable(opt)
     _variable_table(opt)
+    _formulation_total(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
@@ -635,6 +729,20 @@ def _flash_removed_limits(opt, removed):
             # list of its own to name.
             flash("warning", wording.property_limit_removed(qc['metric']))
             continue
+        if qc.get('source') == 'formulation_total':
+            # The total is one number the user typed on this tab, not a rule
+            # about a few ingredients: it says the number and why it went.
+            total_text = join_unit(f"{float(qc.get('total')):g}",
+                                   qc.get('unit') or "")
+            flash("warning",
+                  wording.formulation_total_gone_unit(total_text)
+                  if qc.get('reason') == 'unit'
+                  else wording.formulation_total_gone_unreachable(total_text))
+            # The number goes out of the box as well as out of the file: a
+            # mounted box posts its old value back, and the next run would
+            # write the total straight back in.
+            park_clear("formulation_total", None)
+            continue
         label = _limit_label(opt, qc)
         if qc.get('reason') == 'missing':
             gone = qc.get('missing') or []
@@ -647,9 +755,11 @@ def _flash_removed_limits(opt, removed):
 
 
 def _limit_who(opt, qc):
-    """How one ingredient limit is named inside a sentence — 'all
-    ingredients' or 'Water + Oil'. The same list _limit_label heads the row
-    with, in the register a sentence needs."""
+    """How one ingredient limit is named inside a sentence — 'the total of
+    each formulation', 'all ingredients' or 'Water + Oil'. The same list
+    _limit_label heads the row with, in the register a sentence needs."""
+    if qc.get('source') == 'formulation_total':
+        return wording.FORMULATION_TOTAL_LOWER
     if _limit_label(opt, qc) == wording.ALL_INGREDIENTS_LABEL:
         return wording.ALL_INGREDIENTS_LOWER
     return " + ".join(qc['ingredients'])
@@ -679,9 +789,17 @@ def _delete_limit(opt, storage, key, who, remove):
 
 
 def _limit_label(opt, qc):
-    """How one ingredient limit is named on screen — 'All ingredients' or
-    'Water + Oil'. The list under Limits and the line that reports a limit
-    removed both read from here, so they name it alike."""
+    """How one ingredient limit is named on screen — 'Total of each
+    formulation', 'All ingredients' or 'Water + Oil'. The list under Limits
+    and the line that reports a limit removed both read from here, so they
+    name it alike.
+
+    The total's own limit is named for the box that wrote it, not for the
+    ingredients it happens to cover: it is over all of them by definition,
+    and 'All ingredients' would read as something the user typed into the
+    picker below."""
+    if qc.get('source') == 'formulation_total':
+        return wording.FORMULATION_TOTAL_NAME
     names = [v['name'] for v in opt.variables
              if v.get('category', 'ingredient') == 'ingredient']
     if names and set(qc['ingredients']) == set(names):
@@ -1134,7 +1252,7 @@ def _limits(opt, storage):
         # now every ingredient, which is the common case and reads as one.
         st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
         picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
-                                key="qty_pick", placeholder=wording.ALL_INGREDIENTS_LABEL)
+                                key="qty_pick")
         q1, q2 = st.columns(2)
         with q1:
             st.session_state.setdefault("qc_min", None)
@@ -1146,22 +1264,24 @@ def _limits(opt, storage):
                             placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
         # No "Set a maximum" tick box: a blank field already means no limit,
         # and a box the user forgot to tick silently threw their number away.
-        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit"):
+        # Nothing picked is no longer "every ingredient": the total over all
+        # of them has its own box under the ingredients table, and a picker
+        # that quietly meant all eight while showing none was the harder
+        # half of that one idea to read.
+        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
+                     disabled=not picked) and picked:
             low, high = st.session_state["qc_min"], st.session_state["qc_max"]
             if low is None and high is None:
                 st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
             else:
                 try:
-                    if picked:
-                        opt.add_quantity_constraint(picked, min_val=low,
-                                                    max_val=high)
-                    else:
-                        opt.add_total_mass_constraint(min_val=low, max_val=high)
+                    opt.add_quantity_constraint(picked, min_val=low,
+                                                max_val=high)
                 except ValueError as e:
                     st.error(str(e))
                 else:
-                    who = " + ".join(picked) if picked else wording.ALL_INGREDIENTS_LOWER
-                    _report_limit(opt, wording.limit_added_on(who))
+                    _report_limit(opt,
+                                  wording.limit_added_on(" + ".join(picked)))
 
         for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
             label = _limit_label(opt, qc)
@@ -1169,16 +1289,27 @@ def _limits(opt, storage):
             # limit is written in it: "at most 400 g", never a bare 400.
             limited = {opt.unit_of(n) for n in qc['ingredients']}
             qc_unit = limited.pop() if len(limited) == 1 else ""
-            bounds = ([join_unit(wording.at_least(qc['min']), qc_unit)]
-                      if qc['min'] is not None else [])
-            bounds += ([join_unit(wording.at_most(qc['max']), qc_unit)]
-                       if qc['max'] is not None else [])
             l1, l2 = st.columns([3, 1])
             with l1:
-                st.text(f"{label}: {' and '.join(bounds)}")
+                if qc.get('source') == 'formulation_total':
+                    # The total reads as the one number it is, not as the
+                    # half-percent band it is enforced as: "at least 99.5 g
+                    # and at most 100.5 g" is the arithmetic, and the user
+                    # typed 100.
+                    st.text(wording.formulation_total_row(
+                        opt.batch_total_text(opt.formulation_total)))
+                else:
+                    bounds = ([join_unit(wording.at_least(qc['min']), qc_unit)]
+                              if qc['min'] is not None else [])
+                    bounds += ([join_unit(wording.at_most(qc['max']), qc_unit)]
+                               if qc['max'] is not None else [])
+                    st.text(f"{label}: {' and '.join(bounds)}")
             with l2:
+                remove = ((lambda: _clear_formulation_total(opt))
+                          if qc.get('source') == 'formulation_total'
+                          else (lambda i=i: opt.remove_quantity_constraint(i)))
                 _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
-                              lambda i=i: opt.remove_quantity_constraint(i))
+                              remove)
 
 
 def _advanced(opt):

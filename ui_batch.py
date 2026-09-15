@@ -72,6 +72,8 @@ def _seed_scale_total(opt):
     arrives, and `setdefault` would have passed straight over it. Assigning a
     widget's key is legal here and nowhere later — this runs before the box
     is created."""
+    if getattr(opt, 'formulation_total', None) is not None:
+        return          # no box on this tab to seed: tab 1 holds the total
     stored = getattr(opt, 'pending_batch_total', None)
     mark = _seed_mark(opt, stored)
     if st.session_state.get(_SEEDED_TOTAL) == mark:
@@ -96,6 +98,12 @@ def _store_total(opt, scale_to):
     back in."""
     if scale_to is None and not opt.has_ingredients():
         return
+    if getattr(opt, 'formulation_total', None) is not None:
+        # The box is not drawn while the project has a total of its own, so
+        # there is no answer of the user's to record — and a value left
+        # behind in the session must not blank the total a past batch of this
+        # project was made to.
+        return
     opt.set_pending_batch_total(scale_to)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, scale_to)
 
@@ -114,6 +122,8 @@ def _scale_to(opt):
     scaling."""
     if opt.one_amount_unit() is None:
         return None
+    if getattr(opt, 'formulation_total', None) is not None:
+        return None     # tab 1's total is the answer; the box is not drawn
     value = st.session_state.get("scale_total")
     if value is None or float(value) <= 0:
         return None
@@ -401,6 +411,12 @@ def _scale_control(opt, unit, scale_to):
     40 ml of water to "400" is not a total of anything, and that one says so.
     """
     if not opt.has_ingredients():
+        return
+    if getattr(opt, 'formulation_total', None) is not None:
+        # The project already says how big a formulation is, and every row in
+        # the table was BUILT to that total rather than rewritten to it. A
+        # second box for the same number would let the bench answer the
+        # question twice, differently.
         return
     if unit is None:
         st.caption(wording.NEEDS_ONE_UNIT)
@@ -853,10 +869,13 @@ def render(opt, storage):
 
     rows = opt.pending_batch
     _seed_scale_total(opt)
-    scale_to = _scale_to(opt)
+    typed = _scale_to(opt)
     # Kept with the batch, so tab 3 can still say what the bench weighed out
     # once the batch is closed. A no-op on a rerun that changed nothing.
-    _store_total(opt, scale_to)
+    _store_total(opt, typed)
+    # The project's own total wins over the box, and the one accessor is what
+    # keeps the table, the sheets, the CSV and tab 3 naming the same number.
+    scale_to = opt.sheet_total(typed)
 
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)

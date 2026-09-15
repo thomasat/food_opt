@@ -127,7 +127,8 @@ def _best(opt):
     # the sheets used, and with the total named in the heading so the two
     # cannot be confused. `Start from the best so far` still opens at the
     # recorded amounts: those are the ones the model was told about.
-    total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
+    total = (opt.sheet_total(opt.batch_total(batch))
+             if opt.one_amount_unit() is not None else None)
     shown = opt.scaled_recipe(recipe, total) if total else recipe
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),
@@ -346,7 +347,8 @@ def _score_row(opt, choice):
     # carried different numbers, and the heading names which of the two is
     # on screen.
     batch = row.get('batch')
-    total = opt.batch_total(batch) if opt.one_amount_unit() is not None else None
+    total = (opt.sheet_total(opt.batch_total(batch))
+             if opt.one_amount_unit() is not None else None)
     shown = opt.scaled_recipe(recipe, total) if total else recipe
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
     st.table(pd.DataFrame(_amount_rows(opt, shown),

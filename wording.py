@@ -1018,6 +1018,69 @@ LIMIT_ON_CHOSEN_INGREDIENTS_HEADING = "**Limit on chosen ingredients**"
 INGREDIENTS_TO_LIMIT_LABEL = "Ingredients to limit together"
 ADD_INGREDIENT_LIMIT_BUTTON = "Add ingredient limit"
 
+# ---------------------------------------------------------------- #
+#  Total of each formulation
+# ---------------------------------------------------------------- #
+# The size every suggested formulation is built to. It lives under the
+# ingredients table rather than in the Limits section, because it is not an
+# optional rule about a few ingredients: it is the question the bench asks
+# first, and the Limits list only shows what it wrote.
+
+
+FORMULATION_TOTAL_NAME = "Total of each formulation"
+FORMULATION_TOTAL_LOWER = "the total of each formulation"
+
+
+def formulation_total_label(unit):
+    """'Total of each formulation (g)'. The unit is the one the ingredients
+    share; without one there is no total to ask for and no box is drawn."""
+    return (f"{FORMULATION_TOTAL_NAME} ({unit})" if unit
+            else FORMULATION_TOTAL_NAME)
+
+
+FORMULATION_TOTAL_HELP = ("Every suggested formulation adds up to this. Set "
+                          "it to what your mixer or your panel needs.")
+# An example, not a description: the help above already says what the box is
+# for, and 100 g is what the sample ships with.
+FORMULATION_TOTAL_PLACEHOLDER = "e.g. 100"
+
+
+def formulation_total_row(total_text):
+    """'Total of each formulation · 100 g' — the one line the total takes in
+    the Limits list. It holds every ingredient, so listing it as a limit on a
+    chosen few would name all eight of them and read as something the user
+    had typed there."""
+    return f"{FORMULATION_TOTAL_NAME} · {total_text}"
+
+
+def total_not_reachable_at_most(total_text, most_text):
+    """A total above everything the allowed amounts can add up to. The two
+    numbers are the whole answer: nothing about the search can rescue a sum
+    that has no solution, and the fix is to raise an ingredient's Highest."""
+    return (f"A total of {total_text} is not reachable: the allowed amounts "
+            f"add up to at most {most_text}.")
+
+
+def total_not_reachable_at_least(total_text, least_text):
+    return (f"A total of {total_text} is not reachable: the allowed amounts "
+            f"add up to at least {least_text}.")
+
+
+def formulation_total_gone_unit(total_text):
+    """The sentence a unit change owes the total when it has just split the
+    ingredients across units — the same debt unscaled_tail settles for the
+    open batch, one sentence, said once."""
+    return (f"The total of {total_text} is gone: your ingredients no longer "
+            "share one unit.")
+
+
+def formulation_total_gone_unreachable(total_text):
+    """...and the same when the ingredient list or its allowed amounts moved
+    far enough that the sum can no longer land on the total."""
+    return (f"The total of {total_text} is gone: the allowed amounts no "
+            "longer add up to it.")
+
+
 HOW_FORMULATIONS_CHOSEN_EXPANDER = "How formulations are chosen (advanced)"
 STANDARD_VS_EXPERT_CAPTION = ("Standard uses tested defaults and fits most "
                               "projects. Expert-selected lets a specialist "

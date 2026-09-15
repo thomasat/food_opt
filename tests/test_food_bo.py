@@ -3689,3 +3689,240 @@ class TestWhereTheTargetsComeFrom:
         FoodOptimizer.validate_state(state)
         state['targets_source'] = "Benchmark burger, panel of 8."
         FoodOptimizer.validate_state(state)
+
+
+# ------------------------------------------------------------------ #
+#  Total of each formulation (0.4.0 §C)
+# ------------------------------------------------------------------ #
+
+_SAMPLE_CSV = pathlib.Path(__file__).resolve().parent.parent / "data" / \
+    "sample_ingredients.csv"
+
+
+class TestFormulationTotal:
+    """One number on tab 1 says how big a formulation is, and every
+    suggestion adds up to it. It is stored as a number AND written as the
+    limit over every ingredient, because the limit is what the space-filling
+    opening and the model already obey."""
+
+    def _sample(self, tmp_path, monkeypatch, name="sample"):
+        """The sample project's own eight ingredients: they add up to at
+        least 20 g and at most 131 g, which is what makes 100 g reachable and
+        150 g not."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="/10")
+        return opt
+
+    def test_setting_it_writes_the_limit_over_every_ingredient(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        assert opt.formulation_total == 100.0
+        qcs = opt.quantity_constraints
+        assert len(qcs) == 1
+        assert qcs[0]['source'] == 'formulation_total'
+        assert set(qcs[0]['ingredients']) == {v['name'] for v in opt.variables}
+        # Half a percent either way: an equality is not something a
+        # continuous search can be held to exactly.
+        assert qcs[0]['min'] == pytest.approx(99.5)
+        assert qcs[0]['max'] == pytest.approx(100.5)
+
+    def test_the_reachable_range_is_the_sum_of_the_allowed_amounts(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        assert opt.total_reach() == (20.0, 131.0)
+
+    def test_a_total_the_amounts_cannot_reach_is_refused_in_numbers(
+            self, tmp_path, monkeypatch):
+        """Nothing about the search can rescue a sum with no solution, so the
+        refusal names the number asked for and the number reachable."""
+        opt = self._sample(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as high:
+            opt.set_formulation_total(150)
+        assert str(high.value) == (
+            "A total of 150 g is not reachable: the allowed amounts add up "
+            "to at most 131 g.")
+        with pytest.raises(ValueError) as low:
+            opt.set_formulation_total(10)
+        assert str(low.value) == (
+            "A total of 10 g is not reachable: the allowed amounts add up "
+            "to at least 20 g.")
+        assert opt.formulation_total is None
+        assert opt.quantity_constraints == []
+
+    def test_every_total_the_amounts_reach_stays_feasible_with_the_band(
+            self, tmp_path, monkeypatch):
+        """The tolerance is centred on the total, so a total inside the
+        reachable range always leaves the sum somewhere to land — including
+        at both ends of it."""
+        opt = self._sample(tmp_path, monkeypatch)
+        lowest, highest = opt.total_reach()
+        for total in (lowest, 40.0, 75.5, 131.0):
+            opt.set_formulation_total(total)
+            band = opt.quantity_constraints[0]
+            assert band['min'] <= min(highest, total) <= band['max'] or \
+                band['min'] <= max(lowest, total) <= band['max']
+            # The total itself is a sum the allowed amounts can make, and it
+            # is inside the band.
+            assert band['min'] <= total <= band['max']
+            assert lowest <= total <= highest
+        assert highest == 131.0
+
+    def test_a_cold_start_batch_adds_up_to_the_total(self, tmp_path,
+                                                     monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        rows = opt.ask(n_suggestions=3)
+        assert len(rows) == 3
+        for row in rows:
+            assert sum(row.values()) == pytest.approx(100.0, abs=0.5)
+
+    def test_a_model_chosen_batch_adds_up_to_the_total(self, tmp_path,
+                                                       monkeypatch):
+        """The same promise once the model is driving: the limit is handed to
+        the acquisition optimizer as an inequality pair, not re-applied by
+        rejection."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        for i, row in enumerate(opt.ask(n_suggestions=5)):
+            opt.tell(row, {"Juiciness": 5.0 + 0.4 * i,
+                           "Firmness": 6.5 - 0.3 * i})
+        assert opt.X_history
+        for row in opt.ask(n_suggestions=2):
+            # The acquisition optimizer pushes right up against the band, so
+            # the comparison carries a float's width, not a wider tolerance.
+            assert sum(row.values()) == pytest.approx(100.0, abs=0.5 + 1e-6)
+
+    def test_clearing_it_takes_the_limit_with_it(self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.clear_formulation_total()
+        assert opt.formulation_total is None
+        assert opt.quantity_constraints == []
+        # A second clear writes nothing: a rerun must not bump the mtime.
+        before = opt.last_saved_at
+        opt.clear_formulation_total()
+        assert opt.last_saved_at == before
+
+    def test_setting_the_same_total_again_writes_nothing(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        before = opt.last_saved_at
+        opt.set_formulation_total(100)
+        assert opt.last_saved_at == before
+
+    def test_a_limit_the_user_types_on_every_ingredient_is_its_own(
+            self, tmp_path, monkeypatch):
+        """Replacement matches the source as well as the ingredients: a limit
+        typed by hand over all eight must not silently take the total away."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        names = [v['name'] for v in opt.variables]
+        opt.add_quantity_constraint(names, min_val=None, max_val=120)
+        assert len(opt.quantity_constraints) == 2
+        assert opt.formulation_total == 100.0
+        assert opt._formulation_total_index() is not None
+
+    def test_deleting_the_limit_by_index_takes_the_total_with_it(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.remove_quantity_constraint(0)
+        assert opt.formulation_total is None
+
+    def test_an_added_ingredient_is_covered_by_the_total(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_ingredient("Onion powder", 0, 5, unit="g")
+        qc = opt.quantity_constraints[opt._formulation_total_index()]
+        assert "Onion powder" in qc['ingredients']
+        assert opt.formulation_total == 100.0
+        assert opt.total_reach() == (20.0, 136.0)
+
+    def test_a_deleted_ingredient_leaves_the_total_over_the_rest(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.remove_ingredient("Beet juice powder")
+        qc = opt.quantity_constraints[opt._formulation_total_index()]
+        assert "Beet juice powder" not in qc['ingredients']
+        assert len(qc['ingredients']) == 7
+        assert opt.formulation_total == 100.0
+
+    def test_a_unit_change_that_splits_the_ingredients_clears_it(
+            self, tmp_path, monkeypatch):
+        """A sum across units is a number of nothing, so the total goes — and
+        the caller is told which number went, in the unit it was written in."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        removed = opt.set_ingredient_unit("Water", "ml")
+        assert opt.formulation_total is None
+        assert opt.quantity_constraints == []
+        gone = [r for r in removed if r.get('source') == 'formulation_total']
+        assert len(gone) == 1
+        assert gone[0]['reason'] == 'unit'
+        assert gone[0]['total'] == 100.0
+        assert gone[0]['unit'] == "g"
+
+    def test_amounts_that_can_no_longer_reach_it_clear_it(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        removed = opt.add_ingredient("Water", 0, 10, unit="g")   # 131 g -> 81 g
+        assert opt.formulation_total is None
+        gone = [r for r in removed if r.get('source') == 'formulation_total']
+        assert [g['reason'] for g in gone] == ['unreachable']
+        assert opt.quantity_constraints == []
+
+    def test_it_survives_a_saved_copy(self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        state = opt.export_json()
+        assert state['formulation_total'] == 100.0
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("copy_of_sample")
+        fresh.import_json(state)
+        assert fresh.formulation_total == 100.0
+        assert fresh._formulation_total_index() is not None
+
+    def test_a_file_from_before_the_feature_opens_without_a_total(
+            self, tmp_path, monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state.pop('formulation_total', None)
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("old_file_total")
+        fresh.import_json(state)
+        assert fresh.formulation_total is None
+
+    def test_a_malformed_total_is_refused_before_import(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._sample(tmp_path, monkeypatch)
+        state = opt.export_json()
+        for bad in ("100", 0, -5, True, ["100"]):
+            state['formulation_total'] = bad
+            with pytest.raises(ValueError, match="'formulation_total' section"):
+                FoodOptimizer.validate_state(state)
+        state['formulation_total'] = None
+        FoodOptimizer.validate_state(state)
+
+    def test_the_sheet_total_prefers_the_project_over_the_batch(
+            self, tmp_path, monkeypatch):
+        """One accessor, so the batch table, the sheets, the downloads and
+        tab 3's amounts heading can never name different numbers."""
+        opt = self._sample(tmp_path, monkeypatch)
+        assert opt.sheet_total(None) is None
+        assert opt.sheet_total(400.0) == 400.0
+        opt.set_formulation_total(100)
+        assert opt.sheet_total(None) == 100.0
+        assert opt.sheet_total(400.0) == 100.0     # an old batch's own total
+        opt.clear_formulation_total()
+        assert opt.sheet_total(400.0) == 400.0

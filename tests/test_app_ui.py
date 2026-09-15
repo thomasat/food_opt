@@ -1278,6 +1278,8 @@ def test_limit_fields_start_blank_and_there_is_no_maximum_tick_box(burger):
 def test_a_new_limit_says_past_formulations_are_kept(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.run()
     at.number_input(key="qc_max").set_value(400.0)
     _submit_button(at, "Add ingredient limit").click()
     at.run()
@@ -1289,6 +1291,9 @@ def test_a_limit_that_excludes_everything_made_so_far_warns(burger):
     burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
                 {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.multiselect(key="qty_pick").select("Methylcellulose")
     at.run()
     at.number_input(key="qc_max").set_value(5.0)     # the one formulation is 22 g
     _submit_button(at, "Add ingredient limit").click()
@@ -4367,10 +4372,13 @@ def test_a_unit_change_that_splits_the_units_says_the_trial_is_unscaled(burger):
 
 def test_a_limit_on_all_ingredients_is_refused_in_words_the_screen_can_obey(
         mixed_units):
-    """The picker left on All ingredients still writes an amount limit, and
-    the refusal names the ingredient to re-enter and the unit to enter it
-    in — not just that the units differ."""
+    """A limit picked across every ingredient is still a sum, and the refusal
+    names the ingredient to re-enter and the unit to enter it in — not just
+    that the units differ."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.multiselect(key="qty_pick").select("Water")
     at.run()
     at.number_input(key="qc_max").set_value(300.0)
     _submit_button(at, "Add ingredient limit").click()
@@ -5488,44 +5496,46 @@ def test_a_hand_made_property_limit_reaches_the_batch(burger):
 #  The coherence wave: one word per concept, one control per idea
 # ------------------------------------------------------------------ #
 
-def test_one_amount_limit_control_covers_every_group_and_the_total(burger):
-    """There were two controls for one idea — a group limit whose picker,
-    with every ingredient ticked, wrote exactly what the total control wrote.
-    The picker's empty state is now every ingredient."""
+def test_the_amount_limit_picker_needs_an_ingredient_chosen(burger):
+    """The picker's empty state used to mean every ingredient, which wrote a
+    limit on all of them while showing none. The total over every ingredient
+    now has its own box under the ingredients table, so this picker asks for
+    a choice and its button stays dark until one is made."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     picker = at.multiselect(key="qty_pick")
     assert picker.value == []
-    assert picker.proto.placeholder == "All ingredients"
+    assert picker.proto.placeholder != "All ingredients"
     assert at.number_input(key="qc_min").label == "At least (g)"
     assert at.number_input(key="qc_max").label == "At most (g)"
     # One button, not three: there is no second ingredient-limit control.
     assert [b.label for b in at.button
             if "ingredient limit" in b.label] == ["Add ingredient limit"]
-    # Left alone, the picker limits the whole formulation.
+    assert _submit_button(at, "Add ingredient limit").disabled
+    # Nothing is written by a click on it, and nothing is refused in words
+    # either: a disabled button has nothing to say.
     at.number_input(key="qc_max").set_value(100.0)
-    _submit_button(at, "Add ingredient limit").click()
     at.run()
-    assert not at.exception
-    saved = FoodOptimizer("burger")
-    assert set(saved.quantity_constraints[0]['ingredients']) == {
-        "Pea protein", "Methylcellulose"}
-    assert any(s.value.startswith("Limit added on all ingredients.")
-               for s in at.success), [s.value for s in at.success]
-    # A group is picked the same way, and both read alike in the one list.
+    assert _submit_button(at, "Add ingredient limit").disabled
+    assert FoodOptimizer("burger").quantity_constraints == []
+    # A group is picked, and reads in the one list under its own names.
     at.multiselect(key="qty_pick").select("Pea protein")
+    at.run()
+    assert not _submit_button(at, "Add ingredient limit").disabled
     at.number_input(key="qc_max").set_value(50.0)
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
-    lines = [t.value for t in at.text]
-    assert "All ingredients: at most 100 g" in lines, lines
-    assert "Pea protein: at most 50 g" in lines, lines
+    assert any(s.value.startswith("Limit added on Pea protein.")
+               for s in at.success), [s.value for s in at.success]
+    assert "Pea protein: at most 50 g" in [t.value for t in at.text]
 
 
 def test_an_amount_limit_needs_a_number(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
@@ -7197,3 +7207,146 @@ def test_all_formulations_shows_every_number_to_two_decimals(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
+
+
+# ------------------------------------------------------------------ #
+#  Total of each formulation (0.4.0 §C)
+# ------------------------------------------------------------------ #
+
+def _total_box(at):
+    return next((n for n in at.number_input if n.key == "formulation_total"),
+                None)
+
+
+def test_the_total_box_sits_under_the_ingredients_and_says_what_it_does(burger):
+    """One number says how big a formulation is. It lives with the
+    ingredients, not in Limits: the Limits list only shows what it wrote."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    box = _total_box(at)
+    assert box is not None
+    assert box.label == "Total of each formulation (g)"
+    assert box.help == ("Every suggested formulation adds up to this. Set it "
+                        "to what your mixer or your panel needs.")
+    assert box.placeholder == "e.g. 100"
+    assert box.value is None
+
+
+def test_typing_a_total_holds_every_suggestion_to_it(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _total_box(at).set_value(20.0)       # 0-25 g plus 0-3 g reaches 20 g
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.formulation_total == 20.0
+    assert saved.quantity_constraints[0]['source'] == 'formulation_total'
+    # It reads back into the box on the next open, rather than blanking the
+    # saved total on the first render.
+    again = AppTest.from_file(APP_PATH, default_timeout=180)
+    again.run()
+    assert _total_box(again).value == 20.0
+
+
+def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _total_box(at).set_value(90.0)       # the two ingredients reach 28 g
+    at.run()
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        "A total of 90 g is not reachable: the allowed amounts add up to at "
+        "most 28 g."]
+    assert FoodOptimizer("burger").formulation_total is None
+
+
+def test_the_total_reads_once_in_the_limits_list_and_deletes_from_there(burger):
+    """It is over every ingredient by definition, so it is named for the box
+    that wrote it rather than listed as a limit on a chosen few."""
+    burger.set_formulation_total(20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    lines = [t.value for t in at.text]
+    assert "Total of each formulation · 20 g" in lines, lines
+    assert not any(line.startswith("All ingredients") for line in lines), lines
+    assert not any("Pea protein + Methylcellulose" in line for line in lines), \
+        lines
+    _submit_button(at, "Delete limit on the total of each formulation").click()
+    at.run()
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").formulation_total is None
+    assert FoodOptimizer("burger").quantity_constraints == []
+    # The box empties with it, or the next run writes the total straight back.
+    assert _total_box(at) is None or _total_box(at).value is None
+
+
+def test_the_total_box_is_not_offered_while_the_units_differ(mixed_units):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _total_box(at) is None
+    assert wording.NEEDS_ONE_UNIT in _tab1_captions(at)
+
+
+def test_a_project_that_weighs_nothing_out_is_offered_no_total(ferment):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _total_box(at) is None
+    assert wording.NEEDS_ONE_UNIT not in _tab1_captions(at)
+
+
+def test_a_unit_change_that_splits_the_ingredients_says_the_total_went(burger):
+    burger.set_formulation_total(20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="var_pick").select("Methylcellulose")
+    at.run()
+    at.text_input(key="unit_value").set_value("ml")
+    at.run()
+    _submit_button(at, wording.SET_UNIT_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert any(w.value == ("The total of 20 g is gone: your ingredients no "
+                           "longer share one unit.")
+               for w in at.warning), [w.value for w in at.warning]
+    assert FoodOptimizer("burger").formulation_total is None
+    assert _total_box(at) is None
+
+
+def test_the_batch_tab_hides_its_own_total_box_while_the_project_has_one(
+        open_batch):
+    """Two boxes for one number would let the bench answer the question
+    twice, differently. The sheets are written for the project's total."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert any(n.key == "scale_total" for n in at.number_input)
+    open_batch.set_formulation_total(20)
+    again = AppTest.from_file(APP_PATH, default_timeout=180)
+    again.run()
+    assert not any(n.key == "scale_total" for n in again.number_input)
+    assert not any(c.value == wording.NEEDS_ONE_UNIT
+                   for c in again.tabs[1].caption)
+    assert any("20 g" in c.value for c in again.tabs[1].caption), \
+        [c.value for c in again.tabs[1].caption]
+
+
+def test_the_results_amounts_heading_names_the_project_total(scored):
+    scored.set_formulation_total(20)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    headings = [m.value for m in at.tabs[2].markdown]
+    assert "**Amounts to make it (20 g)**" in headings, headings
+
+
+def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
+    assert _total_box(at).value == 100.0
+    assert "Total of each formulation · 100 g" in [t.value for t in at.text]

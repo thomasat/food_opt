@@ -74,6 +74,7 @@ _FORM_FRESH = {
     "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
     "batch_size": 3, "scale_total": None, "own_note": "",
+    "formulation_total": None,
     "targets_source_box": "",
     # Tab 3's "Add a formulation you already made": the note box opens
     # holding the word an imported row is marked with, and the radio opens
@@ -175,6 +176,11 @@ def _open_sample_project():
             _sample.add_objective("Firmness", 1.5, goal="target", target=6,
                                   min_val=0, max_val=10, unit="/10")
             _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
+            # A burger patty is made to a weight, and the panel is served
+            # one size. 100 g is what the sample's allowed amounts are
+            # written around, so every batch it suggests comes off the bench
+            # ready to grill.
+            _sample.set_formulation_total(100.0)
         except ValueError as e:
             st.error(wording.sample_project_failed(e))
         else:

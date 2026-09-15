@@ -205,6 +205,12 @@ def _build_covar(cfg, dim):
 class FoodOptimizer:
     CLASS_VERSION = 9  # bump when adding methods/attrs to force session refresh
 
+    # How far a suggested formulation may sit from the total it was asked
+    # for. A total is an equality, and an equality is not something a
+    # continuous search can be held to exactly; half a percent is narrower
+    # than any bench scale and wide enough that the search always has room.
+    FORMULATION_TOTAL_TOLERANCE = 0.005
+
     def __init__(self, project_name="experiment", robust=False, storage=None):
         """Initialize or load a food optimization project.
 
@@ -273,6 +279,14 @@ class FoodOptimizer:
         # was lost the moment the batch closed.
         self.pending_batch_total = None
         self.batch_totals = {}        # batch number -> the total it was made to
+        # The total every SUGGESTED formulation adds up to, or None for "any
+        # total the allowed amounts reach". Unlike pending_batch_total, which
+        # records what one batch was weighed out to after the fact, this is
+        # part of the question the model is asked: it writes the limit over
+        # every ingredient that both the space-filling opening and the model
+        # obey, so a batch comes off the bench at the size the mixer or the
+        # panel needs.
+        self.formulation_total = None
         self.load_error = None  # set to a plain-language string if load() fails
         self.save_error = None  # set when a cloud save fails; cleared on success
         self.last_saved_at = None  # records successful save time; timezone-aware datetime or None
@@ -654,6 +668,12 @@ class FoodOptimizer:
                  if v.get('category', 'ingredient') == 'ingredient'}
         kept, removed = [], []
         for qc in self.quantity_constraints:
+            if qc.get('source') == 'formulation_total':
+                # Not pruned like the others: the total's limit is over every
+                # ingredient by definition, so it is kept here and rewritten
+                # (or dropped, once, with its own reason) below.
+                kept.append(qc)
+                continue
             gone = [n for n in qc['ingredients'] if n not in names]
             if gone:
                 removed.append(dict(qc, reason='missing', missing=gone))
@@ -669,6 +689,11 @@ class FoodOptimizer:
         if self.constraints and len(self.ingredient_units()) > 1:
             removed += [dict(c, reason='unit') for c in self.constraints]
             self.constraints = []
+        # The Total of each formulation limit is not pruned like the others:
+        # it is over every ingredient by definition, so the same edits that
+        # empty a chosen-ingredients limit of meaning simply move it. It is
+        # rewritten over the list as it now stands, or it goes and says why.
+        removed += self._sync_formulation_total()
         return removed
 
     def set_variable_unit(self, name, unit):
@@ -1678,14 +1703,22 @@ class FoodOptimizer:
             self.constraints.pop(index)
             self.save()
 
-    def add_quantity_constraint(self, ingredients, min_val=None, max_val=None):
+    def add_quantity_constraint(self, ingredients, min_val=None, max_val=None,
+                                source=None):
         """Add a constraint on the sum of selected ingredient quantities.
-        Replaces any existing constraint on the same set of ingredients.
+        Replaces any existing constraint on the same set of ingredients that
+        was written the same way.
 
         Args:
             ingredients: List of ingredient names whose quantities to sum.
             min_val: Minimum allowed sum (or None for no lower bound).
             max_val: Maximum allowed sum (or None for no upper bound).
+            source: What wrote it. None is a limit the user typed into the
+                Limits section; 'formulation_total' is the one the Total of
+                each formulation box owns, which is why replacement matches
+                on the source as well as on the ingredients: a user who
+                limits every ingredient by hand must not silently take the
+                total's limit away, and both then hold.
         """
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
             raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
@@ -1697,18 +1730,26 @@ class FoodOptimizer:
                 "unit; " + self.unit_fix_sentence(list(ingredients)))
         ingredient_set = set(ingredients)
         self.quantity_constraints = [
-            qc for qc in self.quantity_constraints if set(qc['ingredients']) != ingredient_set
+            qc for qc in self.quantity_constraints
+            if set(qc['ingredients']) != ingredient_set
+            or qc.get('source') != source
         ]
-        self.quantity_constraints.append({
+        entry = {
             'ingredients': list(ingredients),
             'min': float(min_val) if min_val is not None else None,
             'max': float(max_val) if max_val is not None else None,
-        })
+        }
+        if source is not None:
+            entry['source'] = source
+        self.quantity_constraints.append(entry)
         self.save()
 
-    def add_total_mass_constraint(self, min_val=None, max_val=None):
-        """The limit over every ingredient — what the one Limit on chosen
-        ingredients control writes when its picker is left on All ingredients.
+    def add_total_mass_constraint(self, min_val=None, max_val=None,
+                                  source=None):
+        """The limit over every ingredient — what the Total of each
+        formulation box writes (tagged 'formulation_total'), and what a
+        project saved before 0.4.0 may already hold untagged from the days
+        when the Limits picker's empty state meant all of them.
 
         Refused in the same words as any other such limit while the
         ingredients are not all in one unit: the refusal names the ingredient
@@ -1718,13 +1759,169 @@ class FoodOptimizer:
             v['name'] for v in self.variables
             if v.get('category', 'ingredient') == 'ingredient'
         ]
-        self.add_quantity_constraint(all_ingredients, min_val, max_val)
+        self.add_quantity_constraint(all_ingredients, min_val, max_val,
+                                     source=source)
 
     def remove_quantity_constraint(self, index):
-        """Remove a quantity constraint by index."""
+        """Remove a quantity constraint by index. Taking out the one the
+        Total of each formulation box owns takes the total with it: the
+        number on tab 1 says the suggestions add up to it, and a number
+        nothing enforces would be a lie."""
         if 0 <= index < len(self.quantity_constraints):
-            self.quantity_constraints.pop(index)
+            gone = self.quantity_constraints.pop(index)
+            if gone.get('source') == 'formulation_total':
+                self.formulation_total = None
             self.save()
+
+    # ------------------------------------------------------------------ #
+    #  Total of each formulation
+    # ------------------------------------------------------------------ #
+
+    def total_reach(self):
+        """(lowest, highest) — the totals the allowed amounts can add up to.
+
+        The sum of every ingredient's Lowest and the sum of every ingredient's
+        Highest. A total outside that pair is not a tight fit, it is
+        arithmetic that has no answer, and the refusal says so in those two
+        numbers rather than letting the search fail later with nothing to
+        show for it."""
+        lows = highs = 0.0
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            low, high = var['bounds']
+            lows += float(low)
+            highs += float(high)
+        return lows, highs
+
+    def _formulation_total_index(self):
+        """Where the Total of each formulation box's own limit sits in
+        quantity_constraints, or None. It is found by its tag, never by its
+        ingredients: a limit the user typed on every ingredient by hand is a
+        different limit that happens to cover the same names."""
+        for i, qc in enumerate(getattr(self, 'quantity_constraints', [])):
+            if qc.get('source') == 'formulation_total':
+                return i
+        return None
+
+    def _formulation_total_bounds(self, total):
+        """The band a total is enforced as: the total, give or take
+        FORMULATION_TOTAL_TOLERANCE."""
+        value = float(total)
+        return (value * (1.0 - self.FORMULATION_TOTAL_TOLERANCE),
+                value * (1.0 + self.FORMULATION_TOTAL_TOLERANCE))
+
+    def set_formulation_total(self, total):
+        """Every suggested formulation adds up to `total`.
+
+        Stored as a number in its own right AND written as the limit over
+        every ingredient, because the limit is what the cold start and the
+        model already obey — there is no second mechanism to keep in step.
+        The band never makes a reachable total infeasible: the total itself
+        is a point the allowed amounts reach, and the band is centred on it.
+
+        Refused, in the numbers, when the allowed amounts cannot add up to it
+        at all, and refused in the usual words while the ingredients are not
+        all in one unit — a sum across units is a number of nothing."""
+        value = float(total)
+        lowest, highest = self.total_reach()
+        if value > highest:
+            raise ValueError(wording.total_not_reachable_at_most(
+                self.batch_total_text(value), self.batch_total_text(highest)))
+        if value < lowest:
+            raise ValueError(wording.total_not_reachable_at_least(
+                self.batch_total_text(value), self.batch_total_text(lowest)))
+        low, high = self._formulation_total_bounds(value)
+        index = self._formulation_total_index()
+        if (value == getattr(self, 'formulation_total', None)
+                and index is not None):
+            return                      # a rerun, not a change: no save
+        # Written before it is stored: add_total_mass_constraint refuses a
+        # set of ingredients that share no unit, and a stored total whose
+        # limit was refused would say the suggestions add up to something
+        # nothing holds them to.
+        previous = (self.quantity_constraints.pop(index)
+                    if index is not None else None)
+        try:
+            self.add_total_mass_constraint(low, high,
+                                           source='formulation_total')
+        except ValueError:
+            # Refused (the ingredients share no unit): the project is left
+            # exactly as it was, rather than holding a total nothing enforces.
+            if previous is not None:
+                self.quantity_constraints.insert(index, previous)
+            raise
+        self.formulation_total = value
+        self.save()
+
+    def clear_formulation_total(self):
+        """Back to "any total the allowed amounts reach": the number goes and
+        so does the limit it wrote. A no-op when there is nothing to clear,
+        so a rerun does not bump the file's mtime."""
+        index = self._formulation_total_index()
+        if index is None and getattr(self, 'formulation_total', None) is None:
+            return
+        if index is not None:
+            self.quantity_constraints.pop(index)
+        self.formulation_total = None
+        self.save()
+
+    def _sync_formulation_total(self):
+        """Keep the total's limit true to the ingredient list, and return
+        what was dropped so the screen can say so.
+
+        The limit is over EVERY ingredient, so every edit to the list moves
+        it: an ingredient added is one more the total has to cover, one
+        deleted is one fewer, and a unit set on one of them can leave the sum
+        adding grams to millilitres. Three answers, in order — rewrite it,
+        drop it because the amounts can no longer reach the total, drop it
+        because there is no one unit to add them in."""
+        total = getattr(self, 'formulation_total', None)
+        index = self._formulation_total_index()
+        if total is None:
+            if index is not None:
+                self.quantity_constraints.pop(index)
+            return []
+        if index is not None:
+            self.quantity_constraints.pop(index)
+        # The unit is carried out with it: by the time the screen names the
+        # total that went, the ingredients may share no unit for it to look
+        # up, and a bare '100' names no amount at all.
+        gone = {'ingredients': [], 'source': 'formulation_total',
+                'total': float(total),
+                'unit': self.one_amount_unit() or self.majority_amount_unit()}
+        if self.has_ingredients() and len(self.ingredient_units()) > 1:
+            self.formulation_total = None
+            return [dict(gone, reason='unit')]
+        lowest, highest = self.total_reach()
+        # Nothing weighed out reaches (0, 0), so a project whose last
+        # ingredient has just gone falls through to the same answer as one
+        # whose amounts no longer add up: the total is unreachable.
+        if not self.has_ingredients() or not lowest <= float(total) <= highest:
+            self.formulation_total = None
+            return [dict(gone, reason='unreachable')]
+        low, high = self._formulation_total_bounds(total)
+        all_ingredients = [v['name'] for v in self.variables
+                           if v.get('category', 'ingredient') == 'ingredient']
+        self.quantity_constraints.append({
+            'ingredients': all_ingredients,
+            'min': low, 'max': high, 'source': 'formulation_total',
+        })
+        return []
+
+    def sheet_total(self, batch_total=None):
+        """The total the sheets, the downloads and tab 3's amounts heading
+        are written for: the project's own total when it has one, else what
+        that batch was made to, else None for as-generated.
+
+        One accessor, because the two totals answer the same question from
+        different ends — the project's is what every formulation is BUILT to,
+        a batch's is what one batch was WEIGHED OUT to — and a screen that
+        picked the wrong one showed the bench numbers nobody made."""
+        project_total = getattr(self, 'formulation_total', None)
+        if project_total is not None:
+            return float(project_total)
+        return None if batch_total is None else float(batch_total)
 
     # ------------------------------------------------------------------ #
     #  Utility Scoring
@@ -2476,6 +2673,10 @@ class FoodOptimizer:
         # exactly right — nothing was ever said about where the targets
         # came from.
         self.targets_source = getattr(self, 'targets_source', "") or ""
+        # The same for the total every suggested formulation is built to: a
+        # file from before it existed asked nothing of the sum, and the limit
+        # it would have written is not there either.
+        self.formulation_total = getattr(self, 'formulation_total', None)
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
@@ -2813,6 +3014,8 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
+        # The total is over every ingredient, and there is one fewer now.
+        self._sync_formulation_total()
         self._drop_pending_batch()
         self.save()
 
@@ -2996,6 +3199,7 @@ class FoodOptimizer:
             'pending_batch_created': self.pending_batch_created,
             'pending_batch_discarded': self.pending_batch_discarded,
             'pending_batch_total': getattr(self, 'pending_batch_total', None),
+            'formulation_total': getattr(self, 'formulation_total', None),
             'batch_totals': {str(k): float(v)
                              for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
@@ -3118,6 +3322,12 @@ class FoodOptimizer:
         if open_total is not None and not _total(open_total):
             raise ValueError(
                 "This backup's 'pending_batch_total' section has the wrong shape.")
+        # The total every suggested formulation is built to. A bad one would
+        # be written straight back out as the limit the next batch is held to.
+        project_total = state.get('formulation_total')
+        if project_total is not None and not _total(project_total):
+            raise ValueError(
+                "This backup's 'formulation_total' section has the wrong shape.")
         totals = state.get('batch_totals')
         if totals is not None and not isinstance(totals, dict):
             raise ValueError(
@@ -3230,6 +3440,11 @@ class FoodOptimizer:
         stored_total = state.get('pending_batch_total')
         self.pending_batch_total = (None if stored_total is None
                                     else float(stored_total))
+        # A file written before a project could carry a total has no key at
+        # all, and None is exactly right: nothing was ever asked of the sum.
+        project_total = state.get('formulation_total')
+        self.formulation_total = (None if project_total is None
+                                  else float(project_total))
         self.batch_totals = {int(k): float(v) for k, v
                              in (state.get('batch_totals') or {}).items()}
         while len(self.timestamps_history) < len(self.results_history):
