@@ -2490,3 +2490,39 @@ def formula_loop(chain):
 FORMULA_NEEDS_BATCH_SIZE = (
     "There is no default batch size to work this out from. Set one in "
     "More settings, or write the amounts instead.")
+
+
+# ------------------------------------------------------------------ #
+# Formula rows (0.5.0 wave 2, "rules", task 2): what the model owes the
+# reader once a formula row is worked out from the others instead of being
+# searched. Nothing here mentions the model: a row that cannot be worked
+# out is refused in the amounts and the formula the reader typed.
+# ------------------------------------------------------------------ #
+
+def formula_below_zero(text, unit):
+    """'= batch size − Water − Oil is below 0 g in every formulation the
+    allowed amounts reach. Widen an amount, or change the formula.' — a
+    formula no allowed amounts can ever make a real amount of."""
+    zero = f"0 {unit}".strip()
+    return (f"{text} is below {zero} in every {FORMULATION} the allowed "
+            "amounts reach. Widen an amount, or change the formula.")
+
+
+def balance_would_go_negative(name, size_text, least_text):
+    """'A batch size of 60 g leaves Water below 0. The other ingredients
+    need at least 70 g.' — the balance row is whatever is left of the
+    batch size, and there is nothing left."""
+    return (f"A {BATCH_SIZE_NOUN} of {size_text} leaves {name} below 0. "
+            f"The other {INGREDIENT}s need at least {least_text}.")
+
+
+def formula_reads_this_row(name, row):
+    """'Water is worked out from Flour. Change Water's formula first.' —
+    deleting a row another row's formula reads would leave that formula
+    naming nothing."""
+    return (f"{row} is {WORKED_OUT} from {name}. Change {row}'s "
+            f"{FORMULA_IN_RANGE} first.")
+
+
+COPY_TWO_BALANCE_ROWS = ("This copy gives two rows the balance, and only "
+                         "one row can take it.")

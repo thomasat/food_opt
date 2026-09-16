@@ -7468,7 +7468,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 11
+        assert state['CLASS_VERSION'] == 12
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)
@@ -8549,3 +8549,312 @@ class TestFormulaGrammar:
             with pytest.raises(FormulaError) as excinfo:
                 parse_formula(text, self.NAMES, has_batch_size=True)
             assert str(excinfo.value) == wording.FORMULA_REST_ALONE
+
+
+class TestFormulaRows:
+    """Task 2 of the rules wave (2026-09-16): a formula row leaves the search
+    vector. Its amount is worked out from the rows it names, and its
+    coefficients are folded into every limit — substitution, never an
+    equality band, so the formula holds exactly at every point the app
+    produces and the eliminated column carries no information the GP loses.
+    """
+
+    def _opt(self, tmp_path, monkeypatch, name="formulas"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 50)
+        opt.add_ingredient("Sugar", 5, 30)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    @staticmethod
+    def _rows(opt):
+        """Every inequality the model is handed, as plain numbers: the
+        columns it reads, their coefficients, and the number the sum must
+        stay at or above."""
+        return [(idx.tolist(), co.tolist(), float(rhs))
+                for idx, co, rhs in opt._get_botorch_constraints()]
+
+    # -------------------------------------------------------------- #
+
+    def test_a_formula_row_leaves_the_search_vector(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= batch size - Flour - Sugar")
+        assert opt.has_formula(opt._var_by_name("Water")) is True
+        # Two columns, not three: Water is worked out, not searched.
+        assert opt._encode({"Water": 60, "Flour": 30, "Sugar": 10}) == [
+            30.0, 10.0]
+        assert len(opt._search_bounds()) == 2
+        assert [v['name'] for v in opt.varying_variables()] == ["Flour",
+                                                               "Sugar"]
+        # ...and decoding writes it back in.
+        assert opt._decode([30.0, 10.0]) == {"Water": 60.0, "Flour": 30.0,
+                                             "Sugar": 10.0}
+        assert opt.fill_formulas({"Flour": 20.0, "Sugar": 5.0})["Water"] == 75.0
+
+    def test_every_suggestion_obeys_its_formula_exactly_cold(self, tmp_path,
+                                                             monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= 0.5 × Flour")
+        batch = opt.ask(3)
+        assert len(batch) == 3
+        for recipe in batch:
+            assert recipe["Water"] == pytest.approx(0.5 * recipe["Flour"])
+            assert sum(recipe.values()) == pytest.approx(100.0, abs=1e-6)
+
+    def test_and_warm(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("warm_formulas")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 50)
+        opt.add_ingredient("Sugar", 5, 80)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= 0.5 × Flour")
+        for i, flour in enumerate([20.0, 25.0, 30.0, 35.0, 40.0]):
+            sugar = 100 - 1.5 * flour
+            opt.tell({"Water": 0.5 * flour, "Flour": flour, "Sugar": sugar},
+                     {"Taste": 4.0 + i})
+        assert len(opt.X_history) == 5
+        assert len(opt.X_history[0]) == 2
+        for recipe in opt.ask(2):
+            assert recipe["Water"] == pytest.approx(0.5 * recipe["Flour"])
+
+    def test_a_balance_row_makes_every_formulation_add_up_to_the_batch_size(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        assert opt._var_by_name("Water")['balance'] is True
+        assert opt._var_by_name("Water")['formula'] == "= rest"
+        for recipe in opt.ask(3):
+            assert sum(recipe.values()) == pytest.approx(100.0, abs=1e-6)
+            assert recipe["Water"] >= 0.0
+
+    def test_a_balance_row_needs_no_snap(self, tmp_path, monkeypatch):
+        """Every other amount is left exactly where the space-filling point
+        put it: the balance makes the total hold identically, so there is
+        no correction to share out."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        snapped = opt._snap_to_total({"Water": 0.0, "Flour": 22.0,
+                                      "Sugar": 7.0}, 100)
+        assert snapped["Flour"] == 22.0
+        assert snapped["Sugar"] == 7.0
+        assert snapped["Water"] == pytest.approx(71.0)
+
+    def test_a_limit_naming_a_formula_row_is_substituted_not_dropped(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= 0.5 × Flour")
+        opt.add_quantity_constraint(["Water"], max_val=15)
+        rows = self._rows(opt)
+        # Flour is column 0 now, and runs 10 to 50: Water at most 15 is
+        # 0.5 × (10 + 40z) ≤ 15.
+        assert ([0], [-20.0], -10.0) in rows
+        # ...alongside the formula's own floor, 0.5 × Flour ≥ 0.
+        assert ([0], [20.0], -5.0) in rows
+        assert len(rows) == 2
+
+    def test_a_limit_that_substitutes_to_a_constant_that_holds_is_dropped(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("constant_holds")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 50)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= batch size - Flour")
+        opt.add_quantity_constraint(["Water", "Flour"], max_val=150)
+        # Both the limit just written and the batch size's own limit
+        # substitute to the constant 100, which satisfies them: nothing is
+        # left for the model to be told. Only the formula's floor remains.
+        assert self._rows(opt) == [([0], [-40.0], -90.0)]
+
+    def test_a_limit_that_substitutes_to_a_constant_that_fails_is_refused(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("constant_fails")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 50)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Flour"], min_val=150)
+        opt.set_formula("Water", "= batch size - Flour")
+        with pytest.raises(ValueError) as caught:
+            opt._get_botorch_constraints()
+        assert str(caught.value) == wording.limit_unreachable_above(
+            "Water + Flour", "100")
+
+    def test_a_formula_row_never_goes_below_zero(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Sugar", "= 40 - Flour")
+        assert opt._check_constraints({"Water": 10.0, "Flour": 30.0,
+                                       "Sugar": 10.0}) is True
+        assert opt._check_constraints({"Water": 10.0, "Flour": 45.0,
+                                       "Sugar": -5.0}) is False
+        for recipe in opt.ask(3):
+            assert recipe["Sugar"] >= -1e-9
+            assert recipe["Sugar"] == pytest.approx(40.0 - recipe["Flour"])
+
+    def test_a_formula_that_is_always_below_zero_is_refused_at_save(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.set_formula("Sugar", "= 5 - Flour")
+        assert str(caught.value) == wording.formula_below_zero(
+            "= 5 - Flour", "g")
+        assert opt.has_formula(opt._var_by_name("Sugar")) is False
+
+    def test_total_reach_folds_a_balance_row_in(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.total_reach() == (15.0, 180.0)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        assert opt.total_reach() == (100.0, 100.0)
+
+    def test_a_batch_size_that_drives_the_balance_negative_is_refused(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("balance_negative")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 30, 50)
+        opt.add_ingredient("Sugar", 40, 60)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        with pytest.raises(ValueError) as caught:
+            opt.set_formulation_total(60)
+        assert str(caught.value) == wording.balance_would_go_negative(
+            "Water", "60 g", "70 g")
+        assert opt.formulation_total == 100
+        # A batch size the other amounts leave room in is written as ever.
+        opt.set_formulation_total(120)
+        assert opt.formulation_total == 120
+
+    def test_a_constant_formula_is_a_formula_before_it_is_fixed(
+            self, tmp_path, monkeypatch):
+        """'= 0.15 × batch size' is one number at every point, so its
+        Lowest is its Highest — and it is still a formula, not a fixed row
+        pinned in the frame the search runs in."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_ingredient("Starch", 15, 15)
+        opt.set_formula("Starch", "= 0.15 × batch size")
+        var = opt._var_by_name("Starch")
+        assert opt.is_fixed(var) is True
+        assert opt.has_formula(var) is True
+        # It has no column at all, so it is not pinned inside one either.
+        assert len(opt._search_bounds()) == 3
+        assert opt._get_fixed_features() == {}
+        assert "Starch" not in [v['name'] for v in opt.varying_variables()]
+        assert opt.fill_formulas({"Water": 10.0, "Flour": 10.0,
+                                  "Sugar": 5.0})["Starch"] == 15.0
+
+    def test_a_circular_pair_is_refused_naming_the_loop(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Flour", "= Sugar × 2")
+        with pytest.raises(FormulaError) as caught:
+            opt.set_formula("Sugar", "= Flour ÷ 2")
+        assert str(caught.value) == wording.formula_loop(
+            "Flour → Sugar → Flour")
+        # Refused means nothing was written: Flour's formula still reads.
+        assert opt.has_formula(opt._var_by_name("Sugar")) is False
+        assert opt._linear_form("Flour") == LinearForm(terms={"Sugar": 2.0})
+
+    def test_a_formula_survives_export_and_import(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        opt.set_formula("Sugar", "= 0.1 × batch size")
+        state = opt.export_json()
+        assert FoodOptimizer.validate_state(state)['version'] == 12
+
+        other = FoodOptimizer("copy_of_formulas")
+        other.import_json(state)
+        assert other._var_by_name("Water")['formula'] == "= rest"
+        assert other._var_by_name("Water")['balance'] is True
+        assert other._var_by_name("Sugar")['formula'] == "= 0.1 × batch size"
+        assert other._var_by_name("Sugar")['balance'] is False
+        assert other._linear_form("Sugar") == LinearForm(batch=0.1)
+        assert [v['name'] for v in other.varying_variables()] == ["Flour"]
+
+        # A copy that gives two rows the balance is refused: one row can
+        # take it, and which one is not the app's guess to make.
+        two = json.loads(json.dumps(state))
+        two['variables'][2]['balance'] = True
+        with pytest.raises(ValueError) as caught:
+            FoodOptimizer.validate_state(two)
+        assert str(caught.value) == wording.COPY_TWO_BALANCE_ROWS
+        for key, value in (('formula', 12.0), ('balance', "yes")):
+            bad = json.loads(json.dumps(state))
+            bad['variables'][1][key] = value
+            with pytest.raises(ValueError):
+                FoodOptimizer.validate_state(bad)
+
+    def test_a_version_11_project_without_formulas_loads_at_version_12(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        state = opt.export_json()
+        state['CLASS_VERSION'] = 11
+        for var in state['variables']:
+            var.pop('formula', None)
+            var.pop('balance', None)
+        assert FoodOptimizer.validate_state(state)['version'] == 11
+
+        other = FoodOptimizer("wave_one_project")
+        other.import_json(state)
+        assert FoodOptimizer.CLASS_VERSION == 12
+        assert not any(other.has_formula(v) for v in other.variables)
+        assert other.export_json()['CLASS_VERSION'] == 12
+        assert len(other._search_bounds()) == 3
+        assert len(other.ask(1)) == 1
+
+    def test_a_rename_moves_the_name_inside_every_formula(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= batch size - Flour - Sugar")
+        opt.rename_variable("Flour", "Rye flour")
+        assert opt._var_by_name("Water")['formula'] == (
+            "= batch size - Rye flour - Sugar")
+        assert opt._linear_form("Water").names() == {"Rye flour", "Sugar"}
+
+    def test_a_rename_leaves_a_longer_name_that_contains_it_alone(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("longest_first")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Cream", 0, 100)
+        opt.add_ingredient("Cream cheese", 0, 100)
+        opt.add_ingredient("Salt", 0, 10)
+        opt.set_formula("Salt", "= 0.1 × Cream + 0.2 × Cream cheese")
+        opt.rename_variable("Cream", "Milk")
+        assert opt._var_by_name("Salt")['formula'] == (
+            "= 0.1 × Milk + 0.2 × Cream cheese")
+
+    def test_deleting_a_row_a_formula_names_is_refused(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= batch size - Flour - Sugar")
+        with pytest.raises(ValueError) as caught:
+            opt.remove_ingredient("Sugar")
+        assert str(caught.value) == wording.formula_reads_this_row("Sugar",
+                                                                  "Water")
+        # Even with force: the formula would be left naming nothing.
+        with pytest.raises(ValueError):
+            opt.remove_ingredient("Sugar", force=True)
+        assert "Sugar" in [v['name'] for v in opt.variables]
+        # The formula row itself is nobody's dependency and goes as ever.
+        opt.remove_ingredient("Water")
+        assert "Water" not in [v['name'] for v in opt.variables]
