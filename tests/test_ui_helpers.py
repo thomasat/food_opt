@@ -693,8 +693,12 @@ def test_a_grid_is_emptied_by_drawing_a_new_one():
 
 
 def test_the_three_grid_keys_the_app_owns_are_named_once():
-    """app.py turns all three over on a project switch, and the test helpers
-    address them by name; ui_setup is where they are spelled."""
+    """Every door that replaces the variable list turns all three over
+    through reset_grids(), and the test helpers address them by name;
+    ui_helpers is where they are spelled."""
+    import ui_helpers
+    assert ui_helpers.GRID_KEYS == ("ingredient_grid", "measurement_grid",
+                                    "property_grid")
     import ui_setup
-    assert ui_setup.GRID_KEYS == ("ingredient_grid", "measurement_grid",
-                                  "property_grid")
+    assert (ui_setup.ING_GRID_KEY, ui_setup.MEAS_GRID_KEY,
+            ui_setup.PROP_GRID_KEY) == ui_helpers.GRID_KEYS

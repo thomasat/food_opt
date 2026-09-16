@@ -62,6 +62,28 @@ def _grid_edits(at, base, edited=None, added=None, deleted=None):
         "deleted_rows": list(deleted or [])}
 
 
+def _stale_grid_edits(at, base, nonce, edited=None, added=None, deleted=None):
+    """The record the browser is still holding for a grid that has since
+    been drawn under a NEW key. Injected at a fixed nonce, so it is the
+    record of the editor that was on screen before the turnover — the thing
+    a turnover has to make unreachable."""
+    at.session_state[f"{base}_{nonce}"] = {
+        "edited_rows": {int(k): v for k, v in (edited or {}).items()},
+        "added_rows": list(added or []),
+        "deleted_rows": list(deleted or [])}
+
+
+class _FakeUpload(io.BytesIO):
+    """What st.file_uploader hands back: a readable file with a name, a size
+    and an id. AppTest cannot drive the real widget."""
+
+    def __init__(self, name, data):
+        super().__init__(data)
+        self.name = name
+        self.size = len(data)
+        self.file_id = name
+
+
 def _grid_save(at, base):
     """That grid's own `Save changes`, whether it is the plain button or the
     one confirm_action draws when a row has been taken out."""
@@ -3763,16 +3785,121 @@ def test_only_the_topmost_unsaved_grid_lights_its_save(burger):
 
 
 def test_discard_changes_puts_the_grid_back(burger):
+    """Discard turns the grid's key over, which is the only way to drop what
+    the browser is holding: a data editor's value cannot be assigned from
+    session state at all. The stale record is handed back afterwards, as the
+    browser would hand it back — the new editor must not read it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
     at.run()
     _grid_discard(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
     at.run()
     assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    assert at.session_state["_ingredient_grid_nonce"] == 1
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert list(_grid_frame(at, 0)[wording.HIGHEST_LABEL]) == [25.0, 3.0]
     assert FoodOptimizer("burger")._var_by_name("Pea protein")["bounds"] == (
         0.0, 25.0)
+
+
+def test_saving_the_ingredients_grid_turns_its_key_over(burger):
+    """A save that left the record standing would add the row a second time
+    on the next run, or write the same cell again."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, edited={0: {wording.HIGHEST_LABEL: 60.0}})
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("burger")._var_by_name("Pea protein")["bounds"] == (
+        0.0, 40.0)
+
+
+def test_saving_the_measurements_grid_turns_its_key_over(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.HIGHEST_MEASURABLE_LABEL: 12.0}})
+    assert not at.exception
+    assert at.session_state["_measurement_grid_nonce"] == 1
+    _stale_grid_edits(at, MEAS_GRID, 0,
+                      edited={0: {wording.HIGHEST_MEASURABLE_LABEL: 99.0}})
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    # Row 0 of the measurements grid is the largest share: Firmness.
+    saved = {o["name"]: o for o in FoodOptimizer("burger").objectives}
+    assert saved["Firmness"]["max_val"] == 12.0
+    assert saved["Juiciness"]["max_val"] == 10.0
+
+
+def test_opening_a_saved_copy_turns_the_grids_over(project_with_history):
+    """The reviewer's reproduction: a Lowest typed against Water in one
+    project, and a saved copy of another project opened over it. The data
+    editor's record is positional — "row 0's Lowest changed" — so left
+    standing it writes that number onto whatever the copy puts in row 0."""
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Cocoa", 0, 40)
+    donor.add_ingredient("Butter", 0, 60)
+    donor.add_objective("Snap", 1.0, goal="max", min_val=0, max_val=10)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    typed = {"edited": {0: {wording.LOWEST_LABEL: 7.0}}}
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at), _labels(at)
+    at.session_state["_restore_candidate"] = donor.export_json()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    _submit_button(at, wording.YES_REPLACE).click()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("my_project")._var_by_name("Cocoa")["bounds"] == (
+        0.0, 40.0)
+
+
+def test_replacing_the_ingredients_from_a_file_turns_the_grids_over(
+        burger, monkeypatch):
+    """The file replaces the list outright, so every row on the tab belongs
+    to a different ingredient afterwards. AppTest cannot drive a file
+    uploader, so the ingredients one is stood in for."""
+    import streamlit as st_module
+    csv = (b"Name,Lowest,Highest,Unit\n"
+           b"Cocoa,0,40,g\nButter,0,60,g\n")
+    real_uploader = st_module.file_uploader
+
+    def _uploader(label, *a, **k):
+        if str(k.get("key") or "").startswith("ingredients_file"):
+            return _FakeUpload("ingredients.csv", csv)
+        return real_uploader(label, *a, **k)
+
+    monkeypatch.setattr(st_module, "file_uploader", _uploader)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    typed = {"edited": {0: {wording.LOWEST_LABEL: 7.0}}}
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at), _labels(at)
+    next(b for b in at.button if b.key == "load_ingredients").click()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("burger")._var_by_name("Cocoa")["bounds"] == (0.0, 40.0)
 
 
 def test_the_empty_results_button_sends_an_unready_project_to_set_up(tmp_path,

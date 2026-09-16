@@ -29,12 +29,17 @@ from food_bo import (
     GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
 )
 from ui_helpers import (
-    COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
+    COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
+    ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
+    PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
+    armed_confirmation, armed_deletions_key, best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,
     clear_scale_total, confirm_action, confirmation_open,
     disarm, flash,
-    go_to_tab, number_list, other_confirmation, park_clear, plural,
-    preserve_tab_forms, readiness, saved_ok, table_height,
+    go_to_tab, number_list, other_confirmation, park_clear, park_grid,
+    parked_grid, plural,
+    preserve_tab_forms, readiness, reset_grids, saved_ok, table_height,
+    unpark_grid,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -265,25 +270,17 @@ def _formulation_total(opt):
 #  button, the confirmation a deleted row owes, and the per-row errors.
 # ------------------------------------------------------------------ #
 
-ING_GRID_KEY = "ingredient_grid"
-MEAS_GRID_KEY = "measurement_grid"
-PROP_GRID_KEY = "property_grid"
+# The grid keys, the key each grid's Save/Discard pair — and its deletion
+# question — is drawn under, and where a Save that refused leaves its
+# per-row errors for the slot under the grid to show on this same run: all
+# named once, in ui_helpers, beside the reset_grids() that has to reach
+# every one of them. Re-exported here because this module is where they are
+# read.
 # The picker the Delete beside the properties grid is armed from.
 _PROP_DELETE = "prop_delete"
-# Where a Save that refused leaves its per-row errors, for the slot under
-# the grid to show on this same run. The grid is drawn before the button is
-# clicked, so the errors cannot simply be printed where they belong.
-_ING_ERRORS = "_ingredient_grid_errors"
-_MEAS_ERRORS = "_measurement_grid_errors"
-# The key each grid's Save/Discard pair — and its deletion question — is
-# drawn under. Named once: the question is armed in one function and taken
-# down in another, and two spellings of one key is a question nothing can
-# reach.
-ING_SAVE_KEY = "save_ingredient_grid"
-MEAS_SAVE_KEY = "save_measurement_grid"
-SAVE_KEYS = (ING_SAVE_KEY, MEAS_SAVE_KEY)
-_PROP_ERRORS = "_property_grid_errors"
-GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY, PROP_GRID_KEY)
+_ING_ERRORS = ING_ERRORS_KEY
+_MEAS_ERRORS = MEAS_ERRORS_KEY
+_PROP_ERRORS = PROP_ERRORS_KEY
 
 
 def _number_column(label, help=None):
@@ -411,7 +408,7 @@ def _variables(opt, storage):
     pending = _pending(saved, edited)
     # Read by the grid below, which keeps its own pair of buttons grey while
     # this one has something to save: one coloured button per tab.
-    st.session_state["_ingredient_grid_pending"] = pending
+    st.session_state[ING_PENDING_KEY] = pending
     if pending:
         st.caption(wording.UNSAVED_CHANGES_CAPTION)
         _save_ingredients(opt, storage, edited)
@@ -496,15 +493,9 @@ def _discard_beside(key, grid):
         st.rerun()
 
 
-# What set of rows one grid's deletion question was armed over. ONE KEY PER
-# GRID: shared, the second grid's bookkeeping ran after the first's on every
-# run and popped the record out from under it, so the first grid's question
-# quietly re-worded itself to a set of rows nobody had confirmed.
-_ARMED_DELETIONS = "_grid_deletions_armed"
-
-
-def _armed_deletions_key(key):
-    return f"{key}__{_ARMED_DELETIONS}"
+# What set of rows one grid's deletion question was armed over — one key per
+# grid, named in ui_helpers beside the reset that has to pop both.
+_armed_deletions_key = armed_deletions_key
 
 
 def _disarm_grid_deletion(key):
@@ -646,6 +637,10 @@ def _upload_ingredients(opt):
                     # limit was written against.
                     _flash_removed_limits(opt, removed)
                     _note_discarded_batch(opt, batch_no)
+                    # The file replaces the list outright, so every row on
+                    # this tab is a different row now and no pending edit
+                    # typed against the old one can be replayed onto it.
+                    reset_grids()
                     st.rerun()
 
 
@@ -782,7 +777,7 @@ def _ingredients_pending():
     """True when the grid above this one already has an edit in hand. Its
     Save is then the coloured one: a tab shows one at a time, and the one
     higher up the page is the one the reader is looking at."""
-    return st.session_state.get("_ingredient_grid_pending", False)
+    return st.session_state.get(ING_PENDING_KEY, False)
 
 
 def _save_measurements(opt, storage, edited, lit=True):

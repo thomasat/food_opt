@@ -37,10 +37,10 @@ from food_bo import (                         # noqa: E402
 )
 from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
-    clear_grid, confirm_action, confirmation_open, drain_clears,
+    confirm_action, confirmation_open, drain_clears,
     flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
-    render_flash, saved_line, saved_ok, take_clear,
+    render_flash, reset_grids, saved_line, saved_ok, take_clear,
 )
 
 if _starting is not None:
@@ -68,7 +68,7 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 _FORM_KEY_PREFIXES = (
     # Tab 1's ingredients and measurements are two editable grids now. A
     # grid's own key is neither popped nor parked — it is turned over
-    # (_EDITOR_GRID_KEYS below) — and there is no add form and no per-row
+    # (ui_helpers.reset_grids) — and there is no add form and no per-row
     # editor left to empty.
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
@@ -108,13 +108,6 @@ _FORM_FRESH = {
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
                          "prop_delete")
 
-# Tab 1's two editable grids. Their session-state value is the record of
-# what has been typed into them — which cells changed, which rows were added
-# and which taken out — and Streamlit refuses to let a script assign it, so
-# a project switch turns each grid's key over instead (clear_grid). A record
-# left behind would apply one project's edits to another project's rows.
-_EDITOR_GRID_KEYS = ui_setup.GRID_KEYS
-
 # The boxes whose names are the project's own, so they cannot be listed in
 # _FORM_FRESH above: one per variable in tab 2's "Add a formulation of your
 # own" (own_<name> — its own_note box is named in _FORM_FRESH, and is parked
@@ -143,17 +136,13 @@ def _reset_project_session():
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows",
-              "_ingredient_grid_errors", "_measurement_grid_errors",
-              "_ingredient_grid_pending",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open", ARMED_KEY):
         st.session_state.pop(k, None)
-    for name in _EDITOR_GRID_KEYS:
-        clear_grid(name)
-    # What each grid's deletion question was armed over — one record per
-    # grid, and neither belongs to the project being opened.
-    for name in ui_setup.SAVE_KEYS:
-        st.session_state.pop(ui_setup._armed_deletions_key(name), None)
+    # Every pending grid edit, every grid's refused-save errors and whatever
+    # each grid's deletion question was armed over: none of it belongs to
+    # the project being opened.
+    reset_grids()
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
@@ -470,6 +459,13 @@ with st.sidebar:
                                 if new_opt.save_error:
                                     st.error(new_opt.save_error)
                                 else:
+                                    # Every row on tab 1 belongs to a
+                                    # different project from this run on.
+                                    # A data editor's record is positional,
+                                    # so a Lowest typed against Water here
+                                    # would land on whatever the copy puts
+                                    # in row 0.
+                                    _reset_project_session()
                                     st.session_state.optimizer = new_opt
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)

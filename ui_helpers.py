@@ -492,3 +492,106 @@ def clear_grid(name):
     key over. Called by Discard changes and by every Save that lands."""
     st.session_state[_grid_nonce(name)] = (
         st.session_state.get(_grid_nonce(name), 0) + 1)
+
+
+# ------------------------------------------------------------------ #
+#  Tab 1's three editable grids, named once
+#
+#  The keys live here rather than in ui_setup because reset_grids() below
+#  is what every door that replaces a project's variable list calls, and
+#  app.py reaches it through this module. ui_setup imports them back.
+# ------------------------------------------------------------------ #
+ING_GRID_KEY = "ingredient_grid"
+MEAS_GRID_KEY = "measurement_grid"
+PROP_GRID_KEY = "property_grid"
+GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY, PROP_GRID_KEY)
+
+# The Save/Discard pair each of the two full grids is drawn under. The
+# properties grid has a plain button of its own and no deletion question.
+ING_SAVE_KEY = "save_ingredient_grid"
+MEAS_SAVE_KEY = "save_measurement_grid"
+SAVE_KEYS = (ING_SAVE_KEY, MEAS_SAVE_KEY)
+
+# Where a Save that refused parks its per-row errors until the slot under
+# the grid draws them. Listed as a tuple so a fourth grid cannot be
+# forgotten the way _property_grid_errors was.
+ING_ERRORS_KEY = "_ingredient_grid_errors"
+MEAS_ERRORS_KEY = "_measurement_grid_errors"
+PROP_ERRORS_KEY = "_property_grid_errors"
+GRID_ERROR_KEYS = (ING_ERRORS_KEY, MEAS_ERRORS_KEY, PROP_ERRORS_KEY)
+
+# Which grid already has an edit in hand, read by the grid below it so that
+# only one Save is coloured.
+ING_PENDING_KEY = "_ingredient_grid_pending"
+
+# What set of rows one grid's deletion question was armed over. ONE KEY PER
+# GRID: shared, the second grid's bookkeeping ran after the first's on every
+# run and popped the record out from under it.
+_ARMED_DELETIONS = "_grid_deletions_armed"
+
+
+def armed_deletions_key(key):
+    return f"{key}__{_ARMED_DELETIONS}"
+
+
+def parked_grid_key(name):
+    """Where one grid's edited frame waits while a rerun it did not cause
+    goes past it."""
+    return f"_{name}_parked"
+
+
+def park_grid(name, frame):
+    """Keep one grid's edited frame so the next run can draw it again.
+
+    A Save on the grid ABOVE reruns before this one is drawn, and Streamlit
+    throws away the session-state entry of every widget a run did not
+    create — so without this the other grid's edit is gone and its banner
+    with it, and the tab reports as saved work that never reached the
+    project. The frame is parked on every run the grid is pending; the run
+    that draws it again turns the key over, because the editor's own record
+    is positional and would replay on top of the frame it is now drawn
+    from.
+    """
+    st.session_state[parked_grid_key(name)] = frame
+
+
+def parked_grid(name, saved):
+    """The parked frame for `name` if it still fits the project, else None.
+
+    Fits means the same columns: a save elsewhere can add or drop one (the
+    Baseline column arrives with the first recorded formulation), and an
+    edit typed against the old shape is not one this grid can still draw.
+    """
+    frame = st.session_state.get(parked_grid_key(name))
+    if frame is None:
+        return None
+    if list(frame.columns) != list(saved.columns):
+        st.session_state.pop(parked_grid_key(name), None)
+        return None
+    return frame
+
+
+def unpark_grid(name):
+    st.session_state.pop(parked_grid_key(name), None)
+
+
+def reset_grids():
+    """Throw away every pending edit on tab 1 and every question armed over
+    one.
+
+    Called by each door that replaces the project's variable list — a
+    project switch, Start this project over, Open a saved copy → Yes,
+    replace, and an ingredients file that replaces the list. A data
+    editor's session-state entry is POSITIONAL (row 0's Lowest changed),
+    not a record of which ingredient it was typed against, so a record left
+    standing writes one project's number onto whatever now sits in that
+    row. Turning every key over is the only way to drop it.
+    """
+    for name in GRID_KEYS:
+        clear_grid(name)
+        unpark_grid(name)
+    for key in SAVE_KEYS:
+        st.session_state.pop(armed_deletions_key(key), None)
+    for key in GRID_ERROR_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state.pop(ING_PENDING_KEY, None)
