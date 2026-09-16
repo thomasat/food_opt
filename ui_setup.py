@@ -1247,22 +1247,19 @@ def _limits(opt, storage):
                               wording.limit_added_on(" + ".join(picked)))
 
     for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
+        if qc.get('source') == 'formulation_total':
+            # Not listed at all. The default batch size is answered in its
+            # own box at the top of this expander, with a help line that
+            # says what it does; a third mention here, read-only, with a
+            # caption telling the reader to go back up and empty a box, was
+            # the one the reader could not act on where it stood.
+            continue
         l1, l2 = st.columns([3, 1])
         with l1:
             # One line per limit, written by the optimizer: a limit sums
             # ingredients that share a unit, so it is written in that
-            # unit ("at most 400 g", never a bare 400), and the total
-            # reads as the one number it is rather than as the
-            # half-percent band it is enforced as.
+            # unit ("at most 400 g", never a bare 400).
             st.text(opt.limit_text(qc))
-        if qc.get('source') == 'formulation_total':
-            # The total's row is a reading of the Default batch size box
-            # above, not a second control for it. A Delete here let one rule
-            # be taken off in two places, and the cold read could not tell
-            # which of the two was the real one.
-            with l1:
-                st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
-            continue
         with l2:
             _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
                           lambda i=i: opt.remove_quantity_constraint(i))

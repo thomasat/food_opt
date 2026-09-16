@@ -233,8 +233,8 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Widen the range in "
-        "Set up, or check the value."
+        "Firmness 12 N is outside your range of 0 to 10 N. Raise Highest "
+        "measurable in Set up, or check the value."
     )
 
 
@@ -552,14 +552,15 @@ def test_the_scaled_caution_names_the_ingredients_only_while_it_can():
     named = wording.scaled_amounts_caution("150 g", names_text="Water",
                                            n_outside=1, n_total=8)
     assert named == ("At 150 g, Water goes past the amounts you allowed. "
-                     "Print at a smaller total, or widen them in Set up.")
+                     "Print at a smaller batch size, or widen them in "
+                     "Set up.")
     two = wording.scaled_amounts_caution("150 g", names_text="Water and Salt",
                                          n_outside=2, n_total=8)
     assert two.startswith("At 150 g, Water and Salt go past the amounts you "
                           "allowed.")
     counted = wording.scaled_amounts_caution("150 g", n_outside=8, n_total=8)
     assert counted == ("At 150 g, 8 of 8 ingredients go past the amounts you "
-                       "allowed. Print at a smaller total, or widen them in "
+                       "allowed. Print at a smaller batch size, or widen them in "
                        "Set up.")
     # One spelling of what was exceeded, whichever branch wrote the line.
     for line in (named, two, counted):
@@ -704,3 +705,14 @@ def test_the_three_grid_keys_the_app_owns_are_named_once():
     import ui_setup
     assert (ui_setup.ING_GRID_KEY, ui_setup.MEAS_GRID_KEY,
             ui_setup.PROP_GRID_KEY) == ui_helpers.GRID_KEYS
+
+
+def test_the_out_of_range_hint_names_a_control_on_the_screen():
+    """R13: "Widen the range in Set up" named nothing there — the
+    measurements grid's columns are Lowest measurable and Highest
+    measurable. The two spellings are pinned together because the hint is
+    written above the column headers and cannot read them."""
+    import wording
+    assert wording.HIGHEST_MEASURABLE_LABEL in wording.WIDEN_RANGE_HINT
+    assert wording.WIDEN_RANGE_HINT == (
+        " Raise Highest measurable in Set up, or check the value.")

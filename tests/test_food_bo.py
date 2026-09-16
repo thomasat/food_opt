@@ -2999,13 +2999,13 @@ class TestParseBatchResultsByFormulation:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
             "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
-            "Widen the range in Set up, or check the value.")
+            "Raise Highest measurable in Set up, or check the value.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
             "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
-            "Widen the range in Set up, or check the value.")
+            "Raise Highest measurable in Set up, or check the value.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -6257,7 +6257,7 @@ class TestTheWorkbook:
         for expected in ("Ingredients and process settings", "Pea protein",
                          "Process setting", "Measurements and targets",
                          "Hit a target", "0 to 10 N", "Limits",
-                         "Default batch size · 100 g",
+                         "Default batch size · 100 g (set in Set up)",
                          "Where the targets come from",
                          "A benchmark burger, panel of 8."):
             assert expected in setup, expected

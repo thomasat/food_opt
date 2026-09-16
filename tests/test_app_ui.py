@@ -1979,7 +1979,7 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2591,7 +2591,7 @@ def test_a_typed_past_measurement_outside_its_range_is_refused(burger):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 99 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2737,7 +2737,7 @@ def test_a_correction_outside_the_range_is_refused(scored):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").results_history[0]["Firmness"] == 1.0
 
@@ -3166,7 +3166,7 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
     at.run()
     assert not at.exception
     assert any(e.value == ("Row 2: Firmness 99 N is outside your range of 0 to "
-                           "10 N. Widen the range in Set up, or check the "
+                           "10 N. Raise Highest measurable in Set up, or check the "
                            "value.") for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []   # the whole file is refused
 
@@ -4345,7 +4345,7 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
-    assert any(c.value == ("To make each formulation to a set amount, "
+    assert any(c.value == ("To make each formulation to a batch size, "
                            "every ingredient needs the same unit.")
                for c in at.caption), [c.value for c in at.caption]
     # ... and it comes back the moment they do share one.
@@ -6986,12 +6986,16 @@ def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_batch_size_help_says_what_it_scales(open_batch):
+def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
+        open_batch):
+    """"the sheets scale with it" said neither what changes nor where to
+    see it, in the one word that shipped meaning two things last cycle."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").help == (
         "Every formulation in this round adds up to this. Change it and the "
-        "sheets scale with it.")
+        "amounts are worked out again at that size; the table's Total (g) "
+        "shows it.")
 
 
 def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(room_to_scale):
@@ -7008,7 +7012,7 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(room_to_scale):
     # ONE line, however many ingredients on however many of the batch's rows
     # are outside: the total did it, and the fix is the same one every time.
     assert cautions == ["At 200 g, Pea protein and Methylcellulose go past "
-                        "the amounts you allowed. Print at a smaller total, "
+                        "the amounts you allowed. Print at a smaller batch size, "
                         "or widen them in Set up."], cautions
     # And none at all once the round is made to a size the project allows.
     # Emptying the box does NOT undo it: the amounts have moved, and the way
@@ -7376,7 +7380,8 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     assert box.label == "Batch size (g)"
     assert box.proto.placeholder == "e.g. 100"
     assert box.help == ("Every formulation in this round adds up to this. "
-                        "Change it and the sheets scale with it.")
+                        "Change it and the amounts are worked out again at "
+                        "that size; the table's Total (g) shows it.")
     box.set_value(25.0)
     at.run()
     # One line about what the sheets hold, and it is the only line about the
@@ -8204,7 +8209,7 @@ def test_one_caution_names_every_ingredient_the_total_pushes_out(
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
     assert said == ["At 200 g, Pea protein and Methylcellulose go past "
-                    "the amounts you allowed. Print at a smaller total, or "
+                    "the amounts you allowed. Print at a smaller batch size, or "
                     "widen them in Set up."], said
 
 
@@ -8217,7 +8222,7 @@ def test_the_scaled_caution_is_singular_for_one_ingredient(open_batch):
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
     assert said == ["At 28 g, Pea protein goes past the amounts you allowed. "
-                    "Print at a smaller total, or widen them in "
+                    "Print at a smaller batch size, or widen them in "
                     "Set up."], said
 
 
@@ -8230,7 +8235,7 @@ def test_the_best_says_when_its_own_total_pushes_an_amount_out(made_to_a_total):
     at.run()
     assert not at.exception
     caution = ("At 150 g, Pea protein and Methylcellulose go past the "
-               "amounts you allowed. Print at a smaller total, or widen them "
+               "amounts you allowed. Print at a smaller batch size, or widen them "
                "in Set up.")
     order = _tab_flow(at, 2)
     assert order.count(caution) == 1, order
@@ -8242,7 +8247,7 @@ def test_every_sheet_ends_with_the_caution(open_batch):
     """The sheet is what the bench weighs out from, and it leaves the app: a
     caution only on screen is not on the page in the technician's hand."""
     caution = ("At 200 g, Pea protein and Methylcellulose go past the "
-               "amounts you allowed. Print at a smaller total, or widen them "
+               "amounts you allowed. Print at a smaller batch size, or widen them "
                "in Set up.")
     book = openpyxl.load_workbook(io.BytesIO(
         open_batch.workbook_bytes(open_batch.pending_batch, 200.0)))
@@ -8306,7 +8311,7 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert not at.exception
     said = [c.value for c in at.caption if "outside your range" in c.value]
     assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
-                    " Widen the range in Set up, or check the value."], said
+                    " Raise Highest measurable in Set up, or check the value."], said
     order = _tab_flow(at)
     assert (order.index(said[0])
             < _first(order, wording.formulation_heading(2))), order
@@ -8506,7 +8511,7 @@ def test_the_scaled_caution_counts_instead_of_listing_eight_names(eight_ingredie
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
     assert said == ["At 400 g, 4 of 8 ingredients go past the amounts you "
-                    "allowed. Print at a smaller total, or widen them in "
+                    "allowed. Print at a smaller batch size, or widen them in "
                     "Set up."], said
 
 
@@ -8589,8 +8594,8 @@ def test_the_total_box_sits_under_the_ingredients_and_says_what_it_does(burger):
     box = _total_box(at)
     assert box is not None
     assert box.label == "Default batch size (g)"
-    assert box.help == ("Every suggested formulation adds up to this. Set it "
-                        "to what your mixer or your panel needs.")
+    assert box.help == ("Every formulation adds up to this unless a round "
+                        "sets its own batch size.")
     assert box.placeholder == "e.g. 100"
     assert box.value is None
 
@@ -8623,21 +8628,21 @@ def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
     assert FoodOptimizer("burger").formulation_total is None
 
 
-def test_the_total_reads_once_in_the_limits_list_and_is_taken_off_above(burger):
-    """It is over every ingredient by definition, so it is named for the box
-    that wrote it rather than listed as a limit on a chosen few — and it is
-    a READING of that box, not a second control for the same rule."""
+def test_the_default_batch_size_is_not_in_the_limits_list_at_all(burger):
+    """Three places answered one question — the box, its help, and a
+    read-only row a screenful below with a caption telling the reader to go
+    back up and empty the box. The row is the one they could not act on
+    where it stood, so it is gone."""
     burger.set_formulation_total(20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     lines = [t.value for t in at.text]
-    assert "Default batch size · 20 g" in lines, lines
+    assert not any("Default batch size" in line for line in lines), lines
     assert not any(line.startswith("All ingredients") for line in lines), lines
     assert not any("Pea protein + Methylcellulose" in line for line in lines), \
         lines
     assert "Delete limit on the total of each formulation" not in _labels(at)
-    assert any(c.value == "Empty the Default batch size box to take "
-                          "it off." for c in at.tabs[0].caption), \
+    assert not any("take it off" in c.value for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
     # ... and emptying the box is what takes it off.
     _total_box(at).set_value(0.0)
@@ -8734,7 +8739,8 @@ def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
     assert not at.exception
     assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
     assert _total_box(at).value == 100.0
-    assert "Default batch size · 100 g" in [t.value for t in at.text]
+    assert not any("Default batch size ·" in t.value for t in at.text), \
+        [t.value for t in at.text]
 
 
 def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
@@ -9039,7 +9045,7 @@ def test_adding_an_ingredient_keeps_the_total_and_says_so(burger):
     # The limit is over every ingredient, so the new one is in it.
     assert "Onion powder" in saved.quantity_constraints[0]['ingredients']
     assert any(s.value == "Onion powder added. Each formulation still "
-                          "totals 20 g." for s in at.success), \
+                          "adds up to 20 g." for s in at.success), \
         [s.value for s in at.success]
 
 

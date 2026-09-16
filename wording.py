@@ -85,14 +85,21 @@ ALLOWED_AMOUNTS = "its allowed amounts"
 # The half of the scaled caution that names what was exceeded. One spelling,
 # whether the line lists the ingredients or counts them.
 AMOUNTS_YOU_ALLOWED = "the amounts you allowed"
-WIDEN_RANGE_HINT = " Widen the range in Set up, or check the value."
+# The value is outside the measurement's own span, so the hint names the
+# control that sets it. "Widen the range in Set up" named nothing on that
+# screen: the grid's columns are Lowest measurable and Highest measurable.
+# HIGHEST_MEASURABLE_LABEL is the same words, defined with the grid's other
+# column headers further down; this one cannot read it because it is needed
+# above them. The guard below the grid pins the two together.
+WIDEN_RANGE_HINT = " Raise Highest measurable in Set up, or check the value."
 
 
-SMALLER_TOTAL_HINT = "Print at a smaller total, or widen them in Set up."
+SMALLER_TOTAL_HINT = (f"Print at a smaller {BATCH_SIZE_NOUN}, or widen them "
+                      "in Set up.")
 # The same two ways out for a limit rather than an ingredient's own amounts:
 # a limit is changed in Set up, not widened there.
-SMALLER_TOTAL_OR_LIMIT_HINT = ("Print at a smaller total, or change the "
-                               "limit in Set up.")
+SMALLER_TOTAL_OR_LIMIT_HINT = (f"Print at a smaller {BATCH_SIZE_NOUN}, or "
+                               "change the limit in Set up.")
 
 
 def scaled_limit_caution(total_text, limit_text):
@@ -596,8 +603,8 @@ def compared_with_cell(kind, changes=""):
     return f"{head} · {changes}" if changes else head
 
 
-NEEDS_ONE_UNIT = ("To make each formulation to a set amount, every "
-                  "ingredient needs the same unit.")
+NEEDS_ONE_UNIT = (f"To make each {FORMULATION} to a {BATCH_SIZE_NOUN}, "
+                  f"every {INGREDIENT} needs the same unit.")
 
 
 # The round screen's own box: the weight of one formulation in the round in
@@ -610,8 +617,25 @@ def batch_size_label(unit):
     return f"{BATCH_SIZE_NAME} ({unit})" if unit else BATCH_SIZE_NAME
 
 
-BATCH_SIZE_HELP = (f"Every {FORMULATION} in this {ROUND} adds up to this. "
-                   "Change it and the sheets scale with it.")
+TOTAL_LABEL = "Total"
+
+
+def total_column(unit):
+    """'Total (g)' — the header of the round table's last column, and of the
+    same row on the sheets. A bare 'Total' where the ingredients are in more
+    than one unit, because the cell then carries the units itself."""
+    return f"{TOTAL_LABEL} ({unit})" if unit else TOTAL_LABEL
+
+
+def batch_size_help(unit=""):
+    """The help under the round screen's own box. It ties the box to the
+    column that reads it back: they are one number, and the table under the
+    box is the one place the reader can see it has landed. "The sheets scale
+    with it" said neither, in the one word that shipped meaning two things
+    last cycle."""
+    return (f"Every {FORMULATION} in this {ROUND} adds up to this. Change "
+            "it and the amounts are worked out again at that size; the "
+            f"table's {total_column(unit)} shows it.")
 # An example, not a description: the help above already says what the box is
 # for.
 BATCH_SIZE_PLACEHOLDER = "e.g. 100"
@@ -1302,36 +1326,32 @@ def formulation_total_label(unit):
             else FORMULATION_TOTAL_NAME)
 
 
-FORMULATION_TOTAL_HELP = ("Every suggested formulation adds up to this. Set "
-                          "it to what your mixer or your panel needs.")
+FORMULATION_TOTAL_HELP = (f"Every {FORMULATION} adds up to this unless a "
+                          f"{ROUND} sets its own {BATCH_SIZE_NOUN}.")
 # An example, not a description: the help above already says what the box is
 # for, and 100 g is what the sample ships with.
 FORMULATION_TOTAL_PLACEHOLDER = "e.g. 100"
 
-# The total's row in the Limits list is a reading, not a control: the box at
-# the top of the tab is where the number is answered, and a Delete button
-# beside the row let the same rule be taken off in two places.
-FORMULATION_TOTAL_IN_LIMITS_CAPTION = (
-    f"Empty the {FORMULATION_TOTAL_NAME} box to take it off.")
-
-
 def total_still_holds(total_text):
-    """'Each formulation still totals 100 g.' — the half-sentence an edit to
+    """'Each formulation still adds up to 100 g.' — the half-sentence an edit to
     the ingredient list adds to its own success line.
 
     The total's limit is over every ingredient, so it is rewritten on every
     such edit; this is the screen saying so. It was rewritten silently, and
     a reader who had just been told "Limits are hard rules" had no way to
     know whether the rule they typed had survived their own step 2."""
-    return f"Each {FORMULATION} still totals {total_text}."
+    return f"Each {FORMULATION} still adds up to {total_text}."
 
 
 def formulation_total_row(total_text):
-    """'Total of each formulation · 100 g' — the one line the total takes in
-    the Limits list. It holds every ingredient, so listing it as a limit on a
-    chosen few would name all eight of them and read as something the user
-    had typed there."""
-    return f"{FORMULATION_TOTAL_NAME} · {total_text}"
+    """'Default batch size · 100 g (set in Set up)' — the one line the
+    default takes on the printed Set-up sheet.
+
+    On paper there is no box above it and no caption beside it, so a row
+    under Limits read as a limit the user had written. It is off the screen
+    entirely now — the box at the top of More settings is where the number
+    is answered — so the sheet says where it came from."""
+    return f"{FORMULATION_TOTAL_NAME} · {total_text} (set in Set up)"
 
 
 def total_not_reachable_at_most(total_text, most_text,
@@ -1759,8 +1779,7 @@ DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND} sheets (Excel)"
 # (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
 TICK_COLUMN = "Tick"
 PERCENT_COLUMN = "%"
-MEASURED_COLUMN = "Measured"
-TOTAL_LABEL = "Total"
+
 SETTINGS_SHEET_HEADING = "Settings"
 MEASUREMENTS_SHEET_HEADING = "Measurements"
 LIMITS_SHEET_HEADING = "Limits"

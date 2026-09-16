@@ -1795,9 +1795,7 @@ class FoodOptimizer:
         if not self.has_ingredients():
             return None
         unit = self.one_amount_unit()
-        if unit is None:
-            return "Total"
-        return f"Total ({unit})" if unit else "Total"
+        return wording.total_column("" if unit is None else unit)
 
     def _total_cell(self, recipe):
         """What goes in that column: a number while there is one unit, the

@@ -550,7 +550,7 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
         wording.batch_size_label(unit),
         min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
         key=_BATCH_SIZE_KEY,
-        help=wording.BATCH_SIZE_HELP,
+        help=wording.batch_size_help(unit),
     )
     line = _previous_size_line(opt)
     if line:
