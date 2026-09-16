@@ -63,7 +63,7 @@ RESERVED_VARIABLE_NAMES = {
     # The properties grid's row column (spec 1.5). Its other columns are the
     # project's own property names, so a property — or an ingredient — of
     # this name would put two columns of one name on one grid.
-    wording.PROPERTIES_PICK_LABEL,
+    wording.PROPERTIES_ROW_COLUMN,
 }
 
 # The batch table's own total column carries the unit it is summing —
@@ -1553,6 +1553,19 @@ class FoodOptimizer:
                     seen.add(key)
                     names.append(str(prop).strip())
         return names
+
+    def grid_properties(self):
+        """`properties()`, minus the properties grid's own row-column name.
+
+        A property called "Ingredient" can only ever have arrived as a
+        column of an old ingredient file (`add_property` refuses the name,
+        it being reserved) and cannot be drawn as a column of a grid whose
+        row column already carries it — so it is kept out of the grid, the
+        limit picker built from it, and the values `Add a property` writes,
+        while `properties()` itself keeps naming it so it can still be
+        found and deleted.
+        """
+        return [p for p in self.properties() if p != wording.PROPERTIES_ROW_COLUMN]
 
     def _remember_property(self, name):
         """Record a property name in property_names if it is not there yet."""
@@ -6521,12 +6534,12 @@ class FoodOptimizer:
         is an ingredient with no figure, which is not the same as a 0 — the
         caption above the grid says what the app does with one.
         """
-        key = wording.PROPERTIES_PICK_LABEL
+        key = wording.PROPERTIES_ROW_COLUMN
         # A property that arrived as a CSV column may be called anything at
         # all, the row column's own label included; two columns of one name
         # is a frame nothing can read a cell out of. `add_property` refuses
         # the name (it is reserved), so this only ever catches a file.
-        properties = [p for p in self.properties() if p != key]
+        properties = self.grid_properties()
         data = []
         for var in self._ingredients():
             row = {key: var['name']}
@@ -6548,8 +6561,8 @@ class FoodOptimizer:
         of an eight-by-six grid on every save would save the project
         forty-eight times to change one number.
         """
-        key = wording.PROPERTIES_PICK_LABEL
-        properties = [p for p in self.properties() if p != key]
+        key = wording.PROPERTIES_ROW_COLUMN
+        properties = self.grid_properties()
         known = {v['name'] for v in self._ingredients()}
         errors, writes = [], []
         for row_no, row in _grid_rows(frame):

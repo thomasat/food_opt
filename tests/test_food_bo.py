@@ -7670,6 +7670,18 @@ class TestThePropertiesGrid:
         assert list(opt.property_grid_frame().columns) == [
             "Ingredient", "Cost", "Sodium per 100 g"]
 
+    def test_grid_properties_is_properties_minus_the_row_column(
+            self, tmp_path, monkeypatch):
+        """The one accessor `property_grid_frame`, `apply_property_grid` and
+        the limit picker on screen all share, so a property that arrived as
+        the row column's own name is invisible and uneditable in exactly
+        the same places — and nowhere `properties()` itself is asked, since
+        the delete picker still has to name it so it can be removed."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.ingredient_properties["Water"] = {"Ingredient": 1.0}
+        assert opt.properties() == ["Cost", "Sodium per 100 g", "Ingredient"]
+        assert opt.grid_properties() == ["Cost", "Sodium per 100 g"]
+
     def test_only_the_cells_that_moved_are_written(self, tmp_path,
                                                    monkeypatch):
         """Every figure goes through set_property_value, and that door saves

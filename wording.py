@@ -792,10 +792,9 @@ def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
     return f"{name} saved."
-# An example, not a rule: "0 if blank" and "leave a cell empty for no
-# value" sat on one screen contradicting each other, and the app never knows
-# an ingredient is fat-free — only that a cell was left empty.
-PROPERTY_PLACEHOLDER = "e.g. 2"
+# "0 if blank" and "leave a cell empty for no value" sat on one screen
+# contradicting each other, and the app never knows an ingredient is
+# fat-free — only that a cell was left empty.
 PROPERTY_BLANK_RULE = "An empty cell counts as 0 in any limit."
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
@@ -899,12 +898,13 @@ def formulations_contain_none_of(names_text):
 # the cell is that ingredient's figure for it (spec 1.5). The row column is
 # the ingredient's name, which is why "Ingredient" is a name the project
 # cannot also give to an ingredient or a property.
-PROPERTIES_PICK_LABEL = "Ingredient"
+PROPERTIES_ROW_COLUMN = "Ingredient"
 PROPERTIES_HEADING = "**Properties**"
 
 
 def properties_grid_caption(per_100_already_said=False):
-    """'Each ingredient, per 100 g. An empty cell counts as 0 in any limit.'
+    """'Each ingredient's figure, per 100 g. An empty cell counts as 0 in
+    any limit.'
 
     `per_100_already_said` drops the basis from the sentence: a project whose
     property names carry it themselves ("Fat per 100 g and Sodium per 100 g")
@@ -1097,8 +1097,6 @@ def limit_went_with_it(limits_text):
 
 
 FINISHED_PRODUCT_LIMIT_HEADING = "**Finished-product limit**"
-PER_100G_UNRESOLVED_CAPTION = ("Per 100 g of formulation once every "
-                               "ingredient is in one mass unit.")
 
 
 def per_100_caption(unit):

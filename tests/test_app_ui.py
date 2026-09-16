@@ -6151,6 +6151,35 @@ def test_a_property_is_deleted_from_a_picker_and_one_question(burger):
     assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Fat per 100 g"]
 
 
+def test_a_legacy_ingredient_named_property_is_hidden_but_deletable(burger):
+    """A property called "Ingredient" can only ever have arrived as a
+    column of an old ingredient file: `add_property` refuses that name
+    outright, since the properties grid's own row column already carries
+    it. It has to stay off that grid and off the limit picker built from
+    the same list — the grid can never show or write a figure for it — but
+    the delete picker still has to offer it, or it could never be taken
+    out."""
+    burger.add_property("Cost")
+    burger.ingredient_properties["Pea protein"] = {"Ingredient": 1.0}
+    burger.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Cost", "Ingredient"]
+    assert at.selectbox(key="prop_metric").options == ["Cost"]
+    assert at.selectbox(key="prop_delete").options == ["Cost", "Ingredient"]
+    at.selectbox(key="prop_delete").set_value("Ingredient")
+    at.run()
+    next(b for b in at.button if b.key == "rm_prop_Ingredient__btn").click()
+    at.run()
+    assert any("Delete Ingredient?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    next(b for b in at.button if b.key == "rm_prop_Ingredient__yes").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Cost"]
+
+
 def test_a_limit_names_the_ingredients_that_have_no_value(burger):
     """An ingredient with no value counts as 0 in the average, and a limit
     that looks satisfied for that reason is the one way this lies."""
@@ -6195,6 +6224,38 @@ def test_deleting_a_property_asks_first_keeps_a_copy_and_takes_its_limit(
     assert (tmp_path / "burger_pre_delete.pkl").exists()
     assert any("Sodium per 100 g deleted. Its 1 limit went with it." in s.value
                for s in at.success), [s.value for s in at.success]
+
+
+def test_deleting_an_ingredient_turns_over_the_properties_grid(burger):
+    """The properties grid is drawn ingredient by ingredient (row 0 is
+    whichever ingredient is first), and a pending, unsaved edit in it is
+    positional — Streamlit's data editor knows only that "row 0's Cost"
+    changed, not which ingredient that was. Deleting an ingredient above it
+    changes who sits in that row, so the properties grid must be reset
+    alongside the ingredients grid: a save that lands here must not have a
+    stale edit land on whoever inherited the row."""
+    burger.add_property("Cost")
+    burger.set_property_value("Methylcellulose", "Cost", 4.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # Delete Pea protein (row 0 of the ingredients grid) and save.
+    _save_grid(at, ING_GRID, confirm=True, deleted=[0])
+    assert not at.exception
+    # A pending edit sitting in the properties grid's ORIGINAL widget, as if
+    # typed before the deletion: row 0's Cost set to 99. If the properties
+    # grid turned over with the ingredients grid, this key belongs to a
+    # widget nothing on screen reads any more.
+    at.session_state["property_grid_0"] = {
+        "edited_rows": {0: {"Cost": 99.0}}, "added_rows": [], "deleted_rows": []}
+    at.run()
+    next(b for b in at.button if b.key == "save_properties").click()
+    at.run()
+    assert not at.exception
+    # Methylcellulose is now row 0 of the properties grid. Its own figure
+    # must be unchanged, not overwritten by the stale edit meant for Pea
+    # protein's old row.
+    assert FoodOptimizer("burger").property_value(
+        "Methylcellulose", "Cost") == 4.0
 
 
 def test_a_hand_made_property_limit_reaches_the_batch(burger):
@@ -6936,12 +6997,15 @@ def test_the_property_button_says_what_it_adds(burger):
 
 def test_the_per_100_caption_waits_for_one_unit(mixed_units):
     """`Per 100 g` over a project of grams and millilitres named a hundred of
-    nothing; the limit itself is refused until they agree."""
+    nothing. NEEDS_ONE_UNIT already says the ingredients must share a unit
+    (the Default batch size box says it first, higher up in More settings),
+    so the limit's own caption says nothing at all rather than repeating it
+    in different words — the two sentences used to show together."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Per 100 g of formulation once every ingredient is "
-                           "in one mass unit.") for c in at.caption), \
-        [c.value for c in at.caption]
+    captions = [c.value for c in _more_settings(at).caption]
+    assert captions.count(wording.NEEDS_ONE_UNIT) == 1, captions
+    assert not any(c.startswith("Per 100") for c in captions), captions
     mixed_units.set_ingredient_unit("Water", "g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

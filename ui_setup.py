@@ -568,6 +568,13 @@ def _apply_ingredient_grid(opt, edited, force=()):
     for kind, line in messages:
         flash(kind, line)
     clear_grid(ING_GRID_KEY)
+    # The properties grid is drawn ingredient by ingredient, in this same
+    # order: a deletion, a rename or a reorder here changes which ingredient
+    # sits in a row the properties grid may still be holding a pending edit
+    # for. That edit is positional, not a record of which ingredient it was
+    # typed against, so it is thrown away rather than replayed onto whoever
+    # inherited the row.
+    clear_grid(PROP_GRID_KEY)
     st.session_state.pop(_armed_deletions_key(ING_SAVE_KEY), None)
     st.rerun()
 
@@ -881,8 +888,8 @@ def _property_columns(properties):
     """The row column is the ingredient's name and cannot be typed into: the
     grid above owns the rows. Every other column is a property, and every
     cell under it is one figure."""
-    columns = {wording.PROPERTIES_PICK_LABEL: st.column_config.TextColumn(
-        wording.PROPERTIES_PICK_LABEL, disabled=True)}
+    columns = {wording.PROPERTIES_ROW_COLUMN: st.column_config.TextColumn(
+        wording.PROPERTIES_ROW_COLUMN, disabled=True)}
     for prop in properties:
         columns[prop] = _number_column(prop)
     return columns
@@ -972,8 +979,13 @@ def _properties(opt, storage):
     what is typed survives until it is saved or the project changes.
     """
     st.markdown(wording.PROPERTIES_HEADING)
-    properties = [p for p in opt.properties()
-                  if p != wording.PROPERTIES_PICK_LABEL]
+    properties = opt.grid_properties()
+    # Every property the project knows, the row-column name included: a
+    # property named "Ingredient" can only have arrived as a column of an
+    # old ingredient file (the app itself refuses that name for a new one),
+    # and it deletes the same way as any other even though it never shows
+    # on the grid above.
+    all_properties = opt.properties()
     names = [v['name'] for v in opt.variables
              if v.get('category', 'ingredient') == 'ingredient']
     if properties and names:
@@ -995,8 +1007,8 @@ def _properties(opt, storage):
                      disabled=confirmation_open()):
             _apply_property_grid(opt, edited)
     _add_property(opt)
-    if properties:
-        _delete_property(opt, storage, properties)
+    if all_properties:
+        _delete_property(opt, storage, all_properties)
 
 
 def _property_limits(opt):
@@ -1006,15 +1018,14 @@ def _property_limits(opt):
     st.markdown(wording.FINISHED_PRODUCT_LIMIT_HEADING)
     # Per 100 g of what you make, not a total that grows with the formulation:
     # the same limit then means the same thing at 100 g and at 10 kg. Written
-    # in the unit the ingredients are actually in.
+    # in the unit the ingredients are actually in. While the ingredients
+    # differ, there is no 100 of anything yet — but that is already said
+    # once, by the Default batch size box above (wording.NEEDS_ONE_UNIT), so
+    # nothing is drawn here rather than saying it again in different words.
     unit = opt.one_amount_unit()
-    if unit is None:
-        # The ingredients differ, so there is no 100 of anything yet, and the
-        # limit itself is refused in words that name the fix.
-        st.caption(wording.PER_100G_UNRESOLVED_CAPTION)
-    else:
+    if unit is not None:
         st.caption(wording.per_100_caption(unit or 'g'))
-    properties = opt.properties()
+    properties = opt.grid_properties()
     if not properties:
         # The grid that names one is further down this expander, so the line
         # points at it rather than leaving an empty picker on screen.
