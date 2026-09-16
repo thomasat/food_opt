@@ -105,6 +105,269 @@ def is_reserved_name(name):
             or bool(_COMPARED_COLUMN_RE.match(name)))
 
 
+# ------------------------------------------------------------------ #
+# Formula cells (0.5.0 wave 2, "rules"): the Set up grid's Formula column
+# lets an ingredient's amount be read off the batch size and the other rows
+# instead of typed by hand. parse_formula turns a cell's text into a
+# LinearForm; nothing here touches the grid or the model — that is later
+# work, not this one's.
+# ------------------------------------------------------------------ #
+
+class FormulaError(ValueError):
+    """A Formula cell's text could not be turned into a LinearForm. Its one
+    argument is already the sentence to show at the cell, worded in
+    wording.py — food_bo never writes one of its own."""
+
+
+class LinearForm:
+    """What a formula cell's text means, once it has been read: a constant,
+    a multiple of the batch size, and a multiple of each other row it
+    names. `terms` maps a name to what it is multiplied by; a name absent
+    from it counts as a multiple of 0, so two forms that only differ by a
+    zero term still combine and compare as if they agreed.
+
+    `rest` marks the one shape that is not a sum of multiples at all:
+    '= rest' on its own, standing for whatever is left of the batch size
+    once every other row is filled in. A LinearForm with rest set carries
+    no const, batch or terms — the grammar never combines it with
+    anything else, since parse_formula refuses that at the cell."""
+
+    def __init__(self, const=0.0, batch=0.0, terms=None, rest=False):
+        self.const = float(const)
+        self.batch = float(batch)
+        self.terms = {name: float(v) for name, v in (terms or {}).items()}
+        self.rest = bool(rest)
+
+    def is_constant(self):
+        """True for a plain number: no batch size, no name, not the rest.
+        The multiply and divide rules below are the only place this is
+        asked, since those are the only operators a formula may not use
+        between two amounts."""
+        return not self.rest and self.batch == 0.0 and not self.terms
+
+    def names(self):
+        """The other rows this formula reads (not the batch size, which is
+        its own field, and not the rest, which reads no row at all)."""
+        return set(self.terms)
+
+    def scaled(self, k):
+        """This form multiplied through by the plain number k: how a
+        leading '−' and a '× number' / '÷ number' are all carried out."""
+        return LinearForm(self.const * k, self.batch * k,
+                          {name: v * k for name, v in self.terms.items()})
+
+    def __add__(self, other):
+        terms = dict(self.terms)
+        for name, v in other.terms.items():
+            terms[name] = terms.get(name, 0.0) + v
+        return LinearForm(self.const + other.const, self.batch + other.batch,
+                          terms)
+
+    def __sub__(self, other):
+        return self + other.scaled(-1)
+
+    def __eq__(self, other):
+        return (isinstance(other, LinearForm) and self.rest == other.rest
+                and self.const == other.const and self.batch == other.batch
+                and self.terms == other.terms)
+
+    def __repr__(self):
+        return "LinearForm(const=%r,batch=%r,terms=%r,rest=%r)" % (
+            self.const, self.batch, self.terms, self.rest)
+
+
+# Both alphabets a formula may be typed in, mapped to the one symbol the
+# parser below reads: the typographic row the spec prints (−×÷) and the
+# ASCII row the bench types (-*/) mean the same four operators.
+_FORMULA_OPS = {'+': '+', '-': '-', '−': '-',
+               '*': '*', '×': '*', '/': '/', '÷': '/'}
+
+
+def _formula_word_ends(body, end):
+    """True when a token matched up to `end` is not immediately followed by
+    more of the same word — so a name that is a prefix of a longer,
+    unlisted word (or 'batch size' inside a longer phrase) is never
+    mistaken for a match."""
+    return end >= len(body) or not body[end].isalnum()
+
+
+def _tokenize_formula(body, names, has_batch_size):
+    """The text after the Formula cell's leading '=' has been stripped, cut
+    into the grammar's tokens: numbers, 'batch size', the given names
+    (longest first, case-insensitive), brackets and the four operators.
+
+    Raises FormulaError as soon as a token cannot be placed: a character
+    the grammar has no use for, a name nothing in the project wears, or
+    'batch size' asked of a project with no default to read it from."""
+    ordered_names = sorted({str(nm) for nm in names}, key=len, reverse=True)
+    batch_phrase = wording.BATCH_SIZE_NOUN
+    rest_word = wording.REST_TOKEN
+    lowered = body.lower()
+    tokens = []
+    i, n = 0, len(body)
+    while i < n:
+        ch = body[i]
+        if ch.isspace():
+            i += 1
+        elif ch in _FORMULA_OPS:
+            tokens.append((_FORMULA_OPS[ch], None))
+            i += 1
+        elif ch in '()':
+            tokens.append((ch, None))
+            i += 1
+        elif ch.isdigit():
+            j = i
+            while j < n and body[j].isdigit():
+                j += 1
+            if j < n and body[j] == '.' and j + 1 < n and body[j + 1].isdigit():
+                j += 1
+                while j < n and body[j].isdigit():
+                    j += 1
+            tokens.append(('NUMBER', float(body[i:j])))
+            i = j
+        elif ch.isalpha():
+            end = i + len(batch_phrase)
+            if (lowered.startswith(batch_phrase.lower(), i)
+                    and _formula_word_ends(body, end)):
+                if not has_batch_size:
+                    raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
+                tokens.append(('BATCH_SIZE', None))
+                i = end
+                continue
+            matched = None
+            for nm in ordered_names:
+                end = i + len(nm)
+                if (lowered.startswith(nm.lower(), i)
+                        and _formula_word_ends(body, end)):
+                    matched = nm
+                    break
+            if matched is not None:
+                tokens.append(('NAME', matched))
+                i += len(matched)
+                continue
+            end = i + len(rest_word)
+            if (lowered.startswith(rest_word.lower(), i)
+                    and _formula_word_ends(body, end)):
+                raise FormulaError(wording.FORMULA_REST_ALONE)
+            j = i
+            while j < n and (body[j].isalnum() or body[j] in " '-"):
+                j += 1
+            raise FormulaError(wording.formula_unknown_name(body[i:j].strip()))
+        else:
+            raise FormulaError(wording.FORMULA_UNREADABLE)
+    return tokens
+
+
+class _FormulaParser:
+    """expr := term (('+'|'−') term)* · term := factor (('×'|'÷') factor)*
+    · factor := ['−'] (number | name | 'batch size' | '(' expr ')')
+    — the grammar in task-1-brief.md, read over the token list
+    _tokenize_formula produced."""
+
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+
+    def _peek(self):
+        if self.pos < len(self.tokens):
+            return self.tokens[self.pos]
+        return (None, None)
+
+    def _advance(self):
+        token = self.tokens[self.pos]
+        self.pos += 1
+        return token
+
+    def parse(self):
+        value = self._expr()
+        if self.pos != len(self.tokens):
+            raise FormulaError(wording.FORMULA_UNREADABLE)
+        return value
+
+    def _expr(self):
+        value = self._term()
+        while self._peek()[0] in ('+', '-'):
+            op, _ = self._advance()
+            rhs = self._term()
+            value = value + rhs if op == '+' else value - rhs
+        return value
+
+    def _term(self):
+        value = self._factor()
+        while self._peek()[0] in ('*', '/'):
+            op, _ = self._advance()
+            rhs = self._factor()
+            if op == '*':
+                if value.is_constant():
+                    value = rhs.scaled(value.const)
+                elif rhs.is_constant():
+                    value = value.scaled(rhs.const)
+                else:
+                    raise FormulaError(wording.FORMULA_TWO_AMOUNTS)
+            else:
+                if not rhs.is_constant():
+                    raise FormulaError(wording.FORMULA_DIVIDE_BY_AMOUNT)
+                if rhs.const == 0:
+                    raise FormulaError(wording.FORMULA_DIVIDE_BY_ZERO)
+                value = value.scaled(1.0 / rhs.const)
+        return value
+
+    def _factor(self):
+        negate = False
+        if self._peek()[0] == '-':
+            negate = True
+            self._advance()
+        kind, val = self._peek()
+        if kind == 'NUMBER':
+            self._advance()
+            value = LinearForm(const=val)
+        elif kind == 'NAME':
+            self._advance()
+            value = LinearForm(terms={val: 1.0})
+        elif kind == 'BATCH_SIZE':
+            self._advance()
+            value = LinearForm(batch=1.0)
+        elif kind == '(':
+            self._advance()
+            value = self._expr()
+            if self._peek()[0] != ')':
+                raise FormulaError(wording.FORMULA_UNREADABLE)
+            self._advance()
+        else:
+            raise FormulaError(wording.FORMULA_UNREADABLE)
+        return value.scaled(-1) if negate else value
+
+
+def parse_formula(text, names, has_batch_size):
+    """Read a Formula cell's text and return the LinearForm it means.
+
+    `names` are every OTHER row's name this formula may reference (an
+    ingredient or a process setting; not the row the formula is on, which
+    is not this function's business to know). `has_batch_size` says
+    whether the project has a default batch size for 'batch size' to mean;
+    without one that token is refused here, at the cell, rather than left
+    for a later screen to trip over.
+
+    Raises FormulaError(sentence) — one sentence, worded in wording.py —
+    the moment the text cannot be read as this grammar:
+
+        expr := term (('+'|'−') term)*
+        term := factor (('×'|'÷') factor)*
+        factor := ['−'] (number | name | 'batch size' | '(' expr ')')
+
+    '= rest' (wording.REST_TOKEN, case-insensitive, alone in the cell) is
+    the one exception: not an expression at all, but the balance of the
+    batch size, returned as LinearForm(rest=True). Combined with anything
+    else, 'rest' is refused rather than read as an unknown name."""
+    if not isinstance(text, str) or not text.strip().startswith('='):
+        raise FormulaError(wording.FORMULA_UNREADABLE)
+    body = text.strip()[1:]
+    if body.strip().lower() == wording.REST_TOKEN.lower():
+        return LinearForm(rest=True)
+    tokens = _tokenize_formula(body, names, has_batch_size)
+    return _FormulaParser(tokens).parse()
+
+
 # How many results the cold start spreads across the allowed amounts before
 # the model starts aiming, and how large a change — as a fraction of a
 # variable's own allowed range — still counts as staying close to the best.

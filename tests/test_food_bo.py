@@ -16,7 +16,7 @@ import openpyxl
 import wording
 from food_bo import (
     FoodOptimizer, ingredients_template_workbook,
-    _name_taken_message,
+    _name_taken_message, FormulaError, LinearForm, parse_formula,
 )
 
 
@@ -8460,3 +8460,92 @@ class TestTheLockedWorkbook:
         state['lots'] = {"1": {"Beetroot": "L-9"}}
         with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
+
+
+class TestFormulaGrammar:
+    """Task 1 of the rules wave (2026-09-16): parse_formula reads a Formula
+    cell's text as a LinearForm, the value type the Set up grid's balance
+    and rules will be built on. No grid and no model here — just the
+    grammar on its own."""
+
+    NAMES = ["Water", "Salt", "Flour"]
+
+    def test_a_formula_adds_and_subtracts_rows(self):
+        form = parse_formula("= batch size - Water - Salt", self.NAMES,
+                             has_batch_size=True)
+        assert form == LinearForm(batch=1.0,
+                                  terms={"Water": -1.0, "Salt": -1.0})
+        assert form.names() == {"Water", "Salt"}
+        assert not form.is_constant()
+
+    def test_a_formula_multiplies_by_a_number_either_side(self):
+        left = parse_formula("= 2 × Water", self.NAMES, has_batch_size=False)
+        right = parse_formula("= Water × 2", self.NAMES, has_batch_size=False)
+        assert left == LinearForm(terms={"Water": 2.0})
+        assert right == LinearForm(terms={"Water": 2.0})
+
+    def test_a_formula_divides_by_a_number(self):
+        form = parse_formula("= Water ÷ 2", self.NAMES, has_batch_size=False)
+        assert form == LinearForm(terms={"Water": 0.5})
+
+    def test_brackets_and_a_leading_minus(self):
+        form = parse_formula("= -(Water + Salt)", self.NAMES,
+                             has_batch_size=False)
+        assert form == LinearForm(terms={"Water": -1.0, "Salt": -1.0})
+
+    def test_batch_size_is_one_token_not_two_names(self):
+        form = parse_formula("= batch size", self.NAMES, has_batch_size=True)
+        assert form == LinearForm(batch=1.0)
+        assert form.names() == set()
+
+    def test_a_name_that_contains_another_name_wins_longest_first(self):
+        names = ["Cream", "Cream cheese"]
+        form = parse_formula("= Cream cheese - Cream", names,
+                             has_batch_size=False)
+        assert form == LinearForm(terms={"Cream cheese": 1.0, "Cream": -1.0})
+
+    def test_two_amounts_multiplied_is_refused_in_the_spec_sentence(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= Water × Salt", self.NAMES, has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_TWO_AMOUNTS
+
+    def test_dividing_by_an_amount_is_refused(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= Water ÷ Salt", self.NAMES, has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_DIVIDE_BY_AMOUNT
+
+    def test_dividing_by_zero_is_refused(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= Water ÷ 0", self.NAMES, has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_DIVIDE_BY_ZERO
+
+    def test_an_unknown_name_is_named_in_the_refusal(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= Sodium citrate", self.NAMES,
+                         has_batch_size=False)
+        assert str(excinfo.value) == wording.formula_unknown_name(
+            "Sodium citrate")
+
+    def test_gibberish_is_refused_once(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= @@@", self.NAMES, has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_UNREADABLE
+
+    def test_batch_size_with_no_default_is_refused_at_the_cell(self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= batch size - Water", self.NAMES,
+                         has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_NEEDS_BATCH_SIZE
+
+    def test_rest_on_its_own_is_the_balance(self):
+        assert parse_formula("= rest", self.NAMES,
+                             has_batch_size=True) == LinearForm(rest=True)
+        # Case-insensitive, and stray whitespace around the word is fine.
+        assert parse_formula("=  REST  ", self.NAMES,
+                             has_batch_size=True) == LinearForm(rest=True)
+
+    def test_rest_with_anything_else_is_refused(self):
+        for text in ("= rest + Water", "= Water + rest", "= rest × 2"):
+            with pytest.raises(FormulaError) as excinfo:
+                parse_formula(text, self.NAMES, has_batch_size=True)
+            assert str(excinfo.value) == wording.FORMULA_REST_ALONE

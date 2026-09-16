@@ -2445,3 +2445,48 @@ PROJECT_FILE_DAMAGED = (
     f"This project file is damaged and could not be opened. If you saved a "
     f"copy, use {OPEN_A_SAVED_COPY} in the sidebar; otherwise look in your "
     "FoodOptimizer folder for a recent copy.")
+
+
+# ------------------------------------------------------------------ #
+# Formula cells (0.5.0 wave 2, "rules"): the Set up grid's Formula column
+# lets an ingredient's amount be read off the batch size and the other rows
+# instead of typed by hand.
+# ------------------------------------------------------------------ #
+FORMULA_LABEL = "Formula"
+FORMULA_IN_RANGE = "formula"
+# The word for a row filled in from its formula rather than typed by hand.
+# One word, spelled once, for the range cell's own marker and every sheet
+# that has to say the same thing about the same row.
+WORKED_OUT = "worked out"
+
+# '= rest' on its own is the balance of the batch size once every other row
+# is filled in. The word is spelled once here so the parser and its own
+# refusal can never drift apart.
+REST_TOKEN = "rest"
+
+FORMULA_REST_ALONE = ("Write = rest on its own: it is whatever is left of "
+                      "the batch size.")
+FORMULA_TWO_AMOUNTS = ("A formula can add or subtract amounts and multiply "
+                       "by a number. It cannot multiply two amounts.")
+FORMULA_DIVIDE_BY_AMOUNT = ("A formula can divide by a number, not by an "
+                           "amount.")
+FORMULA_DIVIDE_BY_ZERO = "A formula cannot divide by zero."
+FORMULA_UNREADABLE = ("This formula could not be read. Use + − × ÷, "
+                      "numbers, brackets and ingredient names.")
+
+
+def formula_unknown_name(name):
+    """'There is no ingredient called Sodium citrate.' — a formula naming a
+    row the project does not have."""
+    return f"There is no ingredient called {name}."
+
+
+def formula_loop(chain):
+    """'A formula cannot lead back to itself: Fat → Water → Fat.' — `chain`
+    is the arrow-joined names that already spell the loop out."""
+    return f"A formula cannot lead back to itself: {chain}."
+
+
+FORMULA_NEEDS_BATCH_SIZE = (
+    "There is no default batch size to work this out from. Set one in "
+    "More settings, or write the amounts instead.")
