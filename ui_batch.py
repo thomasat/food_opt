@@ -53,6 +53,11 @@ _BATCH_SIZE_KEY = BATCH_SIZE_KEY
 # with: a box holding anything else is the bench changing it.
 _SEEDED_TOTAL = "_scale_total_seeded"
 
+# Set by a size that was refused, read by the seeding on the next run: the
+# box goes back to the size the round is actually made to, rather than
+# sitting on a number nothing on the page is a number of.
+_BATCH_SIZE_REFUSED = "_scale_total_refused"
+
 
 def _seed_mark(opt, size):
     """What the box is up to date with: whose round it belongs to AND the
@@ -103,30 +108,64 @@ def _seed_batch_size(opt):
     size = _prefill(opt)
     mark = _seed_mark(opt, size)
     emptied = size is not None and typed_batch_size(opt) is None
-    if st.session_state.get(_SEEDED_TOTAL) == mark and not emptied:
+    refused = bool(st.session_state.pop(_BATCH_SIZE_REFUSED, False))
+    if st.session_state.get(_SEEDED_TOTAL) == mark and not (emptied or refused):
         return
     st.session_state[_SEEDED_TOTAL] = mark
     if size is not None:
         st.session_state[_BATCH_SIZE_KEY] = float(size)
 
 
+def _unreachable(opt, typed):
+    """Why this size cannot be made, or "" when it can.
+
+    The same arithmetic Set up's box does, in the same two sentences, with
+    the noun of THIS box: a size outside what the allowed amounts add up to
+    has no answer, and no search can find one.
+    """
+    if typed is None:
+        return ""
+    lowest, highest = opt.total_reach()
+    if typed > highest:
+        return wording.total_not_reachable_at_most(
+            opt.batch_total_text(typed), opt.batch_total_text(highest),
+            noun=wording.BATCH_SIZE_NOUN)
+    if typed < lowest:
+        return wording.total_not_reachable_at_least(
+            opt.batch_total_text(typed), opt.batch_total_text(lowest),
+            noun=wording.BATCH_SIZE_NOUN)
+    return ""
+
+
 def _apply_batch_size(opt, typed):
-    """Make the round to the size in the box, the moment that size changes.
+    """Make the round to the size in the box, the moment that size changes,
+    and hand back the refusal when it cannot be made at all.
 
     Only a CHANGE scales. The box opens prefilled, and a round the bench has
     not re-sized keeps the amounts the model chose — including the one
     suggestion a limit would not let be snapped onto the project's default,
     which says so in its own line under the table. Scaling on the prefill
     would rewrite that row behind the caption explaining it.
+
+    A size the ingredients cannot add up to is not made. The app printed
+    sheets for 250 g directly under a line saying 250 g was impossible, and
+    sent the bench out with amounts the project says it does not allow. The
+    round keeps the size it has, the box comes back holding that size on the
+    next run, and the refusal is the only thing that changes on screen.
     """
     if typed is None:
-        return
+        return ""
     mark = st.session_state.get(_SEEDED_TOTAL)
     applied = mark[2] if isinstance(mark, tuple) and len(mark) == 3 else None
     if applied is not None and float(applied) == typed:
-        return
+        return ""
+    trouble = _unreachable(opt, typed)
+    if trouble:
+        st.session_state[_BATCH_SIZE_REFUSED] = True
+        return trouble
     opt.scale_round(typed)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, typed)
+    return ""
 
 
 def _any_value_typed(opt):
@@ -401,7 +440,7 @@ def _scaled_cautions(opt, rows, scale_to, sized):
         st.caption(caution)
 
 
-def _batch_size_control(opt, unit, typed, scale_to, sized):
+def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     """The Batch size box, above the round table, and the lines under it.
     `unit` is the unit the ingredients share, or None when they differ.
 
@@ -429,24 +468,12 @@ def _batch_size_control(opt, unit, typed, scale_to, sized):
         key=_BATCH_SIZE_KEY,
         help=wording.BATCH_SIZE_HELP,
     )
-    # The same refusal Set up's box gives the same number: a size the allowed
-    # amounts cannot add up to is arithmetic with no answer, and printing the
-    # sheets for it sends the bench out with amounts the project says it does
-    # not allow. A warning, not a block — these rows already exist and the
-    # cautions below say what it did to them. The noun names THIS box, so the
-    # reader is not sent to the other one.
-    if typed is not None:
-        lowest, highest = opt.total_reach()
-        if typed > highest:
-            st.caption(wording.total_not_reachable_at_most(
-                opt.batch_total_text(typed),
-                opt.batch_total_text(highest),
-                noun=wording.BATCH_SIZE_NOUN))
-        elif typed < lowest:
-            st.caption(wording.total_not_reachable_at_least(
-                opt.batch_total_text(typed),
-                opt.batch_total_text(lowest),
-                noun=wording.BATCH_SIZE_NOUN))
+    # The refusal the size earned, worked out where the size is applied so
+    # that the sentence on screen and the round on disk can never disagree:
+    # the round was NOT made to this size, and the table, the download and
+    # its caption below are all still the size it was made to.
+    if refusal:
+        st.caption(refusal)
     # The size is what pushed an amount out of what the project allows, so
     # the line reads under the box that did it.
     _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
@@ -861,7 +888,7 @@ def render(opt, storage):
     # A change to the box makes the round to that size — the amounts
     # themselves, not a picture of them — and remembers it with the round, so
     # a reopened window and tab 3 both still know what the bench weighed out.
-    _apply_batch_size(opt, typed)
+    refusal = _apply_batch_size(opt, typed)
     # After the scaling, never before: scale_round replaces the rows, and a
     # list read a line earlier would be the amounts nobody is making.
     rows = opt.pending_batch
@@ -877,7 +904,8 @@ def render(opt, storage):
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)
     # Above the table: the size is what the table is a table of.
-    _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to, sized)
+    _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
+                        sized, refusal)
     _batch_table(opt, scale_to)
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()

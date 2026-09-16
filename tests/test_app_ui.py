@@ -1581,6 +1581,18 @@ def open_batch(burger):
     return burger
 
 
+@pytest.fixture
+def room_to_scale(burger):
+    """A round that 200 g is a REACHABLE size for — the three ingredients
+    add up to 228 g between them — and at which two of the three are past
+    their own Highest. A size the ingredients cannot add up to at all is
+    refused outright now, so the caution is about the sizes they can."""
+    burger.add_ingredient("Water", 0, 200)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
+                               "Water": 5.0}])
+    return burger
+
+
 def test_batch_tab_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("bare3")
@@ -3459,17 +3471,17 @@ def test_a_sidebar_cancel_keeps_the_formulation_total_and_the_batch_size(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(40.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert any(c.value == "Sheets show each formulation made to 40 g."
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in at.caption), [c.value for c in at.caption]
     _submit_button(at, wording.START_OVER_LABEL).click()
     at.run()
     _submit_button(at, wording.CANCEL).click()
     at.run()
     assert not at.exception
-    assert at.session_state["scale_total"] == 40.0
-    assert any(c.value == "Sheets show each formulation made to 40 g."
+    assert at.session_state["scale_total"] == 25.0
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -6973,7 +6985,7 @@ def test_the_batch_size_help_says_what_it_scales(open_batch):
         "sheets scale with it.")
 
 
-def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
+def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(room_to_scale):
     """The sheets are printed from the amounts on the table, so a total the
     formulations were never chosen for can send the bench out to weigh an
     amount the project says it does not allow."""
@@ -7354,22 +7366,46 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     assert box.proto.placeholder == "e.g. 100"
     assert box.help == ("Every formulation in this round adds up to this. "
                         "Change it and the sheets scale with it.")
-    box.set_value(150.0)
+    box.set_value(25.0)
     at.run()
-    assert any(c.value == "Sheets show each formulation made to 150 g."
-               for c in at.caption), [c.value for c in at.caption]
-    # One line about what the sheets hold, not two. The refusal and the
-    # caution read under the box that caused them, above the table; the
-    # sheets line reads under the download.
-    assert [c.value for c in at.caption if "150 g" in c.value] == [
-        # The same refusal Set up's box gives the same number: 150 g is more
-        # than these two ingredients can add up to at all.
-        "A batch size of 150 g is not reachable: the allowed amounts add up "
-        "to at most 28 g.",
-        "At 150 g, Pea protein and Methylcellulose go past the amounts you "
-        "allowed. Print at a smaller total, or widen them in Set up.",
-        "Sheets show each formulation made to 150 g."], \
+    # One line about what the sheets hold, and it is the only line about the
+    # size: the round is made to 25 g, the two ingredients reach it, and
+    # nothing is outside what the project allows.
+    assert [c.value for c in at.caption if "25 g" in c.value] == [
+        "Sheets show each formulation made to 25 g."], \
         [c.value for c in at.caption]
+
+
+def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
+    """The app printed round sheets for 250 g directly under a line saying
+    250 g was impossible, and the bench would have been sent out to weigh
+    amounts the project says it does not allow. The size is refused: the
+    round keeps the one it has, the table and the download stay at that
+    size, and the box comes back holding it on the next run."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
+    at.number_input(key="scale_total").set_value(250.0)
+    at.run()
+    assert not at.exception
+    assert any(c.value == ("A batch size of 250 g is not reachable: the most "
+                           "these ingredients can make is 28 g.")
+               for c in at.caption), [c.value for c in at.caption]
+    # Not made to it: the round, the table and the sheets are all still 25 g.
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch_total == 25.0
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert any(c.value == "Sheets show each formulation made to 25 g."
+               for c in at.caption), [c.value for c in at.caption]
+    # No extra button: the box itself comes back to the round's own size.
+    assert wording.YES_CONTINUE not in _labels(at), _labels(at)
+    at.run()
+    assert at.number_input(key="scale_total").value == 25.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(
@@ -7417,9 +7453,9 @@ def test_there_is_no_change_the_total_button_any_more(open_batch):
 def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.number_input(key="f2_Firmness").set_value(7.0)
     at.run()
@@ -7428,13 +7464,13 @@ def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
     assert not at.exception
     reloaded = FoodOptimizer("burger")
     assert reloaded.pending_batch_total is None      # the round closed
-    assert reloaded.batch_total(1) == 150.0
+    assert reloaded.batch_total(1) == 25.0
     # What is recorded is what was MADE. Until 0.5.0 the box scaled the
     # sheets and the model was told the amounts the bench had not weighed.
     assert reloaded.ingredient_total(reloaded.recipe_history[0]) == \
-        pytest.approx(150.0)
+        pytest.approx(25.0)
     assert reloaded.recipe_history[0]["Pea protein"] == pytest.approx(
-        150.0 * 10.0 / 11.0)
+        25.0 * 10.0 / 11.0)
 
 
 @pytest.fixture
@@ -7814,46 +7850,46 @@ def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
     wrote its own blank straight over the saved number."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
     fresh = AppTest.from_file(APP_PATH, default_timeout=180)
     fresh.session_state["_loaded_project"] = "burger"
     fresh.session_state["main_tab"] = wording.TAB_BATCH
     fresh.run()
     assert not fresh.exception
-    assert fresh.number_input(key="scale_total").value == 150.0
+    assert fresh.number_input(key="scale_total").value == 25.0
     table = next(d.value for d in fresh.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
-    assert any(c.value == "Sheets show each formulation made to 150 g."
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in fresh.caption), [c.value for c in fresh.caption]
     # ...and nothing about that render touched the file.
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
         open_batch):
     """An emptied box is not an undo. Since 0.5.0 the size moves the amounts
     themselves, so there is no as-generated to go back to — the round stays
-    at 150 g and the way to another size is to type one. And an emptied box
+    at 25 g and the way to another size is to type one. And an emptied box
     is not an answer either: it comes back holding the size the round is
     made to, rather than sitting blank over amounts it says nothing about."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
     # An emptied box comes back as 0, the box's own floor.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
     assert not at.exception
-    assert at.number_input(key="scale_total").value == 150.0
-    # Nothing is rewritten: the round is still the 150 g one.
+    assert at.number_input(key="scale_total").value == 25.0
+    # Nothing is rewritten: the round is still the 25 g one.
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
@@ -7871,7 +7907,7 @@ def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
     at.sidebar.selectbox(key="project_select").select("second")
     at.run()
@@ -7879,7 +7915,7 @@ def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
     at.run()
     assert not at.exception
     assert at.number_input(key="scale_total").value == 80.0
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
     assert FoodOptimizer("second").pending_batch_total == 80.0
 
 
@@ -7916,7 +7952,8 @@ def test_cancelling_the_discard_keeps_what_was_typed_into_the_grid(open_batch):
     assert wording.YES_DISCARD not in _labels(at), _labels(at)
 
 
-def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
+def test_the_scaled_cautions_read_under_the_box_that_caused_them(
+        room_to_scale):
     """The total is what pushed the amount out of range, so the line belongs
     with the box, not under a table three steps above it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -7997,22 +8034,22 @@ def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
         open_batch):
     """The mark carries the size the box was last put on screen holding, so
     it has to be re-stamped after every write of the session's own —
-    otherwise the session's own 150 reads as a size that changed somewhere
+    otherwise the session's own 25 reads as a size that changed somewhere
     else, and scale_round runs again on every rerun."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
     saved_at = at.session_state["optimizer"].last_saved_at
     at.run()
     at.run()
     assert not at.exception
-    assert at.number_input(key="scale_total").value == 150.0
+    assert at.number_input(key="scale_total").value == 25.0
     # No write per rerun: the size the session itself typed is the size the
     # mark already carries.
     assert at.session_state["optimizer"].last_saved_at == saved_at
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
@@ -8047,7 +8084,8 @@ def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
 #  as it is typed, a picker that clears itself, and notes that survive
 #  a CSV round trip.
 # ------------------------------------------------------------------ #
-def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
+def test_one_caution_names_every_ingredient_the_total_pushes_out(
+        room_to_scale):
     """One line under the box, not one line per ingredient per row: the fix
     is the same one every time, and eight captions of raw floats buried the
     Record step under them."""
@@ -8066,12 +8104,12 @@ def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
 def test_the_scaled_caution_is_singular_for_one_ingredient(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(30.0)
+    at.number_input(key="scale_total").set_value(28.0)
     at.run()
     assert not at.exception
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
-    assert said == ["At 30 g, Pea protein goes past the amounts you allowed. "
+    assert said == ["At 28 g, Pea protein goes past the amounts you allowed. "
                     "Print at a smaller total, or widen them in "
                     "Set up."], said
 
@@ -8338,8 +8376,12 @@ def eight_ingredients(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("wide")
     opt.set_amount_unit("g")
+    # Four narrow rows and four wide ones: 400 g is a size these eight can
+    # add up to (448 g between them), and exactly four of them are past
+    # their own Highest at it.
     for i in range(8):
-        opt.add_ingredient(f"Ingredient {i + 1}", 0, 25, unit="g")
+        opt.add_ingredient(f"Ingredient {i + 1}", 0,
+                           12 if i < 4 else 100, unit="g")
     opt.add_objective("Firmness", 1.0, goal="target", target=6,
                       min_val=0, max_val=10, unit="N")
     opt.set_pending_batch([{f"Ingredient {i + 1}": 10.0 for i in range(8)}],
@@ -8356,7 +8398,7 @@ def test_the_scaled_caution_counts_instead_of_listing_eight_names(eight_ingredie
     assert not at.exception
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
-    assert said == ["At 400 g, 8 of 8 ingredients go past the amounts you "
+    assert said == ["At 400 g, 4 of 8 ingredients go past the amounts you "
                     "allowed. Print at a smaller total, or widen them in "
                     "Set up."], said
 
@@ -8469,8 +8511,8 @@ def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "A default batch size of 90 g is not reachable: the allowed amounts "
-        "add up to at most 28 g."]
+        "A default batch size of 90 g is not reachable: the most these "
+        "ingredients can make is 28 g."]
     assert FoodOptimizer("burger").formulation_total is None
 
 

@@ -1280,14 +1280,14 @@ def total_not_reachable_at_most(total_text, most_text,
     `noun` is which of the two boxes is refusing — Set up's default, or the
     round screen's own — so the sentence names the box the reader just
     typed into rather than the other one."""
-    return (f"A {noun} of {total_text} is not reachable: the allowed amounts "
-            f"add up to at most {most_text}.")
+    return (f"A {noun} of {total_text} is not reachable: the most these "
+            f"ingredients can make is {most_text}.")
 
 
 def total_not_reachable_at_least(total_text, least_text,
                                  noun=FORMULATION_TOTAL_NOUN):
-    return (f"A {noun} of {total_text} is not reachable: the allowed amounts "
-            f"add up to at least {least_text}.")
+    return (f"A {noun} of {total_text} is not reachable: the least these "
+            f"ingredients can make is {least_text}.")
 
 
 def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):

@@ -5004,13 +5004,13 @@ class TestFormulationTotal:
         with pytest.raises(ValueError) as high:
             opt.set_formulation_total(150)
         assert str(high.value) == (
-            "A default batch size of 150 g is not reachable: the allowed amounts add up "
-            "to at most 131 g.")
+            "A default batch size of 150 g is not reachable: the most these "
+            "ingredients can make is 131 g.")
         with pytest.raises(ValueError) as low:
             opt.set_formulation_total(10)
         assert str(low.value) == (
-            "A default batch size of 10 g is not reachable: the allowed amounts add up "
-            "to at least 20 g.")
+            "A default batch size of 10 g is not reachable: the least these "
+            "ingredients can make is 20 g.")
         assert opt.formulation_total is None
         assert opt.quantity_constraints == []
 
