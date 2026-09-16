@@ -151,7 +151,11 @@ def _best(opt):
     # tab 2 shows under the box belong under the table that shows them: it
     # is the total, not the formulation, that pushed them out — and a row
     # that does not add up to the total says so rather than being rewritten.
-    for caution in (opt.scaled_cautions([row], total)
+    # `sized` is what a round the Batch size box re-sized carries: under a
+    # project default the row was never rewritten, so without it this table
+    # is checked against nothing and the caution tab 2 shows goes missing
+    # on the screen the round is read back on.
+    for caution in (opt.scaled_cautions([row], total, total is not None)
                     + opt.total_mismatch_lines([row], total)):
         st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
@@ -385,7 +389,7 @@ def _score_row(opt, choice):
     # It is the total, not the formulation, that pushes an amount out of the
     # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
-    for caution in (opt.scaled_cautions([shown_row], total)
+    for caution in (opt.scaled_cautions([shown_row], total, total is not None)
                     + opt.total_mismatch_lines([shown_row], total)):
         st.caption(caution)
     ordered = opt.measurements_by_importance()

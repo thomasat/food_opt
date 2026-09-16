@@ -7323,6 +7323,48 @@ def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
         150.0 * 10.0 / 11.0)
 
 
+@pytest.fixture
+def resized_and_recorded(tmp_path, monkeypatch):
+    """One round, made to 200 g by the Batch size box and recorded there.
+    Water's 120 g is past the 100 g the project allows, so tab 2 said so
+    before the bench weighed it."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("resized")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_ingredient("Flour", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(100)
+    opt.set_pending_batch([{"Water": 60.0, "Flour": 40.0}])
+    opt.scale_round(200.0)
+    return opt
+
+
+def test_a_round_the_box_resized_still_says_so_on_results(resized_and_recorded):
+    """The line is on the screen the bench weighs from and must be on the
+    screen it is read back on: under a project default the row was never
+    rewritten, so without the flag tab 3 checked it against nothing."""
+    opt = resized_and_recorded
+    assert opt.pending_batch[0]['recipe']["Water"] == pytest.approx(120.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # Tab 2 says it while the round is on the bench.
+    assert [c.value for c in at.caption
+            if "Water goes past the amounts you allowed" in c.value], \
+        [c.value for c in at.caption]
+    at.number_input(key="f1_Taste").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_RESULTS).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("resized").recorded_total(1) == 200.0
+    # The round is closed, so tab 2 has nothing to say any more: whatever
+    # says it now is tab 3's own line, under the amounts it is about.
+    said = [c.value for c in at.caption
+            if "Water goes past the amounts you allowed" in c.value]
+    assert said, [c.value for c in at.caption]
+
+
 def test_discarding_the_batch_forgets_the_total(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

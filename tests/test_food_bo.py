@@ -3568,6 +3568,25 @@ class TestTheMeasurementsGrid:
         assert opt.share_percents() == {"Firmness": 48, "Juiciness": 32,
                                         "Colour": 20}
 
+    def test_an_added_measurement_leaves_an_even_split_even(
+            self, tmp_path, monkeypatch):
+        """Two rows at 50 % each and a new row at 20: the two that were
+        equal stay equal. The rest give way against what the grid was
+        SHOWING before the save, not against a column already carrying the
+        new row's placeholder weight — which read 41 / 39 / 20, two
+        identical rows separating under the reader's hands."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("even_split")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("A", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_objective("B", 1.0, goal="max", min_val=0, max_val=10)
+        assert opt.share_percents() == {"A": 50, "B": 50}
+        errors, _ = opt.apply_measurement_grid(
+            _add(opt.measurement_grid_frame(), **_meas_row("C", share=20.0)))
+        assert errors == []
+        assert opt.share_percents() == {"A": 40, "B": 40, "C": 20}
+
     def test_a_deleted_measurement_recalculates_and_rebalances(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -5478,6 +5497,56 @@ class TestTheTotalIsAlwaysReachable:
         moved = opt._snapped_if_it_still_fits(fits)
         assert sum(moved.values()) == pytest.approx(100.0)
         assert moved["Water"] <= 20 + 1e-9
+
+    def test_a_locked_recipe_that_adds_up_generates(self, tmp_path,
+                                                    monkeypatch):
+        """Every ingredient fixed, the fixed amounts adding up to the batch
+        size, and one process setting still varying: a real project — the
+        recipe is locked and the round varies the oven. The projection has
+        nothing to move, so it hands back the one formulation the project
+        describes rather than refusing it."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("locked", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 60, 60)
+        opt.add_ingredient("Flour", 40, 40)
+        opt.add_process_parameter("Oven", 150, 200)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        snapped = opt._snap_to_total({"Water": 0.0, "Flour": 0.0}, 100.0)
+        assert snapped["Water"] == 60.0 and snapped["Flour"] == 40.0
+        rows = opt.ask(n_suggestions=2)
+        assert len(rows) == 2
+        for row in rows:
+            assert row["Water"] == pytest.approx(60.0)
+            assert row["Flour"] == pytest.approx(40.0)
+        # The amounts are identical, which is the point; the oven is what
+        # the round varies.
+        assert len({round(row["Oven"], 3) for row in rows}) == 2, rows
+
+    def test_a_locked_recipe_that_misses_the_size_names_both_numbers(
+            self, tmp_path, monkeypatch):
+        """Nothing to widen and nothing to move, so the refusal is the two
+        numbers: what the fixed amounts make, and what was asked for."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("locked_short", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 100)
+        opt.add_process_parameter("Oven", 150, 200)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        # Fixing both rows through the app is refused while the size is out
+        # of their reach (fixing_breaks_the_total), so the state is written
+        # the way a copy saved before that guard existed carries it.
+        opt._var_by_name("Water")['bounds'] = (60.0, 60.0)
+        opt._var_by_name("Flour")['bounds'] = (35.0, 35.0)
+        assert opt.fixed_ingredient_total() == 95.0
+        assert opt._snap_to_total({"Water": 60.0, "Flour": 35.0}, 100.0) is None
+        with pytest.raises(ValueError) as caught:
+            opt.ask(n_suggestions=1)
+        assert str(caught.value) == ("The fixed amounts add up to 95 g, not "
+                                     "the 100 g batch size.")
 
     def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
         """Projecting onto the total must not collapse the design: three rows

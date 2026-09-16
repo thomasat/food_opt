@@ -1276,6 +1276,14 @@ def no_formulation_reaches_total(total_text):
             "amounts.")
 
 
+def fixed_amounts_do_not_add_up(made_text, total_text):
+    """Every ingredient is fixed at one amount and those amounts make the
+    wrong weight. Nothing can be widened and nothing can move, so the
+    sentence is the two numbers and no advice."""
+    return (f"The fixed amounts add up to {made_text}, not the "
+            f"{total_text} {BATCH_SIZE_NOUN}.")
+
+
 def fixing_breaks_the_total(total_text):
     """A row whose Lowest is its Highest is one amount, and one amount can
     put the batch size out of reach of the rows still moving. The two ways

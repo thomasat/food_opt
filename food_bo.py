@@ -3946,6 +3946,22 @@ class FoodOptimizer:
     #  Total of each formulation
     # ------------------------------------------------------------------ #
 
+    def fixed_ingredient_total(self):
+        """What the ingredients add up to when every one of them is fixed,
+        or None while any of them can still move.
+
+        The one number a project with nothing to vary in the bowl can be
+        refused in: there is no range to widen and no amount to move, so
+        the refusal names what the amounts make and what was asked for."""
+        total = 0.0
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            if not self.is_fixed(var):
+                return None
+            total += self._fixed_value(var)
+        return total
+
     def total_reach(self):
         """(lowest, highest) — the totals the allowed amounts can add up to.
 
@@ -4016,7 +4032,23 @@ class FoodOptimizer:
             caps.append(max(0.0, high - low))
             start.append(min(max(value - low, 0.0), max(0.0, high - low)))
         if not names:
-            return None
+            # Every ingredient is fixed at one amount, so the project
+            # describes exactly one formulation and there is nothing to
+            # project onto the total. That is a real 0.5.0 project — the
+            # recipe is locked and the round varies the oven — so the row
+            # is handed back whenever the fixed amounts DO add up to the
+            # batch size, within the same slack _check_constraints allows
+            # the total's own limit. Written out from the bounds rather
+            # than taken from the caller, so the row does not depend on
+            # whoever built it having pinned them.
+            if abs(fixed - float(total)) > 1e-6 * (1.0 + abs(float(total))):
+                return None
+            snapped = dict(recipe)
+            for var in self.variables:
+                if var.get('category', 'ingredient') != 'ingredient':
+                    continue
+                snapped[var['name']] = self._fixed_value(var)
+            return snapped
         room = sum(caps)
         need = float(total) - fixed - sum(lows)
         if need < -1e-9 or need > room + 1e-9:
@@ -4736,6 +4768,13 @@ class FoodOptimizer:
             # The total is one number the user typed, and it is what nothing
             # could satisfy: the refusal names it rather than talking about
             # limits the user never wrote.
+            fixed_sum = self.fixed_ingredient_total()
+            if fixed_sum is not None:
+                # Every ingredient is fixed, so there is nothing to widen
+                # and nothing to move: two numbers is the whole answer.
+                raise ValueError(wording.fixed_amounts_do_not_add_up(
+                    self.batch_total_text(fixed_sum),
+                    self.batch_total_text(self.formulation_total)))
             raise ValueError(wording.no_formulation_reaches_total(
                 self.batch_total_text(self.formulation_total)))
         raise ValueError(
@@ -6465,7 +6504,13 @@ class FoodOptimizer:
             moved = {name for name, share in typed.items()
                      if was_called[name] not in stored_shares
                      or abs(stored_shares[was_called[name]] - share) > 1e-9}
-            self.set_shares(self._rebalanced_shares(typed, moved))
+            # Keyed by the name each row wears NOW, because that is how
+            # `typed` is keyed; a renamed row keeps the share it was
+            # showing under its old name.
+            was_showing = {name: float(stored_shares.get(old, 0.0))
+                           for name, old in was_called.items()}
+            self.set_shares(self._rebalanced_shares(typed, moved,
+                                                    was_showing))
             if _shares_moved(typed, self.share_percents()):
                 messages.append(("info", wording.SHARES_REBALANCED_CAPTION))
             # A share moved is a row saved: without this a save that changed
@@ -6491,7 +6536,7 @@ class FoodOptimizer:
                 messages[green[-1]] = (kind, line + wording.RECALCULATED_SUFFIX)
         return messages
 
-    def _rebalanced_shares(self, typed, moved):
+    def _rebalanced_shares(self, typed, moved, stored):
         """What the column should hold once the reader has moved part of it.
 
         A share they typed is an answer and is kept; the rest give way
@@ -6499,15 +6544,21 @@ class FoodOptimizer:
         others" means with more than two rows on the grid. When everything
         moved — or when what moved already asks for 100 or more — there is
         nothing left to give way, and the whole column is scaled instead.
+
+        `stored` is what the grid was SHOWING before this save, taken by
+        the caller before a word was written. Read off the project instead,
+        it would be the column contaminated by the placeholder weight of a
+        row this same save has already added: two rows at 50 % each plus a
+        new row at 20 came out 41 / 39 / 20, and the reader watched two
+        identical rows separate in the one column whose point is that they
+        can add it up.
         """
         others = [n for n in typed if n not in moved]
         kept = sum(typed[n] for n in moved)
         if not moved or not others or kept >= 100:
             return dict(typed)
-        pool = sum(max(float(self.share_percents().get(n, 0.0)), 0.0)
-                   for n in others)
+        pool = sum(max(float(stored.get(n, 0.0)), 0.0) for n in others)
         remainder = 100.0 - kept
-        stored = self.share_percents()
         out = {n: float(typed[n]) for n in moved}
         for n in others:
             out[n] = (remainder * float(stored.get(n, 0.0)) / pool if pool
