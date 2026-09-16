@@ -347,10 +347,13 @@ assert [c for c in grid.columns if c != "_id"] == [
     "Measurement", "Goal", "Target", "Lowest measurable",
     "Highest measurable", "Unit", "Share of score (%)"], list(grid.columns)
 assert list(grid["Share of score (%)"]) == [100.0]
-assert any(c.value.startswith("Overall score = 1 (100 %)")
+# The score line is the shares and nothing else now: the weight behind a
+# share left the screen with Importance, and the ceiling is always 100.
+assert any(c.value.startswith("Overall score = 100 % \u00d7 taste closeness")
+           and "scores 100." in c.value
            for c in at.caption), [c.value for c in at.caption]
 
-# Tab 2 - Make a batch: the retired Repeat checkbox never comes back, and
+# Tab 2 - Make a round: the retired Repeat checkbox never comes back, and
 # a formulation of your own has an expander to land in instead.
 at.session_state["main_tab"] = wording.TAB_BATCH
 at.run()
@@ -436,12 +439,12 @@ assert any(m.value == wording.SAVED_COPIES_HEADING for m in at.sidebar.markdown)
 assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY) is not None
 assert _unknown(at.sidebar, "file_uploader", wording.OPEN_A_SAVED_COPY) is not None
 
-# Tab 1 - Set up: the total of each formulation box.
+# Tab 1 - Set up: the default batch size box, inside More settings.
 assert wording.formulation_total_label("g") in [n.label for n in at.number_input], \
     [n.label for n in at.number_input]
 
-# Tab 2 - Make a batch: one workbook download, and the last column of the
-# batch table says what each formulation is trying, against the best so far.
+# Tab 2 - Make a round: one workbook download, and the last column of the
+# round table says what each formulation is trying, against the best so far.
 at.session_state["main_tab"] = wording.TAB_BATCH
 at.run()
 assert not at.exception, at.exception
@@ -455,6 +458,83 @@ print("KITCHEN_TRUST_OK")
 PY
 )"
 if echo "$KT_OUT" | grep -q KITCHEN_TRUST_OK; then ok "kitchen-trust controls in packaged app"; else fail "kitchen-trust controls in packaged app ($KT_OUT)"; fi
+
+echo "-- test 5f: spreadsheet-feel controls (0.5.0) are in the packaged app --"
+GRID_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
+  APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
+  "$SUPPORT/venv/bin/python" - <<'PY'
+import io
+import os
+import wording
+from openpyxl import load_workbook
+from streamlit.testing.v1 import AppTest
+from food_bo import FoodOptimizer
+
+opt = FoodOptimizer("Grid_Check")
+opt.add_ingredient("water", 0.0, 100.0)
+opt.add_ingredient("flour", 0.0, 100.0)
+opt.add_objective("taste", 1.0, goal="max")
+opt.set_formulation_total(100.0)
+opt.set_pending_batch([{"water": 30.0, "flour": 70.0}])
+
+at = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+at.session_state["_loaded_project"] = "Grid_Check"
+at.run()
+assert not at.exception, at.exception
+
+# Tab 1 - Set up: the ingredients list is one editable grid, with Vendor
+# and SKU beside the range. Baseline joins it only once results exist.
+assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
+    "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"], \
+    list(at.dataframe[0].value.columns)
+
+# Three tiers on the tab: the grids, then More settings, then Advanced.
+labels = [e.label for e in at.expander]
+assert wording.MORE_SETTINGS_EXPANDER in labels, labels
+assert wording.ADVANCED_EXPANDER in labels, labels
+
+# Nothing is written while typing: an edit in hand lights Save changes and
+# puts Discard changes beside it. Typing into a data editor is injecting
+# its own record of what was typed, which is what the browser sends.
+at.session_state["ingredient_grid_0"] = {
+    "edited_rows": {0: {wording.HIGHEST_LABEL: 80.0}},
+    "deleted_rows": [], "added_rows": []}
+at.run()
+assert not at.exception, at.exception
+save = next(b for b in at.button if b.key == "save_ingredient_grid__save")
+assert save.label == wording.SAVE_CHANGES_BUTTON, save.label
+assert save.proto.type == "primary", save.proto.type
+assert any(b.key == "save_ingredient_grid__discard"
+           and b.label == wording.DISCARD_CHANGES_BUTTON for b in at.button), \
+    [(b.key, b.label) for b in at.button]
+
+# Tab 2 - Make a round: the round screen's own Batch size box, and the
+# round named by number.
+assert wording.batch_size_label("g") in [n.label for n in at.number_input], \
+    [n.label for n in at.number_input]
+assert wording.make_these(1, 1) in [m.value for m in at.main.markdown], \
+    [m.value for m in at.main.markdown]
+
+# The workbook is protected, with a Lot cell per ingredient on the round's
+# summary page and an Actual (g) column on each formulation page.
+book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100.0)))
+summary, page = book[book.sheetnames[0]], book[book.sheetnames[1]]
+
+
+def filled(sheet):
+    return [str(c.value) for row in sheet.iter_rows()
+            for c in row if c.value is not None]
+
+
+assert summary.protection.sheet and page.protection.sheet
+assert wording.LOT_COLUMN in filled(summary), filled(summary)
+assert opt._actual_column_head() in filled(page), filled(page)
+print("GRID_OK")
+PY
+)"
+if echo "$GRID_OUT" | grep -q GRID_OK; then ok "spreadsheet-feel controls in packaged app"; else fail "spreadsheet-feel controls in packaged app ($GRID_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"
