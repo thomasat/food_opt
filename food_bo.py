@@ -3649,7 +3649,14 @@ class FoodOptimizer:
             return {}
         wanted = {}
         for var in self._ingredients():
-            for label in (self._amount_column(var['name']), var['name']):
+            labels = [self._amount_column(var['name']), var['name']]
+            if self.has_formula(var):
+                # A worked-out row's printed name carries the mark the
+                # summary sheet wrote it with — the same name it would
+                # otherwise never match.
+                labels.append(wording.worked_out_label(
+                    self._amount_column(var['name'])))
+            for label in labels:
                 wanted[str(label).strip().lower()] = var['name']
         lots = {}
         for row in grid[header + 1:]:
@@ -3673,8 +3680,16 @@ class FoodOptimizer:
         """
         labels = {}
         for var in self.variables:
-            for label in (self._sheet_ingredient_label(var['name']),
-                          self._amount_column(var['name']), var['name']):
+            name_labels = [self._sheet_ingredient_label(var['name']),
+                          self._amount_column(var['name']), var['name']]
+            if self.has_formula(var):
+                # The formulation page prints this row's name with the
+                # worked-out mark on it; without this alternative that
+                # printed name never matches and the Actual it carries is
+                # dropped with no error.
+                name_labels.append(wording.worked_out_label(
+                    self._sheet_ingredient_label(var['name'])))
+            for label in name_labels:
                 labels[str(label).strip().lower()] = var['name']
         headers = {self._actual_column_head().strip().lower(),
                    wording.ACTUAL_COLUMN.strip().lower()}

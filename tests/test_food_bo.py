@@ -9338,6 +9338,104 @@ class TestFormulasOnTheSheets:
         assert amount.protection.locked
 
 
+class TestFormulasOnTheSheetsFixes:
+    """Fix round 1 on Task 4: a worked-out row's printed name carries
+    `wording.worked_out_label`, and the upload's own label lookups —
+    `_lots_from_summary` and `_actual_from_sheets` — had never been taught
+    the mark, so a filled-in Actual or Lot for that row matched nothing and
+    vanished with no error."""
+
+    def _opt(self, tmp_path, monkeypatch, name="sheet_upload_formulas"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 30, 50)
+        opt.add_ingredient("Salt", 8, 10)
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        opt.set_pending_batch([
+            {"Pea protein": 40.0, "Salt": 9.2, "Water": 50.8},
+        ], batch_no=1)
+        return opt
+
+    @staticmethod
+    def _lot_column(sheet, header_row=3):
+        for c in range(1, sheet.max_column + 1):
+            if sheet.cell(row=header_row, column=c).value == \
+                    wording.LOT_COLUMN:
+                return c
+        raise AssertionError("no Lot column on the sheet")
+
+    def _filled(self, opt, water_actual=53.5, water_lot="LOT-WATER-9",
+                salt_actual=9.2, salt_lot="LOT-SALT-1"):
+        """The workbook back off the bench: both the worked-out Water row
+        and the plain Salt row weighed and lotted."""
+        book = openpyxl.load_workbook(io.BytesIO(
+            opt.workbook_bytes(opt.pending_batch, 100.0)))
+        summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+        lot_col = self._lot_column(summary)
+        at = {summary.cell(row=r, column=1).value: r
+             for r in range(1, summary.max_row + 1)}
+        summary.cell(row=at[wording.worked_out_label("Water (g)")],
+                     column=lot_col, value=water_lot)
+        summary.cell(row=at["Salt (g)"], column=lot_col, value=salt_lot)
+        # A row with nothing measured is a row nothing came back for at
+        # all — the one thing this fixture needs beside the amounts.
+        summary.cell(row=at["Taste · Higher is better"], column=2, value=6.0)
+        page = book["Formulation 1"]
+        rows = {page.cell(row=r, column=2).value: r
+               for r in range(1, page.max_row + 1)}
+        page.cell(row=rows[wording.worked_out_label("Water")], column=4,
+                  value=water_actual)
+        page.cell(row=rows["Salt"], column=4, value=salt_actual)
+        out = io.BytesIO()
+        book.save(out)
+        out.seek(0)
+        return out
+
+    def test_a_worked_out_rows_actual_comes_back_off_the_upload(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        upload = opt.results_from_workbook(self._filled(opt))
+        assert upload.actual == {1: {"Water": 53.5, "Salt": 9.2}}
+
+    def test_a_worked_out_rows_lot_comes_back_off_the_upload(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        upload = opt.results_from_workbook(self._filled(opt))
+        assert upload.lots == {"Water": "LOT-WATER-9", "Salt": "LOT-SALT-1"}
+
+    def test_a_plain_rows_actual_and_lot_are_unaffected(self, tmp_path,
+                                                        monkeypatch):
+        """The fix adds an alternative label; it must not stop the ordinary
+        one from matching."""
+        opt = self._opt(tmp_path, monkeypatch)
+        upload = opt.results_from_workbook(
+            self._filled(opt, water_actual=None, water_lot=None))
+        assert upload.actual == {1: {"Salt": 9.2}}
+        assert upload.lots == {"Salt": "LOT-SALT-1"}
+
+    def test_the_worked_out_actual_is_recorded_like_any_other(
+            self, tmp_path, monkeypatch):
+        """The `Amounts as weighed` path: `amounts_as_weighed` overlays
+        `upload.actual` straight onto the recipe by name, so once the
+        label lookup finds the row the rest of the path needs nothing
+        else."""
+        opt = self._opt(tmp_path, monkeypatch)
+        upload = opt.results_from_workbook(self._filled(opt))
+        by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
+        recorded = opt.amounts_as_weighed(by_number[1], upload.actual.get(1))
+        assert recorded == {"Pea protein": 40.0, "Salt": 9.2, "Water": 53.5}
+        opt.tell(recorded, {"Taste": 6.0}, formulation_no=1,
+                 batch_no=opt.pending_batch_no,
+                 note=wording.amounts_as_weighed_note(""))
+        assert opt.recipe_history[0] == {"Pea protein": 40.0, "Salt": 9.2,
+                                         "Water": 53.5}
+        assert opt.notes_history[0] == wording.AMOUNTS_AS_WEIGHED
+
+
 class TestTheFormulaColumnFixes:
     """Fix round 1 on the Formula column. Four of these are the same
     mistake wearing different clothes: a formula cell is TEXT, and text
