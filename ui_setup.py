@@ -339,8 +339,17 @@ def _ingredient_columns(opt, frame):
             wording.TYPE_LABEL, options=[KIND_INGREDIENT, KIND_SETTING],
             default=KIND_INGREDIENT, required=True,
             help=wording.VARIABLE_TYPE_HELP),
-        wording.LOWEST_LABEL: _number_column(wording.LOWEST_LABEL),
-        wording.HIGHEST_LABEL: _number_column(wording.HIGHEST_LABEL),
+        # Text, not numbers, and only on this grid. A row with a formula
+        # has no Lowest and no Highest of its own: both cells read the
+        # app's own word for it, and a number column cannot hold a word.
+        # The two decimals a number column formatted are written into the
+        # cells instead (food_bo._range_cell), and _number_cell reads them
+        # back, so a cell holding something that is not a number is still
+        # answered by Enter a number.
+        wording.LOWEST_LABEL: st.column_config.TextColumn(
+            wording.LOWEST_LABEL),
+        wording.HIGHEST_LABEL: st.column_config.TextColumn(
+            wording.HIGHEST_LABEL),
         wording.UNIT_LABEL: st.column_config.TextColumn(
             wording.UNIT_LABEL, default=opt.amount_unit or "g"),
         wording.VENDOR_LABEL: st.column_config.TextColumn(
@@ -351,6 +360,11 @@ def _ingredient_columns(opt, frame):
     if wording.BASELINE_LABEL in frame.columns:
         columns[wording.BASELINE_LABEL] = _number_column(
             wording.BASELINE_LABEL, help=wording.BASELINE_HELP)
+    # Last and narrow: one column for one idea, and the idea is the answer
+    # to the two columns it replaces. `= rest` is typed here too, so there
+    # is no Balance column beside it.
+    columns[wording.FORMULA_LABEL] = st.column_config.TextColumn(
+        wording.FORMULA_LABEL, width="small", help=wording.FORMULA_HELP)
     return columns
 
 
@@ -486,6 +500,12 @@ def _variables(opt, storage):
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     slot = st.empty()            # where a refused Save writes its rows
     _grid_errors(slot, _ING_ERRORS)
+    # Every rule shows its consequence in numbers: one line per row that is
+    # worked out, saying what the other rows' allowed amounts leave it. The
+    # project's own rows, not the edited frame's — it is what has been
+    # saved that the model answers for.
+    for line in opt.worked_out_captions():
+        st.caption(line)
     pending = _pending(saved, edited)
     _keep_pending(ING_GRID_KEY, pending, edited, from_park)
     # Read by the grid below, which keeps its own pair of buttons grey while

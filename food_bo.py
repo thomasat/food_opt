@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import io
 import json
@@ -601,6 +602,44 @@ def _number_cell(row, column):
         return None, False
 
 
+def _file_text(row, column, present=True):
+    """One text cell of an ingredient file, as the grid would read it: the
+    text, stripped, and "" for a blank, a missing column or a NaN."""
+    if not present:
+        return ""
+    value = row.get(column)
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _range_from_cells(row):
+    """(Lowest, Highest, whether both cells hold something readable) for one
+    row of the ingredients grid.
+
+    The two cells are text now (see _range_cell), so they are read back
+    through the same _number_cell every other number on a grid goes through:
+    a cell holding anything but a number is still a refusal. The one word
+    that is not a refusal is the app's own `worked out`, which is what the
+    cells of a formula row say — it reads as no number at all, and a row
+    with no formula to work it out from then asks for one."""
+    low, low_ok = _number_cell(row, wording.LOWEST_LABEL)
+    high, high_ok = _number_cell(row, wording.HIGHEST_LABEL)
+    for column, ok in ((wording.LOWEST_LABEL, low_ok),
+                       (wording.HIGHEST_LABEL, high_ok)):
+        if not ok and _text_cell(row, column) == wording.WORKED_OUT:
+            if column == wording.LOWEST_LABEL:
+                low, low_ok = None, True
+            else:
+                high, high_ok = None, True
+    return low, high, (low_ok and high_ok)
+
+
 def grid_signature(frame):
     """One comparable value per row, for asking whether a grid still says
     what the project says. Compared cell by cell rather than frame by frame:
@@ -684,6 +723,11 @@ def _proposed_variable(spec):
     var['bounds'] = (float(spec['low']), float(spec['high']))
     var['type'] = var.get('type', 'continuous')
     var['unit'] = spec['unit']
+    # As typed, not as stored: this copy is what a question about the
+    # finished grid — a loop, a formula that can never be a real amount — is
+    # asked against, and the cell the reader just edited is the answer.
+    var['formula'] = spec['formula']
+    var['balance'] = spec['balance']
     return var
 
 
@@ -776,8 +820,10 @@ def _what_moved(before, after):
     question the model is being asked, and retires the open round. A unit is
     how a number is written, not the number, and has a sentence of its own
     to say. A vendor and an SKU are printed on the sheets and read by
-    nothing. The row's NAME is not in here at all: a rename goes through
-    rename_variable, which moves everything filed under it.
+    nothing. A FORMULA is "other": the row leaves the search vector, so what
+    the model is being asked is a different question. The row's NAME is not
+    in here at all: a rename goes through rename_variable, which moves
+    everything filed under it.
     """
     if before == after:
         return set()
@@ -788,7 +834,8 @@ def _what_moved(before, after):
         moved.add('unit')
     if before[4:6] != after[4:6]:
         moved.add('supplier')
-    if (before[1], before[2], before[6]) != (after[1], after[2], after[6]):
+    if (before[1], before[2], before[6:9]) != (after[1], after[2],
+                                              after[6:9]):
         moved.add('other')
     return moved
 
@@ -1429,7 +1476,8 @@ class FoodOptimizer:
         # what a sheet written for an older version carries. Both are read,
         # and neither is mentioned to the user in the other's place.
         canonical = {'name': 'Name', 'min': 'Min', 'max': 'Max', 'type': 'Type',
-                     'unit': 'Unit', 'lowest': 'Min', 'highest': 'Max'}
+                     'unit': 'Unit', 'lowest': 'Min', 'highest': 'Max',
+                     'formula': wording.FORMULA_LABEL}
         df = df.rename(columns={
             c: canonical[c.strip().lower()]
             for c in df.columns if c.strip().lower() in canonical
@@ -1443,7 +1491,11 @@ class FoodOptimizer:
         self.variables = []
         self.ingredient_properties = {}
 
-        standard_cols = {'Name', 'Min', 'Max', 'Type', 'Unit'}
+        # Formula among them, so a column of formulas is read as what the
+        # grid's own Formula cell holds and never as a property of every
+        # ingredient.
+        standard_cols = {'Name', 'Min', 'Max', 'Type', 'Unit',
+                         wording.FORMULA_LABEL}
         prop_cols = [c for c in df.columns if c not in standard_cols]
 
         seen_names = set()
@@ -1459,14 +1511,22 @@ class FoodOptimizer:
                 raise ValueError(
                     wording.file_row_reserved_name(i + 2, name))
             seen_names.add(name.lower())
-            try:
-                min_val, max_val = float(row['Min']), float(row['Max'])
-            except (ValueError, TypeError):
-                raise ValueError(
-                    wording.file_amounts_not_numbers(row['Name']))
-            if min_val > max_val:
-                raise ValueError(wording.file_lowest_above_highest(
-                    name, min_val, max_val))
+            # A formula is data a bench can bring in a file: the cell is
+            # read exactly as the grid's own is, and a row that carries one
+            # has no Lowest and no Highest to fill in.
+            formula = _file_text(row, wording.FORMULA_LABEL,
+                                 wording.FORMULA_LABEL in df.columns)
+            if formula:
+                min_val, max_val = 0.0, 0.0
+            else:
+                try:
+                    min_val, max_val = float(row['Min']), float(row['Max'])
+                except (ValueError, TypeError):
+                    raise ValueError(
+                        wording.file_amounts_not_numbers(row['Name']))
+                if min_val > max_val:
+                    raise ValueError(wording.file_lowest_above_highest(
+                        name, min_val, max_val))
             var = {
                 'name': name,
                 'type': 'continuous',
@@ -1474,6 +1534,8 @@ class FoodOptimizer:
                 'category': 'ingredient',
                 'vendor': "",
                 'sku': "",
+                'formula': formula,
+                'balance': formula.lower() == f"= {wording.REST_TOKEN}",
             }
             # A blank Unit cell means "the project's default", not a blank
             # unit: a file listing ml against the water alone should leave
@@ -1500,6 +1562,7 @@ class FoodOptimizer:
                     pass
             self.ingredient_properties[name] = props
 
+        self._check_file_formulas()
         self.variables.extend(process_vars)
         # A column of the file is a property of this project from now on, and
         # it keeps its place in the file's own order. A property named in the
@@ -1512,6 +1575,27 @@ class FoodOptimizer:
         self._drop_pending_batch()
         self.save()
         return removed
+
+    def _check_file_formulas(self):
+        """Refuse a file whose Formula column cannot be read, before it is
+        saved.
+
+        The same two questions the grid asks over a finished grid, asked of
+        the rows the file just built: one row at most takes the rest, and no
+        formula leads back to itself. A formula is read with `batch size`
+        allowed whatever the project's default is now — a file is loaded
+        before the size is set, and a project with none answers 0 — so the
+        one thing not asked here is a default a later save will supply.
+        """
+        if not any(self.has_formula(v) for v in self.variables):
+            return
+        if len([v for v in self.variables if v.get('balance')]) > 1:
+            raise ValueError(wording.ONE_BALANCE_ONLY)
+        for var in self.variables:
+            if var.get('formula') and not var.get('balance'):
+                parse_formula(var['formula'],
+                              self._formula_names(var['name']), True)
+        self._formula_order()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
                               unit=""):
@@ -3926,9 +4010,15 @@ class FoodOptimizer:
         # like Status, they arrive with the first row that has one.
         any_supplier = any(v.get('vendor') or v.get('sku')
                            for v in self.variables)
+        # And a Formula column with the first row that is worked out. The
+        # sheet is what the bench reads: a row whose amount is arithmetic
+        # over the others has to say so where its two amounts would be.
+        any_formula = any(self.has_formula(v) for v in self.variables)
         headers = [wording.NAME_LABEL, wording.TYPE_LABEL,
                    wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
                    wording.UNIT_LABEL, wording.BASELINE_LABEL]
+        if any_formula:
+            headers.append(wording.FORMULA_LABEL)
         if any_supplier:
             headers += [wording.VENDOR_LABEL, wording.SKU_LABEL]
         if any_fixed:
@@ -3938,15 +4028,25 @@ class FoodOptimizer:
         r += 1
         for var in self.variables:
             ingredient = var.get('category', 'ingredient') == 'ingredient'
+            worked_out = self.has_formula(var)
             _write_cell(sheet, r, 1, var['name'])
             _write_cell(sheet, r, 2, wording.KIND_INGREDIENT if ingredient
                         else wording.KIND_SETTING)
-            _write_cell(sheet, r, 3, float(var['bounds'][0]))
-            _write_cell(sheet, r, 4, float(var['bounds'][1]))
+            # The same two cells the screen shows: the word for a row that
+            # is worked out, its own two numbers for every other.
+            low, high = self._range_cell(var)
+            _write_cell(sheet, r, 3, low if worked_out
+                        else float(var['bounds'][0]))
+            _write_cell(sheet, r, 4, high if worked_out
+                        else float(var['bounds'][1]))
             _write_cell(sheet, r, 5, self.unit_of(var['name']) or None)
             baseline = var.get('_absent_value')
             _write_cell(sheet, r, 6, None if baseline is None else float(baseline))
             c = 7
+            if any_formula:
+                _write_cell(sheet, r, c,
+                            self._formula_text(var) if worked_out else None)
+                c += 1
             if any_supplier:
                 _write_cell(sheet, r, c, var.get('vendor') or None)
                 _write_cell(sheet, r, c + 1, var.get('sku') or None)
@@ -5442,7 +5542,12 @@ class FoodOptimizer:
         was opened on is what the printable sheets carry."""
         rows = list(self.pending_batch or [])
         number = self._issue_formulation_no()
-        rows.append(self._batch_row(number, recipe, note))
+        # A formulation of the reader's own names the rows they typed; a row
+        # that is worked out is not one of them, and the bench still has to
+        # weigh it. Filled here, at the one door such a formulation comes
+        # in by, so the table, the sheets and tell() all read the same
+        # amounts a generated formulation would have carried.
+        rows.append(self._batch_row(number, self.fill_formulas(recipe), note))
         self.pending_batch = rows
         if self.pending_batch_no is None:
             self.pending_batch_no = self._issue_batch_no()
@@ -6058,6 +6163,28 @@ class FoodOptimizer:
             filled[name] = self._form_value(form, filled, batch)
         return filled
 
+    def worked_out_captions(self):
+        """One line per worked-out row, in project order — what the rule
+        comes to, in numbers.
+
+        Every rule shows its consequence: a formula is arithmetic the reader
+        cannot do in their head over eight rows, so the line says what the
+        other rows' allowed amounts leave this one, read against the default
+        batch size. Empty for a project with no formula, which is what keeps
+        the space under the grid blank until there is something to say.
+        """
+        lines = []
+        for var in self._formula_rows():
+            name = var['name']
+            low, high = self._achievable_range(
+                lambda n, row=name: 1.0 if n == row else 0.0)
+            unit = self._unit_of(var)
+            lines.append(wording.worked_out_caption(
+                name, self._formula_text(var), f"{low:.2f}",
+                join_unit(f"{high:.2f}", unit),
+                self.batch_total_text(self.formulation_total)))
+        return lines
+
     def _formula_reads_refusal(self, name):
         """Why this row cannot be deleted while another row's formula reads
         it by name, or None.
@@ -6625,6 +6752,12 @@ class FoodOptimizer:
         Baseline is a column only once results exist (spec 1.1): it is the
         value every formulation already made is read at, and a project with
         nothing recorded has nothing to read.
+
+        Formula is last and always there: one column for one idea, and the
+        idea is at the end of the row because it is the answer to the two
+        columns before it. A row that carries one has no Lowest and no
+        Highest of its own — both cells read `worked out` instead, which is
+        why they are text and not numbers.
         """
         columns = [GRID_ID, wording.NAME_LABEL, wording.TYPE_LABEL,
                    wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
@@ -6632,19 +6765,23 @@ class FoodOptimizer:
                    wording.SKU_LABEL]
         if self.X_history:
             columns.append(wording.BASELINE_LABEL)
+        columns.append(wording.FORMULA_LABEL)
         data = []
         for var in self.grid_variables():
             ingredient = var.get('category', 'ingredient') == 'ingredient'
+            low, high = self._range_cell(var)
             row = {
                 GRID_ID: var['name'],
                 wording.NAME_LABEL: var['name'],
                 wording.TYPE_LABEL: (wording.KIND_INGREDIENT if ingredient
                                      else wording.KIND_SETTING),
-                wording.LOWEST_LABEL: float(var['bounds'][0]),
-                wording.HIGHEST_LABEL: float(var['bounds'][1]),
+                wording.LOWEST_LABEL: low,
+                wording.HIGHEST_LABEL: high,
                 wording.UNIT_LABEL: self.unit_of(var['name']) or "",
                 wording.VENDOR_LABEL: str(var.get('vendor', "") or ""),
                 wording.SKU_LABEL: str(var.get('sku', "") or ""),
+                wording.FORMULA_LABEL: (self._formula_text(var)
+                                        if self.has_formula(var) else ""),
             }
             if self.X_history:
                 baseline = var.get('_absent_value')
@@ -6652,6 +6789,20 @@ class FoodOptimizer:
                                                else float(baseline))
             data.append(row)
         return _grid_frame(data, columns)
+
+    def _range_cell(self, var):
+        """(Lowest, Highest) as the grid holds them: the word for a row that
+        is worked out, and two-decimal text for every other.
+
+        Text, not numbers, and this is the one reason why. A row with a
+        formula has no range of its own to show — showing the numbers it
+        happens to still carry would invite the reader to type into them —
+        and `st.data_editor` will not put a word in a number column. A fixed
+        row keeps showing the same number twice, as wave 1 left it."""
+        if self.has_formula(var):
+            return wording.WORKED_OUT, wording.WORKED_OUT
+        return (f"{float(var['bounds'][0]):.2f}",
+                f"{float(var['bounds'][1]):.2f}")
 
     def measurement_grid_frame(self):
         """What the measurements grid opens holding, most important first —
@@ -6715,12 +6866,17 @@ class FoodOptimizer:
         errors, rows = [], []
         by_id = {v['name']: v for v in self.variables}
         ids_used = set()
+        # The names the finished grid will carry, read before any row is, so
+        # a formula may name a row this same save adds or renames.
+        names = [_text_cell(row, wording.NAME_LABEL)
+                 for _, row in _grid_rows(frame) if not _row_is_blank(row)]
         for row_no, row in _grid_rows(frame):
             if _row_is_blank(row):
                 # The empty line at the bottom of a dynamic grid, clicked and
                 # then left alone. Not an addition, and not an error.
                 continue
-            spec, trouble = self._read_ingredient_row(row, by_id, ids_used)
+            spec, trouble = self._read_ingredient_row(row, by_id, ids_used,
+                                                      names)
             if trouble:
                 errors.append((row_no, trouble))
                 continue
@@ -6758,10 +6914,82 @@ class FoodOptimizer:
                 stuck[1]['name'], stuck[1]['category'])))
             return errors, None
 
+        errors += self._formula_grid_errors(rows, deleted)
+        if errors:
+            return errors, None
+
         trouble = self._grid_feasibility_error(rows, deleted)
         if trouble:
             return [(None, trouble)], None
         return [], {'rows': rows, 'deleted': deleted, 'rename_order': order}
+
+    def _formula_grid_errors(self, rows, deleted=()):
+        """What the formulas on the finished grid cannot be, asked once over
+        the grid as a whole.
+
+        Three questions no single cell can answer. Two rows each taking
+        whatever is left of the same number is not arithmetic anybody can
+        do; a formula that leads back to itself is a loop between cells, and
+        the chain is what the reader has to break; and a formula no allowed
+        amounts can ever make a real amount of is refused at the save that
+        strands it rather than at the Generate that cannot answer it — which
+        is why it is asked here, over the rows as they will be, and not only
+        at the one door that writes a formula.
+        """
+        errors = []
+        balance = [(row_no, spec) for row_no, spec in rows if spec['balance']]
+        if len(balance) > 1:
+            errors.append((None, wording.ONE_BALANCE_ONLY))
+        if any(spec['formula'] for _, spec in rows):
+            # Changing which rows are searched rebuilds the history, and a
+            # project whose recorded amounts have gone cannot be rebuilt.
+            moved = [spec for _, spec in rows
+                     if spec['var'] is None
+                     or str(spec['var'].get('formula') or "")
+                     != spec['formula']]
+            if moved and self.X_history and (
+                    len(self.recipe_history) != len(self.X_history)):
+                errors.append((None, AMOUNTS_MISSING_DELETE_ERROR))
+        if errors:
+            return errors
+        with self._as_proposed(rows, deleted):
+            try:
+                self._formula_order()
+            except FormulaError as e:
+                return [(None, str(e))]
+            for row_no, spec in rows:
+                if not spec['formula']:
+                    continue
+                reach = self._form_reach(self._linear_form(spec['name']),
+                                         self._batch_size())
+                if reach[1] < 0:
+                    errors.append((row_no, wording.formula_below_zero(
+                        spec['formula'], spec['unit'])))
+        return errors
+
+    @contextlib.contextmanager
+    def _as_proposed(self, rows, deleted=()):
+        """The project with the finished grid in place, and put back exactly
+        as it was afterwards. Nothing is written: this is how a question
+        about the grid AS A WHOLE — a loop, a formula that can never be a
+        real amount — is asked before the first row is saved."""
+        variables = self.variables
+        limits = self.quantity_constraints
+        properties = self.ingredient_properties
+        renamed = _renames(rows)
+        try:
+            self.variables = [_proposed_variable(spec) for _, spec in rows]
+            self.ingredient_properties = _properties_over(properties, renamed,
+                                                          deleted)
+            self.quantity_constraints = _limits_over(
+                limits, [v['name'] for v in self.variables
+                         if v.get('category', 'ingredient') == 'ingredient'],
+                renamed, deleted)
+            yield
+        finally:
+            self.variables = variables
+            self.quantity_constraints = limits
+            self.ingredient_properties = properties
 
     def ingredient_grid_retires_round(self, frame, force=()):
         """The open round's number when saving this grid would take it away,
@@ -6790,9 +7018,14 @@ class FoodOptimizer:
                 return self.pending_batch_no
         return None
 
-    def _read_ingredient_row(self, row, by_id, ids_used):
+    def _read_ingredient_row(self, row, by_id, ids_used, names=None):
         """One row of the grid as a plain dict, or (None, why it cannot be
-        saved). Every refusal here is about this row on its own."""
+        saved). Every refusal here is about this row on its own.
+
+        `names` are the names the FINISHED grid will carry, so a formula may
+        read a row this same save is adding or renaming. Without them a
+        formula naming a row typed on the line above would be refused for a
+        row the reader can see."""
         row_id = _text_cell(row, GRID_ID)
         var = by_id.get(row_id)
         if var is not None:
@@ -6804,14 +7037,56 @@ class FoodOptimizer:
             return None, _reserved_name_message(name)
         kind = _text_cell(row, wording.TYPE_LABEL) or wording.KIND_INGREDIENT
         category = 'process' if kind == wording.KIND_SETTING else 'ingredient'
-        low, low_ok = _number_cell(row, wording.LOWEST_LABEL)
-        high, high_ok = _number_cell(row, wording.HIGHEST_LABEL)
-        if not low_ok or not high_ok or low is None or high is None:
+        # The formula first, because it decides whether the two cells after
+        # it are read at all: a row that is worked out has no Lowest and no
+        # Highest of its own.
+        formula = _text_cell(row, wording.FORMULA_LABEL)
+        form = None
+        if formula:
+            if category == 'process':
+                # It works — the setting leaves the search vector and is
+                # worked out like any other row — but a setting is in no
+                # sum, so there is nothing for it to be the rest of and
+                # nothing the grid's own captions could say about it.
+                return None, wording.only_an_ingredient_has(
+                    wording.FORMULA_LABEL)
+            available = [n for n in (self._formula_names(name)
+                                     if names is None else names)
+                         if n != name]
+            try:
+                form = parse_formula(formula, available,
+                                     self.has_formulation_total())
+            except FormulaError as e:
+                return None, str(e)
+            if form.rest and not self.has_formulation_total():
+                return None, wording.FORMULA_NEEDS_BATCH_SIZE
+        low, high, range_ok = _range_from_cells(row)
+        if not range_ok:
             return None, wording.NUMBER_REQUIRED_ERROR
-        # Equal is allowed, and is how a row is FIXED at one amount. Only
-        # Lowest ABOVE Highest is a range with nothing in it.
-        if low > high:
-            return None, LOWEST_ABOVE_HIGHEST_ERROR
+        kept = None if var is None else tuple(float(b) for b in var['bounds'])
+        if formula:
+            # Not enforced anywhere and not read back: the row's amount is
+            # whatever its formula makes it. It keeps the range it had, so
+            # clearing the formula gives the row its amounts back.
+            low, high = (0.0, 0.0) if kept is None else kept
+        else:
+            if kept is not None and self.has_formula(var):
+                # The formula has just been rubbed out, and the two cells
+                # still read the word the app wrote into them. That is not
+                # the reader failing to type a number: it is the row coming
+                # back to the amounts it had before it was worked out.
+                if low is None and _text_cell(
+                        row, wording.LOWEST_LABEL) == wording.WORKED_OUT:
+                    low = kept[0]
+                if high is None and _text_cell(
+                        row, wording.HIGHEST_LABEL) == wording.WORKED_OUT:
+                    high = kept[1]
+            if low is None or high is None:
+                return None, wording.NUMBER_REQUIRED_ERROR
+            # Equal is allowed, and is how a row is FIXED at one amount.
+            # Only Lowest ABOVE Highest is a range with nothing in it.
+            if low > high:
+                return None, LOWEST_ABOVE_HIGHEST_ERROR
         unit = _text_cell(row, wording.UNIT_LABEL)
         if category == 'ingredient' and not unit:
             # An ingredient's amounts are added up, averaged and printed. A
@@ -6849,7 +7124,8 @@ class FoodOptimizer:
             'var': var, 'id': row_id if var is not None else None,
             'name': name, 'category': category, 'low': low, 'high': high,
             'unit': unit, 'vendor': vendor, 'sku': sku, 'baseline': baseline,
-            'baseline_moved': moved,
+            'baseline_moved': moved, 'formula': formula,
+            'balance': bool(form is not None and form.rest),
         }, None
 
     def _check_grid_deletions(self, deleted, rows, force):
@@ -6864,7 +7140,7 @@ class FoodOptimizer:
             if trouble:
                 errors.append((None, trouble))
         if deleted and not any(spec['low'] < spec['high']
-                               for _, spec in rows):
+                               for _, spec in rows if not spec['formula']):
             errors.append((None, LAST_VARYING_ROW_ERROR))
         return errors
 
@@ -6900,8 +7176,11 @@ class FoodOptimizer:
         save's doing, and refusing the save for it would leave the reader
         with no way to edit their way back out.
         """
+        # A worked-out row is neither pinned nor searched: its Lowest and
+        # Highest are not enforced at all, so it is no more fixed than the
+        # formula that fills it in.
         fixed = [spec['name'] for _, spec in rows
-                 if spec['low'] == spec['high']]
+                 if not spec['formula'] and spec['low'] == spec['high']]
         if not fixed:
             return None
         return self._broken_by_this_save(
@@ -6916,23 +7195,8 @@ class FoodOptimizer:
         figures filed per ingredient. Leaving the figures behind made a
         renamed row read as having none, which refused a save that was
         perfectly legal."""
-        variables = self.variables
-        limits = self.quantity_constraints
-        properties = self.ingredient_properties
-        renamed = _renames(rows)
-        try:
-            self.variables = [_proposed_variable(spec) for _, spec in rows]
-            self.ingredient_properties = _properties_over(properties, renamed,
-                                                          deleted)
-            self.quantity_constraints = _limits_over(
-                limits, [v['name'] for v in self.variables
-                         if v.get('category', 'ingredient') == 'ingredient'],
-                renamed, deleted)
+        with self._as_proposed(rows, deleted):
             return self._limit_refusals()
-        finally:
-            self.variables = variables
-            self.quantity_constraints = limits
-            self.ingredient_properties = properties
 
     def _apply_ingredient_plan(self, plan, force=()):
         """Write the plan through the paths the form used, in the one order
@@ -6975,10 +7239,45 @@ class FoodOptimizer:
                 self._write_ingredient_row(spec)
                 removed += spec.pop('_removed', [])
                 added.append(spec['name'])
+            worked_out = self._write_grid_formulas(rows)
         finally:
             self._in_grid_apply = False
         return self._ingredient_grid_messages(added, changed, deleted, units,
-                                              removed, round_before)
+                                              removed, round_before,
+                                              worked_out)
+
+    def _write_grid_formulas(self, rows):
+        """The formula cells, written LAST — and the names of the rows that
+        newly have one.
+
+        Last, because a formula may name a row this same save adds, and a
+        row is added after the rows that stay are written. The cells are
+        written straight onto the rows rather than through set_formula: that
+        door asks its own questions of a project one row at a time, and
+        every one of them has already been asked over the finished grid (a
+        loop, a second balance, a formula that can never be a real amount) —
+        asking them again half way through would refuse a save for a state
+        nothing ever sees. What the door does OWE is done once here: the
+        history is re-encoded, because a row that is worked out has left the
+        search vector and every recorded formulation is a column shorter.
+        """
+        new = []
+        moved = False
+        for _, spec in rows:
+            var = self._var_by_name(spec['name'])
+            was = (str(var.get('formula') or ""), bool(var.get('balance')))
+            now = (spec['formula'], spec['balance'])
+            if was == now:
+                continue
+            var['formula'], var['balance'] = now
+            moved = True
+            if spec['formula']:
+                new.append(spec['name'])
+        if moved:
+            self._reencode_history()
+            self._drop_pending_batch()
+            self.save()
+        return new
 
     def _write_ingredient_row(self, spec):
         """One row's answers, through the narrowest door that carries them.
@@ -7047,7 +7346,8 @@ class FoodOptimizer:
                     else float(spec['baseline']))
         return (spec['name'], spec['category'],
                 (float(spec['low']), float(spec['high'])), spec['unit'],
-                spec['vendor'], spec['sku'], baseline)
+                spec['vendor'], spec['sku'], baseline, spec['formula'],
+                spec['balance'])
 
     def _row_state(self, var):
         """Everything one row of the grid says about a variable, as one
@@ -7057,10 +7357,11 @@ class FoodOptimizer:
         return (var['name'], var.get('category', 'ingredient'),
                 tuple(float(b) for b in var['bounds']), self._unit_of(var),
                 str(var.get('vendor', "")), str(var.get('sku', "")),
-                var.get('_absent_value'))
+                var.get('_absent_value'), str(var.get('formula') or ""),
+                bool(var.get('balance')))
 
     def _ingredient_grid_messages(self, added, changed, deleted, units,
-                                  removed, round_before):
+                                  removed, round_before, worked_out=()):
         """One line per consequence, each said once however many rows caused
         it — which is the whole point of applying a grid in one go."""
         messages = []
@@ -7086,6 +7387,12 @@ class FoodOptimizer:
         if new_ingredients and self.recipe_history:
             messages.append(("info", wording.formulations_contain_none_of(
                 number_list(new_ingredients))))
+        if worked_out and self.recipe_history:
+            # What was weighed is what was weighed: a formula arriving today
+            # answers for the row from the next round on, and nothing it
+            # says rewrites a formulation the bench already made.
+            messages.append(("info", wording.formulations_keep_their_amounts(
+                number_list(list(worked_out)), len(worked_out) > 1)))
         messages += self.limit_removed_messages(removed)
         if round_before is not None and self.pending_batch_no is None:
             messages.append(("info",

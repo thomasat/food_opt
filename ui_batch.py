@@ -398,6 +398,7 @@ def _own_formulation(opt):
                 **({} if var.get('category') == 'process'
                    else {"format": "%.2f"}),
             )
+        _worked_out_boxes(opt)
         _prefilled_caption(opt)
         st.session_state.setdefault("own_note", "")
         # The note is why this formulation is worth a place in the batch; it
@@ -422,6 +423,41 @@ def _own_formulation(opt):
                                 use_container_width=True)
         if add:
             _add_own(opt)
+
+
+def _worked_out_boxes(opt):
+    """The rows that are worked out, under the ones that are typed: greyed,
+    and holding the amount the formula makes of what is in the boxes above.
+
+    A worked-out row has no box of its own to type into — its amount is
+    arithmetic over the others — but the bench still weighs it, so leaving
+    it off the form would have asked for a formulation the table then showed
+    a row of that nobody had seen. It fills in as the boxes above it do; it
+    reads `worked out` until they are all answered.
+    """
+    worked = [v for v in opt.variables if opt.has_formula(v)]
+    if not worked:
+        return
+    typed = {var['name']: st.session_state.get(_own_key(var['name']))
+             for var in opt.varying_variables()}
+    filled = {}
+    if all(value is not None for value in typed.values()):
+        filled = opt.fill_formulas(
+            {**{name: float(value) for name, value in typed.items()},
+             **{v['name']: opt._fixed_value(v)
+                for v in opt.fixed_variables()}})
+    for var in worked:
+        value = filled.get(var['name'])
+        # No key. A keyed box keeps the first value it was given — session
+        # state wins over the argument on every later run — and this one has
+        # to follow the boxes above it as they are typed into.
+        st.number_input(
+            opt._amount_column(var['name']),
+            value=None if value is None else round(float(value), 2),
+            placeholder=wording.WORKED_OUT, disabled=True,
+            **({} if var.get('category') == 'process'
+               else {"format": "%.2f"}),
+        )
 
 
 def _prefilled_unchanged(opt):

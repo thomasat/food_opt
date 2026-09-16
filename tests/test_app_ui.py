@@ -1574,10 +1574,11 @@ def test_the_ingredient_grid_has_no_status_column_at_all(burger):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"], \
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+        "Formula"], \
         list(grid.columns)
     row = grid[grid["Name"] == "Methylcellulose"].iloc[0]
-    assert (row["Lowest"], row["Highest"]) == (1.0, 1.0)
+    assert (row["Lowest"], row["Highest"]) == ("1.00", "1.00")
 
 
 @pytest.fixture
@@ -3934,7 +3935,8 @@ def test_discard_changes_puts_the_grid_back(burger):
     at.run()
     assert at.session_state["_ingredient_grid_nonce"] == 1
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
-    assert list(_grid_frame(at, 0)[wording.HIGHEST_LABEL]) == [25.0, 3.0]
+    assert list(_grid_frame(at, 0)[wording.HIGHEST_LABEL]) == ["25.00",
+                                                              "3.00"]
     assert FoodOptimizer("burger")._var_by_name("Pea protein")["bounds"] == (
         0.0, 25.0)
 
@@ -4102,7 +4104,7 @@ def test_a_process_setting_carries_its_own_unit_everywhere(burger):
     grid = _grid_frame(at, 0)
     row = grid[grid["Name"] == "Cook temperature"].iloc[0]
     assert (row["Type"], row["Lowest"], row["Highest"], row["Unit"]) == \
-        ("Process setting", 160.0, 200.0, "°C")
+        ("Process setting", "160.00", "200.00", "°C")
     # ... on the batch table, the printable sheet and the amounts table.
     reloaded.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
                                  "Cook temperature": 180.0}])
@@ -4355,7 +4357,8 @@ def test_the_ingredient_grid_has_plain_headers_and_a_unit_column(mixed_units):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"]
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+        "Formula"]
     assert dict(zip(grid["Name"], grid["Unit"])) == {"Pea protein": "g",
                                                       "Water": "ml"}
 
@@ -4497,7 +4500,8 @@ def test_a_fixed_ingredient_reads_as_one_amount_in_its_own_unit(mixed_units):
     grid = _grid_frame(at, 0)
     assert "Status" not in grid.columns
     row = grid[grid["Name"] == "Water"].iloc[0]
-    assert (row["Lowest"], row["Highest"], row["Unit"]) == (30.0, 30.0, "ml")
+    assert (row["Lowest"], row["Highest"], row["Unit"]) == ("30.00", "30.00",
+                                                            "ml")
     saved = FoodOptimizer("mixed")
     assert saved.fixed_at_text(saved._var_by_name("Water")) == "30.00 ml"
 
@@ -5369,7 +5373,8 @@ def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"]
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+        "Formula"]
     assert list(grid["Name"]) == ["Pea protein", "Methylcellulose"]
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
     folded = {id(d) for e in _tab1(at).expander for d in e.dataframe}
@@ -5488,8 +5493,8 @@ def test_a_fixed_row_adds_no_column_to_the_grid(burger):
     at.run()
     grid = _grid_frame(at, 0)
     assert "Status" not in grid.columns
-    assert list(grid["Lowest"]) == [0.0, 1.0]
-    assert list(grid["Highest"]) == [25.0, 1.0]
+    assert list(grid["Lowest"]) == ["0.00", "1.00"]
+    assert list(grid["Highest"]) == ["25.00", "1.00"]
 
 
 def test_saving_the_grid_changes_the_allowed_amounts_and_says_so(burger):
@@ -5642,7 +5647,7 @@ def test_a_setting_is_edited_in_its_own_words(ferment):
     grid = _grid_frame(at, 0)
     row = grid[grid["Name"] == "Incubation time"].iloc[0]
     assert (row["Type"], row["Unit"], row["Lowest"]) == (
-        wording.KIND_SETTING, "h", 4.0)
+        wording.KIND_SETTING, "h", "4.00")
     _save_grid(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 24.0}})
     assert not at.exception
     assert any(s.value == "Incubation time saved." for s in at.success), \
@@ -5708,7 +5713,7 @@ def test_a_row_is_fixed_by_typing_one_number_in_both_cells(burger):
     assert var["bounds"] == (5.0, 5.0) and saved._fixed_value(var) == 5.0
     grid = _grid_frame(at, 0)
     row = grid[grid["Name"] == "Pea protein"].iloc[0]
-    assert (row["Lowest"], row["Highest"]) == (5.0, 5.0)
+    assert (row["Lowest"], row["Highest"]) == ("5.00", "5.00")
 
 
 def test_a_fixed_row_is_given_a_range_again_in_the_same_cells(burger):
@@ -9839,3 +9844,76 @@ def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
                                           "Methylcellulose": 1.0}
     assert reloaded.notes_history[0] == wording.AMOUNTS_AS_WEIGHED
     assert reloaded.lots == {1: {"Pea protein": "PP-42"}}
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 wave 2 · the Formula column on the ingredients grid
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def worked_out(tmp_path, monkeypatch):
+    """A project whose Water is whatever is left of the batch size."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("rest_burger")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 10, 25)
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(50)
+    opt.set_formula("Water", "= rest")
+    return opt
+
+
+def _worked_out_box(at, label):
+    """The greyed box `Add a formulation of your own` draws for a row that
+    is worked out. It carries no key — a keyed box would keep the first
+    value it was handed — so it is found by the header it is labelled
+    with."""
+    return next(b for b in at.number_input
+                if b.label == label and b.key is None)
+
+
+def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
+        worked_out):
+    """The two range cells hold the app's own word for the row, the Formula
+    cell holds what was typed, and the line under the grid says what the
+    other rows' allowed amounts leave it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "rest_burger"
+    at.session_state["main_tab"] = wording.TAB_SETUP
+    at.run()
+    grid = _grid_frame(at, 0)
+    row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
+    assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
+        wording.WORKED_OUT, wording.WORKED_OUT)
+    assert row[wording.FORMULA_LABEL] == "= rest"
+    assert any(c.value == ("Water is = rest, whatever is left of the batch "
+                           "size: between 25.00 and 40.00 g in a 50 g "
+                           "formulation.")
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
+        worked_out):
+    """The bench still weighs it, so the form shows it — read-only, filling
+    in from the boxes above — and the round table carries the amount."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "rest_burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    box = _worked_out_box(at, "Water (g)")
+    assert box.proto.disabled is True
+    assert box.value is None
+    at.number_input(key="own_Pea protein").set_value(12.0)
+    at.run()
+    assert _worked_out_box(at, "Water (g)").value == 38.0
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("rest_burger")
+    assert reloaded.pending_batch[0]["recipe"] == {"Pea protein": 12.0,
+                                                  "Water": 38.0}
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Water (g)"]) == [38.0]
+

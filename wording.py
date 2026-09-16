@@ -2526,3 +2526,59 @@ def formula_reads_this_row(name, row):
 
 COPY_TWO_BALANCE_ROWS = ("This copy gives two rows the balance, and only "
                          "one row can take it.")
+
+
+# ------------------------------------------------------------------ #
+# The Formula column (0.5.0 wave 2, "rules", task 3): the one new column on
+# the ingredients grid, the consequence every worked-out row owes in
+# numbers, and the two refusals a formula earns over the finished grid
+# rather than at one cell.
+# ------------------------------------------------------------------ #
+FORMULA_HELP = (
+    "Write what this ingredient is, in terms of the others: = batch size − "
+    "Water − Salt. Write = rest for the row that takes whatever is left. "
+    "Leave it blank to give the row its own Lowest and Highest.")
+
+# Two rows each taking whatever is left of the same number is not arithmetic
+# anybody can do. Said over the grid as a whole: it is about the pair, and
+# neither cell is more wrong than the other.
+ONE_BALANCE_ONLY = f"Only one row can be = {REST_TOKEN}."
+
+
+def worked_out_caption(name, formula_text, low_text, high_text, size_text):
+    """'Water is worked out as batch size − Pea protein − Salt: between
+    40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
+    row that is worked out rather than typed, so the rule shows its
+    consequence in numbers.
+
+    A row that takes the remainder says so in the words it was written in:
+    'Water is = rest, whatever is left of the batch size: ...'. The amounts
+    are what the other rows' allowed amounts leave it, and `size_text` is
+    the default batch size they are read against — blank while the project
+    has none, and the sentence then stops at the amounts.
+    """
+    text = str(formula_text).strip()
+    if text.lower() == f"= {REST_TOKEN}":
+        head = (f"{name} is = {REST_TOKEN}, whatever is left of the "
+                f"{BATCH_SIZE_NOUN}")
+    else:
+        body = text[1:].strip() if text.startswith("=") else text
+        head = f"{name} is {WORKED_OUT} as {body}"
+    span = f"{head}: between {low_text} and {high_text}"
+    if not size_text:
+        return f"{span}."
+    return f"{span} in a {size_text} {FORMULATION}."
+
+
+def formulations_keep_their_amounts(names_text, many=False):
+    """'Formulations already made keep their amounts. Water is worked out
+    from its formula from the next round on.' — a formula landing on a
+    project that has results. What was weighed is what was weighed; the
+    formula starts answering for the row from the next round."""
+    if many:
+        tail = (f"{names_text} are {WORKED_OUT} from their "
+                f"{FORMULA_IN_RANGE}s")
+    else:
+        tail = f"{names_text} is {WORKED_OUT} from its {FORMULA_IN_RANGE}"
+    return (f"{FORMULATION_CAP}s already made keep their amounts. "
+            f"{tail} from the next {ROUND} on.")
