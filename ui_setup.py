@@ -1,9 +1,21 @@
 """Tab 1 · Set up: what the project can vary and what will be measured.
 
-One column, in the order a formulator fills it in: the ingredients and the
-process settings together, then the measurements, then the optional
-sections. Exactly one coloured button lives here — `Next: make a round` at
-the foot.
+Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
+
+  1. the ingredients grid, with its Save/Discard while there is an edit in
+     hand, its per-row errors and its collapsed `Or upload an ingredients
+     file` alternative;
+  2. the measurements grid, the same way;
+  3. one collapsed `More settings` — Default batch size, where the targets
+     came from, Limits, and the properties those limits read — and one
+     collapsed `Advanced` at the very foot, holding the model settings and
+     the two explanations.
+
+Neither tier nests an expander inside itself: Streamlit forbids it, and a
+tab that folded the optional half away twice made the reader open two
+things to reach one. Exactly one coloured button lives here — `Next: make a
+round` at the foot, or a grid's `Save changes`, or the `Yes` of a question
+that is up.
 """
 import json
 import os
@@ -255,12 +267,16 @@ def _formulation_total(opt):
 
 ING_GRID_KEY = "ingredient_grid"
 MEAS_GRID_KEY = "measurement_grid"
+PROP_GRID_KEY = "property_grid"
+# The picker the Delete beside the properties grid is armed from.
+_PROP_DELETE = "prop_delete"
 # Where a Save that refused leaves its per-row errors, for the slot under
 # the grid to show on this same run. The grid is drawn before the button is
 # clicked, so the errors cannot simply be printed where they belong.
 _ING_ERRORS = "_ingredient_grid_errors"
 _MEAS_ERRORS = "_measurement_grid_errors"
-GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY)
+_PROP_ERRORS = "_property_grid_errors"
+GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY, PROP_GRID_KEY)
 
 
 def _number_column(label, help=None):
@@ -392,13 +408,11 @@ def _variables(opt, storage):
     if pending:
         st.caption(wording.UNSAVED_CHANGES_CAPTION)
         _save_ingredients(opt, storage, edited)
-    _formulation_total(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
         st.caption(wording.made_before_units_caption(opt.amount_unit))
-    _set_properties(opt)
     with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
         _upload_ingredients(opt)
     return pending
@@ -511,65 +525,6 @@ def _apply_ingredient_grid(opt, edited, force=()):
     clear_grid(ING_GRID_KEY)
     st.session_state.pop(_ARMED_DELETIONS, None)
     st.rerun()
-
-
-def _set_properties(opt):
-    """The one control left over from the old row of five.
-
-    Properties get a grid of their own inside More settings in the next
-    wave (spec 1.5); until then they keep a path rather than losing one, and
-    it is folded away because a project without properties has nothing to
-    set and a project with them sets them once."""
-    properties = opt.properties()
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
-    if not properties or not names:
-        return
-    with st.expander(wording.SET_PROPERTIES_BUTTON):
-        pick = st.selectbox(wording.PROPERTIES_PICK_LABEL, names,
-                            key="prop_pick")
-        _property_value_editor(opt, pick, properties)
-
-
-def _pkey(pick, prop):
-    return f"setprop_{pick}_{prop}"
-
-
-def _property_value_editor(opt, pick, properties):
-    """One box per property for the picked ingredient. An empty box counts as 0 in the per-100 average — and
-    every limit on that property names the ingredients it is reading as
-    zeroes. The caption above the boxes is what names the properties; the
-    button cannot, because a property name is the project's own and may run
-    to "Sodium mg per 100 g"."""
-    # Property names carry their own basis as often as not ("Fat per 100 g"),
-    # and a caption that then adds ", per 100 g" said it three times.
-    said_already = all("per 100 g" in prop.lower() for prop in properties)
-    st.caption(wording.properties_for_caption(number_list(properties), pick,
-                                              said_already))
-    boxes = st.columns(min(4, len(properties)))
-    for j, prop in enumerate(properties):
-        with boxes[j % len(boxes)]:
-            # Opened on the value this ingredient already has. The key is
-            # per (ingredient, property), so picking another ingredient
-            # creates boxes that have never been seeded and this seeds them
-            # — which is what stops one row's figures showing under
-            # another's name.
-            st.session_state.setdefault(
-                _pkey(pick, prop),
-                float(opt.property_value(pick, prop))
-                if opt.has_property_value(pick, prop) else None)
-            st.number_input(prop, key=_pkey(pick, prop),
-                           placeholder=wording.PROPERTY_PLACEHOLDER)
-    # One button, not two: the editor lives inside a fold now, and a fold
-    # has its own way of closing.
-    if st.button(wording.SAVE_BUTTON, key="save_props"):
-        for prop in properties:
-            opt.set_property_value(pick, prop,
-                                   st.session_state.get(_pkey(pick, prop)))
-        if saved_ok(opt):
-            flash("success", wording.properties_saved(
-                number_list(properties), pick))
-            st.rerun()
 
 
 def _load_label(opt):
@@ -766,15 +721,6 @@ def _measurements(opt, storage):
         _save_measurements(opt, storage, edited, lit=not _ingredients_pending())
     if opt.objectives:
         st.caption(opt.score_function_line())
-    _targets_source_editor(opt)
-
-    # Four flat bullets, then the arithmetic behind the second one folded
-    # directly beneath: one fold of nine bullets answered a question most
-    # readers never asked, in the middle of the four that say what happens.
-    with st.expander(wording.HOW_IT_WORKS_EXPANDER):
-        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
-    with st.expander(wording.HOW_CLOSENESS_EXPANDER):
-        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
     return pending
 
 
@@ -875,40 +821,136 @@ def _add_property(opt):
                 if saved_ok(opt):
                     flash("success", wording.property_added(added))
                     park_clear("prop_new", "")
+                    # The grid below gains a column; a record of edits made
+                    # against the old set of columns would be replayed onto
+                    # the new one.
+                    clear_grid(PROP_GRID_KEY)
                     st.rerun()
 
 
-def _property_list(opt, storage, properties):
-    """Every property, with a Delete that names what goes with it."""
+def _property_columns(properties):
+    """The row column is the ingredient's name and cannot be typed into: the
+    grid above owns the rows. Every other column is a property, and every
+    cell under it is one figure."""
+    columns = {wording.PROPERTIES_PICK_LABEL: st.column_config.TextColumn(
+        wording.PROPERTIES_PICK_LABEL, disabled=True)}
     for prop in properties:
-        limits = sum(1 for c in opt.constraints
-                     if str(c['metric']).strip().lower() == prop.lower())
-        key = f"rm_prop_{prop}"
-        limits_text = plural(limits, wording.LIMIT) if limits else None
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.text(prop)
-        with c2:
-            confirmed = confirm_action(
-                key, wording.delete_button(prop),
-                wording.delete_property_warning(prop, limits_text),
-                confirm_label=wording.YES_DELETE, disabled=other_confirmation(key),
-            )
-        if confirmed:
-            try:
-                storage.archive(opt.project_name, "pre_delete", copy=True)
-                removed = opt.remove_property(prop)
-            except (ValueError, storage_backend.StorageError) as e:
-                st.error(str(e))
-            else:
-                if saved_ok(opt):
-                    gone = (wording.limit_went_with_it(plural(len(removed), wording.LIMIT))
-                            if removed else "")
-                    flash("success", wording.property_deleted(prop, gone))
-                    st.rerun()
+        columns[prop] = _number_column(prop)
+    return columns
 
 
-def _property_limits(opt, storage):
+def _apply_property_grid(opt, edited):
+    """Hand the finished properties grid to the model, and say what it did.
+
+    One green line for the save as a whole, and none at all when nothing
+    moved: a grid saved unchanged has written nothing to report.
+    """
+    errors, messages = opt.apply_property_grid(edited)
+    if errors:
+        st.session_state[_PROP_ERRORS] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(PROP_GRID_KEY)
+    st.rerun()
+
+
+def _delete_property(opt, storage, properties):
+    """A property goes from a picker and one Delete, not from a Delete per
+    row: the list is beside a grid that already names every property across
+    its head, and a column of Delete buttons said each name twice."""
+    # Assigned before the widget is created, which is the only moment
+    # Streamlit allows it: the property the picker was left on may have just
+    # been deleted, and a select box whose stored value is not in its options
+    # refuses to draw at all.
+    if st.session_state.get(_PROP_DELETE) not in properties:
+        st.session_state.pop(_PROP_DELETE, None)
+    d1, d2 = st.columns([3, 1])
+    with d1:
+        prop = st.selectbox(wording.DELETE_PROPERTY_PICK_LABEL, properties,
+                            key=_PROP_DELETE)
+    key = f"rm_prop_{prop}"
+    # The question belongs to the property it was armed over. Pick another
+    # and the question on screen is about one the picker no longer shows, so
+    # it is taken down rather than left arming every coloured button away.
+    armed = armed_confirmation()
+    if armed != key and str(armed or "").startswith("rm_prop_"):
+        disarm(armed)
+    limits = sum(1 for c in opt.constraints
+                 if str(c['metric']).strip().lower() == prop.lower())
+    limits_text = plural(limits, wording.LIMIT) if limits else None
+    with d2:
+        confirmed = confirm_action(
+            key, wording.delete_button(prop),
+            wording.delete_property_warning(prop, limits_text),
+            confirm_label=wording.YES_DELETE,
+            disabled=other_confirmation(key))
+    if not confirmed:
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+        gone_limits = opt.remove_property(prop)
+    except (ValueError, storage_backend.StorageError) as e:
+        st.error(str(e))
+        return
+    if saved_ok(opt):
+        gone = (wording.limit_went_with_it(plural(len(gone_limits),
+                                                  wording.LIMIT))
+                if gone_limits else "")
+        flash("success", wording.property_deleted(prop, gone))
+        # The grid has lost a column; a record of edits against the old one
+        # would write a figure into a property that no longer exists.
+        clear_grid(PROP_GRID_KEY)
+        st.rerun()
+
+
+def _properties(opt, storage):
+    """Properties, as a grid of their own: rows are the ingredients, columns
+    are the properties, and a cell is that ingredient's figure per 100 g
+    (spec 1.5). It replaces a fold holding a picker and one box per property
+    — one ingredient at a time, with no way to read the column down.
+
+    `Save properties` is a SECONDARY button that applies on the click, where
+    the two grids above light a primary `Save changes` and hand the foot's
+    Continue aside. Two reasons, and both are about the one lit button. This
+    grid lives inside a collapsed expander, so a primary Save here would be
+    the tab's coloured button hidden inside a fold — the reader would see a
+    grey Continue and nothing lit anywhere. And a third pending flag would
+    have to be threaded through the topmost-grid rule to keep the count at
+    one. The unsaved line below still says nothing is written while typing;
+    what is typed survives until it is saved or the project changes.
+    """
+    st.markdown(wording.PROPERTIES_HEADING)
+    properties = [p for p in opt.properties()
+                  if p != wording.PROPERTIES_PICK_LABEL]
+    names = [v['name'] for v in opt.variables
+             if v.get('category', 'ingredient') == 'ingredient']
+    if properties and names:
+        # Property names carry their own basis as often as not ("Fat per
+        # 100 g"), and a caption that then adds ", per 100 g" said it twice.
+        said_already = all("per 100 g" in prop.lower() for prop in properties)
+        st.caption(wording.properties_grid_caption(said_already))
+        saved = opt.property_grid_frame()
+        edited = st.data_editor(
+            saved, key=grid_key(PROP_GRID_KEY), num_rows="fixed",
+            column_config=_property_columns(properties),
+            use_container_width=True,
+            height=table_height(max(len(saved), 1), max_rows=20))
+        slot = st.empty()
+        _grid_errors(slot, _PROP_ERRORS)
+        if _pending(saved, edited):
+            st.caption(wording.UNSAVED_CHANGES_CAPTION)
+        if st.button(wording.SAVE_PROPERTIES_BUTTON, key="save_properties",
+                     disabled=confirmation_open()):
+            _apply_property_grid(opt, edited)
+    _add_property(opt)
+    if properties:
+        _delete_property(opt, storage, properties)
+
+
+def _property_limits(opt):
     """The finished-product limit, and the properties it is written
     against. Ingredients only: a property is a value each ingredient carries,
     and a process setting is weighed into nothing."""
@@ -923,11 +965,12 @@ def _property_limits(opt, storage):
         st.caption(wording.PER_100G_UNRESOLVED_CAPTION)
     else:
         st.caption(wording.per_100_caption(unit or 'g'))
-    _add_property(opt)
     properties = opt.properties()
     if not properties:
+        # The grid that names one is further down this expander, so the line
+        # points at it rather than leaving an empty picker on screen.
+        st.caption(wording.NO_PROPERTIES_YET_CAPTION)
         return
-    _property_list(opt, storage, properties)
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
                           key="prop_metric")
     p1, p2 = st.columns(2)
@@ -965,6 +1008,10 @@ def _limit_gap_tail(opt, metric):
 
 
 def _limits(opt, storage):
+    """Limits, inside More settings. A heading and not a fold of its own:
+    Streamlit cannot nest one expander in another, and a tab that folded the
+    optional half away twice made the reader open two things to reach one.
+    """
     # A limit is a sum, and a sum only has a unit when the ingredients share
     # one. When they do not, the labels stay bare and the limit itself is
     # refused in words that name the ingredient to re-enter.
@@ -975,99 +1022,106 @@ def _limits(opt, storage):
     # bounds.
     if not opt.has_ingredients():
         return
-    with st.expander(wording.LIMITS_EXPANDER):
-        # "of your ingredients", not "from your ingredient file": a property
-        # is named in the app as often as it arrives in a file, and the box
-        # that names one is two lines below this caption.
-        st.caption(wording.LIMITS_CAPTION)
+    st.markdown(wording.LIMITS_HEADING)
+    # "of your ingredients", not "from your ingredient file": a property
+    # is named in the app as often as it arrives in a file, and the grid
+    # that names one is further down this expander.
+    st.caption(wording.LIMITS_CAPTION)
 
-        _property_limits(opt, storage)
+    _property_limits(opt)
 
-        # A limit written before 0.3.0 was a total, and the file does not say
-        # so; the same stored number now means a per-100 g average. Said once,
-        # above the list, and only while such a limit is still there.
-        if any(c.get('basis') != 'per_100' for c in opt.constraints):
-            st.caption(wording.old_limit_basis_caption(opt.one_amount_unit() or 'g'))
+    # A limit written before 0.3.0 was a total, and the file does not say
+    # so; the same stored number now means a per-100 g average. Said once,
+    # above the list, and only while such a limit is still there.
+    if any(c.get('basis') != 'per_100' for c in opt.constraints):
+        st.caption(wording.old_limit_basis_caption(opt.one_amount_unit() or 'g'))
 
-        for i, constraint in enumerate(opt.constraints):
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                bounds = ([wording.at_least(constraint['min'])]
-                          if constraint['min'] is not None else [])
-                bounds += ([wording.at_most(constraint['max'])]
-                           if constraint['max'] is not None else [])
-                st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
-                        + _limit_gap_tail(opt, constraint['metric']))
-            with c2:
-                _delete_limit(opt, storage, f"rm_constr_{i}",
-                              constraint['metric'],
-                              lambda i=i: opt.remove_constraint(i))
+    for i, constraint in enumerate(opt.constraints):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            bounds = ([wording.at_least(constraint['min'])]
+                      if constraint['min'] is not None else [])
+            bounds += ([wording.at_most(constraint['max'])]
+                       if constraint['max'] is not None else [])
+            st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
+                    + _limit_gap_tail(opt, constraint['metric']))
+        with c2:
+            _delete_limit(opt, storage, f"rm_constr_{i}",
+                          constraint['metric'],
+                          lambda i=i: opt.remove_constraint(i))
 
-        names = [v['name'] for v in opt.variables
-                 if v.get('category', 'ingredient') == 'ingredient']
+    names = [v['name'] for v in opt.variables
+             if v.get('category', 'ingredient') == 'ingredient']
 
-        # ONE amount limit, on the ingredients the user names. The total
-        # over ALL of them is not written here — it is the box under the
-        # ingredients table, and this picker asks for a choice like every
-        # other picker in the app.
-        st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
-        picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
-                                key="qty_pick",
-                                placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
-        q1, q2 = st.columns(2)
-        with q1:
-            st.session_state.setdefault("qc_min", None)
-            st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(unit)}",
-                            placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
-        with q2:
-            st.session_state.setdefault("qc_max", None)
-            st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(unit)}",
-                            placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
-        # No "Set a maximum" tick box: a blank field already means no limit,
-        # and a box the user forgot to tick silently threw their number away.
-        # Nothing picked is no longer "every ingredient": the total over all
-        # of them has its own box under the ingredients table, and a picker
-        # that quietly meant all eight while showing none was the harder
-        # half of that one idea to read.
-        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
-                     disabled=not picked) and picked:
-            low, high = st.session_state["qc_min"], st.session_state["qc_max"]
-            if low is None and high is None:
-                st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
+    # ONE amount limit, on the ingredients the user names. The total
+    # over ALL of them is not written here — it is the Default batch size
+    # box at the top of this expander, and this picker asks for a choice
+    # like every other picker in the app.
+    st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
+    picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
+                            key="qty_pick",
+                            placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
+    q1, q2 = st.columns(2)
+    with q1:
+        st.session_state.setdefault("qc_min", None)
+        st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(unit)}",
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
+    with q2:
+        st.session_state.setdefault("qc_max", None)
+        st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(unit)}",
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
+    # No "Set a maximum" tick box: a blank field already means no limit,
+    # and a box the user forgot to tick silently threw their number away.
+    # Nothing picked is no longer "every ingredient": the total over all
+    # of them has its own box above, and a picker that quietly meant all
+    # eight while showing none was the harder half of that one idea to read.
+    if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
+                 disabled=not picked) and picked:
+        low, high = st.session_state["qc_min"], st.session_state["qc_max"]
+        if low is None and high is None:
+            st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
+        else:
+            try:
+                opt.add_quantity_constraint(picked, min_val=low,
+                                            max_val=high)
+            except ValueError as e:
+                st.error(str(e))
             else:
-                try:
-                    opt.add_quantity_constraint(picked, min_val=low,
-                                                max_val=high)
-                except ValueError as e:
-                    st.error(str(e))
-                else:
-                    _report_limit(opt,
-                                  wording.limit_added_on(" + ".join(picked)))
+                _report_limit(opt,
+                              wording.limit_added_on(" + ".join(picked)))
 
-        for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
-            l1, l2 = st.columns([3, 1])
+    for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
+        l1, l2 = st.columns([3, 1])
+        with l1:
+            # One line per limit, written by the optimizer: a limit sums
+            # ingredients that share a unit, so it is written in that
+            # unit ("at most 400 g", never a bare 400), and the total
+            # reads as the one number it is rather than as the
+            # half-percent band it is enforced as.
+            st.text(opt.limit_text(qc))
+        if qc.get('source') == 'formulation_total':
+            # The total's row is a reading of the Default batch size box
+            # above, not a second control for it. A Delete here let one rule
+            # be taken off in two places, and the cold read could not tell
+            # which of the two was the real one.
             with l1:
-                # One line per limit, written by the optimizer: a limit sums
-                # ingredients that share a unit, so it is written in that
-                # unit ("at most 400 g", never a bare 400), and the total
-                # reads as the one number it is rather than as the
-                # half-percent band it is enforced as.
-                st.text(opt.limit_text(qc))
-            if qc.get('source') == 'formulation_total':
-                # The total's row is a reading of the box at the top of this
-                # tab, not a second control for it. A Delete here let one
-                # rule be taken off in two places, and the cold read could
-                # not tell which of the two was the real one.
-                with l1:
-                    st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
-                continue
-            with l2:
-                _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
-                              lambda i=i: opt.remove_quantity_constraint(i))
+                st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
+            continue
+        with l2:
+            _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
+                          lambda i=i: opt.remove_quantity_constraint(i))
 
 
 def _advanced(opt):
-    with st.expander(wording.HOW_FORMULATIONS_CHOSEN_EXPANDER):
+    """The bottom tier (spec 1.5): the model settings and the two
+    explanations, in one small fold at the very foot of the tab.
+
+    The explanations are plain markdown lists rather than folds of their own
+    — Streamlit cannot nest an expander in an expander, and three things to
+    open before the first sentence is the state this tier exists to end.
+    """
+    with st.expander(wording.ADVANCED_EXPANDER):
+        st.markdown(wording.HOW_FORMULATIONS_CHOSEN_HEADING)
         st.caption(wording.STANDARD_VS_EXPERT_CAPTION)
         current = getattr(opt, "bo_config", None)
         # The radio's label is collapsed: the section it is the only control
@@ -1128,6 +1182,32 @@ def _advanced(opt):
             st.caption(wording.IN_USE_PREFIX
                        + ", ".join(f"{k}: {v}" for k, v in current.items()))
 
+        # Four flat bullets, then the arithmetic behind the second one
+        # directly beneath: the pair used to be two folds under the
+        # measurements grid, where they were the last thing on the tab a
+        # formulator needed and the first thing they saw.
+        st.markdown(wording.HOW_IT_WORKS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
+        st.markdown(wording.HOW_CLOSENESS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
+
+
+def _more_settings(opt, storage):
+    """The middle tier (spec 1.5): everything tab 1 asks at most once, in one
+    collapsed expander, in the order a project needs it — how big a
+    formulation is, where the targets came from, the hard rules, and the
+    figures those rules read.
+
+    Nothing in here is a fold of its own. Streamlit cannot nest one expander
+    in another, and the point of the tier is that the tab has ONE thing to
+    open rather than six.
+    """
+    with st.expander(wording.MORE_SETTINGS_EXPANDER):
+        _formulation_total(opt)
+        _targets_source_editor(opt)
+        _limits(opt, storage)
+        _properties(opt, storage)
+
 
 def _foot(opt, pending=False):
     ready, missing = readiness(opt)
@@ -1156,7 +1236,7 @@ def render(opt, storage):
     st.divider()
     pending = _measurements(opt, storage) or pending
     st.divider()
-    _limits(opt, storage)
+    _more_settings(opt, storage)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

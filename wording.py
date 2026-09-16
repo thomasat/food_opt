@@ -750,7 +750,7 @@ HOW_IT_WORKS = [
 # The fold directly under it, for the reader who wants the arithmetic. The
 # bullets above raise the question — what is closeness, exactly? — and this
 # answers it; nine bullets in one fold answered it before anyone asked.
-HOW_CLOSENESS_EXPANDER = "How closeness is calculated"
+HOW_CLOSENESS_HEADING = "**How closeness is calculated**"
 HOW_CLOSENESS = [
     "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
     "so the top of your range scores 1 and the bottom scores 0.",
@@ -792,11 +792,11 @@ def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
     return f"{name} saved."
-# An example, not a rule: "0 if blank" and "leave a box empty for no
+# An example, not a rule: "0 if blank" and "leave a cell empty for no
 # value" sat on one screen contradicting each other, and the app never knows
-# an ingredient is fat-free — only that a box was left empty.
+# an ingredient is fat-free — only that a cell was left empty.
 PROPERTY_PLACEHOLDER = "e.g. 2"
-PROPERTY_BLANK_RULE = "An empty box counts as 0 in any limit."
+PROPERTY_BLANK_RULE = "An empty cell counts as 0 in any limit."
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
 
@@ -895,35 +895,41 @@ def formulations_contain_none_of(names_text):
     return f"Formulations already made contain no {names_text}."
 
 
-# The one picker left on the tab: Set properties keeps a minimal path of its
-# own until 0.5.0's More settings gives properties a grid (spec 1.5).
+# The properties grid: one row per ingredient, one column per property, and
+# the cell is that ingredient's figure for it (spec 1.5). The row column is
+# the ingredient's name, which is why "Ingredient" is a name the project
+# cannot also give to an ingredient or a property.
 PROPERTIES_PICK_LABEL = "Ingredient"
+PROPERTIES_HEADING = "**Properties**"
 
 
-# A project's property names are its own and can be long ("Sodium mg per
-# 100 g"), so the button stays the short, stable label and the dialog it
-# opens does the naming.
-SET_PROPERTIES_BUTTON = "Set properties"
-
-
-def properties_for_caption(names_text, name, per_100_already_said=False):
-    """'Fat and sodium in Pea protein isolate, per 100 g. An empty box
-    counts as 0 in any limit.'
+def properties_grid_caption(per_100_already_said=False):
+    """'Each ingredient, per 100 g. An empty cell counts as 0 in any limit.'
 
     `per_100_already_said` drops the basis from the sentence: a project whose
     property names carry it themselves ("Fat per 100 g and Sodium per 100 g")
-    would otherwise say it three times in one line.
+    would otherwise say it twice in one line.
     """
     basis = "" if per_100_already_said else ", per 100 g"
-    return f"{names_text} in {name}{basis}. " + PROPERTY_BLANK_RULE
+    return f"Each ingredient's figure{basis}. " + PROPERTY_BLANK_RULE
 
 
 SAVE_BUTTON = "Save"
+SAVE_PROPERTIES_BUTTON = "Save properties"
 CLOSE_BUTTON = "Close"
+PROPERTIES_SAVED = "Properties saved."
+DELETE_PROPERTY_PICK_LABEL = "Property to delete"
 
 
-def properties_saved(names_text, name):
-    return f"Saved {names_text} for {name}."
+def property_not_a_number(name):
+    """One cell of the properties grid holding something that is not a
+    number. The column is named: a grid of six properties gives the reader
+    nothing else to go on."""
+    return f"{name} must be a number, or empty."
+
+
+def no_such_ingredient(name):
+    return f"No ingredient named {name}."
 
 
 UNIT_REQUIRED_ERROR = "A unit is required; use g if the amount is a mass."
@@ -1062,7 +1068,7 @@ def targets_from_caption(text):
     return f"Targets from: {text}"
 
 
-HOW_IT_WORKS_EXPANDER = "How it works"
+HOW_IT_WORKS_HEADING = "**How it works**"
 
 ADD_PROPERTY_LABEL = "Add a property"
 ADD_PROPERTY_PLACEHOLDER = "e.g. Sodium mg per 100 g"
@@ -1070,8 +1076,10 @@ ADD_PROPERTY_BUTTON = "Add property"
 
 
 def property_added(name):
-    return (f"{name} added. Set it for each ingredient in "
-            f"{VARIABLES_HEADER}.")
+    """The grid that gives it a figure is on screen with a new column for it
+    the moment this lands, so the sentence points at the grid rather than
+    back up the tab."""
+    return f"{name} added. Give each ingredient a figure for it."
 
 
 def delete_property_warning(name, limits_text):
@@ -1099,6 +1107,10 @@ def per_100_caption(unit):
 
 
 INGREDIENT_PROPERTY_LABEL = "Ingredient property"
+# Said in place of the property picker when the project has named none. The
+# grid that names one is below this line, so the sentence points down.
+NO_PROPERTIES_YET_CAPTION = ("Name a property under Properties below to "
+                             "limit it here.")
 AT_LEAST_LABEL = "At least"
 AT_MOST_LABEL = "At most"
 NO_LIMIT_PLACEHOLDER = "no limit"
@@ -1121,15 +1133,26 @@ def limit_gap_tail(name, many):
             else f" · {name} has no figure for it and counts as 0.")
 
 
-LIMITS_EXPANDER = "Limits (optional)"
+# The two tiers tab 1 folds everything optional into (spec 1.5). More
+# settings holds what a project may want once — the default batch size,
+# where the targets came from, the limits and the properties — and Advanced
+# holds what a specialist wants at most once: the model settings and the two
+# explanations. Both are collapsed, so the tab reads as its two grids.
+MORE_SETTINGS_EXPANDER = "More settings"
+ADVANCED_EXPANDER = "Advanced"
+
+LIMITS_HEADING = "**Limits (optional)**"
 # The property rule lives here, not in the closeness fold: a property never
 # touches closeness — it feeds limits and nothing else.
+# The blank-figure rule is NOT repeated here. It used to be, because the
+# properties were a fold somewhere else on the tab; they are now a grid a
+# few lines below this line, under a caption that says it, and each limit's
+# own line names the ingredients it is reading as zeroes.
 LIMITS_CAPTION = ("Limits are hard rules for every formulation the app "
                   "suggests. A formulation of your own is recorded as you "
                   "typed it. A limit is on an amount you weigh out or a "
                   "property of your ingredients; measurements have goals and "
-                  "targets instead. An ingredient with no figure for a "
-                  "property counts as 0 in any limit on it.")
+                  "targets instead.")
 
 
 def old_limit_basis_caption(unit):
@@ -1280,7 +1303,7 @@ def formulation_total_gone_unreachable(total_text):
             "allowed amounts no longer add up to it.")
 
 
-HOW_FORMULATIONS_CHOSEN_EXPANDER = "How formulations are chosen (advanced)"
+HOW_FORMULATIONS_CHOSEN_HEADING = "**How formulations are chosen**"
 STANDARD_VS_EXPERT_CAPTION = ("Standard uses tested defaults and fits most "
                               "projects. Expert-selected lets a specialist "
                               "choose the model's kernel, prior, noise "

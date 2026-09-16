@@ -73,8 +73,9 @@ _FORM_KEY_PREFIXES = (
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, at least, at most,
-                                   # and the box that names a new property
-    "setprop_",                    # the Set properties editor
+                                   # the box that names a new property and
+                                   # the picker the Delete beside the
+                                   # properties grid is armed from
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
@@ -105,7 +106,7 @@ _FORM_FRESH = {
 }
 # The boxes whose empty value is None: the select boxes.
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
-                         "prop_pick")
+                         "prop_delete")
 
 # Tab 1's two editable grids. Their session-state value is the record of
 # what has been typed into them — which cells changed, which rows were added
@@ -115,14 +116,14 @@ _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
 _EDITOR_GRID_KEYS = ui_setup.GRID_KEYS
 
 # The boxes whose names are the project's own, so they cannot be listed in
-# _FORM_FRESH above: one per property in the Set properties editor
-# (setprop_<row>_<name>), one per variable in tab 2's "Add a formulation of
-# your own" (own_<name> — its own_note box is named in _FORM_FRESH, and is
-# parked before this), one per amount in tab 3's correction row
+# _FORM_FRESH above: one per variable in tab 2's "Add a formulation of your
+# own" (own_<name> — its own_note box is named in _FORM_FRESH, and is parked
+# before this), one per amount in tab 3's correction row
 # (correct_amount_<no>_<name>), and one per amount and measurement in tab 3's
 # typed-in past formulation (past_<name> and past_m_<name>; past_note is
-# named in _FORM_FRESH and parked first).
-_PER_NAME_BOX_PREFIXES = ("setprop_", "own_", "correct_amount_", "past_")
+# named in _FORM_FRESH and parked first). Properties are a grid now, and a
+# grid's key is turned over rather than parked.
+_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_")
 
 
 def _grid_fresh(key):

@@ -45,6 +45,7 @@ def _submit_button(at, label):
 # ------------------------------------------------------------------ #
 ING_GRID = "ingredient_grid"
 MEAS_GRID = "measurement_grid"
+PROP_GRID = "property_grid"
 _GRID_SAVE_KEYS = {ING_GRID: "save_ingredient_grid",
                    MEAS_GRID: "save_measurement_grid"}
 
@@ -111,9 +112,23 @@ def _measurement_row(name, goal="max", low=0.0, high=10.0, unit="",
 
 
 def _grid_frame(at, which=0):
-    """One of tab 1's two grids as it is drawn. Tab 1 renders first, so the
-    ingredients grid is 0 and the measurements grid is 1."""
+    """One of tab 1's grids as it is drawn. Tab 1 renders first, so the
+    ingredients grid is 0, the measurements grid is 1 and the properties
+    grid inside More settings — drawn only while the project has a property
+    and an ingredient — is 2."""
     return at.dataframe[which].value
+
+
+def _save_properties(at, **edits):
+    """Type into the properties grid inside More settings and save it. Its
+    button is grey and applies on the click: there is no Discard beside it
+    and the foot keeps the tab's one coloured button."""
+    _grid_edits(at, PROP_GRID, **edits)
+    at.run()
+    next(b for b in at.button if b.key == "save_properties").click()
+    _grid_edits(at, PROP_GRID, **edits)
+    at.run()
+    return at
 
 
 @pytest.fixture
@@ -3861,7 +3876,11 @@ def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
 
 def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     """A property is named in the app as often as it arrives in a file, and
-    the box that names one is two lines below this caption."""
+    the grid that names one is inside the same fold as this caption.
+
+    It no longer carries the blank-figure rule: the properties grid a few
+    lines below says it, and each limit's own line names the ingredients it
+    is reading as zeroes."""
     with_properties.add_property("Sodium mg per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -3869,10 +3888,10 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
                            "app suggests. A formulation of your own is "
                            "recorded as you typed it. A limit is on an amount "
                            "you weigh out or a property of your ingredients; "
-                           "measurements have goals and targets instead. An "
-                           "ingredient with no figure for a property counts "
-                           "as 0 in any limit on it.")
+                           "measurements have goals and targets instead.")
                for c in at.caption), [c.value for c in at.caption]
+    said = [c.value for c in at.caption if "counts as 0 in any limit" in c.value]
+    assert said == [wording.properties_grid_caption(True)], said
 
 
 def test_a_project_with_no_properties_still_offers_to_name_one(burger):
@@ -4984,6 +5003,68 @@ def _tab1(at):
     return at.tabs[0]
 
 
+def _more_settings(at):
+    """Tab 1's middle tier, by name."""
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.MORE_SETTINGS_EXPANDER)
+
+
+def _advanced(at):
+    """Tab 1's bottom tier, by name."""
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.ADVANCED_EXPANDER)
+
+
+def _advanced_text(at):
+    """Everything the Advanced fold says, as one block: the model settings
+    and the two explanations are plain markdown inside it now, because
+    Streamlit cannot nest an expander in an expander."""
+    return "\n".join(m.value for m in _advanced(at).markdown)
+
+
+def _advanced_block(at, heading):
+    """One of the three blocks inside Advanced: the markdown that follows a
+    heading, up to the next heading."""
+    values = [m.value for m in _advanced(at).markdown]
+    out = []
+    for value in values[values.index(heading) + 1:]:
+        if value.startswith("**"):
+            break
+        out.append(value)
+    return "\n".join(out)
+
+
+def _tab_outline(at, index):
+    """The tab's headings and folds, in the order they are drawn. This is
+    what "the tab reads in one order" means, and it is read off the element
+    tree rather than off a list of labels that happen to be on screen
+    somewhere.
+
+    Plain containers are walked through rather than stopped at: tab 2
+    reserves each step's position in one (a confirmation has to be asked
+    before the grid below it is drawn), and a container is not something a
+    reader can see. An expander IS, so it is named and not entered."""
+    out = []
+
+    def walk(node):
+        children = getattr(node, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for element in children:
+            kind = element.__class__.__name__
+            if kind == "Subheader":
+                out.append(element.value)
+            elif kind == "Expander":
+                out.append(element.label)
+            elif kind == "Markdown" and element.value[:1] in ("#", "*"):
+                out.append(element.value)
+            elif kind not in ("Expander", "Tab", "Tabs"):
+                walk(element)
+
+    walk(at.tabs[index])
+    return out
+
+
 def _tab1_captions(at):
     """The captions a reader sees on tab 1 without opening anything: the
     contents of a collapsed expander are explanations, and they are allowed
@@ -5006,11 +5087,14 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # restated the heading it now wears.
     # No "Add a measurement" fold: a measurement is typed on the empty row
     # at the bottom of its own grid, like an ingredient.
+    # Three folds on the whole tab (spec 1.5): the ingredients grid's own
+    # alternative, then the two tiers. Limits and the two explanations are
+    # inside them, as headings — Streamlit cannot nest one expander in
+    # another, and a tab that folded the optional half away twice made the
+    # reader open two things to reach one.
     labels = [e.label for e in _tab1(at).expander]
     assert labels == ["Or upload an ingredients file",
-                      "How it works", "How closeness is calculated",
-                      "Limits (optional)",
-                      "How formulations are chosen (advanced)"], labels
+                      "More settings", "Advanced"], labels
 
 
 def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
@@ -5678,9 +5762,7 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     from food_bo import FoodOptimizer as _FO
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander
-                if e.label == "How closeness is calculated")
-    text = " ".join(m.value for m in fold.markdown)
+    text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     assert "a full range away scores 0" not in text, text
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in text, text
@@ -5703,9 +5785,8 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     from ui_setup import HOW_CLOSENESS, HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander if e.label == "How it works")
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    assert not _advanced(at).proto.expanded
+    text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
     for line in HOW_IT_WORKS:
         assert line in text, line
     assert len(HOW_IT_WORKS) == 5
@@ -5742,21 +5823,57 @@ def test_no_caption_is_said_twice_on_the_tab(burger):
 
 
 def test_the_tab_reads_in_one_order(burger):
-    """Ingredients and process settings, then the measurements, then what is optional, then
-    the one coloured button."""
+    """Three tiers and nothing else (spec 1.5): the ingredients grid with
+    its collapsed file alternative, the measurements grid, one More settings
+    and one Advanced. Read off the element tree, top to bottom."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    order = []
-    for element in _tab1(at).children.values():
-        name = element.__class__.__name__
-        if name == "Subheader":
-            order.append(element.value)
-        elif name == "Expander" and element.label in (
-                "Limits (optional)", "How formulations are chosen (advanced)"):
-            order.append(element.label)
-    assert order == ["Ingredients and process settings", "Measurements and targets",
-                     "Limits (optional)", "How formulations are chosen (advanced)"], order
+    assert _tab_outline(at, 0) == [
+        wording.VARIABLES_HEADER,
+        wording.UPLOAD_INGREDIENTS_EXPANDER,
+        wording.MEASUREMENTS_HEADER,
+        wording.MORE_SETTINGS_EXPANDER,
+        wording.ADVANCED_EXPANDER,
+    ], _tab_outline(at, 0)
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+
+
+def test_more_settings_holds_the_four_optional_things_in_order(burger):
+    """Default batch size, where the targets came from, the limits, then the
+    properties those limits read — everything tab 1 asks at most once, in
+    one fold, in that order."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = _more_settings(at)
+    assert not fold.proto.expanded
+    # The box the default batch size is typed into is the first thing in it.
+    assert fold.number_input[0].label == "Default batch size (g)"
+    headings = [m.value for m in fold.markdown if m.value.startswith("**")]
+    assert headings == [wording.LIMITS_HEADING,
+                        wording.FINISHED_PRODUCT_LIMIT_HEADING,
+                        wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING,
+                        wording.PROPERTIES_HEADING], headings
+    # The note about where the targets came from sits between the box and
+    # the limits, and it is the only button above them.
+    assert wording.ADD_TARGETS_SOURCE_BUTTON in [b.label for b in fold.button]
+    # ...and nothing that belongs to the two grids came with it.
+    assert not fold.dataframe or len(fold.dataframe) == 1     # the properties grid
+    assert wording.SAVE_CHANGES_BUTTON not in [b.label for b in fold.button]
+
+
+def test_nothing_else_is_on_the_tab(burger):
+    """Spec 1.5 says "nothing else": every element tab 1 draws at its top
+    level is one of the five the order test names."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    kinds = [e.__class__.__name__ for e in _tab1(at).children.values()]
+    # A subheader and a grid apiece, the error slot under each, the file
+    # fold, the two tiers, the dividers and the foot's own button — and no
+    # second section, no add form, no control row.
+    assert kinds.count("Subheader") == 2
+    assert kinds.count("Expander") == 3
+    assert "Markdown" not in kinds, kinds
 
 
 # ------------------------------------------------------------------ #
@@ -5799,60 +5916,119 @@ def test_a_property_name_that_clashes_is_refused_on_screen(burger):
     assert FoodOptimizer("burger").properties() == []
 
 
-def test_the_grid_carries_no_property_columns(burger):
+def test_the_ingredients_grid_carries_no_property_columns(burger):
     """Properties are not a column of the ingredients grid: a project with
     six of them would put six columns of mostly-blank numbers between Name
-    and Unit. They keep a fold of their own until 0.5.0's More settings
-    gives them a grid (spec 1.5)."""
+    and Unit. They have a grid of their own inside More settings."""
     burger.add_property("Sodium per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert "Sodium per 100 g" not in _grid_frame(at, 0).columns
-    assert any(e.label == wording.SET_PROPERTIES_BUTTON
-               for e in _tab1(at).expander), \
-        [e.label for e in _tab1(at).expander]
+    assert "Sodium per 100 g" in _grid_frame(at, 2).columns
+    # And the interim fold it was set in is gone.
+    assert not hasattr(wording, "SET_PROPERTIES_BUTTON")
+    assert "prop_pick" not in at.session_state
 
 
-def test_the_properties_fold_offers_ingredients_only(burger):
+def test_the_properties_grid_has_a_row_per_ingredient_only(burger):
     """A process setting is weighed into nothing, so it has no properties
-    and is not on the picker at all."""
+    and no row on this grid."""
     burger.add_property("Cost")
     burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.selectbox(key="prop_pick").options == ["Pea protein",
-                                                     "Methylcellulose"]
+    grid = _grid_frame(at, 2)
+    assert list(grid.columns) == ["Ingredient", "Cost"]
+    assert list(grid["Ingredient"]) == ["Pea protein", "Methylcellulose"]
 
 
-def test_set_property_values_writes_the_picked_ingredients_values(burger):
+def test_the_properties_grid_writes_the_figures_typed_into_it(burger):
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="prop_pick").select("Methylcellulose")
-    at.run()
-    at.number_input(key="setprop_Methylcellulose_Cost").set_value(42.0)
-    at.run()
-    next(b for b in at.button if b.key == "save_props").click()
-    at.run()
+    _save_properties(at, edited={1: {"Cost": 42.0}})
     assert not at.exception
-    assert any("Saved Cost for Methylcellulose." in s.value
-               for s in at.success), [s.value for s in at.success]
+    assert any(s.value == wording.PROPERTIES_SAVED for s in at.success), \
+        [s.value for s in at.success]
     assert FoodOptimizer("burger").property_value("Methylcellulose", "Cost") == 42.0
+    # The row above it is untouched: a figure is written for the cell that
+    # moved and for no other.
+    assert not FoodOptimizer("burger").has_property_value("Pea protein", "Cost")
 
 
-def test_the_property_editor_opens_on_the_value_already_stored(burger):
+def test_the_properties_grid_opens_on_the_figures_already_stored(burger):
+    """Every ingredient's figure is readable down one column, which is the
+    whole reason the picker and its one box per property went."""
     burger.add_property("Cost")
     burger.set_property_value("Pea protein", "Cost", 3.5)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="setprop_Pea protein_Cost").value == 3.5
-    # A second ingredient opens on its own value, not on this one's: the box
-    # is keyed per ingredient.
-    at.selectbox(key="prop_pick").select("Methylcellulose")
+    figures = list(_grid_frame(at, 2)["Cost"])
+    assert figures[0] == 3.5
+    # ...and an ingredient with no figure opens on an empty cell, never on
+    # the row above it and never on a 0.
+    assert pd.isna(figures[1]), figures
+
+
+def test_a_grid_cell_emptied_clears_the_figure(burger):
+    """No figure is not a 0: an ingredient with none counts as 0 in a limit
+    and the limit's own line says so, which is a different thing from one
+    the reader has measured at 0."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="setprop_Methylcellulose_Cost").value is None
-    # Emptying a box clears the value (no value is not 0); AppTest cannot type
-    # an empty number box, so that half is covered in test_food_bo.py.
+    _save_properties(at, edited={0: {"Cost": None}})
+    assert not at.exception
+    assert not FoodOptimizer("burger").has_property_value("Pea protein", "Cost")
+
+
+def test_a_properties_grid_saved_unchanged_says_nothing(burger):
+    """A green line for a save that wrote nothing is a line about nothing."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_properties(at)
+    assert not at.exception
+    assert not [s.value for s in at.success], [s.value for s in at.success]
+
+
+def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
+    """`Save properties` is grey, in every state: it lives inside a
+    collapsed fold, and the tab's one coloured button is the foot's."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    # ...and the line that says nothing is written while typing is still
+    # there, so an edit in hand is not a silent one.
+    assert wording.UNSAVED_CHANGES_CAPTION in [
+        c.value for c in _more_settings(at).caption]
+
+
+def test_a_property_is_deleted_from_a_picker_and_one_question(burger):
+    burger.add_property("Cost")
+    burger.add_property("Fat per 100 g")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.selectbox(key="prop_delete").options == ["Cost", "Fat per 100 g"]
+    _submit_button(at, wording.delete_button("Cost")).click()
+    at.run()
+    assert any("Delete Cost?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # While the question is up it is the tab's one coloured button.
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Fat per 100 g"]
+    assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Fat per 100 g"]
 
 
 def test_a_limit_names_the_ingredients_that_have_no_value(burger):
@@ -5994,7 +6170,7 @@ def test_the_model_settings_in_use_line_shows_only_under_standard(burger):
                           "noise": "default", "acquisition": "qlognei"})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(e.label == "How formulations are chosen (advanced)"
+    assert any(e.label == wording.ADVANCED_EXPANDER
                for e in at.expander), [e.label for e in at.expander]
     assert at.radio(key="bo_cfg_mode").value == "Expert-selected"
     assert not any(c.value.startswith("In use:") for c in at.caption), \
@@ -6395,16 +6571,17 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
                    for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_property_boxes_say_what_they_hold(burger):
+def test_the_properties_grid_says_what_an_empty_cell_holds(burger):
     burger.add_property("Fat per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    box = at.number_input(key="setprop_Pea protein_Fat per 100 g")
-    # An example, not a rule: the rule is in the caption above the boxes,
-    # said once.
-    assert box.proto.placeholder == "e.g. 2"
-    assert any(wording.PROPERTY_BLANK_RULE in c.value for c in at.caption), \
-        [c.value for c in at.caption]
+    # The rule is in the caption above the grid, said once. The grid's own
+    # head names the property, so nothing inside it has to.
+    assert wording.PROPERTY_BLANK_RULE == ("An empty cell counts as 0 in "
+                                           "any limit.")
+    said = [c.value for c in at.caption
+            if wording.PROPERTY_BLANK_RULE in c.value]
+    assert said == [wording.properties_grid_caption(True)], said
 
 
 def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
@@ -6653,17 +6830,19 @@ def test_the_per_100_caption_waits_for_one_unit(mixed_units):
         [c.value for c in at.caption]
 
 
-def test_only_one_set_of_property_boxes_is_on_screen(burger):
+def test_one_place_holds_every_property_figure(burger):
     """There used to be two — one on the add form, one in Set properties —
     and two boxes for one property on one screen is two answers to one
-    question. The add form is gone, so there is one place left."""
+    question. There is one grid now, and no box anywhere."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     keys = [n.key for n in at.number_input]
-    assert keys.count("setprop_Pea protein_Cost") == 1, keys
+    assert not [k for k in keys if k.startswith("setprop_")], keys
     assert not [k for k in keys if k.startswith("var_prop_")], keys
-    assert "Save" in _labels(at), _labels(at)
+    assert [g for g in at.dataframe if "Cost" in g.value.columns], \
+        [list(g.value.columns) for g in at.dataframe]
+    assert wording.SAVE_PROPERTIES_BUTTON in _labels(at), _labels(at)
 
 
 def test_both_upload_doors_read_the_same_way(open_batch):
@@ -7094,26 +7273,28 @@ def test_how_it_works_is_five_lines(burger):
         "Each suggestion says whether it stays close to the best or tries "
         "something different, and what it changes.",
     ], wording.HOW_IT_WORKS
-    fold = next(e for e in _tab1(at).expander
-                if e.label == wording.HOW_IT_WORKS_EXPANDER)
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    assert not _advanced(at).proto.expanded
+    text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
     for line in wording.HOW_IT_WORKS:
         assert f"- {line}" in text, line     # five flat bullets, none nested
     assert not hasattr(wording, "HOW_IT_WORKS_NESTED")
+    # It is a heading inside Advanced now, not a fold of its own: three
+    # things to open before the first sentence is what the tiers end.
+    assert not hasattr(wording, "HOW_IT_WORKS_EXPANDER")
 
 
-def test_the_closeness_formulas_are_one_fold_below(burger):
+def test_the_closeness_formulas_are_the_block_below(burger):
+    """The arithmetic answers a question the four bullets above it raise, so
+    it reads directly beneath them inside the same fold."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    labels = [e.label for e in _tab1(at).expander]
-    assert labels.index(wording.HOW_CLOSENESS_EXPANDER) == \
-        labels.index(wording.HOW_IT_WORKS_EXPANDER) + 1, labels
-    assert wording.HOW_CLOSENESS_EXPANDER == "How closeness is calculated"
-    fold = next(e for e in _tab1(at).expander
-                if e.label == wording.HOW_CLOSENESS_EXPANDER)
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    headings = [m.value for m in _advanced(at).markdown
+                if m.value.startswith("**")]
+    assert headings == [wording.HOW_FORMULATIONS_CHOSEN_HEADING,
+                        wording.HOW_IT_WORKS_HEADING,
+                        wording.HOW_CLOSENESS_HEADING], headings
+    assert wording.HOW_CLOSENESS_HEADING == "**How closeness is calculated**"
+    text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     for line in wording.HOW_CLOSENESS:
         assert line in text, line
     # The three goals, the floor and the share it costs, the re-scoring,
@@ -7617,45 +7798,41 @@ def test_the_results_counter_counts_the_rows_that_are_complete(open_batch):
         [c.value for c in at.caption]
 
 
-def test_the_property_controls_are_named_after_the_properties(burger):
-    """The fold is one short, stable label — a property name is the
-    project's own and can be long — and the caption inside names them."""
+def test_the_properties_grid_names_the_properties_across_its_head(burger):
+    """A property name is the project's own and can be long, so the grid's
+    columns do the naming and its caption says only what the head cannot:
+    what one figure is per, and what an empty cell means."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(e.label == "Set properties" for e in _tab1(at).expander), \
-        [e.label for e in _tab1(at).expander]
     assert not at.exception
-    assert any(c.value == ("Cost in Pea protein, per 100 g. An empty box "
-                           "counts as 0 in any limit.")
+    assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Cost"]
+    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
+                           "cell counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
-    assert "Save" in _labels(at), _labels(at)
-    at.number_input(key="setprop_Pea protein_Cost").set_value(42.0)
-    at.run()
-    next(b for b in at.button if b.key == "save_props").click()
-    at.run()
-    assert any("Saved Cost for Pea protein." in s.value for s in at.success), \
+    _save_properties(at, edited={0: {"Cost": 42.0}})
+    assert any(s.value == wording.PROPERTIES_SAVED for s in at.success), \
         [s.value for s in at.success]
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 42.0
 
 
 def test_the_caption_does_not_say_per_100_g_twice_over(burger):
     """Property names carry the basis as often as not, and a caption that
-    then added ", per 100 g" said it three times in one line."""
+    then added ", per 100 g" said it twice in one line."""
     burger.add_property("Fat per 100 g")
     burger.add_property("Sodium per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == ("Fat per 100 g and Sodium per 100 g in Pea "
-                           "protein. An empty box counts as 0 in any "
-                           "limit.")
+    assert any(c.value == ("Each ingredient's figure. An empty cell counts "
+                           "as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
-    # ...and a name that does NOT carry it still gets the basis.
+    # ...and one column whose name does NOT carry it puts the basis back.
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value.endswith("in Pea protein, per 100 g. An empty box "
-                                "counts as 0 in any limit.")
+    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
+                           "cell counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -7848,7 +8025,9 @@ def test_the_total_box_is_not_offered_while_the_units_differ(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _total_box(at) is None
-    assert wording.NEEDS_ONE_UNIT in _tab1_captions(at)
+    # The box lives in More settings now, and so does the line that stands
+    # in its place.
+    assert wording.NEEDS_ONE_UNIT in [c.value for c in _more_settings(at).caption]
 
 
 def test_a_project_that_weighs_nothing_out_is_offered_no_total(ferment):
@@ -8648,3 +8827,153 @@ def test_a_sample_whose_batch_was_made_and_deleted_is_left_alone(
     assert not at.exception
     assert [v["name"] for v in FoodOptimizer(
         wording.SAMPLE_PROJECT_NAME).variables] == ["Oat flour"]
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · three tiers on every tab (spec 1.5)
+#
+#  The order each tab reads in, walked off the element tree rather than
+#  taken from a list of labels that happen to be on screen somewhere, and
+#  the one lit button in every state the tabs can be in at once.
+# ------------------------------------------------------------------ #
+
+def test_the_round_tab_reads_in_one_order(open_batch):
+    """Title, Batch size, the round table, the download, Record the results
+    — then the optional doors, folded, and the button that throws the round
+    away last of all."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_outline(at, 1) == [
+        wording.make_these(1, 2),
+        wording.STEP_MAKE_HEADING,
+        wording.STEP_PRINT_HEADING,
+        wording.STEP_RECORD_HEADING,
+        # One heading per row of the round, inside step 3.
+        wording.formulation_heading(1),
+        wording.formulation_heading(2),
+        wording.ADD_OWN_EXPANDER,
+        wording.UPLOAD_EXPANDER,
+    ], _tab_outline(at, 1)
+    # The Batch size box sits between the first step heading and the table
+    # it is the size of, and the download under the second.
+    tab = at.tabs[1]
+    assert tab.number_input[0].label == "Batch size (g)"
+    assert [d.label for d in _unknowns(tab, "download_button")] == [
+        wording.DOWNLOAD_BATCH_SHEETS]
+    # ...and `Generate a different round` is the last thing drawn.
+    assert [b.label for b in tab.button][-1] == wording.GENERATE_DIFFERENT_BATCH
+
+
+def test_the_round_tab_records_then_offers_the_two_folded_doors(open_batch):
+    """`Add a formulation of your own` and the results upload are optional
+    and collapsed, and both sit below Save results rather than between the
+    grid and the button that writes it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    tab = at.tabs[1]
+    folds = [e for e in tab.expander]
+    assert [e.label for e in folds] == [wording.ADD_OWN_EXPANDER,
+                                        wording.UPLOAD_EXPANDER]
+    assert not any(e.proto.expanded for e in folds)
+    labels = [b.label for b in tab.button]
+    assert labels.index(wording.SAVE_RESULTS) < labels.index(
+        wording.ADD_TO_THIS_BATCH), labels
+
+
+def test_the_advanced_fold_holds_the_model_settings_and_nothing_folded(
+        burger):
+    """One small fold at the very bottom: the model settings and the two
+    explanations, as plain markdown. Nothing inside it is a fold of its own
+    — Streamlit cannot nest one expander in another — and nothing inside it
+    is coloured."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = _advanced(at)
+    assert not fold.proto.expanded
+    # Its own label and no other: nothing inside it is a fold.
+    assert [e.label for e in fold.expander] == [wording.ADVANCED_EXPANDER]
+    assert fold.radio[0].key == "bo_cfg_mode"
+    assert not [b.label for b in fold.button if b.proto.type == "primary"]
+    # It is the last thing on the tab.
+    assert _tab_outline(at, 0)[-1] == wording.ADVANCED_EXPANDER
+
+
+def test_one_lit_button_per_tab_with_both_grids_mid_edit(burger):
+    """Both grids can be mid-edit at once, on a tab whose foot is ready to
+    move on. The topmost lit Save wins; the other pair and the foot go
+    grey, and the two tabs below keep their own single button."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    _grid_edits(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 55.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+    assert len(_tab_primaries(at, 1)) <= 1, _tab_primaries(at, 1)
+    assert len(_tab_primaries(at, 2)) <= 1, _tab_primaries(at, 2)
+
+
+def test_one_lit_button_per_tab_while_a_property_is_being_deleted(burger):
+    """A confirmation armed inside More settings, with an edit standing in
+    a grid above it: the Yes is the one coloured button, and the grid's Save
+    steps aside for it."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    _submit_button(at, wording.delete_button("Cost")).click()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+
+
+def test_one_lit_button_per_tab_while_the_targets_note_is_open(burger):
+    """The note's own Save is always grey: opening a one-line box does not
+    take the tab's coloured button away from the foot."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.ADD_TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    # ...and with a grid mid-edit under it, the Save above wins and the
+    # note's Save is still grey.
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+
+
+def test_the_tab_says_nothing_twice_with_every_tier_open(burger):
+    """Sparse: one line each, folds included. The two tiers hold most of
+    tab 1's captions now, so the check that nothing is said twice has to
+    reach inside them."""
+    burger.add_property("Cost")
+    burger.add_constraint("Cost", max_val=2.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in _tab1(at).caption
+                if not c.value.startswith("Overall score = ")]
+    assert len(captions) == len(set(captions)), \
+        [c for c in captions if captions.count(c) > 1]
+
+
+def test_moving_the_property_picker_takes_the_question_down(burger):
+    """The question belongs to the property it was armed over. Pick another
+    and it is taken down rather than left arming every coloured button away
+    behind a Yes the reader cannot reach."""
+    burger.add_property("Cost")
+    burger.add_property("Fat per 100 g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.delete_button("Cost")).click()
+    at.run()
+    assert any("Delete Cost?" in w.value for w in at.warning)
+    at.selectbox(key="prop_delete").select("Fat per 100 g")
+    at.run()
+    assert not at.warning, [w.value for w in at.warning]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    assert FoodOptimizer("burger").properties() == ["Cost", "Fat per 100 g"]

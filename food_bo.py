@@ -58,6 +58,10 @@ RESERVED_VARIABLE_NAMES = {
     # amount on the row the upload reads the tick off, and the whole
     # formulation came back as a row nobody scored.
     wording.NOT_SCORED, wording.MEASURED_COLUMN,
+    # The properties grid's row column (spec 1.5). Its other columns are the
+    # project's own property names, so a property — or an ingredient — of
+    # this name would put two columns of one name on one grid.
+    wording.PROPERTIES_PICK_LABEL,
 }
 
 # The batch table's own total column carries the unit it is summing —
@@ -2120,16 +2124,25 @@ class FoodOptimizer:
         return out
 
     def _rewrites_amounts(self, own=False):
-        """Whether a row of a batch is rewritten for a total at all.
+        """Whether a row is rewritten for a size on the way to the screen.
 
-        Only tab 2's typed per-batch total ever rewrites anything. Under a
-        PROJECT total every suggestion is BUILT to the total — the cold start
-        projects onto it and a warm batch is snapped onto it — so there is
-        nothing to rewrite, and a row that could not be snapped without
-        breaking a limit stands at the band edge and says so. A formulation
-        of the user's own is never rewritten under either: the sheet told the
-        bench to weigh out 20.62 g while the model learned the 20.00 g that
-        was typed, and the two disagreed about what was made.
+        Under a PROJECT default every suggestion is BUILT to the size — the
+        cold start projects onto it and a warm round is snapped onto it — so
+        there is nothing to rewrite, and a row that could not be snapped
+        without breaking a limit stands at the band edge and says so. A
+        formulation of the user's own is never rewritten either: the sheet
+        told the bench to weigh out 20.62 g while the model learned the
+        20.00 g that was typed, and the two disagreed about what was made.
+
+        For the round on the bench this is now a NO-OP, and deliberately
+        left standing rather than deleted. Until 0.5.0 the Batch size box
+        scaled the picture and the stored rows kept the amounts the model
+        proposed; `scale_round` moves the amounts themselves, so a sized
+        round already sums to its size and rescaling it to that size is the
+        identity (TestTheDisplayRescaleIsOnlyForOlderRounds pins it). What
+        still needs the rescale is a round RECORDED before 0.5.0: its rows
+        are as generated and its stored size is what its sheet was printed
+        to, and tab 3 hands back what the bench weighed out.
         """
         return not own and not self.has_formulation_total()
 
@@ -3792,10 +3805,11 @@ class FoodOptimizer:
         recorded: its own stored total, and the project's only for a batch
         made before totals were stored at all.
 
-        The opposite order to sheet_total, and deliberately: a batch on the
-        bench is being made NOW, to whatever the project says; a batch in the
-        records was made once, to a number that cannot change afterwards
-        because someone later typed a different total on tab 1.
+        The opposite order to open_round_size, and deliberately: a round on
+        the bench is being made NOW, to whatever the bench or the project
+        says; a round in the records was made once, to a number that cannot
+        change afterwards because someone later typed a different default on
+        tab 1.
 
         None means "as generated", whether the batch recorded that answer
         itself or predates the record being kept at all. Falling back to the
@@ -3804,34 +3818,25 @@ class FoodOptimizer:
         stored = self.batch_total(batch_no)
         return None if stored is None else float(stored)
 
-    def sheet_total(self, batch_total=None):
-        """The total the sheets, the downloads and tab 3's amounts heading
-        are written for: the project's own total when it has one, else what
-        that batch was made to, else None for as-generated.
-
-        One accessor, because the two totals answer the same question from
-        different ends — the project's is what every formulation is BUILT to,
-        a batch's is what one batch was WEIGHED OUT to — and a screen that
-        picked the wrong one showed the bench numbers nobody made."""
-        project_total = getattr(self, 'formulation_total', None)
-        if project_total is not None:
-            return float(project_total)
-        return None if batch_total is None else float(batch_total)
-
     def open_round_size(self):
         """The batch size the OPEN round is being made to: the size the bench
         typed on the round screen if there is one, else the project's
         default, else None for as generated.
 
         The round's own answer wins. Until 0.5.0 the project's default hid
-        tab 2's box altogether, so sheet_total could put the project first
-        and be right; now the box is always there and scaling the round is
-        how a bench makes one round bigger than the default without editing
-        the project."""
+        tab 2's box altogether, so one accessor (`sheet_total`) could put the
+        project first and be right for the bench as well as for the records;
+        now the box is always there, scaling the round is how a bench makes
+        one round bigger than the default, and the two questions have
+        opposite answers. They are two accessors accordingly: this one for
+        the round on the bench, `recorded_total` for a round in the records,
+        and nothing has to pick between them.
+        """
         stored = getattr(self, 'pending_batch_total', None)
         if stored is not None:
             return float(stored)
-        return self.sheet_total(None)
+        project_total = getattr(self, 'formulation_total', None)
+        return None if project_total is None else float(project_total)
 
     # ------------------------------------------------------------------ #
     #  Utility Scoring
@@ -6121,6 +6126,86 @@ class FoodOptimizer:
         if any(v <= 0 for v in out.values()):
             return dict(typed)
         return out
+
+    # -- the properties grid -------------------------------------------- #
+    #
+    #  Rows are the ingredients, columns are the properties, and a cell is
+    #  that ingredient's figure for that property per 100 g. It is the third
+    #  grid on tab 1 and the smallest: it has no rows of its own to add or
+    #  delete (the ingredients grid above owns the rows, and `Add a property`
+    #  owns the columns), so there is nothing here to confirm and no
+    #  deletion to keep a copy before.
+    # ------------------------------------------------------------------ #
+
+    def property_grid_frame(self):
+        """What the properties grid opens holding.
+
+        No hidden `_id`: a row of this grid is an ingredient the grid cannot
+        rename, add or take away, so its name IS its identity. An empty cell
+        is an ingredient with no figure, which is not the same as a 0 — the
+        caption above the grid says what the app does with one.
+        """
+        key = wording.PROPERTIES_PICK_LABEL
+        # A property that arrived as a CSV column may be called anything at
+        # all, the row column's own label included; two columns of one name
+        # is a frame nothing can read a cell out of. `add_property` refuses
+        # the name (it is reserved), so this only ever catches a file.
+        properties = [p for p in self.properties() if p != key]
+        data = []
+        for var in self._ingredients():
+            row = {key: var['name']}
+            for prop in properties:
+                row[prop] = (float(self.property_value(var['name'], prop))
+                             if self.has_property_value(var['name'], prop)
+                             else None)
+            data.append(row)
+        return _grid_frame(data, [key] + properties)
+
+    def apply_property_grid(self, frame):
+        """Write the properties grid. `(errors, messages)`, and while there
+        is an error NOTHING has been written — the same contract the two
+        grids above keep.
+
+        Every figure goes through `set_property_value`, and only the cells
+        that actually moved do: the door is what keeps a property's stored
+        capitalisation and what a cleared cell means, and writing every cell
+        of an eight-by-six grid on every save would save the project
+        forty-eight times to change one number.
+        """
+        key = wording.PROPERTIES_PICK_LABEL
+        properties = [p for p in self.properties() if p != key]
+        known = {v['name'] for v in self._ingredients()}
+        errors, writes = [], []
+        for row_no, row in _grid_rows(frame):
+            name = _text_cell(row, key)
+            if not name:
+                continue                  # the editor's own empty line
+            if name not in known:
+                errors.append((row_no, wording.no_such_ingredient(name)))
+                continue
+            for prop in properties:
+                value, is_number = _number_cell(row, prop)
+                if not is_number:
+                    errors.append((row_no,
+                                   wording.property_not_a_number(prop)))
+                    continue
+                writes.append((name, prop, value))
+        if errors:
+            return errors, []
+        moved = False
+        for name, prop, value in writes:
+            stored = (self.property_value(name, prop)
+                      if self.has_property_value(name, prop) else None)
+            if stored is None and value is None:
+                continue
+            if (stored is not None and value is not None
+                    and abs(stored - value) < 1e-9):
+                continue
+            self.set_property_value(name, prop, value)
+            moved = True
+        if not moved:
+            return [], []
+        return [], [("success", wording.PROPERTIES_SAVED)]
 
     def set_bo_config(self, spec):
         """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the

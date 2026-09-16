@@ -5041,18 +5041,28 @@ class TestFormulationTotal:
         state['formulation_total'] = None
         FoodOptimizer.validate_state(state)
 
-    def test_the_sheet_total_prefers_the_project_over_the_batch(
+    def test_the_bench_and_the_records_answer_from_opposite_ends(
             self, tmp_path, monkeypatch):
-        """One accessor, so the batch table, the sheets, the downloads and
-        tab 3's amounts heading can never name different numbers."""
+        """Two accessors, not one. `open_round_size` is what the round on the
+        bench is being made to — its own size first, the project's default
+        behind it — and `recorded_total` is what a round in the records was
+        made to, which nothing typed later can reach back and change.
+
+        `sheet_total` used to answer both from the project's end, which was
+        right only while a project default hid tab 2's box altogether."""
         opt = self._sample(tmp_path, monkeypatch)
-        assert opt.sheet_total(None) is None
-        assert opt.sheet_total(400.0) == 400.0
+        assert opt.open_round_size() is None
+        opt.set_pending_batch_total(400.0)
+        assert opt.open_round_size() == 400.0     # with no default at all
+        opt.set_pending_batch_total(None)
         opt.set_formulation_total(100)
-        assert opt.sheet_total(None) == 100.0
-        assert opt.sheet_total(400.0) == 100.0     # an old batch's own total
-        opt.clear_formulation_total()
-        assert opt.sheet_total(400.0) == 400.0
+        assert opt.open_round_size() == 100.0     # the default behind it
+        opt.set_pending_batch_total(400.0)
+        assert opt.open_round_size() == 400.0     # the round's own size wins
+        # And what the records hold is a different question with a different
+        # answer: this round has not been recorded, so it has none.
+        assert opt.recorded_total(opt.pending_batch_no) is None
+        assert not hasattr(opt, "sheet_total")
 
 
 class TestWhatEachFormulationIsTrying:
@@ -5304,7 +5314,7 @@ class TestTheTotalIsAlwaysReachable:
                 low, high = bounds[name]
                 assert low - 1e-6 <= value <= high + 1e-6, (name, value)
         # Nothing to caution about: the sheets are the total the box says.
-        assert opt.scaled_caution(rows, opt.sheet_total(None)) == ""
+        assert opt.scaled_caution(rows, opt.open_round_size()) == ""
 
     def test_a_snapped_suggestion_still_keeps_every_limit(self, tmp_path,
                                                           monkeypatch):
@@ -5467,7 +5477,8 @@ class TestTheTotalIsAlwaysReachable:
         assert opt.recorded_total(batch_no) == 400.0
         opt.set_formulation_total(100)
         assert opt.recorded_total(batch_no) == 400.0     # still 400 g
-        assert opt.sheet_total(400.0) == 100.0           # the bench now: 100 g
+        opt.set_pending_batch(None)
+        assert opt.recorded_total(batch_no) == 400.0     # and still 400 g
 
     def test_a_batch_from_before_totals_stays_as_generated(
             self, tmp_path, monkeypatch):
@@ -6046,7 +6057,7 @@ class TestTotalsAndBatchesFinalWave:
         opt.set_formulation_total(100.0)
         row = {'formulation': 7, 'recipe': {"Pea protein": 20.0,
                                             "Water": 79.5}}
-        shown, basis = opt.shown_recipe(row, opt.sheet_total())
+        shown, basis = opt.shown_recipe(row, opt.open_round_size())
         assert shown == row['recipe']      # the band edge stands
         assert basis is None               # its % is of its own sum
 
@@ -6085,7 +6096,7 @@ class TestTotalsAndBatchesFinalWave:
                  {'formulation': 2, 'recipe': {"Pea protein": 25.0,
                                                "Water": 72.0},
                   'note': "Own formulation"}]
-        frame = opt.batch_frame(batch, scale_to=opt.sheet_total())
+        frame = opt.batch_frame(batch, scale_to=opt.open_round_size())
         assert list(frame["Total (g)"]) == [99.5, 97.0]
 
     def test_the_scaled_caution_is_silent_under_a_project_total(
@@ -6094,7 +6105,7 @@ class TestTotalsAndBatchesFinalWave:
         opt.set_formulation_total(100.0)
         rows = [{'formulation': 1, 'recipe': {"Pea protein": 20.0,
                                               "Water": 80.0}}]
-        assert opt.scaled_cautions(rows, opt.sheet_total()) == []
+        assert opt.scaled_cautions(rows, opt.open_round_size()) == []
 
     def test_a_typed_total_that_breaks_a_limit_names_the_limit(
             self, tmp_path, monkeypatch):
@@ -7396,3 +7407,214 @@ def test_a_categorical_row_keeps_what_the_migration_cannot_read(tmp_path,
            'active': False, '_frozen_at': 1.0, 'category': 'ingredient'}
     FoodOptimizer._migrate_fixed(var)
     assert var['active'] is False and var['_frozen_at'] == 1.0
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · the properties grid (spec 1.5)
+#
+#  The third grid on tab 1 and the smallest: rows are the ingredients,
+#  columns are the properties, and a cell is that ingredient's figure per
+#  100 g. It has no rows of its own to add or delete — the ingredients grid
+#  above owns the rows and `Add a property` owns the columns — so what is
+#  pinned here is the figures, the two doors beside it, and the refusals.
+# ------------------------------------------------------------------ #
+
+class TestThePropertiesGrid:
+
+    def _opt(self, tmp_path, monkeypatch, name="props"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 40)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+        opt.add_property("Cost")
+        opt.add_property("Sodium per 100 g")
+        return opt
+
+    def test_the_grid_is_ingredients_down_and_properties_across(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_property_value("Pea protein", "Cost", 3.5)
+        frame = opt.property_grid_frame()
+        assert list(frame.columns) == ["Ingredient", "Cost",
+                                       "Sodium per 100 g"]
+        # A process setting is weighed into nothing, so it has no row.
+        assert list(frame["Ingredient"]) == ["Pea protein", "Water"]
+        assert frame.loc[1, "Cost"] == 3.5
+        # No figure is not a 0: the cell is empty, and every limit on the
+        # property names the ingredients it is reading as zeroes.
+        assert pd.isna(frame.loc[2, "Cost"])
+        # Numbered from 1, as both grids above are, so "Row 2" under it
+        # names the second row the reader can see.
+        assert list(frame.index) == [1, 2]
+
+    def test_a_figure_typed_into_a_cell_is_written(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_property_grid(
+            _edit(opt.property_grid_frame(), 2, **{"Cost": 0.1}))
+        assert errors == []
+        assert messages == [("success", wording.PROPERTIES_SAVED)]
+        assert FoodOptimizer(opt.project_name).property_value(
+            "Water", "Cost") == 0.1
+
+    def test_a_cell_emptied_clears_the_figure(self, tmp_path, monkeypatch):
+        """A 0 is a figure; a blank is not, and the two must not read alike
+        — an ingredient with no figure is named on the limit's own line."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_property_value("Pea protein", "Cost", 3.5)
+        errors, _ = opt.apply_property_grid(
+            _edit(opt.property_grid_frame(), 1, **{"Cost": None}))
+        assert errors == []
+        reloaded = FoodOptimizer(opt.project_name)
+        assert not reloaded.has_property_value("Pea protein", "Cost")
+        assert reloaded.ingredients_without_property("Cost") == ["Pea protein",
+                                                                 "Water"]
+
+    def test_a_grid_saved_unchanged_writes_nothing_and_says_nothing(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_property_value("Pea protein", "Cost", 3.5)
+        before = json.dumps(opt.export_json(), sort_keys=True)
+        errors, messages = opt.apply_property_grid(opt.property_grid_frame())
+        assert (errors, messages) == ([], [])
+        assert json.dumps(opt.export_json(), sort_keys=True) == before
+
+    def test_a_cell_that_is_not_a_number_is_refused_by_row(self, tmp_path,
+                                                           monkeypatch):
+        """And nothing at all is written: the refusal names the row the
+        reader can see and the column they typed into."""
+        opt = self._opt(tmp_path, monkeypatch)
+        before = json.dumps(opt.export_json(), sort_keys=True)
+        errors, messages = opt.apply_property_grid(
+            _edit(opt.property_grid_frame(), 2,
+                  **{"Cost": "cheap", "Sodium per 100 g": 4.0}))
+        assert errors == [(2, "Cost must be a number, or empty.")]
+        assert messages == []
+        assert json.dumps(opt.export_json(), sort_keys=True) == before
+
+    def test_a_row_that_is_not_an_ingredient_is_refused(self, tmp_path,
+                                                        monkeypatch):
+        """The name column cannot be typed into on screen, so this is the
+        refusal a grid arriving from anywhere else gets."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_property_grid(
+            _edit(opt.property_grid_frame(), 2,
+                  **{"Ingredient": "Semolina", "Cost": 2.0}))
+        assert errors == [(2, "No ingredient named Semolina.")]
+
+    def test_a_property_added_is_a_new_column_of_blanks(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Fat per 100 g")
+        frame = opt.property_grid_frame()
+        assert list(frame.columns)[-1] == "Fat per 100 g"
+        assert list(frame["Fat per 100 g"]) == [None, None]
+
+    def test_a_property_deleted_takes_its_column_and_its_figures(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_property_value("Pea protein", "Cost", 3.5)
+        opt.add_constraint("Cost", max_val=2.0)
+        gone = opt.remove_property("Cost")
+        assert len(gone) == 1
+        frame = opt.property_grid_frame()
+        assert list(frame.columns) == ["Ingredient", "Sodium per 100 g"]
+        assert FoodOptimizer(opt.project_name).property_value(
+            "Pea protein", "Cost") == 0.0
+
+    def test_the_row_column_is_a_name_nothing_else_may_take(
+            self, tmp_path, monkeypatch):
+        """Two columns of one name is a frame nothing can read a cell out
+        of, so the grid's own head is a reserved name — for a property and
+        for an ingredient alike."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="column name"):
+            opt.add_property("Ingredient")
+        with pytest.raises(ValueError, match="column name"):
+            opt.add_ingredient("Ingredient", 0, 10)
+        # ...and one that arrived as a column of an ingredient file is kept
+        # in the project and left off the grid rather than breaking it.
+        opt.ingredient_properties["Water"] = {"Ingredient": 1.0}
+        assert "Ingredient" in opt.properties()
+        assert list(opt.property_grid_frame().columns) == [
+            "Ingredient", "Cost", "Sodium per 100 g"]
+
+    def test_only_the_cells_that_moved_are_written(self, tmp_path,
+                                                   monkeypatch):
+        """Every figure goes through set_property_value, and that door saves
+        the project; a grid of eight ingredients by six properties would
+        save it forty-eight times to change one number."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_property_value("Pea protein", "Cost", 3.5)
+        saves = []
+        original = FoodOptimizer.save
+
+        def counting_save(self, *args, **kwargs):
+            saves.append(1)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(FoodOptimizer, "save", counting_save)
+        errors, _ = opt.apply_property_grid(
+            _edit(opt.property_grid_frame(), 2, **{"Cost": 0.1}))
+        assert errors == []
+        assert len(saves) == 1, saves
+
+
+class TestTheDisplayRescaleIsOnlyForOlderRounds:
+    """Task 4: whether shown_recipe's rescale is still doing anything.
+
+    Until 0.5.0 the Batch size box scaled the PICTURE — the stored rows kept
+    the amounts the model proposed and `shown_recipe` rewrote them on the
+    way out — so the rescale was how the bench saw what it had weighed. Task
+    1 moved the amounts themselves (`scale_round`), which makes the rescale
+    a no-op for every round made since. It is not a no-op for a round
+    recorded before that, which is why it stays.
+    """
+
+    def _opt(self, tmp_path, monkeypatch, name="rescale"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_a_sized_round_already_sums_to_its_size_before_anything_is_shown(
+            self, tmp_path, monkeypatch):
+        """The stored rows ARE the numbers on the sheet, so rescaling them to
+        the size they already weigh changes nothing."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_pending_batch([{"Pea protein": 20.0, "Water": 30.0},
+                               {"Pea protein": 10.0, "Water": 30.0}])
+        opt.scale_round(150.0)
+        size = opt.open_round_size()
+        assert size == 150.0
+        for row in opt.pending_batch:
+            assert opt.ingredient_total(row['recipe']) == pytest.approx(150.0)
+            # ...and the rescale on the way to the screen is the identity.
+            shown, _ = opt.shown_recipe(row, size)
+            assert shown == pytest.approx(row['recipe'])
+
+    def test_a_round_recorded_before_0_5_0_still_needs_the_rescale(
+            self, tmp_path, monkeypatch):
+        """Its stored amounts are as generated and its stored size is what
+        the sheet was printed to. Tab 3 hands back what the bench weighed,
+        so the rescale is the only thing that can produce those numbers."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Pea protein": 20.0, "Water": 30.0}, {"Firmness": 6.0},
+                 formulation_no=1, batch_no=1)
+        # What an older version wrote: the picture's total, beside rows that
+        # never moved.
+        opt._batch_totals()[1] = 150.0
+        opt.save()
+        reloaded = FoodOptimizer(opt.project_name)
+        size = reloaded.recorded_total(1)
+        assert size == 150.0
+        shown, basis = reloaded.shown_recipe(
+            {'formulation': 1, 'recipe': reloaded.recipe_history[0]}, size)
+        assert basis == 150.0
+        assert reloaded.ingredient_total(shown) == pytest.approx(150.0)
+        assert shown["Pea protein"] == pytest.approx(60.0)

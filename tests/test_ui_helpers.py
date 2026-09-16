@@ -566,25 +566,28 @@ def test_the_scaled_caution_names_the_ingredients_only_while_it_can():
         assert wording.AMOUNTS_YOU_ALLOWED in line, line
 
 
-def test_the_property_controls_name_the_properties_they_set():
-    """"Set property values" said the developer's word for the thing twice
-    and the thing itself never. The button keeps a short, stable label — a
-    property name is the project's own and can be long — and the dialog it
-    opens does the naming, as does the flash."""
-    assert wording.SET_PROPERTIES_BUTTON == "Set properties"
-    assert wording.properties_for_caption("Fat and Sodium", "Water") == (
-        "Fat and Sodium in Water, per 100 g. An empty box counts as 0 in "
+def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
+    """The grid names every property across its head, so its caption says the
+    two things the head cannot: what one figure is per, and what the app does
+    with a cell nobody filled in."""
+    assert wording.PROPERTIES_HEADING == "**Properties**"
+    assert wording.properties_grid_caption() == (
+        "Each ingredient's figure, per 100 g. An empty cell counts as 0 in "
         "any limit.")
-    # Names that carry the basis themselves do not have it added a third time.
-    said = wording.properties_for_caption(
-        "Fat per 100 g and Sodium per 100 g", "Pea protein isolate", True)
-    assert said == ("Fat per 100 g and Sodium per 100 g in Pea protein "
-                    "isolate. An empty box counts as 0 in any limit.")
+    # Names that carry the basis themselves do not have it added twice.
+    said = wording.properties_grid_caption(True)
+    assert said == ("Each ingredient's figure. An empty cell counts as 0 in "
+                    "any limit.")
     assert ", per 100 g." not in said, said
-    # Short names keep the caption inside the tab's one-line budget.
-    assert len(wording.properties_for_caption("Fat and Sodium", "Water")) < 100
-    assert wording.properties_saved("Fat", "Water") == "Saved Fat for Water."
+    # It keeps the caption inside the tab's one-line budget.
+    assert len(wording.properties_grid_caption()) < 100
+    assert wording.PROPERTIES_SAVED == "Properties saved."
+    assert wording.SAVE_PROPERTIES_BUTTON == "Save properties"
     assert wording.SAVE_BUTTON == "Save"
+    # The one-ingredient-at-a-time editor and its words are gone.
+    assert not hasattr(wording, "SET_PROPERTIES_BUTTON")
+    assert not hasattr(wording, "properties_for_caption")
+    assert not hasattr(wording, "properties_saved")
     assert not hasattr(wording, "SAVE_VALUES_BUTTON")
     assert not hasattr(wording, "values_for_caption")
 
@@ -600,10 +603,14 @@ def test_the_delete_button_prints_the_numbers_while_they_fit():
 
 def test_the_property_rule_is_read_where_properties_are_used():
     """Properties never touch closeness — they feed limits only — so the
-    sentence about a blank box belongs in the Limits caption, not in the
-    closeness fold two sections above it."""
-    assert ("An ingredient with no figure for a property counts as 0 in any "
-            "limit on it.") in wording.LIMITS_CAPTION
+    blank-figure rule belongs beside the properties themselves.
+
+    It used to ride on the Limits caption because the properties were a fold
+    somewhere else on the tab. They are a grid a few lines under that
+    caption now, so the caption above the grid says it and the Limits
+    caption does not say it a second time."""
+    assert "counts as 0" in wording.properties_grid_caption()
+    assert "counts as 0" not in wording.LIMITS_CAPTION, wording.LIMITS_CAPTION
     joined = " ".join(wording.HOW_CLOSENESS)
     assert "property" not in joined, joined
     assert "counts as containing none" not in joined, joined
@@ -685,8 +692,9 @@ def test_a_grid_is_emptied_by_drawing_a_new_one():
     st.session_state.clear()
 
 
-def test_the_two_grid_keys_the_app_owns_are_named_once():
-    """app.py turns both over on a project switch, and the test helpers
+def test_the_three_grid_keys_the_app_owns_are_named_once():
+    """app.py turns all three over on a project switch, and the test helpers
     address them by name; ui_setup is where they are spelled."""
     import ui_setup
-    assert ui_setup.GRID_KEYS == ("ingredient_grid", "measurement_grid")
+    assert ui_setup.GRID_KEYS == ("ingredient_grid", "measurement_grid",
+                                  "property_grid")

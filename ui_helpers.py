@@ -95,11 +95,32 @@ def restore_armed():
     return st.session_state.get(RESTORE_KEY) is not None
 
 
+def _confirmation_arming():
+    """True on the run that is PUTTING a confirmation up, before any
+    confirm_action has recorded it.
+
+    Streamlit files a button's value in session state under its own key
+    before the button is created, so a click that is about to arm a
+    question has already arrived by the time the script starts. Without
+    this, everything drawn ABOVE the confirm_action that will arm — a
+    grid's `Save changes`, the foot's Continue — was still drawn coloured
+    on that one run, beside the coloured Yes below it. confirm_action makes
+    the same reading about its own trigger; this is the same reading for
+    the rest of the tab.
+    """
+    if armed_confirmation() is not None:
+        return False
+    return any(str(key).endswith("__btn") and value is True
+               for key, value in st.session_state.items())
+
+
 def confirmation_open():
-    """True while a confirmation is armed. Its "Yes" is the lit button, and
-    a tab never shows two coloured buttons at once, so every tab's own primary
-    steps aside while one is on screen."""
-    return armed_confirmation() is not None or restore_armed()
+    """True while a confirmation is armed — or is being armed on this very
+    run. Its "Yes" is the lit button, and a tab never shows two coloured
+    buttons at once, so every tab's own primary steps aside while one is on
+    screen."""
+    return (armed_confirmation() is not None or restore_armed()
+            or _confirmation_arming())
 
 
 def other_confirmation(key):
