@@ -234,20 +234,21 @@ def _store_formulation_total(opt, typed, shown):
     back over what the user is still typing."""
     stored = getattr(opt, 'formulation_total', None)
     if typed == shown:
-        return
+        return []
     if typed is None and stored is None:
-        return
+        return []
     try:
         if typed is None:
-            opt.clear_formulation_total()
+            messages = opt.clear_formulation_total()
         else:
-            opt.set_formulation_total(typed)
+            messages = opt.set_formulation_total(typed)
     except ValueError as e:
         st.error(str(e))
-        return
+        return []
     st.session_state[_SEEDED_FORMULATION_TOTAL] = _formulation_total_mark(
         opt, getattr(opt, 'formulation_total', None))
     st.session_state[_SHOWN_FORMULATION_TOTAL] = typed
+    return messages or []
 
 
 def _formulation_total(opt):
@@ -282,7 +283,13 @@ def _formulation_total(opt):
         key="formulation_total",
         help=wording.FORMULATION_TOTAL_HELP,
     )
-    _store_formulation_total(opt, None if not typed else float(typed), shown)
+    messages = _store_formulation_total(
+        opt, None if not typed else float(typed), shown)
+    # Rewriting the percent limits, or taking them with it, is this box's
+    # own consequence — said right where the number that caused it sits,
+    # not queued for a rerun that this render does not make.
+    for kind, line in messages:
+        getattr(st, kind)(line)
     # The open batch was built to the old answer, so a changed total retires
     # it like every other set-up change — with the same notice. The notice
     # lands above the tabs on the NEXT run, so this one is ended here:
@@ -1286,15 +1293,34 @@ def _limits(opt, storage):
     picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
                             key="qty_pick",
                             placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
-    q1, q2 = st.columns(2)
+    # % of batch size is a Unit choice beside the plain one, offered only
+    # while there is a default batch size to be a percent OF — without one
+    # there is nothing the choice could mean.
+    percent_offered = opt.has_formulation_total()
+    if percent_offered:
+        st.session_state.setdefault("qc_unit", unit)
+        chosen_unit = st.selectbox(
+            wording.UNIT_LABEL, [unit, wording.PERCENT_OF_BATCH_SIZE_UNIT],
+            key="qc_unit")
+    else:
+        st.session_state.pop("qc_unit", None)
+        chosen_unit = unit
+    is_percent = chosen_unit == wording.PERCENT_OF_BATCH_SIZE_UNIT
+    box_unit = "%" if is_percent else unit
+    q1, q2, q3 = st.columns(3)
     with q1:
         st.session_state.setdefault("qc_min", None)
-        st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(unit)}",
+        st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(box_unit)}",
                         placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
     with q2:
         st.session_state.setdefault("qc_max", None)
-        st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(unit)}",
+        st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(box_unit)}",
                         placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
+    with q3:
+        st.session_state.setdefault("qc_exactly", None)
+        st.number_input(f"{wording.EXACTLY_LABEL}{_unit_suffix(box_unit)}",
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER,
+                        key="qc_exactly")
     # No "Set a maximum" tick box: a blank field already means no limit,
     # and a box the user forgot to tick silently threw their number away.
     # Nothing picked is no longer "every ingredient": the total over all
@@ -1302,13 +1328,15 @@ def _limits(opt, storage):
     # eight while showing none was the harder half of that one idea to read.
     if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
                  disabled=not picked) and picked:
-        low, high = st.session_state["qc_min"], st.session_state["qc_max"]
-        if low is None and high is None:
+        low = st.session_state["qc_min"]
+        high = st.session_state["qc_max"]
+        exact = st.session_state["qc_exactly"]
+        if low is None and high is None and exact is None:
             st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
         else:
             try:
-                opt.add_quantity_constraint(picked, min_val=low,
-                                            max_val=high)
+                opt.add_quantity_constraint(picked, min_val=low, max_val=high,
+                                            exactly=exact, percent=is_percent)
             except ValueError as e:
                 st.error(str(e))
             else:

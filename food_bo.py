@@ -4230,19 +4230,51 @@ class FoodOptimizer:
             return wording.ALL_INGREDIENTS_LABEL
         return " + ".join(qc['ingredients'])
 
+    @staticmethod
+    def _bound_words(min_v, max_v, unit):
+        """'at least 10 g and at most 40 g' — the two bound words a range
+        limit reads as, in the unit it is written in, joined the way every
+        limit line joins them."""
+        bounds = ([join_unit(wording.at_least(min_v), unit)]
+                  if min_v is not None else [])
+        bounds += ([join_unit(wording.at_most(max_v), unit)]
+                   if max_v is not None else [])
+        return wording.AND_JOIN.join(bounds)
+
+    @staticmethod
+    def _bound_amounts(min_v, max_v, unit):
+        """'10 g and 40 g' — the same two numbers with no bound word, for
+        the grams a percent limit's read-back names beside the percent."""
+        amounts = ([join_unit(f"{min_v:g}", unit)] if min_v is not None else [])
+        amounts += ([join_unit(f"{max_v:g}", unit)] if max_v is not None else [])
+        return wording.AND_JOIN.join(amounts)
+
     def limit_text(self, qc):
         """One limit as one line: 'Water + Oil: at least 10 g and at most
-        40 g', or the total written as the one number the user typed."""
+        40 g'; an Exactly limit as the number typed, not the band it is
+        enforced as ('Water + Oil: exactly 50 g'); a percent limit in both
+        the percent it is written as and the grams it means today ('Water +
+        Oil: at most 30 % of batch size (30 g today)'); or the total
+        written as the one number the user typed."""
         if qc.get('source') == 'formulation_total':
             return wording.formulation_total_row(
                 self.batch_total_text(self.formulation_total))
         limited = {self.unit_of(n) for n in qc['ingredients']}
         unit = limited.pop() if len(limited) == 1 else ""
-        bounds = ([join_unit(wording.at_least(qc['min']), unit)]
-                  if qc['min'] is not None else [])
-        bounds += ([join_unit(wording.at_most(qc['max']), unit)]
-                   if qc['max'] is not None else [])
-        return f"{self.limit_label(qc)}: {wording.AND_JOIN.join(bounds)}"
+        who = self.limit_label(qc)
+        percent = qc.get('percent')
+        if percent:
+            if percent.get('exactly') is not None:
+                percent_text = join_unit(wording.exactly(percent['exactly']), '%')
+                grams_text = join_unit(f"{qc['exactly']:g}", unit)
+            else:
+                percent_text = self._bound_words(percent['min'], percent['max'], '%')
+                grams_text = self._bound_amounts(qc['min'], qc['max'], unit)
+            return wording.limit_percent_row(who, percent_text, grams_text)
+        if qc.get('exactly') is not None:
+            return wording.limit_exactly_row(
+                who, join_unit(f"{qc['exactly']:g}", unit))
+        return f"{who}: {self._bound_words(qc['min'], qc['max'], unit)}"
 
     def property_limit_text(self, constraint):
         """A property limit, per 100 of the amount unit, as one line."""
@@ -4421,7 +4453,7 @@ class FoodOptimizer:
             self.save()
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None,
-                                source=None):
+                                source=None, exactly=None, percent=None):
         """Add a constraint on the sum of selected ingredient quantities.
         Replaces any existing constraint on the same set of ingredients that
         was written the same way.
@@ -4436,7 +4468,25 @@ class FoodOptimizer:
                 on the source as well as on the ingredients: a user who
                 limits every ingredient by hand must not silently take the
                 total's limit away, and both then hold.
+            exactly: A single number instead of a range — the typed amount
+                (or, with `percent`, the typed percent). Stored as the
+                number itself and enforced as that number's own band, the
+                same answer this file already gives the total of each
+                formulation, and for the same reason: a continuous search
+                cannot be held to a point. Refused together with min_val or
+                max_val (one idea, one control) and over a single
+                ingredient (its own Lowest and Highest already say that).
+            percent: True when min_val, max_val and exactly are percentages
+                of the default batch size rather than an amount. The typed
+                percentages are kept as `entry['percent']` alongside the
+                grams they come to today, so a later change of default can
+                rewrite the grams without losing what was actually asked
+                for.
         """
+        if exactly is not None and (min_val is not None or max_val is not None):
+            raise ValueError(wording.EXACTLY_AND_RANGE_ERROR)
+        if exactly is not None and len(ingredients) == 1:
+            raise ValueError(wording.EXACTLY_ONE_INGREDIENT)
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
             raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
         # A limit is a sum, and a sum across units is a number of nothing:
@@ -4451,11 +4501,32 @@ class FoodOptimizer:
             if set(qc['ingredients']) != ingredient_set
             or qc.get('source') != source
         ]
-        entry = {
-            'ingredients': list(ingredients),
-            'min': float(min_val) if min_val is not None else None,
-            'max': float(max_val) if max_val is not None else None,
-        }
+        percent_block = None
+        if percent:
+            # Offered on screen only while there is a default to be a
+            # percent OF; a caller reaching this without one gets the same
+            # refusal a formula does for the same reason.
+            total = getattr(self, 'formulation_total', None)
+            if total is None:
+                raise ValueError(wording.FORMULA_NEEDS_BATCH_SIZE)
+            percent_block = {
+                'min': float(min_val) if min_val is not None else None,
+                'max': float(max_val) if max_val is not None else None,
+                'exactly': float(exactly) if exactly is not None else None,
+            }
+            to_grams = lambda p: None if p is None else p / 100.0 * total
+            min_val = to_grams(percent_block['min'])
+            max_val = to_grams(percent_block['max'])
+            exactly = to_grams(percent_block['exactly'])
+        entry = {'ingredients': list(ingredients)}
+        if exactly is not None:
+            entry['exactly'] = float(exactly)
+            entry['min'], entry['max'] = self._formulation_total_bounds(exactly)
+        else:
+            entry['min'] = float(min_val) if min_val is not None else None
+            entry['max'] = float(max_val) if max_val is not None else None
+        if percent_block is not None:
+            entry['percent'] = percent_block
         if source is not None:
             entry['source'] = source
         self.quantity_constraints.append(entry)
@@ -4754,6 +4825,10 @@ class FoodOptimizer:
         # describes.
         self._drop_pending_batch()
         self.save()
+        # Every limit written as a % of batch size is a percent OF this
+        # number, so a new one rewrites them all in the one place that
+        # knows the new figure.
+        return self._resync_percent_limits()
 
     def _keep_limit_position(self, index):
         """Put the limit just appended back where the old one stood. A limit
@@ -4765,16 +4840,72 @@ class FoodOptimizer:
 
     def clear_formulation_total(self):
         """Back to "any total the allowed amounts reach": the number goes and
-        so does the limit it wrote. A no-op when there is nothing to clear,
-        so a rerun does not bump the file's mtime."""
+        so does the limit it wrote — and every limit written as a % of
+        batch size goes with it, one line each: there is nothing left for
+        it to be a percent OF. A no-op when there is nothing to clear, so a
+        rerun does not bump the file's mtime.
+
+        Returns the one-line notice for every percent limit taken with it,
+        as (kind, message) pairs — the shape every other door onto
+        limit_removed_messages hands the screen."""
         index = self._formulation_total_index()
         if index is None and getattr(self, 'formulation_total', None) is None:
-            return
+            return []
         if index is not None:
             self.quantity_constraints.pop(index)
+        removed = [qc for qc in self.quantity_constraints if qc.get('percent')]
+        if removed:
+            self.quantity_constraints = [
+                qc for qc in self.quantity_constraints if not qc.get('percent')]
         self.formulation_total = None
         self._drop_pending_batch()
         self.save()
+        return [("warning", wording.percent_limit_removed(self.limit_label(qc)))
+                for qc in removed]
+
+    def _resync_percent_limits(self):
+        """Rewrite every limit written as a % of batch size against the
+        CURRENT default, and drop the ones the new number leaves nothing
+        can meet — named through limit_removed_messages like every other
+        limit an edit empties of meaning (reason 'percent_unreachable').
+
+        Runs at the end of set_formulation_total. A percent limit stores
+        the percent it was written as, not only the grams it came to that
+        day, exactly so a later default can rewrite it here instead of
+        stranding it at yesterday's number.
+
+        Returns the (kind, message) pairs the screen owes: one line saying
+        the rewrite happened, at all, whenever a percent limit exists to
+        rewrite, and then one per limit it had to drop."""
+        total = getattr(self, 'formulation_total', None)
+        if total is None or not any(
+                qc.get('percent') for qc in self.quantity_constraints):
+            return []
+        to_grams = lambda p: None if p is None else p / 100.0 * total
+        kept, removed = [], []
+        for qc in self.quantity_constraints:
+            percent = qc.get('percent')
+            if not percent:
+                kept.append(qc)
+                continue
+            rewritten = dict(qc)
+            if percent.get('exactly') is not None:
+                rewritten['exactly'] = to_grams(percent['exactly'])
+                rewritten['min'], rewritten['max'] = \
+                    self._formulation_total_bounds(rewritten['exactly'])
+            else:
+                rewritten['min'] = to_grams(percent['min'])
+                rewritten['max'] = to_grams(percent['max'])
+            if self._quantity_limit_refusal(rewritten):
+                removed.append(dict(rewritten, reason='percent_unreachable'))
+            else:
+                kept.append(rewritten)
+        self.quantity_constraints = kept
+        self.save()
+        messages = [("info", wording.percent_limits_rebased(
+            self.batch_total_text(total)))]
+        messages += self.limit_removed_messages(removed)
+        return messages
 
     def _sync_formulation_total(self):
         """Keep the total's limit true to the ingredient list, and return
@@ -7539,6 +7670,12 @@ class FoodOptimizer:
                     if qc.get('reason') == 'unit'
                     else wording.formulation_total_gone_unreachable(
                         total_text)))
+            elif qc.get('reason') == 'percent_unreachable':
+                messages.append((
+                    "warning",
+                    wording.quantity_limit_removed_percent_unreachable(
+                        self.limit_label(qc),
+                        self.batch_total_text(self.formulation_total))))
             elif qc.get('reason') == 'missing':
                 gone = qc.get('missing') or []
                 many = len(gone) > 1
@@ -8194,6 +8331,25 @@ class FoodOptimizer:
             for item in state[key]:
                 if not isinstance(item, dict):
                     raise _damaged(f"'{key}' section has the wrong shape")
+        # An amount limit's own 'percent' block is optional (0.5.0 wave 2,
+        # task 5) — a limit written as a % of batch size rather than a
+        # plain amount — but a present one must carry only its own three
+        # numbers-or-None. A malformed one would divide the wrong thing by
+        # the batch size on the very first render.
+        for qc in state.get('quantity_constraints') or []:
+            if not isinstance(qc, dict):
+                raise _damaged("'quantity_constraints' section has the "
+                               "wrong shape")
+            percent = qc.get('percent')
+            if percent is None:
+                continue
+            if (not isinstance(percent, dict)
+                    or set(percent) - {'min', 'max', 'exactly'}
+                    or not all(v is None or (isinstance(v, (int, float))
+                                             and not isinstance(v, bool))
+                              for v in percent.values())):
+                raise _damaged("'quantity_constraints' section has the "
+                               "wrong shape")
         version = state.get('CLASS_VERSION')
         if not isinstance(version, int):
             raise ValueError(bad)

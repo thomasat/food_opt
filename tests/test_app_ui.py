@@ -8770,6 +8770,28 @@ def test_the_total_box_is_not_offered_while_the_units_differ(mixed_units):
     assert wording.NEEDS_ONE_UNIT in [c.value for c in _more_settings(at).caption]
 
 
+def test_the_unit_select_is_hidden_without_a_default_batch_size(burger):
+    """% of batch size is a Unit choice beside the plain one, offered only
+    while there is a default batch size to be a percent OF — without one
+    the choice would mean nothing."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert "qc_unit" not in [b.key for b in at.selectbox]
+    assert at.number_input(key="qc_exactly").label == "Exactly (g)"
+    _total_box(at).set_value(20.0)        # 0-25 g plus 0-3 g reaches 20 g
+    at.run()
+    assert "qc_unit" in [b.key for b in at.selectbox]
+    unit_box = at.selectbox(key="qc_unit")
+    assert unit_box.options == ["g", wording.PERCENT_OF_BATCH_SIZE_UNIT]
+    unit_box.set_value(wording.PERCENT_OF_BATCH_SIZE_UNIT)
+    at.run()
+    assert at.number_input(key="qc_exactly").label == "Exactly (%)"
+    # Clearing the default takes the choice away again.
+    _total_box(at).set_value(0.0)
+    at.run()
+    assert "qc_unit" not in [b.key for b in at.selectbox]
+
+
 def test_a_project_that_weighs_nothing_out_is_offered_no_total(ferment):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()

@@ -9577,3 +9577,163 @@ class TestTheFormulaColumnFixes:
         row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \
             ("30.00", "70.00")
+
+
+# ------------------------------------------------------------------ #
+# 0.5.0 wave 2, "rules" (task 5): a limit can say Exactly, and be written
+# in grams or as a % of the default batch size.
+# ------------------------------------------------------------------ #
+
+class TestExactlyAndPercentLimits:
+    """Exactly stores the number typed, not the band it is enforced as — a
+    continuous search cannot be held to a point, the same reason the total
+    of each formulation is a band too. A percent limit stores the percent
+    it was written as, alongside the grams it comes to today, so a later
+    change of default batch size can rewrite it instead of stranding it."""
+
+    def _opt(self, tmp_path, monkeypatch, name="exactly_percent"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 200)
+        opt.add_ingredient("Oil", 0, 200)
+        opt.add_ingredient("Salt", 0, 20)
+        opt.add_objective("Taste", 1.0, goal="max")
+        return opt
+
+    def test_exactly_writes_a_band_and_reads_back_the_typed_number(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_quantity_constraint(["Water", "Oil"], exactly=50)
+        qc = opt.quantity_constraints[0]
+        assert qc['exactly'] == 50.0
+        # Half a percent either way: an equality is not something a
+        # continuous search can be held to exactly.
+        assert qc['min'] == pytest.approx(49.75)
+        assert qc['max'] == pytest.approx(50.25)
+        assert opt.limit_text(qc) == "Water + Oil: exactly 50 g"
+
+    def test_exactly_with_at_least_is_refused(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as refused:
+            opt.add_quantity_constraint(["Water", "Oil"], min_val=10,
+                                        exactly=50)
+        assert str(refused.value) == wording.EXACTLY_AND_RANGE_ERROR
+        assert opt.quantity_constraints == []
+        with pytest.raises(ValueError) as refused_max:
+            opt.add_quantity_constraint(["Water", "Oil"], max_val=80,
+                                        exactly=50)
+        assert str(refused_max.value) == wording.EXACTLY_AND_RANGE_ERROR
+        assert opt.quantity_constraints == []
+
+    def test_exactly_on_one_ingredient_points_at_the_grid(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as refused:
+            opt.add_quantity_constraint(["Water"], exactly=10)
+        assert str(refused.value) == wording.EXACTLY_ONE_INGREDIENT
+        assert opt.quantity_constraints == []
+
+    def test_a_percent_limit_converts_to_grams_at_save(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
+        assert qc['percent'] == {'min': None, 'max': 30.0, 'exactly': None}
+        assert qc['min'] is None
+        assert qc['max'] == pytest.approx(30.0)
+        assert opt.limit_text(qc) == (
+            "Water + Oil: at most 30 % of batch size (30 g today)")
+
+    def test_a_percent_limit_follows_a_new_default_batch_size(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(80)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        messages = opt.set_formulation_total(120)
+        assert ("info", "Limits written as a % of batch size now read "
+                        "against 120 g.") in messages
+        qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
+        # The percent itself is unchanged; the grams it comes to follow the
+        # new default.
+        assert qc['percent']['max'] == 30.0
+        assert qc['max'] == pytest.approx(36.0)
+        assert opt.limit_text(qc) == (
+            "Water + Oil: at most 30 % of batch size (36 g today)")
+
+    def test_a_percent_limit_that_the_new_default_makes_unreachable_is_removed_and_named(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("percent_unreachable", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 40, 60)
+        opt.add_ingredient("Oil", 0, 40)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.set_formulation_total(80)
+        # 50 % of 80 g is 40 g, exactly Water's own Lowest: still reachable.
+        opt.add_quantity_constraint(["Water"], max_val=50, percent=True)
+        messages = opt.set_formulation_total(60)
+        # 50 % of 60 g is 30 g, and Water alone can never be under 40 g.
+        assert ("warning", "The limit on Water was deleted because a "
+                          "batch size of 60 g can no longer reach it.") \
+            in messages
+        assert [q for q in opt.quantity_constraints if q.get('percent')] == []
+
+    def test_clearing_the_default_removes_every_percent_limit(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        messages = opt.clear_formulation_total()
+        assert messages == [
+            ("warning", "The limit on Water + Oil was a % of batch size, "
+                       "and there is no default batch size now.")]
+        assert opt.quantity_constraints == []
+        assert opt.formulation_total is None
+
+    def test_a_percent_limit_survives_export_and_import(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        state = opt.export_json()
+        FoodOptimizer.validate_state(state)
+        fresh = FoodOptimizer("copy_of_exactly_percent")
+        fresh.import_json(state)
+        before = [q for q in opt.quantity_constraints if q.get('percent')][0]
+        after = [q for q in fresh.quantity_constraints
+                if q.get('percent')][0]
+        assert after == before
+        assert fresh.limit_text(after) == opt.limit_text(before)
+
+    def test_validate_state_refuses_a_malformed_percent_block(self, tmp_path,
+                                                              monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        base = opt.export_json()
+        # Not a dict at all.
+        bad_shape = json.loads(json.dumps(base))
+        bad_shape['quantity_constraints'][-1]['percent'] = "30"
+        with pytest.raises(ValueError, match="damaged"):
+            FoodOptimizer.validate_state(bad_shape)
+        # A field that is not a number or None.
+        bad_field = json.loads(json.dumps(base))
+        bad_field['quantity_constraints'][-1]['percent'] = {
+            'min': None, 'max': "thirty", 'exactly': None}
+        with pytest.raises(ValueError, match="damaged"):
+            FoodOptimizer.validate_state(bad_field)
+        # An unexpected key.
+        bad_key = json.loads(json.dumps(base))
+        bad_key['quantity_constraints'][-1]['percent'] = {
+            'min': None, 'max': 30.0, 'exactly': None, 'source': 'x'}
+        with pytest.raises(ValueError, match="damaged"):
+            FoodOptimizer.validate_state(bad_key)
+        # A well-formed one still opens.
+        FoodOptimizer.validate_state(base)

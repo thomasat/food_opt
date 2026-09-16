@@ -2019,6 +2019,69 @@ def fixed_rows_tail(names_text):
 
 
 # ------------------------------------------------------------------ #
+# 0.5.0 wave 2, "rules" (task 5): a limit over several ingredients can say
+# Exactly, and can be written in the ingredients' own unit or as a % of
+# the default batch size. One idea, one control each: Exactly replaces At
+# least/At most rather than sitting beside them, and the % choice is a
+# Unit beside the plain one, offered only while there is a default batch
+# size to be a percent OF.
+# ------------------------------------------------------------------ #
+EXACTLY_LABEL = "Exactly"
+PERCENT_OF_BATCH_SIZE_UNIT = f"% of {BATCH_SIZE_NOUN}"
+
+EXACTLY_AND_RANGE_ERROR = "Use Exactly, or At least and At most — not both."
+EXACTLY_ONE_INGREDIENT = (
+    "For one ingredient, give the row the same Lowest and Highest in the "
+    "grid instead.")
+
+
+def exactly(value):
+    """'exactly 50' — the bound word an Exactly limit reads as, alongside
+    at_least and at_most."""
+    return f"exactly {value:g}"
+
+
+def limit_exactly_row(who, amount_text):
+    """'Water + Oil: exactly 50 g' — an Exactly limit's read-back: the
+    number the reader typed, not the band it is actually enforced as (a
+    continuous search cannot be held to a point, so the file gives this
+    the same band it gives the total of each formulation)."""
+    return f"{who}: exactly {amount_text}"
+
+
+def limit_percent_row(who, percent_text, grams_text):
+    """'Water + Oil: at most 30 % of batch size (30 g today)' — a percent
+    limit's read-back, in both the percent it is written as and the grams
+    it means today, so the number the search actually enforces from is
+    never hidden behind a percentage."""
+    return f"{who}: {percent_text} of {BATCH_SIZE_NOUN} ({grams_text} today)"
+
+
+def percent_limits_rebased(size_text):
+    """'Limits written as a % of batch size now read against 120 g.' — the
+    one line a new default batch size says once, however many percent
+    limits it just rewrote."""
+    return (f"Limits written as a % of {BATCH_SIZE_NOUN} now read against "
+            f"{size_text}.")
+
+
+def percent_limit_removed(who):
+    """'The limit on Dry blend was a % of batch size, and there is no
+    default batch size now.' — clearing the default takes every percent
+    limit with it: there is nothing left for it to be a percent OF."""
+    return (f"The limit on {who} was a % of {BATCH_SIZE_NOUN}, and there "
+            f"is no default {BATCH_SIZE_NOUN} now.")
+
+
+def quantity_limit_removed_percent_unreachable(label, size_text):
+    """'The limit on Pea protein was deleted because a batch size of
+    120 g can no longer reach it.' — a percent limit a new default
+    rewrote past what the ingredients can actually make."""
+    return (f"The limit on {label} was deleted because a {BATCH_SIZE_NOUN} "
+            f"of {size_text} can no longer reach it.")
+
+
+# ------------------------------------------------------------------ #
 # 0.5.0 workbook. The file is locked where the app will not read it and
 # open where it will: the cells a bench writes in are unlocked and
 # shaded, and the sheet says which ones they are. Two of them are new —
