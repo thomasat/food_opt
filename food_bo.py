@@ -4838,6 +4838,19 @@ class FoodOptimizer:
             return
         self.quantity_constraints.insert(index, self.quantity_constraints.pop())
 
+    def _drop_percent_limits(self):
+        """Every limit written as a % of batch size, taken off the project
+        and handed back plain (no 'reason' on it yet). There is nothing
+        left for one to be a percent OF the moment the default that wrote
+        it is gone — whichever door took the default away: the box
+        cleared, a unit split across the ingredients, or amounts that no
+        longer reach it."""
+        dropped = [qc for qc in self.quantity_constraints if qc.get('percent')]
+        if dropped:
+            self.quantity_constraints = [
+                qc for qc in self.quantity_constraints if not qc.get('percent')]
+        return dropped
+
     def clear_formulation_total(self):
         """Back to "any total the allowed amounts reach": the number goes and
         so does the limit it wrote — and every limit written as a % of
@@ -4853,15 +4866,12 @@ class FoodOptimizer:
             return []
         if index is not None:
             self.quantity_constraints.pop(index)
-        removed = [qc for qc in self.quantity_constraints if qc.get('percent')]
-        if removed:
-            self.quantity_constraints = [
-                qc for qc in self.quantity_constraints if not qc.get('percent')]
+        removed = self._drop_percent_limits()
         self.formulation_total = None
         self._drop_pending_batch()
         self.save()
-        return [("warning", wording.percent_limit_removed(self.limit_label(qc)))
-                for qc in removed]
+        return self.limit_removed_messages(
+            [dict(qc, reason='no_default') for qc in removed])
 
     def _resync_percent_limits(self):
         """Rewrite every limit written as a % of batch size against the
@@ -4916,7 +4926,13 @@ class FoodOptimizer:
         deleted is one fewer, and a unit set on one of them can leave the sum
         adding grams to millilitres. Three answers, in order — rewrite it,
         drop it because the amounts can no longer reach the total, drop it
-        because there is no one unit to add them in."""
+        because there is no one unit to add them in.
+
+        Either drop takes every % of batch size limit with it: an edit that
+        blanks the default the same way clear_formulation_total's own box
+        does must own the same consequence, or a percent limit is left
+        naming a batch size that no longer exists — and still enforced at
+        yesterday's grams, silently."""
         total = getattr(self, 'formulation_total', None)
         index = self._formulation_total_index()
         if total is None:
@@ -4933,14 +4949,18 @@ class FoodOptimizer:
                 'unit': self.one_amount_unit() or self.majority_amount_unit()}
         if self.has_ingredients() and len(self.ingredient_units()) > 1:
             self.formulation_total = None
-            return [dict(gone, reason='unit')]
+            return [dict(gone, reason='unit')] + [
+                dict(qc, reason='no_default')
+                for qc in self._drop_percent_limits()]
         lowest, highest = self.total_reach()
         # Nothing weighed out reaches (0, 0), so a project whose last
         # ingredient has just gone falls through to the same answer as one
         # whose amounts no longer add up: the total is unreachable.
         if not self.has_ingredients() or not lowest <= float(total) <= highest:
             self.formulation_total = None
-            return [dict(gone, reason='unreachable')]
+            return [dict(gone, reason='unreachable')] + [
+                dict(qc, reason='no_default')
+                for qc in self._drop_percent_limits()]
         low, high = self._formulation_total_bounds(total)
         self.add_total_mass_constraint(low, high, source='formulation_total')
         self._keep_limit_position(index)
@@ -7676,6 +7696,13 @@ class FoodOptimizer:
                     wording.quantity_limit_removed_percent_unreachable(
                         self.limit_label(qc),
                         self.batch_total_text(self.formulation_total))))
+            elif qc.get('reason') == 'no_default':
+                # The default itself is gone by the time this is read —
+                # cleared on purpose, or blanked by a unit split or by
+                # amounts that no longer reach it — so there is nothing
+                # left for a percent limit to be a percent OF.
+                messages.append(("warning", wording.percent_limit_removed(
+                    self.limit_label(qc))))
             elif qc.get('reason') == 'missing':
                 gone = qc.get('missing') or []
                 many = len(gone) > 1

@@ -9737,3 +9737,59 @@ class TestExactlyAndPercentLimits:
             FoodOptimizer.validate_state(bad_key)
         # A well-formed one still opens.
         FoodOptimizer.validate_state(base)
+
+
+class TestPercentLimitsFollowTheDefaultsRealFate:
+    """Fix round 1, finding 1. _sync_formulation_total — the door a unit
+    split or amounts that no longer reach it blanks the default through —
+    left every % of batch size limit standing: stale, still enforced, and
+    naming a batch size that no longer existed. It now owns the same
+    consequence clear_formulation_total's own box does: the limit goes
+    with the default, named in one sentence."""
+
+    def _opt(self, tmp_path, monkeypatch, name="percent_sync"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 200)
+        opt.add_ingredient("Oil", 0, 200)
+        opt.add_ingredient("Salt", 0, 20)
+        opt.add_objective("Taste", 1.0, goal="max")
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=30,
+                                    percent=True)
+        return opt
+
+    def test_a_unit_split_takes_every_percent_limit_with_it(self, tmp_path,
+                                                            monkeypatch):
+        """The reviewer's repro: Salt's unit is split off through an
+        ordinary grid Save, which blanks the default the same way it always
+        has. The percent limit must go with it, named, rather than survive
+        stale and still enforced at yesterday's grams."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 3, **{wording.UNIT_LABEL: "ml"}))
+        assert errors == []
+        assert opt.formulation_total is None
+        assert opt.quantity_constraints == []
+        assert ("The limit on Water + Oil was a % of batch size, and "
+               "there is no default batch size now.") in _said(messages)
+        # Nothing is enforcing the stale 30 g cap any more.
+        assert opt._check_constraints(
+            {"Water": 90.0, "Oil": 90.0, "Salt": 5.0})
+
+    def test_a_grid_save_that_does_not_blank_the_default_leaves_it(
+            self, tmp_path, monkeypatch):
+        """The same door, on a save that keeps the ingredients in one unit
+        and the default still reachable: rewritten in place, as always, and
+        the percent limit is not this save's business at all."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 3, **{wording.HIGHEST_LABEL: 25.0}))
+        assert errors == []
+        assert opt.formulation_total == 100.0
+        qcs = [q for q in opt.quantity_constraints if q.get('percent')]
+        assert len(qcs) == 1
+        assert qcs[0]['percent'] == {'min': None, 'max': 30.0, 'exactly': None}
+        assert qcs[0]['max'] == pytest.approx(30.0)
+        assert not any("% of batch size" in m for m in _said(messages))
