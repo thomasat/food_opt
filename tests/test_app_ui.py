@@ -5668,6 +5668,121 @@ def test_a_clash_is_blamed_on_the_row_the_reader_typed_into(burger):
            "another name.")]
 
 
+def _any_armed(at):
+    """True while a confirmation is on the books anywhere in the app. What
+    it costs is every coloured button on every tab, so a question nothing on
+    screen can answer is the worst state this app has."""
+    return at.session_state["_armed_confirmation"] \
+        if "_armed_confirmation" in at.session_state else None
+
+
+def test_discard_while_the_question_is_up_takes_the_question_down(burger):
+    """Discarding is the reader answering "none of it". Left armed, the
+    question was off screen with no Yes to reach and every coloured button
+    in the app — on every tab — stayed grey behind it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE]
+    _grid_discard(at, ING_GRID).click()
+    at.run()
+    assert not at.exception
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    # The foot has its colour back, and nothing anywhere is greyed behind a
+    # question that is not on screen.
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert not _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert len(FoodOptimizer("burger").variables) == 2
+
+
+def test_putting_the_row_back_while_the_question_is_up_takes_it_down(burger):
+    """The commonest way for the question to stop being the question that is
+    up: the grid asks for no deletion at all. The early return for that case
+    used to skip the disarming altogether."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    # The row is back, and an ordinary edit is left in its place.
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+
+
+def test_the_edit_taken_away_entirely_takes_the_question_down(burger):
+    """And the other way out of it: nothing left to save, so nothing left to
+    ask about."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    at.run()                      # the grid comes back empty of edits
+    assert _any_armed(at) is None, _any_armed(at)
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+
+
+def test_each_grid_remembers_its_own_armed_deletion(burger):
+    """One shared record, and the second grid's bookkeeping popped it out
+    from under the first on every run: the first grid's question then
+    re-worded itself to a set of rows nobody had confirmed."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    edits = {ING_GRID: dict(deleted=[1]), MEAS_GRID: dict(deleted=[1])}
+
+    def retype(**over):
+        for base, e in {**edits, **over}.items():
+            _grid_edits(at, base, **e)
+
+    retype()
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    retype()
+    at.run()
+    assert any("Delete Methylcellulose?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # Both grids still have a deletion pending; the record of what THIS
+    # question is about must survive the other grid's run.
+    retype()
+    at.run()
+    assert any("Delete Methylcellulose?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # Now swap which row the armed grid deletes: the question comes down.
+    retype(**{ING_GRID: dict(deleted=[0])})
+    at.run()
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert len(FoodOptimizer("burger").variables) == 2
+
+
+def test_a_measurement_name_given_up_in_the_same_save_can_be_taken(burger):
+    """The grid above has been able to do this since round 1; the one below
+    it now can too."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.MEASUREMENT_COLUMN: "Bite"},
+                       1: {wording.MEASUREMENT_COLUMN: "Firmness"}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert sorted(o["name"] for o in FoodOptimizer("burger").objectives) == [
+        "Bite", "Firmness"]
+
+
 def test_delete_still_offers_the_used_ingredient_path(burger):
     """The permanent-deletion tick box lives inside the confirmation, and
     the refusal comes BEFORE anything is written."""

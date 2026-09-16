@@ -275,6 +275,13 @@ _PROP_DELETE = "prop_delete"
 # clicked, so the errors cannot simply be printed where they belong.
 _ING_ERRORS = "_ingredient_grid_errors"
 _MEAS_ERRORS = "_measurement_grid_errors"
+# The key each grid's Save/Discard pair — and its deletion question — is
+# drawn under. Named once: the question is armed in one function and taken
+# down in another, and two spellings of one key is a question nothing can
+# reach.
+ING_SAVE_KEY = "save_ingredient_grid"
+MEAS_SAVE_KEY = "save_measurement_grid"
+SAVE_KEYS = (ING_SAVE_KEY, MEAS_SAVE_KEY)
 _PROP_ERRORS = "_property_grid_errors"
 GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY, PROP_GRID_KEY)
 
@@ -408,6 +415,12 @@ def _variables(opt, storage):
     if pending:
         st.caption(wording.UNSAVED_CHANGES_CAPTION)
         _save_ingredients(opt, storage, edited)
+    else:
+        # Nothing to save, so nothing to ask about. A question armed over a
+        # deletion that has since been discarded or undone is off screen
+        # with no Yes to reach, and every coloured button in the app stays
+        # grey behind it.
+        _disarm_grid_deletion(ING_SAVE_KEY)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
@@ -422,13 +435,17 @@ def _save_ingredients(opt, storage, edited):
     """The one write the ingredients grid makes. A deleted row is confirmed
     by name first, and a copy is kept before anything goes."""
     deletions = opt.ingredient_grid_deletions(edited)
-    key = "save_ingredient_grid"
+    key = ING_SAVE_KEY
+    # Before the colour is read and before the early return: a question that
+    # is no longer this grid's question has to come down first, or `lit`
+    # reads a confirmation that is about to be taken down anyway.
+    _disarm_stale_deletion(key, deletions)
     lit = not confirmation_open()
     if not deletions:
+        _remember_armed_deletions(key, deletions)
         if _save_and_discard(key, ING_GRID_KEY, lit):
             _apply_ingredient_grid(opt, edited)
         return
-    _disarm_stale_deletion(key, deletions)
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
         wording.delete_rows_warning(number_list(deletions)),
@@ -467,25 +484,53 @@ def _save_ingredients(opt, storage, edited):
 def _discard_beside(key, grid):
     """Discard on its own, under a Save that confirm_action has drawn: that
     helper owns its own button row, so the pair cannot sit side by side while
-    a deletion is waiting to be confirmed."""
+    a deletion is waiting to be confirmed.
+
+    Discarding while the question is up is the reader answering it with
+    "none of it": the question goes down with the edit that raised it. Left
+    armed, it greyed every coloured button in the app — on every tab — with
+    no Yes anywhere to reach."""
     if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard"):
+        _disarm_grid_deletion(key)
         clear_grid(grid)
         st.rerun()
 
 
+# What set of rows one grid's deletion question was armed over. ONE KEY PER
+# GRID: shared, the second grid's bookkeeping ran after the first's on every
+# run and popped the record out from under it, so the first grid's question
+# quietly re-worded itself to a set of rows nobody had confirmed.
 _ARMED_DELETIONS = "_grid_deletions_armed"
+
+
+def _armed_deletions_key(key):
+    return f"{key}__{_ARMED_DELETIONS}"
+
+
+def _disarm_grid_deletion(key):
+    """Take one grid's deletion question down, and forget what it was about.
+
+    Called wherever the grid stops asking for a deletion: Discard, the row
+    put back, the edit undone. Guarded on `disarm` having found something,
+    so this can be called on every run of a tab that has no question up
+    without touching a question belonging to somebody else."""
+    if disarm(key):
+        st.session_state.pop(_armed_deletions_key(key), None)
 
 
 def _disarm_stale_deletion(key, deletions):
     """An armed Save belongs to the rows it was armed over. Put one back on
-    the grid and the question on screen is about a different set of rows, so
-    it is taken down rather than answered — a "Delete Water?" left standing
-    over a grid that no longer deletes Water is one click from deleting
-    something else."""
-    armed = st.session_state.get(_ARMED_DELETIONS)
+    the grid — or take the whole edit away — and the question on screen is
+    about a different set of rows, so it is taken down rather than answered:
+    a "Delete Water?" left standing over a grid that no longer deletes Water
+    is one click from deleting something else.
+
+    Asked BEFORE the early return for a grid with no deletions left, because
+    no deletions at all is the commonest way for the question to stop being
+    the question that is up."""
+    armed = st.session_state.get(_armed_deletions_key(key))
     if armed is not None and armed != sorted(deletions):
-        disarm(key)
-        st.session_state.pop(_ARMED_DELETIONS, None)
+        _disarm_grid_deletion(key)
 
 
 def _remember_armed_deletions(key, deletions):
@@ -493,9 +538,9 @@ def _remember_armed_deletions(key, deletions):
     then: the click that arms is recorded INSIDE confirm_action, so nothing
     before it can see the question go up."""
     if armed_confirmation() == key:
-        st.session_state[_ARMED_DELETIONS] = sorted(deletions)
+        st.session_state[_armed_deletions_key(key)] = sorted(deletions)
     else:
-        st.session_state.pop(_ARMED_DELETIONS, None)
+        st.session_state.pop(_armed_deletions_key(key), None)
 
 
 def _apply_ingredient_grid(opt, edited, force=()):
@@ -523,7 +568,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     for kind, line in messages:
         flash(kind, line)
     clear_grid(ING_GRID_KEY)
-    st.session_state.pop(_ARMED_DELETIONS, None)
+    st.session_state.pop(_armed_deletions_key(ING_SAVE_KEY), None)
     st.rerun()
 
 
@@ -719,6 +764,8 @@ def _measurements(opt, storage):
     if pending:
         st.caption(wording.UNSAVED_CHANGES_CAPTION)
         _save_measurements(opt, storage, edited, lit=not _ingredients_pending())
+    else:
+        _disarm_grid_deletion(MEAS_SAVE_KEY)
     if opt.objectives:
         st.caption(opt.score_function_line())
     return pending
@@ -735,13 +782,14 @@ def _save_measurements(opt, storage, edited, lit=True):
     """The one write the measurements grid makes. A deleted row is confirmed
     by name first, exactly as one on the grid above is."""
     deletions = opt.measurement_grid_deletions(edited)
-    key = "save_measurement_grid"
+    key = MEAS_SAVE_KEY
+    _disarm_stale_deletion(key, deletions)
     lit = lit and not confirmation_open()
     if not deletions:
+        _remember_armed_deletions(key, deletions)
         if _save_and_discard(key, MEAS_GRID_KEY, lit):
             _apply_measurement_grid(opt, storage, edited)
         return
-    _disarm_stale_deletion(key, deletions)
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
         wording.delete_measurement_warning(number_list(deletions),
@@ -794,6 +842,7 @@ def _apply_measurement_grid(opt, storage, edited):
     for kind, line in messages:
         flash(kind, line)
     clear_grid(MEAS_GRID_KEY)
+    st.session_state.pop(_armed_deletions_key(MEAS_SAVE_KEY), None)
     st.rerun()
 
 

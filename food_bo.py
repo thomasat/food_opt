@@ -348,7 +348,7 @@ def _rename_order(rows):
     refused by name rather than half-applied.
     """
     pending = [(row_no, spec) for row_no, spec in rows
-               if spec['var'] is not None]
+               if spec['id'] is not None]
     held = {spec['id'] for _, spec in pending}
     order = []
     while pending:
@@ -417,16 +417,23 @@ def _renames(rows):
             if spec['id'] and spec['id'] != spec['name']}
 
 
-def _limits_over(limits, names, renamed=None):
+def _limits_over(limits, names, renamed=None, deleted=()):
     """The amount limits that would survive the finished grid: one that has
     lost an ingredient is pruned, one whose ingredients were renamed is
     rewritten (rename_variable does exactly that), and the total's own limit
-    is over whatever the ingredient list now is."""
-    renamed = renamed or {}
+    is over whatever the ingredient list now is.
+
+    `deleted` is applied FIRST, which is the order the save itself keeps. A
+    limit on a Salt this save deletes is gone; without that step, a Water
+    renamed to Salt in the same save would have left the limit reading as a
+    limit on the new row."""
+    renamed, gone = renamed or {}, set(deleted)
     kept = []
     for qc in limits:
         if qc.get('source') == 'formulation_total':
             kept.append(dict(qc, ingredients=list(names)))
+            continue
+        if any(n in gone for n in qc['ingredients']):
             continue
         moved = [renamed.get(n, n) for n in qc['ingredients']]
         if all(n in names for n in moved):
@@ -434,13 +441,20 @@ def _limits_over(limits, names, renamed=None):
     return kept
 
 
-def _properties_over(properties, renamed):
+def _properties_over(properties, renamed, deleted=()):
     """An ingredient's property figures follow its name, as rename_variable
     moves them. Without this a row renamed in the same save reads as having
     no figure for anything, and a property limit looks broken when it is
-    not."""
+    not.
+
+    The deleted rows go first, for the same reason and in the same order the
+    save keeps: delete Salt and rename Water to Salt, and mapping the two
+    together would have given the new Salt the old one's figures — or, worse,
+    whichever of the two the dict happened to write last."""
+    gone = set(deleted)
     return {renamed.get(name, name): values
-            for name, values in (properties or {}).items()}
+            for name, values in (properties or {}).items()
+            if name not in gone}
 
 
 def _what_moved(before, after):
@@ -886,31 +900,36 @@ class FoodOptimizer:
         spelling of one has a sentence of its own — so add calls this with
         the row it is editing as `skip`, once those have had their say.
         """
-        lowered = name.lower()
+        self._name_is_free_of_variables(name, skip=skip)
+        self._name_is_free_of_measurements(name, skip=skip)
+        self._name_is_free_of_properties(name)
+
+    # Three passes, asked together everywhere but on a grid.
+    #
+    # A grid is saved whole, so a name another ROW of it is giving up in the
+    # same save is free by the time the save lands — Flour renamed to Barley
+    # leaves Flour for the next row to take, and a deleted Salt leaves Salt
+    # — and the grid's own pass over its finished names is what catches a
+    # real collision. So each grid skips the pass about its own rows and
+    # asks the other two, which name things it cannot move.
+
+    def _name_is_free_of_variables(self, name, skip=None):
+        lowered = str(name).strip().lower()
         for var in self.variables:
             if var is skip or var['name'].lower() != lowered:
                 continue
             raise ValueError(_name_taken_message(
                 var['name'], var.get('category', 'ingredient')))
-        self._name_is_free_of_measurements(name, skip=skip)
 
     def _name_is_free_of_measurements(self, name, skip=None):
-        """The half of the question that is not about the variables: a
-        measurement, a property.
-
-        Split out for the grids. A grid is saved whole, so a name another
-        ROW is giving up in the same save is free by the time the save
-        lands — Flour renamed to Barley leaves Flour for the next row to
-        take — and the grid's own pass over its finished names is what
-        catches a real collision. A measurement or a property is not on that
-        grid and cannot move under it, so this half still stands.
-        """
         lowered = str(name).strip().lower()
         for obj in self.objectives:
             if obj is not skip and obj['name'].lower() == lowered:
                 raise ValueError(
                     f"{obj['name']} is already the name of a measurement. "
                     f"Choose another name.")
+
+    def _name_is_free_of_properties(self, name):
         if self._known_property(name) is not None:
             raise ValueError(f"{name} is already a property of this project.")
 
@@ -5482,6 +5501,7 @@ class FoodOptimizer:
         for row_no, spec in rows:
             try:
                 self._name_is_free_of_measurements(spec['name'])
+                self._name_is_free_of_properties(spec['name'])
             except ValueError as e:
                 errors.append((row_no, str(e)))
         if errors:
@@ -5503,7 +5523,7 @@ class FoodOptimizer:
                 stuck[1]['name'], stuck[1]['category'])))
             return errors, None
 
-        trouble = self._grid_feasibility_error(rows)
+        trouble = self._grid_feasibility_error(rows, deleted)
         if trouble:
             return [(None, trouble)], None
         return [], {'rows': rows, 'deleted': deleted, 'rename_order': order}
@@ -5603,7 +5623,7 @@ class FoodOptimizer:
             return _used_ingredient_message(name, numbers)
         return None
 
-    def _grid_feasibility_error(self, rows):
+    def _grid_feasibility_error(self, rows, deleted=()):
         """The fixed-feasibility question, asked ONCE over the finished grid.
 
         Two rulings live in these lines. It is asked once rather than per
@@ -5619,10 +5639,10 @@ class FoodOptimizer:
                  if spec['low'] == spec['high']]
         if not fixed:
             return None
-        return self._broken_by_this_save(self._limit_refusals(),
-                                         self._refusals_with(rows), fixed)
+        return self._broken_by_this_save(
+            self._limit_refusals(), self._refusals_with(rows, deleted), fixed)
 
-    def _refusals_with(self, rows):
+    def _refusals_with(self, rows, deleted=()):
         """The same question with the finished grid in place, and the project
         put back exactly as it was afterwards.
 
@@ -5637,11 +5657,12 @@ class FoodOptimizer:
         renamed = _renames(rows)
         try:
             self.variables = [_proposed_variable(spec) for _, spec in rows]
-            self.ingredient_properties = _properties_over(properties, renamed)
+            self.ingredient_properties = _properties_over(properties, renamed,
+                                                          deleted)
             self.quantity_constraints = _limits_over(
                 limits, [v['name'] for v in self.variables
                          if v.get('category', 'ingredient') == 'ingredient'],
-                renamed)
+                renamed, deleted)
             return self._limit_refusals()
         finally:
             self.variables = variables
@@ -5971,18 +5992,26 @@ class FoodOptimizer:
             rows.append((row_no, spec))
         if errors:
             return errors, None
+        # An ingredient or a property is not on this grid and cannot move
+        # under it; another MEASUREMENT can, so a name one row is giving up
+        # in this same save is free for the next row to take.
         for row_no, spec in rows:
-            if spec['obj'] is not None:
-                continue
             try:
-                self._name_is_free(spec['name'])
+                self._name_is_free_of_variables(spec['name'])
+                self._name_is_free_of_properties(spec['name'])
             except ValueError as e:
                 errors.append((row_no, str(e)))
         if errors:
             return errors, None
         deleted = [o['name'] for o in self.measurements_by_importance()
                    if o['name'] not in ids_used]
-        return [], {'rows': rows, 'deleted': deleted}
+        # ...which the write order has to make true: a rename onto a name
+        # another row is still wearing is refused by the model, so the
+        # renames go in an order that frees each name before it is taken.
+        order, stuck = _rename_order(rows)
+        if stuck is not None:
+            return [(stuck[0], wording.MEASUREMENT_EXISTS_ERROR)], None
+        return [], {'rows': rows, 'deleted': deleted, 'rename_order': order}
 
     def _read_measurement_row(self, row, by_id, ids_used):
         row_id = _text_cell(row, GRID_ID)
@@ -5996,9 +6025,15 @@ class FoodOptimizer:
             # A name typed over another is a rename of THAT measurement:
             # every result already recorded is filed under it, and
             # rename_objective moves them together. Asked here, without
-            # writing, so a name that is taken refuses the whole save.
+            # writing, so a name that is taken refuses the whole save — but
+            # not against the OTHER measurements, which are this grid's own
+            # rows and may be giving the name up in this same save. The
+            # grid's pass over its finished names catches a real collision.
+            if is_reserved_name(name):
+                return None, _reserved_name_message(name)
             try:
-                self._check_rename_objective(obj['name'], name)
+                self._name_is_free_of_variables(name)
+                self._name_is_free_of_properties(name)
             except ValueError as e:
                 return None, str(e)
         goal_label = _text_cell(row, wording.GOAL_LABEL)
@@ -6042,18 +6077,16 @@ class FoodOptimizer:
         for name in deleted:
             self.remove_objective(name)
         added, changed = [], []
-        for _, spec in rows:
+        by_row = dict(rows)
+        # The rows that stay, in an order that frees a name before it is
+        # taken; then the new ones, which can then take a name a rename has
+        # just given up. The same order the ingredients grid keeps, and for
+        # the same reason.
+        for row_no in plan['rename_order']:
+            spec = by_row[row_no]
             obj = spec['obj']
-            if obj is None:
-                self.add_objective(spec['name'], 1.0, spec['goal'],
-                                   target=spec['target'],
-                                   min_val=spec['min_val'],
-                                   max_val=spec['max_val'], unit=spec['unit'])
-                added.append(spec['name'])
-                continue
-            # Everything below acts on the row as it is filed TODAY; the
-            # rename follows, once it has gone through — the same order the
-            # ingredients grid keeps, and for the same reason.
+            # Everything here acts on the row as it is filed TODAY; the
+            # rename follows, once it has gone through.
             before = _objective_state(obj)
             self.update_objective(spec['id'], goal=spec['goal'],
                                   target=spec['target'],
@@ -6064,6 +6097,14 @@ class FoodOptimizer:
                 self.rename_objective(spec['id'], spec['name'])
             if moved_name or before != _objective_state(obj):
                 changed.append(spec['name'])
+        for _, spec in rows:
+            if spec['obj'] is not None:
+                continue
+            self.add_objective(spec['name'], 1.0, spec['goal'],
+                               target=spec['target'],
+                               min_val=spec['min_val'],
+                               max_val=spec['max_val'], unit=spec['unit'])
+            added.append(spec['name'])
         typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
         # A renamed row is the same row: its share is compared against what
         # it was showing under its old name, not read as a new one.

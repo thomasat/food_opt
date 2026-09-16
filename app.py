@@ -144,12 +144,16 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows",
               "_ingredient_grid_errors", "_measurement_grid_errors",
-              "_ingredient_grid_pending", "_grid_deletions_armed",
+              "_ingredient_grid_pending",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open", ARMED_KEY):
         st.session_state.pop(k, None)
     for name in _EDITOR_GRID_KEYS:
         clear_grid(name)
+    # What each grid's deletion question was armed over — one record per
+    # grid, and neither belongs to the project being opened.
+    for name in ui_setup.SAVE_KEYS:
+        st.session_state.pop(ui_setup._armed_deletions_key(name), None)
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])

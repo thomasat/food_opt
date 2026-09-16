@@ -3903,6 +3903,118 @@ class TestTheGridFixesRoundOne:
         assert (errors, messages) == ([], [])
 
 
+class TestTheGridFixesRoundTwo:
+    """The name-freeing half of round 2, at the layer it lives at. The
+    disarming half is on the screen and is pinned in test_app_ui.py."""
+
+    def _opt(self, tmp_path, monkeypatch, name="round2"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10,
+                          unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_a_measurement_name_given_up_in_the_same_save_can_be_taken(
+            self, tmp_path, monkeypatch):
+        """Firmness becomes Bite and Juiciness takes the name it gave up.
+        One edit, one Save, and the write order frees the name first."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        frame = _edit(opt.measurement_grid_frame(), 1,
+                      **{wording.MEASUREMENT_COLUMN: "Bite"})
+        frame = _edit(frame, 2, **{wording.MEASUREMENT_COLUMN: "Firmness"})
+        errors, _ = opt.apply_measurement_grid(frame)
+        assert errors == [], errors
+        assert sorted(o['name'] for o in opt.objectives) == ["Bite", "Firmness"]
+        # Each result followed its own row, and neither landed on the other.
+        assert opt.results_history[0] == {"Bite": 6.0, "Firmness": 7.0}
+
+    def test_a_measurement_deleted_in_the_same_save_frees_its_name(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round2_del")
+        frame = _drop(opt.measurement_grid_frame(), 1)      # Firmness goes
+        frame = _edit(frame, 2, **{wording.MEASUREMENT_COLUMN: "Firmness"})
+        errors, _ = opt.apply_measurement_grid(frame)
+        assert errors == [], errors
+        assert [o['name'] for o in opt.objectives] == ["Firmness"]
+
+    def test_a_measurement_swap_is_refused_rather_than_half_applied(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round2_swap")
+        frame = _edit(opt.measurement_grid_frame(), 1,
+                      **{wording.MEASUREMENT_COLUMN: "Juiciness"})
+        frame = _edit(frame, 2, **{wording.MEASUREMENT_COLUMN: "Firmness"})
+        errors, messages = opt.apply_measurement_grid(frame)
+        assert errors and messages == []
+        assert sorted(o['name'] for o in opt.objectives) == ["Firmness",
+                                                             "Juiciness"]
+
+    def test_an_ingredients_name_is_still_refused_on_the_measurements_grid(
+            self, tmp_path, monkeypatch):
+        """The pass that is skipped is the one about this grid's OWN rows.
+        An ingredient cannot move under it, so it still refuses."""
+        opt = self._opt(tmp_path, monkeypatch, name="round2_ing")
+        opt.add_property("Cost")
+        for taken, why in (("Water", "already the name of an ingredient"),
+                           ("Cost", "already a property")):
+            errors, _ = opt.apply_measurement_grid(
+                _add(opt.measurement_grid_frame(),
+                     **_meas_row(taken, share=20.0)))
+            assert errors and why in errors[0][1], errors
+
+    def test_a_rename_onto_a_deleted_name_keeps_the_two_apart(
+            self, tmp_path, monkeypatch):
+        """Salt goes and Water takes its name. The figures and the limits
+        filed under the old Salt go with it — they must not be handed to the
+        row that has just taken the name."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("round2_props")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Salt", 0, 10)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Water", "Fat per 100 g", 0.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 9.0)
+        opt.add_quantity_constraint(["Salt"], max_val=5)
+        frame = _drop(opt.ingredient_grid_frame(), 2)       # Salt goes
+        frame = _edit(frame, 1, **{wording.NAME_LABEL: "Salt"})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [], errors
+        assert [v['name'] for v in opt.variables] == ["Salt"]
+        # The new Salt is the old Water: its own figure, not the dead row's.
+        assert opt.property_value("Salt", "Fat per 100 g") == 0.0
+        # ...and the limit on the row that went is gone with it.
+        assert opt.quantity_constraints == []
+
+    def test_the_snapshot_keeps_them_apart_too(self, tmp_path, monkeypatch):
+        """The same save with a fixed row in it, so the feasibility question
+        is asked: the snapshot it is asked over must not read the dead row's
+        figures under the living row's name."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("round2_snap")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Salt", 0, 10)
+        opt.add_ingredient("Flour", 0, 50)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Water", "Fat per 100 g", 0.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 90.0)
+        opt.set_property_value("Flour", "Fat per 100 g", 0.0)
+        opt.add_constraint("Fat per 100 g", max_val=1.0)
+        frame = _drop(opt.ingredient_grid_frame(), 2)       # Salt goes
+        frame = _edit(frame, 1, **{wording.NAME_LABEL: "Salt",
+                                   wording.LOWEST_LABEL: 50.0,
+                                   wording.HIGHEST_LABEL: 50.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [], errors
+        assert opt._var_by_name("Salt")['bounds'] == (50.0, 50.0)
+
+
 def test_a_column_whose_absent_value_is_outside_its_range_keeps_its_frame(
         tmp_path, monkeypatch):
     """An ingredient added mid-run with a Lowest above 0 is encoded at 0 in
