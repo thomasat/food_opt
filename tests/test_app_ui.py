@@ -97,16 +97,18 @@ def _grid_discard(at, base):
                 if b.key == f"{_GRID_SAVE_KEYS[base]}__discard")
 
 
-def _save_grid(at, base, confirm=False, **edits):
+def _save_grid(at, base, confirm=False, discard=False, **edits):
     """Type into a grid and save it. `confirm` answers the question a
-    deleted row is asked about first."""
+    deleted row is asked about first; `discard` answers the one an edit
+    that would take the open round away is asked."""
     _grid_edits(at, base, **edits)
     at.run()
     _grid_save(at, base).click()
     _grid_edits(at, base, **edits)
     at.run()
-    if confirm:
-        _submit_button(at, wording.YES_DELETE).click()
+    if confirm or discard:
+        _submit_button(at, wording.YES_DELETE if confirm
+                       else wording.YES_SAVE_AND_DISCARD).click()
         _grid_edits(at, base, **edits)
         at.run()
     return at
@@ -1280,7 +1282,7 @@ def test_adding_an_ingredient_does_discard_the_open_trial(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    _save_grid(at, ING_GRID,
+    _save_grid(at, ING_GRID, discard=True,
                added=[_ingredient_row("Beet juice powder", high=2.0)])
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
@@ -1464,8 +1466,9 @@ def test_fixing_a_row_discards_the_round_and_says_so(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    _save_grid(at, ING_GRID, edited={1: {wording.LOWEST_LABEL: 1.0,
-                                         wording.HIGHEST_LABEL: 1.0}})
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.LOWEST_LABEL: 1.0,
+                           wording.HIGHEST_LABEL: 1.0}})
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
     assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
@@ -5381,10 +5384,76 @@ def test_saving_the_grid_retires_the_open_round_with_the_notice(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    _save_grid(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.HIGHEST_LABEL: 6.0}})
     assert FoodOptimizer("burger").pending_batch is None
     assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
                for i in at.info), [i.value for i in at.info]
+
+
+def test_a_save_that_would_discard_a_round_asks_first_and_counts_your_own(
+        burger):
+    """The cold reader lost a formulation they had typed in by hand, with
+    their own note on it, to a toast that arrived after it was gone. The
+    question comes first, it names the round, it counts what the round
+    holds and it says how much of that is theirs — and nothing is written
+    until they answer it."""
+    burger.set_pending_batch([
+        {"Pea protein": 10.0, "Methylcellulose": 1.0},
+        {"Pea protein": 20.0, "Methylcellulose": 2.0},
+    ])
+    burger.add_to_pending_batch({"Pea protein": 15.0, "Methylcellulose": 1.5},
+                                note="my control, salt to 3 g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    at.run()
+    assert not at.exception
+    assert any(w.value == ("Saving will discard Round 1: 3 formulations, "
+                           "1 of them added by you. A formulation you added "
+                           "goes with the round — a set-up change can make "
+                           "it invalid.")
+               for w in at.warning), [w.value for w in at.warning]
+    # Nothing is written while the question is up, and the tab still shows
+    # exactly one coloured button.
+    assert FoodOptimizer("burger").pending_batch is not None
+    assert FoodOptimizer("burger")._var_by_name(
+        "Methylcellulose")["bounds"] == (0.0, 3.0)
+    assert _tab_primaries(at, 0) == [wording.YES_SAVE_AND_DISCARD], \
+        _tab_primaries(at, 0)
+    _submit_button(at, wording.YES_SAVE_AND_DISCARD).click()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch is None
+    assert saved._var_by_name("Methylcellulose")["bounds"] == (0.0, 6.0)
+
+
+def test_the_round_that_was_discarded_is_said_under_the_grid_not_only_in_a_toast(
+        burger):
+    """A toast fades and the round does not come back. The same sentence
+    stands under the grid that took it away until there is a round again."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    assert not at.exception
+    line = wording.batch_discarded_notice(1)
+    assert any(i.value == line for i in at.info), [i.value for i in at.info]
+    # The flash is drained on the next run; the standing line is not.
+    at.run()
+    assert any(i.value == line for i in at.info), [i.value for i in at.info]
+    at.button(key="generate").click()
+    at.run()
+    assert not at.exception
+    assert not any(i.value == line for i in at.info), [i.value for i in at.info]
 
 
 def test_a_name_typed_over_another_is_a_rename_and_keeps_what_was_recorded(

@@ -335,6 +335,30 @@ def batch_discarded_notice(no=None, reason=SETUP_CHANGED_REASON):
             "Generate a new one.")
 
 
+YES_SAVE_AND_DISCARD = "Yes, save and discard"
+
+
+def saving_discards_round(no, held_text, own=0):
+    """The question a Set-up save owes an open round before it takes it
+    away: 'Saving will discard Round 2: 3 formulations, 1 of them added by
+    you. A formulation you added goes with the round — a set-up change can
+    make it invalid.'
+
+    The reader typed those amounts themselves and wrote a note on them, and
+    a toast AFTER the round was gone was the first they heard of it. The
+    count of their own rows is said because it is the half of the round
+    nothing can generate back.
+    """
+    line = f"Saving will discard {ROUND_CAP} {no}: {held_text}"
+    if own:
+        line += f", {own} of them added by you"
+    line += "."
+    if own:
+        line += (f" A {FORMULATION} you added goes with the {ROUND} — a "
+                 "set-up change can make it invalid.")
+    return line
+
+
 def project_created(name):
     return f"Created {name}."
 

@@ -5943,6 +5943,33 @@ class FoodOptimizer:
             return [(None, trouble)], None
         return [], {'rows': rows, 'deleted': deleted, 'rename_order': order}
 
+    def ingredient_grid_retires_round(self, frame, force=()):
+        """The open round's number when saving this grid would take it away,
+        else None. Nothing is written to find out.
+
+        A screen has to be able to ASK before it saves — the round the save
+        retires holds formulations the bench may already have made, and one
+        of them may be the reader's own, typed in by hand. The answer is
+        read off the same plan the save itself runs: a row that goes, a row
+        that arrives, or a row whose allowed amounts, type or baseline move
+        ('other'). A rename or a corrected unit, vendor or SKU does not
+        retire it, and neither does a save that will be refused.
+        """
+        if self.pending_batch_no is None:
+            return None
+        errors, plan = self._plan_ingredient_grid(frame, force)
+        if errors or plan is None:
+            return None                  # nothing is going to be written
+        if plan['deleted']:
+            return self.pending_batch_no
+        for _, spec in plan['rows']:
+            var = spec['var']
+            if var is None or 'other' in _what_moved(
+                    self._row_state(var),
+                    self._proposed_row_state(var, spec)):
+                return self.pending_batch_no
+        return None
+
     def _read_ingredient_row(self, row, by_id, ids_used):
         """One row of the grid as a plain dict, or (None, why it cannot be
         saved). Every refusal here is about this row on its own."""

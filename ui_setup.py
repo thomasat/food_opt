@@ -61,19 +61,53 @@ def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
 
 
+# Where the notice about a round this tab has just retired waits. A toast
+# fades, and the round it was about does not come back: the same sentence
+# stays under the grid that took it away until a new round is made.
+_ROUND_DISCARDED = "_round_discarded_line"
+
+
 def _note_discarded_batch(opt, batch_no_before,
                           reason=wording.SETUP_CHANGED_REASON):
-    """Flash the notice when the write just now retired the open batch. The
-    batch is named: the notice lands above the tabs, away from the table it
-    is about.
+    """Say, once above the tabs and then for as long as it is true, that the
+    write just now retired the open batch. The batch is named: the flash
+    lands above the tabs, away from the table it is about, and the standing
+    line is under the grid that did it.
 
     `reason` is what discarded it. The tab as a whole is the honest answer
     for the ingredient list and the allowed amounts — two ways to
     one place — but the total is one control the reader has just touched,
     and blaming "your set-up" sent them looking for what else they had
     done."""
-    if batch_no_before is not None and opt.pending_batch_no is None:
-        flash("info", wording.batch_discarded_notice(batch_no_before, reason))
+    if _remember_discarded_round(opt, batch_no_before, reason):
+        flash("info", st.session_state[_ROUND_DISCARDED])
+
+
+def _remember_discarded_round(opt, batch_no_before,
+                              reason=wording.SETUP_CHANGED_REASON):
+    """Keep the notice for the line that stands under the grid, and say
+    whether there was one.
+
+    The grid's own save gets the flash from the model — it is the model that
+    knows the round went — so this is the half the screen owes either way.
+    """
+    if batch_no_before is None or opt.pending_batch_no is not None:
+        return False
+    st.session_state[_ROUND_DISCARDED] = wording.batch_discarded_notice(
+        batch_no_before, reason)
+    return True
+
+
+def _discarded_round_line(opt):
+    """The standing notice under the grid, while it is still true. It goes
+    the moment there is a round again: nothing was lost that the reader
+    cannot now see."""
+    if opt.pending_batch_no is not None:
+        st.session_state.pop(_ROUND_DISCARDED, None)
+        return
+    line = st.session_state.get(_ROUND_DISCARDED)
+    if line:
+        st.info(line)
 
 
 def _nothing_made_fits(opt):
@@ -406,6 +440,7 @@ def _variables(opt, storage):
         # with no Yes to reach, and every coloured button in the app stays
         # grey behind it.
         _disarm_grid_deletion(ING_SAVE_KEY)
+    _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
@@ -416,9 +451,26 @@ def _variables(opt, storage):
     return pending
 
 
+def _round_at_risk(opt, edited, force=()):
+    """The sentence a Save owes the open round it is about to take away, or
+    "" when the round survives this edit or there is no round.
+
+    Asked BEFORE the write, because a toast afterwards was the first the
+    reader heard of it — and a round can hold formulations they typed in by
+    hand, which nothing can generate back."""
+    no = opt.ingredient_grid_retires_round(edited, force=force)
+    if no is None:
+        return ""
+    rows = opt.pending_batch or []
+    own = sum(1 for row in rows if row.get('note'))
+    return wording.saving_discards_round(
+        no, plural(len(rows), wording.FORMULATION), own)
+
+
 def _save_ingredients(opt, storage, edited):
     """The one write the ingredients grid makes. A deleted row is confirmed
-    by name first, and a copy is kept before anything goes."""
+    by name first, an open round the save would take away is named in the
+    same question, and a copy is kept before anything goes."""
     deletions = opt.ingredient_grid_deletions(edited)
     key = ING_SAVE_KEY
     # Before the colour is read and before the early return: a question that
@@ -426,14 +478,29 @@ def _save_ingredients(opt, storage, edited):
     # reads a confirmation that is about to be taken down anyway.
     _disarm_stale_deletion(key, deletions)
     lit = not confirmation_open()
+    # Read here rather than off the tick box below, which is drawn after the
+    # question and only while one is up.
+    forced = set(deletions) if st.session_state.get("delete_ing_force") else ()
+    at_risk = _round_at_risk(opt, edited, force=forced)
     if not deletions:
         _remember_armed_deletions(key, deletions)
-        if _save_and_discard(key, ING_GRID_KEY, lit):
+        if not at_risk:
+            if _save_and_discard(key, ING_GRID_KEY, lit):
+                _apply_ingredient_grid(opt, edited)
+            return
+        # No row is going, but the open round is: the same two-step every
+        # other irreversible action on this tab goes through.
+        if confirm_action(key, wording.SAVE_CHANGES_BUTTON, at_risk,
+                          confirm_label=wording.YES_SAVE_AND_DISCARD,
+                          primary=lit, disabled=other_confirmation(key)):
             _apply_ingredient_grid(opt, edited)
+        else:
+            _discard_beside(key, ING_GRID_KEY)
         return
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
-        wording.delete_rows_warning(number_list(deletions)),
+        " ".join(p for p in (wording.delete_rows_warning(
+            number_list(deletions)), at_risk) if p),
         confirm_label=wording.YES_DELETE, primary=lit,
         disabled=other_confirmation(key))
     _remember_armed_deletions(key, deletions)
@@ -532,6 +599,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     has a box on this tab to empty as well as something to say.
     """
     scaled = typed_batch_size(opt)
+    round_before = opt.pending_batch_no
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
         # st.rerun() does not return: the errors are drawn into the slot
@@ -540,6 +608,9 @@ def _apply_ingredient_grid(opt, edited, force=()):
         st.rerun()
     if not saved_ok(opt):
         return
+    # The model has already put the notice in `messages`; this is the copy
+    # that stays under the grid after the flash has gone.
+    _remember_discarded_round(opt, round_before)
     tail = _unscaled_tail(opt, scaled)
     if tail and messages:
         kind, line = messages[0]

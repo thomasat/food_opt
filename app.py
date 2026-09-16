@@ -137,7 +137,8 @@ def _reset_project_session():
     for k in ("optimizer", "current_batch", "_restore_candidate",
               "_results_upload", "_import_rows",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_targets_source_open", ARMED_KEY):
+              "_pending_tab", "_targets_source_open",
+              ui_setup._ROUND_DISCARDED, ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
     # each grid's deletion question was armed over: none of it belongs to
