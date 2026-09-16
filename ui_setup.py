@@ -1133,11 +1133,15 @@ def _property_limits(opt):
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
-        st.number_input(wording.AT_LEAST_LABEL, placeholder=wording.NO_LIMIT_PLACEHOLDER,
+        st.number_input(wording.per_100_box_label(wording.AT_LEAST_LABEL,
+                                                 unit or 'g'),
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER,
                        key="prop_min")
     with p2:
         st.session_state.setdefault("prop_max", None)
-        st.number_input(wording.AT_MOST_LABEL, placeholder=wording.NO_LIMIT_PLACEHOLDER,
+        st.number_input(wording.per_100_box_label(wording.AT_MOST_LABEL,
+                                                 unit or 'g'),
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER,
                        key="prop_max")
     if st.button(wording.ADD_PROPERTY_LIMIT_BUTTON, key="add_property_limit"):
         low, high = st.session_state["prop_min"], st.session_state["prop_max"]

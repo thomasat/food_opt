@@ -225,7 +225,7 @@ def test_fmt_setting_rounds_a_dial_to_what_a_dial_can_hold():
 
 def test_join_unit_and_goal_line_are_re_exported():
     assert join_unit("7", "/10") == "7/10"
-    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
+    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "Target 6 N"
 
 
 def test_scale_error_names_the_value_the_range_and_the_fix():
@@ -583,7 +583,7 @@ def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
     # It keeps the caption inside the tab's one-line budget.
     assert len(wording.properties_grid_caption()) < 100
     assert wording.PROPERTIES_SAVED == "Properties saved."
-    assert wording.SAVE_PROPERTIES_BUTTON == "Save properties"
+    assert wording.SAVE_PROPERTIES_BUTTON == "Save changes"
     assert wording.SAVE_BUTTON == "Save"
     # The one-ingredient-at-a-time editor and its words are gone.
     assert not hasattr(wording, "SET_PROPERTIES_BUTTON")

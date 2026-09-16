@@ -535,7 +535,7 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert not any(c.value.startswith("Targets from:")
+    assert not any(c.value.startswith("Where the targets come from:")
                   for c in at.tabs[0].caption)
     # With no note yet the button says what it will make, not "edit" of a
     # note nobody can see.
@@ -549,7 +549,7 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     assert not at.exception
     assert FoodOptimizer("burger").targets_source == "Benchmark burger, panel of 8."
     captions = [c.value for c in at.tabs[0].caption]
-    assert "Targets from: Benchmark burger, panel of 8." in captions
+    assert "Where the targets come from: Benchmark burger, panel of 8." in captions
     # The box reopens prefilled with what is stored, next time it is opened,
     # and the button is now an Edit.
     _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
@@ -1639,8 +1639,8 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     at.run()
     assert wording.HOW_CHOSEN == (
         "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each round aims closer to your "
-        "targets."), wording.HOW_CHOSEN
+        "cover the allowed amounts. After that, each round aims closer to "
+        "your targets."), wording.HOW_CHOSEN
     assert wording.HOW_CHOSEN in HOW_IT_WORKS, HOW_IT_WORKS
     assert any(c.value == wording.HOW_CHOSEN for c in at.caption), \
         [c.value for c in at.caption]
@@ -1944,20 +1944,20 @@ def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
     assert wording.NOT_SCORED_CHECKBOX_SHEET in texts, texts
     # The measurement is named, what a good number looks like is beside it,
     # and the cell to write the reading in is empty.
-    assert "Firmness" in texts and "target 6 N" in texts, texts
+    assert "Firmness" in texts and "Target 6 N" in texts, texts
     assert wording.MEASURED_COLUMN in texts, texts
 
 
 def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="f1_Firmness").label == "Firmness · target 6 N"
+    assert at.number_input(key="f1_Firmness").label == "Firmness · Target 6 N"
     # The panel unit is on the label, once, and never after the number.
     assert (at.number_input(key="f1_Juiciness").label
-            == "Juiciness (/10) · target 7")
+            == "Juiciness (/10) · Target 7")
     labels = [n.label for n in at.number_input]
-    assert (labels.index("Firmness · target 6 N")
-            < labels.index("Juiciness (/10) · target 7"))
+    assert (labels.index("Firmness · Target 6 N")
+            < labels.index("Juiciness (/10) · Target 7"))
     assert any(c.value == ("One number per measurement; the panel mean where "
                            "a panel rated it. Leave blank if it was not "
                            "measured.") for c in at.caption), \
@@ -2555,7 +2555,7 @@ def test_type_in_a_past_formulation(burger):
     assert reloaded.batch_history == [None]          # it belongs to no batch
     assert reloaded.notes_history == [wording.IMPORTED_NOTE]
     assert reloaded.results_history[0] == {"Firmness": 5.0}
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
     assert table["Note"].iloc[0] == wording.IMPORTED_NOTE
     assert str(table["Round"].iloc[0]) in ("", "None", "nan", "<NA>"), \
         table["Round"].iloc[0]
@@ -2610,7 +2610,7 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
     # on Set up. The whole caption, word for word:
-    assert any(c.value == ("Overall score 88.00 of 100.00. Scores only "
+    assert any(c.value == ("Overall score 88.00 of 100. Scores only "
                            "compare within this project. Change a share, a "
                            "goal or a range and every score is worked out "
                            "again.")
@@ -2656,14 +2656,14 @@ def test_the_progress_line_reports_an_improvement_and_a_flat_trial(scored):
 def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
-    assert list(table.columns) == ["Best", "Round", "Formulation", "Firmness (N)",
-                                   "Juiciness (/10)", "Overall score", "Recorded",
-                                   "Note"]
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
+    assert list(table.columns) == ["Best so far", "Round", "Formulation", "Firmness (N)",
+                                   "Juiciness (/10)", "Overall score",
+                                   "Date recorded", "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
     # Best is a star or nothing. That a row has no result is said in the
     # Note column, which is where a fact about the row belongs.
-    assert list(table["Best"]) == ["★", "", ""]
+    assert list(table["Best so far"]) == ["★", "", ""]
     assert table["Note"].iloc[2] == "Not scored"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
@@ -2675,7 +2675,7 @@ def test_show_amounts_adds_the_amount_columns(scored):
     at.run()
     at.toggle(key="show_amounts").set_value(True)
     at.run()
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
     assert "Pea protein (g)" in table.columns
 
 
@@ -3073,7 +3073,7 @@ def test_importing_past_formulations_marks_them_and_accepts_partials(burger):
         "Juiciness": [6.0, None], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     reloaded = FoodOptimizer("burger")
@@ -3099,7 +3099,7 @@ def test_the_importer_reads_the_downloaded_files_own_headers(burger):
     at.session_state["_import_rows"] = downloaded
     at.run()
     assert not at.error, [e.value for e in at.error]
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
@@ -3162,7 +3162,7 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 99.0],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert any(e.value == ("Row 2: Firmness 99 N is outside your range of 0 to "
@@ -3182,7 +3182,7 @@ def test_an_import_outside_an_ingredient_range_warns_and_still_imports(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert any(w.value == ("Row 2: Pea protein 999 g is outside its allowed amounts of "
@@ -3202,11 +3202,11 @@ def test_a_finished_import_does_not_offer_to_import_again(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert "_import_rows" not in at.session_state
     at.run()
-    assert not any(b.label == "Import all rows" for b in at.button), _labels(at)
+    assert not any(b.label == wording.IMPORT_ALL_ROWS_BUTTON for b in at.button), _labels(at)
     assert len(FoodOptimizer("burger").X_history) == 2
 
 
@@ -3528,11 +3528,11 @@ def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
     at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = downloaded
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
-    assert any(m.value == ("Imported 2 formulations. 2 rows had no "
+    assert any(m.value == ("Recorded 2 formulations. 2 rows had no "
                            "measurements, so they were not imported.")
                for m in at.success), [m.value for m in at.success]
     reloaded = FoodOptimizer("burger")
@@ -3550,10 +3550,10 @@ def test_one_row_with_nothing_measured_is_said_in_the_singular(burger):
         "Juiciness": [6.0, None], "Firmness": [5.0, None],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
-    assert any(m.value == ("Imported 1 formulation. 1 row had no "
+    assert any(m.value == ("Recorded 1 formulation. 1 row had no "
                            "measurements, so it was not imported.")
                for m in at.success), [m.value for m in at.success]
 
@@ -4095,8 +4095,7 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     at.run()
     assert not any("Upload an ingredient CSV with extra columns" in c.value
                    for c in at.caption), [c.value for c in at.caption]
-    assert at.text_input(key="prop_new").label == \
-        "Add a property"
+    assert at.text_input(key="prop_new").label == "New property"
     # Nothing to limit yet, so no property picker and no limit button.
     assert "prop_metric" not in [b.key for b in at.selectbox]
     assert "Add property limit" not in _labels(at)
@@ -4388,7 +4387,7 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
                               wording.MEASUREMENTS_SHEET_HEADING,
                               wording.SHEET_WRITE_IN_NOTE,
                               wording.MEASUREMENT_COLUMN,
-                              "Firmness · target 6 N",
+                              "Firmness · Target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
                               wording.SUMMARY_TICK_NOTE,
                               wording.MADE_BY_FOOTER], list(rows)
@@ -4793,7 +4792,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     assert not at.exception
     # The missing measurement is NAMED after the ceiling, and nothing after
     # it claims the measurements were on target.
-    assert any(c.value == ("Overall score 60.00 of 100.00 · Juiciness not "
+    assert any(c.value == ("Overall score 60.00 of 100 · Juiciness not "
                            "measured. Scores only compare within this "
                            "project. Change a share, a goal or a range and "
                            "every score is worked out again.")
@@ -5124,7 +5123,7 @@ def test_a_property_limit_says_it_is_per_100_g_of_the_formulation(with_propertie
     assert not at.exception
     assert any(m.value == "**Finished-product limit**"
                for m in at.markdown), [m.value for m in at.markdown]
-    assert at.selectbox(key="prop_metric").label == "Ingredient property"
+    assert at.selectbox(key="prop_metric").label == "Property"
     assert any(c.value == ("Per 100 g of formulation, from the properties "
                            "of your ingredients.")
                for c in at.caption), [c.value for c in at.caption]
@@ -6172,7 +6171,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     for line in HOW_IT_WORKS:
         assert line in text, line
     assert len(HOW_IT_WORKS) == 5
-    assert "the model varies" in text and "aims for" in text
+    assert "the app varies" in text and "aims for" in text
     assert "hard rules for every formulation the app suggests" in text
     assert "close to the best or tries something different" in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
@@ -6241,7 +6240,13 @@ def test_more_settings_holds_the_four_optional_things_in_order(burger):
     assert wording.ADD_TARGETS_SOURCE_BUTTON in [b.label for b in fold.button]
     # ...and nothing that belongs to the two grids came with it.
     assert not fold.dataframe or len(fold.dataframe) == 1     # the properties grid
-    assert wording.SAVE_CHANGES_BUTTON not in [b.label for b in fold.button]
+    # The properties grid's own Save is in here — it is a grid, and it says
+    # Save changes like the other two. What must NOT be in here is either of
+    # theirs, and theirs sit above this fold with their own keys.
+    assert not [b for b in fold.button
+                if b.key in ("save_ingredient_grid__save",
+                             "save_measurement_grid__save")], \
+        [b.key for b in fold.button]
 
 
 def test_nothing_else_is_on_the_tab(burger):
@@ -6271,7 +6276,7 @@ def test_a_property_is_named_on_the_limits_section_and_the_box_empties(burger):
     project typed in by hand could not limit sodium at all."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _prop_name_box(at).label == "Add a property"
+    assert _prop_name_box(at).label == "New property"
     _prop_name_box(at).set_value("Sodium per 100 g")
     at.run()
     next(b for b in at.button if b.key == "add_property").click()
@@ -6953,7 +6958,7 @@ def test_the_third_part_of_edit_past_says_record_not_add(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(m.value == "##### Record a formulation you already made"
+    assert any(m.value == "##### Add a past result"
                for m in at.markdown), [m.value for m in at.markdown]
     assert "Record this formulation" in _labels(at), _labels(at)
     assert "Add this formulation" not in _labels(at), _labels(at)
@@ -7098,7 +7103,7 @@ def test_an_extra_column_really_is_ignored(burger):
         "Juiciness": [6.0], "Firmness": [5.0], "Batch": ["whatever"],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
@@ -7883,12 +7888,13 @@ def test_how_it_works_is_five_lines(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert wording.HOW_IT_WORKS == [
-        "Ingredients and settings are what the model varies. Measurements "
+        "Ingredients and settings are what the app varies. Measurements "
         "and goals are what it aims for.",
         "Share of score says how much each measurement counts, out of 100. "
-        "Closeness is a 0 to 1 score for how near a result is to its goal.",
-        "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each round aims closer to your targets.",
+        "Closeness says how near a result is to its goal, from 0 to 1.",
+        "Until five formulations have results, new ones are spread out "
+        "to cover the allowed amounts. After that, each round aims closer "
+            "to your targets.",
         "Limits are hard rules for every formulation the app suggests. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
@@ -7927,7 +7933,7 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in joined
     assert "a little less than its share suggests" in joined
-    assert ("The model learns the one overall score, so changing a share, "
+    assert ("The app learns the one overall score, so changing a share, "
             "a goal or a range re-scores every past formulation.") in joined
     assert "property" not in joined, joined
     assert "how noisy your measurements are" in joined
@@ -8914,8 +8920,8 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     sheet = book[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    firm = labels.index("Firmness · target 6 N") + 1
-    juice = labels.index("Juiciness (/10) · target 7") + 1
+    firm = labels.index("Firmness · Target 6 N") + 1
+    juice = labels.index("Juiciness (/10) · Target 7") + 1
     sheet.cell(row=firm, column=2, value=6.0)
     sheet.cell(row=juice, column=2, value=7.0)
     sheet.cell(row=firm, column=4, value=5.0)
@@ -8963,7 +8969,7 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     sheet = filled[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
+    sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
                value=6.0)
     out = io.BytesIO()
     filled.save(out)
@@ -9704,8 +9710,8 @@ def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
     summary = book[wording.batch_sheet_name(1)]
     at_row = {summary.cell(row=r, column=1).value: r
               for r in range(1, summary.max_row + 1)}
-    summary.cell(row=at_row["Firmness · target 6 N"], column=2, value=6.0)
-    summary.cell(row=at_row["Juiciness (/10) · target 7"], column=2, value=7.0)
+    summary.cell(row=at_row["Firmness · Target 6 N"], column=2, value=6.0)
+    summary.cell(row=at_row["Juiciness (/10) · Target 7"], column=2, value=7.0)
     # The Lot column sits after the two formulations and their shares.
     lot_column = 2 + 2 * len(opt.pending_batch)
     summary.cell(row=at_row["Pea protein (g)"], column=lot_column,

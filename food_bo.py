@@ -57,8 +57,11 @@ ROUND_FIELD = "batch"
 RESERVED_VARIABLE_NAMES = {
     "Experiment", "Date", "Overall Score", "Recipe",
     "Formulation", "Round", "Batch", "Trial", "Overall score", "Note",
-    "Recorded",
-    "Best", "Total",
+    # Both spellings of the two columns that were renamed in 0.5.0: a
+    # project made before the rename may hold a variable of the old name,
+    # and the new name has to be reserved from today on.
+    "Recorded", wording.DATE_RECORDED_COLUMN,
+    "Best", wording.BEST_SO_FAR_COLUMN, "Total",
     # The workbook's own row labels. An ingredient named "Not scored" put an
     # amount on the row the upload reads the tick off, and the whole
     # formulation came back as a row nobody scored.
@@ -537,24 +540,27 @@ def _used_ingredient_message(name, numbers):
             f"discard that information.")
 
 
-def goal_line(obj):
-    """The half of an input label that says what a good number looks like:
-    'target 6 N', 'lower is better', 'higher is better'."""
-    if obj.get('goal') == 'target' and obj.get('target') is not None:
-        return join_unit(f"target {float(obj['target']):g}",
-                         unit_after_number(obj.get('unit')))
-    return "lower is better" if obj.get('goal') == 'min' else "higher is better"
-
-
 def goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better' — the Goal cell of
-    the measurements table on tab 1 and of the workbook's Set-up sheet. A
-    '/10' rides on the measurement's own name instead of on every number in
-    its row."""
-    if obj['goal'] == 'target':
+    """'Target 6 N', 'Higher is better', 'Lower is better' — what a good
+    number looks like, in ONE rendering.
+
+    It was written three ways for one cell: 'Hit a target' beside a Target
+    of 6 on the grid, 'Target 6' in the Results table, and 'target 6' in
+    lower case on the round sheets and the record-results labels. A bench
+    worker holding the sheet and a scientist reading Results were reading
+    the same fact in different words and different case. A '/10' rides on
+    the measurement's own name instead of on every number in its row.
+    """
+    if obj.get('goal') == 'target' and obj.get('target') is not None:
         return join_unit(wording.target_value(obj['target']),
                          unit_after_number(obj.get('unit')))
-    return wording.GOAL_LABELS.get(obj['goal'], obj['goal'])
+    return wording.GOAL_LABELS.get(obj.get('goal'),
+                                   wording.GOAL_LABELS['max'])
+
+
+# The old name for the same sentence, kept because three screens and two
+# sheets already ask for it by this one.
+goal_line = goal_text
 
 
 def measurement_range_text(obj):
@@ -1977,15 +1983,10 @@ class FoodOptimizer:
             unit = unit_after_number(obj.get('unit'))
             name = label_with_unit(obj['name'], obj.get('unit'))
             is_target = obj['goal'] == 'target'
-            if is_target:
-                goal_text = join_unit(f"Target {float(obj['target']):g}", unit)
-            elif obj['goal'] == 'min':
-                goal_text = "Lower is better"
-            else:
-                goal_text = "Higher is better"
+            goal = goal_text(obj)
             raw = results.get(obj['name'])
             if raw is None:
-                rows.append({'name': name, 'goal': goal_text,
+                rows.append({'name': name, 'goal': goal,
                              'measured': wording.NOT_MEASURED,
                              'off_by': (wording.NOT_MEASURED if is_target
                                         else "—")})
@@ -1993,7 +1994,7 @@ class FoodOptimizer:
             val = float(raw)
             measured = join_unit(f"{val:g}", unit)
             if not is_target:
-                rows.append({'name': name, 'goal': goal_text,
+                rows.append({'name': name, 'goal': goal,
                              'measured': measured, 'off_by': "—"})
                 continue
             delta = val - float(obj['target'])
@@ -2002,7 +2003,7 @@ class FoodOptimizer:
             else:
                 size = join_unit(f"{abs(delta):g}", unit)
                 off_by = f"{size} too high" if delta > 0 else f"{size} too low"
-            rows.append({'name': name, 'goal': goal_text,
+            rows.append({'name': name, 'goal': goal,
                          'measured': measured, 'off_by': off_by})
         return rows
 
@@ -2308,7 +2309,7 @@ class FoodOptimizer:
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
-                "Best": "★" if i == best_i else "",
+                wording.BEST_SO_FAR_COLUMN: "★" if i == best_i else "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
                 "_score": float(self.Y_history[i]),
@@ -2325,7 +2326,7 @@ class FoodOptimizer:
                 f"{float(self.Y_history[i]):.2f}"
                 + (wording.not_measured_tail(number_list(unmeasured))
                    if unmeasured else ""))
-            row["Recorded"] = local_date(ts)
+            row[wording.DATE_RECORDED_COLUMN] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
                 row.update(self._amount_columns(self._decode(self.X_history[i])))
@@ -2336,7 +2337,7 @@ class FoodOptimizer:
                 # Best is a star or nothing. "Not scored" belongs in the
                 # Note column, which already carries it, and a Best column
                 # with words in it read as a third kind of score.
-                "Best": "",
+                wording.BEST_SO_FAR_COLUMN: "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
                 "_score": float('-inf'),
@@ -2346,14 +2347,16 @@ class FoodOptimizer:
             for obj in objs:
                 row[self._measurement_column(obj)] = None
             row["Overall score"] = ""
-            row["Recorded"] = ""
+            row[wording.DATE_RECORDED_COLUMN] = ""
             row["Note"] = s.get('note') or wording.NOT_SCORED
             if include_amounts:
                 row.update(self._amount_columns(s.get('recipe', {})))
             rows.append(row)
-        columns = (["Best", wording.ROUND_CAP, "Formulation"]
+        columns = ([wording.BEST_SO_FAR_COLUMN, wording.ROUND_CAP,
+                    "Formulation"]
                    + [self._measurement_column(o) for o in objs]
-                   + ["Overall score", "Recorded", "Note"])
+                   + ["Overall score", wording.DATE_RECORDED_COLUMN,
+                      "Note"])
         if include_amounts:
             columns += [self._amount_column(v['name']) for v in self.variables]
         if not rows:
@@ -3464,7 +3467,7 @@ class FoodOptimizer:
             row = {
                 "Formulation": int(self.formulation_ids[i]),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
-                "Recorded": local_date(ts),
+                wording.DATE_RECORDED_COLUMN: local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
                 "Overall score": round(float(self.Y_history[i]), 2),
@@ -3483,7 +3486,7 @@ class FoodOptimizer:
             row = {
                 "Formulation": int(left_out['formulation']),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
-                "Recorded": "",
+                wording.DATE_RECORDED_COLUMN: "",
                 "Overall score": "",
             }
             recipe = left_out.get('recipe', {})
@@ -3495,7 +3498,8 @@ class FoodOptimizer:
             row[wording.NOT_SCORED] = wording.TICKED_BOX
             row["Note"] = left_out.get('note') or wording.NOT_SCORED
             rows.append(row)
-        columns = (["Formulation", wording.ROUND_CAP, "Recorded",
+        columns = (["Formulation", wording.ROUND_CAP,
+                    wording.DATE_RECORDED_COLUMN,
                     "Overall score"]
                    + [self._amount_column(v['name']) for v in self.variables]
                    + ([total_col] if total_col is not None else [])
@@ -3606,20 +3610,20 @@ class FoodOptimizer:
         # No Importance column: 0.5.0 makes Share of score the number the
         # reader types and the importance behind it derived, so a sheet that
         # printed both printed one fact twice — in two scales.
+        # One Goal cell, not a Goal beside a Target: 'Target 6 N' is the
+        # one rendering every other surface uses, and the sheet was the odd
+        # one out.
         for c, name in enumerate((wording.MEASUREMENT_COLUMN,
-                                  wording.GOAL_LABEL, wording.TARGET_LABEL,
+                                  wording.GOAL_LABEL,
                                   wording.RANGE_COLUMN,
                                   wording.SHARE_COLUMN), start=1):
             _write_cell(sheet, r, c, name, bold=True)
         r += 1
         for obj in self.measurements_by_importance():
             _write_cell(sheet, r, 1, label_with_unit(obj['name'], obj.get('unit')))
-            _write_cell(sheet, r, 2, wording.GOAL_LABELS.get(obj['goal'],
-                                                             obj['goal']))
-            _write_cell(sheet, r, 3, None if obj.get('target') is None
-                        else float(obj['target']))
-            _write_cell(sheet, r, 4, measurement_range_text(obj))
-            _write_cell(sheet, r, 5, self.share_text(obj['name']))
+            _write_cell(sheet, r, 2, goal_text(obj))
+            _write_cell(sheet, r, 3, measurement_range_text(obj))
+            _write_cell(sheet, r, 4, self.share_text(obj['name']))
             r += 1
         r += 1
 

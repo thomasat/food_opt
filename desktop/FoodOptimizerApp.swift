@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // purpose: the honest thing to say about an import that depends on the
     // machine is that it is usually quick and sometimes not.
     let downloadStepLabel = "Downloading the app's components"
-    let loadStepLabel = "Loading the model components"
+    let loadStepLabel = "Loading the app's components"
     let openStepLabel = "Opening your projects"
     let usualWaitLine = "Usually 15 to 30 seconds."
     let stillLoadingLine = "Still loading. The first start can take up to a minute."
@@ -248,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSWorkspace.shared.activateFileViewerSelecting([log])
         } else {
             let alert = NSAlert()
-            alert.messageText = "There's no log file yet"
+            alert.messageText = "There is no log file yet"
             alert.informativeText =
                 "The log is created when the app starts up. Quit and open "
                 + "Food Optimizer again, then try this menu item once more."

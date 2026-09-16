@@ -276,10 +276,10 @@ def test_history_frame_names_formulations_not_experiments(tmp_path, monkeypatch)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     opt.tell({"Water": 20.0}, {"Taste": 8.0})
     df = opt.history_frame(order="Newest first")
-    assert list(df.columns[:3]) == ["Best", "Round", "Formulation"]
+    assert list(df.columns[:3]) == ["Best so far", "Round", "Formulation"]
     assert list(df["Formulation"]) == [2, 1]
     assert "Taste" in df.columns
-    assert len(df["Recorded"].iloc[0]) == 10
+    assert len(df["Date recorded"].iloc[0]) == 10
 
 
 def test_reserved_column_name_is_rejected(tmp_path, monkeypatch):
@@ -326,7 +326,7 @@ def test_history_csv_carries_the_units_the_screen_shows(tmp_path, monkeypatch):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.tell({"Water": 10.0}, {"Taste": 3.0})
     df = pd.read_csv(io.StringIO(opt.history_csv()))
-    for col in ["Formulation", "Round", "Recorded", "Overall score",
+    for col in ["Formulation", "Round", "Date recorded", "Overall score",
                 "Water (g)", "Taste", "Note"]:
         assert col in df.columns, list(df.columns)
     assert "Water" not in df.columns
@@ -2145,14 +2145,18 @@ class TestUnitsAndImportance:
         assert join_unit("7", "/10") == "7/10"
         assert join_unit("7", "") == "7"
 
-    def test_goal_line_reads_like_a_label(self):
-        """A '/10' is shown once, on the measurement's own label, so it never
-        follows a number: 'Firmness (/10) · target 7'."""
-        from food_bo import goal_line
-        assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
-        assert goal_line({"goal": "target", "target": 7, "unit": "/10"}) == "target 7"
-        assert goal_line({"goal": "min", "unit": "N"}) == "lower is better"
-        assert goal_line({"goal": "max", "unit": ""}) == "higher is better"
+    def test_the_goal_reads_the_same_way_everywhere(self):
+        """C3: one rendering of one cell. It was 'Hit a target' beside a
+        Target of 6 on the grid, 'Target 6' in the Results table and
+        'target 6' in lower case on the sheets the bench reads. A '/10' is
+        shown once, on the measurement's own label, so it never follows a
+        number: 'Firmness (/10) · Target 7'."""
+        from food_bo import goal_line, goal_text
+        assert goal_line is goal_text
+        assert goal_text({"goal": "target", "target": 6, "unit": "N"}) == "Target 6 N"
+        assert goal_text({"goal": "target", "target": 7, "unit": "/10"}) == "Target 7"
+        assert goal_text({"goal": "min", "unit": "N"}) == "Lower is better"
+        assert goal_text({"goal": "max", "unit": ""}) == "Higher is better"
 
     def test_a_slash_unit_is_written_once_on_the_label(self):
         from food_bo import label_with_unit, unit_after_number
@@ -2256,7 +2260,7 @@ class TestUnitsAndImportance:
                  batch_no=1)
         opt.timestamps_history[0] = "2026-09-09T23:25:00+00:00"
         expected = local_date("2026-09-09T23:25:00+00:00")
-        assert opt.history_frame()["Recorded"].iloc[0] == expected
+        assert opt.history_frame()["Date recorded"].iloc[0] == expected
         assert expected in opt.history_csv()
 
     def test_the_target_refusal_names_the_range_in_plain_words(
@@ -2503,11 +2507,11 @@ class TestUnitsAndImportance:
                  note="best yet")
         opt.record_skipped(3, 1, {"Pea protein": 14.0, "Methylcellulose": 1.0})
         df = opt.history_frame()
-        assert list(df.columns) == ["Best", "Round", "Formulation", "Firmness (N)",
-                                    "Juiciness", "Overall score", "Recorded", "Note"]
+        assert list(df.columns) == ["Best so far", "Round", "Formulation", "Firmness (N)",
+                                    "Juiciness", "Overall score", "Date recorded", "Note"]
         assert list(df["Formulation"]) == [2, 1, 3]        # best first, skipped last
         # Best is a star or nothing; the Note column carries "Not scored".
-        assert list(df["Best"]) == ["★", "", ""]
+        assert list(df["Best so far"]) == ["★", "", ""]
         assert list(df["Round"]) == ["1", "1", "1"]        # one type, always
         assert df["Note"].iloc[0] == "best yet"
         assert df["Note"].iloc[2] == "Not scored"
@@ -2553,7 +2557,7 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=4, batch_no=2,
                  note="ok")
         df = pd.read_csv(io.StringIO(opt.history_csv()))
-        for col in ("Formulation", "Round", "Recorded", "Overall score",
+        for col in ("Formulation", "Round", "Date recorded", "Overall score",
                     "Pea protein (g)", "Firmness (N)", "Note"):
             assert col in df.columns, list(df.columns)
         assert df["Formulation"].iloc[0] == 4
@@ -3710,7 +3714,7 @@ class TestSharesAreTheWeights:
         assert saved.Y_history[0] == pytest.approx(100.0)
         assert wording.overall_score_caption(
             saved.Y_history[0], saved.utility_ceiling()).startswith(
-            "Overall score 100.00 of 100.00")
+            "Overall score 100.00 of 100")
 
     def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
             self, tmp_path, monkeypatch):
@@ -5843,8 +5847,8 @@ class TestTheWorkbook:
         # who made it.
         assert labels[-9:] == ["Measurements", wording.SHEET_WRITE_IN_NOTE,
                                "Measurement",
-                               "Firmness · target 6 N",
-                               "Juiciness (/10) · higher is better",
+                               "Firmness · Target 6 N",
+                               "Juiciness (/10) · Higher is better",
                                "Not scored", "Note",
                                wording.SUMMARY_TICK_NOTE,
                                wording.MADE_BY_FOOTER], labels
@@ -5853,8 +5857,8 @@ class TestTheWorkbook:
         # The measurement rows open empty; the Not scored row opens holding
         # the box the instruction asks the reader to tick, in the cell the
         # pen can reach.
-        for label in ("Firmness · target 6 N",
-                      "Juiciness (/10) · higher is better"):
+        for label in ("Firmness · Target 6 N",
+                      "Juiciness (/10) · Higher is better"):
             assert _labelled(sheet)[label] == [None] * 7, label
         assert _labelled(sheet)["Not scored"] == [
             wording.TICK_BOX, None, wording.TICK_BOX, None,
@@ -5903,7 +5907,7 @@ class TestTheWorkbook:
         assert wording.SETTINGS_SHEET_HEADING in text, text
         assert "Cook temperature (°C)" in text, text
         assert wording.MEASURED_COLUMN in text, text
-        assert "target 6 N" in text, text
+        assert "Target 6 N" in text, text
         assert wording.NOT_SCORED_CHECKBOX_SHEET in text, text
         # Whose work it was, on the page that comes back a week later.
         assert text[-1] == wording.MADE_BY_FOOTER, text
@@ -5966,8 +5970,8 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(opt.pending_batch_no)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        firm = labels.index("Firmness · target 6 N") + 1
-        juice = labels.index("Juiciness (/10) · higher is better") + 1
+        firm = labels.index("Firmness · Target 6 N") + 1
+        juice = labels.index("Juiciness (/10) · Higher is better") + 1
         not_scored = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
         note = labels.index(wording.NOTE) + 1
         sheet.cell(row=firm, column=2, value=5.5)
@@ -6005,7 +6009,7 @@ class TestTheWorkbook:
         sheet = book["Round 2"]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6093,7 +6097,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6123,7 +6127,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6256,7 +6260,7 @@ class TestTheWorkbook:
                  if v is not None]
         for expected in ("Ingredients and process settings", "Pea protein",
                          "Process setting", "Measurements and targets",
-                         "Hit a target", "0 to 10 N", "Limits",
+                         "Target 6 N", "0 to 10 N", "Limits",
                          "Default batch size · 100 g (set in Set up)",
                          "Where the targets come from",
                          "A benchmark burger, panel of 8."):
@@ -6545,11 +6549,11 @@ class TestTheWorkbookFinalWave:
 
     def test_the_summary_reads_a_measurement_with_the_middle_dot(
             self, tmp_path, monkeypatch):
-        """The screens say 'Firmness (N) · target 6 N'; the sheet said it
+        """The screens say 'Firmness (N) · Target 6 N'; the sheet said it
         with a comma. One separator, and the upload matches on it."""
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch))["Round 2"]
-        assert "Firmness · target 6 N" in _labelled(sheet)
+        assert "Firmness · Target 6 N" in _labelled(sheet)
 
     # ---- G-b2 / G-d5 / C24 / C25: what the paper says ------------------
 
@@ -6627,10 +6631,13 @@ class TestTheWorkbookFinalWave:
         opt = self._opt(tmp_path, monkeypatch)
         rows = _rows(_book(opt.all_formulations_workbook())["Set up"])
         head = next(r for r in rows if r[0] == wording.MEASUREMENT_COLUMN)
-        assert head[4] == wording.SHARE_COLUMN
-        assert len([c for c in head if c]) == 5
+        # Goal, Range, Share of score — and no Target column of its own:
+        # 'Target 6 N' is the whole of what the Goal cell says.
+        assert head[3] == wording.SHARE_COLUMN
+        assert len([c for c in head if c]) == 4
         line = next(r for r in rows if r[0] == "Firmness")
-        assert line[4] == "60 %"
+        assert line[1] == "Target 6 N"
+        assert line[3] == "60 %"
 
     # ---- F6 / F7 / F8: what an uploaded workbook is read as ------------
 
@@ -6674,7 +6681,7 @@ class TestTheWorkbookFinalWave:
 
         def edit(book):
             sheet = book["Round 2"]
-            row = self._row_of(sheet, "Firmness · target 6 N")
+            row = self._row_of(sheet, "Firmness · Target 6 N")
             sheet.cell(row=row, column=1).value = "Bite force"
             sheet.cell(row=row + 1, column=2).value = 7.0    # Juiciness
 
@@ -6746,8 +6753,8 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
         opt = self._opt(tmp_path, monkeypatch)
 
         def edit(sheet):
-            firm = self._row_of(sheet, "Firmness · target 6 N")
-            juice = self._row_of(sheet, "Juiciness (/10) · higher is better")
+            firm = self._row_of(sheet, "Firmness · Target 6 N")
+            juice = self._row_of(sheet, "Juiciness (/10) · Higher is better")
             sheet.cell(row=juice, column=1).value = "Mouth juiciness"
             sheet.cell(row=firm, column=2).value = 5.5
             sheet.cell(row=juice, column=2).value = 8.0
@@ -7963,8 +7970,8 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
         at = self._rows_of(sheet)
-        write_in = ("Firmness · target 6 N",
-                    "Juiciness (/10) · higher is better",
+        write_in = ("Firmness · Target 6 N",
+                    "Juiciness (/10) · Higher is better",
                     wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)
         expected = {f"{letter}{at[label]}" for label in write_in
                     for letter in ("B", "D")}          # one per formulation
@@ -8049,9 +8056,9 @@ class TestTheLockedWorkbook:
         at = {summary.cell(row=r, column=1).value: r
               for r in range(1, summary.max_row + 1)}
         for column in (2, 4):
-            summary.cell(row=at["Firmness · target 6 N"], column=column,
+            summary.cell(row=at["Firmness · Target 6 N"], column=column,
                          value=6.0)
-            summary.cell(row=at["Juiciness (/10) · higher is better"],
+            summary.cell(row=at["Juiciness (/10) · Higher is better"],
                          column=column, value=7.0)
         if lot is not None:
             summary.cell(row=at["Water (g)"], column=6, value=lot)
@@ -8224,9 +8231,9 @@ class TestTheLockedWorkbook:
             summary.cell(row=1, column=c, value=f"Formulation {number}")
         summary.cell(row=2, column=1, value="Pea protein (g)")
         summary.cell(row=3, column=1, value=wording.MEASURED_COLUMN)
-        summary.cell(row=4, column=1, value="Firmness · target 6 N")
+        summary.cell(row=4, column=1, value="Firmness · Target 6 N")
         summary.cell(row=4, column=2, value=6.0)
-        summary.cell(row=5, column=1, value="Juiciness (/10) · higher is better")
+        summary.cell(row=5, column=1, value="Juiciness (/10) · Higher is better")
         summary.cell(row=5, column=2, value=7.0)
         out = io.BytesIO()
         book.save(out)

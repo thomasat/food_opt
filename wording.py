@@ -517,8 +517,8 @@ def generate_button_label(n):
 # after the fifth formulation alike. Two captions for the two halves of one
 # rule made a reader who had seen only one of them think there were two.
 HOW_CHOSEN = ("Until five formulations have results, new ones are spread out "
-              f"to learn the space. After that, each {ROUND} aims closer to "
-              "your targets.")
+              f"to cover the allowed amounts. After that, each {ROUND} aims "
+              "closer to your targets.")
 
 
 # The open batch reads as the three steps of the work, each headed with its
@@ -847,10 +847,10 @@ def unscaled_tail(batch_no):
 # There is therefore no glossary bridge anywhere in the app, which is a
 # deliberate choice and not an oversight.
 HOW_IT_WORKS = [
-    "Ingredients and settings are what the model varies. Measurements "
+    "Ingredients and settings are what the app varies. Measurements "
     "and goals are what it aims for.",
     "Share of score says how much each measurement counts, out of 100. "
-    "Closeness is a 0 to 1 score for how near a result is to its goal.",
+    "Closeness says how near a result is to its goal, from 0 to 1.",
     HOW_CHOSEN,
     "Limits are hard rules for every formulation the app suggests. A "
     "formulation of your own is recorded as you typed it.",
@@ -872,10 +872,10 @@ HOW_CLOSENESS = [
     "far the target sits from the ends of your range. Because of that "
     "floor, a target measurement sways the score a little less than its "
     "share suggests.",
-    "The model learns the one overall score, so changing a share, a goal "
+    "The app learns the one overall score, so changing a share, a goal "
     "or a range re-scores every past formulation.",
     "A formulation of your own counts like any other. Making the best one "
-    "again teaches the model how noisy your measurements are.",
+    "again teaches the app how noisy your measurements are.",
 ]
 
 VARIABLES_HEADER = "Ingredients and process settings"
@@ -1033,7 +1033,7 @@ def properties_grid_caption(per_100_already_said=False):
 
 
 SAVE_BUTTON = "Save"
-SAVE_PROPERTIES_BUTTON = "Save properties"
+SAVE_PROPERTIES_BUTTON = "Save changes"
 CLOSE_BUTTON = "Close"
 PROPERTIES_SAVED = "Properties saved."
 DELETE_PROPERTY_PICK_LABEL = "Property to delete"
@@ -1183,12 +1183,12 @@ TARGETS_SOURCE_PLACEHOLDER = "e.g. Benchmark burger, panel of 8"
 def targets_from_caption(text):
     """'Targets from: Benchmark burger, panel of 8.' shown under the
     measurements table once a targets_source is set."""
-    return f"Targets from: {text}"
+    return f"{TARGETS_SOURCE_LABEL}: {text}"
 
 
 HOW_IT_WORKS_HEADING = "**How it works**"
 
-ADD_PROPERTY_LABEL = "Add a property"
+ADD_PROPERTY_LABEL = "New property"
 ADD_PROPERTY_PLACEHOLDER = "e.g. Sodium mg per 100 g"
 ADD_PROPERTY_BUTTON = "Add property"
 
@@ -1222,13 +1222,23 @@ def per_100_caption(unit):
             "ingredients.")
 
 
-INGREDIENT_PROPERTY_LABEL = "Ingredient property"
+# The heading above it is the owner's word — Finished-product limit — and
+# the grid the choices come from is headed Properties. The picker asks for
+# one of those, so it is named for them.
+INGREDIENT_PROPERTY_LABEL = "Property"
 # Said in place of the property picker when the project has named none. The
 # grid that names one is below this line, so the sentence points down.
 NO_PROPERTIES_YET_CAPTION = ("Name a property under Properties below to "
                              "limit it here.")
 AT_LEAST_LABEL = "At least"
 AT_MOST_LABEL = "At most"
+
+
+def per_100_box_label(label, unit):
+    """'At least (per 100 g)' — the property limit's own boxes. The
+    ingredient limit's boxes say (g); these said nothing at all, while the
+    caption above them said the basis once."""
+    return f"{label} (per 100 {unit})"
 NO_LIMIT_PLACEHOLDER = "no limit"
 ADD_PROPERTY_LIMIT_BUTTON = "Add property limit"
 # The two limit forms ask for At least and At most, so their refusals name
@@ -1438,8 +1448,8 @@ HOW_FORMULATIONS_CHOSEN_HEADING = "**How formulations are chosen**"
 STANDARD_VS_EXPERT_CAPTION = ("Standard uses tested defaults and fits most "
                               "projects. Expert-selected lets a specialist "
                               "choose the model's kernel, prior, noise "
-                              "handling and acquisition. These are fixed for "
-                              "the life of the project.")
+                              "handling and acquisition. These cannot be "
+                              "changed for the life of the project.")
 HOW_FORMULATIONS_CHOSEN_LABEL = "How formulations are chosen"
 STANDARD_DEFAULT_OPTION = "Standard (default)"
 EXPERT_SELECTED_OPTION = "Expert-selected"
@@ -1487,13 +1497,24 @@ PARTIAL_SCORES_CAPTION = ("A formulation missing a measurement scores it as "
                           "missing number to fix it.")
 
 
+# 'Overall score' as a noun inside a sentence, and the scale it is on. The
+# ceiling is a whole number — a formulation that hits every goal scores
+# 100 — so it is written as one.
+OVERALL_SCORE_LOWER = "overall score"
+
+
 def batch_recorded_progress(no, before, now):
-    return (f"{ROUND_CAP} {no} recorded · best improved "
+    """'Round 2 recorded · best overall score 86.60 → 88.10 of 100'.
+
+    The number had no name and no scale, beside a sibling line that did
+    carry the noun. Both say the same thing now, in the same words."""
+    return (f"{ROUND_CAP} {no} recorded · best {OVERALL_SCORE_LOWER} "
             f"{before:.2f} → {now:.2f}")
 
 
 def batch_recorded_no_improvement(no):
-    return f"{ROUND_CAP} {no} recorded · best score unchanged."
+    return (f"{ROUND_CAP} {no} recorded · best {OVERALL_SCORE_LOWER} "
+            "unchanged.")
 
 
 def best_so_far_heading(no, batch_no=None):
@@ -1528,7 +1549,7 @@ def overall_score_caption(score, ceiling, missing_text=""):
     """`missing_text` names the measurements nobody took, or is empty. A goal
     re-scores every formulation exactly as a share of the score or a range
     does, so it is named here with them."""
-    return (f"Overall score {score:.2f} of {ceiling:.2f}"
+    return (f"{OVERALL_SCORE_COLUMN} {score:.2f} of {ceiling:g}"
             + (not_measured_tail(missing_text) if missing_text else "")
             + ". Scores only compare within this project. Change a share, a "
             "goal or a range and every score is worked out again.")
@@ -1621,6 +1642,10 @@ PROGRESS_CHART_EXPANDER = "Progress chart"
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
 BEST_SO_FAR_COLUMN = "Best so far"
+# C12: the All formulations sheet's date column. "Recorded" was a state
+# everywhere else on the screen ("Round 1 · recorded", "2 to record") and
+# a date only here.
+DATE_RECORDED_COLUMN = "Date recorded"
 PROGRESS_CHART_CAPTION = ("The top line only rises. A few flat "
                           f"{ROUND}s are normal; a long flat stretch "
                           "suggests this ingredient list is close to the "
@@ -1684,7 +1709,7 @@ def formulations_deleted(numbers_text):
 # Record, not Add: Add puts a formulation into the open batch, to be made.
 # This one was made already, and the two doors sat one tab apart wearing the
 # same verb.
-ADD_PAST_FORMULATION_LABEL = f"Record a {FORMULATION} you already made"
+ADD_PAST_FORMULATION_LABEL = "Add a past result"
 ADD_PAST_FORMULATION_HEADING = "##### " + ADD_PAST_FORMULATION_LABEL
 TYPE_IT_IN = "Type it in"
 UPLOAD_A_FILE = "Upload a file"
@@ -1696,7 +1721,9 @@ ADD_THIS_FORMULATION = f"Record this {FORMULATION}"
 
 
 def formulation_added(no):
-    return f"{FORMULATION_CAP} {no} added."
+    """'Formulation 6 recorded.' — the button says Record, and until now
+    the line it flashed said added. One door, one verb."""
+    return f"{FORMULATION_CAP} {no} recorded."
 
 
 EXTRA_COLUMNS_IGNORED = " Extra columns are ignored."
@@ -1725,7 +1752,7 @@ def blank_amount_columns(names_text):
     return f"These amount columns have blank cells: {names_text}"
 
 
-IMPORT_ALL_ROWS_BUTTON = "Import all rows"
+IMPORT_ALL_ROWS_BUTTON = "Record all rows"
 
 
 def row_error(position, problem):
@@ -1746,7 +1773,10 @@ def rows_before_saved(rows_text):
 
 
 def imported(text):
-    return f"Imported {text}."
+    """'Recorded 3 formulations.' — the same verb the typed-in half uses.
+    The radio option above it still says Upload a file, because that names
+    the mechanism rather than the result."""
+    return f"Recorded {text}."
 
 
 def rows_with_nothing_measured(rows_text, many):
