@@ -5940,6 +5940,14 @@ class TestTheWorkbook:
         assert rows[1][0] == wording.SUMMARY_SHADED_NOTE
         assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
         assert wording.ACTUAL_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        # It names the column by the word the block's own header row uses.
+        # It said "Measured", which is a header this sheet does not write —
+        # the formulation pages do, and their line names it.
+        head = next(r for r in rows
+                    if r and r[0] == wording.MEASUREMENT_COLUMN)
+        assert head[0] in wording.SUMMARY_SHADED_NOTE, head
+        assert wording.MEASURED_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        assert wording.MEASURED_COLUMN in wording.sheet_write_in_note()
         assert rows[2] == ("Ingredient or process setting", "Formulation 1", "%",
                            "Formulation 2", "%", "Formulation 3", "%",
                            "Lot"), rows[2]

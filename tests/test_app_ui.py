@@ -5567,7 +5567,9 @@ def test_a_save_that_would_discard_a_round_asks_first_and_counts_your_own(
 def test_the_round_that_was_discarded_is_said_under_the_grid_not_only_in_a_toast(
         burger):
     """A toast fades and the round does not come back. The same sentence
-    stands under the grid that took it away until there is a round again."""
+    stands under the grid that took it away until there is a round again —
+    and it is on the page ONCE on every run, not twice on the run the flash
+    lands, which is the run the reader is actually reading."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
@@ -5576,10 +5578,15 @@ def test_the_round_that_was_discarded_is_said_under_the_grid_not_only_in_a_toast
                edited={1: {wording.HIGHEST_LABEL: 6.0}})
     assert not at.exception
     line = wording.batch_discarded_notice(1)
-    assert any(i.value == line for i in at.info), [i.value for i in at.info]
-    # The flash is drained on the next run; the standing line is not.
+    # The run the flash lands on: the flash says it, the standing line
+    # stands down.
+    assert [i.value for i in at.info].count(line) == 1, \
+        [i.value for i in at.info]
+    # The flash is drained on the next run; the standing line is not, and it
+    # is still said exactly once.
     at.run()
-    assert any(i.value == line for i in at.info), [i.value for i in at.info]
+    assert [i.value for i in at.info].count(line) == 1, \
+        [i.value for i in at.info]
     at.button(key="generate").click()
     at.run()
     assert not at.exception

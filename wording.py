@@ -2045,8 +2045,14 @@ def write_in_note(columns):
     return f"Write in the boxed cells only: {', '.join(columns)}."
 
 
+# The summary sheet has no column headed `Measured`: the block's own header
+# row heads its first column `Measurement` (and the rest by formulation
+# name), so that is the word the instruction names — one word for one
+# column, both read from MEASUREMENT_COLUMN. The formulation pages keep
+# `Measured`, because that IS the header they write over their write-in
+# column.
 SUMMARY_SHADED_NOTE = write_in_note(
-    [MEASURED_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN])
+    [MEASUREMENT_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN])
 
 
 def sheet_write_in_note(actual_head=ACTUAL_COLUMN):

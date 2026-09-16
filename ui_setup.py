@@ -65,6 +65,11 @@ def _unit_suffix(unit):
 # fades, and the round it was about does not come back: the same sentence
 # stays under the grid that took it away until a new round is made.
 _ROUND_DISCARDED = "_round_discarded_line"
+# Set alongside it on the save, cleared by the one run that renders the
+# flash. The sentence is queued for the top of the NEXT run and the standing
+# line is drawn later in that same run, so without this the app said the
+# same thing twice on the run the reader is reading.
+_ROUND_DISCARDED_FLASHED = "_round_discarded_flashed"
 
 
 def _note_discarded_batch(opt, batch_no_before,
@@ -90,24 +95,36 @@ def _remember_discarded_round(opt, batch_no_before,
 
     The grid's own save gets the flash from the model — it is the model that
     knows the round went — so this is the half the screen owes either way.
+    Either way a flash IS queued for the next run, and the standing line
+    stands down for exactly that run: one sentence, said once, on every run
+    it is true.
     """
     if batch_no_before is None or opt.pending_batch_no is not None:
         return False
     st.session_state[_ROUND_DISCARDED] = wording.batch_discarded_notice(
         batch_no_before, reason)
+    st.session_state[_ROUND_DISCARDED_FLASHED] = True
     return True
 
 
 def _discarded_round_line(opt):
     """The standing notice under the grid, while it is still true. It goes
     the moment there is a round again: nothing was lost that the reader
-    cannot now see."""
+    cannot now see.
+
+    Not on the run the flash is rendered on. The save queues the sentence
+    for the top of the next run and this draws it under the grid on every
+    run after, so on that one run the page carried it twice."""
     if opt.pending_batch_no is not None:
         st.session_state.pop(_ROUND_DISCARDED, None)
+        st.session_state.pop(_ROUND_DISCARDED_FLASHED, None)
         return
     line = st.session_state.get(_ROUND_DISCARDED)
-    if line:
-        st.info(line)
+    if not line:
+        return
+    if st.session_state.pop(_ROUND_DISCARDED_FLASHED, False):
+        return              # the flash above the tabs is saying it already
+    st.info(line)
 
 
 def _nothing_made_fits(opt):
