@@ -48,7 +48,8 @@ assert "starting line carries no percent" grep -qF -- 'status "Starting the appâ
 assert "launcher warms the components before the server" \
   grep -qF 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh"
 assert "the warm-up publishes a step line" \
-  grep -qF 'WARM_MSG="Loading the model components' "$DESKTOP_DIR/launcher.sh"
+  grep -qF 'WARM_MSG="Loading the app'"'"'s components' \
+  "$DESKTOP_DIR/launcher.sh"
 # Order is the whole point: warming the imports AFTER the server is spawned
 # would leave the blank window exactly where it was.
 WARM_AT="$(grep -n 'import torch, botorch, gpytorch' "$DESKTOP_DIR/launcher.sh" | head -n 1 | cut -d: -f1)"
@@ -65,7 +66,7 @@ assert "the warm-up wait is bounded" \
 # ...and the window lists that step under the same name, or it would tick a
 # step nobody is running.
 assert "the window names the same step" \
-  grep -qF 'let loadStepLabel = "Loading the model components"' \
+  grep -qF 'let loadStepLabel = "Loading the app'"'"'s components"' \
   "$DESKTOP_DIR/FoodOptimizerApp.swift"
 # The bar must exist from the first second of a first run, so the very first
 # setup line the launcher publishes has to carry a percent, not an empty field.
@@ -304,7 +305,9 @@ EDITS = {"edited_rows": {}, "deleted_rows": [], "added_rows": [{
     wording.BASELINE_LABEL: 100.0}]}          # outside [150, 220]
 at.session_state["ingredient_grid_0"] = dict(EDITS)
 at.run()
-next(b for b in at.button if b.key == "save_ingredient_grid__save").click()
+next(b for b in at.button
+     if b.key in ("save_ingredient_grid__save",
+                  "save_ingredient_grid__btn")).click()
 at.session_state["ingredient_grid_0"] = dict(EDITS)
 at.run()
 assert not at.exception, at.exception   # a traceback here is the bug
@@ -503,7 +506,15 @@ at.session_state["ingredient_grid_0"] = {
     "deleted_rows": [], "added_rows": []}
 at.run()
 assert not at.exception, at.exception
-save = next(b for b in at.button if b.key == "save_ingredient_grid__save")
+# Either key: a save that would take the open round away is drawn by
+# confirm_action (__btn) so it can ask first, and a save that would not is
+# the plain button (__save). Both say Save changes and both are the one lit
+# action on the tab. (No apostrophes in this block: the heredoc sits inside
+# a double-quoted command substitution, where one would open a quote bash
+# never sees closed.)
+save = next(b for b in at.button
+            if b.key in ("save_ingredient_grid__save",
+                         "save_ingredient_grid__btn"))
 assert save.label == wording.SAVE_CHANGES_BUTTON, save.label
 assert save.proto.type == "primary", save.proto.type
 assert any(b.key == "save_ingredient_grid__discard"

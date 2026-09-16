@@ -4107,6 +4107,28 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
 _USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
+# The launcher writes the lines the first screen shows while it is setting
+# itself up — `status "…"` and the WARM_MSG it publishes for the load step.
+# It is a shell script, so only those strings are screen text; the rest is
+# machinery. It was in none of these lists, which is how "Loading the model
+# components…" stayed on the first screen for a whole wave after the word
+# was retired from the window above it.
+_USER_FACING_LAUNCHER = "desktop/launcher.sh"
+_LAUNCHER_SCREEN_TEXT = re.compile(
+    r'(?:status|[A-Z_]*MSG=)\s*"((?:[^"\\\n]|\\.)*)"')
+
+
+def _launcher_lines(root):
+    """Every sentence desktop/launcher.sh puts on the first screen, with the
+    bar's own `|percent` tail and its shell variables taken off."""
+    text = (root / _USER_FACING_LAUNCHER).read_text()
+    out = []
+    for literal in _LAUNCHER_SCREEN_TEXT.findall(text):
+        line = literal.split("|")[0]
+        line = re.sub(r"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?", "", line)
+        if line.strip():
+            out.append(line)
+    return out
 
 # 0.4.0: a formulation with no result is NOT SCORED, whether or not it was
 # made. One object, used by the sweep below and by the test that names this
@@ -4555,7 +4577,25 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     for literal in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift):
         if any(pattern.search(literal) for pattern in _BANNED):
             offenders.append((_USER_FACING_SWIFT, literal))
+    for line in _launcher_lines(root):
+        if any(pattern.search(line) for pattern in _BANNED):
+            offenders.append((_USER_FACING_LAUNCHER, line))
     assert offenders == [], offenders
+
+
+def test_the_launcher_and_the_window_name_the_load_step_alike():
+    """The window decides which step a status line is about by matching the
+    load step's label as a PREFIX of it, so the label and the launcher's own
+    line for it cannot drift apart: they drifted, and the warm-up — the slow
+    part of a cold start — was drawn under "Opening your projects"."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    swift = (root / _USER_FACING_SWIFT).read_text()
+    label = re.search(r'let loadStepLabel = "((?:[^"\\\n]|\\.)*)"',
+                      swift).group(1)
+    warm = re.search(r'WARM_MSG="((?:[^"\\\n]|\\.)*)"',
+                     (root / _USER_FACING_LAUNCHER).read_text()).group(1)
+    assert warm.startswith(label), (warm, label)
+    assert "model" not in warm.lower() and "model" not in label.lower()
 
 
 def test_no_screen_says_not_made():
