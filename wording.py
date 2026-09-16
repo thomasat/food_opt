@@ -1243,7 +1243,8 @@ def limit_went_with_it(limits_text):
     return f" Its {limits_text} went with it."
 
 
-FINISHED_PRODUCT_LIMIT_HEADING = "**Finished-product limit**"
+FINISHED_PRODUCT_LIMIT_NAME = "Finished-product limit"
+FINISHED_PRODUCT_LIMIT_HEADING = f"**{FINISHED_PRODUCT_LIMIT_NAME}**"
 
 
 def per_100_caption(unit):
@@ -1798,7 +1799,9 @@ def stopped_at_row(row_no, failure):
 
 
 def rows_before_saved(rows_text):
-    return f" The {rows_text} before it were imported and saved."
+    """The tail on a part-way refusal: one door, one verb, so it says
+    recorded like the line it rides on."""
+    return f" The {rows_text} before it were recorded."
 
 
 def imported(text):
@@ -1813,9 +1816,9 @@ def rows_with_nothing_measured(rows_text, many):
     downloaded file — it has a number, its amounts and its note — but it has
     no result to teach the model, so it is left where it is rather than
     stopping the whole import."""
-    return (f" {rows_text} had no measurements, so they were not imported."
+    return (f" {rows_text} had no measurements, so they were not recorded."
             if many
-            else f" {rows_text} had no measurements, so it was not imported.")
+            else f" {rows_text} had no measurements, so it was not recorded.")
 
 
 SET_UP_THIS_PROJECT_BUTTON = "Set up this project"
@@ -1842,6 +1845,11 @@ PERCENT_COLUMN = "%"
 SETTINGS_SHEET_HEADING = "Settings"
 MEASUREMENTS_SHEET_HEADING = "Measurements"
 LIMITS_SHEET_HEADING = "Limits"
+# The finished-product limits, on the printed Set-up sheet. On screen they
+# sit under their own heading with a caption saying what they are per; on
+# paper they were rows in a Limits block that also holds the amount limits
+# and the default batch size, with nothing saying which was which.
+PROPERTY_LIMITS_SHEET_HEADING = f"{FINISHED_PRODUCT_LIMIT_NAME}s"
 SHEET_NONE = "None"
 # The same separator the screens use between a measurement and its goal
 # ("Firmness (N) · target 6 N"). It was a comma on the sheet alone, which
@@ -1991,7 +1999,8 @@ def limit_fixed_rows_break(what, names_text, many=False):
     calls invalid."""
     return (f"No formulation can meet a limit on {what} while "
             f"{names_text} {'are' if many else 'is'} fixed at one amount. "
-            f"Change the limit, or give {'them' if many else 'it'} a range.")
+            f"Change the limit, or give {'them' if many else 'it'} a "
+            f"different {LOWEST_LABEL} and {HIGHEST_LABEL}.")
 
 
 def fixed_rows_tail(names_text):
@@ -2169,7 +2178,9 @@ def formulation_measurement(number, name):
 
 # The two sentences the model still needs and the grid already had.
 LAST_VARYING_ROW_ERROR = (
-    f"Cannot delete the last {INGREDIENT} or setting with a range.")
+    f"Cannot delete the last {INGREDIENT} or setting that can still move. "
+    f"Give another one a different {LOWEST_LABEL} and {HIGHEST_LABEL} "
+    "first.")
 AMOUNTS_MISSING_DELETE_ERROR = (
     "Cannot delete this: some formulations were recorded without their "
     "amounts, so what was made cannot be worked out again. Fix it at one "

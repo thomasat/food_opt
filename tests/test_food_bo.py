@@ -1147,7 +1147,7 @@ class TestRemoveIngredient:
         opt_configured.add_ingredient("Flour", 0, 0)
         opt_configured.add_ingredient("Sugar", 0, 0)
         with pytest.raises(ValueError,
-                           match="last ingredient or setting with a range"):
+                           match="last ingredient or setting that can still move"):
             opt_configured.remove_ingredient("Water")
 
 
@@ -6748,6 +6748,33 @@ class TestTheWorkbookFinalWave:
 
     # ---- G-b5: the Set-up sheet says what the screen says --------------
 
+    def test_the_set_up_sheet_separates_the_two_kinds_of_limit(
+            self, tmp_path, monkeypatch):
+        """On screen the finished-product limits have a heading of their own
+        and a caption saying what they are per. On paper both kinds were
+        rows of one Limits block, so "Fat per 100 g: at most 15" and
+        "Lean: at most 40 g" read as one kind of rule — a weight in the bowl
+        and an average of what you make."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_property("Fat per 100 g")
+        for name in ("Pea protein", "Water"):
+            opt.set_property_value(name, "Fat per 100 g", 10.0)
+        opt.add_constraint("Fat per 100 g", max_val=15)
+        opt.add_quantity_constraint(["Water"], max_val=80)
+        rows = [[v for v in row if v is not None]
+                for row in _rows(_book(opt.all_formulations_workbook())
+                                 ["Set up"])]
+        flat = [r[0] for r in rows if r]
+        limits = flat.index(wording.LIMITS_SHEET_HEADING)
+        props = flat.index(wording.PROPERTY_LIMITS_SHEET_HEADING)
+        assert wording.PROPERTY_LIMITS_SHEET_HEADING == (
+            "Finished-product limits")
+        assert limits < props, flat
+        assert flat[limits + 1] == "Water: at most 80 g", flat
+        # The basis is said once, under the heading, as the screen says it.
+        assert flat[props + 1] == opt.per_amount_text() == "per 100 g"
+        assert flat[props + 2] == "Fat per 100 g: at most 15", flat
+
     def test_the_set_up_sheet_carries_the_share_of_score(self, tmp_path,
                                                          monkeypatch):
         """And nothing else: 0.5.0 makes the share the number the reader
@@ -7646,7 +7673,8 @@ class TestALimitOnlyFixedRowsFeed:
             opt.add_quantity_constraint(["Salt"], max_val=5.0)
         assert str(refused.value) == (
             "No formulation can meet a limit on Salt while Salt is fixed at "
-            "one amount. Change the limit, or give it a range.")
+            "one amount. Change the limit, or give it a different Lowest "
+            "and Highest.")
         assert opt.quantity_constraints == []
 
     def test_a_property_limit_the_fixed_rows_already_break_is_refused_too(

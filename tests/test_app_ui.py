@@ -3533,7 +3533,7 @@ def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
     assert any(m.value == ("Recorded 2 formulations. 2 rows had no "
-                           "measurements, so they were not imported.")
+                           "measurements, so they were not recorded.")
                for m in at.success), [m.value for m in at.success]
     reloaded = FoodOptimizer("burger")
     assert reloaded.formulation_ids == [1, 2, 5, 6]
@@ -3554,7 +3554,7 @@ def test_one_row_with_nothing_measured_is_said_in_the_singular(burger):
     at.run()
     assert not at.exception
     assert any(m.value == ("Recorded 1 formulation. 1 row had no "
-                           "measurements, so it was not imported.")
+                           "measurements, so it was not recorded.")
                for m in at.success), [m.value for m in at.success]
 
 

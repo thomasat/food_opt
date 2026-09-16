@@ -3628,17 +3628,33 @@ class FoodOptimizer:
             r += 1
         r += 1
 
+        # Two blocks, as the screen has two: the amount limits (and the
+        # default batch size, which is written as one) under Limits, and
+        # the finished-product limits under the owner's own name for them.
+        # One block held both, so on paper "Fat: at most 15" and "Water +
+        # Oil: at most 40 g" read as one kind of rule; they are per 100 g
+        # of what you make and a weight in the bowl.
         _write_cell(sheet, r, 1, wording.LIMITS_SHEET_HEADING, bold=True)
         r += 1
-        lines = [self.limit_text(qc)
-                 for qc in getattr(self, "quantity_constraints", [])]
-        lines += [self.property_limit_text(c) for c in self.constraints]
-        for line in lines or [wording.SHEET_NONE]:
+        amounts = [self.limit_text(qc)
+                   for qc in getattr(self, "quantity_constraints", [])]
+        for line in amounts or [wording.SHEET_NONE]:
             _write_cell(sheet, r, 1, line)
             r += 1
         if self.formulation_total is None:
             _write_cell(sheet, r, 1, wording.FORMULATION_TOTAL_NAME)
             _write_cell(sheet, r, 2, wording.SHEET_NONE)
+            r += 1
+        r += 1
+
+        _write_cell(sheet, r, 1, wording.PROPERTY_LIMITS_SHEET_HEADING,
+                    bold=True)
+        r += 1
+        _write_cell(sheet, r, 1, self.per_amount_text())
+        r += 1
+        for line in ([self.property_limit_text(c) for c in self.constraints]
+                     or [wording.SHEET_NONE]):
+            _write_cell(sheet, r, 1, line)
             r += 1
         r += 1
 
