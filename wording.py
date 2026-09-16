@@ -255,6 +255,16 @@ def copy_downloaded(file_name):
     screen: the reader clicked, nothing moved, and the heading above it
     promises a list they could not see themselves in."""
     return f"Saved as '{file_name}' in your Downloads folder."
+# A saved copy that will not open. ONE sentence, whatever is wrong with
+# it: the reader is a food scientist whose copy will not open, and the
+# stored field name, its shape and the programmer's quotation marks are
+# for the log (food_bo._damaged writes them there).
+COPY_DAMAGED = "This copy is damaged and cannot be opened."
+NOT_A_COPY = "This file is not a Food Optimizer copy."
+COPY_FROM_A_NEWER_VERSION = (
+    "This copy was made with a newer version of Food Optimizer. Update the "
+    "app, then try again.")
+
 COPY_UNREADABLE = (
     "This file could not be read as a Food Optimizer copy. "
     "If you have another copy, try that one; recent copies are "
@@ -1999,3 +2009,241 @@ def workbook_actual_not_a_number(number, name):
 # formulations table — a lot belongs to a round, not to a formulation —
 # and a column per ingredient would double that table's width.
 LOTS_SHEET = "Lots"
+
+
+# ------------------------------------------------------------------ #
+#  The model's own refusals
+#
+#  Every one of these reaches a screen: food_bo raises them, and app.py or
+#  a tab module prints what it caught. They lived in food_bo as literals,
+#  which is how a retired word went on being said for a whole cycle with
+#  nobody reading it — this file says it is every word the user reads, and
+#  a refusal is a word the user reads. tests/test_food_bo.py's own guard
+#  now refuses a string literal at a `raise ValueError` in food_bo.py.
+# ------------------------------------------------------------------ #
+
+# Names: taken, reserved, empty.
+def name_taken_by_variable(name, category):
+    kind = ("an ingredient" if category == 'ingredient'
+            else "a process setting")
+    return f"{name} is already the name of {kind}. Choose another name."
+
+
+def name_taken_by_measurement(name):
+    return f"{name} is already the name of a measurement. Choose another name."
+
+
+def name_taken_by_property(name):
+    return f"{name} is already a property of this project."
+
+
+def name_taken_by(name, what):
+    """'Cocoa already exists as a process setting.' — `what` is how the
+    other row was named by whoever found the clash."""
+    return f"{name} already exists as {what}."
+
+
+def reserved_name_message(name):
+    return (f"{name} is a column name Food Optimizer uses for its own "
+            f"tables. Choose another name, for example {name}s.")
+
+
+def reserved_name_short(name):
+    """The same refusal for a measurement, which has no plural to suggest:
+    'Firmnesss' is not a name anybody wants."""
+    return (f"{name} is a column name Food Optimizer uses for its own "
+            f"tables. Choose another name.")
+
+
+def name_is_a_variable(name):
+    return (f"{name} is already the name of an ingredient or process "
+            f"setting. Choose another name for the measurement.")
+
+
+MEASUREMENT_NAME_REQUIRED = "Measurement name cannot be empty."
+
+
+def score_function_line(terms, ceiling):
+    """'Overall score = 60 % × Firmness closeness + 40 % × Juiciness
+    closeness. A formulation that hits every goal scores 100.'
+
+    A caption drawn under the measurements grid. It was built in food_bo,
+    which is how a sentence on tab 1 could drift without this file
+    noticing. `terms` is the assembled left-hand side; the subject of the
+    last sentence is the FORMULATION — 100 is the whole-formulation
+    ceiling, and "every measurement ... scores 100" read as each one
+    scoring it.
+    """
+    return (f"{OVERALL_SCORE_COLUMN} = {terms}. A {FORMULATION} that hits "
+            f"every goal scores {ceiling:g}.")
+
+
+def score_term(share_text, name):
+    """'60 % × Firmness closeness' — one term of the line above."""
+    return f"{share_text} × {name} closeness"
+
+
+def formulation_measurement(number, name):
+    """'Formulation 4 Firmness' — how one cell of an uploaded sheet is named
+    inside the refusal that says its value is out of range."""
+    return f"{FORMULATION_CAP} {number} {name}"
+
+
+# The two sentences the model still needs and the grid already had.
+LAST_VARYING_ROW_ERROR = (
+    f"Cannot delete the last {INGREDIENT} or setting with a range.")
+AMOUNTS_MISSING_DELETE_ERROR = (
+    "Cannot delete this: some formulations were recorded without their "
+    "amounts, so what was made cannot be worked out again. Fix it at one "
+    "amount instead, or start this project over.")
+
+LOWEST_ABOVE_HIGHEST_ERROR = "Lowest cannot be above Highest."
+RANGE_ENDS_ERROR = f"{LOWEST_MEASURABLE_LABEL} must be less than {HIGHEST_MEASURABLE_LABEL}."
+TARGET_REQUIRED_ERROR = (f"Enter a target value for a "
+                         f"'{GOAL_LABELS['target']}' measurement.")
+
+
+def target_outside_message(target, low, high):
+    """R13: the two controls the reader can reach, named as the grid names
+    them. "the range's lowest and highest" named nothing on that screen."""
+    return (f"{TARGET_LABEL} {target:g} must be between "
+            f"{LOWEST_MEASURABLE_LABEL} and {HIGHEST_MEASURABLE_LABEL} "
+            f"({low:g} to {high:g}).")
+
+
+def baseline_outside_message(value, low, high):
+    return (f"{BASELINE_LABEL} {float(value):g} must be between {low:g} and "
+            f"{high:g}.")
+
+
+# What cannot be done to a project whose older formulations were recorded
+# without their amounts. "re-import your history" named nothing the app has:
+# it has formulations already made.
+CANNOT_ADD_WITHOUT_AMOUNTS = (
+    "Some formulations already made were recorded without their amounts, so "
+    "this cannot be added now. Start this project over, or add those "
+    "formulations again with their amounts.")
+CANNOT_RELOAD_INGREDIENTS = (
+    "Ingredients cannot be reloaded after results have been recorded. Use "
+    "Manage project › Start this project over, or open a saved copy.")
+BASELINE_REQUIRED_FOR_A_SETTING = (
+    "A process setting added now needs a baseline (the value used for every "
+    "formulation already made) so those formulations are read correctly.")
+
+
+# The ingredients file, row by row.
+def ingredients_file_missing_columns(named):
+    return (f"The ingredients file is missing required column(s): {named}. "
+            f"Expected columns: {NAME_LABEL}, {LOWEST_LABEL}, "
+            f"{HIGHEST_LABEL} (plus an optional {UNIT_LABEL} column and "
+            f"property columns like Cost or Protein).")
+
+
+def file_row_name_blank(row_no):
+    return f"{ROW.capitalize()} {row_no}: the {NAME_LABEL} cell is blank."
+
+
+def file_row_duplicate_name(row_no, name):
+    return (f"{ROW.capitalize()} {row_no}: duplicate {INGREDIENT} name "
+            f"{name}.")
+
+
+def file_row_reserved_name(row_no, name):
+    return f"{ROW.capitalize()} {row_no}: {reserved_name_message(name)}"
+
+
+def file_amounts_not_numbers(name):
+    return (f"{INGREDIENT.capitalize()} {name}: {LOWEST_LABEL} and "
+            f"{HIGHEST_LABEL} must be numbers. Please check that column for "
+            f"text or blank cells and try again.")
+
+
+def file_lowest_above_highest(name, low, high):
+    return (f"{INGREDIENT.capitalize()} {name}: {LOWEST_LABEL} ({low}) "
+            f"cannot be above {HIGHEST_LABEL} ({high}).")
+
+
+# An uploaded results sheet.
+SHEET_NEEDS_A_FORMULATION_COLUMN = (
+    f"The sheet needs a {FORMULATION_CAP} column with the numbers from the "
+    f"{ROUND} sheets you downloaded.")
+SHEET_HAS_NO_ROWS = "The sheet has no result rows."
+
+
+def sheet_missing_columns(named):
+    return f"Missing columns: {named}"
+
+
+def formulation_number_not_whole(raw):
+    return f"{FORMULATION_CAP} number {raw} is not a whole number."
+
+
+def formulation_not_in_round(number, round_no, holds):
+    return (f"{FORMULATION_CAP} {number} is not in {ROUND} {round_no} "
+            f"(it has {holds}).")
+
+
+def formulation_twice_in_the_sheet(number):
+    return (f"{FORMULATION_CAP} {number} appears more than once in the "
+            f"sheet.")
+
+
+def formulation_value_not_a_number(number, name):
+    return f"{FORMULATION_CAP} {number} {name} is not a number."
+
+
+def formulation_has_no_measurements(number):
+    return f"{FORMULATION_CAP} {number} has no measurements filled in."
+
+
+def formulation_is_not_not_scored(number):
+    """A number handed to Score a formulation that is not one of the rows
+    waiting for a result."""
+    return (f"{FORMULATION_CAP} {number} is not waiting to be scored in "
+            f"this project.")
+
+
+# Limits and units.
+def property_limits_need_a_mass_unit(unit, fix_sentence):
+    return (f"Property limits are per 100 {unit}, so every {INGREDIENT} "
+            f"needs a mass unit; {fix_sentence}")
+
+
+def limit_needs_one_unit(fix_sentence):
+    return (f"A {LIMIT} adds amounts, so these {INGREDIENT}s need one unit; "
+            f"{fix_sentence}")
+
+
+# Generating, recording, deleting.
+EVERYTHING_IS_FIXED = (
+    "Every ingredient and process setting is fixed at one amount. Give at "
+    f"least one of them different {LOWEST_LABEL} and {HIGHEST_LABEL} "
+    "amounts before generating formulations.")
+ADD_A_MEASUREMENT_FIRST = "Add at least one measurement before saving results."
+
+
+def no_measurement_named(name):
+    return f"No measurement named {name}."
+
+
+def no_variable_named(name):
+    """R7: the last 'variable', and the only message that printed Python's
+    own quotation marks."""
+    return f"No ingredient or process setting named {name}."
+
+
+def no_ingredient_named(name):
+    return f"No {INGREDIENT} named {name}."
+
+
+def no_property_named(name):
+    return f"No property named {name}."
+
+
+def cannot_change(named):
+    return f"Cannot change {named}."
+
+
+def delete_the_process_setting_instead(name):
+    return (f"{name} is a process setting. Take it out on the "
+            f"{VARIABLES_HEADER} grid instead.")

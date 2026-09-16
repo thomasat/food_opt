@@ -224,7 +224,13 @@ def test_restore_rejects_wrong_shaped_variables(project_with_history):
     at.session_state["_restore_candidate"] = candidate
     at.run()
     assert not at.exception
-    assert any("wrong shape" in e.value for e in at.error), [e.value for e in at.error]
+    # One sentence on screen, whatever is wrong with the copy. The stored
+    # field name and its shape are four of the words the app retired plus
+    # programmer punctuation, shown to a food scientist whose copy will not
+    # open: they go to the log.
+    assert [e.value for e in at.error] == [
+        wording.COPY_DAMAGED + wording.RECENT_COPIES_HINT], \
+        [e.value for e in at.error]
     assert len(FoodOptimizer("my_project").X_history) == 1
     assert at.session_state["optimizer"].variables[0]["name"] == "Water"
 
@@ -7036,9 +7042,11 @@ def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
     at.run()
     assert list(_grid_frame(at, 1)["Target"]) == [6.0, 7.0]
     _save_grid(at, MEAS_GRID, edited={0: {wording.TARGET_LABEL: 50.0}})
+    # R13: the refusal names the two controls the reader can reach on this
+    # grid, not "the range", which is a column on a printed sheet.
     assert [e.value for e in at.error] == [wording.row_error(
-        1, "Target 50 must be between the range's lowest and highest "
-           "(0 to 10).")]
+        1, "Target 50 must be between Lowest measurable and Highest "
+           "measurable (0 to 10).")]
     assert FoodOptimizer("burger").objectives[1]["target"] == 6.0
 
 

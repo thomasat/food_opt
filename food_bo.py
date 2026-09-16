@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import logging
 import re
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -497,39 +498,19 @@ def _shares_moved(typed, final):
 # The refusals the grid has to give BEFORE it writes anything, so they are
 # written once and raised from two places: the model path that discovers
 # them after the fact, and the grid's own validation pass.
-LAST_VARYING_ROW_ERROR = (
-    "Cannot delete the last ingredient or setting with a range.")
-AMOUNTS_MISSING_DELETE_ERROR = (
-    "Cannot delete this: some formulations were recorded without their "
-    "amounts, so the history cannot be rebuilt. Fix it at one amount "
-    "instead, or start a fresh project.")
+LAST_VARYING_ROW_ERROR = wording.LAST_VARYING_ROW_ERROR
+AMOUNTS_MISSING_DELETE_ERROR = wording.AMOUNTS_MISSING_DELETE_ERROR
 
 
-def _reserved_name_message(name):
-    return (f"{name} is a column name Food Optimizer uses for its own "
-            f"tables. Choose another name, for example {name}s.")
-
-
-def _name_taken_message(name, category):
-    kind = ("an ingredient" if category == 'ingredient'
-            else "a process setting")
-    return f"{name} is already the name of {kind}. Choose another name."
-
-
-LOWEST_ABOVE_HIGHEST_ERROR = "Lowest cannot be above Highest."
-RANGE_ENDS_ERROR = "Range lowest must be less than range highest."
-TARGET_REQUIRED_ERROR = ("Enter a target value for a 'Hit a target' "
-                         "measurement.")
-
-
-def _target_outside_message(target, low, high):
-    return (f"Target {target:g} must be between the range's lowest and "
-            f"highest ({low:g} to {high:g}).")
-
-
-def _baseline_outside_message(value, low, high):
-    return (f"Baseline {float(value):g} must be between {low:g} and "
-            f"{high:g}.")
+# Every sentence below is wording's; these names are what the rest of this
+# file already reads them by.
+_reserved_name_message = wording.reserved_name_message
+_name_taken_message = wording.name_taken_by_variable
+_target_outside_message = wording.target_outside_message
+_baseline_outside_message = wording.baseline_outside_message
+LOWEST_ABOVE_HIGHEST_ERROR = wording.LOWEST_ABOVE_HIGHEST_ERROR
+RANGE_ENDS_ERROR = wording.RANGE_ENDS_ERROR
+TARGET_REQUIRED_ERROR = wording.TARGET_REQUIRED_ERROR
 
 
 def _objective_scoring_state(obj):
@@ -647,6 +628,24 @@ def _is_ticked(value):
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return False
     return str(value).strip().lower() not in _NOT_TICKED
+
+
+_log = logging.getLogger(__name__)
+
+
+def _damaged(detail):
+    """The ValueError a copy that cannot be opened is refused with, and the
+    one place its reason is written down.
+
+    ONE sentence reaches the screen. The old refusals named the stored
+    field — "This copy's 'recipe_history' section has the wrong shape." —
+    which is four of the words the app retired, programmer punctuation and
+    a shape, shown to a food scientist whose saved copy will not open. The
+    detail is what an engineer reading the log needs, and it is the only
+    place it belongs.
+    """
+    _log.warning("saved copy refused: %s", detail)
+    return ValueError(wording.COPY_DAMAGED)
 
 
 def _write_cell(sheet, row, column, value, bold=False, fill=None,
@@ -993,12 +992,11 @@ class FoodOptimizer:
         for obj in self.objectives:
             if obj is not skip and obj['name'].lower() == lowered:
                 raise ValueError(
-                    f"{obj['name']} is already the name of a measurement. "
-                    f"Choose another name.")
+                    wording.name_taken_by_measurement(obj['name']))
 
     def _name_is_free_of_properties(self, name):
         if self._known_property(name) is not None:
-            raise ValueError(f"{name} is already a property of this project.")
+            raise ValueError(wording.name_taken_by_property(name))
 
     def _check_new_variable(self, name, min_val, max_val, category):
         """Shared validation for add_ingredient / add_process_parameter.
@@ -1006,7 +1004,7 @@ class FoodOptimizer:
         caller updates bounds); a clash with the other category is an error."""
         name = str(name).strip()
         if not name:
-            raise ValueError("Name cannot be empty.")
+            raise ValueError(wording.NAME_REQUIRED_ERROR)
         if is_reserved_name(name):
             raise ValueError(_reserved_name_message(name))
         # Equal is allowed, and is how a row is FIXED: one amount, in every
@@ -1018,7 +1016,8 @@ class FoodOptimizer:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
                 other_label = "an ingredient" if other == 'ingredient' else "a process setting"
-                raise ValueError(f"{v['name']} already exists as {other_label}.")
+                raise ValueError(wording.name_taken_by(v['name'],
+                                                      other_label))
         for v in self.variables:
             # Same name, same category, different capitals. The exact name is
             # an EDIT (the caller updates the bounds); a second spelling of it
@@ -1069,10 +1068,7 @@ class FoodOptimizer:
                 return removed
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
-                raise ValueError(
-                    "Cannot add this now: some formulations were recorded without their "
-                    "amounts. Start a fresh project or re-import your history."
-                )
+                raise ValueError(wording.CANNOT_ADD_WITHOUT_AMOUNTS)
             if not keep_lowest:
                 min_val = 0.0   # absent-in-past encodes as 0
         self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
@@ -1105,11 +1101,7 @@ class FoodOptimizer:
         the new file emptied of meaning (see prune_amount_limits).
         """
         if self.X_history:
-            raise ValueError(
-                "Cannot reload ingredients after results have been recorded. "
-                "Use Manage project > Start this project over, or open a "
-                "saved copy."
-            )
+            raise ValueError(wording.CANNOT_RELOAD_INGREDIENTS)
 
         # Accept any capitalization/whitespace for the required headers, and
         # fail with a plain-language error (the app shows ValueError text to
@@ -1125,12 +1117,8 @@ class FoodOptimizer:
         })
         missing = [c for c in ('Name', 'Min', 'Max') if c not in df.columns]
         if missing:
-            raise ValueError(
-                f"The ingredients file is missing required column(s): "
-                f"{', '.join(_FILE_COLUMNS[c] for c in missing)}. Expected "
-                f"columns: Name, Lowest, Highest (plus an optional Unit "
-                f"column and property columns like Cost or Protein)."
-            )
+            raise ValueError(wording.ingredients_file_missing_columns(
+                ", ".join(_FILE_COLUMNS[c] for c in missing)))
 
         process_vars = [v for v in self.variables if v.get('category') == 'process']
         self.variables = []
@@ -1144,29 +1132,22 @@ class FoodOptimizer:
             raw_name = row.get('Name')
             name = "" if raw_name is None or (isinstance(raw_name, float) and np.isnan(raw_name)) else str(raw_name).strip()
             if not name:
-                raise ValueError(f"Row {i + 2}: the Name cell is blank.")
+                raise ValueError(wording.file_row_name_blank(i + 2))
             if name.lower() in seen_names:
-                raise ValueError(f"Row {i + 2}: duplicate ingredient name {name}.")
+                raise ValueError(
+                    wording.file_row_duplicate_name(i + 2, name))
             if is_reserved_name(name):
                 raise ValueError(
-                    f"Row {i + 2}: {name} is a column name Food Optimizer uses "
-                    f"for its own tables. Choose another name, for example {name}s."
-                )
+                    wording.file_row_reserved_name(i + 2, name))
             seen_names.add(name.lower())
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
                 raise ValueError(
-                    f"Ingredient '{row['Name']}': Lowest and Highest must be "
-                    f"numbers. "
-                    f"Please check that column for text or blank cells and try "
-                    f"again."
-                )
+                    wording.file_amounts_not_numbers(row['Name']))
             if min_val > max_val:
-                raise ValueError(
-                    f"Ingredient '{name}': Lowest ({min_val}) cannot be above "
-                    f"Highest ({max_val})"
-                )
+                raise ValueError(wording.file_lowest_above_highest(
+                    name, min_val, max_val))
             var = {
                 'name': name,
                 'type': 'continuous',
@@ -1277,15 +1258,9 @@ class FoodOptimizer:
         }
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
-                raise ValueError(
-                    "Cannot add this now: some formulations were recorded without their "
-                    "amounts. Start a fresh project or re-import your history."
-                )
+                raise ValueError(wording.CANNOT_ADD_WITHOUT_AMOUNTS)
             if baseline is None:
-                raise ValueError(
-                    "A process setting added now needs a baseline (the value used for "
-                    "every formulation already made) so those formulations encode correctly."
-                )
+                raise ValueError(wording.BASELINE_REQUIRED_FOR_A_SETTING)
             baseline = float(baseline)
             if not (min_val <= baseline <= max_val):
                 raise ValueError(_baseline_outside_message(
@@ -1321,22 +1296,16 @@ class FoodOptimizer:
         history and the model never disagree with the current weights."""
         name = str(name).strip()
         if not name:
-            raise ValueError("Measurement name cannot be empty.")
+            raise ValueError(wording.MEASUREMENT_NAME_REQUIRED)
         if any(name.lower() == v['name'].lower() for v in self.variables):
-            raise ValueError(
-                f"{name} is already the name of an ingredient or process "
-                f"setting. Choose another name for the measurement."
-            )
+            raise ValueError(wording.name_is_a_variable(name))
         # Exact name replaces (this method is add-or-replace); a second
         # spelling of it would be a second measurement with one name.
         if any(obj['name'] != name and obj['name'].lower() == name.lower()
                for obj in self.objectives):
             raise ValueError(wording.MEASUREMENT_EXISTS_ERROR)
         if is_reserved_name(name):
-            raise ValueError(
-                f"{name} is a column name Food Optimizer uses for its own "
-                f"tables. Choose another name."
-            )
+            raise ValueError(wording.reserved_name_short(name))
         weight = float(weight)
         if weight <= 0:
             raise ValueError(wording.SHARE_REQUIRED_ERROR)
@@ -1371,7 +1340,7 @@ class FoodOptimizer:
         writes a word."""
         obj = next((o for o in self.objectives if o['name'] == name), None)
         if obj is None:
-            raise ValueError(f"No measurement named {name}.")
+            raise ValueError(wording.no_measurement_named(name))
         new_name = str(new_name).strip()
         if not new_name:
             raise ValueError(wording.NAME_REQUIRED_ERROR)
@@ -1487,7 +1456,7 @@ class FoodOptimizer:
         every unit change owes the limits."""
         var = next((v for v in self.variables if v['name'] == name), None)
         if var is None:
-            raise ValueError(f"No ingredient or setting named {name}.")
+            raise ValueError(wording.no_variable_named(name))
         if var.get('category', 'ingredient') == 'ingredient':
             return self.set_ingredient_unit(name, unit)
         var['unit'] = str(unit or "").strip()
@@ -1503,7 +1472,7 @@ class FoodOptimizer:
                     if v['name'] == name
                     and v.get('category', 'ingredient') == 'ingredient'), None)
         if var is None:
-            raise ValueError(f"No ingredient named {name}.")
+            raise ValueError(wording.no_ingredient_named(name))
         var['unit'] = str(unit or "").strip()
         removed = self.prune_amount_limits()
         self.save()
@@ -1593,12 +1562,9 @@ class FoodOptimizer:
         name on one screen."""
         name = str(name).strip()
         if not name:
-            raise ValueError("Name cannot be empty.")
+            raise ValueError(wording.NAME_REQUIRED_ERROR)
         if is_reserved_name(name):
-            raise ValueError(
-                f"{name} is a column name Food Optimizer uses for its own "
-                f"tables. Choose another name, for example {name}s."
-            )
+            raise ValueError(wording.reserved_name_message(name))
         self._name_is_free(name)
         self._remember_property(name)
         self.save()
@@ -1610,7 +1576,7 @@ class FoodOptimizer:
         can name them."""
         stored = self._known_property(name)
         if stored is None:
-            raise ValueError(f"No property named {name}.")
+            raise ValueError(wording.no_property_named(name))
         lowered = stored.lower()
         self.property_names = [
             p for p in (getattr(self, 'property_names', None) or [])
@@ -1635,10 +1601,10 @@ class FoodOptimizer:
                     if v['name'] == ingredient
                     and v.get('category', 'ingredient') == 'ingredient'), None)
         if var is None:
-            raise ValueError(f"No ingredient named {ingredient}.")
+            raise ValueError(wording.no_ingredient_named(ingredient))
         stored = self._known_property(metric)
         if stored is None:
-            raise ValueError(f"No property named {metric}.")
+            raise ValueError(wording.no_property_named(metric))
         props = self.ingredient_properties.setdefault(ingredient, {})
         for key in [k for k in list(props)
                     if str(k).strip().lower() == stored.lower()]:
@@ -1851,11 +1817,11 @@ class FoodOptimizer:
         formulations do not depend on measurements."""
         obj = next((o for o in self.objectives if o['name'] == name), None)
         if obj is None:
-            raise ValueError(f"No measurement named {name}.")
+            raise ValueError(wording.no_measurement_named(name))
         allowed = {'weight', 'goal', 'target', 'min_val', 'max_val', 'unit'}
         unknown = sorted(set(fields) - allowed)
         if unknown:
-            raise ValueError(f"Cannot change {', '.join(unknown)}.")
+            raise ValueError(wording.cannot_change(", ".join(unknown)))
         merged = dict(obj)
         merged.update(fields)
         weight = float(merged.get('weight', 1.0))
@@ -1926,7 +1892,7 @@ class FoodOptimizer:
         target's distance: two of the three goals have no target."""
         obj = next((o for o in self.objectives if o['name'] == name), None)
         if obj is None:
-            raise ValueError(f"No measurement named {name}.")
+            raise ValueError(wording.no_measurement_named(name))
         total = sum(float(o['weight']) for o in self.objectives)
         return float(obj['weight']) / total if total else 0.0
 
@@ -1970,18 +1936,16 @@ class FoodOptimizer:
         number, so the line says it once."""
         if not self.objectives:
             return ""
-        terms = " + ".join(
-            f"{self.share_text(o['name'])} × {o['name']} closeness"
-            for o in self.measurements_by_importance()
-        )
         # How closeness is worked out belongs in the expander below this
         # line, per goal: two of the three goals have no target at all, so a
-        # sentence about distance from one was wrong on most screens.
-        # The subject is the formulation, not the measurement: 100 is the
-        # whole-formulation ceiling, and "every measurement ... scores 100"
-        # read as each one scoring it.
-        return (f"Overall score = {terms}. A formulation that hits every "
-                f"goal scores {self.utility_ceiling():g}.")
+        # sentence about distance from one was wrong on most screens. The
+        # sentence itself is in wording, like every other word on a screen;
+        # what is assembled here is the list of terms.
+        terms = " + ".join(
+            wording.score_term(self.share_text(o['name']), o['name'])
+            for o in self.measurements_by_importance()
+        )
+        return wording.score_function_line(terms, self.utility_ceiling())
 
     def set_targets_source(self, text):
         """Remember where the measurement targets came from. Written only on
@@ -2516,10 +2480,7 @@ class FoodOptimizer:
         elif "experiment" in norm:
             key_col, legacy = norm["experiment"], True
         else:
-            raise ValueError(
-                "The sheet needs a Formulation column with the numbers "
-                f"from the {wording.ROUND} sheets you downloaded."
-            )
+            raise ValueError(wording.SHEET_NEEDS_A_FORMULATION_COLUMN)
         col_for, missing = {}, []
         for obj in self.objectives:
             key = obj['name'].strip().lower()
@@ -2528,11 +2489,12 @@ class FoodOptimizer:
             else:
                 missing.append(obj['name'])
         if missing:
-            raise ValueError("Missing columns: " + ", ".join(missing))
+            raise ValueError(wording.sheet_missing_columns(
+                ", ".join(missing)))
         note_col = norm.get("note")
         skipped_col = norm.get(wording.NOT_SCORED.lower())
         if len(df) == 0:
-            raise ValueError("The sheet has no result rows.")
+            raise ValueError(wording.SHEET_HAS_NO_ROWS)
         in_batch = ", ".join(str(n) for n in numbers)
         # Which formulations came back with amounts of their own.
         weighed = {int(k): v for k, v in (weighed or {}).items()}
@@ -2542,28 +2504,23 @@ class FoodOptimizer:
             try:
                 as_float = float(raw_no)
             except (TypeError, ValueError):
-                raise ValueError(f"Formulation number {raw_no!s} is not a whole number.")
+                raise ValueError(
+                    wording.formulation_number_not_whole(raw_no))
             if not as_float.is_integer():
-                raise ValueError(f"Formulation number {raw_no!s} is not a whole number.")
+                raise ValueError(
+                    wording.formulation_number_not_whole(raw_no))
             number = int(as_float)
             if legacy:
                 if not (1 <= number <= len(rows)):
-                    raise ValueError(
-                        f"Formulation {number} is not in "
-                        f"{wording.ROUND} {self.pending_batch_no} "
-                        f"(it has {in_batch})."
-                    )
+                    raise ValueError(wording.formulation_not_in_round(
+                        number, self.pending_batch_no, in_batch))
                 number = numbers[number - 1]
             elif number not in numbers:
-                raise ValueError(
-                    f"Formulation {number} is not in "
-                    f"{wording.ROUND} {self.pending_batch_no} "
-                    f"(it has {in_batch})."
-                )
+                raise ValueError(wording.formulation_not_in_round(
+                    number, self.pending_batch_no, in_batch))
             if number in seen:
                 raise ValueError(
-                    f"Formulation {number} appears more than once in the sheet."
-                )
+                    wording.formulation_twice_in_the_sheet(number))
             seen.add(number)
             note = ""
             if note_col is not None:
@@ -2588,20 +2545,19 @@ class FoodOptimizer:
                 try:
                     val = float(val)
                 except (TypeError, ValueError):
-                    raise ValueError(f"Formulation {number} {name} is not a number.")
+                    raise ValueError(
+                        wording.formulation_value_not_a_number(number, name))
                 obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
                     # The same sentence the results grid refuses with.
                     raise ValueError(outside_message(
-                        f"Formulation {number} {name}", val,
+                        wording.formulation_measurement(number, name), val,
                         obj['min_val'], obj['max_val'], obj.get('unit'),
-                        "your range",
-                        " Widen the range in Set up, or check the value."))
+                        wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT))
                 results[name] = val
             if not results:
                 raise ValueError(
-                    f"Formulation {number} has no measurements filled in."
-                )
+                    wording.formulation_has_no_measurements(number))
             parsed.append((number, results, note))
         return (parsed, skipped) if with_skipped else parsed
 
@@ -3868,11 +3824,9 @@ class FoodOptimizer:
         # 25 g of powder and 40 ml of water share no 100 g to be measured per.
         units = self.ingredient_units()
         if len(units) > 1:
-            raise ValueError(
-                f"Property limits are per 100 "
-                f"{self.majority_amount_unit() or 'g'}, so every "
-                f"ingredient needs a mass unit; " + self.unit_fix_sentence()
-            )
+            raise ValueError(wording.property_limits_need_a_mass_unit(
+                self.majority_amount_unit() or "g",
+                self.unit_fix_sentence()))
         # Same property, whatever its capitalisation: two limits on 'Fat' and
         # 'fat' would both be enforced against the same column.
         self.constraints = [c for c in self.constraints
@@ -3922,9 +3876,8 @@ class FoodOptimizer:
         # A limit is a sum, and a sum across units is a number of nothing:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
-            raise ValueError(
-                "A limit adds amounts, so these ingredients need one "
-                "unit; " + self.unit_fix_sentence(list(ingredients)))
+            raise ValueError(wording.limit_needs_one_unit(
+                self.unit_fix_sentence(list(ingredients))))
         ingredient_set = set(ingredients)
         kept = list(self.quantity_constraints)
         self.quantity_constraints = [
@@ -4676,11 +4629,7 @@ class FoodOptimizer:
         is what stops a regenerate spending a batch number nobody ever saw.
         """
         if not self.varying_variables():
-            raise ValueError(
-                "Every ingredient and process setting is fixed at one amount. "
-                "Give at least one of them a range before generating "
-                "formulations."
-            )
+            raise ValueError(wording.EVERYTHING_IS_FIXED)
         bounds_tensor = self._get_bounds()
         dim = bounds_tensor.shape[1]
 
@@ -4814,10 +4763,10 @@ class FoodOptimizer:
                     self.batch_total_text(self.formulation_total)))
             raise ValueError(wording.no_formulation_reaches_total(
                 self.batch_total_text(self.formulation_total)))
-        raise ValueError(
-            "No valid formulations found — your limits may be too restrictive. "
-            "Try widening the allowed amounts or relaxing limits."
-        )
+        # One sentence for a failed Generate, whichever path failed: the
+        # screen used to show this one or wording.GENERATE_FAILED depending
+        # on which internal step gave up, in two registers.
+        raise ValueError(wording.GENERATE_FAILED)
 
     def _cold_start_pool(self, size, bounds_tensor, dim):
         """`size` points of this project's ONE Sobol sequence, decoded, and —
@@ -4898,7 +4847,7 @@ class FoodOptimizer:
         still retires, so no later ask() can hand it out again.
         """
         if not self.objectives:
-            raise ValueError("Add at least one measurement before saving results.")
+            raise ValueError(wording.ADD_A_MEASUREMENT_FIRST)
         kept = {k: v for k, v in results_dict.items() if v is not None}
         if not any(obj['name'] in kept for obj in self.objectives):
             raise ValueError(wording.ENTER_A_MEASUREMENT)
@@ -5073,8 +5022,8 @@ class FoodOptimizer:
         position = next((k for k, s in enumerate(self.skipped)
                          if int(s['formulation']) == int(formulation_no)), None)
         if position is None:
-            raise ValueError(f"Formulation {formulation_no} is not a "
-                             "not-scored formulation of this project.")
+            raise ValueError(
+                wording.formulation_is_not_not_scored(formulation_no))
         row = self.skipped.pop(position)
         try:
             self.tell(dict(row.get('recipe') or {}), results_dict,
@@ -5430,7 +5379,7 @@ class FoodOptimizer:
         for var in self.variables:
             if var['name'] == name:
                 return var
-        raise ValueError(f"No variable named {name!r}.")
+        raise ValueError(wording.no_variable_named(name))
 
     def _fixed_value(self, var):
         """The one amount a fixed variable takes in every formulation."""
@@ -5677,7 +5626,7 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         new_name = str(new_name).strip()
         if not new_name:
-            raise ValueError("Name cannot be empty.")
+            raise ValueError(wording.NAME_REQUIRED_ERROR)
         if new_name == name:
             return name
         if is_reserved_name(new_name):
@@ -5752,9 +5701,7 @@ class FoodOptimizer:
         var = self._var_by_name(name)
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
-                f"'{name}' is a process setting. Use Delete next to the "
-                f"process setting instead."
-            )
+                wording.delete_the_process_setting_instead(name))
         trouble = self._ingredient_delete_refusal(name, force)
         if trouble:
             raise ValueError(trouble)
@@ -6931,7 +6878,7 @@ class FoodOptimizer:
         message suitable for the UI. import_json assigns attributes one by
         one, so validating first is what keeps a bad file from leaving the
         optimizer half-mutated."""
-        bad = "This file is not a Food Optimizer copy."
+        bad = wording.NOT_A_COPY
         if not isinstance(state, dict):
             raise ValueError(bad)
         required = {
@@ -6942,25 +6889,22 @@ class FoodOptimizer:
             raise ValueError(bad)
         for key, typ in required.items():
             if not isinstance(state[key], typ):
-                raise ValueError(f"This copy's '{key}' section has the wrong shape.")
+                raise _damaged(f"'{key}' section has the wrong shape")
         for key in ('variables', 'objectives'):
             for item in state[key]:
                 if not isinstance(item, dict) or not isinstance(item.get('name'), str):
-                    raise ValueError(f"This copy's '{key}' section has the wrong shape.")
+                    raise _damaged(f"'{key}' section has the wrong shape")
         for key in ('recipe_history', 'results_history'):
             for item in state[key]:
                 if not isinstance(item, dict):
-                    raise ValueError(f"This copy's '{key}' section has the wrong shape.")
+                    raise _damaged(f"'{key}' section has the wrong shape")
         version = state.get('CLASS_VERSION')
         if not isinstance(version, int):
             raise ValueError(bad)
         if version > FoodOptimizer.CLASS_VERSION:
-            raise ValueError(
-                "This copy was made with a newer version of Food Optimizer. "
-                "Update the app, then try again."
-            )
+            raise ValueError(wording.COPY_FROM_A_NEWER_VERSION)
         if len(state['recipe_history']) != len(state['results_history']):
-            raise ValueError("This copy is inconsistent: formulations and results differ in count.")
+            raise _damaged("formulations and results differ in count")
         # The 0.3.0 identity lists. They are optional (a 0.2.x file has none),
         # but a present-and-malformed one must be refused here: import_json
         # assigns attributes one by one, so a TypeError raised halfway through
@@ -7008,25 +6952,22 @@ class FoodOptimizer:
             # import_json iterates it and would raise a TypeError halfway
             # through, leaving the optimizer wearing half of a bad backup.
             if not isinstance(state[key], list) or not all(ok(i) for i in state[key]):
-                raise ValueError(f"This copy's '{key}' section has the wrong shape.")
+                raise _damaged(f"'{key}' section has the wrong shape")
         if state.get('next_formulation_no') is not None and not _whole(
                 state['next_formulation_no']):
-            raise ValueError(
-                "This copy's 'next_formulation_no' section has the wrong shape.")
+            raise _damaged("'next_formulation_no' section has the wrong shape")
         # Properties named in the app. A malformed list would reach the
         # property picker and the limits list, so it is refused here.
         names = state.get('property_names')
         if names is not None and (not isinstance(names, list)
                                   or not all(isinstance(n, str) for n in names)):
-            raise ValueError(
-                "This copy's 'property_names' section has the wrong shape.")
+            raise _damaged("'property_names' section has the wrong shape")
         # Where the targets came from: optional, but a present value must be
         # text — import_json would otherwise store a number or a list as the
         # caption the measurements table shows.
         targets_source = state.get('targets_source')
         if targets_source is not None and not isinstance(targets_source, str):
-            raise ValueError(
-                "This copy's 'targets_source' section has the wrong shape.")
+            raise _damaged("'targets_source' section has the wrong shape")
         # The total a batch was made to. A bad one would silently rewrite
         # every amount tab 3 shows for the best formulation.
         def _total(x):
@@ -7035,30 +6976,26 @@ class FoodOptimizer:
 
         open_total = state.get('pending_batch_total')
         if open_total is not None and not _total(open_total):
-            raise ValueError(
-                "This copy's 'pending_batch_total' section has the wrong shape.")
+            raise _damaged("'pending_batch_total' section has the wrong shape")
         # The total every suggested formulation is built to. A bad one would
         # be written straight back out as the limit the next batch is held to.
         project_total = state.get('formulation_total')
         if project_total is not None and not _total(project_total):
-            raise ValueError(
-                "This copy's 'formulation_total' section has the wrong shape.")
+            raise _damaged("'formulation_total' section has the wrong shape")
         totals = state.get('batch_totals')
         if totals is not None and not isinstance(totals, dict):
-            raise ValueError(
-                "This copy's 'batch_totals' section has the wrong shape.")
+            raise _damaged("'batch_totals' section has the wrong shape")
         for key, value in (totals or {}).items():
             # None is a value here: 'this batch was made as generated'.
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
                     or (value is not None and not _total(value)):
-                raise ValueError(
-                    "This copy's 'batch_totals' section has the wrong shape.")
+                raise _damaged("'batch_totals' section has the wrong shape")
         # The lot numbers: {round: {ingredient: lot}}. import_json walks it
         # and would raise halfway through a restore, leaving the optimizer
         # wearing half of a bad copy.
         lots = state.get('lots')
         if lots is not None and not isinstance(lots, dict):
-            raise ValueError("This copy's 'lots' section has the wrong shape.")
+            raise _damaged("'lots' section has the wrong shape")
         # The names the copy's own variable list holds. A lot filed against
         # an ingredient the copy does not have is a lot nothing can ever
         # show: the Lots sheet would print a name the project never had.
@@ -7068,19 +7005,16 @@ class FoodOptimizer:
                     or not isinstance(written, dict) \
                     or not all(isinstance(name, str) and isinstance(lot, str)
                                for name, lot in written.items()):
-                raise ValueError(
-                    "This copy's 'lots' section has the wrong shape.")
+                raise _damaged("'lots' section has the wrong shape")
             if not set(written) <= named:
-                raise ValueError(
-                    "This copy's 'lots' section has the wrong shape.")
+                raise _damaged("'lots' section has the wrong shape")
         pending = state.get('pending_batch')
         if pending is not None and not isinstance(pending, list):
-            raise ValueError("This copy's 'pending_batch' section has the wrong shape.")
+            raise _damaged("'pending_batch' section has the wrong shape")
         for item in pending or []:
             if (isinstance(item, dict) and item.get('formulation') is not None
                     and not _number(item['formulation'])):
-                raise ValueError(
-                    "This copy's 'pending_batch' section has the wrong shape.")
+                raise _damaged("'pending_batch' section has the wrong shape")
         # A formulation's number is permanent and never reissued. A file that
         # numbers two rows the same breaks that for good — index_of_formulation
         # finds only the first, so deleting one leaves the others behind — and
@@ -7094,14 +7028,10 @@ class FoodOptimizer:
         in_batch = [int(r['formulation']) for r in pending or []
                     if isinstance(r, dict) and r.get('formulation') is not None]
         if len(set(stored)) != len(stored) or len(set(in_batch)) != len(in_batch):
-            raise ValueError(
-                "This copy gives two formulations the same number, and a "
-                "formulation number is permanent. It cannot be restored.")
+            raise _damaged("two formulations share one number")
         counter = state.get('next_formulation_no')
         if _whole(counter) and any(n >= counter for n in stored + in_batch):
-            raise ValueError(
-                "This copy holds a formulation number its own counter never "
-                "issued. It cannot be restored.")
+            raise _damaged("a formulation number the counter never issued")
         ingredients = sum(
             1 for v in state['variables']
             if isinstance(v, dict) and v.get('category', 'ingredient') == 'ingredient'

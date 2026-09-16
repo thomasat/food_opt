@@ -159,7 +159,7 @@ class TestVariables:
             "Min": [0, 0],
             "Max": [100, 50],
         })
-        with pytest.raises(ValueError, match="Cannot reload ingredients"):
+        with pytest.raises(ValueError, match="cannot be reloaded"):
             opt.load_ingredients_from_csv(df)
 
     def test_load_csv_min_above_max_raises(self, opt):
@@ -236,7 +236,7 @@ class TestObjectiveValidation:
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="must be between the range"):
+        with pytest.raises(ValueError, match="must be between Lowest measurable"):
             opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
 
     def test_blank_name_rejected(self, tmp_path, monkeypatch):
@@ -661,7 +661,8 @@ class TestPropertyLimitsPerHundred:
 
     def test_set_variable_unit_refuses_a_name_the_project_lacks(self, opt):
         opt = self._fatty(opt)
-        with pytest.raises(ValueError, match="No ingredient or setting named"):
+        with pytest.raises(ValueError,
+                           match="No ingredient or process setting named"):
             opt.set_variable_unit("Nutmeg", "g")
 
     def test_the_stranded_limit_refusals_are_written_per_100_g(self, opt):
@@ -1163,11 +1164,11 @@ class TestValidateState:
         monkeypatch.chdir(tmp_path)
         state = FoodOptimizer("tmp_validate").export_json()
         state["variables"] = "garbage"
-        with pytest.raises(ValueError, match="wrong shape"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
 
     def test_wrong_element_shape_is_rejected(self):
-        with pytest.raises(ValueError, match="wrong shape"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state({
                 "variables": ["Water"], "objectives": [],
                 "recipe_history": [], "results_history": [],
@@ -1191,7 +1192,7 @@ class TestValidateState:
         opt.tell({"Water": 50.0}, {"Taste": 7.0})
         state = opt.export_json()
         state["formulation_ids"] = ["one"]
-        with pytest.raises(ValueError, match="'formulation_ids' section has the wrong shape"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         # The project the restore would have replaced is untouched: the refusal
         # comes before import_json assigns anything.
@@ -1208,7 +1209,7 @@ class TestValidateState:
                          ("next_formulation_no", "seven")):
             state = dict(base)
             state[key] = bad
-            with pytest.raises(ValueError, match=f"'{key}' section has the wrong shape"):
+            with pytest.raises(ValueError, match="damaged"):
                 FoodOptimizer.validate_state(state)
         # Absent is fine: a 0.2.x file has none of these.
         for key in ("formulation_ids", "batch_history", "notes_history",
@@ -1233,7 +1234,7 @@ class TestValidateState:
             state = dict(base)
             state[key] = None
             with pytest.raises(ValueError,
-                               match=f"'{key}' section has the wrong shape"):
+                               match="damaged"):
                 FoodOptimizer.validate_state(state)
 
     def test_a_left_out_formulation_needs_all_four_of_its_fields(
@@ -1257,13 +1258,33 @@ class TestValidateState:
             state = dict(base)
             state["skipped"] = [bad]
             with pytest.raises(ValueError,
-                               match="'skipped' section has the wrong shape"):
+                               match="damaged"):
                 FoodOptimizer.validate_state(state)
         FoodOptimizer.validate_state(dict(base, skipped=[good]))
         # A note is the one field that may be absent: record_skipped always
         # writes one, but a hand-edited file without it still renders.
         FoodOptimizer.validate_state(dict(
             base, skipped=[{k: v for k, v in good.items() if k != "note"}]))
+
+    def test_the_reason_a_copy_was_refused_goes_to_the_log_not_the_screen(
+            self, tmp_path, monkeypatch, caplog):
+        """'This copy\'s \'recipe_history\' section has the wrong shape.'
+        was four of the words the app retired, programmer punctuation and a
+        shape, shown to a food scientist whose saved copy will not open. One
+        sentence reaches them; the field is what an engineer needs."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("tmp_logged")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max")
+        state = opt.export_json()
+        state["recipe_history"] = ["not a formulation"]
+        with caplog.at_level("WARNING"):
+            with pytest.raises(ValueError) as caught:
+                FoodOptimizer.validate_state(state)
+        assert str(caught.value) == wording.COPY_DAMAGED
+        assert "recipe_history" not in str(caught.value)
+        assert any("recipe_history" in record.getMessage()
+                   for record in caplog.records), caplog.records
 
     def test_a_backup_that_repeats_a_formulation_number_is_refused(
             self, tmp_path, monkeypatch):
@@ -1277,20 +1298,20 @@ class TestValidateState:
         opt.tell({"Water": 60.0}, {"Taste": 6.0}, formulation_no=8)
         state = opt.export_json()
         FoodOptimizer.validate_state(state)              # as exported, fine
-        with pytest.raises(ValueError, match="same number"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(dict(state, formulation_ids=[7, 7]))
         # A left-out formulation and a scored one cannot share a number.
         clash = dict(state)
         clash["skipped"] = [{"formulation": 7, "batch": 1, "recipe": {},
                              "note": "Not made"}]
-        with pytest.raises(ValueError, match="same number"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(clash)
         # Neither can one batch, twice over.
         twice = dict(state)
         twice["pending_batch"] = [{"formulation": 9, "recipe": {"Water": 1.0}},
                                   {"formulation": 9, "recipe": {"Water": 2.0}}]
         twice["next_formulation_no"] = 10
-        with pytest.raises(ValueError, match="same number"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(twice)
 
     def test_a_batch_recorded_one_sheet_at_a_time_still_restores(
@@ -1317,13 +1338,13 @@ class TestValidateState:
         opt.add_objective("Taste", 1.0, goal="max")
         opt.tell({"Water": 50.0}, {"Taste": 7.0})
         state = opt.export_json()
-        with pytest.raises(ValueError, match="never issued"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(dict(state, next_formulation_no=1))
         with pytest.raises(ValueError,
-                           match="'formulation_ids' section has the wrong shape"):
+                           match="damaged"):
             FoodOptimizer.validate_state(dict(state, formulation_ids=[0]))
         with pytest.raises(ValueError,
-                           match="'formulation_ids' section has the wrong shape"):
+                           match="damaged"):
             FoodOptimizer.validate_state(dict(state, formulation_ids=[-1]))
 
     def test_summary_of_valid_backup(self, tmp_path, monkeypatch):
@@ -1998,7 +2019,7 @@ class TestFormulationIdentity:
                                                              monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="scoreskipped3")
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1)
-        with pytest.raises(ValueError, match="not-scored"):
+        with pytest.raises(ValueError, match="not waiting to be scored"):
             opt.score_skipped(1, {"Firmness": 5.0})
 
     def test_old_projects_backfill_numbers_on_load(self, tmp_path, monkeypatch):
@@ -2244,19 +2265,22 @@ class TestUnitsAndImportance:
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between the range's "
-                                  "lowest and highest (0 to 10).")
+        assert str(add.value) == ("Target 99 must be between Lowest "
+                                  "measurable and Highest measurable "
+                                  "(0 to 10).")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between the range's "
-                                   "lowest and highest (0 to 10).")
+        assert str(edit.value) == ("Target 99 must be between Lowest "
+                                   "measurable and Highest measurable "
+                                   "(0 to 10).")
 
     def test_a_backwards_range_is_refused_in_the_tab_s_words(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == "Range lowest must be less than range highest."
+        assert str(e.value) == ("Lowest measurable must be less than "
+                                "Highest measurable.")
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3555,7 +3579,7 @@ class TestTheMeasurementsGrid:
             _edit(opt.measurement_grid_frame(), 1,
                   **{wording.TARGET_LABEL: 50.0}))
         assert errors[0][0] == 1
-        assert "must be between the range" in errors[0][1]
+        assert "must be between Lowest measurable" in errors[0][1]
 
     def test_an_added_measurement_takes_its_share_from_the_rest(
             self, tmp_path, monkeypatch):
@@ -4468,6 +4492,46 @@ def test_even_food_bo_may_not_say_batches():
         ("food_bo.py", "batches"), ("food_bo.py", "Batches")]
 
 
+def test_no_refusal_in_food_bo_carries_its_own_sentence():
+    """wording.py's first line says it is every word the user reads. It was
+    not true: seventy-odd `raise ValueError` sites in food_bo.py carried
+    their own prose, which is the mechanism behind the previous cycle's
+    misses — a word drifts there and wording.py never notices, and neither
+    does a reviewer reading wording.py.
+
+    Every refusal the user can reach is now a wording constant or a small
+    wording function, and this is what keeps it that way. A raise may build
+    a sentence out of values (numbers, names, another message); it may not
+    write one.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "food_bo.py").read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Raise) or node.exc is None:
+            continue
+        call = node.exc
+        if not isinstance(call, ast.Call):
+            continue
+        name = getattr(call.func, "id", getattr(call.func, "attr", ""))
+        # ValueError is the refusal the screens catch and print. An
+        # IndexError or a TypeError is a programming mistake: it reaches a
+        # traceback in the log, never a sentence on a screen.
+        if name != "ValueError":
+            continue
+        for inner in ast.walk(call):
+            if not (isinstance(inner, ast.Constant)
+                    and isinstance(inner.value, str)):
+                continue
+            text = inner.value
+            # A stored key, a category, a separator: machinery, not prose.
+            # Prose is what has words in it — a space or a full stop, and a
+            # letter to go with it.
+            if re.search(r"[A-Za-z]", text) and (" " in text or "." in text):
+                offenders.append((node.lineno, text))
+    assert offenders == [], offenders
+
+
 def test_no_old_vocabulary_reaches_the_user_outside_python():
     """Start Here, the two READMEs and the app window's own copy are read by
     the same people, so they follow the same vocabulary."""
@@ -4697,7 +4761,7 @@ class TestPropertiesNamedInTheApp:
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         state['property_names'] = [{"name": "Sodium"}]
-        with pytest.raises(ValueError, match="'property_names' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['property_names'] = None
         # An absent or null list is simply no properties, not a broken file.
@@ -4814,14 +4878,14 @@ class TestTheTotalABatchWasPrintedTo:
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         state['pending_batch_total'] = "big"
-        with pytest.raises(ValueError, match="'pending_batch_total' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['pending_batch_total'] = None
         state['batch_totals'] = [150.0]
-        with pytest.raises(ValueError, match="'batch_totals' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['batch_totals'] = {"2": "big"}
-        with pytest.raises(ValueError, match="'batch_totals' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['batch_totals'] = {"2": 150.0}
         FoodOptimizer.validate_state(state)
@@ -4938,10 +5002,10 @@ class TestWhereTheTargetsComeFrom:
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         state['targets_source'] = 123
-        with pytest.raises(ValueError, match="'targets_source' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['targets_source'] = ["a list"]
-        with pytest.raises(ValueError, match="'targets_source' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
         state['targets_source'] = None
         FoodOptimizer.validate_state(state)
@@ -5167,7 +5231,7 @@ class TestFormulationTotal:
         state = opt.export_json()
         for bad in ("100", 0, -5, True, ["100"]):
             state['formulation_total'] = bad
-            with pytest.raises(ValueError, match="'formulation_total' section"):
+            with pytest.raises(ValueError, match="damaged"):
                 FoodOptimizer.validate_state(state)
         state['formulation_total'] = None
         FoodOptimizer.validate_state(state)
@@ -8190,7 +8254,7 @@ class TestTheLockedWorkbook:
         for broken in ("L-7", {"two": {"Water": "L-7"}}, {"2": "L-7"},
                        {"2": {"Water": 7}}, {"2": {7: "L-7"}}):
             state['lots'] = broken
-            with pytest.raises(ValueError, match="'lots' section"):
+            with pytest.raises(ValueError, match="damaged"):
                 FoodOptimizer.validate_state(state)
 
     def test_the_lots_follow_the_ingredient_list(self, tmp_path, monkeypatch):
@@ -8223,5 +8287,5 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         state['lots'] = {"1": {"Beetroot": "L-9"}}
-        with pytest.raises(ValueError, match="'lots' section"):
+        with pytest.raises(ValueError, match="damaged"):
             FoodOptimizer.validate_state(state)
