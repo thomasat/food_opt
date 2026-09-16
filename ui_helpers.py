@@ -502,7 +502,20 @@ def grid_key(name):
 
 def clear_grid(name):
     """Throw away what has been typed into one editable grid, by turning its
-    key over. Called by Discard changes and by every Save that lands."""
+    key over and forgetting the frame parked for it. Called by Discard
+    changes and by every Save that lands."""
+    rekey_grid(name)
+    unpark_grid(name)
+
+
+def rekey_grid(name):
+    """Turn one grid's key over WITHOUT forgetting what it was holding.
+
+    For the grid the run is about to rerun past without drawing: its own
+    record is gone either way (Streamlit keeps no widget a run did not
+    create), and the frame parked for it is what it opens at next. The key
+    has to move for that frame to be read — see parked_grid.
+    """
     st.session_state[_grid_nonce(name)] = (
         st.session_state.get(_grid_nonce(name), 0) + 1)
 
@@ -553,30 +566,49 @@ def parked_grid_key(name):
     return f"_{name}_parked"
 
 
-def park_grid(name, frame):
-    """Keep one grid's edited frame so the next run can draw it again.
+def park_grid(name, frame, keep_mark=False):
+    """Keep one grid's edited frame, and the key it was typed under, so a
+    rerun the grid was never drawn on does not throw the edit away.
 
     A Save on the grid ABOVE reruns before this one is drawn, and Streamlit
     throws away the session-state entry of every widget a run did not
     create — so without this the other grid's edit is gone and its banner
-    with it, and the tab reports as saved work that never reached the
-    project. The frame is parked on every run the grid is pending; the run
-    that draws it again turns the key over, because the editor's own record
-    is positional and would replay on top of the frame it is now drawn
-    from.
+    with it, and the tab reported as saved work that never reached the
+    project.
+
+    The nonce is parked with the frame because the editor's own record is
+    POSITIONAL, and a frame already holding an added row, drawn again under
+    the same key that record belongs to, would add it a second time. So the
+    frame is only ever read back after the key has turned over — which is
+    exactly when the record is gone.
     """
-    st.session_state[parked_grid_key(name)] = frame
+    parked = st.session_state.get(parked_grid_key(name))
+    # `keep_mark` is the run that drew the grid FROM the park: the frame is
+    # still the only record of the edit, so it keeps the mark that says so.
+    # Re-stamping it with the key it has just been drawn under would have
+    # made it unreadable on the very next run, and the edit would have
+    # lasted exactly one screen.
+    nonce = (parked[0] if keep_mark and parked is not None
+             else st.session_state.get(_grid_nonce(name), 0))
+    st.session_state[parked_grid_key(name)] = (nonce, frame)
 
 
 def parked_grid(name, saved):
-    """The parked frame for `name` if it still fits the project, else None.
+    """The parked frame for `name` when it is the only record of the edit,
+    else None.
 
-    Fits means the same columns: a save elsewhere can add or drop one (the
-    Baseline column arrives with the first recorded formulation), and an
-    edit typed against the old shape is not one this grid can still draw.
+    Two questions. Has the key turned over since it was parked? Until it
+    has, the editor's own record is still live and is what carries the
+    edit. And does the frame still fit the project — the same columns? A
+    save elsewhere can add or drop one (the Baseline column arrives with
+    the first recorded formulation), and an edit typed against the old
+    shape is not one this grid can still draw.
     """
-    frame = st.session_state.get(parked_grid_key(name))
-    if frame is None:
+    parked = st.session_state.get(parked_grid_key(name))
+    if parked is None:
+        return None
+    nonce, frame = parked
+    if nonce >= st.session_state.get(_grid_nonce(name), 0):
         return None
     if list(frame.columns) != list(saved.columns):
         st.session_state.pop(parked_grid_key(name), None)

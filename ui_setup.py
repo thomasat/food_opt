@@ -29,7 +29,7 @@ from food_bo import (
     GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
 )
 from ui_helpers import (
-    COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
+    COPY_KEPT, GRID_KEYS, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
     PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
     armed_confirmation, armed_deletions_key, best_formulation_no,
@@ -38,8 +38,8 @@ from ui_helpers import (
     disarm, flash,
     go_to_tab, number_list, other_confirmation, park_clear, park_grid,
     parked_grid, plural,
-    preserve_tab_forms, readiness, reset_grids, saved_ok, table_height,
-    typed_batch_size, unpark_grid,
+    preserve_tab_forms, readiness, rekey_grid, reset_grids, saved_ok,
+    table_height, typed_batch_size, unpark_grid,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -366,6 +366,29 @@ def _pending(saved, edited):
     return grid_signature(saved) != grid_signature(edited)
 
 
+def _opening_frame(grid, saved):
+    """(what one grid opens holding, whether that came from the park).
+
+    The project, or the edit it was still holding when a rerun went past it
+    without drawing it. Streamlit throws away the session-state entry of
+    every widget a run did not create, so the Save on the grid ABOVE took
+    this one's edit with it — the banner came down, the Save went, and the
+    values on screen were the project's again while the reader believed
+    they had been saved."""
+    parked = parked_grid(grid, saved)
+    return (saved, False) if parked is None else (parked, True)
+
+
+def _keep_pending(grid, pending, edited, from_park):
+    """Park what this grid is holding, or forget it once there is nothing to
+    hold. Called on every run: the run that loses the grid is the run that
+    never reaches it."""
+    if pending:
+        park_grid(grid, edited, keep_mark=from_park)
+    else:
+        unpark_grid(grid)
+
+
 def _grid_errors(slot, key):
     """The refusals a Save left behind, one line per row, under the grid
     they belong to. The row number is the one the grid shows down its left
@@ -400,9 +423,19 @@ def _save_and_discard(key, grid, lit):
     with b2:
         if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard",
                      use_container_width=True):
-            clear_grid(grid)
-            st.rerun()
+            _discard_grid(grid)
     return save
+
+
+def _discard_grid(grid):
+    """Throw one grid's edit away and rerun. The OTHER grid keeps its own:
+    its key turns over so that the frame it parked is what it opens at,
+    because this rerun may never reach it to read its record."""
+    clear_grid(grid)
+    for other in GRID_KEYS:
+        if other != grid:
+            rekey_grid(other)
+    st.rerun()
 
 
 def _variables(opt, storage):
@@ -420,19 +453,22 @@ def _variables(opt, storage):
     st.subheader(wording.VARIABLES_HEADER)
     st.caption(wording.INGREDIENT_GRID_CAPTION)
     saved = opt.ingredient_grid_frame()
+    opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(
-        saved, key=grid_key(ING_GRID_KEY), num_rows="dynamic",
+        opening, key=grid_key(ING_GRID_KEY),
+        num_rows="dynamic",
         column_config=_ingredient_columns(opt, saved),
         use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     slot = st.empty()            # where a refused Save writes its rows
     _grid_errors(slot, _ING_ERRORS)
     pending = _pending(saved, edited)
+    _keep_pending(ING_GRID_KEY, pending, edited, from_park)
     # Read by the grid below, which keeps its own pair of buttons grey while
     # this one has something to save: one coloured button per tab.
     st.session_state[ING_PENDING_KEY] = pending
     if pending:
-        st.caption(wording.UNSAVED_CHANGES_CAPTION)
+        st.caption(wording.unsaved_grid_caption(wording.VARIABLES_HEADER))
         _save_ingredients(opt, storage, edited)
     else:
         # Nothing to save, so nothing to ask about. A question armed over a
@@ -544,8 +580,7 @@ def _discard_beside(key, grid):
     no Yes anywhere to reach."""
     if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard"):
         _disarm_grid_deletion(key)
-        clear_grid(grid)
-        st.rerun()
+        _discard_grid(grid)
 
 
 # What set of rows one grid's deletion question was armed over — one key per
@@ -618,6 +653,11 @@ def _apply_ingredient_grid(opt, edited, force=()):
     for kind, line in messages:
         flash(kind, line)
     clear_grid(ING_GRID_KEY)
+    # This rerun happens ABOVE the measurements grid, so Streamlit is about
+    # to throw its record away. Turning its key over — and keeping what it
+    # parked — is what lets that frame be drawn in its place: the edit, the
+    # banner and the Save all stay where the reader left them.
+    rekey_grid(MEAS_GRID_KEY)
     # The properties grid is drawn ingredient by ingredient, in this same
     # order: a deletion, a rename or a reorder here changes which ingredient
     # sits in a row the properties grid may still be holding a pending edit
@@ -815,15 +855,18 @@ def _measurements(opt, storage):
     st.subheader(wording.MEASUREMENTS_HEADER)
     st.caption(wording.MEASUREMENT_GRID_CAPTION)
     saved = opt.measurement_grid_frame()
+    opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
     edited = st.data_editor(
-        saved, key=grid_key(MEAS_GRID_KEY), num_rows="dynamic",
+        opening, key=grid_key(MEAS_GRID_KEY),
+        num_rows="dynamic",
         column_config=_measurement_columns(), use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     slot = st.empty()
     _grid_errors(slot, _MEAS_ERRORS)
     pending = _pending(saved, edited)
+    _keep_pending(MEAS_GRID_KEY, pending, edited, from_park)
     if pending:
-        st.caption(wording.UNSAVED_CHANGES_CAPTION)
+        st.caption(wording.unsaved_grid_caption(wording.MEASUREMENTS_HEADER))
         _save_measurements(opt, storage, edited, lit=not _ingredients_pending())
     else:
         _disarm_grid_deletion(MEAS_SAVE_KEY)
@@ -1055,7 +1098,8 @@ def _properties(opt, storage):
         slot = st.empty()
         _grid_errors(slot, _PROP_ERRORS)
         if _pending(saved, edited):
-            st.caption(wording.UNSAVED_CHANGES_CAPTION)
+            st.caption(wording.unsaved_grid_caption(
+                wording.PROPERTIES_NAME))
         if st.button(wording.SAVE_PROPERTIES_BUTTON, key="save_properties",
                      disabled=confirmation_open()):
             _apply_property_grid(opt, edited)

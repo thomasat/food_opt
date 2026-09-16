@@ -875,8 +875,14 @@ MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
                             "what each one is worth out of 100.")
 
 DISCARD_CHANGES_BUTTON = "Discard changes"
-UNSAVED_CHANGES_CAPTION = ("These changes are not saved yet. Nothing reaches "
-                           "the project until you save them.")
+def unsaved_grid_caption(heading):
+    """'Ingredients and process settings — not saved yet.'
+
+    Tab 1 has two grids, each with a banner, and one Save does not reach the
+    other: a banner that named neither read as the tab's, so saving one
+    table looked like saving both. The heading is the grid's own, word for
+    word, so the line names something the reader can point at."""
+    return f"{heading} — not saved yet."
 
 
 # `row_error` — 'Row 3: Lowest cannot be above Highest.' — lives further
@@ -923,7 +929,8 @@ def formulations_contain_none_of(names_text):
 # the ingredient's name, which is why "Ingredient" is a name the project
 # cannot also give to an ingredient or a property.
 PROPERTIES_ROW_COLUMN = "Ingredient"
-PROPERTIES_HEADING = "**Properties**"
+PROPERTIES_NAME = "Properties"
+PROPERTIES_HEADING = f"**{PROPERTIES_NAME}**"
 
 
 def properties_grid_caption(per_100_already_said=False):

@@ -3787,6 +3787,51 @@ def test_only_the_topmost_unsaved_grid_lights_its_save(burger):
     assert _grid_save(at, MEAS_GRID).proto.type == "secondary"
 
 
+def test_saving_one_grid_leaves_the_other_s_edit_where_it_was(burger):
+    """The cold reader edited both tables, clicked the Ingredients Save,
+    and watched BOTH banners and both Save buttons go while the
+    Measurements table still showed the 70 they had typed and the project
+    still held 60. Each grid's banner, pending edit and Save are its own."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    ing = {0: {wording.HIGHEST_LABEL: 40.0}}
+    meas = {0: {wording.SHARE_COLUMN: 70.0}}
+    _grid_edits(at, ING_GRID, edited=ing)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    captions = [c.value for c in at.caption]
+    assert "Ingredients and process settings — not saved yet." in captions
+    assert "Measurements and targets — not saved yet." in captions
+    # Save the ingredients only. Its rerun happens above the measurements
+    # grid, so the browser's record for that grid is dropped — the frame it
+    # parked is what has to come back.
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited=ing)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved._var_by_name("Pea protein")["bounds"] == (0.0, 40.0)
+    # The measurements grid still has its edit, its banner and its Save —
+    # and the project has not seen it.
+    captions = [c.value for c in at.caption]
+    assert "Ingredients and process settings — not saved yet." not in captions
+    assert "Measurements and targets — not saved yet." in captions, captions
+    assert list(_grid_frame(at, 1)[wording.SHARE_COLUMN])[0] == 70.0
+    assert saved.share_percents() == {"Firmness": 60, "Juiciness": 40}
+    # One coloured button on the tab: the measurements Save, now that the
+    # grid above it has nothing left to save.
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+    assert _grid_save(at, MEAS_GRID).proto.type == "primary"
+    # And it lands when it is clicked.
+    _grid_save(at, MEAS_GRID).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").share_percents() == {"Firmness": 70,
+                                                        "Juiciness": 30}
+
+
 def test_discard_changes_puts_the_grid_back(burger):
     """Discard turns the grid's key over, which is the only way to drop what
     the browser is holding: a data editor's value cannot be assigned from
@@ -6323,7 +6368,7 @@ def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
         _tab_primaries(at, 0)
     # ...and the line that says nothing is written while typing is still
     # there, so an edit in hand is not a silent one.
-    assert wording.UNSAVED_CHANGES_CAPTION in [
+    assert wording.unsaved_grid_caption(wording.PROPERTIES_NAME) in [
         c.value for c in _more_settings(at).caption]
 
 
