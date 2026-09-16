@@ -6245,10 +6245,15 @@ def test_deleting_an_ingredient_turns_over_the_properties_grid(burger):
     # typed before the deletion: row 0's Cost set to 99. If the properties
     # grid turned over with the ingredients grid, this key belongs to a
     # widget nothing on screen reads any more.
-    at.session_state["property_grid_0"] = {
-        "edited_rows": {0: {"Cost": 99.0}}, "added_rows": [], "deleted_rows": []}
+    stale = {"edited_rows": {0: {"Cost": 99.0}}, "added_rows": [],
+             "deleted_rows": []}
+    at.session_state["property_grid_0"] = stale
     at.run()
     next(b for b in at.button if b.key == "save_properties").click()
+    # AppTest drops widget state it is not handed again on the next run,
+    # so the stale edit is put back for the run that processes the click —
+    # without this line the test passes with or without the fix.
+    at.session_state["property_grid_0"] = stale
     at.run()
     assert not at.exception
     # Methylcellulose is now row 0 of the properties grid. Its own figure
