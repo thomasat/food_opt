@@ -618,6 +618,20 @@ def _file_text(row, column, present=True):
     return str(value).strip()
 
 
+def _file_range(row):
+    """(Lowest, Highest) for a row of an ingredient file that carries a
+    formula: the two cells when both hold numbers, and (0, 0) when either is
+    blank. Dormant either way — a worked-out row's range is not enforced —
+    so a cell that cannot be read is not worth a refusal here."""
+    out = []
+    for column in ('Min', 'Max'):
+        try:
+            out.append(float(_file_text(row, column)))
+        except (TypeError, ValueError):
+            return 0.0, 0.0
+    return out[0], out[1]
+
+
 def _range_from_cells(row):
     """(Lowest, Highest, whether both cells hold something readable) for one
     row of the ingredients grid.
@@ -763,6 +777,37 @@ def _row_moved(spec):
     """True when this row's name is not the one it arrived under — a rename,
     or a row typed on the empty line at the bottom."""
     return spec['id'] is None or spec['id'] != spec['name']
+
+
+def _formula_after_renames(text, renames, spelled):
+    """One formula cell with every name this save is renaming rewritten,
+    and everything else left exactly as it was.
+
+    The cell was typed against the names the project had when it was
+    written, so a rename of a row it names leaves it spelling a row that no
+    longer exists. rename_variable rewrites it after the fact through the
+    same _renamed_in_formula; this is the same answer BEFORE the save, so
+    the grid never refuses an untouched cell for a row the reader can see.
+
+    One rename at a time, each read against the spelling the last one left,
+    which is the order the save writes them in.
+    """
+    for old_name, new_name in renames.items():
+        text = _renamed_in_formula(text, old_name, new_name, spelled)
+        spelled = [new_name if n == old_name else n for n in spelled]
+    return text
+
+
+def _formula_cell_moved(spec):
+    """True when this row's Formula cell says something different from what
+    the project has filed under it — a formula given, changed or rubbed
+    out. A rename written into an untouched cell is not a change, and a new
+    row that arrives without one has not changed anything either."""
+    was = (("", False) if spec['var'] is None
+           else (str(spec['var'].get('formula') or ""),
+                 bool(spec['var'].get('balance'))))
+    return was != (spec.get('formula_typed', spec['formula']),
+                   spec['balance'])
 
 
 def _renames(rows):
@@ -1488,82 +1533,103 @@ class FoodOptimizer:
                 ", ".join(_FILE_COLUMNS[c] for c in missing)))
 
         process_vars = [v for v in self.variables if v.get('category') == 'process']
-        self.variables = []
-        self.ingredient_properties = {}
+        # Kept whole until the file is known to be readable: a refusal
+        # writes nothing, here as everywhere, and a file refused half way
+        # down used to leave the rows it had already read standing.
+        variables_before = self.variables
+        properties_before = self.ingredient_properties
+        try:
+            self.variables = []
+            self.ingredient_properties = {}
 
-        # Formula among them, so a column of formulas is read as what the
-        # grid's own Formula cell holds and never as a property of every
-        # ingredient.
-        standard_cols = {'Name', 'Min', 'Max', 'Type', 'Unit',
-                         wording.FORMULA_LABEL}
-        prop_cols = [c for c in df.columns if c not in standard_cols]
+            # Formula among them, so a column of formulas is read as what the
+            # grid's own Formula cell holds and never as a property of every
+            # ingredient.
+            standard_cols = {'Name', 'Min', 'Max', 'Type', 'Unit',
+                             wording.FORMULA_LABEL}
+            prop_cols = [c for c in df.columns if c not in standard_cols]
 
-        seen_names = set()
-        for i, (_, row) in enumerate(df.iterrows()):
-            raw_name = row.get('Name')
-            name = "" if raw_name is None or (isinstance(raw_name, float) and np.isnan(raw_name)) else str(raw_name).strip()
-            if not name:
-                raise ValueError(wording.file_row_name_blank(i + 2))
-            if name.lower() in seen_names:
-                raise ValueError(
-                    wording.file_row_duplicate_name(i + 2, name))
-            if is_reserved_name(name):
-                raise ValueError(
-                    wording.file_row_reserved_name(i + 2, name))
-            seen_names.add(name.lower())
-            # A formula is data a bench can bring in a file: the cell is
-            # read exactly as the grid's own is, and a row that carries one
-            # has no Lowest and no Highest to fill in.
-            formula = _file_text(row, wording.FORMULA_LABEL,
-                                 wording.FORMULA_LABEL in df.columns)
-            if formula:
-                min_val, max_val = 0.0, 0.0
-            else:
-                try:
-                    min_val, max_val = float(row['Min']), float(row['Max'])
-                except (ValueError, TypeError):
+            seen_names = set()
+            for i, (_, row) in enumerate(df.iterrows()):
+                raw_name = row.get('Name')
+                blank = raw_name is None or (isinstance(raw_name, float)
+                                             and np.isnan(raw_name))
+                name = "" if blank else str(raw_name).strip()
+                if not name:
+                    raise ValueError(wording.file_row_name_blank(i + 2))
+                if name.lower() in seen_names:
                     raise ValueError(
-                        wording.file_amounts_not_numbers(row['Name']))
-                if min_val > max_val:
-                    raise ValueError(wording.file_lowest_above_highest(
-                        name, min_val, max_val))
-            var = {
-                'name': name,
-                'type': 'continuous',
-                'bounds': (min_val, max_val),
-                'category': 'ingredient',
-                'vendor': "",
-                'sku': "",
-                'formula': formula,
-                'balance': formula.lower() == f"= {wording.REST_TOKEN}",
-            }
-            # A blank Unit cell means "the project's default", not a blank
-            # unit: a file listing ml against the water alone should leave
-            # every other row in whatever the project is set to.
-            raw_unit = row.get('Unit') if 'Unit' in df.columns else None
-            if raw_unit is not None and not (isinstance(raw_unit, float)
-                                             and np.isnan(raw_unit)):
-                unit = str(raw_unit).strip()
-                if unit:
-                    var['unit'] = unit
-            self.variables.append(var)
+                        wording.file_row_duplicate_name(i + 2, name))
+                if is_reserved_name(name):
+                    raise ValueError(
+                        wording.file_row_reserved_name(i + 2, name))
+                seen_names.add(name.lower())
+                # A formula is data a bench can bring in a file: the cell is
+                # read exactly as the grid's own is, and a row that carries one
+                # has no Lowest and no Highest to fill in.
+                formula = _file_text(row, wording.FORMULA_LABEL,
+                                     wording.FORMULA_LABEL in df.columns)
+                if formula:
+                    # A worked-out row may still carry a range, dormant: the
+                    # grid shows the word instead of it, and rubbing the
+                    # formula out gives the row its amounts back rather than
+                    # a row pinned at nothing. A file that leaves the two
+                    # cells blank leaves the row with none.
+                    min_val, max_val = _file_range(row)
+                else:
+                    try:
+                        min_val, max_val = float(row['Min']), float(row['Max'])
+                    except (ValueError, TypeError):
+                        raise ValueError(
+                            wording.file_amounts_not_numbers(row['Name']))
+                    if min_val > max_val:
+                        raise ValueError(wording.file_lowest_above_highest(
+                            name, min_val, max_val))
+                var = {
+                    'name': name,
+                    'type': 'continuous',
+                    'bounds': (min_val, max_val),
+                    'category': 'ingredient',
+                    'vendor': "",
+                    'sku': "",
+                    'formula': formula,
+                    'balance': formula.lower() == f"= {wording.REST_TOKEN}",
+                }
+                # A blank Unit cell means "the project's default", not a blank
+                # unit: a file listing ml against the water alone should leave
+                # every other row in whatever the project is set to.
+                raw_unit = row.get('Unit') if 'Unit' in df.columns else None
+                if raw_unit is not None and not (isinstance(raw_unit, float)
+                                                 and np.isnan(raw_unit)):
+                    unit = str(raw_unit).strip()
+                    if unit:
+                        var['unit'] = unit
+                self.variables.append(var)
 
-            props = {}
-            for col in prop_cols:
-                try:
-                    val = float(row[col])
-                    if not pd.isna(val):
-                        # The file's own capitalisation, kept: the picker and
-                        # the limits list show this name, and 'Fat per 100 g'
-                        # lower-cased read as a different column from the one
-                        # the caption above it names. Matching ignores case.
-                        props[str(col).strip()] = val
-                except (ValueError, TypeError):
-                    pass
-            self.ingredient_properties[name] = props
+                props = {}
+                for col in prop_cols:
+                    try:
+                        val = float(row[col])
+                        if not pd.isna(val):
+                            # The file's own capitalisation, kept: the
+                            # picker and the limits list show this name,
+                            # and 'Fat per 100 g' lower-cased read as a
+                            # different column from the one the caption
+                            # above it names. Matching ignores case.
+                            props[str(col).strip()] = val
+                    except (ValueError, TypeError):
+                        pass
+                self.ingredient_properties[name] = props
 
-        self._check_file_formulas()
-        self.variables.extend(process_vars)
+            # The settings go back BEFORE the formulas are read: a formula may
+            # name one, and a project asked about its own rows without them
+            # called them unknown.
+            self.variables.extend(process_vars)
+            self._check_file_formulas()
+        except Exception:
+            self.variables = variables_before
+            self.ingredient_properties = properties_before
+            raise
         # A column of the file is a property of this project from now on, and
         # it keeps its place in the file's own order. A property named in the
         # app earlier stays named: the file replaces the values, not the list.
@@ -6879,17 +6945,26 @@ class FoodOptimizer:
         errors, rows = [], []
         by_id = {v['name']: v for v in self.variables}
         ids_used = set()
-        # The names the finished grid will carry, read before any row is, so
-        # a formula may name a row this same save adds or renames.
-        names = [_text_cell(row, wording.NAME_LABEL)
-                 for _, row in _grid_rows(frame) if not _row_is_blank(row)]
+        # The names the finished grid will carry, and what this save is
+        # renaming — both read before any row is, so a formula may name a
+        # row this same save adds, and an untouched one may still spell a
+        # row it renames.
+        names, renames = [], {}
+        for _, row in _grid_rows(frame):
+            if _row_is_blank(row):
+                continue
+            was, now = _text_cell(row, GRID_ID), _text_cell(row,
+                                                            wording.NAME_LABEL)
+            names.append(now)
+            if was and now and was != now:
+                renames[was] = now
         for row_no, row in _grid_rows(frame):
             if _row_is_blank(row):
                 # The empty line at the bottom of a dynamic grid, clicked and
                 # then left alone. Not an addition, and not an error.
                 continue
             spec, trouble = self._read_ingredient_row(row, by_id, ids_used,
-                                                      names)
+                                                      names, renames)
             if trouble:
                 errors.append((row_no, trouble))
                 continue
@@ -6953,14 +7028,14 @@ class FoodOptimizer:
         balance = [(row_no, spec) for row_no, spec in rows if spec['balance']]
         if len(balance) > 1:
             errors.append((None, wording.ONE_BALANCE_ONLY))
-        if any(spec['formula'] for _, spec in rows):
-            # Changing which rows are searched rebuilds the history, and a
-            # project whose recorded amounts have gone cannot be rebuilt.
-            moved = [spec for _, spec in rows
-                     if spec['var'] is None
-                     or str(spec['var'].get('formula') or "")
-                     != spec['formula']]
-            if moved and self.X_history and (
+        # Changing which rows are searched rebuilds the history, and a
+        # project whose recorded amounts have gone cannot be rebuilt. Either
+        # way round: giving a row a formula takes a column out of the
+        # history, and rubbing one out puts a column back. A row that
+        # arrives with no formula changes nothing about which rows are
+        # searched and owes this nothing.
+        if any(_formula_cell_moved(spec) for _, spec in rows):
+            if self.X_history and (
                     len(self.recipe_history) != len(self.X_history)):
                 errors.append((None, AMOUNTS_MISSING_DELETE_ERROR))
         if errors:
@@ -7031,14 +7106,17 @@ class FoodOptimizer:
                 return self.pending_batch_no
         return None
 
-    def _read_ingredient_row(self, row, by_id, ids_used, names=None):
+    def _read_ingredient_row(self, row, by_id, ids_used, names=None,
+                             renames=None):
         """One row of the grid as a plain dict, or (None, why it cannot be
         saved). Every refusal here is about this row on its own.
 
         `names` are the names the FINISHED grid will carry, so a formula may
         read a row this same save is adding or renaming. Without them a
         formula naming a row typed on the line above would be refused for a
-        row the reader can see."""
+        row the reader can see. `renames` is what this save is renaming: a
+        cell nobody typed into still spells the row the way the project did
+        when it was written, and is rewritten before it is read."""
         row_id = _text_cell(row, GRID_ID)
         var = by_id.get(row_id)
         if var is not None:
@@ -7053,7 +7131,15 @@ class FoodOptimizer:
         # The formula first, because it decides whether the two cells after
         # it are read at all: a row that is worked out has no Lowest and no
         # Highest of its own.
-        formula = _text_cell(row, wording.FORMULA_LABEL)
+        typed = _text_cell(row, wording.FORMULA_LABEL)
+        formula = typed
+        if (typed and renames and var is not None
+                and typed == str(var.get('formula') or "")):
+            # Untouched: the reader renamed a row this formula names and
+            # left the formula alone, which is the rename meaning exactly
+            # what it says. The cell follows the name.
+            formula = _formula_after_renames(
+                typed, renames, [v['name'] for v in self.variables])
         form = None
         if formula:
             if category == 'process':
@@ -7074,15 +7160,16 @@ class FoodOptimizer:
             if form.rest and not self.has_formulation_total():
                 return None, wording.FORMULA_NEEDS_BATCH_SIZE
         low, high, range_ok = _range_from_cells(row)
-        if not range_ok:
-            return None, wording.NUMBER_REQUIRED_ERROR
         kept = None if var is None else tuple(float(b) for b in var['bounds'])
         if formula:
-            # Not enforced anywhere and not read back: the row's amount is
-            # whatever its formula makes it. It keeps the range it had, so
-            # clearing the formula gives the row its amounts back.
+            # Not read at all, whatever they hold: the row's amount is its
+            # formula, and the two cells are rewritten to the word on the
+            # next render. It keeps the range it had, so clearing the
+            # formula gives the row its amounts back.
             low, high = (0.0, 0.0) if kept is None else kept
         else:
+            if not range_ok:
+                return None, wording.NUMBER_REQUIRED_ERROR
             if kept is not None and self.has_formula(var):
                 # The formula has just been rubbed out, and the two cells
                 # still read the word the app wrote into them. That is not
@@ -7138,6 +7225,10 @@ class FoodOptimizer:
             'name': name, 'category': category, 'low': low, 'high': high,
             'unit': unit, 'vendor': vendor, 'sku': sku, 'baseline': baseline,
             'baseline_moved': moved, 'formula': formula,
+            # What the CELL holds, before the renames were written into it.
+            # A rename is not an edit: the row keeps the open round, and the
+            # history is not rebuilt for a spelling.
+            'formula_typed': typed,
             'balance': bool(form is not None and form.rest),
         }, None
 
@@ -7359,8 +7450,8 @@ class FoodOptimizer:
                     else float(spec['baseline']))
         return (spec['name'], spec['category'],
                 (float(spec['low']), float(spec['high'])), spec['unit'],
-                spec['vendor'], spec['sku'], baseline, spec['formula'],
-                spec['balance'])
+                spec['vendor'], spec['sku'], baseline,
+                spec.get('formula_typed', spec['formula']), spec['balance'])
 
     def _row_state(self, var):
         """Everything one row of the grid says about a variable, as one

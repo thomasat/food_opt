@@ -9336,3 +9336,146 @@ class TestFormulasOnTheSheets:
         amount = page.cell(row=row, column=3)
         assert amount.value == 51.0
         assert amount.protection.locked
+
+
+class TestTheFormulaColumnFixes:
+    """Fix round 1 on the Formula column. Four of these are the same
+    mistake wearing different clothes: a formula cell is TEXT, and text
+    that nobody typed into is not text that changed."""
+
+    def _opt(self, tmp_path, monkeypatch, name="formula_fixes"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_ingredient("Pea protein", 10, 25)
+        opt.add_ingredient("Salt", 0, 3)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(50)
+        return opt
+
+    @staticmethod
+    def _formula(frame, row, text):
+        return _edit(frame, row, **{wording.FORMULA_LABEL: text})
+
+    def test_a_rename_leaves_an_untouched_formula_alone_on_the_grid(
+            self, tmp_path, monkeypatch):
+        """The row the formula names is renamed; the formula cell is never
+        touched. rename_variable already rewrites the name inside it — the
+        grid was reading the old spelling against the new names and calling
+        the reader's own row unknown."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= batch size − Pea protein − Salt")
+        opt.add_to_pending_batch({"Pea protein": 20.0, "Salt": 2.0})
+        frame = _edit(opt.ingredient_grid_frame(), 3,
+                      **{wording.NAME_LABEL: "Sea salt"})
+        # A rename is a rename, whoever names the row: the open round stays.
+        assert opt.ingredient_grid_retires_round(frame) is None
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt._var_by_name("Water")['formula'] == \
+            "= batch size − Pea protein − Sea salt"
+        assert opt.pending_batch_no is not None
+        assert opt.fill_formulas({"Pea protein": 20.0, "Sea salt": 2.0}) == {
+            "Pea protein": 20.0, "Sea salt": 2.0, "Water": 28.0}
+
+    def test_clearing_a_formula_needs_the_amounts_too(self, tmp_path,
+                                                      monkeypatch):
+        """Giving a row a formula rebuilds the history and taking one away
+        rebuilds it just as hard. The gate asked only about the rows that
+        HAVE one, so the last formula could be rubbed out over a project
+        whose recorded amounts have gone — and the history came back
+        narrower than the rows it is read against."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= rest")
+        opt.tell({"Pea protein": 20.0, "Salt": 2.0, "Water": 28.0},
+                 {"Taste": 6.0})
+        opt.recipe_history = []
+        errors, _ = opt.apply_ingredient_grid(
+            self._formula(opt.ingredient_grid_frame(), 1, ""))
+        assert errors == [(None, wording.AMOUNTS_MISSING_DELETE_ERROR)]
+        assert opt.has_formula(opt._var_by_name("Water")) is True
+        assert len(opt.X_history[0]) == len(opt.varying_variables())
+
+    def test_adding_a_plain_row_does_not_ask_for_the_amounts(self, tmp_path,
+                                                             monkeypatch):
+        """A row that arrives with no formula changes nothing about which
+        rows are searched, so it owes the formula gate nothing. It was
+        counted as a change because it had no `var` to compare with."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= rest")
+        opt.tell({"Pea protein": 20.0, "Salt": 2.0, "Water": 28.0},
+                 {"Taste": 6.0})
+        opt.recipe_history = []
+        errors, _ = opt._plan_ingredient_grid(
+            _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0)))
+        assert errors == []
+
+    def test_a_worked_out_rows_range_cells_are_ignored_whatever_they_hold(
+            self, tmp_path, monkeypatch):
+        """Ignored means ignored: the row's amount is its formula, so a
+        word left in the cell beside it is not a number the reader owes."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= rest")
+        errors, _ = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 1,
+            **{wording.LOWEST_LABEL: "about a cup",
+               wording.HIGHEST_LABEL: wording.WORKED_OUT}))
+        assert errors == []
+        assert opt._var_by_name("Water")['bounds'] == (20.0, 60.0)
+
+    def test_a_file_formula_may_name_a_process_setting(self, tmp_path,
+                                                       monkeypatch):
+        """The settings are put back after the ingredients are read, so a
+        formula checked before that read its own project as not having
+        them."""
+        opt = self._opt(tmp_path, monkeypatch, name="file_setting")
+        opt.add_process_parameter("Oven", 150, 200, unit="°C")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Glaze"], "Lowest": [10, 0],
+            "Highest": [50, 0], "Unit": ["g", "g"],
+            "Formula": [None, "= 0.1 × Oven"]}))
+        assert opt._var_by_name("Glaze")['formula'] == "= 0.1 × Oven"
+        assert opt.fill_formulas({"Flour": 20.0, "Oven": 180.0})["Glaze"] == \
+            pytest.approx(18.0)
+
+    def test_a_refused_file_leaves_the_ingredients_alone(self, tmp_path,
+                                                         monkeypatch):
+        """A refusal writes nothing, here as everywhere. The list was
+        emptied and refilled before the formulas were read, so a file
+        refused for two balance rows left them standing."""
+        opt = self._opt(tmp_path, monkeypatch, name="file_refused")
+        before = [dict(v) for v in opt.variables]
+        with pytest.raises(ValueError) as refused:
+            opt.load_ingredients_from_csv(pd.DataFrame({
+                "Name": ["Flour", "Water"], "Lowest": [10, None],
+                "Highest": [50, None], "Unit": ["g", "g"],
+                "Formula": ["= rest", "= rest"]}))
+        assert str(refused.value) == wording.ONE_BALANCE_ONLY
+        assert opt.variables == before
+
+    def test_the_samples_water_keeps_the_range_its_formula_covers(
+            self, tmp_path, monkeypatch):
+        """A worked-out row may carry a dormant range: the grid shows the
+        word, and rubbing the formula out gives the row its amounts back
+        rather than a row pinned at nothing."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("sample_range", robust=False)
+        opt.set_amount_unit("g")
+        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+        opt.set_formulation_total(100.0)
+        water = opt._var_by_name("Water")
+        assert water['balance'] is True
+        assert water['bounds'] == (30.0, 70.0)
+        frame = opt.ingredient_grid_frame()
+        row = frame[frame[wording.NAME_LABEL] == "Water"].iloc[0]
+        assert row[wording.LOWEST_LABEL] == wording.WORKED_OUT
+        errors, _ = opt.apply_ingredient_grid(_edit(
+            frame, 8, **{wording.FORMULA_LABEL: ""}))
+        assert errors == []
+        back = opt.ingredient_grid_frame()
+        row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
+        assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \
+            ("30.00", "70.00")
