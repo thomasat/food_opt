@@ -5357,7 +5357,8 @@ class TestWhatEachFormulationIsTrying:
         # fraction of are the project's own: 52 g against 40 g is still close.
         assert cell == ("Close to the best · Water +6.67 g, "
                         "Wheat gluten −6.67 g"), cell
-        assert df["Water (g)"].iloc[0] == pytest.approx(86.666666, rel=1e-5)
+        # The frame itself carries the two decimals the screen shows.
+        assert df["Water (g)"].iloc[0] == 86.67
 
     def test_the_settings_are_counted_apart_from_the_amounts(self, tmp_path,
                                                              monkeypatch):

@@ -5,6 +5,7 @@ bug where the backend raises a clean ValueError but the UI fails to catch it
 and shows the user a raw traceback.
 """
 
+import datetime as _dt
 import html
 import io
 import json
@@ -6955,7 +6956,7 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     picker = at.selectbox(key="delete_whole_batch")
-    assert picker.label == "Add a whole round to the list"
+    assert picker.label == "Select a whole round for deletion"
     assert picker.proto.placeholder == "Choose a round"
 
 
@@ -7376,6 +7377,53 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
         [c.value for c in at.caption]
 
 
+def test_every_amount_on_the_round_table_is_two_decimals(open_batch):
+    """A balance reads to two decimals, and the Excel sheet printed 21.74
+    while the screen printed 18.11529942207362 and a Total (g) of
+    250.00000000000003 beside it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert not at.exception
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    for column in ("Pea protein (g)", "Methylcellulose (g)", "Total (g)"):
+        for value in table[column]:
+            assert float(value) == round(float(value), 2), (column, value)
+    # 250/11 and its neighbours: the long fractions are where it showed.
+    assert list(table["Pea protein (g)"]) == [22.73, 22.73]
+    assert list(table["Total (g)"]) == [25.0, 25.0]
+
+
+def test_the_next_round_says_it_is_back_at_the_default_size(burger):
+    """A size typed for one round belongs to that round. Round 2 went back
+    to the default with nothing said, while the tab next door still quoted
+    120 g: four numbers, one question."""
+    burger.set_formulation_total(20.0)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=1)
+    burger.scale_round(25.0)
+    burger.tell(burger.pending_batch[0]['recipe'],
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch(None)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    assert any(c.value == ("Round 2 uses the default batch size, 20 g. "
+                           "Round 1 was 25 g.")
+               for c in at.caption), [c.value for c in at.caption]
+    # And nothing to say once this round has a size of its own.
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert not any("uses the default batch size" in c.value
+                   for c in at.caption), [c.value for c in at.caption]
+
+
 def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     """The app printed round sheets for 250 g directly under a line saying
     250 g was impossible, and the bench would have been sent out to weigh
@@ -7581,6 +7629,55 @@ def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
     assert not at.exception
     assert at.session_state["own_Pea protein"] == 10.0
     assert at.session_state["own_Methylcellulose"] == 1.0
+
+
+def test_start_from_the_best_says_its_own_amounts_are_outside(burger):
+    """The worst five seconds of the cold read: the app typed the amounts
+    into the boxes itself and then told the reader off for them. The form
+    says it once, before Add, and adding is still allowed."""
+    burger.tell({"Pea protein": 22.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    # Today's allowed amounts are narrower than the day that was made on.
+    burger.add_ingredient("Pea protein", 0, 20)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.START_FROM_BEST).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["own_Pea protein"] == 22.0
+    said = [c.value for c in at.caption if "outside today's" in c.value]
+    assert said == ["Formulation 1 was made at amounts outside today's "
+                    "Lowest and Highest. You can still add it as typed."], \
+        [c.value for c in at.caption]
+    # Adding it is allowed, and the app does not then tell the reader off
+    # for the numbers it typed itself.
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert len(FoodOptimizer("burger").pending_batch) == 2
+    assert not [w.value for w in at.warning
+                if "Pea protein" in w.value], [w.value for w in at.warning]
+
+
+def test_an_amount_typed_by_hand_outside_the_allowed_ones_still_cautions(
+        open_batch):
+    """The caption is for the amounts the app typed. One the reader typed
+    themselves keeps the caution it always had."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(40.0)
+    at.number_input(key="own_Methylcellulose").set_value(1.0)
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning
+            if "Pea protein" in w.value], [w.value for w in at.warning]
 
 
 def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
@@ -8971,9 +9068,64 @@ def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
 
 def test_the_copy_sentence_points_somewhere_the_reader_can_reach(scored):
     """"Open a saved copy can bring it back" was ungrammatical and named no
-    control the reader could find."""
+    control the reader could find. It now names the heading the app's own
+    copies are listed under, which is where one is opened from."""
     assert wording.COPY_KEPT == ("A copy is saved first. To bring it back, "
-                                 "use Open a saved copy in the sidebar.")
+                                 "use Saved copies in the sidebar.")
+
+
+def test_saving_a_copy_says_where_it_went(burger):
+    """A download is the one action in the app that leaves no mark: the
+    reader clicked and nothing moved, under a heading promising a list."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY)
+    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    # AppTest cannot click a download button — it arrives as an
+    # UnknownElement — so what its on_click leaves behind is set here, and
+    # the line it is read for is what this pins.
+    name = f"burger copy {_dt.datetime.now():%Y-%m-%d}.json"
+    at.session_state["_copy_downloaded"] = name
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.sidebar.caption
+            if "Downloads folder" in c.value]
+    assert said == [f"Saved as '{name}' in your Downloads folder."], said
+    # Said once: the next run has nothing to report.
+    at.run()
+    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+
+
+def test_the_apps_own_copies_are_listed_and_open_from_the_sidebar(burger,
+                                                                  tmp_path):
+    """Every destructive confirmation promises a copy. Those copies were
+    files in the project folder that nothing on screen ever named, under a
+    heading that promises a list."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    storage_backend.LocalStorage().archive("burger", "pre_delete", copy=True)
+    burger.delete_formulation(1)
+    assert FoodOptimizer("burger").formulation_ids == []
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert not at.exception
+    listed = [c.value for c in at.sidebar.caption
+              if c.value.startswith("Before a deletion · ")]
+    assert len(listed) == 1, [c.value for c in at.sidebar.caption]
+    assert " · today " in listed[0], listed[0]
+    # Open sends it through the same preview and Yes, replace a copy of the
+    # reader's own goes through.
+    next(b for b in at.sidebar.button
+         if b.key == "open_copy_burger_pre_delete").click()
+    at.run()
+    assert any("1 formulation" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    _submit_button(at.sidebar, wording.YES_REPLACE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").formulation_ids == [1]
 
 
 def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,

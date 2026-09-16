@@ -40,7 +40,7 @@ from ui_helpers import (                      # noqa: E402
     confirm_action, confirmation_open, drain_clears,
     flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
-    render_flash, reset_grids, saved_line, saved_ok, take_clear,
+    copy_when, render_flash, reset_grids, saved_line, saved_ok, take_clear,
 )
 
 if _starting is not None:
@@ -265,6 +265,56 @@ def _open_sample_project():
             _open_project(_name, made=_existing is None)
 
 
+def _safety_copies(opt):
+    """The copies the app made for itself, offered back.
+
+    They were files named `burger_pre_edit` in the project folder, which
+    nothing on screen ever mentioned — under a heading that promises a list
+    — while the sentence beside every destructive button said a copy had
+    been kept. Each is named for what it was taken before, and Open sends
+    it through the same preview and Yes, replace that a copy of the
+    reader's own goes through.
+    """
+    try:
+        archives = STORAGE.list_archives()
+    except storage_backend.StorageError:
+        return
+    prefix = f"{opt.project_name}_"
+    mine = []
+    for name in archives:
+        if not name.startswith(prefix):
+            continue
+        match = storage_backend.ARCHIVE_SUFFIX_RE.search(name)
+        reason = wording.SAFETY_COPY_REASONS.get(match.group(1)) if match else None
+        if reason is None:
+            continue
+        when = STORAGE.saved_at(name)
+        mine.append((when, name, reason))
+    if not mine:
+        return
+    st.caption(wording.SAFETY_COPIES_CAPTION)
+    # Newest first: the copy somebody wants back is nearly always the last
+    # one the app took.
+    for when, name, reason in sorted(
+            mine, key=lambda row: row[0] or datetime.min.astimezone(),
+            reverse=True):
+        line, button = st.columns([3, 1])
+        line.caption(wording.safety_copy_line(
+            reason, copy_when(when) if when is not None else ""))
+        if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
+            try:
+                state = STORAGE.load(name)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if state is None:
+                    st.error(wording.COPY_UNREADABLE)
+                else:
+                    st.session_state["_restore_candidate"] = state
+                    preserve_tab_forms()
+                    st.rerun()
+
+
 def _held(opt):
     """Every formulation the project holds: scored, and left out. A left-out
     formulation keeps its number and its amounts, so a warning that counts
@@ -399,12 +449,25 @@ with st.sidebar:
             # would be an empty file wearing the project's name.
             st.caption(wording.COPY_UNAVAILABLE)
         else:
+            _copy_name = (f"{opt.project_name} copy "
+                          f"{datetime.now():%Y-%m-%d}.json")
             st.download_button(
                 wording.SAVE_A_COPY,
                 data=json.dumps(opt.export_json(), indent=2),
-                file_name=f"{opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
+                file_name=_copy_name,
                 mime="application/json",
+                # A download is the one action in the app that leaves no
+                # mark: the reader clicked and nothing moved. The click sets
+                # a flag and the line below shows on the next run, because
+                # this one has already handed the browser the file.
+                on_click=lambda name=_copy_name: st.session_state.__setitem__(
+                    "_copy_downloaded", name),
             )
+            _downloaded = st.session_state.pop("_copy_downloaded", None)
+            if _downloaded:
+                st.caption(wording.copy_downloaded(_downloaded))
+
+        _safety_copies(opt)
 
         # Any file name: what is inside decides, not the extension.
         uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")

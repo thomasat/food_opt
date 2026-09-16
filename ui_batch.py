@@ -116,6 +116,33 @@ def _seed_batch_size(opt):
         st.session_state[_BATCH_SIZE_KEY] = float(size)
 
 
+def _previous_size_line(opt):
+    """The line this round owes the last one when it is not being made to
+    the same size, or "" when there is nothing to say.
+
+    Only for a round with no size of its own: one the bench has re-sized is
+    at a number the bench typed, and saying where it came from is telling
+    them what they just did. A size belongs to the round it was typed for,
+    and the next round starts at the project's default — silently, until
+    now, with the old number still on the tab next door.
+    """
+    if getattr(opt, 'pending_batch_total', None) is not None:
+        return ""
+    size = opt.open_round_size()
+    no = opt.pending_batch_no
+    if size is None or no is None:
+        return ""
+    previous = opt.last_batch_no()
+    if previous is None:
+        return ""
+    was = opt.batch_total(previous)
+    if was is None or abs(float(was) - float(size)) < 1e-9:
+        return ""
+    return wording.round_uses_the_default_size(
+        no, opt.batch_total_text(size), previous,
+        opt.batch_total_text(was))
+
+
 def _unreachable(opt, typed):
     """Why this size cannot be made, or "" when it can.
 
@@ -264,6 +291,14 @@ def _own_recipe(opt):
     return recipe
 
 
+# What `Start from the best so far` typed into the boxes, and which
+# formulation it came from. Kept so the form can say, before Add, that the
+# app's own numbers sit outside today's allowed amounts — and so that being
+# told off for them afterwards is not the first the reader hears of it.
+_PREFILLED_FROM = "_own_prefilled_from"
+_PREFILLED_AMOUNTS = "_own_prefilled_amounts"
+
+
 def _clear_own(opt):
     """Empty the form for the next one. Popping a widget key does not reach
     the browser — the mounted box posts its old value straight back — so each
@@ -271,6 +306,8 @@ def _clear_own(opt):
     for var in opt.varying_variables():
         park_clear(_own_key(var['name']), None)
     park_clear("own_note", "")
+    st.session_state.pop(_PREFILLED_FROM, None)
+    st.session_state.pop(_PREFILLED_AMOUNTS, None)
 
 
 def _start_from_best(opt, best_no):
@@ -282,14 +319,20 @@ def _start_from_best(opt, best_no):
     if index is None:
         return
     recipe = opt.recipe_history[index]
+    prefilled = {}
     for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount
         # in it. Its box opens EMPTY rather than at zero: zero is an amount
         # the user never chose, and Add refuses a blank, which is the ask.
         recorded = recipe.get(var['name'])
-        park_clear(_own_key(var['name']),
-                   None if recorded is None else float(recorded))
+        # To the precision a balance works to, like every other amount on
+        # screen: the boxes opened at 21.738359306488338.
+        value = None if recorded is None else round(float(recorded), 2)
+        prefilled[var['name']] = value
+        park_clear(_own_key(var['name']), value)
     park_clear("own_note", wording.repeat_of_formulation(best_no))
+    st.session_state[_PREFILLED_FROM] = int(best_no)
+    st.session_state[_PREFILLED_AMOUNTS] = prefilled
     st.rerun()
 
 
@@ -306,8 +349,11 @@ def _add_own(opt):
         return
     # A caution, never a refusal: an amount outside what the project allows is
     # still a formulation the user means to make, and the model learns from it.
-    cautions = [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
-                            for v in opt.varying_variables()) if c]
+    # Not said twice, though: amounts the app typed into the boxes itself have
+    # already been said once, in the form, before Add was pressed.
+    cautions = ([] if _prefilled_unchanged(opt) else
+                [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
+                             for v in opt.varying_variables()) if c])
     _clear_own(opt)
     flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
     for caution in cautions:
@@ -338,12 +384,17 @@ def _own_formulation(opt):
             st.session_state.setdefault(_own_key(var['name']), None)
             # The batch table's own header, so the box asks for the amount in
             # the unit the table beneath it prints: `Pea protein (g)`, and a
-            # cook temperature in °C rather than in nothing at all.
+            # cook temperature in °C rather than in nothing at all. An amount
+            # reads to two decimals, as it does in every table and on every
+            # sheet; a setting is dialled in and keeps its own.
             st.number_input(
                 opt._amount_column(var['name']),
                 placeholder=amount_range_placeholder(low, high),
                 key=_own_key(var['name']),
+                **({} if var.get('category') == 'process'
+                   else {"format": "%.2f"}),
             )
+        _prefilled_caption(opt)
         st.session_state.setdefault("own_note", "")
         # The note is why this formulation is worth a place in the batch; it
         # rides onto the table, the sheet and the stored result.
@@ -367,6 +418,39 @@ def _own_formulation(opt):
                                 use_container_width=True)
         if add:
             _add_own(opt)
+
+
+def _prefilled_unchanged(opt):
+    """True while the boxes still hold exactly what Start from the best so
+    far typed into them. A number the reader has since changed is theirs,
+    and the caution on the way in belongs to it."""
+    prefilled = st.session_state.get(_PREFILLED_AMOUNTS)
+    if not prefilled:
+        return False
+    for var in opt.varying_variables():
+        held = st.session_state.get(_own_key(var['name']))
+        want = prefilled.get(var['name'])
+        if (held is None) != (want is None):
+            return False
+        if held is not None and round(float(held), 2) != round(float(want), 2):
+            return False
+    return True
+
+
+def _prefilled_caption(opt):
+    """The one line the form owes amounts the app typed into it that today's
+    Lowest and Highest no longer allow. Said here, before Add, rather than
+    as a warning after it: the reader was told off for numbers they had not
+    chosen."""
+    no = st.session_state.get(_PREFILLED_FROM)
+    if no is None or not _prefilled_unchanged(opt):
+        return
+    outside = any(bounds_caution(opt, var['name'],
+                                 st.session_state.get(_own_key(var['name'])))
+                  for var in opt.varying_variables()
+                  if st.session_state.get(_own_key(var['name'])) is not None)
+    if outside:
+        st.caption(wording.prefilled_outside_caption(no))
 
 
 def _amount_format(opt, frame):
@@ -468,6 +552,9 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
         key=_BATCH_SIZE_KEY,
         help=wording.BATCH_SIZE_HELP,
     )
+    line = _previous_size_line(opt)
+    if line:
+        st.caption(line)
     # The refusal the size earned, worked out where the size is applied so
     # that the sentence on screen and the round on disk can never disagree:
     # the round was NOT made to this size, and the table, the download and

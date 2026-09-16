@@ -331,6 +331,14 @@ def saved_line(saved_at):
     return wording.saved_line(when)
 
 
+def copy_when(saved_at):
+    """When one saved copy was made, for the line that offers it back:
+    'today 21:58', or '12 Sep 21:58' once it is not today's."""
+    now = datetime.now().astimezone()
+    return wording.copy_when(f"{saved_at:%H:%M}",
+                             today=saved_at.date() == now.date())
+
+
 def clear_selection(key):
     """Ask for a select box to be emptied on the NEXT run.
 

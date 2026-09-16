@@ -1837,11 +1837,15 @@ class FoodOptimizer:
         return f"Total ({unit})" if unit else "Total"
 
     def _total_cell(self, recipe):
-        """What goes in that column: a number while there is one unit (the
-        screen rounds it itself), the written-out per-unit total otherwise."""
+        """What goes in that column: a number while there is one unit, the
+        written-out per-unit total otherwise.
+
+        Rounded to the two decimals every amount on screen and on paper is
+        written to. Left raw it read `250.00000000000003` — a sum of
+        rounded-looking numbers that was not the number underneath them."""
         if self.one_amount_unit() is None:
             return self.total_text(recipe)
-        return self.ingredient_total(recipe)
+        return round(float(self.ingredient_total(recipe)), 2)
 
     def update_objective(self, name, /, **fields):
         """Change a measurement in place. Its name is fixed (renaming would
@@ -2436,9 +2440,14 @@ class FoodOptimizer:
             own = bool(row.get('note'))
             recipe, _ = self.shown_recipe(row, scale_to)
             item = {"Formulation": int(row['formulation'])}
+            # Rounded in the FRAME, not only in the formatting: the reader
+            # met 18.11529942207362 and a Total (g) of 250.00000000000003 on
+            # the screen the bench weighs from, and a balance reads to two
+            # decimals. A process setting keeps its own precision — it is
+            # dialled in, not weighed.
             for var in ingredients:
-                item[self._amount_column(var['name'])] = float(
-                    recipe.get(var['name'], 0.0))
+                item[self._amount_column(var['name'])] = round(float(
+                    recipe.get(var['name'], 0.0)), 2)
             if total_col is not None:
                 item[total_col] = self._total_cell(recipe)
             for var in process:

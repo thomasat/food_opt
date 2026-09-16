@@ -62,8 +62,8 @@ TAB_RESULTS = "3 · Results"
 # Archived copies are written beside the project's own file, which on the
 # desktop app is the FoodOptimizer folder. Every tab and the sidebar use it,
 # so the sentence exists once.
-COPY_KEPT = ("A copy is saved first. To bring it back, use Open a saved "
-             "copy in the sidebar.")
+COPY_KEPT = ("A copy is saved first. To bring it back, use Saved copies "
+             "in the sidebar.")
 
 NAME_RULE = "Up to 64 characters. Start with a letter or a number."
 
@@ -201,7 +201,60 @@ OPEN_A_SAVED_COPY = "Open a saved copy"
 OPEN_SAVED_COPY_CAPTION = ("A copy you saved yourself, or one the app saved "
                            "before a change. The current project is copied "
                            "first.")
-CHECK_THIS_COPY = "Check this copy"
+CHECK_THIS_COPY = "Open this copy"
+
+# The copies the app makes for itself, before a change that cannot be
+# undone. They were files in the project folder with names like
+# `burger_pre_edit` that nothing on screen ever mentioned, under a heading
+# promising a list — so each is named here for what it was taken before.
+SAFETY_COPIES_CAPTION = "Copies this app made before a change:"
+SAFETY_COPY_REASONS = {
+    'pre_edit': "Before an edit to a recorded result",
+    'pre_delete': "Before a deletion",
+    'pre_restore': "Before opening a saved copy",
+    'archived': "Before starting this project over",
+    'deleted': "Before deleting the project",
+    # Two labels no version writes any more; a folder that met an earlier
+    # one still holds them, and a copy with no name is a copy nobody dares
+    # open.
+    'pre_rewind': "Before a change to what was recorded",
+    'pre_undo': "Before a change to what was recorded",
+}
+OPEN_SAFETY_COPY = "Open"
+
+
+def copy_when(clock, today=True):
+    """'today 21:58', or '12 Sep 21:58' for a copy made on another day. The
+    caller has already written the clock; the word for the day is here."""
+    return f"today {clock}" if today else clock
+
+
+def safety_copy_line(reason, when):
+    """'Before an edit to a recorded result · today 21:58'."""
+    return f"{reason} · {when}"
+
+
+def prefilled_outside_caption(no):
+    """'Formulation 4 was made at amounts outside today's Lowest and
+    Highest. You can still add it as typed.'
+
+    Start from the best so far types the amounts into the boxes itself, and
+    the project's allowed amounts may have moved since that formulation was
+    made. Being told off for numbers the app had just written was the worst
+    five seconds of the cold read; the form says it plainly, before Add, and
+    adding is still allowed."""
+    return (f"{FORMULATION_CAP} {no} was made at amounts outside today's "
+            f"{LOWEST_LABEL} and {HIGHEST_LABEL}. You can still add it as "
+            "typed.")
+
+
+def copy_downloaded(file_name):
+    """'Saved as "burger copy 2026-09-15.json" in your Downloads folder.'
+
+    A download is the one action in the app that leaves no mark on the
+    screen: the reader clicked, nothing moved, and the heading above it
+    promises a list they could not see themselves in."""
+    return f"Saved as '{file_name}' in your Downloads folder."
 COPY_UNREADABLE = (
     "This file could not be read as a Food Optimizer copy. "
     "If you have another copy, try that one; recent copies are "
@@ -1307,6 +1360,17 @@ def no_formulation_reaches_total(total_text):
             "amounts.")
 
 
+def round_uses_the_default_size(no, size_text, previous_no, previous_text):
+    """'Round 2 uses the default batch size, 100 g. Round 1 was 120 g.'
+
+    A size typed for one round belongs to that round; the next starts at the
+    project's default. The cold reader set 120 g, made Round 1 at it, and
+    found Round 2 quietly back at 100 with four numbers on two tabs and
+    nothing saying which was which."""
+    return (f"{ROUND_CAP} {no} uses the default {BATCH_SIZE_NOUN}, "
+            f"{size_text}. {ROUND_CAP} {previous_no} was {previous_text}.")
+
+
 def fixed_amounts_do_not_add_up(made_text, total_text):
     """Every ingredient is fixed at one amount and those amounts make the
     wrong weight. Nothing can be widened and nothing can move, so the
@@ -1544,7 +1608,10 @@ FORMULATIONS_TO_DELETE_LABEL = f"{FORMULATION_CAP}s to delete"
 CHOOSE_MANY_PLACEHOLDER = "Choose one or more"
 # The quick pick beside the list: one batch's formulations, recorded and not
 # made alike, dropped into the selection to be looked over before deleting.
-WHOLE_BATCH_LABEL = f"Add a whole {ROUND} to the list"
+# "Add a whole round to the list" read as adding a round to the project,
+# under a heading about deleting them. What the picker does is choose
+# one for the list of things about to go.
+WHOLE_BATCH_LABEL = f"Select a whole {ROUND} for deletion"
 CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND}"
 
 
