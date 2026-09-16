@@ -139,6 +139,12 @@ def _reset_project_session():
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
               ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,
+              # What the Default batch size box is up to date with. Parked
+              # empty three lines below like every other box, so a mark left
+              # behind here told its own seed the empty box was current —
+              # and the blank was written back over the project's total.
+              ui_setup._SEEDED_FORMULATION_TOTAL,
+              ui_setup._SHOWN_FORMULATION_TOTAL,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever

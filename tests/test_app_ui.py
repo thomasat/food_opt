@@ -9917,3 +9917,33 @@ def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
                  if "Formulation" in d.value.columns)
     assert list(table["Water (g)"]) == [38.0]
 
+
+
+def test_opening_the_sample_again_keeps_its_default_batch_size(tmp_path,
+                                                               monkeypatch):
+    """Opening a project parks every box of the one being left, the default
+    batch size among them. The box's own seed then read its mark — stamped
+    while the SAME project was on screen a moment ago — as up to date, drew
+    empty, and wrote the blank back over the 100 g every formulation is made
+    to. The round built to it went with it.
+
+    Found in the browser on the sample, whose Water is `= rest`: a worked-out
+    row has nothing to be the rest OF once the batch size has gone, so
+    Generate then refused. The bug is older than the formula; the sample is
+    what made it visible.
+    """
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    sample = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert sample.formulation_total == 100.0
+    _submit_button(at.sidebar, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    opened = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    assert opened.formulation_total == 100.0
+    assert [qc['source'] for qc in opened.quantity_constraints] == [
+        'formulation_total']
