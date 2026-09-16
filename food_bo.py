@@ -230,7 +230,7 @@ def number_list(numbers):
     items = [str(n) for n in numbers]
     if len(items) <= 1:
         return "".join(items)
-    return ", ".join(items[:-1]) + " and " + items[-1]
+    return ", ".join(items[:-1]) + wording.AND_JOIN + items[-1]
 
 
 # ------------------------------------------------------------------ #
@@ -534,10 +534,8 @@ def _objective_state(obj):
 
 
 def _used_ingredient_message(name, numbers):
-    word = "Formulation" if len(numbers) == 1 else "Formulations"
-    return (f"'{name}' was used in {word} {number_list(numbers)}, so it "
-            f"cannot be deleted. Tick 'Delete even if it was used' to "
-            f"discard that information.")
+    return wording.ingredient_was_used(name, number_list(numbers),
+                                       many=len(numbers) != 1)
 
 
 def goal_text(obj):
@@ -1021,7 +1019,8 @@ class FoodOptimizer:
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
-                other_label = "an ingredient" if other == 'ingredient' else "a process setting"
+                other_label = (wording.AN_INGREDIENT if other == 'ingredient'
+                               else wording.A_PROCESS_SETTING)
                 raise ValueError(wording.name_taken_by(v['name'],
                                                       other_label))
         for v in self.variables:
@@ -1653,7 +1652,7 @@ class FoodOptimizer:
     def per_amount_text(self):
         """'per 100 g' — how a limit on the finished formulation reads, in the
         unit the ingredients are written in."""
-        return "per 100 " + (self.one_amount_unit() or "g")
+        return wording.per_amount_text(self.one_amount_unit() or "g")
 
     def property_per_100(self, recipe_dict, metric):
         """One property of a finished formulation, per 100 g of it: the
@@ -1731,9 +1730,10 @@ class FoodOptimizer:
         odd = [name for unit in order if unit != target
                for name in counted[unit]]
         others = [unit for unit in order if unit != target]
-        tail = (f" instead of {others[0] or 'no unit'}"
-                if len(others) == 1 else "")
-        return (f"enter {number_list(odd)} in {target or 'no unit'}{tail}.")
+        return wording.enter_in_this_unit(
+            number_list(odd), target or wording.NO_UNIT,
+            instead_of=(others[0] or wording.NO_UNIT
+                        if len(others) == 1 else None))
 
     def ingredient_units(self):
         """Every unit the ingredients are written in, in ingredient order."""
@@ -1999,10 +1999,11 @@ class FoodOptimizer:
                 continue
             delta = val - float(obj['target'])
             if abs(delta) < 1e-9:
-                off_by = "On target"
+                off_by = wording.ON_TARGET
             else:
                 size = join_unit(f"{abs(delta):g}", unit)
-                off_by = f"{size} too high" if delta > 0 else f"{size} too low"
+                off_by = (wording.off_by_high(size) if delta > 0
+                          else wording.off_by_low(size))
             rows.append({'name': name, 'goal': goal,
                          'measured': measured, 'off_by': off_by})
         return rows
@@ -3678,7 +3679,7 @@ class FoodOptimizer:
                   if qc['min'] is not None else [])
         bounds += ([join_unit(wording.at_most(qc['max']), unit)]
                    if qc['max'] is not None else [])
-        return f"{self.limit_label(qc)}: {' and '.join(bounds)}"
+        return f"{self.limit_label(qc)}: {wording.AND_JOIN.join(bounds)}"
 
     def property_limit_text(self, constraint):
         """A property limit, per 100 of the amount unit, as one line."""
@@ -3686,7 +3687,7 @@ class FoodOptimizer:
                   if constraint.get('min') is not None else [])
         bounds += ([wording.at_most(constraint['max'])]
                    if constraint.get('max') is not None else [])
-        return f"{constraint['metric']}: {' and '.join(bounds)}"
+        return f"{constraint['metric']}: {wording.AND_JOIN.join(bounds)}"
 
     def bounds_caution(self, name, value):
         """The line for an amount outside what the project allows, or '' when
@@ -5472,13 +5473,9 @@ class FoodOptimizer:
         per = self.per_amount_text()
         lo, hi = self._achievable_property(metric)
         if constr['min'] is not None and hi < constr['min']:
-            return (f"Fixing these would make the limit on {metric} impossible "
-                    f"to meet: the ingredients that can still vary only reach "
-                    f"{hi:.4g} {per} at most. Loosen the limit first.")
+            return wording.limit_unreachable_above(metric, f"{hi:.4g} {per}")
         if constr['max'] is not None and lo > constr['max']:
-            return (f"Fixing these would make the limit on {metric} impossible "
-                    f"to meet: the ingredients that can still vary cannot get "
-                    f"below {lo:.4g} {per}. Loosen the limit first.")
+            return wording.limit_unreachable_below(metric, f"{lo:.4g} {per}")
         return None
 
     def _quantity_limit_refusal(self, qc):
@@ -5496,13 +5493,9 @@ class FoodOptimizer:
             return None
         label = " + ".join(qc['ingredients'])
         if qc['min'] is not None and hi < qc['min']:
-            return (f"Fixing these would make the limit on {label} impossible "
-                    f"to meet: the ingredients that can still vary only reach "
-                    f"{hi:.4g} at most. Loosen the limit first.")
+            return wording.limit_unreachable_above(label, f"{hi:.4g}")
         if qc['max'] is not None and lo > qc['max']:
-            return (f"Fixing these would make the limit on {label} impossible "
-                    f"to meet: the amounts pinned already add up to {lo:.4g}. "
-                    f"Loosen the limit first.")
+            return wording.limit_pinned_amounts_exceed(label, f"{lo:.4g}")
         return None
 
     @staticmethod
@@ -6806,19 +6799,12 @@ class FoodOptimizer:
             self.load_error = str(e)
             return False
         if state is None:
-            self.load_error = (
-                "This project could not be found. It may have been renamed "
-                "or archived."
-            )
+            self.load_error = wording.PROJECT_NOT_FOUND
             return False
         try:
             self.import_json(state)
         except Exception:
-            self.load_error = (
-                "This project file is damaged and could not be opened. If you "
-                "saved a copy, use Open a saved copy; otherwise look in your "
-                "FoodOptimizer folder for a recent copy."
-            )
+            self.load_error = wording.PROJECT_FILE_DAMAGED
             return False
         # Re-save only when the file is behind the current CLASS_VERSION, so an
         # older JSON file is brought up to date once. Up-to-date files are not

@@ -2292,11 +2292,16 @@ class TestUnitsAndImportance:
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=3, batch_no=1)
         with pytest.raises(ValueError) as one:
             opt.remove_ingredient("Pea protein")
+        # No programmer quotes round the name, and the tick is quoted back
+        # as the checkbox on screen actually reads — it said "Delete even if
+        # it was used", which is not what the box says.
         assert str(one.value) == (
-            "'Pea protein' was used in Formulation 3, so it cannot be "
-            "deleted. Tick 'Delete even if it was used' to discard that "
-            "information."
+            "Pea protein was used in Formulation 3, so it cannot be "
+            "deleted. Tick Delete even though formulations used it to "
+            "discard that information."
         )
+        assert wording.DELETE_EVEN_IF_USED_CHECKBOX.startswith(
+            wording.DELETE_EVEN_IF_USED)
         opt.tell({"Pea protein": 12.0, "Methylcellulose": 0.0},
                  {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=5, batch_no=1)
         with pytest.raises(ValueError) as two:
@@ -4522,44 +4527,120 @@ def test_even_food_bo_may_not_say_batches():
         ("food_bo.py", "batches"), ("food_bo.py", "Batches")]
 
 
-def test_no_refusal_in_food_bo_carries_its_own_sentence():
-    """wording.py's first line says it is every word the user reads. It was
-    not true: seventy-odd `raise ValueError` sites in food_bo.py carried
-    their own prose, which is the mechanism behind the previous cycle's
-    misses — a word drifts there and wording.py never notices, and neither
-    does a reviewer reading wording.py.
+# What a prose literal in food_bo.py may still be. Each is machinery the
+# user never reads, and each is here by name rather than by shape so that a
+# sentence can never hide behind the allowance.
+_FOOD_BO_NOT_PROSE = {
+    # Reserved column names and the frame keys that ARE those columns. The
+    # words are wording.py's; these are the lookups into a dataframe.
+    "Overall Score", "Overall score",
+    # A namedtuple's field list, a MIME type, a file extension, two regexes
+    # and the log line _damaged writes.
+    "frame actual lots",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pkl", r"^total(\s*\(.*\))?$", r"\s+(\d+)(\.\d+)?",
+    "saved copy refused: %s",
+    # outside_message's own glue. It is the one sentence builder left in
+    # this file: it needs join_unit and unit_after_number, and wording.py
+    # imports nothing from food_bo. Its arguments — what the value is
+    # outside of, and the hint after it — are wording's.
+    " is outside ", " of ", " to ",
+}
+# export_trajectory writes a plain-text dump for an expert re-query. It
+# reaches no screen in the app (nothing under ui_*.py or app.py calls it);
+# it is left out by name, not by shape.
+_FOOD_BO_NOT_SCREENS = ("export_trajectory",)
 
-    Every refusal the user can reach is now a wording constant or a small
-    wording function, and this is what keeps it that way. A raise may build
-    a sentence out of values (numbers, names, another message); it may not
-    write one.
-    """
+
+def _food_bo_prose_literals():
+    """Every string literal in food_bo.py that reads like a sentence, with
+    the docstrings, the named machinery and export_trajectory taken out."""
     root = pathlib.Path(__file__).resolve().parent.parent
     tree = ast.parse((root / "food_bo.py").read_text())
-    offenders = []
+    skip = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Raise) or node.exc is None:
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)) and body:
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                skip.add(id(first.value))
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in _FOOD_BO_NOT_SCREENS):
+            for inner in ast.walk(node):
+                skip.add(id(inner))
+        # A programming mistake, not a refusal: it reaches a traceback in
+        # the log, never a sentence on a screen.
+        if (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
+                and getattr(node.exc.func, "id", "") in ("IndexError",
+                                                         "TypeError")):
+            for inner in ast.walk(node):
+                skip.add(id(inner))
+        # _damaged(detail) IS the log line: one sentence reaches the screen
+        # (wording.COPY_DAMAGED) and the field name goes to logging, which
+        # is the whole point of R1.
+        if (isinstance(node, ast.Call)
+                and getattr(node.func, "id", "") == "_damaged"):
+            for inner in ast.walk(node):
+                skip.add(id(inner))
+    out = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant)
+                and isinstance(node.value, str)) or id(node) in skip:
             continue
-        call = node.exc
-        if not isinstance(call, ast.Call):
+        text = node.value
+        if text in _FOOD_BO_NOT_PROSE:
             continue
-        name = getattr(call.func, "id", getattr(call.func, "attr", ""))
-        # ValueError is the refusal the screens catch and print. An
-        # IndexError or a TypeError is a programming mistake: it reaches a
-        # traceback in the log, never a sentence on a screen.
-        if name != "ValueError":
-            continue
-        for inner in ast.walk(call):
-            if not (isinstance(inner, ast.Constant)
-                    and isinstance(inner.value, str)):
-                continue
-            text = inner.value
-            # A stored key, a category, a separator: machinery, not prose.
-            # Prose is what has words in it — a space or a full stop, and a
-            # letter to go with it.
-            if re.search(r"[A-Za-z]", text) and (" " in text or "." in text):
-                offenders.append((node.lineno, text))
-    assert offenders == [], offenders
+        # Prose is what has words in it: two letters, and a space or a stop
+        # between or after them. A stored key, a category or a separator is
+        # not.
+        if re.search(r"[A-Za-z].*[A-Za-z]", text) and (" " in text
+                                                       or "." in text):
+            out.append((node.lineno, text))
+    return out
+
+
+def test_no_sentence_in_food_bo_is_written_there():
+    """wording.py's first line says it is every word the user reads. It was
+    not true: seventy-odd `raise ValueError` sites in food_bo.py carried
+    their own prose, and six more families were assembled in helpers and
+    handed to a bare `raise ValueError(trouble)`, to a per-row error list or
+    straight onto a screen through `load_error` — which the first version of
+    this guard, reading only the literals AT a raise site, could not see.
+
+    Every sentence the user can reach is a wording constant or a small
+    wording function. food_bo may build one out of values — numbers, names,
+    another message — and may keep the machinery named above; it may not
+    write one.
+    """
+    assert _food_bo_prose_literals() == [], _food_bo_prose_literals()
+
+
+def test_the_food_bo_sweep_reads_more_than_the_raise_sites():
+    """The proof that the widening is real: a sentence assigned in a helper,
+    nowhere near a `raise`, is what this has to catch."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    source = (root / "food_bo.py").read_text()
+    planted = source.replace(
+        "    def per_amount_text(self):",
+        '    def _planted(self):\n'
+        '        return "the ingredients that can still vary"\n\n'
+        "    def per_amount_text(self):", 1)
+    assert planted != source
+    tree = ast.parse(planted)
+    found = [n.value for n in ast.walk(tree)
+             if isinstance(n, ast.Constant) and isinstance(n.value, str)
+             and n.value == "the ingredients that can still vary"]
+    assert found, "the plant did not parse"
+    # ...and it is not at a raise site, which is the whole point.
+    at_raises = [inner.value for node in ast.walk(tree)
+                 if isinstance(node, ast.Raise)
+                 for inner in ast.walk(node)
+                 if isinstance(inner, ast.Constant)
+                 and inner.value == "the ingredients that can still vary"]
+    assert at_raises == []
 
 
 def test_no_old_vocabulary_reaches_the_user_outside_python():

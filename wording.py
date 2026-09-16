@@ -1094,8 +1094,11 @@ def delete_button(name):
 DELETE_VS_FIXING_CAPTION = ("Deleting takes it out of every formulation "
                             "already made; setting Lowest and Highest to the "
                             "same amount keeps the data.")
-DELETE_EVEN_IF_USED_CHECKBOX = ("Delete even though formulations used it "
-                                "— those amounts go too")
+# The tick that deletes an ingredient formulations actually used. Its first
+# clause is quoted back by the refusal that sends the reader to it
+# (ingredient_was_used), so the two are spelled once.
+DELETE_EVEN_IF_USED = "Delete even though formulations used it"
+DELETE_EVEN_IF_USED_CHECKBOX = f"{DELETE_EVEN_IF_USED} — those amounts go too"
 
 
 def deleted(name):
@@ -2317,3 +2320,99 @@ def cannot_change(named):
 def delete_the_process_setting_instead(name):
     return (f"{name} is a process setting. Take it out on the "
             f"{VARIABLES_HEADER} grid instead.")
+
+
+# ------------------------------------------------------------------ #
+#  The model's own refusals, part two: the sentences a helper builds
+#
+#  Each of these was assembled inside food_bo and handed to a bare
+#  `raise ValueError(trouble)`, to a per-row error list or straight onto a
+#  screen — which is how the first guard, which reads only the literals AT a
+#  raise site, could not see them. The guard now reads every prose literal
+#  in that file.
+# ------------------------------------------------------------------ #
+
+def ingredient_was_used(name, numbers_text, many=False):
+    """Why an ingredient cannot simply be deleted, and the one tick that
+    says delete it anyway. The tick is named as the checkbox names itself."""
+    word = f"{FORMULATION_CAP}s" if many else FORMULATION_CAP
+    return (f"{name} was used in {word} {numbers_text}, so it cannot be "
+            f"deleted. Tick {DELETE_EVEN_IF_USED} to discard that "
+            "information.")
+
+
+def limit_unreachable_above(what, most_text):
+    """'Fixing these would make the limit on Fat impossible to meet: the
+    ingredients that can still vary only reach 10 per 100 g at most. Loosen
+    the limit first.' — a limit's At least, put out of reach by the rows
+    this save is about to pin."""
+    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
+            f"meet: the {INGREDIENT}s that can still vary only reach "
+            f"{most_text} at most. {LOOSEN_THE_LIMIT_FIRST}")
+
+
+def limit_unreachable_below(what, least_text):
+    """The same for a limit's At most that the pinned rows already exceed."""
+    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
+            f"meet: the {INGREDIENT}s that can still vary cannot get below "
+            f"{least_text}. {LOOSEN_THE_LIMIT_FIRST}")
+
+
+def limit_pinned_amounts_exceed(what, pinned_text):
+    """An amount limit whose At most is already passed by the amounts this
+    save pins — nothing that can still vary is even involved."""
+    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
+            f"meet: the amounts pinned already add up to {pinned_text}. "
+            f"{LOOSEN_THE_LIMIT_FIRST}")
+
+
+LOOSEN_THE_LIMIT_FIRST = "Loosen the limit first."
+
+
+def enter_in_this_unit(names_text, unit, instead_of=None):
+    """'enter Water and Oil in g instead of ml.' — the change that would let
+    a limit be written. A refusal that only says the units differ leaves the
+    reader to work out which row is the odd one and what to do about it."""
+    tail = "" if instead_of is None else f" instead of {instead_of}"
+    return f"enter {names_text} in {unit}{tail}{'.'}"
+
+
+NO_UNIT = "no unit"
+
+
+def per_amount_text(unit):
+    """'per 100 g' — how a limit on the finished formulation reads, in the
+    unit the ingredients are written in."""
+    return f"per 100 {unit}"
+
+
+# How the OTHER row is named when a name is already taken by one of the two
+# kinds. Two sentences of one idea, so they sit beside the kinds themselves.
+AN_INGREDIENT = f"an {INGREDIENT}"
+A_PROCESS_SETTING = f"a {KIND_SETTING.lower()}"
+
+# The join between two halves of a limit ("at least 10 g and at most 40 g")
+# and between the last two names of a list.
+AND_JOIN = " and "
+
+# The Off by column on the best-so-far block: how far a measurement landed
+# from its target, in the measurement's own unit.
+ON_TARGET = "On target"
+
+
+def off_by_high(size_text):
+    return f"{size_text} too high"
+
+
+def off_by_low(size_text):
+    return f"{size_text} too low"
+
+
+# Opening a project. Both reach the screen through FoodOptimizer.load_error,
+# which app.py prints as it stands.
+PROJECT_NOT_FOUND = ("This project could not be found. It may have been "
+                     "renamed or archived.")
+PROJECT_FILE_DAMAGED = (
+    f"This project file is damaged and could not be opened. If you saved a "
+    f"copy, use {OPEN_A_SAVED_COPY} in the sidebar; otherwise look in your "
+    "FoodOptimizer folder for a recent copy.")
