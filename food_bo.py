@@ -56,7 +56,7 @@ ROUND_FIELD = "batch"
 # a variable with one of these names would silently overwrite that column.
 RESERVED_VARIABLE_NAMES = {
     "Experiment", "Date", "Overall Score", "Recipe",
-    "Formulation", "Round", "Batch", "Trial", "Overall score", "Note",
+    "Formulation", "Round", "Batch", "Trial", wording.OVERALL_SCORE_COLUMN, "Note",
     # Both spellings of the two columns that were renamed in 0.5.0: a
     # project made before the rename may hold a variable of the old name,
     # and the new name has to be reserved from today on.
@@ -2323,7 +2323,7 @@ class FoodOptimizer:
             # the app reads a list with. The measurement is NAMED: a score
             # missing one is not the same number as a complete one, and
             # "partial" made the reader go and find out which.
-            row["Overall score"] = (
+            row[wording.OVERALL_SCORE_COLUMN] = (
                 f"{float(self.Y_history[i]):.2f}"
                 + (wording.not_measured_tail(number_list(unmeasured))
                    if unmeasured else ""))
@@ -2347,7 +2347,7 @@ class FoodOptimizer:
             }
             for obj in objs:
                 row[self._measurement_column(obj)] = None
-            row["Overall score"] = ""
+            row[wording.OVERALL_SCORE_COLUMN] = ""
             row[wording.DATE_RECORDED_COLUMN] = ""
             row["Note"] = s.get('note') or wording.NOT_SCORED
             if include_amounts:
@@ -2356,7 +2356,7 @@ class FoodOptimizer:
         columns = ([wording.BEST_SO_FAR_COLUMN, wording.ROUND_CAP,
                     "Formulation"]
                    + [self._measurement_column(o) for o in objs]
-                   + ["Overall score", wording.DATE_RECORDED_COLUMN,
+                   + [wording.OVERALL_SCORE_COLUMN, wording.DATE_RECORDED_COLUMN,
                       "Note"])
         if include_amounts:
             columns += [self._amount_column(v['name']) for v in self.variables]
@@ -3471,7 +3471,7 @@ class FoodOptimizer:
                 wording.DATE_RECORDED_COLUMN: local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
-                "Overall score": round(float(self.Y_history[i]), 2),
+                wording.OVERALL_SCORE_COLUMN: round(float(self.Y_history[i]), 2),
             }
             recipe = self._decode(x)
             row.update(self._amount_columns(recipe))
@@ -3488,7 +3488,7 @@ class FoodOptimizer:
                 "Formulation": int(left_out['formulation']),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
                 wording.DATE_RECORDED_COLUMN: "",
-                "Overall score": "",
+                wording.OVERALL_SCORE_COLUMN: "",
             }
             recipe = left_out.get('recipe', {})
             row.update(self._amount_columns(recipe))
@@ -3501,7 +3501,7 @@ class FoodOptimizer:
             rows.append(row)
         columns = (["Formulation", wording.ROUND_CAP,
                     wording.DATE_RECORDED_COLUMN,
-                    "Overall score"]
+                    wording.OVERALL_SCORE_COLUMN]
                    + [self._amount_column(v['name']) for v in self.variables]
                    + ([total_col] if total_col is not None else [])
                    + [self._measurement_column(o) for o in objs]

@@ -4552,11 +4552,14 @@ _FOOD_BO_NOT_PROSE = {
 _FOOD_BO_NOT_SCREENS = ("export_trajectory",)
 
 
-def _food_bo_prose_literals():
+def _food_bo_prose_literals(source=None):
     """Every string literal in food_bo.py that reads like a sentence, with
-    the docstrings, the named machinery and export_trajectory taken out."""
+    the docstrings, the named machinery and export_trajectory taken out.
+    `source` lets a test sweep an altered copy of the file."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    tree = ast.parse((root / "food_bo.py").read_text())
+    if source is None:
+        source = (root / "food_bo.py").read_text()
+    tree = ast.parse(source)
     skip = set()
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
@@ -4620,27 +4623,27 @@ def test_no_sentence_in_food_bo_is_written_there():
 
 def test_the_food_bo_sweep_reads_more_than_the_raise_sites():
     """The proof that the widening is real: a sentence assigned in a helper,
-    nowhere near a `raise`, is what this has to catch."""
+    nowhere near a `raise`, is what the sweep has to catch — so the sweep
+    itself is run over a copy of the file with one planted."""
     root = pathlib.Path(__file__).resolve().parent.parent
     source = (root / "food_bo.py").read_text()
+    sentence = "the ingredients that can still vary"
     planted = source.replace(
         "    def per_amount_text(self):",
         '    def _planted(self):\n'
-        '        return "the ingredients that can still vary"\n\n'
+        f'        return "{sentence}"\n\n'
         "    def per_amount_text(self):", 1)
     assert planted != source
+    # The plant is not at a raise site, which is the whole point...
     tree = ast.parse(planted)
-    found = [n.value for n in ast.walk(tree)
-             if isinstance(n, ast.Constant) and isinstance(n.value, str)
-             and n.value == "the ingredients that can still vary"]
-    assert found, "the plant did not parse"
-    # ...and it is not at a raise site, which is the whole point.
     at_raises = [inner.value for node in ast.walk(tree)
                  if isinstance(node, ast.Raise)
                  for inner in ast.walk(node)
-                 if isinstance(inner, ast.Constant)
-                 and inner.value == "the ingredients that can still vary"]
+                 if isinstance(inner, ast.Constant) and inner.value == sentence]
     assert at_raises == []
+    # ...and the sweep still finds it, and finds nothing without it.
+    assert [t for _, t in _food_bo_prose_literals(planted)] == [sentence]
+    assert _food_bo_prose_literals(source) == []
 
 
 def test_no_old_vocabulary_reaches_the_user_outside_python():

@@ -240,10 +240,10 @@ def _all_formulations(opt, said_partial=False):
     st.dataframe(frame.style.format(_amount_format(opt, frame)),
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
-    # "Overall score" here is a lookup into food_bo's own history_frame
-    # schema, not a header this module produces — it stays literal.
+    # The overall-score column of food_bo's history_frame, named once in
+    # wording so the frame and the screen cannot drift apart.
     if not said_partial and any(wording.NOT_MEASURED in str(v)
-                                for v in frame["Overall score"]):
+                                for v in frame[wording.OVERALL_SCORE_COLUMN]):
         st.caption(wording.PARTIAL_SCORES_CAPTION)
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
