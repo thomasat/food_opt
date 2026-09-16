@@ -39,7 +39,7 @@ from ui_helpers import (
     go_to_tab, number_list, other_confirmation, park_clear, park_grid,
     parked_grid, plural,
     preserve_tab_forms, readiness, reset_grids, saved_ok, table_height,
-    unpark_grid,
+    typed_batch_size, unpark_grid,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -98,18 +98,6 @@ def _report_limit(opt, sentence):
 
 KIND_INGREDIENT = wording.KIND_INGREDIENT
 KIND_SETTING = wording.KIND_SETTING
-
-
-def _scaled_now(opt):
-    """The batch size the open round is being made to, or None. Only a real
-    size counts: the box is not even offered while the ingredients differ in
-    unit."""
-    if opt.one_amount_unit() is None:
-        return None
-    value = st.session_state.get("scale_total")
-    if value is None or float(value) <= 0:
-        return None
-    return float(value)
 
 
 def _unscaled_tail(opt, before):
@@ -543,7 +531,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     screen owes on its own is the unit-split tail: it is the only one that
     has a box on this tab to empty as well as something to say.
     """
-    scaled = _scaled_now(opt)
+    scaled = typed_batch_size(opt)
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
         # st.rerun() does not return: the errors are drawn into the slot
@@ -981,8 +969,7 @@ def _properties(opt, storage):
     # and it deletes the same way as any other even though it never shows
     # on the grid above.
     all_properties = opt.properties()
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
+    names = opt.ingredient_names()
     if properties and names:
         # Property names carry their own basis as often as not ("Fat per
         # 100 g"), and a caption that then adds ", per 100 g" said it twice.
@@ -1105,8 +1092,7 @@ def _limits(opt, storage):
                           constraint['metric'],
                           lambda i=i: opt.remove_constraint(i))
 
-    names = [v['name'] for v in opt.variables
-             if v.get('category', 'ingredient') == 'ingredient']
+    names = opt.ingredient_names()
 
     # ONE amount limit, on the ingredients the user names. The total
     # over ALL of them is not written here — it is the Default batch size

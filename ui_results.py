@@ -21,7 +21,7 @@ from ui_helpers import (
     go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
-    scaled_caution, table_height, take_clear,
+    table_height, take_clear,
 )
 
 
@@ -160,9 +160,8 @@ def _best(opt):
         st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
-    unused = [v['name'] for v in opt.variables
-              if v.get('category', 'ingredient') == 'ingredient'
-              and not float(recipe.get(v['name'], 0.0))]
+    unused = [name for name in opt.ingredient_names()
+              if not float(recipe.get(name, 0.0))]
     if unused:
         st.caption(wording.NOT_USED_PREFIX + ", ".join(unused))
     ceiling = opt.utility_ceiling()

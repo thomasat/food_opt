@@ -45,7 +45,9 @@ import wording
 # spelled the old way — `batch` — because stored field names never change, and
 # it lives here rather than as a bare literal in every file that reads the
 # record: a one-word "batch" or "Batch" in a screen module is a label, and the
-# vocabulary guard refuses one there.
+# vocabulary guard refuses one there. EVERY reader uses it, this file
+# included: spelled two ways, a grep for the key stopped finding half of
+# the code that reads it.
 ROUND_FIELD = "batch"
 
 
@@ -2366,7 +2368,7 @@ class FoodOptimizer:
                 row.update(self._amount_columns(self._decode(self.X_history[i])))
             rows.append(row)
         for k, s in enumerate(self.skipped):
-            batch = s.get('batch')
+            batch = s.get(ROUND_FIELD)
             row = {
                 # Best is a star or nothing. "Not scored" belongs in the
                 # Note column, which already carries it, and a Best column
@@ -2632,6 +2634,15 @@ class FoodOptimizer:
     def _ingredients(self):
         return [v for v in self.variables
                 if v.get('category', 'ingredient') == 'ingredient']
+
+    def ingredient_names(self):
+        """Every ingredient's name, in set-up order.
+
+        The screens ask this three times over — the properties grid, the
+        amount-limit picker and tab 3's "not used" line — and each had
+        written the category filter out again beside an accessor that
+        already knew it."""
+        return [v['name'] for v in self._ingredients()]
 
     def _process_settings(self):
         return [v for v in self.variables if v.get('category') == 'process']
@@ -3487,7 +3498,7 @@ class FoodOptimizer:
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             rows.append(row)
         for left_out in self.skipped:
-            batch = left_out.get('batch')
+            batch = left_out.get(ROUND_FIELD)
             row = {
                 "Formulation": int(left_out['formulation']),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
@@ -4346,8 +4357,8 @@ class FoodOptimizer:
         kept = [int(b) for b in self.batch_history if b is not None]
         cut = max(kept) if kept else None
         self.skipped = [s for s in self.skipped
-                        if s.get('batch') is None
-                        or (cut is not None and int(s['batch']) <= cut)]
+                        if s.get(ROUND_FIELD) is None
+                        or (cut is not None and int(s[ROUND_FIELD]) <= cut)]
         self._drop_pending_batch()
         self.save()
 
@@ -5015,7 +5026,7 @@ class FoodOptimizer:
         turns up later."""
         self.skipped.append({
             'formulation': int(formulation_no),
-            'batch': None if batch_no is None else int(batch_no),
+            ROUND_FIELD: None if batch_no is None else int(batch_no),
             'recipe': dict(recipe),
             'note': str(note) if note else wording.NOT_SCORED,
         })
@@ -5042,7 +5053,7 @@ class FoodOptimizer:
         try:
             self.tell(dict(row.get('recipe') or {}), results_dict,
                       formulation_no=int(row['formulation']),
-                      batch_no=row.get('batch'),
+                      batch_no=row.get(ROUND_FIELD),
                       note="" if note is None else str(note))
         except Exception:
             self.skipped.insert(position, row)
@@ -5066,14 +5077,14 @@ class FoodOptimizer:
         index = self.index_of_formulation(no)
         if index is not None:
             self.delete_result(index)
-            self._prune_batch_totals()
+            self._prune_round_records()
             self.save()
             return True
         before = len(self.skipped)
         self.skipped = [s for s in self.skipped
                         if int(s['formulation']) != int(no)]
         if len(self.skipped) != before:
-            self._prune_batch_totals()
+            self._prune_round_records()
             self.save()
             return True
         return False
@@ -5099,32 +5110,40 @@ class FoodOptimizer:
                         if int(s['formulation']) not in wanted]
         gone += before - len(self.skipped)
         if gone:
-            self._prune_batch_totals()
+            self._prune_round_records()
             self.save()
         return gone
 
-    def _prune_batch_totals(self):
-        """Forget the total of a batch that has no rows left. A batch number
-        is never reissued, so a total left behind could only ever be read
-        against a batch nobody can see any more."""
+    def _prune_round_records(self):
+        """Forget what was kept against a round that has no rows left: the
+        size it was made to, and the lot numbers it was weighed from. A
+        round number is never reissued, so either one left behind could only
+        ever be read against a round nobody can see any more — and the Lots
+        sheet went on printing 'Round 1 · Water · L-1' for a round undo had
+        taken away."""
         totals = self._batch_totals()
-        if not totals:
+        lots = getattr(self, 'lots', None)
+        if not isinstance(lots, dict):
+            lots = self.lots = {}
+        if not totals and not lots:
             return
         live = {int(b) for b in self.batch_history if b is not None}
-        live |= {int(s['batch']) for s in self.skipped
-                 if s.get('batch') is not None}
+        live |= {int(s[ROUND_FIELD]) for s in self.skipped
+                 if s.get(ROUND_FIELD) is not None}
         if self.pending_batch_no is not None:
             live.add(int(self.pending_batch_no))
         for no in [n for n in totals if n not in live]:
             del totals[no]
+        for no in [n for n in lots if int(n) not in live]:
+            del lots[no]
 
     def last_batch_no(self):
         """The highest batch number in the recorded history. Left-out
         formulations count: a batch nobody managed to make is still the last
         batch, and undo has to be able to reach it."""
         seen = [int(b) for b in self.batch_history if b is not None]
-        seen += [int(s['batch']) for s in self.skipped
-                 if s.get('batch') is not None]
+        seen += [int(s[ROUND_FIELD]) for s in self.skipped
+                 if s.get(ROUND_FIELD) is not None]
         return max(seen) if seen else None
 
     def undo_last_batch(self):
@@ -5150,9 +5169,9 @@ class FoodOptimizer:
         self.formulation_ids = [self.formulation_ids[i] for i in keep]
         self.notes_history = [self.notes_history[i] for i in keep]
         self.batch_history = [self.batch_history[i] for i in keep]
-        removed += sum(1 for s in self.skipped if s.get('batch') == last)
-        self.skipped = [s for s in self.skipped if s.get('batch') != last]
-        self._prune_batch_totals()
+        removed += sum(1 for s in self.skipped if s.get(ROUND_FIELD) == last)
+        self.skipped = [s for s in self.skipped if s.get(ROUND_FIELD) != last]
+        self._prune_round_records()
         self.save()
         return last, removed
 
@@ -5181,8 +5200,8 @@ class FoodOptimizer:
         # The batch counter, the same way: a file from before it was stored
         # carries no number, so it starts one past the highest batch in it.
         batches = [int(b) for b in self.batch_history if b is not None]
-        batches += [int(s['batch']) for s in self.skipped
-                    if s.get('batch') is not None]
+        batches += [int(s[ROUND_FIELD]) for s in self.skipped
+                    if s.get(ROUND_FIELD) is not None]
         if self.pending_batch_no is not None:
             batches.append(int(self.pending_batch_no))
         highest_batch = max(batches) if batches else 0
@@ -5683,6 +5702,12 @@ class FoodOptimizer:
         if name in self.ingredient_properties:
             self.ingredient_properties[new_name] = \
                 self.ingredient_properties.pop(name)
+        # The lot numbers are filed per round, per ingredient, under the
+        # name as well: left alone, the Lots sheet printed a name the
+        # project no longer has.
+        for written in (getattr(self, 'lots', None) or {}).values():
+            if isinstance(written, dict) and name in written:
+                written[new_name] = written.pop(name)
         # The columns are in the same order and hold the same numbers, but
         # encoding reads the recipes by name: a history left keyed to the old
         # name would encode every amount as absent.
@@ -5718,6 +5743,9 @@ class FoodOptimizer:
 
         self.variables = remaining
         self.ingredient_properties.pop(name, None)
+        for written in (getattr(self, 'lots', None) or {}).values():
+            if isinstance(written, dict):
+                written.pop(name, None)
         for recipe in self.recipe_history:
             recipe.pop(name, None)
 
@@ -6907,7 +6935,8 @@ class FoodOptimizer:
             All formulations table for good."""
             return (isinstance(x, dict)
                     and _number(x.get('formulation'))
-                    and (x.get('batch') is None or _whole(x.get('batch')))
+                    and (x.get(ROUND_FIELD) is None
+                         or _whole(x.get(ROUND_FIELD)))
                     and isinstance(x.get('recipe'), dict)
                     and isinstance(x.get('note', ""), str))
 
@@ -6977,11 +7006,18 @@ class FoodOptimizer:
         lots = state.get('lots')
         if lots is not None and not isinstance(lots, dict):
             raise ValueError("This copy's 'lots' section has the wrong shape.")
+        # The names the copy's own variable list holds. A lot filed against
+        # an ingredient the copy does not have is a lot nothing can ever
+        # show: the Lots sheet would print a name the project never had.
+        named = {v['name'] for v in state['variables']}
         for key, written in (lots or {}).items():
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
                     or not isinstance(written, dict) \
                     or not all(isinstance(name, str) and isinstance(lot, str)
                                for name, lot in written.items()):
+                raise ValueError(
+                    "This copy's 'lots' section has the wrong shape.")
+            if not set(written) <= named:
                 raise ValueError(
                     "This copy's 'lots' section has the wrong shape.")
         pending = state.get('pending_batch')

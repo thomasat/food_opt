@@ -214,6 +214,11 @@ def _build_sample_project(name):
                           min_val=0, max_val=10, unit="/10")
     _sample.add_objective("Firmness", 1.5, goal="target", target=6,
                           min_val=0, max_val=10, unit="/10")
+    # add_objective does not normalise (the weights are a scale of their
+    # own until something says otherwise), so the file it writes would say
+    # 1.0 / 1.5 under CLASS_VERSION 11 while every screen read 40 / 60. The
+    # shares are stated outright, in the scale the version claims.
+    _sample.set_shares({"Firmness": 60.0, "Juiciness": 40.0})
     _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
     # A burger patty is made to a weight, and the panel is served
     # one size. 100 g is what the sample's allowed amounts are

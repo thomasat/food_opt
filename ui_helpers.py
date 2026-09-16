@@ -313,17 +313,6 @@ def bounds_caution(opt, name, value):
     return opt.bounds_caution(name, value)
 
 
-def scaled_caution(opt, recipes, total):
-    """The one line for the ingredients whose amounts fall outside what the
-    project allows once these formulations are made to `total`, or "" when
-    they all fit.
-
-    It lives on the optimizer, because the workbook's own sheets carry it and
-    food_bo cannot import this module.
-    """
-    return opt.scaled_caution(recipes, total)
-
-
 def table_height(n_rows, max_rows=12):
     """Pixel height that shows up to max_rows rows of a st.dataframe without an
     inner scrollbar (35 px per row plus the header). Zero rows still get one
@@ -360,6 +349,30 @@ def park_clear(key, value):
     result forms in the browser — popping the key alone leaves the mounted
     widget to post its old value straight back."""
     st.session_state[f"_clear_{key}"] = ("value", value)
+
+
+# The round screen's Batch size box. Named here rather than on tab 2,
+# because tab 1 reads it too — a grid Save has to know whether the round it
+# may be about to retire was being made to a size — and two screens reaching
+# for one box by two spellings is a box neither of them owns.
+BATCH_SIZE_KEY = "scale_total"
+
+
+def typed_batch_size(opt):
+    """What the Batch size box holds, or None while it is empty.
+
+    Always None while the ingredients are not all in one unit: the box is
+    not offered then, and a value left behind in it must not go on quietly
+    meaning something on a screen nobody can see it acting on. A size of
+    nothing is not a size either, so anything at or below zero reads as
+    empty.
+    """
+    if opt.one_amount_unit() is None:
+        return None
+    value = st.session_state.get(BATCH_SIZE_KEY)
+    if value is None or float(value) <= 0:
+        return None
+    return float(value)
 
 
 def clear_scale_total():

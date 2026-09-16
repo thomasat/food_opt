@@ -8179,3 +8179,36 @@ class TestTheLockedWorkbook:
             state['lots'] = broken
             with pytest.raises(ValueError, match="'lots' section"):
                 FoodOptimizer.validate_state(state)
+
+    def test_the_lots_follow_the_ingredient_list(self, tmp_path, monkeypatch):
+        """A lot is filed against a round AND an ingredient, so a rename has
+        to move it and a deletion has to take it: the Lots sheet printed
+        'Round 1 · Water · L-1' for a project with no Water."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.lots = {1: {"Water": "L-1", "Pea protein": "L-2"}}
+        opt.rename_variable("Water", "Cold water")
+        assert opt.lots == {1: {"Cold water": "L-1", "Pea protein": "L-2"}}
+        opt.remove_ingredient("Cold water", force=True)
+        assert opt.lots == {1: {"Pea protein": "L-2"}}
+
+    def test_a_round_that_is_undone_takes_its_lots_with_it(self, tmp_path,
+                                                           monkeypatch):
+        """A round number is never reissued, so a lot left behind could only
+        ever be read against a round nobody can see."""
+        opt = self._opt(tmp_path, monkeypatch)
+        for row in list(opt.pending_batch):
+            opt.tell(row['recipe'], {"Firmness": 6.0, "Juiciness": 7.0},
+                     formulation_no=row['formulation'], batch_no=2)
+        opt.store_lots(2, {"Water": "L-7"})
+        opt.set_pending_batch(None)          # the round closes on Save
+        assert opt.lots == {2: {"Water": "L-7"}}
+        opt.undo_last_batch()
+        assert opt.lots == {}
+
+    def test_a_lot_on_an_ingredient_the_copy_does_not_have_is_refused(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        state['lots'] = {"1": {"Beetroot": "L-9"}}
+        with pytest.raises(ValueError, match="'lots' section"):
+            FoodOptimizer.validate_state(state)

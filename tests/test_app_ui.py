@@ -7723,7 +7723,9 @@ def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
         open_batch):
     """An emptied box is not an undo. Since 0.5.0 the size moves the amounts
     themselves, so there is no as-generated to go back to — the round stays
-    at 150 g and the way to another size is to type one."""
+    at 150 g and the way to another size is to type one. And an emptied box
+    is not an answer either: it comes back holding the size the round is
+    made to, rather than sitting blank over amounts it says nothing about."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(150.0)
@@ -7732,9 +7734,8 @@ def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
     assert not at.exception
-    # The seeding must not put 150 back into a box the bench emptied...
-    assert at.number_input(key="scale_total").value == 0.0
-    # ...and nothing is rewritten: the round is still the 150 g one.
+    assert at.number_input(key="scale_total").value == 150.0
+    # Nothing is rewritten: the round is still the 150 g one.
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
@@ -7882,18 +7883,21 @@ def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
         open_batch):
     """The mark carries the size the box was last put on screen holding, so
     it has to be re-stamped after every write of the session's own —
-    otherwise a deliberate clear reads as a size that changed somewhere else,
-    and the box fills itself back in."""
+    otherwise the session's own 150 reads as a size that changed somewhere
+    else, and scale_round runs again on every rerun."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     at.number_input(key="scale_total").set_value(150.0)
     at.run()
-    at.number_input(key="scale_total").set_value(0.0)
+    saved_at = at.session_state["optimizer"].last_saved_at
     at.run()
-    at.run()                                   # and it stays cleared
-    assert at.number_input(key="scale_total").value == 0.0
-    # The round keeps the size it was made to; only the box is empty.
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value == 150.0
+    # No write per rerun: the size the session itself typed is the size the
+    # mark already carries.
+    assert at.session_state["optimizer"].last_saved_at == saved_at
     assert FoodOptimizer("burger").pending_batch_total == 150.0
 
 
@@ -8468,6 +8472,27 @@ def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
     assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
     assert _total_box(at).value == 100.0
     assert "Default batch size · 100 g" in [t.value for t in at.text]
+
+
+def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
+        tmp_path, monkeypatch):
+    """Every setter saves, and add_objective deliberately does not
+    normalise, so the sample landed on disk holding weights of 1.0 and 1.5
+    under CLASS_VERSION 11 — a 0.5.0 file that read as a 0.4.x one, and a
+    saved copy of it downloaded that way."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    # Read the FILE, not the loaded object: import_json normalises on the
+    # way in, so the loaded project has always looked right.
+    written = json.loads(
+        (tmp_path / f"{wording.SAMPLE_PROJECT_NAME}.pkl").read_text())
+    weights = {o['name']: o['weight'] for o in written['objectives']}
+    assert weights == {"Juiciness": 40.0, "Firmness": 60.0}, weights
+    assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
 
 
 def _warm_burger(opt):

@@ -14,12 +14,13 @@ import streamlit as st
 import wording
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from ui_helpers import (
-    TAB_RESULTS, TAB_SETUP, amount_range_placeholder, best_formulation_no,
+    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    best_formulation_no,
     bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
     park_clear, readiness, saved_ok, scale_error,
-    scaled_caution, table_height, unit_after_number,
+    table_height, typed_batch_size, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -43,13 +44,13 @@ def _left_out(formulation_no):
 # The Batch size box. Its session key keeps its old spelling — clear_scale_total
 # and app.py's form list are written to it — while what it asks has changed:
 # it is the weight of ONE formulation in the round on screen, and changing it
-# rewrites the round rather than the picture of it.
-_BATCH_SIZE_KEY = "scale_total"
+# rewrites the round rather than the picture of it. Named in ui_helpers,
+# because tab 1 reads the same box.
+_BATCH_SIZE_KEY = BATCH_SIZE_KEY
 
 # The (project, round, size) the box has already been opened for. The size is
 # part of the mark because it is also the number scale_round was last called
-# with: a box holding anything else is the bench changing it, and a box
-# holding nothing is the bench emptying it, which is an answer of its own.
+# with: a box holding anything else is the bench changing it.
 _SEEDED_TOTAL = "_scale_total_seeded"
 
 
@@ -59,7 +60,14 @@ def _seed_mark(opt, size):
     can change under a session that has already rendered that same round
     (Open a saved copy, Reload project after a save error, reopening a
     project whose new round is number 1 again), and the seed was skipped
-    every time."""
+    every time.
+
+    An EMPTIED box is not an answer. There is no size of nothing: the round
+    keeps the amounts the box already moved, and clearing the stored size
+    while leaving those amounts would be worse than either. So the box is
+    re-seeded from the round's own size on the next run — it never sits
+    blank over a round that has one, saying nothing about the numbers
+    printed under it."""
     return (opt.project_name, opt.pending_batch_no, size)
 
 
@@ -94,24 +102,12 @@ def _seed_batch_size(opt):
         return          # no box is drawn while the units differ
     size = _prefill(opt)
     mark = _seed_mark(opt, size)
-    if st.session_state.get(_SEEDED_TOTAL) == mark:
+    emptied = size is not None and typed_batch_size(opt) is None
+    if st.session_state.get(_SEEDED_TOTAL) == mark and not emptied:
         return
     st.session_state[_SEEDED_TOTAL] = mark
     if size is not None:
         st.session_state[_BATCH_SIZE_KEY] = float(size)
-
-
-def _typed_batch_size(opt):
-    """What the box holds, or None while it is empty — and always None while
-    the ingredients are not all in one unit, because the box is not offered
-    then and a value left behind in it must not go on quietly rewriting
-    amounts nobody can see it acting on."""
-    if opt.one_amount_unit() is None:
-        return None
-    value = st.session_state.get(_BATCH_SIZE_KEY)
-    if value is None or float(value) <= 0:
-        return None
-    return float(value)
 
 
 def _apply_batch_size(opt, typed):
@@ -861,7 +857,7 @@ def render(opt, storage):
         return
 
     _seed_batch_size(opt)
-    typed = _typed_batch_size(opt)
+    typed = typed_batch_size(opt)
     # A change to the box makes the round to that size — the amounts
     # themselves, not a picture of them — and remembers it with the round, so
     # a reopened window and tab 3 both still know what the bench weighed out.
