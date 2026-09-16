@@ -16,8 +16,8 @@ import wording
 # what-is-it-trying column all need them there); the tab modules import them
 # from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
-    fmt_amount, fmt_setting, goal_line, join_unit, label_with_unit,
-    number_list, outside_message, unit_after_number,
+    amount_range_placeholder, fmt_amount, fmt_setting, goal_line, join_unit,
+    label_with_unit, number_list, outside_message, unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do
@@ -95,11 +95,32 @@ def restore_armed():
     return st.session_state.get(RESTORE_KEY) is not None
 
 
+def _confirmation_arming():
+    """True on the run that is PUTTING a confirmation up, before any
+    confirm_action has recorded it.
+
+    Streamlit files a button's value in session state under its own key
+    before the button is created, so a click that is about to arm a
+    question has already arrived by the time the script starts. Without
+    this, everything drawn ABOVE the confirm_action that will arm — a
+    grid's `Save changes`, the foot's Continue — was still drawn coloured
+    on that one run, beside the coloured Yes below it. confirm_action makes
+    the same reading about its own trigger; this is the same reading for
+    the rest of the tab.
+    """
+    if armed_confirmation() is not None:
+        return False
+    return any(str(key).endswith("__btn") and value is True
+               for key, value in st.session_state.items())
+
+
 def confirmation_open():
-    """True while a confirmation is armed. Its "Yes" is the lit button, and
-    a tab never shows two coloured buttons at once, so every tab's own primary
-    steps aside while one is on screen."""
-    return armed_confirmation() is not None or restore_armed()
+    """True while a confirmation is armed — or is being armed on this very
+    run. Its "Yes" is the lit button, and a tab never shows two coloured
+    buttons at once, so every tab's own primary steps aside while one is on
+    screen."""
+    return (armed_confirmation() is not None or restore_armed()
+            or _confirmation_arming())
 
 
 def other_confirmation(key):
@@ -129,7 +150,7 @@ def disarm(key):
 
 
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
-                   disabled=False, preserve=False):
+                   disabled=False, preserve=False, primary=False):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -145,9 +166,29 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     drawn into its reserved slot. Streamlit discards the session-state entry
     of every widget a run did not create, so without it the Cancel empties
     the sheet the user has already half-recorded.
+
+    `primary` colours the trigger. Every confirmation in the app is reached
+    from a grey button — the coloured one is the Yes it leads to — except
+    the grids' own `Save changes`, which IS the tab's one lit action while
+    there is an edit in hand and happens to have a deleted row in it. Once
+    the question is up, the Yes below is the coloured one and the trigger
+    goes grey with everything else, so the tab never shows two.
     """
     pending_key = f"{key}__pending"
-    if st.button(button_label, key=f"{key}__btn", disabled=disabled):
+    btn_key = f"{key}__btn"
+    # The click that puts the question up has already arrived by the time
+    # the script runs, and Streamlit files it in session state under the
+    # button's own key BEFORE the button is drawn. So the trigger knows, at
+    # the moment it is drawn, whether the Yes below is about to be the
+    # coloured one — without that, the one run that arms a question drew two
+    # coloured buttons.
+    arming = (bool(st.session_state.get(btn_key))
+              and armed_confirmation() in (None, key))
+    up_already = (armed_confirmation() == key
+                  and st.session_state.get(pending_key))
+    lit = primary and not (arming or up_already)
+    if st.button(button_label, key=btn_key, disabled=disabled,
+                 type="primary" if lit else "secondary"):
         # One at a time. A click that arrives while another confirmation is
         # armed — a second click in the same frame, or a click already in
         # flight against a button this frame draws greyed — is ignored rather
@@ -198,7 +239,7 @@ _TAB_FORM_PREFIXES = ("own_", "past_", "correct_")
 # numbers from the ones that were on screen a click ago. Tab 1's own total
 # box and the where-the-targets-come-from box are here for the same reason —
 # both sit below the sidebar, so every sidebar Cancel ran above them.
-_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "batch_size",
+_TAB_FORM_KEYS = ("add_past_mode", "scale_total", "how_many",
                   "formulation_total", "targets_source_box")
 _GRID_KEY_RE = re.compile(r"^f\d+_")      # f7_Firmness, f7_note, f7_leave_out
 
@@ -217,11 +258,12 @@ def preserve_tab_forms():
 
 def go_to_tab(label):
     """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from seven handlers only: Next: make a batch,
-    Back to set up, Save results, Save uploaded results, Start the next batch,
-    Change a measurement or an ingredient, and opening a project. A set-up
-    edit, Generate, a correction or a plain rerun must never call it, and
-    neither must a handler whose write failed.
+    tabs, and it is called from eight handlers only: Next: make a batch,
+    Back to set up, Save results, Save uploaded results, Start the next
+    batch, Change a measurement or an ingredient, Change the total, and
+    opening a project. A set-up edit, Generate, a correction or a plain
+    rerun must never call it, and neither must a handler whose write
+    failed.
 
     The move is deferred: the tabs widget already exists on this run, so
     assigning its key now would raise, and a write the frontend never asked
@@ -271,17 +313,6 @@ def bounds_caution(opt, name, value):
     return opt.bounds_caution(name, value)
 
 
-def scaled_caution(opt, recipes, total):
-    """The one line for the ingredients whose amounts fall outside what the
-    project allows once these formulations are made to `total`, or "" when
-    they all fit.
-
-    It lives on the optimizer, because the workbook's own sheets carry it and
-    food_bo cannot import this module.
-    """
-    return opt.scaled_caution(recipes, total)
-
-
 def table_height(n_rows, max_rows=12):
     """Pixel height that shows up to max_rows rows of a st.dataframe without an
     inner scrollbar (35 px per row plus the header). Zero rows still get one
@@ -298,6 +329,14 @@ def saved_line(saved_at):
     else:
         when = saved_at.strftime("%d %b %H:%M").lstrip("0")
     return wording.saved_line(when)
+
+
+def copy_when(saved_at):
+    """When one saved copy was made, for the line that offers it back:
+    'today 21:58', or '12 Sep 21:58' once it is not today's."""
+    now = datetime.now().astimezone()
+    return wording.copy_when(f"{saved_at:%H:%M}",
+                             today=saved_at.date() == now.date())
 
 
 def clear_selection(key):
@@ -320,29 +359,53 @@ def park_clear(key, value):
     st.session_state[f"_clear_{key}"] = ("value", value)
 
 
+# The round screen's Batch size box. Named here rather than on tab 2,
+# because tab 1 reads it too — a grid Save has to know whether the round it
+# may be about to retire was being made to a size — and two screens reaching
+# for one box by two spellings is a box neither of them owns.
+BATCH_SIZE_KEY = "scale_total"
+
+
+def typed_batch_size(opt):
+    """What the Batch size box holds, or None while it is empty.
+
+    Always None while the ingredients are not all in one unit: the box is
+    not offered then, and a value left behind in it must not go on quietly
+    meaning something on a screen nobody can see it acting on. A size of
+    nothing is not a size either, so anything at or below zero reads as
+    empty.
+    """
+    if opt.one_amount_unit() is None:
+        return None
+    value = st.session_state.get(BATCH_SIZE_KEY)
+    if value is None or float(value) <= 0:
+        return None
+    return float(value)
+
+
 def clear_scale_total():
-    """Empty tab 2's own `Total of each formulation` box for the next batch.
+    """Empty the round screen's own `Batch size` box for the next round.
 
     Parked, not popped. Popping a widget's key does not reach the browser —
     the mounted box posts its old value straight back — so a regenerated
-    batch came up re-scaled to the total the batch before it was made to,
-    and the sheets were printed for it. The parked value lands before the
-    box is drawn again (drain_clears).
+    round came up re-sized to the size the round before it was made to, and
+    the sheets were printed for it. The parked value lands before the box is
+    drawn again (drain_clears).
 
     Call it AFTER preserve_tab_forms() wherever both are used: that parks
-    every tab form at what it is still holding, which would put the old
-    total back.
+    every tab form at what it is still holding, which would put the old size
+    back.
     """
     park_clear("scale_total", None)
 
 
 def clear_formulation_total_box():
-    """Empty tab 1's `Total of each formulation` box.
+    """Empty Set up's `Default batch size` box.
 
-    Parked for the same reason tab 2's is: popping a widget's key does not
-    reach the browser, so a box left holding a total the project no longer
-    has would write it straight back on the next run — and the notice saying
-    the total went would be followed by the total coming back."""
+    Parked for the same reason the round screen's is: popping a widget's key
+    does not reach the browser, so a box left holding a size the project no
+    longer has would write it straight back on the next run — and the notice
+    saying the default went would be followed by the default coming back."""
     park_clear("formulation_total", None)
 
 
@@ -423,3 +486,165 @@ def landing_tab(opt):
     if not opt.X_history and not opt.skipped:
         return TAB_SETUP
     return TAB_RESULTS
+
+
+def _grid_nonce(name):
+    return f"_{name}_nonce"
+
+
+def grid_key(name):
+    """The key tab 1's editable grid `name` is mounted under on this run.
+
+    It carries a counter, and that is not decoration. A data editor's value
+    cannot be assigned from session state AT ALL — Streamlit refuses the
+    write outright, so the park-and-assign discipline every other box on the
+    page uses is not available here — and its session-state entry is a
+    record of what was typed (this cell changed, this row was added), not a
+    frame. Left standing after a save, that record would add the new row a
+    second time on the next run. So the only way to throw it away is to draw
+    a NEW editor: turning the counter over does that, and Streamlit drops
+    the state of the widget the run did not create.
+    """
+    return f"{name}_{st.session_state.get(_grid_nonce(name), 0)}"
+
+
+def clear_grid(name):
+    """Throw away what has been typed into one editable grid, by turning its
+    key over and forgetting the frame parked for it. Called by Discard
+    changes and by every Save that lands."""
+    rekey_grid(name)
+    unpark_grid(name)
+
+
+def rekey_grid(name):
+    """Turn one grid's key over WITHOUT forgetting what it was holding.
+
+    For the grid the run is about to rerun past without drawing: its own
+    record is gone either way (Streamlit keeps no widget a run did not
+    create), and the frame parked for it is what it opens at next. The key
+    has to move for that frame to be read — see parked_grid.
+    """
+    st.session_state[_grid_nonce(name)] = (
+        st.session_state.get(_grid_nonce(name), 0) + 1)
+
+
+# ------------------------------------------------------------------ #
+#  Tab 1's three editable grids, named once
+#
+#  The keys live here rather than in ui_setup because reset_grids() below
+#  is what every door that replaces a project's variable list calls, and
+#  app.py reaches it through this module. ui_setup imports them back.
+# ------------------------------------------------------------------ #
+ING_GRID_KEY = "ingredient_grid"
+MEAS_GRID_KEY = "measurement_grid"
+PROP_GRID_KEY = "property_grid"
+GRID_KEYS = (ING_GRID_KEY, MEAS_GRID_KEY, PROP_GRID_KEY)
+
+# The Save/Discard pair each of the two full grids is drawn under. The
+# properties grid has a plain button of its own and no deletion question.
+ING_SAVE_KEY = "save_ingredient_grid"
+MEAS_SAVE_KEY = "save_measurement_grid"
+SAVE_KEYS = (ING_SAVE_KEY, MEAS_SAVE_KEY)
+
+# Where a Save that refused parks its per-row errors until the slot under
+# the grid draws them. Listed as a tuple so a fourth grid cannot be
+# forgotten the way _property_grid_errors was.
+ING_ERRORS_KEY = "_ingredient_grid_errors"
+MEAS_ERRORS_KEY = "_measurement_grid_errors"
+PROP_ERRORS_KEY = "_property_grid_errors"
+GRID_ERROR_KEYS = (ING_ERRORS_KEY, MEAS_ERRORS_KEY, PROP_ERRORS_KEY)
+
+# Which grid already has an edit in hand, read by the grid below it so that
+# only one Save is coloured.
+ING_PENDING_KEY = "_ingredient_grid_pending"
+
+# What set of rows one grid's deletion question was armed over. ONE KEY PER
+# GRID: shared, the second grid's bookkeeping ran after the first's on every
+# run and popped the record out from under it.
+_ARMED_DELETIONS = "_grid_deletions_armed"
+
+
+def armed_deletions_key(key):
+    return f"{key}__{_ARMED_DELETIONS}"
+
+
+def parked_grid_key(name):
+    """Where one grid's edited frame waits while a rerun it did not cause
+    goes past it."""
+    return f"_{name}_parked"
+
+
+def park_grid(name, frame, keep_mark=False):
+    """Keep one grid's edited frame, and the key it was typed under, so a
+    rerun the grid was never drawn on does not throw the edit away.
+
+    A Save on the grid ABOVE reruns before this one is drawn, and Streamlit
+    throws away the session-state entry of every widget a run did not
+    create — so without this the other grid's edit is gone and its banner
+    with it, and the tab reported as saved work that never reached the
+    project.
+
+    The nonce is parked with the frame because the editor's own record is
+    POSITIONAL, and a frame already holding an added row, drawn again under
+    the same key that record belongs to, would add it a second time. So the
+    frame is only ever read back after the key has turned over — which is
+    exactly when the record is gone.
+    """
+    parked = st.session_state.get(parked_grid_key(name))
+    # `keep_mark` is the run that drew the grid FROM the park: the frame is
+    # still the only record of the edit, so it keeps the mark that says so.
+    # Re-stamping it with the key it has just been drawn under would have
+    # made it unreadable on the very next run, and the edit would have
+    # lasted exactly one screen.
+    nonce = (parked[0] if keep_mark and parked is not None
+             else st.session_state.get(_grid_nonce(name), 0))
+    st.session_state[parked_grid_key(name)] = (nonce, frame)
+
+
+def parked_grid(name, saved):
+    """The parked frame for `name` when it is the only record of the edit,
+    else None.
+
+    Two questions. Has the key turned over since it was parked? Until it
+    has, the editor's own record is still live and is what carries the
+    edit. And does the frame still fit the project — the same columns? A
+    save elsewhere can add or drop one (the Baseline column arrives with
+    the first recorded formulation), and an edit typed against the old
+    shape is not one this grid can still draw.
+    """
+    parked = st.session_state.get(parked_grid_key(name))
+    if parked is None:
+        return None
+    nonce, frame = parked
+    if nonce >= st.session_state.get(_grid_nonce(name), 0):
+        return None
+    if list(frame.columns) != list(saved.columns):
+        st.session_state.pop(parked_grid_key(name), None)
+        return None
+    return frame
+
+
+def unpark_grid(name):
+    st.session_state.pop(parked_grid_key(name), None)
+
+
+def reset_grids():
+    """Throw away every pending edit on tab 1 and every question armed over
+    one.
+
+    Called by each door that replaces the project's variable list — a
+    project switch, Start this project over, Open a saved copy → Yes,
+    replace, and an ingredients file that replaces the list. A data
+    editor's session-state entry is POSITIONAL (row 0's Lowest changed),
+    not a record of which ingredient it was typed against, so a record left
+    standing writes one project's number onto whatever now sits in that
+    row. Turning every key over is the only way to drop it.
+    """
+    for name in GRID_KEYS:
+        clear_grid(name)
+        unpark_grid(name)
+    for key in SAVE_KEYS:
+        st.session_state.pop(armed_deletions_key(key), None)
+    for key in GRID_ERROR_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state.pop(ING_PENDING_KEY, None)

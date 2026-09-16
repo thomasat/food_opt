@@ -3,8 +3,8 @@ collapsed section — `Edit past formulations` — for every way the record is
 fixed after the fact: a correction, a deletion, and a formulation made before
 this project existed, typed in or read off a CSV.
 
-The one coloured button is at the foot: `Start the next batch`, or `Back to
-batch N` while a batch is still unrecorded. Everything destructive is behind a
+The one coloured button is at the foot: `Start the next round`, or `Back to
+Round N` while a round is still unrecorded. Everything destructive is behind a
 confirmation that keeps a copy first and says so — once, in the confirmation.
 """
 import pandas as pd
@@ -12,15 +12,16 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
-from food_bo import WORKBOOK_MIME
+from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
-    COPY_KEPT, TAB_BATCH, TAB_SETUP, best_formulation_no, best_move_sentence,
+    COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
+    best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
     go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
-    scaled_caution, table_height, take_clear,
+    table_height, take_clear,
 )
 
 
@@ -90,7 +91,7 @@ def _progress_line(opt):
                if b != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
-        # "Batch 1 recorded."; saying it again four lines lower is the same
+        # "Round 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
     best_now = max(float(y) for y in opt.Y_history)
@@ -143,21 +144,29 @@ def _best(opt):
     row = {'formulation': number, 'recipe': recipe, 'note': note}
     shown, _ = opt.shown_recipe(row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
-    st.table(pd.DataFrame(_amount_rows(opt, shown),
+    # A blank index: st.table always draws one, and a list of ingredients
+    # numbered from 0 beside a properties grid numbered from 1 had the cold
+    # reader reading two different tables of the same ingredients.
+    rows = _amount_rows(opt, shown)
+    st.table(pd.DataFrame(rows,
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN]))
+                                   wording.AMOUNT_COLUMN],
+                          index=[""] * len(rows)))
     # The amounts above are the ones the bench weighed out, so the same lines
     # tab 2 shows under the box belong under the table that shows them: it
     # is the total, not the formulation, that pushed them out — and a row
     # that does not add up to the total says so rather than being rewritten.
-    for caution in (opt.scaled_cautions([row], total)
+    # `sized` is what a round the Batch size box re-sized carries: under a
+    # project default the row was never rewritten, so without it this table
+    # is checked against nothing and the caution tab 2 shows goes missing
+    # on the screen the round is read back on.
+    for caution in (opt.scaled_cautions([row], total, total is not None)
                     + opt.total_mismatch_lines([row], total)):
         st.caption(caution)
     # Ingredients only: a process setting sitting at 0 is a setting, not an
     # ingredient somebody left out.
-    unused = [v['name'] for v in opt.variables
-              if v.get('category', 'ingredient') == 'ingredient'
-              and not float(recipe.get(v['name'], 0.0))]
+    unused = [name for name in opt.ingredient_names()
+              if not float(recipe.get(name, 0.0))]
     if unused:
         st.caption(wording.NOT_USED_PREFIX + ", ".join(unused))
     ceiling = opt.utility_ceiling()
@@ -168,8 +177,8 @@ def _best(opt):
     unmeasured = [o['name'] for o in opt.measurements_by_importance()
                   if o['name'] not in recorded]
     partial = bool(unmeasured)
-    # What the ceiling MEANS is said once, under the measurements table on
-    # Set up ("Every measurement at its goal scores 2.50."). Repeating it
+    # What the ceiling MEANS is said once, under the measurements grid on
+    # Set up ("A formulation that hits every goal scores 100."). Repeating it
     # here read as a claim about the formulation on screen — false whenever
     # it is off target, and flatly contradictory beside the missing ones.
     #
@@ -210,7 +219,7 @@ def _amount_format(opt, frame):
     # alone.
     numeric = {c for c in frame.columns
                if c not in amounts and frame[c].dtype != object
-               and c not in (wording.FORMULATION_CAP, wording.BATCH_CAP)}
+               and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP)}
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
     formats.update({c: weighed for c in numeric})
@@ -231,10 +240,10 @@ def _all_formulations(opt, said_partial=False):
     st.dataframe(frame.style.format(_amount_format(opt, frame)),
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
-    # "Overall score" here is a lookup into food_bo's own history_frame
-    # schema, not a header this module produces — it stays literal.
+    # The overall-score column of food_bo's history_frame, named once in
+    # wording so the frame and the screen cannot drift apart.
     if not said_partial and any(wording.NOT_MEASURED in str(v)
-                                for v in frame["Overall score"]):
+                                for v in frame[wording.OVERALL_SCORE_COLUMN]):
         st.caption(wording.PARTIAL_SCORES_CAPTION)
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
@@ -325,7 +334,8 @@ def _amount_boxes(opt, key_of, recipe=None):
             # The All formulations table's own header, so an amount is typed
             # in the unit that table prints it in.
             typed[name] = st.number_input(
-                opt._amount_column(name), placeholder=f"{low:g}–{high:g}",
+                opt._amount_column(name),
+                placeholder=amount_range_placeholder(low, high),
                 key=key_of(name), format="%.2f")
     return typed
 
@@ -369,7 +379,7 @@ def _score_row(opt, choice):
     # generated, so when this row's batch was printed to a total the sheet
     # carried different numbers, and the heading names which of the two is
     # on screen.
-    batch = row.get('batch')
+    batch = row.get(ROUND_FIELD)
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
     # No note here: a not-scored row's note says why nobody scored it, not
@@ -377,13 +387,18 @@ def _score_row(opt, choice):
     shown_row = {'formulation': int(choice), 'recipe': recipe}
     shown, _ = opt.shown_recipe(shown_row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
-    st.table(pd.DataFrame(_amount_rows(opt, shown),
+    # A blank index: st.table always draws one, and a list of ingredients
+    # numbered from 0 beside a properties grid numbered from 1 had the cold
+    # reader reading two different tables of the same ingredients.
+    rows = _amount_rows(opt, shown)
+    st.table(pd.DataFrame(rows,
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN]))
+                                   wording.AMOUNT_COLUMN],
+                          index=[""] * len(rows)))
     # It is the total, not the formulation, that pushes an amount out of the
     # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
-    for caution in (opt.scaled_cautions([shown_row], total)
+    for caution in (opt.scaled_cautions([shown_row], total, total is not None)
                     + opt.total_mismatch_lines([shown_row], total)):
         st.caption(caution)
     ordered = opt.measurements_by_importance()
@@ -672,7 +687,12 @@ def _progress_chart(opt):
             wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
             wording.OVERALL_SCORE_COLUMN: [float(y) for y in opt.Y_history],
             wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
-        }).set_index(wording.FORMULATION_CAP), height=220)
+        }).set_index(wording.FORMULATION_CAP), height=220,
+            # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
+            # with one round of data and nothing on the chart said what
+            # either number was.
+            x_label=wording.FORMULATION_CAP,
+            y_label=wording.OVERALL_SCORE_COLUMN)
         st.caption(wording.PROGRESS_CHART_CAPTION)
 
 
@@ -684,7 +704,8 @@ def _batch_numbers(opt):
     The open batch is not offered: its rows are still on the bench, and the
     list beside this box cannot hold them."""
     seen = {int(b) for b in opt.batch_history if b is not None}
-    seen |= {int(s['batch']) for s in opt.skipped if s.get('batch') is not None}
+    seen |= {int(s[ROUND_FIELD]) for s in opt.skipped
+             if s.get(ROUND_FIELD) is not None}
     seen.discard(opt.pending_batch_no)
     return sorted(seen)
 
@@ -695,8 +716,8 @@ def _formulations_of_batch(opt, batch_no):
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history)
                if b is not None and int(b) == int(batch_no)]
     numbers += [int(s['formulation']) for s in opt.skipped
-                if s.get('batch') is not None
-                and int(s['batch']) == int(batch_no)]
+                if s.get(ROUND_FIELD) is not None
+                and int(s[ROUND_FIELD]) == int(batch_no)]
     return sorted(numbers)
 
 
@@ -817,9 +838,9 @@ def _type_in_past(opt):
     if not opt.variables:
         st.caption(wording.import_columns_caption_empty())
         return
-    # Every variable, paused ones included: this formulation was made, and it
+    # Every variable, held ones included: this formulation was made, and it
     # was made with some amount of each. Tab 2's own-formulation form pins a
-    # paused variable to the value generated formulations hold it at, because
+    # held variable to the value generated formulations hold it at, because
     # that one is a new formulation under today's set — this one is a fact
     # about work already done.
     _amount_boxes(opt, _past_key)
@@ -829,7 +850,7 @@ def _type_in_past(opt):
     _measurement_boxes(ordered, _past_measurement_key)
     st.session_state.setdefault("past_note", wording.IMPORTED_NOTE)
     st.text_input(wording.NOTE, key="past_note")
-    # Secondary: the foot's Start the next batch is this tab's coloured
+    # Secondary: the foot's Start the next round is this tab's coloured
     # button, and answering an armed confirmation outranks both.
     if st.button(wording.ADD_THIS_FORMULATION, key="add_past_formulation",
                  disabled=confirmation_open()):
@@ -1066,7 +1087,7 @@ def render(opt, storage):
         # A project with no ingredients cannot make a batch: sending the user
         # to a tab holding a greyed Generate is a lit button to a dead end.
         # And a batch already on the bench is not a first batch to make: the
-        # foot of every other screen calls it "Back to Batch 1 · 3 to record".
+        # foot of every other screen calls it "Back to Round 1 · 3 to record".
         ready, _ = readiness(opt)
         if not ready:
             label, target = wording.SET_UP_THIS_PROJECT_BUTTON, TAB_SETUP

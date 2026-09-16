@@ -5,6 +5,7 @@ bug where the backend raises a clean ValueError but the UI fails to catch it
 and shows the user a raw traceback.
 """
 
+import datetime as _dt
 import html
 import io
 import json
@@ -28,6 +29,131 @@ APP_PATH = os.path.join(os.path.dirname(__file__), "..", "app.py")
 
 def _submit_button(at, label):
     return next(b for b in at.button if b.label == label)
+
+
+# ------------------------------------------------------------------ #
+#  Tab 1's two editable grids
+#
+#  AppTest cannot click a cell. It does not have to: `st.data_editor`'s own
+#  session-state value IS the record of what was typed — which cells
+#  changed, which rows were added, which were taken out — so injecting that
+#  record is exactly the input the browser sends.
+#
+#  It has to be injected before EVERY run that should see it. AppTest
+#  replays the widgets it can drive itself, and a data editor is not one of
+#  them, so a run it has not set the record for hands the editor back its
+#  default. `_save_grid` does both halves.
+# ------------------------------------------------------------------ #
+ING_GRID = "ingredient_grid"
+MEAS_GRID = "measurement_grid"
+PROP_GRID = "property_grid"
+_GRID_SAVE_KEYS = {ING_GRID: "save_ingredient_grid",
+                   MEAS_GRID: "save_measurement_grid"}
+
+
+def _grid_edits(at, base, edited=None, added=None, deleted=None):
+    """Type into one of tab 1's grids. The key carries the grid's own
+    counter, which Discard changes and every Save that lands turn over
+    (ui_helpers.grid_key)."""
+    nonce_key = f"_{base}_nonce"
+    nonce = at.session_state[nonce_key] if nonce_key in at.session_state else 0
+    at.session_state[f"{base}_{nonce}"] = {
+        "edited_rows": {int(k): v for k, v in (edited or {}).items()},
+        "added_rows": list(added or []),
+        "deleted_rows": list(deleted or [])}
+
+
+def _stale_grid_edits(at, base, nonce, edited=None, added=None, deleted=None):
+    """The record the browser is still holding for a grid that has since
+    been drawn under a NEW key. Injected at a fixed nonce, so it is the
+    record of the editor that was on screen before the turnover — the thing
+    a turnover has to make unreachable."""
+    at.session_state[f"{base}_{nonce}"] = {
+        "edited_rows": {int(k): v for k, v in (edited or {}).items()},
+        "added_rows": list(added or []),
+        "deleted_rows": list(deleted or [])}
+
+
+class _FakeUpload(io.BytesIO):
+    """What st.file_uploader hands back: a readable file with a name, a size
+    and an id. AppTest cannot drive the real widget."""
+
+    def __init__(self, name, data):
+        super().__init__(data)
+        self.name = name
+        self.size = len(data)
+        self.file_id = name
+
+
+def _grid_save(at, base):
+    """That grid's own `Save changes`, whether it is the plain button or the
+    one confirm_action draws when a row has been taken out."""
+    key = _GRID_SAVE_KEYS[base]
+    return next(b for b in at.button
+                if b.key in (f"{key}__save", f"{key}__btn"))
+
+
+def _grid_discard(at, base):
+    return next(b for b in at.button
+                if b.key == f"{_GRID_SAVE_KEYS[base]}__discard")
+
+
+def _save_grid(at, base, confirm=False, discard=False, **edits):
+    """Type into a grid and save it. `confirm` answers the question a
+    deleted row is asked about first; `discard` answers the one an edit
+    that would take the open round away is asked."""
+    _grid_edits(at, base, **edits)
+    at.run()
+    _grid_save(at, base).click()
+    _grid_edits(at, base, **edits)
+    at.run()
+    if confirm or discard:
+        _submit_button(at, wording.YES_DELETE if confirm
+                       else wording.YES_SAVE_AND_DISCARD).click()
+        _grid_edits(at, base, **edits)
+        at.run()
+    return at
+
+
+def _ingredient_row(name, kind=None, low=0.0, high=100.0, unit="g", **extra):
+    """A row typed on the empty line at the bottom of the ingredients grid."""
+    row = {wording.NAME_LABEL: name,
+           wording.TYPE_LABEL: kind or wording.KIND_INGREDIENT,
+           wording.LOWEST_LABEL: low, wording.HIGHEST_LABEL: high,
+           wording.UNIT_LABEL: unit}
+    row.update(extra)
+    return row
+
+
+def _measurement_row(name, goal="max", low=0.0, high=10.0, unit="",
+                     share=50.0, target=None):
+    return {wording.MEASUREMENT_COLUMN: name,
+            wording.GOAL_LABEL: wording.GOAL_LABELS[goal],
+            wording.TARGET_LABEL: target,
+            wording.LOWEST_MEASURABLE_LABEL: low,
+            wording.HIGHEST_MEASURABLE_LABEL: high,
+            wording.UNIT_LABEL: unit,
+            wording.SHARE_COLUMN: share}
+
+
+def _grid_frame(at, which=0):
+    """One of tab 1's grids as it is drawn. Tab 1 renders first, so the
+    ingredients grid is 0, the measurements grid is 1 and the properties
+    grid inside More settings — drawn only while the project has a property
+    and an ingredient — is 2."""
+    return at.dataframe[which].value
+
+
+def _save_properties(at, **edits):
+    """Type into the properties grid inside More settings and save it. Its
+    button is grey and applies on the click: there is no Discard beside it
+    and the foot keeps the tab's one coloured button."""
+    _grid_edits(at, PROP_GRID, **edits)
+    at.run()
+    next(b for b in at.button if b.key == "save_properties").click()
+    _grid_edits(at, PROP_GRID, **edits)
+    at.run()
+    return at
 
 
 @pytest.fixture
@@ -98,7 +224,13 @@ def test_restore_rejects_wrong_shaped_variables(project_with_history):
     at.session_state["_restore_candidate"] = candidate
     at.run()
     assert not at.exception
-    assert any("wrong shape" in e.value for e in at.error), [e.value for e in at.error]
+    # One sentence on screen, whatever is wrong with the copy. The stored
+    # field name and its shape are four of the words the app retired plus
+    # programmer punctuation, shown to a food scientist whose copy will not
+    # open: they go to the log.
+    assert [e.value for e in at.error] == [
+        wording.COPY_DAMAGED + wording.RECENT_COPIES_HINT], \
+        [e.value for e in at.error]
     assert len(FoodOptimizer("my_project").X_history) == 1
     assert at.session_state["optimizer"].variables[0]["name"] == "Water"
 
@@ -321,12 +453,13 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     # Set up is complete, but nothing has been made yet: the sample opens on
     # its set-up so the user sees what they are about to make.
     assert at.session_state["main_tab"] == wording.TAB_SETUP
-    table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
-    # A panel score's "/10" is written once, on the measurement's own row,
-    # and never after a number.
-    assert list(table["Measurement"]) == ["Firmness (/10)", "Juiciness (/10)"]
-    assert list(table["Goal"]) == ["Target 6", "Target 7"]
-    assert list(table["Range"]) == ["0 to 10", "0 to 10"]
+    grid = _grid_frame(at, 1)
+    # A panel rating's "/10" is a column of its own on the grid: the name
+    # cell is the name, because it is the cell a rename would be typed in.
+    assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
+    assert list(grid[wording.UNIT_LABEL]) == ["/10", "/10"]
+    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2
+    assert list(grid["Target"]) == [6.0, 7.0]
 
 
 def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, monkeypatch):
@@ -402,7 +535,7 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert not any(c.value.startswith("Targets from:")
+    assert not any(c.value.startswith("Where the targets come from:")
                   for c in at.tabs[0].caption)
     # With no note yet the button says what it will make, not "edit" of a
     # note nobody can see.
@@ -416,7 +549,7 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     assert not at.exception
     assert FoodOptimizer("burger").targets_source == "Benchmark burger, panel of 8."
     captions = [c.value for c in at.tabs[0].caption]
-    assert "Targets from: Benchmark burger, panel of 8." in captions
+    assert "Where the targets come from: Benchmark burger, panel of 8." in captions
     # The box reopens prefilled with what is stored, next time it is opened,
     # and the button is now an Edit.
     _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
@@ -958,12 +1091,7 @@ def test_a_unit_typed_with_a_trailing_space_is_saved_once(burger):
     writes nothing: a re-save on every rerun bounced the script into a loop."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    at.text_input(key="unit_value").set_value("kg ")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "kg "}})
     assert FoodOptimizer("burger").unit_of("Methylcellulose") == "kg"
     saved_at = at.session_state["optimizer"].last_saved_at
     at.run()
@@ -974,41 +1102,39 @@ def test_a_unit_typed_with_a_trailing_space_is_saved_once(burger):
 def test_measurements_table_is_sorted_by_importance(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Importance" in d.value.columns)
-    # No Priority column: it was the row's position in a table already sorted
-    # by importance, which is the same fact written twice.
-    assert list(table.columns) == ["Measurement", "Goal", "Range",
-                                   "Importance", "Share of score"]
-    assert list(table["Measurement"]) == ["Firmness", "Juiciness (/10)"]
-    assert list(table["Goal"]) == ["Target 6 N", "Target 7"]
-    assert list(table["Range"]) == ["0 to 10 N", "0 to 10"]
-    assert list(table["Share of score"]) == ["60 %", "40 %"]
+    grid = _grid_frame(at, 1)
+    # No Priority column: it was the row's position in a grid already sorted
+    # by what each measurement is worth, which is the same fact twice. And
+    # no Importance column: the share IS the number that is typed now.
+    assert [c for c in grid.columns if c != "_id"] == [
+        "Measurement", "Goal", "Target", "Lowest measurable",
+        "Highest measurable", "Unit", wording.SHARE_COLUMN]
+    assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
+    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2
+    assert list(grid["Target"]) == [6.0, 7.0]
+    assert list(grid[wording.SHARE_COLUMN]) == [60.0, 40.0]
 
 
 def test_the_score_function_is_written_out_under_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(c.value == (
-        "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
+        "Overall score = 60 % × Firmness closeness + 40 % × "
         "Juiciness closeness. A formulation that hits every goal scores "
-        "2.50."
+        "100."
     ) for c in at.caption), [c.value for c in at.caption]
     # How closeness works is said once, in the expander, per goal.
     assert not any("falls evenly with distance" in c.value for c in at.caption)
-def test_importance_is_a_number_from_a_tenth_to_a_hundred(burger):
+def test_the_share_column_is_whole_percents_that_add_up_to_a_hundred(burger):
+    """Share of score is what the reader types (spec 1.3). There is no
+    Importance box anywhere, and no slider: the column adds up to 100 and
+    the app derives the importances from it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    field = at.number_input(key="meas_new_importance")
-    assert field.min == 0.1 and field.max == 100.0
-    assert field.value == 1.0
+    shares = list(_grid_frame(at, 1)[wording.SHARE_COLUMN])
+    assert shares == [60.0, 40.0] and sum(shares) == 100
     assert not at.slider, [s.label for s in at.slider]
-
-
-def test_the_new_measurement_unit_box_placeholder_gives_two_examples(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert (at.text_input(key="meas_new_unit").proto.placeholder
-           == "e.g. N or /10")
+    assert not any("Importance" in str(c) for c in _grid_frame(at, 1).columns)
 
 
 def test_no_share_line_follows_what_is_typed(burger):
@@ -1016,9 +1142,6 @@ def test_no_share_line_follows_what_is_typed(burger):
     goal's closeness never spans the full 0 to 1, so two equally weighted
     measurements are not equally influential. The line is gone."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.text_input(key="meas_new_name").set_value("Chewiness")
-    at.number_input(key="meas_new_importance").set_value(2.5)
     at.run()
     assert not any("% of the overall score" in m.value for m in at.markdown), \
         [m.value for m in at.markdown]
@@ -1059,34 +1182,60 @@ def test_an_armed_confirmation_takes_the_colour_off_continue(burger):
     screen, answering it is the only coloured thing to do."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete Firmness").click()
+    edits = dict(deleted=[0])
+    _grid_edits(at, MEAS_GRID, **edits)
+    at.run()
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, MEAS_GRID, **edits)
     at.run()
     assert _tab_primaries(at, 0) == ["Yes, delete"], _tab_primaries(at, 0)
     assert _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
     _submit_button(at, "Cancel").click()
+    _grid_edits(at, MEAS_GRID, **edits)
     at.run()
     at.run()   # Cancel reruns from inside the handler; AppTest keeps the
                # aborted pass's elements until the next run
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], _tab_primaries(at, 0)
+    assert {o["name"] for o in FoodOptimizer("burger").objectives} == {
+        "Firmness", "Juiciness"}
 
 
-def test_edit_reopens_the_measurement_with_the_name_locked(burger):
+def test_a_measurements_name_typed_over_is_a_rename(burger):
+    """Every result already recorded is filed under the name, so the rename
+    moves the two together — nothing is rescored and no copy is kept."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
+    before = list(FoodOptimizer("burger").Y_history)
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.MEASUREMENT_COLUMN: "Bite"}})
     assert not at.exception
-    assert at.text_input(key="meas_Firmness_name").disabled is True
-    assert at.number_input(key="meas_Firmness_importance").value == 1.5
-    assert "Cancel" in _labels(at)
-    _submit_button(at, "Cancel").click()
+    assert [e.value for e in at.error] == []
+    saved = FoodOptimizer("burger")
+    assert {o["name"] for o in saved.objectives} == {"Bite", "Juiciness"}
+    assert saved.results_history[0] == {"Bite": 6.0, "Juiciness": 7.0}
+    assert saved.Y_history == before
+    assert any(s.value == "Bite saved." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_a_measurement_renamed_onto_a_taken_name_is_refused_by_row(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "_editing_measurement" not in at.session_state
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.MEASUREMENT_COLUMN: "Pea protein"}})
+    assert [e.value for e in at.error] == [wording.row_error(
+        1, "Pea protein is already the name of an ingredient. Choose "
+           "another name.")]
+    assert {o["name"] for o in FoodOptimizer("burger").objectives} == {
+        "Firmness", "Juiciness"}
 
 
-def test_changing_importance_keeps_a_copy_and_reports_the_move(burger, tmp_path):
-    # Chosen so Formulation 3 wins at importance 1.5 (1.75 vs 1.65) and
-    # Formulation 7 wins at 2.0 (2.10 vs 2.00) — the move the sentence reports.
+def test_changing_a_share_keeps_a_copy_and_reports_the_move(burger, tmp_path):
+    # Chosen so Formulation 3 wins while Firmness is worth 60 % and
+    # Formulation 7 wins once it is worth 67 % — the move the sentence
+    # reports.
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=3, batch_no=1)
     burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
@@ -1095,19 +1244,14 @@ def test_changing_importance_keeps_a_copy_and_reports_the_move(burger, tmp_path)
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_SETUP
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    at.number_input(key="meas_Firmness_importance").set_value(2.0)
-    _submit_button(at, "Save changes").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 67.0}})
     assert not at.exception
     assert (tmp_path / "burger_pre_edit.pkl").exists()
-    note = next(s.value for s in at.success if "importance is now" in s.value)
-    # The copy is named in the sentence: this edit has no confirmation before
-    # it, so nothing else tells the user there is a way back.
-    assert note == (wording.importance_changed("Firmness", 2.0)
-                    + wording.RECALCULATED_SUFFIX + " " + wording.best_moved(3, 7)
-                    + " " + wording.COPY_KEPT)
+    # The copy is named in the sentence: this save has no confirmation
+    # before it, so nothing else tells the user there is a way back.
+    assert any(wording.best_moved(3, 7) in v.value and wording.COPY_KEPT
+               in v.value and wording.RECALCULATED_SUFFIX.strip() in v.value
+               for v in at.success), [v.value for v in at.success]
     assert at.session_state["main_tab"] == wording.TAB_SETUP   # a set-up edit never moves
 
 
@@ -1119,11 +1263,7 @@ def test_editing_a_measurement_leaves_the_open_batch_alone(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    at.number_input(key="meas_Firmness_importance").set_value(2.0)
-    _submit_button(at, "Save changes").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 70.0}})
     assert not at.exception
     reloaded = FoodOptimizer("burger")
     assert [r["formulation"] for r in reloaded.pending_batch] == [1]
@@ -1135,15 +1275,12 @@ def test_adding_and_deleting_a_measurement_leaves_the_open_trial_alone(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.text_input(key="meas_new_name").set_value("Chewiness")
-    _submit_button(at, "Add measurement").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, added=[_measurement_row("Chewiness", share=20.0)])
     assert FoodOptimizer("burger").pending_batch is not None
-    _submit_button(at, "Delete Chewiness").click()
-    at.run()
-    _submit_button(at, "Yes, delete").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, confirm=True, deleted=[2])
     assert not at.exception
+    assert [o["name"] for o in FoodOptimizer("burger").objectives
+            if o["name"] == "Chewiness"] == []
     assert FoodOptimizer("burger").pending_batch is not None
 
 
@@ -1152,10 +1289,8 @@ def test_adding_an_ingredient_does_discard_the_open_trial(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.text_input(key="var_name").set_value("Beet juice powder")
-    at.number_input(key="var_high").set_value(2.0)
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, discard=True,
+               added=[_ingredient_row("Beet juice powder", high=2.0)])
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
     # food_bo drops the batch inside add_ingredient, so app.py's makeability
@@ -1169,10 +1304,7 @@ def test_deleting_a_measurement_keeps_a_copy_and_recalculates(burger, tmp_path):
                 {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete Juiciness").click()
-    at.run()
-    _submit_button(at, "Yes, delete").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, confirm=True, deleted=[1])
     assert not at.exception
     assert (tmp_path / "burger_pre_edit.pkl").exists()
     assert [o["name"] for o in FoodOptimizer("burger").objectives] == ["Firmness"]
@@ -1180,19 +1312,19 @@ def test_deleting_a_measurement_keeps_a_copy_and_recalculates(burger, tmp_path):
         [s.value for s in at.success]
 
 
-def test_adding_a_measurement_from_the_collapsed_form(burger):
+def test_a_measurement_is_added_on_the_empty_row_at_the_bottom(burger):
+    """Its share is what it is worth: 20 % of the score, and the two already
+    there give way proportionally to make room for it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="meas_new_name").set_value("Chewiness")
-    at.text_input(key="meas_new_unit").set_value("N")
-    at.number_input(key="meas_new_max").set_value(20.0)
-    at.number_input(key="meas_new_importance").set_value(0.5)
-    _submit_button(at, "Add measurement").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, added=[
+        _measurement_row("Chewiness", unit="N", high=20.0, share=20.0)])
     assert not at.exception
-    added = next(o for o in FoodOptimizer("burger").objectives
-                 if o["name"] == "Chewiness")
-    assert added["unit"] == "N" and added["weight"] == 0.5 and added["max_val"] == 20.0
+    opt = FoodOptimizer("burger")
+    added = next(o for o in opt.objectives if o["name"] == "Chewiness")
+    assert added["unit"] == "N" and added["max_val"] == 20.0
+    assert opt.share_percents() == {"Firmness": 48, "Juiciness": 32,
+                                    "Chewiness": 20}
 
 
 def test_the_ingredient_uploader_help_names_the_real_columns(burger):
@@ -1205,30 +1337,21 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
                                    "reads it as g."), uploader.proto.help
     assert any(c.value.startswith("A file with the columns Name, Lowest, Highest")
                for c in at.caption), [c.value for c in at.caption]
-def test_the_unit_box_placeholder_matches_ingredient_or_setting(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert at.text_input(key="var_unit").proto.placeholder == "e.g. g"
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    assert at.text_input(key="var_unit").proto.placeholder == "e.g. °C"
-
-
-def test_manual_add_ingredient_and_the_mid_run_minimum_notice(burger):
+def test_an_ingredient_added_mid_run_may_keep_a_lowest_of_its_own(burger):
+    """0.5.0: the grid lets a new row start above 0 — "5 g of salt in every
+    formulation from here on" is a thing a formulator asks for — and says
+    once that the formulations already made contain none of it."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    box = at.number_input(key="var_low")
-    assert box.disabled is True
-    assert box.proto.help == ("Fixed at 0: every formulation you have "
-                              "already made contains none of it.")
-    at.text_input(key="var_name").set_value("Beet juice powder")
-    at.number_input(key="var_high").set_value(2.0)
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Beet juice powder", low=2.0, high=2.0)])
     assert not at.exception
-    assert any(v["name"] == "Beet juice powder" for v in FoodOptimizer("burger").variables)
+    opt = FoodOptimizer("burger")
+    assert opt._var_by_name("Beet juice powder")["bounds"] == (2.0, 2.0)
+    assert any(i.value == wording.formulations_contain_none_of(
+        "Beet juice powder") for i in at.info), [i.value for i in at.info]
 
 
 def test_process_setting_baseline_error_is_shown_not_raised(burger):
@@ -1236,15 +1359,10 @@ def test_process_setting_baseline_error_is_shown_not_raised(burger):
                 {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    at.text_input(key="var_name").set_value("Cook temperature")
-    at.number_input(key="var_low").set_value(150.0)
-    at.number_input(key="var_high").set_value(220.0)
-    at.number_input(key="var_base").set_value(100.0)   # outside [150, 220]
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                        low=150.0, high=220.0, unit="°C",
+                        **{wording.BASELINE_LABEL: 100.0})])  # outside the range
     assert not at.exception
     assert any("must be between" in str(e.value) for e in at.error), \
         [str(e.value) for e in at.error]
@@ -1259,14 +1377,16 @@ def test_deleting_a_process_setting_confirms_and_archives(burger, tmp_path):
                 {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Cook temperature")
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
-    _submit_button(at, "Delete Cook temperature").click()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
     assert any("Cook temperature" in w.value for w in at.warning), \
         [w.value for w in at.warning]
     assert any(v["name"] == "Cook temperature" for v in FoodOptimizer("burger").variables)
     _submit_button(at, "Yes, delete").click()
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
     assert not at.exception
     assert (tmp_path / "burger_pre_delete.pkl").exists()
@@ -1324,9 +1444,7 @@ def test_conflicting_save_shows_the_banner_immediately(burger, tmp_path):
     other = FoodOptimizer("burger")
     other.add_objective("Crunch", 1.0)
     time.sleep(0.01)   # coarse-mtime filesystems
-    at.text_input(key="meas_new_name").set_value("Zing")
-    _submit_button(at, "Add measurement").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, added=[_measurement_row("Zing", share=20.0)])
     assert not at.exception
     assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
 
@@ -1337,49 +1455,45 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
     with no copy kept."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="meas_new_name").set_value("firmness")   # case-insensitive
-    _submit_button(at, "Add measurement").click()
-    at.run()
+    # case-insensitive
+    _save_grid(at, MEAS_GRID, added=[_measurement_row("firmness", share=20.0)])
     assert not at.exception
-    assert any(e.value == "That measurement already exists. Use Edit on its "
-               "row to change it." for e in at.error), [e.value for e in at.error]
+    assert any(wording.MEASUREMENT_EXISTS_ERROR in e.value
+               for e in at.error), [e.value for e in at.error]
     kept = next(o for o in FoodOptimizer("burger").objectives
                 if o["name"] == "Firmness")
-    assert kept["unit"] == "N" and kept["weight"] == 1.5
+    # 60 %, not 1.5: a saved project reads its importances as shares of 100.
+    assert kept["unit"] == "N" and kept["weight"] == 60.0
     assert kept["goal"] == "target" and kept["target"] == 6.0
     assert not any("Added" in m.value for m in at.success), [m.value for m in at.success]
 
 
-def test_a_pause_that_discards_the_trial_says_so(burger):
+def test_fixing_a_row_discards_the_round_and_says_so(burger):
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
-    at.run()
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.LOWEST_LABEL: 1.0,
+                           wording.HIGHEST_LABEL: 1.0}})
     assert not at.exception
     assert FoodOptimizer("burger").pending_batch is None
-    assert any(f"{wording.BATCH_CAP} 1 was discarded" in i.value
+    assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
                for i in at.info), [i.value for i in at.info]
 
 
-def test_changing_the_scale_also_keeps_a_copy_and_reports_it(burger, tmp_path):
-    """Importance is not the only field that rescores history: the goal, the
-    target and either end of the scale all feed closeness."""
+def test_changing_the_range_also_keeps_a_copy_and_reports_it(burger, tmp_path):
+    """A share is not the only field that rescores history: the goal, the
+    target and either end of the range all feed closeness."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    at.number_input(key="meas_Firmness_max").set_value(20.0)
-    _submit_button(at, "Save changes").click()
-    at.run()
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.HIGHEST_MEASURABLE_LABEL: 20.0}})
     assert not at.exception
     assert (tmp_path / "burger_pre_edit.pkl").exists()
-    assert any(m.value == "Firmness updated. Every overall score was "
+    assert any(m.value == "Firmness saved. Every overall score was "
                "recalculated. " + wording.COPY_KEPT
                for m in at.success), [m.value for m in at.success]
     assert FoodOptimizer("burger").objectives[1]["max_val"] == 20.0
@@ -1390,13 +1504,11 @@ def test_only_the_unit_changed_means_no_copy_and_no_recalculation_claim(burger):
                 {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    at.text_input(key="meas_Firmness_unit").set_value("kPa")
-    _submit_button(at, "Save changes").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.UNIT_LABEL: "kPa"}})
     assert not at.exception
-    assert any(m.value == "Firmness updated." for m in at.success), \
+    # A unit is how a number is written, not the number, so nothing is
+    # rescored and nothing claims to have been.
+    assert any(m.value == "Firmness saved." for m in at.success), \
         [m.value for m in at.success]
 
 
@@ -1404,10 +1516,7 @@ def test_deleting_a_measurement_keeps_a_copy_even_with_no_results(burger, tmp_pa
     """A copy is kept before every removal on this tab, history or not."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete Juiciness").click()
-    at.run()
-    _submit_button(at, "Yes, delete").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, confirm=True, deleted=[1])
     assert not at.exception
     assert (tmp_path / "burger_pre_edit.pkl").exists()
     assert [o["name"] for o in FoodOptimizer("burger").objectives] == ["Firmness"]
@@ -1417,14 +1526,16 @@ def test_deleting_a_process_setting_confirms_even_with_no_results(burger, tmp_pa
     burger.add_process_parameter("Cook temperature", 150, 220)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Cook temperature")
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
-    _submit_button(at, "Delete Cook temperature").click()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
     assert any("Cook temperature" in w.value for w in at.warning), \
         [w.value for w in at.warning]
     assert any(v["name"] == "Cook temperature" for v in FoodOptimizer("burger").variables)
     _submit_button(at, "Yes, delete").click()
+    _grid_edits(at, ING_GRID, deleted=[2])
     at.run()
     assert not at.exception
     assert (tmp_path / "burger_pre_delete.pkl").exists()
@@ -1440,10 +1551,8 @@ def test_a_failed_save_shows_red_and_never_a_green_added(burger):
     other = FoodOptimizer("burger")          # another window writes first
     other.add_objective("Crunch", 1.0)
     time.sleep(0.01)                          # coarse-mtime filesystems
-    at.text_input(key="var_name").set_value("Beet juice powder")
-    at.number_input(key="var_high").set_value(2.0)
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID,
+               added=[_ingredient_row("Beet juice powder", high=2.0)])
     assert not at.exception
     assert any("another window" in e.value for e in at.error), [e.value for e in at.error]
     assert not any("Beet juice powder" in m.value for m in at.success), \
@@ -1453,30 +1562,41 @@ def test_a_failed_save_shows_red_and_never_a_green_added(burger):
 def test_the_range_labels_are_sentence_case(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    labels = [n.label for n in at.number_input]
-    assert "Lowest measurable" in labels and "Highest measurable" in labels, labels
+    columns = list(_grid_frame(at, 1).columns)
+    assert "Lowest measurable" in columns and "Highest measurable" in columns
 
 
-def test_the_ingredient_table_has_no_status_column_until_something_is_paused(burger):
+def test_the_ingredient_grid_has_no_status_column_at_all(burger):
+    """0.5.0: a row pinned at one amount says so in a Lowest that is its
+    Highest, which is where the reader already looks."""
+    burger.add_ingredient("Methylcellulose", 1.0, 1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table.columns) == ["Type", "Name", "Lowest", "Highest",
-                                   "Unit"], list(table.columns)
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
-    at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table["Status"]) == ["active", "paused · held at 0.00 g"], \
-        list(table["Status"])
+    grid = _grid_frame(at, 0)
+    assert [c for c in grid.columns if c != "_id"] == [
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"], \
+        list(grid.columns)
+    row = grid[grid["Name"] == "Methylcellulose"].iloc[0]
+    assert (row["Lowest"], row["Highest"]) == (1.0, 1.0)
 
 
 @pytest.fixture
 def open_batch(burger):
-    """Batch 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
+    """Round 1 of two formulations, numbered 1 and 2, nothing recorded yet."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
                               {"Pea protein": 20.0, "Methylcellulose": 2.0}])
+    return burger
+
+
+@pytest.fixture
+def room_to_scale(burger):
+    """A round that 200 g is a REACHABLE size for — the three ingredients
+    add up to 228 g between them — and at which two of the three are past
+    their own Highest. A size the ingredients cannot add up to at all is
+    refused outright now, so the caution is about the sizes they can."""
+    burger.add_ingredient("Water", 0, 200)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
+                               "Water": 5.0}])
     return burger
 
 
@@ -1519,8 +1639,8 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     at.run()
     assert wording.HOW_CHOSEN == (
         "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each batch aims closer to your "
-        "targets."), wording.HOW_CHOSEN
+        "cover the allowed amounts. After that, each round aims closer to "
+        "your targets."), wording.HOW_CHOSEN
     assert wording.HOW_CHOSEN in HOW_IT_WORKS, HOW_IT_WORKS
     assert any(c.value == wording.HOW_CHOSEN for c in at.caption), \
         [c.value for c in at.caption]
@@ -1561,7 +1681,7 @@ def test_own_formulation_starts_a_batch_when_none_is_open(burger):
     assert reloaded.pending_batch[0]["note"] == wording.OWN_FORMULATION_NOTE
     assert reloaded.pending_batch_no == 1
     assert len(reloaded.pending_batch_created) == 10        # an ISO date
-    assert any(s.value == "Formulation 1 added to Batch 1."
+    assert any(s.value == "Formulation 1 added to Round 1."
                for s in at.success), [s.value for s in at.success]
     # The boxes empty again, so the next one is typed into a clean form.
     assert at.session_state["own_Pea protein"] is None
@@ -1573,7 +1693,7 @@ def test_own_formulation_joins_the_open_batch(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -1593,7 +1713,7 @@ def test_own_formulation_joins_the_open_batch(burger):
                for m in at.markdown), [m.value for m in at.markdown]
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Note"]) == ["", "", wording.OWN_FORMULATION_NOTE]
-    assert any(s.value == "Formulation 3 added to Batch 1."
+    assert any(s.value == "Formulation 3 added to Round 1."
                for s in at.success), [s.value for s in at.success]
 
 
@@ -1602,7 +1722,7 @@ def test_the_own_formulation_note_placeholder_gives_an_example(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -1700,26 +1820,32 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
                                    "Methylcellulose (g)", "Total (g)"]
     box = at.number_input(key="scale_total")
-    assert box.value is None                          # empty: as generated
-    assert box.proto.placeholder == "e.g. 150"
+    # Blank: no stored size and no default, so the box has no number to open
+    # at. It opened at the mean of the rows' own sums for a while, which put
+    # a size on screen that no formulation weighed.
+    assert box.value is None
+    assert box.proto.placeholder == "e.g. 100"
 
 
-def test_scaling_rescales_the_screen_the_sheet_and_nothing_else(open_batch):
-    """What is downloaded must equal what is on screen: the whole point of the
-    scale box is that the lab weighs those amounts out."""
+def test_a_batch_size_rescales_the_screen_the_sheet_and_the_record(open_batch):
+    """What is downloaded must equal what is on screen: the whole point of
+    the box is that the lab weighs those amounts out. Since 0.5.0 the stored
+    row moves with them, so what is recorded is what was made."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(22.0)
     at.run()
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert table["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
-    # One caption about the total on this tab, not two: it names the number
+    # One caption about the size on this tab, not two: it names the number
     # the files were written for, under the files.
     assert any(c.value == "Sheets show each formulation made to 22 g."
                for c in at.caption), [c.value for c in at.caption]
     assert not any(c.value == "Amounts shown for this total."
                    for c in at.caption), [c.value for c in at.caption]
-    assert FoodOptimizer("burger").pending_batch[0]["recipe"]["Pea protein"] == 10.0
+    stored = FoodOptimizer("burger").pending_batch
+    assert stored[0]["recipe"]["Pea protein"] == pytest.approx(20.0)
+    assert stored[1]["recipe"]["Pea protein"] == pytest.approx(20.0)
 
 
 def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batch):
@@ -1732,13 +1858,13 @@ def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batc
         [wording.DOWNLOAD_BATCH_SHEETS], \
         [d.label for d in _unknowns(at.tabs[1], "download_button")]
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
     # The download IS the coloured thing here, and it is the only one.
-    assert _tab_primaries(at, 1) == ["Download the batch sheets (Excel)"], _tab_primaries(at, 1)
+    assert _tab_primaries(at, 1) == ["Download the round sheets (Excel)"], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "secondary"
+                    "Download the round sheets (Excel)").proto.type == "secondary"
 
 
 def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
@@ -1751,7 +1877,7 @@ def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
 
 
 def test_regenerating_names_the_numbers_it_discards(open_batch):
@@ -1764,7 +1890,7 @@ def test_regenerating_names_the_numbers_it_discards(open_batch):
     # The number is read off the project, not guessed from the rows, and the
     # sentence says NEW FORMULATIONS: the batch keeps its own number.
     assert wording.regenerate_warning(1, "1 and 2", 3) == (
-        "Discard Batch 1 and Formulations 1 and 2? New formulations start at "
+        "Discard Round 1 and Formulations 1 and 2? New formulations start at "
         "Formulation 3.")
     assert at.session_state["optimizer"].next_formulation_no == 3
     _submit_button(at, "Yes, discard").click()
@@ -1810,30 +1936,30 @@ def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
-    assert book.sheetnames == ["Batch 1", "Formulation 1", "Formulation 2"], \
+    assert book.sheetnames == ["Round 1", "Formulation 1", "Formulation 2"], \
         book.sheetnames
     texts = _sheet_text(at)
-    assert f"{wording.FORMULATION_CAP} 1 · {wording.BATCH_CAP} 1 · burger" \
+    assert f"{wording.FORMULATION_CAP} 1 · {wording.ROUND_CAP} 1 · burger" \
         in texts, texts
     assert wording.NOT_SCORED_CHECKBOX_SHEET in texts, texts
     # The measurement is named, what a good number looks like is beside it,
     # and the cell to write the reading in is empty.
-    assert "Firmness" in texts and "target 6 N" in texts, texts
+    assert "Firmness" in texts and "Target 6 N" in texts, texts
     assert wording.MEASURED_COLUMN in texts, texts
 
 
 def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="f1_Firmness").label == "Firmness · target 6 N"
+    assert at.number_input(key="f1_Firmness").label == "Firmness · Target 6 N"
     # The panel unit is on the label, once, and never after the number.
     assert (at.number_input(key="f1_Juiciness").label
-            == "Juiciness (/10) · target 7")
+            == "Juiciness (/10) · Target 7")
     labels = [n.label for n in at.number_input]
-    assert (labels.index("Firmness · target 6 N")
-            < labels.index("Juiciness (/10) · target 7"))
+    assert (labels.index("Firmness · Target 6 N")
+            < labels.index("Juiciness (/10) · Target 7"))
     assert any(c.value == ("One number per measurement; the panel mean where "
-                           "a panel scored it. Leave blank if it was not "
+                           "a panel rated it. Leave blank if it was not "
                            "measured.") for c in at.caption), \
         [c.value for c in at.caption]
 
@@ -1853,7 +1979,7 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -1887,7 +2013,7 @@ def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
     at.run()
     assert _submit_button(at, "Save results").disabled
     # "complete", not "to record": every other screen uses "to record" for
-    # the rows that still have no number ("Back to Batch 1 · 2 to record"),
+    # the rows that still have no number ("Back to Round 1 · 2 to record"),
     # and this line counts the opposite. A row is complete only when EVERY
     # measurement has a number: one of two typed is not half a result, so it
     # is counted as partly filled instead. The Save results button is the
@@ -1994,7 +2120,7 @@ def test_a_failed_save_shows_the_banner_and_does_not_move_tabs(open_batch, monke
 
 def test_an_uploaded_sheet_whose_final_write_fails_stays_on_the_batch(open_batch):
     """Twin of the typed path: closing the batch is a write like any other, and
-    a green "Batch 1 recorded." over a batch still open on disk is a lie."""
+    a green "Round 1 recorded." over a batch still open on disk is a lie."""
     import storage as storage_backend
 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -2120,11 +2246,11 @@ def test_a_confirmation_takes_the_colour_from_the_batch_sheets(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "primary"
+                    "Download the round sheets (Excel)").proto.type == "primary"
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the batch sheets (Excel)").proto.type == "secondary"
+                    "Download the round sheets (Excel)").proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -2182,10 +2308,11 @@ def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
     assert (at.number_input(key="scale_total").proto.placeholder
-           == "e.g. 150")
+           == "e.g. 100")
     amounts = _sheet_amounts(at)
     # The sheets carry the amounts as generated, to the balance's own two
-    # decimals.
+    # decimals. The box is blank until the bench types a size, and a size
+    # nobody typed rewrites nothing.
     assert ("Pea protein", 20.0) in amounts, amounts
     assert ("Methylcellulose", 1.0) in amounts, amounts
 
@@ -2204,7 +2331,8 @@ def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
                for c in at.caption), [c.value for c in at.caption]
     # Both sheets now carry the same amounts, so the download followed.
     assert _sheet_amounts(at).count(("Pea protein", 10.0)) == 2
-    assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] == 20.0
+    assert FoodOptimizer("burger").pending_batch[1]["recipe"]["Pea protein"] \
+        == pytest.approx(10.0)
 
 
 def test_the_batch_table_never_dresses_a_setting_as_an_amount(burger):
@@ -2427,10 +2555,10 @@ def test_type_in_a_past_formulation(burger):
     assert reloaded.batch_history == [None]          # it belongs to no batch
     assert reloaded.notes_history == [wording.IMPORTED_NOTE]
     assert reloaded.results_history[0] == {"Firmness": 5.0}
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
     assert table["Note"].iloc[0] == wording.IMPORTED_NOTE
-    assert str(table["Batch"].iloc[0]) in ("", "None", "nan", "<NA>"), \
-        table["Batch"].iloc[0]
+    assert str(table["Round"].iloc[0]) in ("", "None", "nan", "<NA>"), \
+        table["Round"].iloc[0]
 
 
 def test_a_typed_past_formulation_needs_every_amount(burger):
@@ -2463,7 +2591,7 @@ def test_a_typed_past_measurement_outside_its_range_is_refused(burger):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 99 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2482,8 +2610,8 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
     # on Set up. The whole caption, word for word:
-    assert any(c.value == ("Overall score 2.20 of 2.50. Scores only compare "
-                           "within this project. Change an importance, a "
+    assert any(c.value == ("Overall score 88.00 of 100. Scores only "
+                           "compare within this project. Change a share, a "
                            "goal or a range and every score is worked out "
                            "again.")
                for c in at.caption), [c.value for c in at.caption]
@@ -2501,7 +2629,7 @@ def test_not_used_lists_ingredients_only(scored):
 
 
 def test_the_first_batch_is_not_announced_twice_on_one_screen(scored):
-    """Saving flashes "Batch 1 recorded." above the tabs. A caption under the
+    """Saving flashes "Round 1 recorded." above the tabs. A caption under the
     heading saying the same thing is the same sentence twice on one screen,
     and there is nothing to compare a first batch with anyway."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -2515,7 +2643,7 @@ def test_the_progress_line_reports_an_improvement_and_a_flat_trial(scored):
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=4, batch_no=2)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == wording.batch_recorded_progress(2, 2.20, 2.50)
+    assert any(c.value == wording.batch_recorded_progress(2, 88.00, 100.00)
                for c in at.caption), [c.value for c in at.caption]
     scored.tell({"Pea protein": 30.0, "Methylcellulose": 0.5},
                 {"Juiciness": 1.0, "Firmness": 1.0}, formulation_no=5, batch_no=3)
@@ -2528,18 +2656,18 @@ def test_the_progress_line_reports_an_improvement_and_a_flat_trial(scored):
 def test_all_formulations_table_stars_the_best_and_marks_the_left_out(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
-    assert list(table.columns) == ["Best", "Batch", "Formulation", "Firmness (N)",
-                                   "Juiciness (/10)", "Overall score", "Recorded",
-                                   "Note"]
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
+    assert list(table.columns) == ["Best so far", "Round", "Formulation", "Firmness (N)",
+                                   "Juiciness (/10)", "Overall score",
+                                   "Date recorded", "Note"]
     assert list(table["Formulation"]) == [2, 1, 3]
     # Best is a star or nothing. That a row has no result is said in the
     # Note column, which is where a fact about the row belongs.
-    assert list(table["Best"]) == ["★", "", ""]
+    assert list(table["Best so far"]) == ["★", "", ""]
     assert table["Note"].iloc[2] == "Not scored"
     assert at.selectbox(key="results_order").options == ["Best first",
                                                          "Newest first",
-                                                         "Batch order"]
+                                                         "Round order"]
 
 
 def test_show_amounts_adds_the_amount_columns(scored):
@@ -2547,7 +2675,7 @@ def test_show_amounts_adds_the_amount_columns(scored):
     at.run()
     at.toggle(key="show_amounts").set_value(True)
     at.run()
-    table = next(d.value for d in at.dataframe if "Best" in d.value.columns)
+    table = next(d.value for d in at.dataframe if "Best so far" in d.value.columns)
     assert "Pea protein (g)" in table.columns
 
 
@@ -2609,7 +2737,7 @@ def test_a_correction_outside_the_range_is_refused(scored):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Widen the range in Set up, or check the value.")
+                           "Raise Highest measurable in Set up, or check the value.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").results_history[0]["Firmness"] == 1.0
 
@@ -2945,7 +3073,7 @@ def test_importing_past_formulations_marks_them_and_accepts_partials(burger):
         "Juiciness": [6.0, None], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     reloaded = FoodOptimizer("burger")
@@ -2971,7 +3099,7 @@ def test_the_importer_reads_the_downloaded_files_own_headers(burger):
     at.session_state["_import_rows"] = downloaded
     at.run()
     assert not at.error, [e.value for e in at.error]
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
@@ -3034,11 +3162,11 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 99.0],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert any(e.value == ("Row 2: Firmness 99 N is outside your range of 0 to "
-                           "10 N. Widen the range in Set up, or check the "
+                           "10 N. Raise Highest measurable in Set up, or check the "
                            "value.") for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []   # the whole file is refused
 
@@ -3054,7 +3182,7 @@ def test_an_import_outside_an_ingredient_range_warns_and_still_imports(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert any(w.value == ("Row 2: Pea protein 999 g is outside its allowed amounts of "
@@ -3074,11 +3202,11 @@ def test_a_finished_import_does_not_offer_to_import_again(burger):
         "Juiciness": [6.0, 6.5], "Firmness": [5.0, 5.5],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert "_import_rows" not in at.session_state
     at.run()
-    assert not any(b.label == "Import all rows" for b in at.button), _labels(at)
+    assert not any(b.label == wording.IMPORT_ALL_ROWS_BUTTON for b in at.button), _labels(at)
     assert len(FoodOptimizer("burger").X_history) == 2
 
 
@@ -3350,17 +3478,17 @@ def test_a_sidebar_cancel_keeps_the_formulation_total_and_the_batch_size(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(40.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert any(c.value == "Sheets show each formulation made to 40 g."
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in at.caption), [c.value for c in at.caption]
     _submit_button(at, wording.START_OVER_LABEL).click()
     at.run()
     _submit_button(at, wording.CANCEL).click()
     at.run()
     assert not at.exception
-    assert at.session_state["scale_total"] == 40.0
-    assert any(c.value == "Sheets show each formulation made to 40 g."
+    assert at.session_state["scale_total"] == 25.0
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -3368,14 +3496,14 @@ def test_a_sidebar_cancel_keeps_how_many_formulations_to_generate(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="batch_size").set_value(7)
+    at.number_input(key="how_many").set_value(7)
     at.run()
     _submit_button(at, wording.DELETE_PROJECT_LABEL).click()
     at.run()
     _submit_button(at, wording.CANCEL).click()
     at.run()
     assert not at.exception
-    assert at.session_state["batch_size"] == 7
+    assert at.session_state["how_many"] == 7
     assert _submit_button(at, wording.generate_button_label(7)).label == \
         wording.generate_button_label(7)
 
@@ -3400,12 +3528,12 @@ def test_the_downloaded_file_imports_whole_minus_the_rows_nobody_made(burger):
     at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
     at.session_state["_import_rows"] = downloaded
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
-    assert any(m.value == ("Imported 2 formulations. 2 rows had no "
-                           "measurements, so they were not imported.")
+    assert any(m.value == ("Recorded 2 formulations. 2 rows had no "
+                           "measurements, so they were not recorded.")
                for m in at.success), [m.value for m in at.success]
     reloaded = FoodOptimizer("burger")
     assert reloaded.formulation_ids == [1, 2, 5, 6]
@@ -3422,11 +3550,11 @@ def test_one_row_with_nothing_measured_is_said_in_the_singular(burger):
         "Juiciness": [6.0, None], "Firmness": [5.0, None],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
-    assert any(m.value == ("Imported 1 formulation. 1 row had no "
-                           "measurements, so it was not imported.")
+    assert any(m.value == ("Recorded 1 formulation. 1 row had no "
+                           "measurements, so it was not recorded.")
                for m in at.success), [m.value for m in at.success]
 
 
@@ -3516,17 +3644,20 @@ def test_a_half_typed_measurement_does_not_follow_you_to_another_project(burger)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.text_input(key="meas_new_name").set_value("Chewiness")
+    _grid_edits(at, MEAS_GRID, added=[_measurement_row("Chewiness")])
     at.run()
-    assert at.session_state["meas_new_name"] == "Chewiness"
+    assert at.session_state["measurement_grid_0"]["added_rows"]
     at.sidebar.selectbox(key="project_select").select("second")
     at.run()
     _submit_button(at.sidebar, "Open").click()
     at.run()
     assert not at.exception
     assert at.session_state["_loaded_project"] == "second"
-    assert at.session_state["meas_new_name"] == ""
-    assert at.text_input(key="meas_new_name").value == ""
+    # The grid's key turned over, so the half-typed row is on no widget the
+    # new project draws: a data editor's value cannot be assigned at all, so
+    # a fresh editor is the only way to empty one.
+    assert at.session_state["_measurement_grid_nonce"] == 1
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
 
 
 def test_only_one_confirmation_can_be_armed_on_the_set_up_tab(burger):
@@ -3536,23 +3667,27 @@ def test_only_one_confirmation_can_be_armed_on_the_set_up_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    # Remove renders first, so arming it is the case that has to hold within
-    # one render: confirmation_open() is read by every later site.
-    arming = ["rm_var_Pea protein__btn", "rm_meas_Firmness__btn",
-              "rm_meas_Juiciness__btn"]
-    assert all(not at.button(key=k).disabled for k in arming)
-    at.button(key="rm_var_Pea protein__btn").click()
+    # The ingredients grid renders first, so arming ITS deletion is the case
+    # that has to hold within one render: confirmation_open() is read by
+    # every later site, the measurements grid's Save among them.
+    edits = {ING_GRID: dict(deleted=[0]),
+             MEAS_GRID: dict(deleted=[0])}
+    for base, e in edits.items():
+        _grid_edits(at, base, **e)
     at.run()
     assert not at.exception
-    assert at.button(key="rm_var_Pea protein__btn").disabled is False
-    assert all(at.button(key=k).disabled for k in arming[1:]), \
-        [(k, at.button(key=k).disabled) for k in arming]
+    assert not _grid_save(at, ING_GRID).disabled
+    _grid_save(at, ING_GRID).click()
+    for base, e in edits.items():
+        _grid_edits(at, base, **e)
+    at.run()
+    assert _grid_save(at, MEAS_GRID).disabled, "two armed questions at once"
     assert _tab_primaries(at, 0) == ["Yes, delete"], _tab_primaries(at, 0)
 
 
 def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
                                                                     monkeypatch):
-    """Half a sheet on disk under a green 'Batch 1 recorded.' is the worst
+    """Half a sheet on disk under a green 'Round 1 recorded.' is the worst
     outcome: the save loop must stop and say so at the first failure."""
     import storage as storage_backend
 
@@ -3646,15 +3781,257 @@ def test_every_confirmation_counts_the_left_out_formulations(scored):
         [w.value for w in at.warning]
 
 
-def test_save_changes_is_the_lit_action_while_a_measurement_is_open(burger):
-    """Next: make a batch would leave the tab and throw the edit away,
+def test_save_changes_is_the_lit_action_while_a_grid_has_an_edit_in_it(burger):
+    """Next: make a round would leave the tab and throw the edit away,
     exactly as tab 3's correction row already refuses to let happen."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
+    _grid_edits(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 70.0}})
     at.run()
     assert _tab_primaries(at, 0) == ["Save changes"], _tab_primaries(at, 0)
     assert _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+
+
+def test_only_the_topmost_unsaved_grid_lights_its_save(burger):
+    """Two grids can be mid-edit at once, and a tab shows one coloured
+    button. The one higher up the page is the one the reader is looking
+    at."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    _grid_edits(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 70.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == ["Save changes"], _tab_primaries(at, 0)
+    assert _grid_save(at, ING_GRID).proto.type == "primary"
+    assert _grid_save(at, MEAS_GRID).proto.type == "secondary"
+
+
+def test_saving_one_grid_leaves_the_other_s_edit_where_it_was(burger):
+    """The cold reader edited both tables, clicked the Ingredients Save,
+    and watched BOTH banners and both Save buttons go while the
+    Measurements table still showed the 70 they had typed and the project
+    still held 60. Each grid's banner, pending edit and Save are its own."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    ing = {0: {wording.HIGHEST_LABEL: 40.0}}
+    meas = {0: {wording.SHARE_COLUMN: 70.0}}
+    _grid_edits(at, ING_GRID, edited=ing)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    captions = [c.value for c in at.caption]
+    assert "Ingredients and process settings — not saved yet." in captions
+    assert "Measurements and targets — not saved yet." in captions
+    # Save the ingredients only. Its rerun happens above the measurements
+    # grid, so the browser's record for that grid is dropped — the frame it
+    # parked is what has to come back.
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited=ing)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved._var_by_name("Pea protein")["bounds"] == (0.0, 40.0)
+    # The measurements grid still has its edit, its banner and its Save —
+    # and the project has not seen it.
+    captions = [c.value for c in at.caption]
+    assert "Ingredients and process settings — not saved yet." not in captions
+    assert "Measurements and targets — not saved yet." in captions, captions
+    assert list(_grid_frame(at, 1)[wording.SHARE_COLUMN])[0] == 70.0
+    assert saved.share_percents() == {"Firmness": 60, "Juiciness": 40}
+    # One coloured button on the tab: the measurements Save, now that the
+    # grid above it has nothing left to save.
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+    assert _grid_save(at, MEAS_GRID).proto.type == "primary"
+    # And it lands when it is clicked.
+    _grid_save(at, MEAS_GRID).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").share_percents() == {"Firmness": 70,
+                                                        "Juiciness": 30}
+
+
+def test_a_property_edit_survives_a_save_on_the_grid_above_it(burger):
+    """The third grid on the tab carries a banner of its own now, so it has
+    to be able to keep what that banner promises: a Save on either grid
+    above it reruns before it is drawn, and Streamlit throws away the entry
+    of a widget the run never created."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    prop = {0: {"Cost": 9.0}}
+    meas = {0: {wording.SHARE_COLUMN: 70.0}}
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    captions = [c.value for c in at.caption]
+    assert "Properties — not saved yet." in captions, captions
+    # Save the measurements only.
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").share_percents() == {"Firmness": 70,
+                                                        "Juiciness": 30}
+    # The property edit is still on screen, still pending, and still unsaved.
+    captions = [c.value for c in at.caption]
+    assert "Properties — not saved yet." in captions, captions
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 3.0
+    assert list(_grid_frame(at, 2)["Cost"])[0] == 9.0
+    # ...and its own Save lands it.
+    next(b for b in at.button if b.key == "save_properties").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 9.0
+
+
+def test_a_property_edit_is_set_aside_when_the_ingredients_change(burger):
+    """The properties grid is drawn ingredient by ingredient, so a deletion,
+    a rename or a reorder above it moves who sits in the row a pending edit
+    was typed against. That edit goes — and the reader is told, because a
+    banner said it was pending."""
+    burger.add_property("Cost")
+    burger.set_property_value("Methylcellulose", "Cost", 4.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    prop = {0: {"Cost": 99.0}}
+    ing = {0: {wording.NAME_LABEL: "Pea protein isolate"}}
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, ING_GRID, edited=ing)
+    at.run()
+    assert "Properties — not saved yet." in [c.value for c in at.caption]
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, ING_GRID, edited=ing)
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables][0] == "Pea protein isolate"
+    # The stale figure is nowhere: not written, not on screen, and said.
+    assert saved.property_value("Methylcellulose", "Cost") == 4.0
+    assert "Properties — not saved yet." not in [c.value for c in at.caption]
+    assert any(i.value == wording.PROPERTY_FIGURES_SET_ASIDE
+               for i in at.info), [i.value for i in at.info]
+
+
+def test_discard_changes_puts_the_grid_back(burger):
+    """Discard turns the grid's key over, which is the only way to drop what
+    the browser is holding: a data editor's value cannot be assigned from
+    session state at all. The stale record is handed back afterwards, as the
+    browser would hand it back — the new editor must not read it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    _grid_discard(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert list(_grid_frame(at, 0)[wording.HIGHEST_LABEL]) == [25.0, 3.0]
+    assert FoodOptimizer("burger")._var_by_name("Pea protein")["bounds"] == (
+        0.0, 25.0)
+
+
+def test_saving_the_ingredients_grid_turns_its_key_over(burger):
+    """A save that left the record standing would add the row a second time
+    on the next run, or write the same cell again."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, edited={0: {wording.HIGHEST_LABEL: 60.0}})
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("burger")._var_by_name("Pea protein")["bounds"] == (
+        0.0, 40.0)
+
+
+def test_saving_the_measurements_grid_turns_its_key_over(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.HIGHEST_MEASURABLE_LABEL: 12.0}})
+    assert not at.exception
+    assert at.session_state["_measurement_grid_nonce"] == 1
+    _stale_grid_edits(at, MEAS_GRID, 0,
+                      edited={0: {wording.HIGHEST_MEASURABLE_LABEL: 99.0}})
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    # Row 0 of the measurements grid is the largest share: Firmness.
+    saved = {o["name"]: o for o in FoodOptimizer("burger").objectives}
+    assert saved["Firmness"]["max_val"] == 12.0
+    assert saved["Juiciness"]["max_val"] == 10.0
+
+
+def test_opening_a_saved_copy_turns_the_grids_over(project_with_history):
+    """The reviewer's reproduction: a Lowest typed against Water in one
+    project, and a saved copy of another project opened over it. The data
+    editor's record is positional — "row 0's Lowest changed" — so left
+    standing it writes that number onto whatever the copy puts in row 0."""
+    donor = FoodOptimizer("donor")
+    donor.add_ingredient("Cocoa", 0, 40)
+    donor.add_ingredient("Butter", 0, 60)
+    donor.add_objective("Snap", 1.0, goal="max", min_val=0, max_val=10)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "my_project"
+    at.run()
+    typed = {"edited": {0: {wording.LOWEST_LABEL: 7.0}}}
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at), _labels(at)
+    at.session_state["_restore_candidate"] = donor.export_json()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    _submit_button(at, wording.YES_REPLACE).click()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("my_project")._var_by_name("Cocoa")["bounds"] == (
+        0.0, 40.0)
+
+
+def test_replacing_the_ingredients_from_a_file_turns_the_grids_over(
+        burger, monkeypatch):
+    """The file replaces the list outright, so every row on the tab belongs
+    to a different ingredient afterwards. AppTest cannot drive a file
+    uploader, so the ingredients one is stood in for."""
+    import streamlit as st_module
+    csv = (b"Name,Lowest,Highest,Unit\n"
+           b"Cocoa,0,40,g\nButter,0,60,g\n")
+    real_uploader = st_module.file_uploader
+
+    def _uploader(label, *a, **k):
+        if str(k.get("key") or "").startswith("ingredients_file"):
+            return _FakeUpload("ingredients.csv", csv)
+        return real_uploader(label, *a, **k)
+
+    monkeypatch.setattr(st_module, "file_uploader", _uploader)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    typed = {"edited": {0: {wording.LOWEST_LABEL: 7.0}}}
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at), _labels(at)
+    next(b for b in at.button if b.key == "load_ingredients").click()
+    _grid_edits(at, ING_GRID, **typed)
+    at.run()
+    assert not at.exception
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    _stale_grid_edits(at, ING_GRID, 0, **typed)
+    at.run()
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("burger")._var_by_name("Cocoa")["bounds"] == (0.0, 40.0)
 
 
 def test_the_empty_results_button_sends_an_unready_project_to_set_up(tmp_path,
@@ -3715,21 +4092,15 @@ def test_a_process_setting_carries_its_own_unit_everywhere(burger):
     a setting is not an amount, so it needs a unit of its own."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    at.text_input(key="var_name").set_value("Cook temperature")
-    at.text_input(key="var_unit").set_value("°C")
-    at.number_input(key="var_low").set_value(160.0)
-    at.number_input(key="var_high").set_value(200.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                        low=160.0, high=200.0, unit="°C")])
     assert not at.exception
     reloaded = FoodOptimizer("burger")
     setting = next(v for v in reloaded.variables if v.get('category') == 'process')
     assert setting["unit"] == "°C"
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    row = table[table["Name"] == "Cook temperature"].iloc[0]
+    grid = _grid_frame(at, 0)
+    row = grid[grid["Name"] == "Cook temperature"].iloc[0]
     assert (row["Type"], row["Lowest"], row["Highest"], row["Unit"]) == \
         ("Process setting", 160.0, 200.0, "°C")
     # ... on the batch table, the printable sheet and the amounts table.
@@ -3750,15 +4121,25 @@ def test_the_baseline_of_a_process_setting_is_shown_with_its_unit(burger):
                                  unit="°C")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert dict(zip(table["Name"], table["Baseline"])) == {
-        "Pea protein": "", "Methylcellulose": "",
-        "Cook temperature": "180 °C"}
+    # Baseline is a NUMBER column on the grid — it is typed into, and a
+    # setting added mid-run must carry one — so the unit rides in the row's
+    # own Unit cell rather than inside the figure.
+    grid = _grid_frame(at, 0)
+    baselines = dict(zip(grid["Name"], grid[wording.BASELINE_LABEL]))
+    assert baselines["Cook temperature"] == 180.0
+    assert all(pd.isna(baselines[n])
+               for n in ("Pea protein", "Methylcellulose"))
+    row = grid[grid["Name"] == "Cook temperature"].iloc[0]
+    assert row[wording.UNIT_LABEL] == "°C"
 
 
 def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     """A property is named in the app as often as it arrives in a file, and
-    the box that names one is two lines below this caption."""
+    the grid that names one is inside the same fold as this caption.
+
+    It no longer carries the blank-figure rule: the properties grid a few
+    lines below says it, and each limit's own line names the ingredients it
+    is reading as zeroes."""
     with_properties.add_property("Sodium mg per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -3766,10 +4147,10 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
                            "app suggests. A formulation of your own is "
                            "recorded as you typed it. A limit is on an amount "
                            "you weigh out or a property of your ingredients; "
-                           "measurements have goals and targets instead. An "
-                           "ingredient with no figure for a property counts "
-                           "as 0 in any limit on it.")
+                           "measurements have goals and targets instead.")
                for c in at.caption), [c.value for c in at.caption]
+    said = [c.value for c in at.caption if "counts as 0 in any limit" in c.value]
+    assert said == [wording.properties_grid_caption(True)], said
 
 
 def test_a_project_with_no_properties_still_offers_to_name_one(burger):
@@ -3779,8 +4160,7 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     at.run()
     assert not any("Upload an ingredient CSV with extra columns" in c.value
                    for c in at.caption), [c.value for c in at.caption]
-    assert at.text_input(key="prop_new").label == \
-        "Add a property"
+    assert at.text_input(key="prop_new").label == "New property"
     # Nothing to limit yet, so no property picker and no limit button.
     assert "prop_metric" not in [b.key for b in at.selectbox]
     assert "Add property limit" not in _labels(at)
@@ -3823,38 +4203,38 @@ def test_a_partly_uploaded_sheet_says_what_it_recorded(open_batch):
 
 
 def test_an_edit_with_nothing_recorded_claims_no_recalculation(burger):
+    """There is no overall score to recalculate, and saying otherwise
+    invents a history. No copy either: nothing could have been lost."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    at.number_input(key="meas_Firmness_importance").set_value(2.0)
-    _submit_button(at, "Save changes").click()
-    at.run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 70.0}})
     assert not at.exception
-    assert any(s.value == ("Firmness importance is now 2.0. "
-                           + wording.COPY_KEPT)
-               for s in at.success), \
+    assert any(s.value == "Firmness saved." for s in at.success), \
         [s.value for s in at.success]
 
 
 def test_a_half_typed_ingredient_does_not_follow_you_to_another_project(burger):
-    """Popping the key does not reach the browser: the mounted box posts its
-    old value back, and Add then added it to the other project."""
+    """A grid's session-state value is the record of what was typed into it,
+    and Streamlit refuses to let a script assign one, so the only way to
+    empty it is a fresh editor: opening another project turns the key over.
+    Left standing, the record would have applied burger's half-typed row to
+    the project next opened."""
     FoodOptimizer("second").save()
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.text_input(key="var_name").set_value("Half typed ingredient")
-    at.number_input(key="var_high").set_value(7.0)
+    _grid_edits(at, ING_GRID,
+                added=[_ingredient_row("Half typed ingredient", high=7.0)])
     at.run()
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at)
     at.sidebar.selectbox(key="project_select").select("second")
     at.run()
     _submit_button(at.sidebar, "Open").click()
     at.run()
     assert not at.exception
-    assert at.session_state["var_name"] == ""
-    assert at.session_state["var_high"] == 100.0
-    assert at.text_input(key="var_name").value == ""
+    assert at.session_state["_ingredient_grid_nonce"] == 1
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("second").variables == []
 
 
 def test_the_result_grid_does_not_follow_you_to_another_project(open_batch):
@@ -3968,42 +4348,33 @@ def mixed_units(tmp_path, monkeypatch):
     opt.add_objective("Firmness", 1.0, goal="target", target=6,
                       min_val=0, max_val=10, unit="N")
     return opt
-def test_the_ingredient_table_has_plain_headers_and_a_unit_column(mixed_units):
+def test_the_ingredient_grid_has_plain_headers_and_a_unit_column(mixed_units):
     """Min (g) over a row measured in ml was a lie. The headers are plain and
     each row says what it is measured in."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Name" in d.value.columns)
-    assert list(table.columns) == ["Type", "Name", "Lowest", "Highest", "Unit"]
-    assert dict(zip(table["Name"], table["Unit"])) == {"Pea protein": "g",
-                                                       "Water": "ml"}
+    grid = _grid_frame(at, 0)
+    assert [c for c in grid.columns if c != "_id"] == [
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"]
+    assert dict(zip(grid["Name"], grid["Unit"])) == {"Pea protein": "g",
+                                                      "Water": "ml"}
 
 
 def test_a_new_ingredient_is_added_with_its_own_unit(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.text_input(key="var_unit").value == "g"      # ingredients are in g
-    assert at.number_input(key="var_low").label == "Lowest"
-    assert at.number_input(key="var_high").label == "Highest"
-    at.text_input(key="var_name").set_value("Water")
-    at.text_input(key="var_unit").set_value("ml")
-    at.number_input(key="var_high").set_value(60.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID,
+               added=[_ingredient_row("Water", high=60.0, unit="ml")])
     assert not at.exception
     assert FoodOptimizer("burger").unit_of("Water") == "ml"
 
 
-def test_set_unit_changes_one_ingredient_and_says_so(burger):
+def test_a_unit_typed_into_the_grid_changes_one_row_and_says_so(burger):
+    """Nothing is converted and nothing is rescored, and this sentence is
+    the only place the app says so — so a unit moved on the grid keeps it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.text_input(key="unit_value").set_value("mg")
-    button = _submit_button(at, wording.SET_UNIT_BUTTON)
-    assert button.proto.type == "secondary"     # the foot keeps the colour
-    button.click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "mg"}})
     assert not at.exception
     assert any("Methylcellulose is now in mg. The amounts you already "
                "recorded were not converted — check them." in s.value
@@ -4011,9 +4382,6 @@ def test_set_unit_changes_one_ingredient_and_says_so(burger):
     reloaded = FoodOptimizer("burger")
     assert reloaded.unit_of("Methylcellulose") == "mg"
     assert reloaded.unit_of("Pea protein") == "g"
-    # The box empties: a unit left in it is one click away from being
-    # applied to the next ingredient chosen.
-    assert at.text_input(key="unit_value").value == ""
 
 
 def test_the_uploader_says_the_unit_column_is_optional(burger):
@@ -4041,7 +4409,7 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
-    assert any(c.value == ("To make each formulation to a set amount, "
+    assert any(c.value == ("To make each formulation to a batch size, "
                            "every ingredient needs the same unit.")
                for c in at.caption), [c.value for c in at.caption]
     # ... and it comes back the moment they do share one.
@@ -4049,7 +4417,7 @@ def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").label == \
-        wording.batch_total_label("g")
+        wording.batch_size_label("g")
 
 
 def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
@@ -4079,15 +4447,20 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     # total that also holds 40 ml of water.
     assert wording.PERCENT_COLUMN not in texts, texts
     rows = _summary_rows(at)
-    assert list(rows)[1:] == ["Ingredient", "Pea protein (g)",
+    assert list(rows)[2:] == ["Ingredient", "Pea protein (g)",
                               "Water (ml)", "Total",
-                              wording.MEASURED_COLUMN,
+                              wording.MEASUREMENTS_SHEET_HEADING,
                               wording.SHEET_WRITE_IN_NOTE,
-                              "Firmness · target 6 N",
+                              wording.MEASUREMENT_COLUMN,
+                              "Firmness · Target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
-                              wording.SUMMARY_TICK_NOTE], list(rows)
-    # One column per formulation, not two.
-    assert rows["Pea protein (g)"] == [10.0], rows["Pea protein (g)"]
+                              wording.SUMMARY_TICK_NOTE,
+                              wording.MADE_BY_FOOTER], list(rows)
+    # Under the title, the line that says which of this sheet's cells take
+    # a number.
+    assert list(rows)[1] == wording.SUMMARY_SHADED_NOTE
+    # One column per formulation, not two — and the Lot cell after it.
+    assert rows["Pea protein (g)"] == [10.0, None], rows["Pea protein (g)"]
 
 
 def test_the_amounts_to_make_it_table_uses_each_ingredients_unit(mixed_units):
@@ -4114,40 +4487,40 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     assert FoodOptimizer("mixed").quantity_constraints == []
 
 
-def test_a_paused_ingredient_is_held_at_a_value_in_its_own_unit(mixed_units):
+def test_a_fixed_ingredient_reads_as_one_amount_in_its_own_unit(mixed_units):
+    """The table says it in Lowest and Highest; the workbook's Set-up sheet
+    says it in words, in the row's own unit."""
     mixed_units.add_process_parameter("Cook temperature", 160, 200, unit="°C")
-    mixed_units.deactivate_variable("Water", value=30.0)
+    mixed_units.add_ingredient("Water", 30.0, 30.0, unit="ml")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert dict(zip(table["Name"], table["Status"])) == {
-        "Pea protein": "active", "Water": "paused · held at 30.00 ml",
-        "Cook temperature": "active"}
+    grid = _grid_frame(at, 0)
+    assert "Status" not in grid.columns
+    row = grid[grid["Name"] == "Water"].iloc[0]
+    assert (row["Lowest"], row["Highest"], row["Unit"]) == (30.0, 30.0, "ml")
+    saved = FoodOptimizer("mixed")
+    assert saved.fixed_at_text(saved._var_by_name("Water")) == "30.00 ml"
 
 
-def test_the_set_unit_box_survives_a_switch_to_a_project_without_that_row(
-        mixed_units, tmp_path):
-    """A select box cannot show a value that is not one of its options, and
-    the other project has no ingredient called Water: it must fall back to
-    that project's first ingredient rather than break the tab."""
+def test_the_grid_opens_on_the_project_that_is_open(mixed_units, tmp_path):
+    """The rows a grid shows are the rows of the project the sidebar names,
+    and nothing half-typed in the last one is still on it."""
     other = FoodOptimizer("other")
     other.set_amount_unit("ml")
     other.add_ingredient("Flour", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "mixed"
     at.run()
-    at.selectbox(key="var_pick").select("Water")
-    at.text_input(key="var_unit").set_value("kg")
+    _grid_edits(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "kg"}})
     at.run()
     at.sidebar.selectbox(key="project_select").select("other")
     at.run()
     _submit_button(at.sidebar, "Open").click()
     at.run()
     assert not at.exception
-    assert at.selectbox(key="var_pick").value == "Flour"
-    # ...and the add form opens on the NEW project's default, not on what was
-    # half-typed in the old one.
-    assert at.text_input(key="var_unit").value == "ml"
+    assert list(_grid_frame(at, 0)["Name"]) == ["Flour"]
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("mixed").unit_of("Water") == "ml"
 
 
 def test_an_amount_limit_is_listed_in_the_unit_it_limits(mixed_units):
@@ -4231,7 +4604,7 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     at.run()
     _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).click()
     at.run()
-    at.number_input(key="batch_size").set_value(2)
+    at.number_input(key="how_many").set_value(2)
     at.run()
     _submit_button(at, "Generate 2 formulations").click()
     at.run()
@@ -4267,10 +4640,7 @@ def test_a_unit_change_that_breaks_an_amount_limit_removes_it_and_says_so(
     burger.add_total_mass_constraint(max_val=100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.text_input(key="unit_value").set_value("ml")
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "ml"}})
     assert not at.exception
     assert [w.value for w in at.warning] == [
         "The limit on Pea protein + Methylcellulose was deleted because "
@@ -4285,23 +4655,21 @@ def test_a_unit_change_that_breaks_an_amount_limit_removes_it_and_says_so(
     reloaded.add_quantity_constraint(["Pea protein", "Salt"], max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")   # not in it
-    at.text_input(key="unit_value").set_value("mg")
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "mg"}})  # not in it
     assert [w.value for w in at.warning] == [], [w.value for w in at.warning]
     assert len(FoodOptimizer("burger").quantity_constraints) == 1
-def test_set_unit_refuses_an_empty_box(burger):
+
+
+def test_a_blank_unit_cell_is_refused_by_row(burger):
     """A blank would rewrite the ingredient to no unit at all — and could
-    take an amount limit with it — on a click that looks like a no-op."""
+    take an amount limit with it — on a save that looks like a no-op."""
     burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
                                    max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
-    assert [e.value for e in at.error] == ["A unit is required; use g if the amount is a mass."]
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: ""}})
+    assert [e.value for e in at.error] == [
+        wording.row_error(2, wording.UNIT_REQUIRED_ERROR)]
     reloaded = FoodOptimizer("burger")
     assert reloaded.unit_of("Methylcellulose") == "g"
     assert len(reloaded.quantity_constraints) == 1
@@ -4339,10 +4707,12 @@ class _Opt:
     variables = [{"name": "Water", "category": "ingredient"},
                  {"name": "Oil", "category": "ingredient"},
                  {"name": "Salt", "category": "ingredient"}]
-    # How a limit is named lives on the optimizer, so the stub borrows the
-    # two methods that answer it rather than spelling the rule twice.
+    # How a limit is named, and the sentence that says one has gone, both
+    # live on the optimizer — four doors owe the same line — so the stub
+    # borrows them rather than spelling the rule twice.
     _ingredients = FoodOptimizer._ingredients
     limit_label = FoodOptimizer.limit_label
+    limit_removed_messages = FoodOptimizer.limit_removed_messages
 
 
 _flash_removed_limits(_Opt(), [
@@ -4387,13 +4757,10 @@ def test_a_unit_change_that_splits_the_units_says_the_trial_is_unscaled(burger):
     at.run()
     at.number_input(key="scale_total").set_value(400.0)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.text_input(key="unit_value").set_value("ml")
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "ml"}})
     assert not at.exception
     assert any(s.value == (wording.unit_changed("Methylcellulose", "ml", True)
-                           + " " + wording.unscaled_tail(2, "400 g"))
+                           + " " + wording.unscaled_tail(2))
                for s in at.success), [s.value for s in at.success]
     # ...and the box that held the total is empty, not quietly meaning nothing.
     assert ("scale_total" not in at.session_state
@@ -4490,10 +4857,10 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     assert not at.exception
     # The missing measurement is NAMED after the ceiling, and nothing after
     # it claims the measurements were on target.
-    assert any(c.value == ("Overall score 1.50 of 2.50 · Juiciness not "
+    assert any(c.value == ("Overall score 60.00 of 100 · Juiciness not "
                            "measured. Scores only compare within this "
-                           "project. Change an importance, a goal or a "
-                           "range and every score is worked out again.")
+                           "project. Change a share, a goal or a range and "
+                           "every score is worked out again.")
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
@@ -4503,15 +4870,14 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_two_unit_boxes_on_the_tab_are_told_apart(burger):
-    """The add form says what a new row is written in; the control row says
-    what to rewrite the picked row to. Two boxes labelled Unit did not."""
+def test_there_is_only_one_unit_column_per_grid(burger):
+    """There were two boxes labelled Unit on this tab — the add form's and
+    the control row's — and the reader had to work out which was which. A
+    grid has one Unit cell per row, in the row it belongs to."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.text_input(key="var_unit").label == "Unit"
-    box = at.text_input(key="unit_value")
-    assert box.label == "New unit"
-    assert box.proto.placeholder == "g"       # what the picked row is in today
+    assert list(_grid_frame(at, 0).columns).count(wording.UNIT_LABEL) == 1
+    assert not [b for b in at.text_input if b.label == "New unit"]
 
 
 def test_loading_over_a_list_says_it_replaces_it(burger, tmp_path,
@@ -4523,25 +4889,21 @@ def test_loading_over_a_list_says_it_replaces_it(burger, tmp_path,
     assert _load_label(FoodOptimizer("empty_list")) == "Load ingredients"
 
 
-def test_the_set_unit_picker_is_not_called_a_measurement(burger):
-    """It picks the row the controls act on, not what to measure."""
+def test_the_grid_speaks_for_settings_as_well_as_ingredients(ferment):
+    """In a fermentation project every row of the grid is a process
+    setting, and the grid is still the one place they are edited."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.selectbox(key="var_pick").label == \
-        "Choose one to pause, delete or change its unit"
-
-
-def test_pausing_speaks_for_settings_as_well_as_ingredients(ferment):
-    """In a fermentation project the picker offers process settings only."""
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert at.selectbox(key="var_pick").options == ["Incubation temperature",
-                                                    "Incubation time"]
-    # The button names the row it will act on, like the Delete beside it,
-    # and the help says what Pause does to it — in the setting's own unit.
-    button = _submit_button(at, wording.pause_button("Incubation temperature"))
-    assert button.proto.help == ("Held at 30 °C in new suggestions; results "
-                                 "already recorded keep it.")
+    grid = _grid_frame(at, 0)
+    assert list(grid["Name"]) == ["Incubation temperature", "Incubation time"]
+    assert list(grid["Type"]) == [wording.KIND_SETTING] * 2
+    # And a setting is fixed the same way an ingredient is: one number in
+    # both cells, written in the setting's own unit.
+    _save_grid(at, ING_GRID, edited={0: {wording.LOWEST_LABEL: 30.0,
+                                         wording.HIGHEST_LABEL: 30.0}})
+    saved = FoodOptimizer(ferment.project_name)
+    assert saved.fixed_at_text(
+        saved._var_by_name("Incubation temperature")) == "30 °C"
 
 
 def test_the_csv_template_has_one_name_on_both_screens(tmp_path, monkeypatch):
@@ -4732,8 +5094,10 @@ def test_the_printed_sheet_says_a_repeat_is_a_repeat(burger):
     # not the app already put one there.
     assert texts.count(wording.NOTE) == 2, texts
     # ... and so does the summary sheet, on the row it keeps for notes.
+    # Two formulations, each with an amount column and a share column, then
+    # the Lot column past the end of them.
     assert _summary_rows(at)[wording.NOTE] == [
-        None, None, wording.repeat_of_formulation(1), None], \
+        None, None, wording.repeat_of_formulation(1), None, None], \
         _summary_rows(at)[wording.NOTE]
 
 
@@ -4758,28 +5122,21 @@ def test_an_ingredient_list_puts_the_ingredients_first(burger):
     burger.add_ingredient("Salt", 0, 3)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table["Name"]) == ["Pea protein", "Methylcellulose", "Salt",
-                                   "Cook temperature"]
-    assert at.selectbox(key="var_pick").options == list(table["Name"])
+    assert list(_grid_frame(at, 0)["Name"]) == [
+        "Pea protein", "Methylcellulose", "Salt", "Cook temperature"]
 
 
-def test_re_adding_an_ingredient_in_another_unit_names_the_limit_it_broke(burger):
-    """Every other unit edit prunes the limits it breaks and says which. This
-    one used to say only 'Added Water.'"""
+def test_a_row_edited_into_another_unit_names_the_limit_it_broke(burger):
+    """Every other unit edit prunes the limits it breaks and says which. A
+    row whose range moves as well goes the long way round, through the add
+    path, and still owes the same line."""
     burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
                                    min_val=5, max_val=150)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Methylcellulose")
-    at.text_input(key="var_unit").set_value("ml")
-    at.number_input(key="var_high").set_value(3.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "ml",
+                                         wording.HIGHEST_LABEL: 3.0}})
     assert not at.exception
-    assert any(s.value == "Methylcellulose added." for s in at.success), \
-        [s.value for s in at.success]
     assert any(w.value == ("The limit on All ingredients was "
                            "deleted because those ingredients no longer share "
                            "a unit.") for w in at.warning), \
@@ -4787,15 +5144,12 @@ def test_re_adding_an_ingredient_in_another_unit_names_the_limit_it_broke(burger
     assert FoodOptimizer("burger").quantity_constraints == []
 
 
-def test_an_ingredient_named_total_is_refused_on_the_form(burger):
-    """Total is the batch table's own column: two of them break the table and
-    put the batch total on the sheet where the ingredient's amount belongs."""
+def test_an_ingredient_named_total_is_refused_by_row(burger):
+    """Total is the round table's own column: two of them break the table and
+    put the round total on the sheet where the ingredient's amount belongs."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Total")
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[_ingredient_row("Total")])
     assert not at.exception
     assert any("Total is a column name Food Optimizer uses" in e.value
                for e in at.error), [e.value for e in at.error]
@@ -4834,7 +5188,7 @@ def test_a_property_limit_says_it_is_per_100_g_of_the_formulation(with_propertie
     assert not at.exception
     assert any(m.value == "**Finished-product limit**"
                for m in at.markdown), [m.value for m in at.markdown]
-    assert at.selectbox(key="prop_metric").label == "Ingredient property"
+    assert at.selectbox(key="prop_metric").label == "Property"
     assert any(c.value == ("Per 100 g of formulation, from the properties "
                            "of your ingredients.")
                for c in at.caption), [c.value for c in at.caption]
@@ -4914,6 +5268,68 @@ def _tab1(at):
     return at.tabs[0]
 
 
+def _more_settings(at):
+    """Tab 1's middle tier, by name."""
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.MORE_SETTINGS_EXPANDER)
+
+
+def _advanced(at):
+    """Tab 1's bottom tier, by name."""
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.ADVANCED_EXPANDER)
+
+
+def _advanced_text(at):
+    """Everything the Advanced fold says, as one block: the model settings
+    and the two explanations are plain markdown inside it now, because
+    Streamlit cannot nest an expander in an expander."""
+    return "\n".join(m.value for m in _advanced(at).markdown)
+
+
+def _advanced_block(at, heading):
+    """One of the three blocks inside Advanced: the markdown that follows a
+    heading, up to the next heading."""
+    values = [m.value for m in _advanced(at).markdown]
+    out = []
+    for value in values[values.index(heading) + 1:]:
+        if value.startswith("**"):
+            break
+        out.append(value)
+    return "\n".join(out)
+
+
+def _tab_outline(at, index):
+    """The tab's headings and folds, in the order they are drawn. This is
+    what "the tab reads in one order" means, and it is read off the element
+    tree rather than off a list of labels that happen to be on screen
+    somewhere.
+
+    Plain containers are walked through rather than stopped at: tab 2
+    reserves each step's position in one (a confirmation has to be asked
+    before the grid below it is drawn), and a container is not something a
+    reader can see. An expander IS, so it is named and not entered."""
+    out = []
+
+    def walk(node):
+        children = getattr(node, "children", None) or {}
+        if hasattr(children, "values"):
+            children = children.values()
+        for element in children:
+            kind = element.__class__.__name__
+            if kind == "Subheader":
+                out.append(element.value)
+            elif kind == "Expander":
+                out.append(element.label)
+            elif kind == "Markdown" and element.value[:1] in ("#", "*"):
+                out.append(element.value)
+            elif kind not in ("Expander", "Tab", "Tabs"):
+                walk(element)
+
+    walk(at.tabs[index])
+    return out
+
+
 def _tab1_captions(at):
     """The captions a reader sees on tab 1 without opening anything: the
     contents of a collapsed expander are explanations, and they are allowed
@@ -4934,38 +5350,37 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
         [h.value for h in _tab1(at).subheader]
     # ...and the section has no caption of its own: the one it carried only
     # restated the heading it now wears.
+    # No "Add a measurement" fold: a measurement is typed on the empty row
+    # at the bottom of its own grid, like an ingredient.
+    # Three folds on the whole tab (spec 1.5): the ingredients grid's own
+    # alternative, then the two tiers. Limits and the two explanations are
+    # inside them, as headings — Streamlit cannot nest one expander in
+    # another, and a tab that folded the optional half away twice made the
+    # reader open two things to reach one.
     labels = [e.label for e in _tab1(at).expander]
-    assert labels == ["Or upload an ingredients file", "Add a measurement",
-                      "How it works", "How closeness is calculated",
-                      "Limits (optional)",
-                      "How formulations are chosen (advanced)"], labels
+    assert labels == ["Or upload an ingredients file",
+                      "More settings", "Advanced"], labels
 
 
-def test_the_add_form_is_the_first_thing_on_the_tab(burger):
+def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
+    """No add form, no control row, no per-row editor: one grid, typed where
+    it is read, and it is not folded away inside anything."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.text_input(key="var_name").label == "Name"
-    kind = at.radio(key="var_kind")
-    assert kind.label == "Type"
-    assert kind.options == ["Ingredient", "Process setting"]
-    assert at.number_input(key="var_low").label == "Lowest"
-    assert at.number_input(key="var_high").label == "Highest"
-    assert at.text_input(key="var_unit").value == "g"
-    add = _submit_button(at, "Add ingredient or setting")
-    assert add.proto.type == "secondary"
-    # ...and it is not folded away inside anything.
-    folded = {id(t) for e in _tab1(at).expander for t in e.text_input}
-    assert id(at.text_input(key="var_name")) not in folded
+    grid = _grid_frame(at, 0)
+    assert [c for c in grid.columns if c != "_id"] == [
+        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU"]
+    assert list(grid["Name"]) == ["Pea protein", "Methylcellulose"]
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    folded = {id(d) for e in _tab1(at).expander for d in e.dataframe}
+    assert id(_tab1(at).dataframe[0]) not in folded
 
 
-def test_the_one_form_adds_an_ingredient(burger):
+def test_a_row_typed_at_the_bottom_adds_an_ingredient(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Beet juice powder")
-    at.number_input(key="var_high").set_value(2.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID,
+               added=[_ingredient_row("Beet juice powder", high=2.0)])
     assert not at.exception
     assert any(s.value == "Beet juice powder added." for s in at.success), \
         [s.value for s in at.success]
@@ -4974,138 +5389,464 @@ def test_the_one_form_adds_an_ingredient(burger):
     assert saved.unit_of("Beet juice powder") == "g"
 
 
-def test_the_one_form_adds_a_process_setting(burger):
+def test_a_row_typed_at_the_bottom_adds_a_process_setting(burger):
+    """Type is a cell, not a second form: the same seven answers, with
+    Process setting chosen in the row's own Type cell."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    # A setting is not weighed out, so the unit box empties rather than
-    # offering to cook at 175 g.
-    assert at.text_input(key="var_unit").value == ""
-    at.text_input(key="var_name").set_value("Cook temperature")
-    at.text_input(key="var_unit").set_value("°C")
-    at.number_input(key="var_low").set_value(150.0)
-    at.number_input(key="var_high").set_value(200.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                        low=150.0, high=200.0, unit="°C")])
     assert not at.exception
     assert any(s.value == "Cook temperature added." for s in at.success), \
         [s.value for s in at.success]
     saved = FoodOptimizer("burger")
     setting = saved._var_by_name("Cook temperature")
-    assert setting["category"] == "process"
-    assert setting["unit"] == "°C"
+    assert setting["category"] == "process" and setting["unit"] == "°C"
 
 
-def test_the_baseline_box_belongs_to_a_setting_added_mid_run(burger):
+def test_vendor_and_sku_ride_on_the_row_and_reach_the_sheet(burger):
+    """Optional text the app never reads: it is printed so the bench knows
+    what to reach for."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.VENDOR_LABEL: "Roquette",
+                                         wording.SKU_LABEL: "NUTRALYS F85M"}})
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    var = saved._var_by_name("Pea protein")
+    assert (var["vendor"], var["sku"]) == ("Roquette", "NUTRALYS F85M")
+    sheet = openpyxl.load_workbook(
+        io.BytesIO(saved.all_formulations_workbook()))["Set up"]
+    rows = [[c.value for c in row] for row in sheet.iter_rows()]
+    head = next(r for r in rows if r[0] == wording.NAME_LABEL)
+    assert head[6] == wording.VENDOR_LABEL and head[7] == wording.SKU_LABEL
+    line = next(r for r in rows if r[0] == "Pea protein")
+    assert (line[6], line[7]) == ("Roquette", "NUTRALYS F85M")
+
+
+def test_a_vendor_typed_on_a_setting_is_refused_by_row(burger):
+    """A cook temperature has no supplier. Refused rather than quietly
+    dropped: a cell the reader filled in is an answer."""
+    burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={2: {wording.VENDOR_LABEL: "Acme"}})
+    assert [e.value for e in at.error] == [
+        wording.row_error(3, wording.only_an_ingredient_has(
+            wording.VENDOR_LABEL))]
+
+
+def test_a_baseline_typed_on_an_ingredient_is_refused_by_row(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
                 batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert not [n for n in at.number_input if n.key == "var_base"]
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    box = at.number_input(key="var_base")
-    assert box.label == "Baseline (required)"
-    assert box.proto.placeholder == "e.g. 180"
-    at.text_input(key="var_name").set_value("Cook temperature")
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
-    assert any("Enter the baseline" in e.value for e in at.error), \
-        [e.value for e in at.error]
+    _save_grid(at, ING_GRID, edited={0: {wording.BASELINE_LABEL: 5.0}})
+    assert [e.value for e in at.error] == [
+        wording.row_error(1, wording.only_a_setting_has(
+            wording.BASELINE_LABEL))]
 
 
-def test_the_table_names_the_type_of_every_row(burger):
+def test_the_baseline_column_belongs_to_a_project_with_results(burger):
+    """It is the value every formulation already made is read at, so a
+    project with nothing recorded has nothing to read — and no column."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert wording.BASELINE_LABEL not in _grid_frame(at, 0).columns
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert wording.BASELINE_LABEL in _grid_frame(at, 0).columns
+    # ...and a setting added now must carry one: those formulations ran at
+    # some setting, not at zero.
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                        low=150.0, high=200.0, unit="°C")])
+    assert [e.value for e in at.error] == [
+        wording.row_error(3, wording.ADD_BASELINE_ERROR)]
+
+
+def test_the_grid_names_the_type_of_every_row(burger):
     burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in _tab1(at).dataframe if "Type" in d.value.columns)
-    assert list(table.columns) == ["Type", "Name", "Lowest", "Highest", "Unit"]
-    assert list(table["Name"]) == ["Pea protein", "Methylcellulose",
-                                   "Cook temperature"]
-    assert list(table["Type"]) == ["Ingredient", "Ingredient",
-                                   "Process setting"]
-    assert list(table["Unit"]) == ["g", "g", "°C"]
+    grid = _grid_frame(at, 0)
+    assert list(grid["Name"]) == ["Pea protein", "Methylcellulose",
+                                  "Cook temperature"]
+    assert list(grid["Type"]) == ["Ingredient", "Ingredient",
+                                  "Process setting"]
+    assert list(grid["Unit"]) == ["g", "g", "°C"]
 
 
-def test_a_paused_row_is_the_only_reason_for_a_status_column(burger):
-    burger.deactivate_variable("Methylcellulose", value=1.0)
+def test_a_fixed_row_adds_no_column_to_the_grid(burger):
+    burger.add_ingredient("Methylcellulose", 1.0, 1.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in _tab1(at).dataframe if "Type" in d.value.columns)
-    assert "Status" in table.columns
-    assert list(table["Status"]) == ["active", "paused · held at 1.00 g"]
+    grid = _grid_frame(at, 0)
+    assert "Status" not in grid.columns
+    assert list(grid["Lowest"]) == [0.0, 1.0]
+    assert list(grid["Highest"]) == [25.0, 1.0]
 
 
-def test_the_control_row_pauses_and_resumes_one_row(burger):
+def test_saving_the_grid_changes_the_allowed_amounts_and_says_so(burger):
+    burger.set_formulation_total(25.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
+    _save_grid(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    assert not at.exception
+    assert any(s.value == "Methylcellulose saved." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("burger")._var_by_name("Methylcellulose")["bounds"] \
+        == (0.0, 6.0)
+    # Saved, so there is nothing left to save: the buttons go and the foot
+    # takes the colour back.
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+
+
+def test_saving_the_grid_retires_the_open_round_with_the_notice(burger):
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
     at.run()
-    _submit_button(at, wording.pause_button("Methylcellulose")).click()
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    assert FoodOptimizer("burger").pending_batch is None
+    assert any(f"{wording.ROUND_CAP} 1 was discarded" in i.value
+               for i in at.info), [i.value for i in at.info]
+
+
+def test_a_save_that_would_discard_a_round_asks_first_and_counts_your_own(
+        burger):
+    """The cold reader lost a formulation they had typed in by hand, with
+    their own note on it, to a toast that arrived after it was gone. The
+    question comes first, it names the round, it counts what the round
+    holds and it says how much of that is theirs — and nothing is written
+    until they answer it."""
+    burger.set_pending_batch([
+        {"Pea protein": 10.0, "Methylcellulose": 1.0},
+        {"Pea protein": 20.0, "Methylcellulose": 2.0},
+    ])
+    burger.add_to_pending_batch({"Pea protein": 15.0, "Methylcellulose": 1.5},
+                                note="my control, salt to 3 g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
     at.run()
     assert not at.exception
-    assert any(s.value == "Methylcellulose paused." for s in at.success), \
-        [s.value for s in at.success]
-    assert [v["name"] for v in FoodOptimizer("burger").inactive_variables()] \
-        == ["Methylcellulose"]
-    # The same button is now the way back.
-    assert wording.pause_button("Methylcellulose") not in _labels(at)
-    _submit_button(at, wording.resume_button("Methylcellulose")).click()
+    assert any(w.value == ("Saving will discard Round 1: 3 formulations, "
+                           "1 of them added by you. A formulation you added "
+                           "goes with the round — a set-up change can make "
+                           "it invalid.")
+               for w in at.warning), [w.value for w in at.warning]
+    # Nothing is written while the question is up, and the tab still shows
+    # exactly one coloured button.
+    assert FoodOptimizer("burger").pending_batch is not None
+    assert FoodOptimizer("burger")._var_by_name(
+        "Methylcellulose")["bounds"] == (0.0, 3.0)
+    assert _tab_primaries(at, 0) == [wording.YES_SAVE_AND_DISCARD], \
+        _tab_primaries(at, 0)
+    _submit_button(at, wording.YES_SAVE_AND_DISCARD).click()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 6.0}})
     at.run()
-    assert any(s.value == "Methylcellulose resumed." for s in at.success), \
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch is None
+    assert saved._var_by_name("Methylcellulose")["bounds"] == (0.0, 6.0)
+
+
+def test_the_round_that_was_discarded_is_said_under_the_grid_not_only_in_a_toast(
+        burger):
+    """A toast fades and the round does not come back. The same sentence
+    stands under the grid that took it away until there is a round again —
+    and it is on the page ONCE on every run, not twice on the run the flash
+    lands, which is the run the reader is actually reading."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, discard=True,
+               edited={1: {wording.HIGHEST_LABEL: 6.0}})
+    assert not at.exception
+    line = wording.batch_discarded_notice(1)
+    # The run the flash lands on: the flash says it, the standing line
+    # stands down.
+    assert [i.value for i in at.info].count(line) == 1, \
+        [i.value for i in at.info]
+    # The flash is drained on the next run; the standing line is not, and it
+    # is still said exactly once.
+    at.run()
+    assert [i.value for i in at.info].count(line) == 1, \
+        [i.value for i in at.info]
+    at.button(key="generate").click()
+    at.run()
+    assert not at.exception
+    assert not any(i.value == line for i in at.info), [i.value for i in at.info]
+
+
+def test_a_name_typed_over_another_is_a_rename_and_keeps_what_was_recorded(
+        burger):
+    """The hidden row identity is what makes this a rename rather than a new
+    row beside a deleted one: the results already recorded are filed under
+    the name being changed."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.add_quantity_constraint(["Methylcellulose"], max_val=2.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={1: {wording.NAME_LABEL: "Methyl cellulose"}})
+    assert not at.exception
+    assert any(s.value == "Methyl cellulose saved." for s in at.success), \
         [s.value for s in at.success]
-    assert FoodOptimizer("burger").inactive_variables() == []
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methyl cellulose"]
+    assert saved.recipe_history[0] == {"Pea protein": 10.0,
+                                       "Methyl cellulose": 1.0}
+    assert saved.quantity_constraints[0]["ingredients"] == ["Methyl cellulose"]
+    assert "Methyl cellulose" in list(_grid_frame(at, 0)["Name"])
 
 
-def test_pause_is_grey_and_says_why_when_only_one_is_left(tmp_path, monkeypatch):
+def test_a_rename_onto_a_name_that_is_taken_refuses_and_changes_nothing(burger):
+    """The refusal comes before anything is written: a half-saved grid would
+    leave the allowed amounts changed under the old name."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.NAME_LABEL: "Pea protein",
+                                         wording.HIGHEST_LABEL: 6.0}})
+    assert [e.value for e in at.error] == [wording.row_error(
+        2, "Pea protein is already the name of an ingredient. Choose "
+           "another name.")]
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables] == ["Pea protein",
+                                                    "Methylcellulose"]
+    assert saved._var_by_name("Methylcellulose")["bounds"] == (0.0, 3.0)
+
+
+def test_a_setting_is_edited_in_its_own_words(ferment):
+    """Type, Lowest, Highest and the setting's own unit, in the row itself."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    grid = _grid_frame(at, 0)
+    row = grid[grid["Name"] == "Incubation time"].iloc[0]
+    assert (row["Type"], row["Unit"], row["Lowest"]) == (
+        wording.KIND_SETTING, "h", 4.0)
+    _save_grid(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 24.0}})
+    assert not at.exception
+    assert any(s.value == "Incubation time saved." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("ferment")._var_by_name("Incubation time")["bounds"] \
+        == (4.0, 24.0)
+
+
+@pytest.fixture
+def mid_run(tmp_path, monkeypatch):
+    """A project with one formulation recorded and a setting added after it,
+    so the setting carries a baseline the recorded formulation is read at."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mid_run")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    opt.add_process_parameter("Cook temperature", 150, 200, baseline=175,
+                              unit="°C")
+    return opt
+
+
+def test_the_grid_shows_the_baseline_a_setting_already_has(mid_run):
+    """Changing it moves the formulations already made with it, because the
+    baseline is what they were read at."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    grid = _grid_frame(at, 0)
+    row = grid[grid["Name"] == "Cook temperature"].iloc[0]
+    assert row[wording.BASELINE_LABEL] == 175.0
+    _save_grid(at, ING_GRID, edited={1: {wording.BASELINE_LABEL: 180.0}})
+    assert not at.exception, at.exception
+    saved = FoodOptimizer("mid_run")
+    assert saved._var_by_name("Cook temperature")["_absent_value"] == 180.0
+    assert saved.X_history == [saved._encode(r) for r in saved.recipe_history]
+
+
+def test_an_ingredient_that_already_exists_may_set_its_own_lowest(mid_run):
+    """It was recorded at its own amounts, so its Lowest is its own."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.LOWEST_LABEL: 5.0}})
+    assert not at.exception
+    assert FoodOptimizer("mid_run")._var_by_name("Water")["bounds"] == (5.0, 100.0)
+
+
+def test_a_row_is_fixed_by_typing_one_number_in_both_cells(burger):
+    """There is no Hold button: a row is pinned at one amount by saying so
+    in Lowest and Highest, and the search obeys the two cells."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.LOWEST_LABEL: 5.0,
+                                         wording.HIGHEST_LABEL: 5.0}})
+    assert not at.exception
+    assert any(s.value == "Pea protein saved." for s in at.success), \
+        [s.value for s in at.success]
+    saved = FoodOptimizer("burger")
+    var = saved._var_by_name("Pea protein")
+    assert var["bounds"] == (5.0, 5.0) and saved._fixed_value(var) == 5.0
+    grid = _grid_frame(at, 0)
+    row = grid[grid["Name"] == "Pea protein"].iloc[0]
+    assert (row["Lowest"], row["Highest"]) == (5.0, 5.0)
+
+
+def test_a_fixed_row_is_given_a_range_again_in_the_same_cells(burger):
+    burger.add_ingredient("Pea protein", 20.0, 20.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    assert not at.exception
+    assert any(s.value == "Pea protein saved." for s in at.success), \
+        [s.value for s in at.success]
+    assert FoodOptimizer("burger").fixed_variables() == []
+
+
+def test_fixing_a_row_that_breaks_the_batch_size_is_refused_over_the_grid(
+        burger):
+    """Asked ONCE, over the finished grid, and answered above the rows
+    rather than against any one of them — the refusal is about the grid as a
+    whole, and it names the rows that are fixed."""
+    burger.set_formulation_total(26.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.LOWEST_LABEL: 5.0,
+                                         wording.HIGHEST_LABEL: 5.0},
+                                     1: {wording.LOWEST_LABEL: 1.0,
+                                         wording.HIGHEST_LABEL: 1.0}})
+    assert not at.exception
+    trouble = [e.value for e in at.error]
+    assert len(trouble) == 1, trouble
+    assert not trouble[0].startswith("Row "), trouble
+    assert wording.fixed_rows_tail("Pea protein and Methylcellulose") \
+        in trouble[0], trouble
+    saved = FoodOptimizer("burger")
+    assert saved._var_by_name("Pea protein")["bounds"] == (0.0, 25.0)
+
+
+def test_a_limit_already_impossible_is_not_blamed_on_this_save(burger):
+    """A range narrowed last week can strand a limit, and always could. A
+    save that fixes an unrelated row must not be refused for it — there
+    would be no way to edit back out."""
+    burger.add_quantity_constraint(["Pea protein"], min_val=40)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.LOWEST_LABEL: 2.0,
+                                         wording.HIGHEST_LABEL: 2.0}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert FoodOptimizer("burger")._var_by_name(
+        "Methylcellulose")["bounds"] == (2.0, 2.0)
+
+
+def test_a_rename_on_its_own_keeps_the_open_round(burger):
+    """Nothing about the question the model was asked has moved, so the round
+    on the bench is still the answer to it — and its rows are rewritten to
+    the new name rather than thrown away."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={1: {wording.NAME_LABEL: "Methyl cellulose"}})
+    assert not at.exception
+    assert [s.value for s in at.success] == ["Methyl cellulose saved."]
+    assert not at.info, [i.value for i in at.info]
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch[0]["recipe"] == {"Pea protein": 10.0,
+                                                "Methyl cellulose": 1.0}
+
+
+def test_a_vendor_typed_on_its_own_keeps_the_open_round_too(burger):
+    """A vendor is printed on the sheets and read by nothing, so it is not a
+    change to the question the model was asked."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.VENDOR_LABEL: "Acme"}})
+    assert not at.exception
+    assert FoodOptimizer("burger").pending_batch is not None
+
+
+def test_a_grid_saved_unchanged_has_nothing_to_save(burger):
+    """The detector reads the two frames, not the editor's record of what
+    was typed: a cell typed back to what it held is not a change, and a
+    Save over one would retire the open round for nothing."""
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    _grid_edits(at, ING_GRID, edited={1: {wording.HIGHEST_LABEL: 3.0}})
+    at.run()
+    assert not at.exception
+    assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
+    assert FoodOptimizer("burger").pending_batch is not None
+
+
+def test_the_grid_has_no_hold_or_vary_button(burger):
+    """0.5.0: pinning a row at one amount is Lowest and Highest, typed in
+    the two cells. There is no control row left at all."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    labels = _labels(at)
+    assert not [b for b in labels
+                if b.startswith(("Hold ", "Vary ", "Edit ", "Delete Pea",
+                                 "Set unit", "Save Pea"))
+                or " again" in b], labels
+    assert not [t for t in at.text_input if t.label in ("New unit", "Unit")]
+
+
+def test_a_project_with_one_row_can_still_fix_it(tmp_path, monkeypatch):
+    """The old Hold button was greyed on the last active row. A range is not
+    a button and nothing greys it: the refusal, when it comes, is Generate
+    saying every row is fixed."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("one_only")
+    opt.set_amount_unit("g")
     opt.add_ingredient("Water", 0, 100)
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    pause = _submit_button(at, wording.pause_button("Water"))
-    assert pause.disabled
-    assert pause.proto.help == ("At least two ingredients or settings must "
-                                "stay active before one can be paused.")
-
-
-def test_the_control_row_sets_one_ingredient_unit(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    at.text_input(key="unit_value").set_value("ml")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={0: {wording.LOWEST_LABEL: 50.0,
+                                         wording.HIGHEST_LABEL: 50.0}})
     assert not at.exception
-    assert any(s.value == ("Methylcellulose is now in ml. The amounts you "
-                           "already recorded were not converted — check "
-                           "them.")
-               for s in at.success), [s.value for s in at.success]
-    assert FoodOptimizer("burger").unit_of("Methylcellulose") == "ml"
+    assert FoodOptimizer("one_only")._var_by_name("Water")["bounds"] == \
+        (50.0, 50.0)
 
 
-def test_set_unit_changes_a_process_setting_too(burger):
-    """A setting carries its own unit, so the same control sets it — and it
-    is part of no sum and no average, so no limit is touched."""
+def test_a_unit_set_on_a_process_setting_breaks_no_limit(burger):
+    """A setting carries its own unit, so the same cell sets it — and it is
+    part of no sum and no average, so no limit is touched."""
     burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
     burger.add_quantity_constraint(["Pea protein", "Methylcellulose"],
                                    max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Cook temperature")
-    at.run()
-    assert not _submit_button(at, wording.SET_UNIT_BUTTON).disabled
-    at.text_input(key="unit_value").set_value("°F")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={2: {wording.UNIT_LABEL: "°F"}})
     assert not at.exception
     # A setting carries numbers, not amounts: the sentence says which.
     assert any(s.value == ("Cook temperature is now in °F. The numbers you "
@@ -5118,16 +5859,17 @@ def test_set_unit_changes_a_process_setting_too(burger):
     assert not at.warning, [w.value for w in at.warning]
 
 
-def test_a_blank_unit_is_refused_for_a_setting_as_well(burger):
-    burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+def test_a_blank_unit_is_allowed_for_a_setting(burger):
+    """A mixer speed of 3 is a 3. An ingredient's amounts are added up,
+    averaged and printed, so a blank there is a sum of nothing — and that
+    one is refused (test_a_blank_unit_cell_is_refused_by_row)."""
+    burger.add_process_parameter("Mixer speed", 1, 5, unit="rpm")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Cook temperature")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
-    assert [e.value for e in at.error] == ["A unit is required; use g if the amount is a mass."]
-    assert FoodOptimizer("burger").unit_of("Cook temperature") == "°C"
+    _save_grid(at, ING_GRID, edited={2: {wording.UNIT_LABEL: ""}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert FoodOptimizer("burger").unit_of("Mixer speed") == ""
 
 
 def test_a_unit_change_that_breaks_a_property_limit_says_so(with_properties):
@@ -5137,12 +5879,9 @@ def test_a_unit_change_that_breaks_a_property_limit_says_so(with_properties):
     with_properties.add_constraint("Fat per 100 g", max_val=25.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Water")
-    at.run()
-    at.text_input(key="unit_value").set_value("ml")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    names = list(_grid_frame(at, 0)["Name"])
+    _save_grid(at, ING_GRID,
+               edited={names.index("Water"): {wording.UNIT_LABEL: "ml"}})
     assert not at.exception
     assert [w.value for w in at.warning] == [
         "The limit on Fat per 100 g was deleted because the ingredients no "
@@ -5150,63 +5889,269 @@ def test_a_unit_change_that_breaks_a_property_limit_says_so(with_properties):
     assert FoodOptimizer("props").constraints == []
 
 
-def test_a_reloaded_file_in_two_units_says_which_limit_went(with_properties):
-    with_properties.add_constraint("Fat per 100 g", max_val=25.0)
+def test_deleting_a_row_confirms_names_it_and_keeps_a_copy(burger, tmp_path):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Coconut oil")
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
-    at.text_input(key="unit_value").set_value("ml")
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
-    assert any("The limit on Fat per 100 g was deleted" in w.value
+    assert any(w.value == wording.delete_rows_warning("Methylcellulose")
                for w in at.warning), [w.value for w in at.warning]
-
-
-def test_delete_from_the_control_row_confirms_and_keeps_a_copy(burger, tmp_path):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    _submit_button(at, "Delete Methylcellulose").click()
-    at.run()
-    assert any("Delete Methylcellulose from this project permanently?"
-               in w.value for w in at.warning), [w.value for w in at.warning]
+    assert len(FoodOptimizer("burger").variables) == 2   # not yet
     _submit_button(at, "Yes, delete").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     assert not at.exception
     assert (tmp_path / "burger_pre_delete.pkl").exists()
     assert [v["name"] for v in FoodOptimizer("burger").variables] == \
         ["Pea protein"]
+    assert any(s.value == "Methylcellulose deleted." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_a_deletion_leaves_the_tab_exactly_one_lit_button(burger):
+    """Through the whole question, not only at the ends of it. The run that
+    puts the question up used to draw the lit Save changes AND the lit Yes
+    below it, which is the one thing this tab promises never to do."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    # An edit in hand: Save changes is the lit one and the foot demotes.
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    # The question is up: its Yes is the lit one, and Save changes demotes.
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+    assert _grid_save(at, ING_GRID).proto.type == "secondary"
+    _submit_button(at, "Cancel").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+
+
+def test_a_measurement_deletion_takes_the_colour_the_same_way(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+
+
+def test_putting_a_measurement_row_back_disarms_its_deletion(burger):
+    """The grid above has always done this; the one below it now does too."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    _grid_edits(at, MEAS_GRID, deleted=[0])
+    at.run()
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert len(FoodOptimizer("burger").objectives) == 2
+
+
+def test_a_row_rubbed_out_is_refused_not_quietly_deleted(burger):
+    """It carries the grid's hidden identity, so it is a row of the project
+    with its answers rubbed out — not the empty line at the bottom. Skipped,
+    it left the grid, and the save applied a deletion with no question asked
+    and no copy kept."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={1: {
+        wording.NAME_LABEL: "", wording.TYPE_LABEL: "",
+        wording.LOWEST_LABEL: None, wording.HIGHEST_LABEL: None,
+        wording.UNIT_LABEL: ""}})
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        wording.row_error(2, wording.NAME_REQUIRED_ERROR)]
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert [v["name"] for v in FoodOptimizer("burger").variables] == [
+        "Pea protein", "Methylcellulose"]
+
+
+def test_a_name_given_up_in_the_same_save_can_be_taken(burger):
+    """Pea protein becomes Pea protein isolate and Methylcellulose takes the
+    name it gave up. One edit, one Save, and the write order frees each name
+    before it is taken."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={0: {wording.NAME_LABEL: "Pea protein isolate"},
+                       1: {wording.NAME_LABEL: "Pea protein"}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert [v["name"] for v in FoodOptimizer("burger").variables] == [
+        "Pea protein isolate", "Pea protein"]
+
+
+def test_a_clash_is_blamed_on_the_row_the_reader_typed_into(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={1: {wording.NAME_LABEL: "Pea protein"}})
+    assert [e.value for e in at.error] == [wording.row_error(
+        2, "Pea protein is already the name of an ingredient. Choose "
+           "another name.")]
+
+
+def _any_armed(at):
+    """True while a confirmation is on the books anywhere in the app. What
+    it costs is every coloured button on every tab, so a question nothing on
+    screen can answer is the worst state this app has."""
+    return at.session_state["_armed_confirmation"] \
+        if "_armed_confirmation" in at.session_state else None
+
+
+def test_discard_while_the_question_is_up_takes_the_question_down(burger):
+    """Discarding is the reader answering "none of it". Left armed, the
+    question was off screen with no Yes to reach and every coloured button
+    in the app — on every tab — stayed grey behind it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE]
+    _grid_discard(at, ING_GRID).click()
+    at.run()
+    assert not at.exception
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    # The foot has its colour back, and nothing anywhere is greyed behind a
+    # question that is not on screen.
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert not _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert len(FoodOptimizer("burger").variables) == 2
+
+
+def test_putting_the_row_back_while_the_question_is_up_takes_it_down(burger):
+    """The commonest way for the question to stop being the question that is
+    up: the grid asks for no deletion at all. The early return for that case
+    used to skip the disarming altogether."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    # The row is back, and an ordinary edit is left in its place.
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 40.0}})
+    at.run()
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+
+
+def test_the_edit_taken_away_entirely_takes_the_question_down(burger):
+    """And the other way out of it: nothing left to save, so nothing left to
+    ask about."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    at.run()                      # the grid comes back empty of edits
+    assert _any_armed(at) is None, _any_armed(at)
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+
+
+def test_each_grid_remembers_its_own_armed_deletion(burger):
+    """One shared record, and the second grid's bookkeeping popped it out
+    from under the first on every run: the first grid's question then
+    re-worded itself to a set of rows nobody had confirmed."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    edits = {ING_GRID: dict(deleted=[1]), MEAS_GRID: dict(deleted=[1])}
+
+    def retype(**over):
+        for base, e in {**edits, **over}.items():
+            _grid_edits(at, base, **e)
+
+    retype()
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    retype()
+    at.run()
+    assert any("Delete Methylcellulose?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # Both grids still have a deletion pending; the record of what THIS
+    # question is about must survive the other grid's run.
+    retype()
+    at.run()
+    assert any("Delete Methylcellulose?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # Now swap which row the armed grid deletes: the question comes down.
+    retype(**{ING_GRID: dict(deleted=[0])})
+    at.run()
+    assert _any_armed(at) is None, _any_armed(at)
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert len(FoodOptimizer("burger").variables) == 2
+
+
+def test_a_measurement_name_given_up_in_the_same_save_can_be_taken(burger):
+    """The grid above has been able to do this since round 1; the one below
+    it now can too."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.MEASUREMENT_COLUMN: "Bite"},
+                       1: {wording.MEASUREMENT_COLUMN: "Firmness"}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert sorted(o["name"] for o in FoodOptimizer("burger").objectives) == [
+        "Bite", "Firmness"]
 
 
 def test_delete_still_offers_the_used_ingredient_path(burger):
-    """The permanent-deletion tick box lives inside the confirmation now."""
+    """The permanent-deletion tick box lives inside the confirmation, and
+    the refusal comes BEFORE anything is written."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
                 batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
     assert not [c for c in at.checkbox if c.key == "delete_ing_force"]
-    _submit_button(at, "Delete Methylcellulose").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     assert at.checkbox(key="delete_ing_force").label == (
         "Delete even though formulations used it — those amounts go too")
     _submit_button(at, "Yes, delete").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     assert any("was used" in e.value for e in at.error), \
         [e.value for e in at.error]
-    # The refusal leaves nothing armed, so the tick box is gone with it: the
-    # deletion is asked for again, this time with the box ticked.
-    assert not [c for c in at.checkbox if c.key == "delete_ing_force"]
-    _submit_button(at, "Delete Methylcellulose").click()
+    assert len(FoodOptimizer("burger").variables) == 2
+    # Asked again, this time with the box ticked.
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     at.checkbox(key="delete_ing_force").set_value(True)
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     _submit_button(at, "Yes, delete").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     assert not at.exception
     assert [v["name"] for v in FoodOptimizer("burger").variables] == \
@@ -5217,12 +6162,7 @@ def test_delete_takes_a_process_setting_too(burger, tmp_path):
     burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Cook temperature")
-    at.run()
-    _submit_button(at, "Delete Cook temperature").click()
-    at.run()
-    _submit_button(at, "Yes, delete").click()
-    at.run()
+    _save_grid(at, ING_GRID, confirm=True, deleted=[2])
     assert not at.exception
     assert any(s.value == "Cook temperature deleted." for s in at.success), \
         [s.value for s in at.success]
@@ -5231,19 +6171,21 @@ def test_delete_takes_a_process_setting_too(burger, tmp_path):
         ["Pea protein", "Methylcellulose"]
 
 
-def test_changing_the_pick_disarms_a_removal(burger):
-    """An armed confirmation for one row must not answer for another."""
+def test_putting_the_row_back_disarms_the_deletion(burger):
+    """An armed Save belongs to the rows it was armed over. Put one back and
+    the question on screen is about a different set of rows."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
-    _submit_button(at, "Delete Methylcellulose").click()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
-    at.selectbox(key="var_pick").select("Pea protein")
+    assert "Yes, delete" in _labels(at)
+    _grid_edits(at, ING_GRID, deleted=[0])
     at.run()
-    assert not at.warning, [w.value for w in at.warning]
-    assert "Yes, delete" not in _labels(at)
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert len(FoodOptimizer("burger").variables) == 2
 
 
 def test_the_upload_is_folded_away_beneath(burger):
@@ -5273,9 +6215,7 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     from food_bo import FoodOptimizer as _FO
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander
-                if e.label == "How closeness is calculated")
-    text = " ".join(m.value for m in fold.markdown)
+    text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     assert "a full range away scores 0" not in text, text
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in text, text
@@ -5284,7 +6224,9 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Firmness": 0.0}, formulation_no=1, batch_no=1)
     reloaded = _FO(burger.project_name)
-    assert float(reloaded.Y_history[0]) == pytest.approx(1.5 * 0.4)
+    # Firmness is worth 60 % of the score, and a measured 0 against a target
+    # of 6 on a 0 to 10 range is 0.4 closeness — never 0.
+    assert float(reloaded.Y_history[0]) == pytest.approx(60.0 * 0.4)
 
 
 def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
@@ -5296,23 +6238,21 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     from ui_setup import HOW_CLOSENESS, HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander if e.label == "How it works")
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    assert not _advanced(at).proto.expanded
+    text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
     for line in HOW_IT_WORKS:
         assert line in text, line
     assert len(HOW_IT_WORKS) == 5
-    assert "the model varies" in text and "aims for" in text
+    assert "the app varies" in text and "aims for" in text
     assert "hard rules for every formulation the app suggests" in text
     assert "close to the best or tries something different" in text
-    # Nothing here is arithmetic, and nothing here says a specialist's word.
+    # Nothing here is arithmetic. Share of score IS said — it is the column
+    # the reader types into now, so the fold that explains the screen has to
+    # name it — but a bare "Share" is still nobody's word.
     assert "closeness =" not in text, text
-    assert "share" not in text.lower(), text
+    assert "Share of score says how much each measurement counts" in text
     assert any("its share suggests" in line for line in HOW_CLOSENESS), \
         HOW_CLOSENESS
-    # ...and the Importance tooltip does not say the same thing lower down.
-    assert at.number_input(key="meas_new_importance").help == (
-        "Any positive number. 2 counts twice as much as 1.")
 
 
 def _assert_captions_read_once(at):
@@ -5321,8 +6261,12 @@ def _assert_captions_read_once(at):
     captions = [c for c in _tab1_captions(at)
                 if not c.startswith("Overall score = ")]
     assert len(captions) == len(set(captions)), captions
-    assert all(len(c) <= 100 for c in captions), \
-        [c for c in captions if len(c) > 100]
+    # The two grid captions are each one sentence longer than the rest: a
+    # grid has to say where a new row is typed and what makes a row fixed,
+    # and neither has a control of its own to say it any more.
+    long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION}
+    assert all(len(c) <= 100 for c in captions if c not in long_ones), \
+        [c for c in captions if len(c) > 100 and c not in long_ones]
 
 
 def test_no_caption_is_said_twice_on_the_tab(burger):
@@ -5332,21 +6276,63 @@ def test_no_caption_is_said_twice_on_the_tab(burger):
 
 
 def test_the_tab_reads_in_one_order(burger):
-    """Ingredients and process settings, then the measurements, then what is optional, then
-    the one coloured button."""
+    """Three tiers and nothing else (spec 1.5): the ingredients grid with
+    its collapsed file alternative, the measurements grid, one More settings
+    and one Advanced. Read off the element tree, top to bottom."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    order = []
-    for element in _tab1(at).children.values():
-        name = element.__class__.__name__
-        if name == "Subheader":
-            order.append(element.value)
-        elif name == "Expander" and element.label in (
-                "Limits (optional)", "How formulations are chosen (advanced)"):
-            order.append(element.label)
-    assert order == ["Ingredients and process settings", "Measurements and targets",
-                     "Limits (optional)", "How formulations are chosen (advanced)"], order
+    assert _tab_outline(at, 0) == [
+        wording.VARIABLES_HEADER,
+        wording.UPLOAD_INGREDIENTS_EXPANDER,
+        wording.MEASUREMENTS_HEADER,
+        wording.MORE_SETTINGS_EXPANDER,
+        wording.ADVANCED_EXPANDER,
+    ], _tab_outline(at, 0)
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+
+
+def test_more_settings_holds_the_four_optional_things_in_order(burger):
+    """Default batch size, where the targets came from, the limits, then the
+    properties those limits read — everything tab 1 asks at most once, in
+    one fold, in that order."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = _more_settings(at)
+    assert not fold.proto.expanded
+    # The box the default batch size is typed into is the first thing in it.
+    assert fold.number_input[0].label == "Default batch size (g)"
+    headings = [m.value for m in fold.markdown if m.value.startswith("**")]
+    assert headings == [wording.LIMITS_HEADING,
+                        wording.FINISHED_PRODUCT_LIMIT_HEADING,
+                        wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING,
+                        wording.PROPERTIES_HEADING], headings
+    # The note about where the targets came from sits between the box and
+    # the limits, and it is the only button above them.
+    assert wording.ADD_TARGETS_SOURCE_BUTTON in [b.label for b in fold.button]
+    # ...and nothing that belongs to the two grids came with it.
+    assert not fold.dataframe or len(fold.dataframe) == 1     # the properties grid
+    # The properties grid's own Save is in here — it is a grid, and it says
+    # Save changes like the other two. What must NOT be in here is either of
+    # theirs, and theirs sit above this fold with their own keys.
+    assert not [b for b in fold.button
+                if b.key in ("save_ingredient_grid__save",
+                             "save_measurement_grid__save")], \
+        [b.key for b in fold.button]
+
+
+def test_nothing_else_is_on_the_tab(burger):
+    """Spec 1.5 says "nothing else": every element tab 1 draws at its top
+    level is one of the five the order test names."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    kinds = [e.__class__.__name__ for e in _tab1(at).children.values()]
+    # A subheader and a grid apiece, the error slot under each, the file
+    # fold, the two tiers, the dividers and the foot's own button — and no
+    # second section, no add form, no control row.
+    assert kinds.count("Subheader") == 2
+    assert kinds.count("Expander") == 3
+    assert "Markdown" not in kinds, kinds
 
 
 # ------------------------------------------------------------------ #
@@ -5362,7 +6348,7 @@ def test_a_property_is_named_on_the_limits_section_and_the_box_empties(burger):
     project typed in by hand could not limit sodium at all."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _prop_name_box(at).label == "Add a property"
+    assert _prop_name_box(at).label == "New property"
     _prop_name_box(at).set_value("Sodium per 100 g")
     at.run()
     next(b for b in at.button if b.key == "add_property").click()
@@ -5389,80 +6375,148 @@ def test_a_property_name_that_clashes_is_refused_on_screen(burger):
     assert FoodOptimizer("burger").properties() == []
 
 
-def test_the_add_form_and_the_table_carry_one_column_per_property(burger):
-    """One number box per property on the add form, one column per property in
-    the table, blank where an ingredient has no value."""
+def test_the_ingredients_grid_carries_no_property_columns(burger):
+    """Properties are not a column of the ingredients grid: a project with
+    six of them would put six columns of mostly-blank numbers between Name
+    and Unit. They have a grid of their own inside More settings."""
     burger.add_property("Sodium per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    box = at.number_input(key="var_prop_Sodium per 100 g")
-    assert box.label == "Sodium per 100 g"
-    at.text_input(key="var_name").set_value("Salt")
-    at.number_input(key="var_high").set_value(5.0)
-    box.set_value(39000.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
-    assert not at.exception
-    saved = FoodOptimizer("burger")
-    assert saved.property_value("Salt", "Sodium per 100 g") == 39000.0
-    table = next(d.value for d in at.dataframe if "Type" in d.value.columns)
-    assert list(table.columns)[-1] == "Sodium per 100 g"
-    assert dict(zip(table["Name"], table["Sodium per 100 g"])) == {
-        "Pea protein": "", "Methylcellulose": "", "Salt": "39000"}
-    # The box empties, or the next ingredient inherits this one's value.
-    assert at.number_input(key="var_prop_Sodium per 100 g").value is None
+    assert "Sodium per 100 g" not in _grid_frame(at, 0).columns
+    assert "Sodium per 100 g" in _grid_frame(at, 2).columns
+    # And the interim fold it was set in is gone.
+    assert not hasattr(wording, "SET_PROPERTIES_BUTTON")
+    assert "prop_pick" not in at.session_state
 
 
-def test_a_process_setting_is_not_asked_for_a_property_value(burger):
+def test_the_properties_grid_has_a_row_per_ingredient_only(burger):
+    """A process setting is weighed into nothing, so it has no properties
+    and no row on this grid."""
+    burger.add_property("Cost")
+    burger.add_process_parameter("Cook temperature", 150, 200, unit="°C")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    grid = _grid_frame(at, 2)
+    assert list(grid.columns) == ["Ingredient", "Cost"]
+    assert list(grid["Ingredient"]) == ["Pea protein", "Methylcellulose"]
+
+
+def test_the_properties_grid_writes_the_figures_typed_into_it(burger):
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="var_prop_Cost") is not None
-    at.radio(key="var_kind").set_value("Process setting")
-    at.run()
-    assert "var_prop_Cost" not in [n.key for n in at.number_input]
-
-
-def test_set_property_values_writes_the_picked_ingredients_values(burger):
-    burger.add_property("Cost")
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    next(b for b in at.button if b.key == "set_props").click()
-    at.run()
-    at.number_input(key="setprop_Methylcellulose_Cost").set_value(42.0)
-    at.run()
-    next(b for b in at.button if b.key == "save_props").click()
-    at.run()
+    _save_properties(at, edited={1: {"Cost": 42.0}})
     assert not at.exception
-    assert any("Saved Cost for Methylcellulose." in s.value
-               for s in at.success), [s.value for s in at.success]
+    assert any(s.value == wording.PROPERTIES_SAVED for s in at.success), \
+        [s.value for s in at.success]
     assert FoodOptimizer("burger").property_value("Methylcellulose", "Cost") == 42.0
-    # The editor closes; the button is back on its own.
-    assert "setprop_Methylcellulose_Cost" not in [n.key for n in at.number_input]
+    # The row above it is untouched: a figure is written for the cell that
+    # moved and for no other.
+    assert not FoodOptimizer("burger").has_property_value("Pea protein", "Cost")
 
 
-def test_the_property_editor_opens_on_the_value_already_stored(burger):
+def test_the_properties_grid_opens_on_the_figures_already_stored(burger):
+    """Every ingredient's figure is readable down one column, which is the
+    whole reason the picker and its one box per property went."""
     burger.add_property("Cost")
     burger.set_property_value("Pea protein", "Cost", 3.5)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    next(b for b in at.button if b.key == "set_props").click()
+    figures = list(_grid_frame(at, 2)["Cost"])
+    assert figures[0] == 3.5
+    # ...and an ingredient with no figure opens on an empty cell, never on
+    # the row above it and never on a 0.
+    assert pd.isna(figures[1]), figures
+
+
+def test_a_grid_cell_emptied_clears_the_figure(burger):
+    """No figure is not a 0: an ingredient with none counts as 0 in a limit
+    and the limit's own line says so, which is a different thing from one
+    the reader has measured at 0."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="setprop_Pea protein_Cost").value == 3.5
-    # A second ingredient opens on its own value, not on this one's: the box
-    # is keyed per ingredient and seeded when the editor opens.
-    next(b for b in at.button if b.key == "close_props").click()
+    _save_properties(at, edited={0: {"Cost": None}})
+    assert not at.exception
+    assert not FoodOptimizer("burger").has_property_value("Pea protein", "Cost")
+
+
+def test_a_properties_grid_saved_unchanged_says_nothing(burger):
+    """A green line for a save that wrote nothing is a line about nothing."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
+    _save_properties(at)
+    assert not at.exception
+    assert not [s.value for s in at.success], [s.value for s in at.success]
+
+
+def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
+    """`Save properties` is grey, in every state: it lives inside a
+    collapsed fold, and the tab's one coloured button is the foot's."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    next(b for b in at.button if b.key == "set_props").click()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
     at.run()
-    assert at.number_input(key="setprop_Methylcellulose_Cost").value is None
-    # Emptying a box clears the value (no value is not 0); AppTest cannot type
-    # an empty number box, so that half is covered in test_food_bo.py.
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    # ...and the line that says nothing is written while typing is still
+    # there, so an edit in hand is not a silent one.
+    assert wording.unsaved_grid_caption(wording.PROPERTIES_NAME) in [
+        c.value for c in _more_settings(at).caption]
+
+
+def test_a_property_is_deleted_from_a_picker_and_one_question(burger):
+    burger.add_property("Cost")
+    burger.add_property("Fat per 100 g")
+    burger.set_property_value("Pea protein", "Cost", 3.5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.selectbox(key="prop_delete").options == ["Cost", "Fat per 100 g"]
+    _submit_button(at, wording.delete_button("Cost")).click()
+    at.run()
+    assert any("Delete Cost?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    # While the question is up it is the tab's one coloured button.
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+    _submit_button(at, wording.YES_DELETE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Fat per 100 g"]
+    assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Fat per 100 g"]
+
+
+def test_a_legacy_ingredient_named_property_is_hidden_but_deletable(burger):
+    """A property called "Ingredient" can only ever have arrived as a
+    column of an old ingredient file: `add_property` refuses that name
+    outright, since the properties grid's own row column already carries
+    it. It has to stay off that grid and off the limit picker built from
+    the same list — the grid can never show or write a figure for it — but
+    the delete picker still has to offer it, or it could never be taken
+    out."""
+    burger.add_property("Cost")
+    burger.ingredient_properties["Pea protein"] = {"Ingredient": 1.0}
+    burger.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Cost", "Ingredient"]
+    assert at.selectbox(key="prop_metric").options == ["Cost"]
+    assert at.selectbox(key="prop_delete").options == ["Cost", "Ingredient"]
+    at.selectbox(key="prop_delete").set_value("Ingredient")
+    at.run()
+    next(b for b in at.button if b.key == "rm_prop_Ingredient__btn").click()
+    at.run()
+    assert any("Delete Ingredient?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    next(b for b in at.button if b.key == "rm_prop_Ingredient__yes").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Cost"]
 
 
 def test_a_limit_names_the_ingredients_that_have_no_value(burger):
@@ -5509,6 +6563,43 @@ def test_deleting_a_property_asks_first_keeps_a_copy_and_takes_its_limit(
     assert (tmp_path / "burger_pre_delete.pkl").exists()
     assert any("Sodium per 100 g deleted. Its 1 limit went with it." in s.value
                for s in at.success), [s.value for s in at.success]
+
+
+def test_deleting_an_ingredient_turns_over_the_properties_grid(burger):
+    """The properties grid is drawn ingredient by ingredient (row 0 is
+    whichever ingredient is first), and a pending, unsaved edit in it is
+    positional — Streamlit's data editor knows only that "row 0's Cost"
+    changed, not which ingredient that was. Deleting an ingredient above it
+    changes who sits in that row, so the properties grid must be reset
+    alongside the ingredients grid: a save that lands here must not have a
+    stale edit land on whoever inherited the row."""
+    burger.add_property("Cost")
+    burger.set_property_value("Methylcellulose", "Cost", 4.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # Delete Pea protein (row 0 of the ingredients grid) and save.
+    _save_grid(at, ING_GRID, confirm=True, deleted=[0])
+    assert not at.exception
+    # A pending edit sitting in the properties grid's ORIGINAL widget, as if
+    # typed before the deletion: row 0's Cost set to 99. If the properties
+    # grid turned over with the ingredients grid, this key belongs to a
+    # widget nothing on screen reads any more.
+    stale = {"edited_rows": {0: {"Cost": 99.0}}, "added_rows": [],
+             "deleted_rows": []}
+    at.session_state["property_grid_0"] = stale
+    at.run()
+    next(b for b in at.button if b.key == "save_properties").click()
+    # AppTest drops widget state it is not handed again on the next run,
+    # so the stale edit is put back for the run that processes the click —
+    # without this line the test passes with or without the fix.
+    at.session_state["property_grid_0"] = stale
+    at.run()
+    assert not at.exception
+    # Methylcellulose is now row 0 of the properties grid. Its own figure
+    # must be unchanged, not overwritten by the stale edit meant for Pea
+    # protein's old row.
+    assert FoodOptimizer("burger").property_value(
+        "Methylcellulose", "Cost") == 4.0
 
 
 def test_a_hand_made_property_limit_reaches_the_batch(burger):
@@ -5585,12 +6676,13 @@ def test_an_amount_limit_needs_a_number(burger):
     assert FoodOptimizer("burger").quantity_constraints == []
 
 
-def test_the_kind_radio_says_what_the_two_kinds_are(burger):
-    """It decides whether the row is weighed into the total, scaled, and
-    eligible for an amount limit, and nothing on screen said so."""
+def test_the_type_column_says_what_the_two_types_are(burger):
+    """It decides whether the row is weighed into the batch size, scaled,
+    and eligible for an amount limit, and nothing on screen said so. The
+    tooltip rides on the column now, not on a radio."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.radio(key="var_kind").help == (
+    assert wording.VARIABLE_TYPE_HELP == (
         "Ingredients are weighed into the formulation and count towards its "
         "total. Process settings, such as temperature or time, are set on "
         "the equipment.")
@@ -5603,7 +6695,7 @@ def test_the_model_settings_in_use_line_shows_only_under_standard(burger):
                           "noise": "default", "acquisition": "qlognei"})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(e.label == "How formulations are chosen (advanced)"
+    assert any(e.label == wording.ADVANCED_EXPANDER
                for e in at.expander), [e.label for e in at.expander]
     assert at.radio(key="bo_cfg_mode").value == "Expert-selected"
     assert not any(c.value.startswith("In use:") for c in at.caption), \
@@ -5715,7 +6807,7 @@ def test_scoring_a_not_scored_formulation_from_results(scored, tmp_path):
 
 @pytest.fixture
 def not_scored_at_a_total(burger):
-    """Batch 1 printed to 100 g: one formulation scored, one left not scored
+    """Round 1 printed to 100 g: one formulation scored, one left not scored
     with a reason typed against it."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0},
                               {"Pea protein": 15.0, "Methylcellulose": 3.0}],
@@ -5824,7 +6916,7 @@ def test_the_one_download_on_the_batch_names_its_format(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     names = [b.label for b in _unknowns(at.tabs[1], "download_button")]
-    assert names == ["Download the batch sheets (Excel)"], names
+    assert names == ["Download the round sheets (Excel)"], names
     assert "Preview the printed sheets" not in [e.label for e in at.expander], \
         [e.label for e in at.expander]
 
@@ -5842,15 +6934,23 @@ def test_every_delete_on_set_up_names_what_it_takes_out(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     labels = _labels(at)
-    assert "Delete Pea protein" in labels, labels        # the control row
+    # A row is deleted by taking it off its grid, and the question Save then
+    # asks names it; what is left of the old row of bare Delete buttons is
+    # the property list and the limits, and both name what they take out.
     assert "Delete Fat per 100 g" in labels, labels      # the property list
-    assert "Delete Firmness" in labels, labels           # the measurement
     # A limit's Delete names the limit too: two of them, drawn identically,
     # left the reader counting rows to work out which was which.
     assert "Delete limit on Fat per 100 g" in labels, labels
     assert "Delete limit on Pea protein" in labels, labels
     assert labels.count("Delete limit") == 0, labels
     assert "Delete" not in labels, labels
+    _grid_edits(at, ING_GRID, deleted=[0])
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[0])
+    at.run()
+    assert any("Delete Pea protein?" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
 
 
 def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
@@ -5863,7 +6963,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     _submit_button(at, "Delete limit on Fat per 100 g").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
-                           "batch is no longer held to it. " + wording.COPY_KEPT)
+                           "round no longer has to obey it. " + wording.COPY_KEPT)
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").constraints != []   # not yet
     _submit_button(at, wording.YES_DELETE).click()
@@ -5872,8 +6972,8 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     assert FoodOptimizer("burger").constraints == []
     assert (tmp_path / "burger_pre_delete.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
-    assert any(s.value == "Limit on Fat per 100 g deleted. The next batch is "
-                          "no longer held to it." for s in at.success), \
+    assert any(s.value == "Limit on Fat per 100 g deleted. The next round no "
+                          "longer has to obey it." for s in at.success), \
         [s.value for s in at.success]
 
 
@@ -5930,7 +7030,7 @@ def test_the_third_part_of_edit_past_says_record_not_add(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(m.value == "##### Record a formulation you already made"
+    assert any(m.value == "##### Add a past result"
                for m in at.markdown), [m.value for m in at.markdown]
     assert "Record this formulation" in _labels(at), _labels(at)
     assert "Add this formulation" not in _labels(at), _labels(at)
@@ -5941,8 +7041,8 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     picker = at.selectbox(key="delete_whole_batch")
-    assert picker.label == "Add a whole batch to the list"
-    assert picker.proto.placeholder == "Choose a batch"
+    assert picker.label == "Select a whole round for deletion"
+    assert picker.proto.placeholder == "Choose a round"
 
 
 def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
@@ -5957,21 +7057,25 @@ def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(c.value == ("The top line only rises. A few flat batches are "
+    assert any(c.value == ("The top line only rises. A few flat rounds are "
                            "normal; a long flat stretch suggests this "
                            "ingredient list is close to the best it can do.")
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_formulation_total_help_says_what_it_scales(open_batch):
+def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
+        open_batch):
+    """"the sheets scale with it" said neither what changes nor where to
+    see it, in the one word that shipped meaning two things last cycle."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").help == (
-        "Sets the total for this batch's sheets. Set it in Set up to make "
-        "every suggestion add up to it.")
+        "Every formulation in this round adds up to this. Change it and the "
+        "amounts are worked out again at that size; the table's Total (g) "
+        "shows it.")
 
 
-def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
+def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(room_to_scale):
     """The sheets are printed from the amounts on the table, so a total the
     formulations were never chosen for can send the bench out to weigh an
     amount the project says it does not allow."""
@@ -5985,52 +7089,60 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(open_batch):
     # ONE line, however many ingredients on however many of the batch's rows
     # are outside: the total did it, and the fix is the same one every time.
     assert cautions == ["At 200 g, Pea protein and Methylcellulose go past "
-                        "the amounts you allowed. Print at a smaller total, "
+                        "the amounts you allowed. Print at a smaller batch size, "
                         "or widen them in Set up."], cautions
-    # And none at all while the batch is shown as generated.
-    at.number_input(key="scale_total").set_value(0.0)
+    # And none at all once the round is made to a size the project allows.
+    # Emptying the box does NOT undo it: the amounts have moved, and the way
+    # back is another size, not a blank.
+    at.number_input(key="scale_total").set_value(20.0)
     at.run()
     assert not any(wording.AMOUNTS_YOU_ALLOWED in c.value
                    for c in at.caption), [c.value for c in at.caption]
 
 
-def test_the_add_ingredient_rows_property_boxes_say_what_they_hold(burger):
+def test_the_properties_grid_says_what_an_empty_cell_holds(burger):
     burger.add_property("Fat per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    box = at.number_input(key="var_prop_Fat per 100 g")
-    assert box.help == ("Per 100 g of this ingredient. An empty box "
-                        "counts as 0 in any limit.")
-    # An example, not a rule: the rule is in the tooltip, said once.
-    assert box.proto.placeholder == "e.g. 2"
+    # The rule is in the caption above the grid, said once. The grid's own
+    # head names the property, so nothing inside it has to.
+    assert wording.PROPERTY_BLANK_RULE == ("An empty cell counts as 0 in "
+                                           "any limit.")
+    said = [c.value for c in at.caption
+            if wording.PROPERTY_BLANK_RULE in c.value]
+    assert said == [wording.properties_grid_caption(True)], said
 
 
-def test_the_target_box_is_only_there_for_a_target(burger):
-    """The measurement form is deliberately not an st.form, so the box can
-    come and go the moment the Goal changes; a greyed box asked the reader
-    to work out why it was on screen at all."""
+def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
+        burger):
+    """A grid cannot hide a cell for some rows and not others, so Target is
+    always a column — and a target outside the range is refused by row,
+    which is the answer the form used to give from a box that came and
+    went."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Edit Firmness").click()
+    assert list(_grid_frame(at, 1)["Target"]) == [6.0, 7.0]
+    _save_grid(at, MEAS_GRID, edited={0: {wording.TARGET_LABEL: 50.0}})
+    # R13: the refusal names the two controls the reader can reach on this
+    # grid, not "the range", which is a column on a printed sheet.
+    assert [e.value for e in at.error] == [wording.row_error(
+        1, "Target 50 must be between Lowest measurable and Highest "
+           "measurable (0 to 10).")]
+    assert FoodOptimizer("burger").objectives[1]["target"] == 6.0
+
+
+def test_a_goal_with_no_target_ignores_the_target_cell(burger):
+    """Higher is better has no target, so whatever is in the cell is not
+    read: the column is there for the rows that do have one."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="meas_Firmness_target").value == 6.0
-    at.selectbox(key="meas_Firmness_goal").set_value("max")
-    at.run()
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.GOAL_LABEL: wording.GOAL_LABELS["max"]}})
     assert not at.exception
-    assert not any(n.key == "meas_Firmness_target" for n in at.number_input), \
-        [n.key for n in at.number_input]
-    at.selectbox(key="meas_Firmness_goal").set_value("target")
-    at.run()
-    assert at.number_input(key="meas_Firmness_target").value == 6.0
-
-
-def test_the_open_measurement_editor_says_which_measurement(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    _submit_button(at, "Edit Firmness").click()
-    at.run()
-    assert any(m.value == "##### Edit Firmness" for m in at.markdown), \
-        [m.value for m in at.markdown]
+    assert [e.value for e in at.error] == []
+    saved = next(o for o in FoodOptimizer("burger").objectives
+                 if o["name"] == "Firmness")
+    assert saved["goal"] == "max" and saved["target"] is None
 
 
 def test_the_correction_amount_boxes_carry_no_tooltip(scored):
@@ -6063,7 +7175,7 @@ def test_an_extra_column_really_is_ignored(burger):
         "Juiciness": [6.0], "Firmness": [5.0], "Batch": ["whatever"],
     })
     at.run()
-    _submit_button(at, "Import all rows").click()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
     assert not at.error, [e.value for e in at.error]
@@ -6189,9 +7301,12 @@ def test_deleting_a_project_asks_and_promises_the_copy(burger):
 def test_deleting_an_ingredient_says_what_the_records_keep(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete Pea protein").click()
+    _grid_edits(at, ING_GRID, deleted=[0])
     at.run()
-    assert any("Formulations you already recorded keep their amounts." in w.value
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[0])
+    at.run()
+    assert any("Later formulations keep their numbers." in w.value
                for w in at.warning), [w.value for w in at.warning]
 
 
@@ -6207,12 +7322,18 @@ def test_enter_every_amount_says_what_to_do_about_an_ingredient_left_out(
         "Enter every amount. Type 0 for an ingredient you are leaving out."]
 
 
-def test_the_control_rows_delete_follows_the_pick(burger):
+def test_the_question_names_the_rows_taken_off_the_grid(burger):
+    """Two rows taken out in one edit is one question about both of them,
+    not two questions in a row."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
+    _grid_edits(at, ING_GRID, deleted=[0, 1])
     at.run()
-    assert "Delete Methylcellulose" in _labels(at), _labels(at)
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[0, 1])
+    at.run()
+    assert [w.value for w in at.warning] == [wording.delete_rows_warning(
+        "Pea protein and Methylcellulose")], [w.value for w in at.warning]
 
 
 def test_the_property_button_says_what_it_adds(burger):
@@ -6226,12 +7347,15 @@ def test_the_property_button_says_what_it_adds(burger):
 
 def test_the_per_100_caption_waits_for_one_unit(mixed_units):
     """`Per 100 g` over a project of grams and millilitres named a hundred of
-    nothing; the limit itself is refused until they agree."""
+    nothing. NEEDS_ONE_UNIT already says the ingredients must share a unit
+    (the Default batch size box says it first, higher up in More settings),
+    so the limit's own caption says nothing at all rather than repeating it
+    in different words — the two sentences used to show together."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Per 100 g of formulation once every ingredient is "
-                           "in one mass unit.") for c in at.caption), \
-        [c.value for c in at.caption]
+    captions = [c.value for c in _more_settings(at).caption]
+    assert captions.count(wording.NEEDS_ONE_UNIT) == 1, captions
+    assert not any(c.startswith("Per 100") for c in captions), captions
     mixed_units.set_ingredient_unit("Water", "g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -6240,23 +7364,19 @@ def test_the_per_100_caption_waits_for_one_unit(mixed_units):
         [c.value for c in at.caption]
 
 
-def test_only_one_set_of_property_boxes_is_on_screen(burger):
-    """The add form and the Set properties dialog both hold a box per property;
-    two boxes for one property on one screen is two answers to one question."""
+def test_one_place_holds_every_property_figure(burger):
+    """There used to be two — one on the add form, one in Set properties —
+    and two boxes for one property on one screen is two answers to one
+    question. There is one grid now, and no box anywhere."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     keys = [n.key for n in at.number_input]
-    assert "var_prop_Cost" in keys and "setprop_Pea protein_Cost" not in keys
-    next(b for b in at.button if b.key == "set_props").click()
-    at.run()
-    keys = [n.key for n in at.number_input]
-    assert "setprop_Pea protein_Cost" in keys, keys
-    assert "var_prop_Cost" not in keys, keys
-    assert "Save" in _labels(at), _labels(at)
-    next(b for b in at.button if b.key == "close_props").click()
-    at.run()
-    assert "var_prop_Cost" in [n.key for n in at.number_input]
+    assert not [k for k in keys if k.startswith("setprop_")], keys
+    assert not [k for k in keys if k.startswith("var_prop_")], keys
+    assert [g for g in at.dataframe if "Cost" in g.value.columns], \
+        [list(g.value.columns) for g in at.dataframe]
+    assert wording.SAVE_PROPERTIES_BUTTON in _labels(at), _labels(at)
 
 
 def test_both_upload_doors_read_the_same_way(open_batch):
@@ -6277,17 +7397,17 @@ def test_both_upload_doors_read_the_same_way(open_batch):
 #  workbook the bench carries away.
 # ------------------------------------------------------------------ #
 def _workbook(at):
-    """The workbook behind `Download the batch sheets`, opened.
+    """The workbook behind `Download the round sheets`, opened.
 
     AppTest cannot reach a download button's bytes, so the file is built from
-    the same optimizer, the same batch and the same total the screen drew
-    with — which is exactly what the button hands over."""
+    the same optimizer, the same round and the same size the screen drew
+    with — which is exactly what the button hands over. open_round_size, not
+    the box's own value: a prefill the bench has not changed is not an
+    answer, and the sheets carry the amounts the round actually holds."""
     opt = at.session_state["optimizer"]
-    typed = (at.session_state["scale_total"]
-             if "scale_total" in at.session_state else None)
-    total = opt.sheet_total(typed)
     return openpyxl.load_workbook(
-        io.BytesIO(opt.workbook_bytes(opt.pending_batch, total)))
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch,
+                                      opt.open_round_size())))
 
 
 def _formulation_sheets(at):
@@ -6328,39 +7448,154 @@ def _summary_rows(at):
             if isinstance(row[0], str)}
 
 
-def test_the_total_box_asks_what_to_make_each_formulation_to(open_batch):
+def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     box = at.number_input(key="scale_total")
-    # The same name as tab 1's box: one question, one answer, one word.
-    assert box.label == "Total of each formulation (g)"
-    assert box.proto.placeholder == "e.g. 150"
-    assert box.help == ("Sets the total for this batch's sheets. Set it in "
-                        "Set up to make every suggestion add up to it.")
-    box.set_value(150.0)
+    # Not "Default batch size": that is Set up's box, for every round still
+    # to come. This one is the round on screen.
+    assert box.label == "Batch size (g)"
+    assert box.proto.placeholder == "e.g. 100"
+    assert box.help == ("Every formulation in this round adds up to this. "
+                        "Change it and the amounts are worked out again at "
+                        "that size; the table's Total (g) shows it.")
+    box.set_value(25.0)
     at.run()
-    assert any(c.value == "Sheets show each formulation made to 150 g."
-               for c in at.caption), [c.value for c in at.caption]
-    # One line about what the sheets hold, not two. The caution under it
-    # names the total as well, because the total is what pushed those
-    # amounts out of what the project allows.
-    assert [c.value for c in at.caption if "150 g" in c.value] == [
-        # The same refusal tab 1's box gives the same number: 150 g is more
-        # than these two ingredients can add up to at all.
-        "A total of 150 g is not reachable: the allowed amounts add up to at "
-        "most 28 g.",
-        "Sheets show each formulation made to 150 g.",
-        "At 150 g, Pea protein and Methylcellulose go past the amounts you "
-        "allowed. Print at a smaller total, or widen them in Set up."], \
+    # One line about what the sheets hold, and it is the only line about the
+    # size: the round is made to 25 g, the two ingredients reach it, and
+    # nothing is outside what the project allows.
+    assert [c.value for c in at.caption if "25 g" in c.value] == [
+        "Sheets show each formulation made to 25 g."], \
         [c.value for c in at.caption]
 
 
-def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
+def test_every_amount_on_the_round_table_is_two_decimals(open_batch):
+    """A balance reads to two decimals, and the Excel sheet printed 21.74
+    while the screen printed 18.11529942207362 and a Total (g) of
+    250.00000000000003 beside it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert not at.exception
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    for column in ("Pea protein (g)", "Methylcellulose (g)", "Total (g)"):
+        for value in table[column]:
+            assert float(value) == round(float(value), 2), (column, value)
+    # 250/11 and its neighbours: the long fractions are where it showed.
+    assert list(table["Pea protein (g)"]) == [22.73, 22.73]
+    assert list(table["Total (g)"]) == [25.0, 25.0]
+
+
+def test_the_next_round_says_it_is_back_at_the_default_size(burger):
+    """A size typed for one round belongs to that round. Round 2 went back
+    to the default with nothing said, while the tab next door still quoted
+    120 g: four numbers, one question."""
+    burger.set_formulation_total(20.0)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=1)
+    burger.scale_round(25.0)
+    burger.tell(burger.pending_batch[0]['recipe'],
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    burger.set_pending_batch(None)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    assert any(c.value == ("Round 2 uses the default batch size, 20 g. "
+                           "Round 1 was 25 g.")
+               for c in at.caption), [c.value for c in at.caption]
+    # And nothing to say once this round has a size of its own.
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert not any("uses the default batch size" in c.value
+                   for c in at.caption), [c.value for c in at.caption]
+
+
+def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
+    """The app printed round sheets for 250 g directly under a line saying
+    250 g was impossible, and the bench would have been sent out to weigh
+    amounts the project says it does not allow. The size is refused: the
+    round keeps the one it has, the table and the download stay at that
+    size, and the box comes back holding it on the next run."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
+    at.number_input(key="scale_total").set_value(250.0)
+    at.run()
+    assert not at.exception
+    assert any(c.value == ("A batch size of 250 g is not reachable: the most "
+                           "these ingredients can make is 28 g.")
+               for c in at.caption), [c.value for c in at.caption]
+    # Not made to it: the round, the table and the sheets are all still 25 g.
+    saved = FoodOptimizer("burger")
+    assert saved.pending_batch_total == 25.0
+    table = next(d.value for d in at.dataframe
+                 if "Formulation" in d.value.columns)
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert any(c.value == "Sheets show each formulation made to 25 g."
+               for c in at.caption), [c.value for c in at.caption]
+    # No extra button: the box itself comes back to the round's own size.
+    assert wording.YES_CONTINUE not in _labels(at), _labels(at)
+    at.run()
+    assert at.number_input(key="scale_total").value == 25.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
+
+
+def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(
+        tmp_path, monkeypatch):
+    """A prefilled guess was worse than a blank box in two ways: it named a
+    size no formulation weighed, and it fired the reach refusal at a number
+    nobody had typed. Here the two rows weigh 30 g and 40 g while the allowed
+    amounts reach 20 g, so the old mean of 35 g would have been refused out
+    loud on the very first render."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("unreachable_mean")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 0, 10)
+    opt.add_ingredient("Water", 0, 10)
+    opt.add_objective("Firmness", 1.0, goal="target", target=6,
+                      min_val=0, max_val=10, unit="N")
+    opt.set_pending_batch([{"Pea protein": 20.0, "Water": 10.0},
+                           {"Pea protein": 20.0, "Water": 20.0}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value is None
+    said = [c.value for c in at.caption] + [e.value for e in at.error]
+    assert not any("is not reachable" in s for s in said), said
+    # ...and nothing was rewritten behind the blank box.
+    assert [r['recipe'] for r in FoodOptimizer("unreachable_mean").pending_batch] \
+        == [{"Pea protein": 20.0, "Water": 10.0},
+            {"Pea protein": 20.0, "Water": 20.0}]
+    assert FoodOptimizer("unreachable_mean").pending_batch_total is None
+
+
+def test_there_is_no_change_the_total_button_any_more(open_batch):
+    """The Batch size box is on this screen, above the table. A button that
+    left the tab to answer a question the tab already asks was the long way
+    round, and it named a number that was not even this round's."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(20.0)
+    at.run()
+    assert not at.exception
+    labels = [b.label for b in at.button]
+    assert "Change the total" not in labels, labels
+
+
+def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(25.0)
+    at.run()
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.number_input(key="f2_Firmness").set_value(7.0)
     at.run()
@@ -6368,10 +7603,56 @@ def test_the_total_is_kept_with_the_batch_and_then_with_its_number(open_batch):
     at.run()
     assert not at.exception
     reloaded = FoodOptimizer("burger")
-    assert reloaded.pending_batch_total is None      # the batch closed
-    assert reloaded.batch_total(1) == 150.0
-    # The amounts recorded are still the ones the model was told about.
-    assert reloaded.recipe_history[0]["Pea protein"] == 10.0
+    assert reloaded.pending_batch_total is None      # the round closed
+    assert reloaded.batch_total(1) == 25.0
+    # What is recorded is what was MADE. Until 0.5.0 the box scaled the
+    # sheets and the model was told the amounts the bench had not weighed.
+    assert reloaded.ingredient_total(reloaded.recipe_history[0]) == \
+        pytest.approx(25.0)
+    assert reloaded.recipe_history[0]["Pea protein"] == pytest.approx(
+        25.0 * 10.0 / 11.0)
+
+
+@pytest.fixture
+def resized_and_recorded(tmp_path, monkeypatch):
+    """One round, made to 200 g by the Batch size box and recorded there.
+    Water's 120 g is past the 100 g the project allows, so tab 2 said so
+    before the bench weighed it."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("resized")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_ingredient("Flour", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(100)
+    opt.set_pending_batch([{"Water": 60.0, "Flour": 40.0}])
+    opt.scale_round(200.0)
+    return opt
+
+
+def test_a_round_the_box_resized_still_says_so_on_results(resized_and_recorded):
+    """The line is on the screen the bench weighs from and must be on the
+    screen it is read back on: under a project default the row was never
+    rewritten, so without the flag tab 3 checked it against nothing."""
+    opt = resized_and_recorded
+    assert opt.pending_batch[0]['recipe']["Water"] == pytest.approx(120.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    # Tab 2 says it while the round is on the bench.
+    assert [c.value for c in at.caption
+            if "Water goes past the amounts you allowed" in c.value], \
+        [c.value for c in at.caption]
+    at.number_input(key="f1_Taste").set_value(7.0)
+    at.run()
+    _submit_button(at, wording.SAVE_RESULTS).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("resized").recorded_total(1) == 200.0
+    # The round is closed, so tab 2 has nothing to say any more: whatever
+    # says it now is tab 3's own line, under the amounts it is about.
+    said = [c.value for c in at.caption
+            if "Water goes past the amounts you allowed" in c.value]
+    assert said, [c.value for c in at.caption]
 
 
 def test_discarding_the_batch_forgets_the_total(open_batch):
@@ -6389,7 +7670,7 @@ def test_discarding_the_batch_forgets_the_total(open_batch):
 
 @pytest.fixture
 def made_to_a_total(burger):
-    """Batch 1 recorded after its sheets were printed to 150 g."""
+    """Round 1 recorded after its sheets were printed to 150 g."""
     burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
                              batch_no=1)
     burger.set_pending_batch_total(150.0)
@@ -6442,6 +7723,55 @@ def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
     assert at.session_state["own_Methylcellulose"] == 1.0
 
 
+def test_start_from_the_best_says_its_own_amounts_are_outside(burger):
+    """The worst five seconds of the cold read: the app typed the amounts
+    into the boxes itself and then told the reader off for them. The form
+    says it once, before Add, and adding is still allowed."""
+    burger.tell({"Pea protein": 22.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    # Today's allowed amounts are narrower than the day that was made on.
+    burger.add_ingredient("Pea protein", 0, 20)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0}],
+                             batch_no=2)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.START_FROM_BEST).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["own_Pea protein"] == 22.0
+    said = [c.value for c in at.caption if "outside today's" in c.value]
+    assert said == ["Formulation 1 was made at amounts outside today's "
+                    "Lowest and Highest. You can still add it as typed."], \
+        [c.value for c in at.caption]
+    # Adding it is allowed, and the app does not then tell the reader off
+    # for the numbers it typed itself.
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert len(FoodOptimizer("burger").pending_batch) == 2
+    assert not [w.value for w in at.warning
+                if "Pea protein" in w.value], [w.value for w in at.warning]
+
+
+def test_an_amount_typed_by_hand_outside_the_allowed_ones_still_cautions(
+        open_batch):
+    """The caption is for the amounts the app typed. One the reader typed
+    themselves keeps the caution it always had."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.number_input(key="own_Pea protein").set_value(40.0)
+    at.number_input(key="own_Methylcellulose").set_value(1.0)
+    at.run()
+    _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
+    at.run()
+    assert not at.exception
+    assert [w.value for w in at.warning
+            if "Pea protein" in w.value], [w.value for w in at.warning]
+
+
 def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
     """A cell with a border is something a pen can fill in. One per
     measurement per sheet — two formulations, two measurements each — plus
@@ -6454,10 +7784,11 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, the Not scored box, a note box and its overflow, on
-    # each of the two sheets. The tick cells carry a printed box, so they
-    # are bordered AND written in — they are not counted here.
-    assert boxed == 2 * (2 + 1 + 2), boxed
+    # Two measurements, a note box and its overflow, and one Actual cell
+    # per ingredient (two) and per setting (none here), on each of the two
+    # sheets. The tick cells and the Not scored cell carry a printed box,
+    # so they are bordered AND written in — not counted here.
+    assert boxed == 2 * (2 + 2 + 2), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -6466,7 +7797,7 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
 def test_the_workbook_is_named_for_the_project_and_the_batch(open_batch):
     """A downloaded file is found in a Downloads folder a month later,
     beside eleven others, so it carries both names."""
-    assert wording.workbook_file_name("burger", 1) == "burger · Batch 1.xlsx"
+    assert wording.workbook_file_name("burger", 1) == "burger · Round 1.xlsx"
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
@@ -6524,7 +7855,9 @@ def _first(order, text):
 
 def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
     """Make them, print the sheets, record what you measured. The screen is
-    in that order, and each step says which one it is."""
+    in that order. The headings carry no numbers of their own: the tab
+    strip above them is 1 · 2 · 3, and "3 · Record the results" under
+    "3 · Results" had the cold reader clicking the tab."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
@@ -6533,11 +7866,12 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.STEP_MAKE_HEADING)
             < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.STEP_RECORD_HEADING)), order
-    # Step 1 is the table; step 2 the two downloads and the total box; step 3
-    # the grid, the counter and Save results.
+    # Step 1 is the Batch size box and then the table; step 2 the download;
+    # step 3 the grid, the counter and Save results.
     assert (_first(order, wording.STEP_MAKE_HEADING)
+            < _first(order, wording.batch_size_label("g"))
+            < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
-            < _first(order, wording.batch_total_label("g"))
             < _first(order, wording.STEP_RECORD_HEADING)
             < _first(order, wording.formulation_heading(1))
             < _first(order, "0 of 2 complete")
@@ -6552,9 +7886,9 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.GENERATE_DIFFERENT_BATCH)), order
     assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
     # Step 1 carries no count of its own: the title above it already has one.
-    assert wording.STEP_MAKE_HEADING == "##### 1 · Make the formulations"
-    assert wording.STEP_PRINT_HEADING == "##### 2 · Print the sheets"
-    assert wording.STEP_RECORD_HEADING == "##### 3 · Record the results"
+    assert wording.STEP_MAKE_HEADING == "##### Make the formulations"
+    assert wording.STEP_PRINT_HEADING == "##### Print the sheets"
+    assert wording.STEP_RECORD_HEADING == "##### Record the results"
 
 
 def test_the_ready_flash_says_what_to_do_next(burger):
@@ -6565,7 +7899,7 @@ def test_the_ready_flash_says_what_to_do_next(burger):
     _submit_button(at, wording.generate_button_label(3)).click()
     at.run()
     assert not at.exception
-    assert any(s.value == ("Batch 1 is ready to make. Print the sheets, then "
+    assert any(s.value == ("Round 1 is ready to make. Print the sheets, then "
                            "record the results below when you have them.")
                for s in at.success), [s.value for s in at.success]
 
@@ -6628,37 +7962,40 @@ def test_how_it_works_is_five_lines(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert wording.HOW_IT_WORKS == [
-        "Ingredients and settings are what the model varies. Measurements "
+        "Ingredients and settings are what the app varies. Measurements "
         "and goals are what it aims for.",
-        "Importance says how much each measurement counts. Closeness is a "
-        "0 to 1 score for how near a result is to its goal.",
-        "Until five formulations have results, new ones are spread out to "
-        "learn the space. After that, each batch aims closer to your targets.",
+        "Share of score says how much each measurement counts, out of 100. "
+        "Closeness says how near a result is to its goal, from 0 to 1.",
+        "Until five formulations have results, new ones are spread out "
+        "to cover the allowed amounts. After that, each round aims closer "
+            "to your targets.",
         "Limits are hard rules for every formulation the app suggests. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
         "something different, and what it changes.",
     ], wording.HOW_IT_WORKS
-    fold = next(e for e in _tab1(at).expander
-                if e.label == wording.HOW_IT_WORKS_EXPANDER)
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    assert not _advanced(at).proto.expanded
+    text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
     for line in wording.HOW_IT_WORKS:
         assert f"- {line}" in text, line     # five flat bullets, none nested
     assert not hasattr(wording, "HOW_IT_WORKS_NESTED")
+    # It is a heading inside Advanced now, not a fold of its own: three
+    # things to open before the first sentence is what the tiers end.
+    assert not hasattr(wording, "HOW_IT_WORKS_EXPANDER")
 
 
-def test_the_closeness_formulas_are_one_fold_below(burger):
+def test_the_closeness_formulas_are_the_block_below(burger):
+    """The arithmetic answers a question the four bullets above it raise, so
+    it reads directly beneath them inside the same fold."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    labels = [e.label for e in _tab1(at).expander]
-    assert labels.index(wording.HOW_CLOSENESS_EXPANDER) == \
-        labels.index(wording.HOW_IT_WORKS_EXPANDER) + 1, labels
-    assert wording.HOW_CLOSENESS_EXPANDER == "How closeness is calculated"
-    fold = next(e for e in _tab1(at).expander
-                if e.label == wording.HOW_CLOSENESS_EXPANDER)
-    assert not fold.proto.expanded
-    text = "\n".join(m.value for m in fold.markdown)
+    headings = [m.value for m in _advanced(at).markdown
+                if m.value.startswith("**")]
+    assert headings == [wording.HOW_FORMULATIONS_CHOSEN_HEADING,
+                        wording.HOW_IT_WORKS_HEADING,
+                        wording.HOW_CLOSENESS_HEADING], headings
+    assert wording.HOW_CLOSENESS_HEADING == "**How closeness is calculated**"
+    text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     for line in wording.HOW_CLOSENESS:
         assert line in text, line
     # The three goals, the floor and the share it costs, the re-scoring,
@@ -6670,9 +8007,8 @@ def test_the_closeness_formulas_are_one_fold_below(burger):
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in joined
     assert "a little less than its share suggests" in joined
-    assert ("The model learns the one overall score, so changing an "
-            "importance, a goal or a range re-scores every past "
-            "formulation.") in joined
+    assert ("The app learns the one overall score, so changing a share, "
+            "a goal or a range re-scores every past formulation.") in joined
     assert "property" not in joined, joined
     assert "how noisy your measurements are" in joined
 
@@ -6706,44 +8042,46 @@ def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
     wrote its own blank straight over the saved number."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
     fresh = AppTest.from_file(APP_PATH, default_timeout=180)
     fresh.session_state["_loaded_project"] = "burger"
     fresh.session_state["main_tab"] = wording.TAB_BATCH
     fresh.run()
     assert not fresh.exception
-    assert fresh.number_input(key="scale_total").value == 150.0
+    assert fresh.number_input(key="scale_total").value == 25.0
     table = next(d.value for d in fresh.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
-    assert any(c.value == "Sheets show each formulation made to 150 g."
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in fresh.caption), [c.value for c in fresh.caption]
     # ...and nothing about that render touched the file.
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
-def test_clearing_the_box_still_reaches_the_file(open_batch):
-    """The seeding must not undo a deliberate clear: an empty box is a value
-    of its own, and it means the amounts in the table."""
+def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
+        open_batch):
+    """An emptied box is not an undo. Since 0.5.0 the size moves the amounts
+    themselves, so there is no as-generated to go back to — the round stays
+    at 25 g and the way to another size is to type one. And an emptied box
+    is not an answer either: it comes back holding the size the round is
+    made to, rather than sitting blank over amounts it says nothing about."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    # An emptied box comes back as 0, the box's own floor, and 0 is what
-    # "as generated" has always meant here.
+    # An emptied box comes back as 0, the box's own floor.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
     assert not at.exception
-    # The seeding must not put 150 back: the box holds what the user left in
-    # it, the table is back to as-generated, and the file agrees.
-    assert at.number_input(key="scale_total").value == 0.0
+    assert at.number_input(key="scale_total").value == 25.0
+    # Nothing is rewritten: the round is still the 25 g one.
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Total (g)"]) == pytest.approx([11.0, 22.0])
-    assert FoodOptimizer("burger").pending_batch_total is None
+    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
@@ -6761,7 +8099,7 @@ def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
     at.sidebar.selectbox(key="project_select").select("second")
     at.run()
@@ -6769,7 +8107,7 @@ def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(
     at.run()
     assert not at.exception
     assert at.number_input(key="scale_total").value == 80.0
-    assert FoodOptimizer("burger").pending_batch_total == 150.0
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
     assert FoodOptimizer("second").pending_batch_total == 80.0
 
 
@@ -6806,7 +8144,8 @@ def test_cancelling_the_discard_keeps_what_was_typed_into_the_grid(open_batch):
     assert wording.YES_DISCARD not in _labels(at), _labels(at)
 
 
-def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
+def test_the_scaled_cautions_read_under_the_box_that_caused_them(
+        room_to_scale):
     """The total is what pushed the amount out of range, so the line belongs
     with the box, not under a table three steps above it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -6815,7 +8154,7 @@ def test_the_scaled_cautions_read_under_the_box_that_caused_them(open_batch):
     at.run()
     order = _tab_flow(at)
     caution = next(t for t in order if wording.AMOUNTS_YOU_ALLOWED in t)
-    assert (_first(order, wording.batch_total_label("g"))
+    assert (_first(order, wording.batch_size_label("g"))
             < order.index(caution)
             < _first(order, wording.STEP_RECORD_HEADING)), order
 
@@ -6885,19 +8224,24 @@ def test_a_reloaded_total_opens_a_box_the_session_had_seen_empty(open_batch):
 
 def test_the_sessions_own_write_is_not_read_as_a_change_from_elsewhere(
         open_batch):
-    """The mark carries the stored value, so it has to be re-stamped after
-    every write of the session's own — otherwise a deliberate clear reads as
-    a total that changed somewhere else, and the box fills itself back in."""
+    """The mark carries the size the box was last put on screen holding, so
+    it has to be re-stamped after every write of the session's own —
+    otherwise the session's own 25 reads as a size that changed somewhere
+    else, and scale_round runs again on every rerun."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    at.number_input(key="scale_total").set_value(150.0)
+    at.number_input(key="scale_total").set_value(25.0)
     at.run()
-    at.number_input(key="scale_total").set_value(0.0)
+    saved_at = at.session_state["optimizer"].last_saved_at
     at.run()
-    at.run()                                   # and it stays cleared
-    assert at.number_input(key="scale_total").value == 0.0
-    assert FoodOptimizer("burger").pending_batch_total is None
+    at.run()
+    assert not at.exception
+    assert at.number_input(key="scale_total").value == 25.0
+    # No write per rerun: the size the session itself typed is the size the
+    # mark already carries.
+    assert at.session_state["optimizer"].last_saved_at == saved_at
+    assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
 def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
@@ -6932,7 +8276,8 @@ def test_a_delete_with_no_batch_open_empties_the_total_box_next_run(burger):
 #  as it is typed, a picker that clears itself, and notes that survive
 #  a CSV round trip.
 # ------------------------------------------------------------------ #
-def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
+def test_one_caution_names_every_ingredient_the_total_pushes_out(
+        room_to_scale):
     """One line under the box, not one line per ingredient per row: the fix
     is the same one every time, and eight captions of raw floats buried the
     Record step under them."""
@@ -6944,20 +8289,20 @@ def test_one_caution_names_every_ingredient_the_total_pushes_out(open_batch):
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
     assert said == ["At 200 g, Pea protein and Methylcellulose go past "
-                    "the amounts you allowed. Print at a smaller total, or "
+                    "the amounts you allowed. Print at a smaller batch size, or "
                     "widen them in Set up."], said
 
 
 def test_the_scaled_caution_is_singular_for_one_ingredient(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.number_input(key="scale_total").set_value(30.0)
+    at.number_input(key="scale_total").set_value(28.0)
     at.run()
     assert not at.exception
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
-    assert said == ["At 30 g, Pea protein goes past the amounts you allowed. "
-                    "Print at a smaller total, or widen them in "
+    assert said == ["At 28 g, Pea protein goes past the amounts you allowed. "
+                    "Print at a smaller batch size, or widen them in "
                     "Set up."], said
 
 
@@ -6970,7 +8315,7 @@ def test_the_best_says_when_its_own_total_pushes_an_amount_out(made_to_a_total):
     at.run()
     assert not at.exception
     caution = ("At 150 g, Pea protein and Methylcellulose go past the "
-               "amounts you allowed. Print at a smaller total, or widen them "
+               "amounts you allowed. Print at a smaller batch size, or widen them "
                "in Set up.")
     order = _tab_flow(at, 2)
     assert order.count(caution) == 1, order
@@ -6982,7 +8327,7 @@ def test_every_sheet_ends_with_the_caution(open_batch):
     """The sheet is what the bench weighs out from, and it leaves the app: a
     caution only on screen is not on the page in the technician's hand."""
     caution = ("At 200 g, Pea protein and Methylcellulose go past the "
-               "amounts you allowed. Print at a smaller total, or widen them "
+               "amounts you allowed. Print at a smaller batch size, or widen them "
                "in Set up.")
     book = openpyxl.load_workbook(io.BytesIO(
         open_batch.workbook_bytes(open_batch.pending_batch, 200.0)))
@@ -7046,7 +8391,7 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert not at.exception
     said = [c.value for c in at.caption if "outside your range" in c.value]
     assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
-                    " Widen the range in Set up, or check the value."], said
+                    " Raise Highest measurable in Set up, or check the value."], said
     order = _tab_flow(at)
     assert (order.index(said[0])
             < _first(order, wording.formulation_heading(2))), order
@@ -7160,50 +8505,41 @@ def test_the_results_counter_counts_the_rows_that_are_complete(open_batch):
         [c.value for c in at.caption]
 
 
-def test_the_property_controls_are_named_after_the_properties(burger):
-    """The button is one short, stable label — a property name is the
-    project's own and can be long — and the dialog it opens names them."""
+def test_the_properties_grid_names_the_properties_across_its_head(burger):
+    """A property name is the project's own and can be long, so the grid's
+    columns do the naming and its caption says only what the head cannot:
+    what one figure is per, and what an empty cell means."""
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "Set properties" in _labels(at), _labels(at)
-    next(b for b in at.button if b.key == "set_props").click()
-    at.run()
     assert not at.exception
-    assert any(c.value == ("Cost in Pea protein, per 100 g. An empty box "
-                           "counts as 0 in any limit.")
+    assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Cost"]
+    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
+                           "cell counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
-    assert "Save" in _labels(at), _labels(at)
-    at.number_input(key="setprop_Pea protein_Cost").set_value(42.0)
-    at.run()
-    next(b for b in at.button if b.key == "save_props").click()
-    at.run()
-    assert any("Saved Cost for Pea protein." in s.value for s in at.success), \
+    _save_properties(at, edited={0: {"Cost": 42.0}})
+    assert any(s.value == wording.PROPERTIES_SAVED for s in at.success), \
         [s.value for s in at.success]
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 42.0
 
 
 def test_the_caption_does_not_say_per_100_g_twice_over(burger):
     """Property names carry the basis as often as not, and a caption that
-    then added ", per 100 g" said it three times in one line."""
+    then added ", per 100 g" said it twice in one line."""
     burger.add_property("Fat per 100 g")
     burger.add_property("Sodium per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    next(b for b in at.button if b.key == "set_props").click()
-    at.run()
     assert not at.exception
-    assert any(c.value == ("Fat per 100 g and Sodium per 100 g in Pea "
-                           "protein. An empty box counts as 0 in any "
-                           "limit.")
+    assert any(c.value == ("Each ingredient's figure. An empty cell counts "
+                           "as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
-    # ...and a name that does NOT carry it still gets the basis.
+    # ...and one column whose name does NOT carry it puts the basis back.
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    next(b for b in at.button if b.key == "set_props").click()
-    at.run()
-    assert any(c.value.endswith("in Pea protein, per 100 g. An empty box "
-                                "counts as 0 in any limit.")
+    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
+                           "cell counts as 0 in any limit.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -7232,8 +8568,12 @@ def eight_ingredients(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("wide")
     opt.set_amount_unit("g")
+    # Four narrow rows and four wide ones: 400 g is a size these eight can
+    # add up to (448 g between them), and exactly four of them are past
+    # their own Highest at it.
     for i in range(8):
-        opt.add_ingredient(f"Ingredient {i + 1}", 0, 25, unit="g")
+        opt.add_ingredient(f"Ingredient {i + 1}", 0,
+                           12 if i < 4 else 100, unit="g")
     opt.add_objective("Firmness", 1.0, goal="target", target=6,
                       min_val=0, max_val=10, unit="N")
     opt.set_pending_batch([{f"Ingredient {i + 1}": 10.0 for i in range(8)}],
@@ -7250,8 +8590,8 @@ def test_the_scaled_caution_counts_instead_of_listing_eight_names(eight_ingredie
     assert not at.exception
     said = [c.value for c in at.caption
             if wording.AMOUNTS_YOU_ALLOWED in c.value]
-    assert said == ["At 400 g, 8 of 8 ingredients go past the amounts you "
-                    "allowed. Print at a smaller total, or widen them in "
+    assert said == ["At 400 g, 4 of 8 ingredients go past the amounts you "
+                    "allowed. Print at a smaller batch size, or widen them in "
                     "Set up."], said
 
 
@@ -7272,18 +8612,20 @@ def test_the_correction_form_says_it_once_above_the_boxes(scored):
     assert not any(n.help for n in boxes), [n.help for n in boxes]
 
 
-def test_the_goal_box_does_not_explain_its_own_three_options(burger):
-    """Higher is better, Lower is better, Hit a target — the tooltip said the
-    same three words the options say."""
+def test_the_goal_column_offers_its_three_options_and_no_more(burger):
+    """Higher is better, Lower is better, Hit a target — said once, as the
+    cell's own choices. The tooltip that used to repeat them is gone with
+    the box it hung on."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert not at.selectbox(key="meas_new_goal").help, \
-        at.selectbox(key="meas_new_goal").help
+    assert list(wording.GOAL_LABELS.values()) == [
+        "Higher is better", "Lower is better", "Hit a target"]
+    assert set(_grid_frame(at, 1)["Goal"]) <= set(wording.GOAL_LABELS.values())
 
 
 def test_all_formulations_shows_every_number_to_two_decimals(burger):
-    """A panel score typed as 5 read 5.000000 beside an amount written 11.88:
+    """A panel rating typed as 5 read 5.000000 beside an amount written 11.88:
     pandas' default for a column nobody formatted. Every number in the table
     reads to two decimals; a blank measurement stays blank."""
     burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0},
@@ -7316,7 +8658,7 @@ def test_all_formulations_shows_every_number_to_two_decimals(burger):
 
 
 # ------------------------------------------------------------------ #
-#  Total of each formulation (0.4.0 §C)
+#  Default batch size (0.4.0 §C)
 # ------------------------------------------------------------------ #
 
 def _total_box(at):
@@ -7331,9 +8673,9 @@ def test_the_total_box_sits_under_the_ingredients_and_says_what_it_does(burger):
     at.run()
     box = _total_box(at)
     assert box is not None
-    assert box.label == "Total of each formulation (g)"
-    assert box.help == ("Every suggested formulation adds up to this. Set it "
-                        "to what your mixer or your panel needs.")
+    assert box.label == "Default batch size (g)"
+    assert box.help == ("Every formulation adds up to this unless a round "
+                        "sets its own batch size.")
     assert box.placeholder == "e.g. 100"
     assert box.value is None
 
@@ -7361,26 +8703,26 @@ def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "A total of 90 g is not reachable: the allowed amounts add up to at "
-        "most 28 g."]
+        "A default batch size of 90 g is not reachable: the most these "
+        "ingredients can make is 28 g."]
     assert FoodOptimizer("burger").formulation_total is None
 
 
-def test_the_total_reads_once_in_the_limits_list_and_is_taken_off_above(burger):
-    """It is over every ingredient by definition, so it is named for the box
-    that wrote it rather than listed as a limit on a chosen few — and it is
-    a READING of that box, not a second control for the same rule."""
+def test_the_default_batch_size_is_not_in_the_limits_list_at_all(burger):
+    """Three places answered one question — the box, its help, and a
+    read-only row a screenful below with a caption telling the reader to go
+    back up and empty the box. The row is the one they could not act on
+    where it stood, so it is gone."""
     burger.set_formulation_total(20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     lines = [t.value for t in at.text]
-    assert "Total of each formulation · 20 g" in lines, lines
+    assert not any("Default batch size" in line for line in lines), lines
     assert not any(line.startswith("All ingredients") for line in lines), lines
     assert not any("Pea protein + Methylcellulose" in line for line in lines), \
         lines
     assert "Delete limit on the total of each formulation" not in _labels(at)
-    assert any(c.value == "Empty the Total of each formulation box to take "
-                          "it off." for c in at.tabs[0].caption), \
+    assert not any("take it off" in c.value for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
     # ... and emptying the box is what takes it off.
     _total_box(at).set_value(0.0)
@@ -7394,7 +8736,9 @@ def test_the_total_box_is_not_offered_while_the_units_differ(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _total_box(at) is None
-    assert wording.NEEDS_ONE_UNIT in _tab1_captions(at)
+    # The box lives in More settings now, and so does the line that stands
+    # in its place.
+    assert wording.NEEDS_ONE_UNIT in [c.value for c in _more_settings(at).caption]
 
 
 def test_a_project_that_weighs_nothing_out_is_offered_no_total(ferment):
@@ -7408,35 +8752,36 @@ def test_a_unit_change_that_splits_the_ingredients_says_the_total_went(burger):
     burger.set_formulation_total(20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.selectbox(key="var_pick").select("Methylcellulose")
-    at.run()
-    at.text_input(key="unit_value").set_value("ml")
-    at.run()
-    _submit_button(at, wording.SET_UNIT_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: "ml"}})
     assert not at.exception
-    assert any(w.value == ("The total of 20 g is gone: your ingredients no "
+    assert any(w.value == ("The default batch size of 20 g is gone: your ingredients no "
                            "longer share one unit.")
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").formulation_total is None
     assert _total_box(at) is None
 
 
-def test_the_batch_tab_hides_its_own_total_box_while_the_project_has_one(
+def test_the_round_tab_opens_its_batch_size_box_at_the_projects_default(
         open_batch):
-    """Two boxes for one number would let the bench answer the question
-    twice, differently. The sheets are written for the project's total."""
+    """0.5.0: the round screen always asks the size, and a project with a
+    default opens the box AT that default rather than showing nothing.
+
+    Until 0.5.0 the box was hidden whenever Set up carried a total, so the
+    size of what the bench was about to weigh out was two tabs away and
+    making one round bigger meant editing the project."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(n.key == "scale_total" for n in at.number_input)
-    # Setting the total discards the open batch — its rows were built to the
-    # old answer — so a new one is opened under the total.
+    # Setting the default discards the open round — its rows were built to
+    # the old answer — so a new one is opened under it.
     open_batch.set_formulation_total(20)
     open_batch.set_pending_batch([{"Pea protein": 17.0,
                                    "Methylcellulose": 3.0}])
     again = AppTest.from_file(APP_PATH, default_timeout=180)
     again.run()
-    assert not any(n.key == "scale_total" for n in again.number_input)
+    box = next(n for n in again.number_input if n.key == "scale_total")
+    assert box.label == "Batch size (g)"
+    assert box.value == 20.0
     assert not any(c.value == wording.NEEDS_ONE_UNIT
                    for c in again.tabs[1].caption)
     assert any("20 g" in c.value for c in again.tabs[1].caption), \
@@ -7474,7 +8819,29 @@ def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
     assert not at.exception
     assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
     assert _total_box(at).value == 100.0
-    assert "Total of each formulation · 100 g" in [t.value for t in at.text]
+    assert not any("Default batch size ·" in t.value for t in at.text), \
+        [t.value for t in at.text]
+
+
+def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
+        tmp_path, monkeypatch):
+    """Every setter saves, and add_objective deliberately does not
+    normalise, so the sample landed on disk holding weights of 1.0 and 1.5
+    under CLASS_VERSION 11 — a 0.5.0 file that read as a 0.4.x one, and a
+    saved copy of it downloaded that way."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, "Try the sample project").click()
+    at.run()
+    assert not at.exception
+    # Read the FILE, not the loaded object: import_json normalises on the
+    # way in, so the loaded project has always looked right.
+    written = json.loads(
+        (tmp_path / f"{wording.SAMPLE_PROJECT_NAME}.pkl").read_text())
+    weights = {o['name']: o['weight'] for o in written['objectives']}
+    assert weights == {"Juiciness": 40.0, "Firmness": 60.0}, weights
+    assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
 
 
 def _warm_burger(opt):
@@ -7507,7 +8874,7 @@ def test_each_formulation_says_what_it_is_trying(burger):
     # line carries it.
     sheet = _formulation_sheets(at)[0]
     assert sheet.cell(row=1, column=1).value == \
-        "Formulation 6 · Batch 2 · burger", sheet.cell(row=1, column=1).value
+        "Formulation 6 · Round 2 · burger", sheet.cell(row=1, column=1).value
     assert sheet.cell(row=2, column=1).value == \
         f"Compared with Formulation 1: {line}", sheet.cell(row=2, column=1).value
 
@@ -7540,7 +8907,7 @@ def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
 
 
 # ------------------------------------------------------------------ #
-#  Total of each formulation: fix round 1
+#  Default batch size: fix round 1
 # ------------------------------------------------------------------ #
 
 def test_deleting_an_ingredient_says_what_happened_to_the_total(burger):
@@ -7552,14 +8919,9 @@ def test_deleting_an_ingredient_says_what_happened_to_the_total(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _total_box(at).value == 80.0
-    at.selectbox(key="var_pick").select("Water")
-    at.run()
-    _submit_button(at, "Delete Water").click()
-    at.run()
-    _submit_button(at, wording.YES_DELETE).click()
-    at.run()
+    _save_grid(at, ING_GRID, confirm=True, deleted=[2])
     assert not at.exception
-    assert any(w.value == ("The total of 80 g is gone: the allowed amounts "
+    assert any(w.value == ("The default batch size of 80 g is gone: the allowed amounts "
                            "no longer add up to it.")
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").formulation_total is None
@@ -7632,8 +8994,8 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     sheet = book[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    firm = labels.index("Firmness · target 6 N") + 1
-    juice = labels.index("Juiciness (/10) · target 7") + 1
+    firm = labels.index("Firmness · Target 6 N") + 1
+    juice = labels.index("Juiciness (/10) · Target 7") + 1
     sheet.cell(row=firm, column=2, value=6.0)
     sheet.cell(row=juice, column=2, value=7.0)
     sheet.cell(row=firm, column=4, value=5.0)
@@ -7644,7 +9006,7 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     filled = io.BytesIO()
     book.save(filled)
     filled.seek(0)
-    filled.name = "burger · Batch 1.xlsx"
+    filled.name = "burger · Round 1.xlsx"
 
     import ui_batch
     at.session_state["_results_upload"] = ui_batch._read_results_file(opt,
@@ -7676,26 +9038,30 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     import ui_batch
     opt = open_batch
     book = io.BytesIO(opt.workbook_bytes(opt.pending_batch, None))
-    book.name = "burger · Batch 1.xlsx"
+    book.name = "burger · Round 1.xlsx"
     filled = openpyxl.load_workbook(book)
     sheet = filled[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    sheet.cell(row=labels.index("Firmness · target 6 N") + 1, column=2,
+    sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
                value=6.0)
     out = io.BytesIO()
     filled.save(out)
     out.seek(0)
-    out.name = "burger · Batch 1.xlsx"
+    out.name = "burger · Round 1.xlsx"
+    # Both shapes come back as one record: the rows, and beside them what
+    # the file said about lots and about what was weighed — nothing, in a
+    # file of columns.
     from_workbook = ui_batch._read_results_file(opt, out)
-    assert list(from_workbook["Formulation"]) == [1]
-    assert from_workbook["Firmness"].iloc[0] == 6.0
+    assert list(from_workbook.frame["Formulation"]) == [1]
+    assert from_workbook.frame["Firmness"].iloc[0] == 6.0
 
     plain = io.BytesIO(b"Formulation,Firmness,Juiciness\n1,6.0,7.0\n")
     plain.name = "results.csv"
     from_csv = ui_batch._read_results_file(opt, plain)
-    assert list(from_csv["Formulation"]) == [1]
-    assert opt.parse_batch_results(from_csv, opt.pending_batch) == \
+    assert list(from_csv.frame["Formulation"]) == [1]
+    assert from_csv.actual == {} and from_csv.lots == {}
+    assert opt.parse_batch_results(from_csv.frame, opt.pending_batch) == \
         [(1, {"Firmness": 6.0, "Juiciness": 7.0}, "")]
 
 
@@ -7751,11 +9117,7 @@ def test_adding_an_ingredient_keeps_the_total_and_says_so(burger):
     burger.set_formulation_total(20.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Onion powder")
-    at.number_input(key="var_high").set_value(2.0)
-    at.run()
-    _submit_button(at, "Add ingredient or setting").click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[_ingredient_row("Onion powder", high=2.0)])
     assert not at.exception
     saved = FoodOptimizer("burger")
     assert saved.formulation_total == 20.0
@@ -7763,15 +9125,16 @@ def test_adding_an_ingredient_keeps_the_total_and_says_so(burger):
     # The limit is over every ingredient, so the new one is in it.
     assert "Onion powder" in saved.quantity_constraints[0]['ingredients']
     assert any(s.value == "Onion powder added. Each formulation still "
-                          "totals 20 g." for s in at.success), \
+                          "adds up to 20 g." for s in at.success), \
         [s.value for s in at.success]
 
 
-def test_a_batch_held_to_no_total_says_so_under_the_table(open_batch):
+def test_a_round_with_no_batch_size_of_its_own_says_so_under_the_table(
+        open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This batch is not held to a total."
+    assert any(c.value == "This round has no batch size of its own."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 
@@ -7787,7 +9150,7 @@ def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[1].caption]
-    assert ("Formulation 2 adds up to 13.00 g, not the 20 g total."
+    assert ("Formulation 2 adds up to 13.00 g, not the 20 g batch size."
             in captions), captions
     # ... and the row is shown at what it really adds up to.
     frame = next(d.value for d in at.dataframe
@@ -7801,9 +9164,64 @@ def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
 
 def test_the_copy_sentence_points_somewhere_the_reader_can_reach(scored):
     """"Open a saved copy can bring it back" was ungrammatical and named no
-    control the reader could find."""
+    control the reader could find. It now names the heading the app's own
+    copies are listed under, which is where one is opened from."""
     assert wording.COPY_KEPT == ("A copy is saved first. To bring it back, "
-                                 "use Open a saved copy in the sidebar.")
+                                 "use Saved copies in the sidebar.")
+
+
+def test_saving_a_copy_says_where_it_went(burger):
+    """A download is the one action in the app that leaves no mark: the
+    reader clicked and nothing moved, under a heading promising a list."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY)
+    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    # AppTest cannot click a download button — it arrives as an
+    # UnknownElement — so what its on_click leaves behind is set here, and
+    # the line it is read for is what this pins.
+    name = f"burger copy {_dt.datetime.now():%Y-%m-%d}.json"
+    at.session_state["_copy_downloaded"] = name
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.sidebar.caption
+            if "Downloads folder" in c.value]
+    assert said == [f"Saved as '{name}' in your Downloads folder."], said
+    # Said once: the next run has nothing to report.
+    at.run()
+    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+
+
+def test_the_apps_own_copies_are_listed_and_open_from_the_sidebar(burger,
+                                                                  tmp_path):
+    """Every destructive confirmation promises a copy. Those copies were
+    files in the project folder that nothing on screen ever named, under a
+    heading that promises a list."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
+    storage_backend.LocalStorage().archive("burger", "pre_delete", copy=True)
+    burger.delete_formulation(1)
+    assert FoodOptimizer("burger").formulation_ids == []
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert not at.exception
+    listed = [c.value for c in at.sidebar.caption
+              if c.value.startswith("Before a deletion · ")]
+    assert len(listed) == 1, [c.value for c in at.sidebar.caption]
+    assert " · today " in listed[0], listed[0]
+    # Open sends it through the same preview and Yes, replace a copy of the
+    # reader's own goes through.
+    next(b for b in at.sidebar.button
+         if b.key == "open_copy_burger_pre_delete").click()
+    at.run()
+    assert any("1 formulation" in w.value for w in at.warning), \
+        [w.value for w in at.warning]
+    _submit_button(at.sidebar, wording.YES_REPLACE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").formulation_ids == [1]
 
 
 def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
@@ -7832,7 +9250,7 @@ def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
 def test_the_batch_line_says_to_record_on_every_tab(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == "Batch 1 · 2 to record"
+    assert any(c.value == "Round 1 · 2 to record"
                for c in at.tabs[0].caption), [c.value for c in at.tabs[0].caption]
 
 
@@ -7919,25 +9337,25 @@ def test_the_check_step_shows_the_numbers_it_read(open_batch):
     assert any(c.value == wording.UPLOAD_PREVIEW_CAPTION for c in at.caption)
 
 
-def test_a_unit_typed_on_the_add_form_survives_a_type_switch(scored):
-    """The refusal named a field that was not on the form when it was filled
-    in, and what had been typed was gone by the time it arrived."""
+def test_a_refused_row_keeps_what_was_typed_into_it(scored):
+    """The refusal used to name a field that was not on the form when it was
+    filled in, and what had been typed was gone by the time it arrived. The
+    grid answers under the row, and the row itself is untouched: nothing is
+    written while there is an error."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Cook time")
-    at.text_input(key="var_unit").set_value("min")
+    typed = _ingredient_row("Cook time", kind=wording.KIND_SETTING,
+                            low=0.0, high=30.0, unit="min")
+    _save_grid(at, ING_GRID, added=[typed])
+    # Refused for the missing baseline, by row...
+    assert [e.value for e in at.error] == [
+        wording.row_error(3, wording.ADD_BASELINE_ERROR)]
+    # ...and the row is still on the grid, still holding what was typed.
+    _grid_edits(at, ING_GRID, added=[typed])
     at.run()
-    at.radio(key="var_kind").set_value(wording.KIND_SETTING)
-    at.run()
-    assert at.text_input(key="var_unit").value == "min"
-    assert at.text_input(key="var_name").value == "Cook time"
-    _submit_button(at, wording.ADD_VARIABLE_BUTTON).click()
-    at.run()
-    # Refused for the missing baseline — and everything typed is still there.
-    assert [e.value for e in at.error] == [wording.ADD_BASELINE_ERROR]
-    assert at.text_input(key="var_unit").value == "min"
-    assert at.text_input(key="var_name").value == "Cook time"
-    assert at.number_input(key="var_base") is not None
+    assert wording.SAVE_CHANGES_BUTTON in _labels(at), _labels(at)
+    assert not any(v["name"] == "Cook time"
+                   for v in FoodOptimizer("scored").variables)
 
 
 def test_the_template_is_headers_and_one_example_row(burger):
@@ -7964,21 +9382,16 @@ def test_only_an_ingredient_add_says_the_total_still_holds(burger):
     burger.set_formulation_total(20.0)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.text_input(key="var_name").set_value("Cook temperature")
-    at.radio(key="var_kind").set_value(wording.KIND_SETTING)
-    at.run()
-    at.text_input(key="var_unit").set_value("°C")
-    at.number_input(key="var_high").set_value(220.0)
-    at.run()
-    _submit_button(at, wording.ADD_VARIABLE_BUTTON).click()
-    at.run()
+    _save_grid(at, ING_GRID, added=[
+        _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                        low=0.0, high=220.0, unit="°C")])
     assert not at.exception
     assert [s.value for s in at.success] == ["Cook temperature added."]
     assert FoodOptimizer("burger").formulation_total == 20.0
 
 
 def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
-    """'Your set-up changed' is true of the ingredient list, a pause and the
+    """'Your set-up changed' is true of the ingredient list, a hold and the
     allowed amounts. When it was the total, the notice names the total."""
     burger.set_formulation_total(20.0)
     burger.set_pending_batch([{"Pea protein": 17.0, "Methylcellulose": 3.0}])
@@ -7987,8 +9400,8 @@ def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
     _total_box(at).set_value(25.0)
     at.run()
     assert not at.exception
-    assert any(i.value == ("Batch 1 was discarded: the total of each "
-                           "formulation changed after it was made. Generate "
+    assert any(i.value == ("Round 1 was discarded: the default batch size "
+                           "changed after it was made. Generate "
                            "a new one.") for i in at.info), \
         [i.value for i in at.info]
     assert FoodOptimizer("burger").pending_batch is None
@@ -8206,3 +9619,199 @@ def test_a_sample_whose_batch_was_made_and_deleted_is_left_alone(
     assert not at.exception
     assert [v["name"] for v in FoodOptimizer(
         wording.SAMPLE_PROJECT_NAME).variables] == ["Oat flour"]
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · three tiers on every tab (spec 1.5)
+#
+#  The order each tab reads in, walked off the element tree rather than
+#  taken from a list of labels that happen to be on screen somewhere, and
+#  the one lit button in every state the tabs can be in at once.
+# ------------------------------------------------------------------ #
+
+def test_the_round_tab_reads_in_one_order(open_batch):
+    """Title, Batch size, the round table, the download, Record the results
+    — then the optional doors, folded, and the button that throws the round
+    away last of all."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_outline(at, 1) == [
+        wording.make_these(1, 2),
+        wording.STEP_MAKE_HEADING,
+        wording.STEP_PRINT_HEADING,
+        wording.STEP_RECORD_HEADING,
+        # One heading per row of the round, inside step 3.
+        wording.formulation_heading(1),
+        wording.formulation_heading(2),
+        wording.ADD_OWN_EXPANDER,
+        wording.UPLOAD_EXPANDER,
+    ], _tab_outline(at, 1)
+    # The Batch size box sits between the first step heading and the table
+    # it is the size of, and the download under the second.
+    tab = at.tabs[1]
+    assert tab.number_input[0].label == "Batch size (g)"
+    assert [d.label for d in _unknowns(tab, "download_button")] == [
+        wording.DOWNLOAD_BATCH_SHEETS]
+    # ...and `Generate a different round` is the last thing drawn.
+    assert [b.label for b in tab.button][-1] == wording.GENERATE_DIFFERENT_BATCH
+
+
+def test_the_round_tab_records_then_offers_the_two_folded_doors(open_batch):
+    """`Add a formulation of your own` and the results upload are optional
+    and collapsed, and both sit below Save results rather than between the
+    grid and the button that writes it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    tab = at.tabs[1]
+    folds = [e for e in tab.expander]
+    assert [e.label for e in folds] == [wording.ADD_OWN_EXPANDER,
+                                        wording.UPLOAD_EXPANDER]
+    assert not any(e.proto.expanded for e in folds)
+    labels = [b.label for b in tab.button]
+    assert labels.index(wording.SAVE_RESULTS) < labels.index(
+        wording.ADD_TO_THIS_BATCH), labels
+
+
+def test_the_advanced_fold_holds_the_model_settings_and_nothing_folded(
+        burger):
+    """One small fold at the very bottom: the model settings and the two
+    explanations, as plain markdown. Nothing inside it is a fold of its own
+    — Streamlit cannot nest one expander in another — and nothing inside it
+    is coloured."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = _advanced(at)
+    assert not fold.proto.expanded
+    # Its own label and no other: nothing inside it is a fold.
+    assert [e.label for e in fold.expander] == [wording.ADVANCED_EXPANDER]
+    assert fold.radio[0].key == "bo_cfg_mode"
+    assert not [b.label for b in fold.button if b.proto.type == "primary"]
+    # It is the last thing on the tab.
+    assert _tab_outline(at, 0)[-1] == wording.ADVANCED_EXPANDER
+
+
+def test_one_lit_button_per_tab_with_both_grids_mid_edit(burger):
+    """Both grids can be mid-edit at once, on a tab whose foot is ready to
+    move on. The topmost lit Save wins; the other pair and the foot go
+    grey, and the two tabs below keep their own single button."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    _grid_edits(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 55.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+    assert len(_tab_primaries(at, 1)) <= 1, _tab_primaries(at, 1)
+    assert len(_tab_primaries(at, 2)) <= 1, _tab_primaries(at, 2)
+
+
+def test_one_lit_button_per_tab_while_a_property_is_being_deleted(burger):
+    """A confirmation armed inside More settings, with an edit standing in
+    a grid above it: the Yes is the one coloured button, and the grid's Save
+    steps aside for it."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    _submit_button(at, wording.delete_button("Cost")).click()
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+
+
+def test_one_lit_button_per_tab_while_the_targets_note_is_open(burger):
+    """The note's own Save is always grey: opening a one-line box does not
+    take the tab's coloured button away from the foot."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.ADD_TARGETS_SOURCE_BUTTON).click()
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    # ...and with a grid mid-edit under it, the Save above wins and the
+    # note's Save is still grey.
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: 30.0}})
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+
+
+def test_the_tab_says_nothing_twice_with_every_tier_open(burger):
+    """Sparse: one line each, folds included. The two tiers hold most of
+    tab 1's captions now, so the check that nothing is said twice has to
+    reach inside them."""
+    burger.add_property("Cost")
+    burger.add_constraint("Cost", max_val=2.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in _tab1(at).caption
+                if not c.value.startswith("Overall score = ")]
+    assert len(captions) == len(set(captions)), \
+        [c for c in captions if captions.count(c) > 1]
+
+
+def test_moving_the_property_picker_takes_the_question_down(burger):
+    """The question belongs to the property it was armed over. Pick another
+    and it is taken down rather than left arming every coloured button away
+    behind a Yes the reader cannot reach."""
+    burger.add_property("Cost")
+    burger.add_property("Fat per 100 g")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at, wording.delete_button("Cost")).click()
+    at.run()
+    assert any("Delete Cost?" in w.value for w in at.warning)
+    at.selectbox(key="prop_delete").select("Fat per 100 g")
+    at.run()
+    assert not at.warning, [w.value for w in at.warning]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+        _tab_primaries(at, 0)
+    assert FoodOptimizer("burger").properties() == ["Cost", "Fat per 100 g"]
+
+
+def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
+        open_batch):
+    """0.5.0 §1.6, end to end: the file the bench hands back carries an
+    Actual weight and a lot number, and pressing Save records the amounts
+    that were made — not the ones that were printed — with the lot kept
+    against the round."""
+    import ui_batch
+    opt = open_batch
+    book = openpyxl.load_workbook(
+        io.BytesIO(opt.workbook_bytes(opt.pending_batch, None)))
+    summary = book[wording.batch_sheet_name(1)]
+    at_row = {summary.cell(row=r, column=1).value: r
+              for r in range(1, summary.max_row + 1)}
+    summary.cell(row=at_row["Firmness · Target 6 N"], column=2, value=6.0)
+    summary.cell(row=at_row["Juiciness (/10) · Target 7"], column=2, value=7.0)
+    # The Lot column sits after the two formulations and their shares.
+    lot_column = 2 + 2 * len(opt.pending_batch)
+    summary.cell(row=at_row["Pea protein (g)"], column=lot_column,
+                 value="PP-42")
+    page = book["Formulation 1"]
+    rows = {page.cell(row=r, column=2).value: r
+            for r in range(1, page.max_row + 1)}
+    page.cell(row=rows["Pea protein"], column=4, value=10.4)
+    filled = io.BytesIO()
+    book.save(filled)
+    filled.seek(0)
+    filled.name = "burger · Round 1.xlsx"
+
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    at.session_state["_results_upload"] = ui_batch._read_results_file(
+        at.session_state["optimizer"], filled)
+    at.run()
+    assert not at.exception
+    _submit_button(at, wording.SAVE_UPLOADED_RESULTS).click()
+    at.run()
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.recipe_history[0] == {"Pea protein": 10.4,
+                                          "Methylcellulose": 1.0}
+    assert reloaded.notes_history[0] == wording.AMOUNTS_AS_WEIGHED
+    assert reloaded.lots == {1: {"Pea protein": "PP-42"}}

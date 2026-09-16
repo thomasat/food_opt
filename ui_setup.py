@@ -1,9 +1,21 @@
 """Tab 1 · Set up: what the project can vary and what will be measured.
 
-One column, in the order a formulator fills it in: the ingredients and the
-process settings together, then the measurements, then the optional
-sections. Exactly one coloured button lives here — `Next: make a batch` at
-the foot.
+Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
+
+  1. the ingredients grid, with its Save/Discard while there is an edit in
+     hand, its per-row errors and its collapsed `Or upload an ingredients
+     file` alternative;
+  2. the measurements grid, the same way;
+  3. one collapsed `More settings` — Default batch size, where the targets
+     came from, Limits, and the properties those limits read — and one
+     collapsed `Advanced` at the very foot, holding the model settings and
+     the two explanations.
+
+Neither tier nests an expander inside itself: Streamlit forbids it, and a
+tab that folded the optional half away twice made the reader open two
+things to reach one. Exactly one coloured button lives here — `Next: make a
+round` at the foot, or a grid's `Save changes`, or the `Yes` of a question
+that is up.
 """
 import json
 import os
@@ -14,17 +26,20 @@ import streamlit as st
 import storage as storage_backend
 import wording
 from food_bo import (
-    WORKBOOK_MIME, goal_text, ingredients_template_workbook,
-    measurement_range_text,
+    GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
 )
 from ui_helpers import (
-    COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
-    best_move_sentence, clear_formulation_total_box, clear_scale_total,
-    confirm_action, confirmation_open,
+    COPY_KEPT, GRID_KEYS, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
+    ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
+    PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
+    armed_confirmation, armed_deletions_key, best_formulation_no,
+    best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,
+    clear_scale_total, confirm_action, confirmation_open,
     disarm, flash,
-    fmt_amount, fmt_setting, go_to_tab, join_unit, label_with_unit,
-    number_list, other_confirmation, park_clear, plural, preserve_tab_forms,
-    readiness, saved_ok, table_height,
+    go_to_tab, number_list, other_confirmation, park_clear, park_grid,
+    parked_grid, plural,
+    parked_grid_key, preserve_tab_forms, readiness, rekey_grid, reset_grids,
+    saved_ok, table_height, typed_batch_size, unpark_grid,
 )
 
 _SAMPLE_CSV = os.path.join(
@@ -46,41 +61,70 @@ def _unit_suffix(unit):
     return f" ({unit})" if unit else ""
 
 
+# Where the notice about a round this tab has just retired waits. A toast
+# fades, and the round it was about does not come back: the same sentence
+# stays under the grid that took it away until a new round is made.
+_ROUND_DISCARDED = "_round_discarded_line"
+# Set alongside it on the save, cleared by the one run that renders the
+# flash. The sentence is queued for the top of the NEXT run and the standing
+# line is drawn later in that same run, so without this the app said the
+# same thing twice on the run the reader is reading.
+_ROUND_DISCARDED_FLASHED = "_round_discarded_flashed"
+
+
 def _note_discarded_batch(opt, batch_no_before,
                           reason=wording.SETUP_CHANGED_REASON):
-    """Flash the notice when the write just now retired the open batch. The
-    batch is named: the notice lands above the tabs, away from the table it
-    is about.
+    """Say, once above the tabs and then for as long as it is true, that the
+    write just now retired the open batch. The batch is named: the flash
+    lands above the tabs, away from the table it is about, and the standing
+    line is under the grid that did it.
 
     `reason` is what discarded it. The tab as a whole is the honest answer
-    for the ingredient list, a pause and the allowed amounts — three ways to
+    for the ingredient list and the allowed amounts — two ways to
     one place — but the total is one control the reader has just touched,
     and blaming "your set-up" sent them looking for what else they had
     done."""
-    if batch_no_before is not None and opt.pending_batch_no is None:
-        flash("info", wording.batch_discarded_notice(batch_no_before, reason))
+    if _remember_discarded_round(opt, batch_no_before, reason):
+        flash("info", st.session_state[_ROUND_DISCARDED])
 
 
-def _goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better'. It lives in
-    food_bo, because the workbook's Set-up sheet says it too."""
-    return goal_text(obj)
+def _remember_discarded_round(opt, batch_no_before,
+                              reason=wording.SETUP_CHANGED_REASON):
+    """Keep the notice for the line that stands under the grid, and say
+    whether there was one.
+
+    The grid's own save gets the flash from the model — it is the model that
+    knows the round went — so this is the half the screen owes either way.
+    Either way a flash IS queued for the next run, and the standing line
+    stands down for exactly that run: one sentence, said once, on every run
+    it is true.
+    """
+    if batch_no_before is None or opt.pending_batch_no is not None:
+        return False
+    st.session_state[_ROUND_DISCARDED] = wording.batch_discarded_notice(
+        batch_no_before, reason)
+    st.session_state[_ROUND_DISCARDED_FLASHED] = True
+    return True
 
 
-def _range_text(obj):
-    return measurement_range_text(obj)
+def _discarded_round_line(opt):
+    """The standing notice under the grid, while it is still true. It goes
+    the moment there is a round again: nothing was lost that the reader
+    cannot now see.
 
-
-def _mkey(editing, field):
-    """Widget keys are per measurement, so opening Edit shows that
-    measurement's values rather than whatever was last typed elsewhere."""
-    who = "new" if editing is None else editing['name']
-    return f"meas_{who}_{field}"
-
-
-def _clear_measurement_keys(editing):
-    for field in ("name", "unit", "goal", "target", "min", "max", "importance"):
-        st.session_state.pop(_mkey(editing, field), None)
+    Not on the run the flash is rendered on. The save queues the sentence
+    for the top of the next run and this draws it under the grid on every
+    run after, so on that one run the page carried it twice."""
+    if opt.pending_batch_no is not None:
+        st.session_state.pop(_ROUND_DISCARDED, None)
+        st.session_state.pop(_ROUND_DISCARDED_FLASHED, None)
+        return
+    line = st.session_state.get(_ROUND_DISCARDED)
+    if not line:
+        return
+    if st.session_state.pop(_ROUND_DISCARDED_FLASHED, False):
+        return              # the flash above the tabs is saying it already
+    st.info(line)
 
 
 def _nothing_made_fits(opt):
@@ -107,29 +151,22 @@ KIND_INGREDIENT = wording.KIND_INGREDIENT
 KIND_SETTING = wording.KIND_SETTING
 
 
-def _scaled_now(opt):
-    """The total the open batch is scaled to, or None. Only a real scaling
-    counts: the box is not even offered while the ingredients differ in unit."""
-    if opt.one_amount_unit() is None:
-        return None
-    value = st.session_state.get("scale_total")
-    if value is None or float(value) <= 0:
-        return None
-    return float(value)
+def _unscaled_tail(opt, before):
+    """The sentence a unit change owes the open round when it has just split
+    the ingredients across units: a batch size needs one unit, so there is no
+    longer a box to change it in. Nothing is undone — since 0.5.0 the size
+    moves the amounts themselves — so the sentence says the round keeps what
+    it has. Empties the box too: a number left in it would go on quietly
+    meaning nothing.
 
-
-def _unscaled_tail(opt, before, before_unit):
-    """The sentence a unit change owes the open batch when it has just split
-    the ingredients across units: scaling needs one unit, so the batch is back
-    to as-generated. Empties the box too — a number left in it would go on
-    quietly meaning nothing."""
+    `before` is only asked whether there was a size at all; the number itself
+    is not named, because it is not one anything can be typed back to."""
     if before is None or opt.one_amount_unit() is not None:
         return ""
     clear_scale_total()
     if opt.pending_batch_no is None:
         return ""
-    total_text = join_unit(f"{before:g}", before_unit)
-    return wording.unscaled_tail(opt.pending_batch_no, total_text)
+    return wording.unscaled_tail(opt.pending_batch_no)
 
 
 # The (project, stored total) tab 1's total box has already been opened for.
@@ -257,473 +294,412 @@ def _formulation_total(opt):
         st.rerun()
 
 
-def _variables(opt, storage):
-    """Ingredients and process settings, in one open section. The form first, then one table of everything, then one row
-    of controls, with the file upload folded away beneath.
+# ------------------------------------------------------------------ #
+#  The two editable grids
+#
+#  Nothing is written while the reader types. A grid that differs from the
+#  saved project lights its own `Save changes`, with `Discard changes`
+#  beside it, and the foot's Continue steps aside — the same rule the
+#  per-row editors used to follow, now for the tab as a whole.
+#
+#  The work of turning an edited frame into writes is in food_bo
+#  (apply_ingredient_grid / apply_measurement_grid): it is arithmetic over
+#  the model's own objects, and AppTest cannot click a cell, so that is the
+#  layer it can be tested at. What is here is the drawing, the one lit
+#  button, the confirmation a deleted row owes, and the per-row errors.
+# ------------------------------------------------------------------ #
 
-    They were four places — an Ingredients subheader with its own uploader, a
-    Change the ingredient list expander, a Process settings expander and an
-    Ingredients fold — which asked the same question ('what changes between
-    formulations?') in four different shapes."""
+# The grid keys, the key each grid's Save/Discard pair — and its deletion
+# question — is drawn under, and where a Save that refused leaves its
+# per-row errors for the slot under the grid to show on this same run: all
+# named once, in ui_helpers, beside the reset_grids() that has to reach
+# every one of them. Re-exported here because this module is where they are
+# read.
+# The picker the Delete beside the properties grid is armed from.
+_PROP_DELETE = "prop_delete"
+_ING_ERRORS = ING_ERRORS_KEY
+_MEAS_ERRORS = MEAS_ERRORS_KEY
+_PROP_ERRORS = PROP_ERRORS_KEY
+
+
+def _number_column(label, help=None):
+    """Every number on these grids is an amount, and an amount is written to
+    two decimal places everywhere else in the app."""
+    return st.column_config.NumberColumn(label, format="%.2f", help=help)
+
+
+def _ingredient_columns(opt, frame):
+    """The typed columns. Every label is read off wording — a bare string
+    here would be a screen label the vocabulary guard never sees."""
+    columns = {
+        GRID_ID: None,                    # the hidden row identity
+        wording.NAME_LABEL: st.column_config.TextColumn(
+            wording.NAME_LABEL, required=True),
+        wording.TYPE_LABEL: st.column_config.SelectboxColumn(
+            wording.TYPE_LABEL, options=[KIND_INGREDIENT, KIND_SETTING],
+            default=KIND_INGREDIENT, required=True,
+            help=wording.VARIABLE_TYPE_HELP),
+        wording.LOWEST_LABEL: _number_column(wording.LOWEST_LABEL),
+        wording.HIGHEST_LABEL: _number_column(wording.HIGHEST_LABEL),
+        wording.UNIT_LABEL: st.column_config.TextColumn(
+            wording.UNIT_LABEL, default=opt.amount_unit or "g"),
+        wording.VENDOR_LABEL: st.column_config.TextColumn(
+            wording.VENDOR_LABEL, help=wording.VENDOR_HELP),
+        wording.SKU_LABEL: st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP),
+    }
+    if wording.BASELINE_LABEL in frame.columns:
+        columns[wording.BASELINE_LABEL] = _number_column(
+            wording.BASELINE_LABEL, help=wording.BASELINE_HELP)
+    return columns
+
+
+def _measurement_columns():
+    return {
+        GRID_ID: None,
+        wording.MEASUREMENT_COLUMN: st.column_config.TextColumn(
+            wording.MEASUREMENT_COLUMN, required=True),
+        wording.GOAL_LABEL: st.column_config.SelectboxColumn(
+            wording.GOAL_LABEL, options=list(wording.GOAL_LABELS.values()),
+            default=wording.GOAL_LABELS['max'], required=True),
+        wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL),
+        wording.LOWEST_MEASURABLE_LABEL: _number_column(
+            wording.LOWEST_MEASURABLE_LABEL),
+        wording.HIGHEST_MEASURABLE_LABEL: _number_column(
+            wording.HIGHEST_MEASURABLE_LABEL),
+        wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL),
+        wording.SHARE_COLUMN: st.column_config.NumberColumn(
+            wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
+            format="%.2f", help=wording.SHARE_HELP),
+    }
+
+
+def _pending(saved, edited):
+    """True while the grid differs from the project it was opened from.
+
+    Read off the two frames rather than off the editor's own record of what
+    was typed: a cell typed back to what it already held is not a change,
+    and a grid that lit Save over one would ask the reader to save nothing.
+    """
+    return grid_signature(saved) != grid_signature(edited)
+
+
+def _opening_frame(grid, saved):
+    """(what one grid opens holding, whether that came from the park).
+
+    The project, or the edit it was still holding when a rerun went past it
+    without drawing it. Streamlit throws away the session-state entry of
+    every widget a run did not create, so the Save on the grid ABOVE took
+    this one's edit with it — the banner came down, the Save went, and the
+    values on screen were the project's again while the reader believed
+    they had been saved."""
+    parked = parked_grid(grid, saved)
+    return (saved, False) if parked is None else (parked, True)
+
+
+def _grid_is_pending(grid):
+    """True while `grid` has an edit parked — which is what a pending grid
+    keeps on every run it is drawn."""
+    return parked_grid_key(grid) in st.session_state
+
+
+def _keep_pending(grid, pending, edited, from_park):
+    """Park what this grid is holding, or forget it once there is nothing to
+    hold. Called on every run: the run that loses the grid is the run that
+    never reaches it."""
+    if pending:
+        park_grid(grid, edited, keep_mark=from_park)
+    else:
+        unpark_grid(grid)
+
+
+def _grid_errors(slot, key):
+    """The refusals a Save left behind, one line per row, under the grid
+    they belong to. The row number is the one the grid shows down its left
+    edge; a refusal about the grid as a whole has no number and says its
+    sentence plainly."""
+    errors = st.session_state.pop(key, None)
+    if not errors:
+        return
+    with slot.container():
+        for row, message in errors:
+            st.error(message if row is None else wording.row_error(row, message))
+
+
+def _save_and_discard(key, grid, lit):
+    """`Save changes` and `Discard changes`, side by side. Save is the tab's
+    one coloured button while it is the topmost grid with something to save;
+    a second grid further down keeps its own pair, grey, so that the tab
+    never shows two coloured buttons at once. Both grey while a confirmation
+    is on screen: answering that is the one thing to do.
+
+    `key` names the pair of buttons; `grid` is the editor they belong to,
+    which is what Discard turns over. They are two different keys, and
+    turning over the button's own would have left the edits standing under a
+    Discard that appeared to do nothing.
+    """
+    b1, b2 = st.columns(2)
+    with b1:
+        save = st.button(wording.SAVE_CHANGES_BUTTON, key=f"{key}__save",
+                         type="primary" if lit else "secondary",
+                         disabled=confirmation_open(),
+                         use_container_width=True)
+    with b2:
+        if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard",
+                     use_container_width=True):
+            _discard_grid(grid)
+    return save
+
+
+def _discard_grid(grid):
+    """Throw one grid's edit away and rerun. The OTHER grid keeps its own:
+    its key turns over so that the frame it parked is what it opens at,
+    because this rerun may never reach it to read its record."""
+    clear_grid(grid)
+    for other in GRID_KEYS:
+        if other != grid:
+            rekey_grid(other)
+    st.rerun()
+
+
+def _variables(opt, storage):
+    """Ingredients and process settings, in one editable grid.
+
+    It replaces an add form, a table, a row of five controls and a per-row
+    editor — six places asking about one list. A row is typed where it is
+    read; a new one goes on the empty line at the bottom; a row taken out is
+    a deletion, asked about by name before Save applies it.
+
+    Returns True while there is an edit in hand: `Save changes` is then the
+    tab's one lit action and the foot steps aside, exactly as the per-row
+    editors used to make it.
+    """
     st.subheader(wording.VARIABLES_HEADER)
-    _add_variable(opt)
-    _variable_table(opt)
-    _formulation_total(opt)
+    st.caption(wording.INGREDIENT_GRID_CAPTION)
+    saved = opt.ingredient_grid_frame()
+    opening, from_park = _opening_frame(ING_GRID_KEY, saved)
+    edited = st.data_editor(
+        opening, key=grid_key(ING_GRID_KEY),
+        num_rows="dynamic",
+        column_config=_ingredient_columns(opt, saved),
+        use_container_width=True,
+        height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    slot = st.empty()            # where a refused Save writes its rows
+    _grid_errors(slot, _ING_ERRORS)
+    pending = _pending(saved, edited)
+    _keep_pending(ING_GRID_KEY, pending, edited, from_park)
+    # Read by the grid below, which keeps its own pair of buttons grey while
+    # this one has something to save: one coloured button per tab.
+    st.session_state[ING_PENDING_KEY] = pending
+    if pending:
+        st.caption(wording.unsaved_grid_caption(wording.VARIABLES_HEADER))
+        _save_ingredients(opt, storage, edited)
+    else:
+        # Nothing to save, so nothing to ask about. A question armed over a
+        # deletion that has since been discarded or undone is off screen
+        # with no Yes to reach, and every coloured button in the app stays
+        # grey behind it.
+        _disarm_grid_deletion(ING_SAVE_KEY)
+    _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
         st.caption(wording.made_before_units_caption(opt.amount_unit))
-    _variable_controls(opt, storage)
     with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
         _upload_ingredients(opt)
+    return pending
 
 
-def _add_variable(opt):
-    """One form for both types. Type is a radio rather than two forms: an
-    ingredient and a setting are the same four answers — what it is called,
-    how low, how high, and in what."""
-    mid_run = bool(opt.X_history)
-    st.session_state.setdefault("var_kind", KIND_INGREDIENT)
-    kind = st.session_state["var_kind"]
-    setting = kind == KIND_SETTING
-    # The unit box opens on what that type is written in: g for an ingredient,
-    # blank for a setting, because a cook temperature is never 175 g. Assigned
-    # before the box is created, which is the one moment Streamlit allows it.
-    #
-    # Only while the box still holds the OTHER type's default, though. A unit
-    # the user typed is an answer: switching Type after typing "min" wiped it
-    # and the form came back a field short of what had been filled in.
-    shown_kind = st.session_state.get("_var_kind_shown")
-    if shown_kind != kind:
-        default_before = ("" if shown_kind == KIND_SETTING
-                          else (opt.amount_unit or ""))
-        if (shown_kind is None
-                or str(st.session_state.get("var_unit", "")) == default_before):
-            st.session_state["var_unit"] = ("" if setting
-                                            else (opt.amount_unit or ""))
-        st.session_state["_var_kind_shown"] = kind
-    wants_baseline = setting and mid_run
-    widths = [2, 2, 1, 1, 1] + ([1] if wants_baseline else [])
-    cols = st.columns(widths)
-    with cols[0]:
-        st.session_state.setdefault("var_name", "")
-        st.text_input(wording.NAME_LABEL, key="var_name",
-                      placeholder=(wording.SETTING_NAME_PLACEHOLDER if setting
-                                   else wording.INGREDIENT_NAME_PLACEHOLDER))
-    with cols[1]:
-        st.radio(wording.TYPE_LABEL, [KIND_INGREDIENT, KIND_SETTING], key="var_kind",
-                 horizontal=True,
-                 help=wording.VARIABLE_TYPE_HELP)
-    with cols[2]:
-        # The opening value comes from session state, never from a `value=`
-        # argument: a project switch assigns these keys (see app.py's
-        # _FORM_FRESH), and Streamlit warns on screen when a widget is given
-        # both a default and a session-state value.
-        st.session_state.setdefault("var_low", 0.0)
-        if mid_run and not setting:
-            # Fixed at 0 and shown as 0: a number left in the box by a
-            # setting typed a moment ago would go on to be sent as the
-            # ingredient's lowest, which the box says it cannot be.
-            st.session_state["var_low"] = 0.0
-        st.number_input(
-            wording.LOWEST_LABEL, key="var_low", disabled=mid_run and not setting,
-            help=(wording.NEW_INGREDIENT_FIXED_LOW_HELP
-                  if mid_run and not setting else None),
-        )
-    with cols[3]:
-        st.session_state.setdefault("var_high", 100.0)
-        st.number_input(wording.HIGHEST_LABEL, key="var_high")
-    with cols[4]:
-        st.session_state.setdefault("var_unit", opt.amount_unit or "")
-        st.text_input(wording.UNIT_LABEL, key="var_unit",
-                     placeholder=(wording.SETTING_UNIT_PLACEHOLDER if setting
-                                  else wording.INGREDIENT_UNIT_PLACEHOLDER))
-    if wants_baseline:
-        with cols[5]:
-            st.session_state.setdefault("var_base", None)
-            st.number_input(
-                wording.BASELINE_ADD_LABEL, key="var_base",
-                placeholder=wording.BASELINE_PLACEHOLDER,
-                help=wording.BASELINE_HELP,
-            )
-    # One box per property, on their own row: only an ingredient has
-    # properties, so a process setting is never asked for one — and neither
-    # is this form while Set properties is open below it, or the same
-    # property would have two boxes on one screen.
-    editing_values = st.session_state.get("_props_for") is not None
-    properties = [] if (setting or editing_values) else opt.properties()
-    if properties:
-        prop_cols = st.columns(min(4, len(properties)))
-        for j, prop in enumerate(properties):
-            with prop_cols[j % len(prop_cols)]:
-                st.session_state.setdefault(_prop_key(prop), None)
-                st.number_input(prop, key=_prop_key(prop),
-                                placeholder=wording.PROPERTY_PLACEHOLDER,
-                                help=wording.PROPERTY_BOX_HELP)
-    # Grey: the tab's one coloured button is Continue at the foot.
-    if st.button(wording.ADD_VARIABLE_BUTTON, key="add_variable"):
-        _add_variable_now(opt, setting, wants_baseline, properties)
+def _round_at_risk(opt, edited, force=()):
+    """The sentence a Save owes the open round it is about to take away, or
+    "" when the round survives this edit or there is no round.
 
-
-def _prop_key(prop):
-    """The add form's box for one property. Keyed by name, so a project switch
-    empties it (app.py parks every var_prop_ key)."""
-    return f"var_prop_{prop}"
-
-
-def _set_typed_properties(opt, name, properties):
-    """Write the property values typed on the add form, and empty the boxes.
-    Nothing is written for a box left blank: no value is not 0, and the limit
-    line says which ingredients have none."""
-    for prop in properties:
-        value = st.session_state.get(_prop_key(prop))
-        if value is not None:
-            opt.set_property_value(name, prop, value)
-        park_clear(_prop_key(prop), None)
-
-
-def _added_line(opt, name, ingredient=True):
-    """'Onion powder added. Each formulation still totals 100 g.'
-
-    The total's limit is over every ingredient, so every ingredient added
-    rewrites it. The reader has just been told limits are hard rules; the
-    success line is where they find out the one they typed is still
-    standing. Said only when there is a total, and only for an INGREDIENT: a
-    process setting is not an amount and is in no sum, so a total is not a
-    thing adding one could have put at risk."""
-    added = wording.added(str(name).strip())
-    if not ingredient or not opt.has_formulation_total():
-        return added
-    return f"{added} {wording.total_still_holds(opt.batch_total_text(opt.formulation_total))}"
-
-
-def _add_variable_now(opt, setting, wants_baseline, properties=()):
-    name = st.session_state["var_name"]
-    low, high = st.session_state["var_low"], st.session_state["var_high"]
-    unit = st.session_state.get("var_unit", "")
-    batch_no = opt.pending_batch_no
-    if setting:
-        if wants_baseline and st.session_state.get("var_base") is None:
-            st.error(wording.ADD_BASELINE_ERROR)
-            return
-        try:
-            opt.add_process_parameter(
-                name, low, high,
-                baseline=(st.session_state.get("var_base")
-                          if wants_baseline else None),
-                unit=unit,
-            )
-        except ValueError as e:
-            st.error(str(e))
-            return
-        if saved_ok(opt):
-            flash("success", _added_line(opt, name, ingredient=False))
-            _note_discarded_batch(opt, batch_no)
-            st.rerun()
-        return
-
-    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
-    try:
-        # Adding a name the project already has is an edit, and it can set
-        # that ingredient's unit — so it can leave an amount limit adding
-        # grams to millilitres, exactly as Set unit can.
-        removed = opt.add_ingredient(name, low, high, unit=unit)
-    except ValueError as e:
-        st.error(str(e))
-        return
-    if saved_ok(opt):
-        _set_typed_properties(opt, str(name).strip(), properties)
-        if not saved_ok(opt):
-            return
-        added_line = _added_line(opt, name)
-        tail = _unscaled_tail(opt, scaled, scaled_unit)
-        flash("success", f"{added_line} {tail}" if tail else added_line)
-        _flash_removed_limits(opt, removed)
-        _note_discarded_batch(opt, batch_no)
-        st.rerun()
-
-
-def _ordered_variables(opt):
-    """Ingredients first, then process settings, each in the order they were
-    added. The table and the picker beneath it read the same way down."""
-    ingredients = [v for v in opt.variables
-                   if v.get('category', 'ingredient') == 'ingredient']
-    settings = [v for v in opt.variables if v.get('category') == 'process']
-    return ingredients + settings
-
-
-def _held_at(opt, var):
-    """What a paused row is held at in every new formulation. A cook
-    temperature is dialled in, an ingredient is weighed out, and each is
-    written in its own unit — a paused setting 'held at 175 g' priced a
-    setting in grams."""
-    unit = opt.unit_of(var['name'])
-    value = opt._frozen_value(var)
-    if var.get('category') == 'process':
-        return fmt_setting(value, unit)
-    return fmt_amount(value, unit)
-
-
-def _property_cell(opt, var, prop):
-    """One ingredient's value for one property, as the table writes it."""
-    if var.get('category', 'ingredient') != 'ingredient':
+    Asked BEFORE the write, because a toast afterwards was the first the
+    reader heard of it — and a round can hold formulations they typed in by
+    hand, which nothing can generate back."""
+    no = opt.ingredient_grid_retires_round(edited, force=force)
+    if no is None:
         return ""
-    if not opt.has_property_value(var['name'], prop):
-        return ""
-    return f"{opt.property_value(var['name'], prop):g}"
+    rows = opt.pending_batch or []
+    own = sum(1 for row in rows if row.get('note'))
+    return wording.saving_discards_round(
+        no, plural(len(rows), wording.FORMULATION), own)
 
 
-def _variable_table(opt):
-    rows = _ordered_variables(opt)
-    if not rows:
-        return
-    properties = opt.properties()
-    # A column that says the same thing on every row is a column of noise, so
-    # Status arrives with the first paused row and Baseline with the first
-    # setting that has one.
-    any_paused = any(not v.get('active', True) for v in rows)
-    any_baseline = any(v.get('_absent_value') is not None for v in rows)
-    # The three headers are the add form's own labels, so the table and the
-    # boxes above it name the same four answers with the same four words.
-    frame = pd.DataFrame([{
-        wording.TYPE_LABEL: (KIND_INGREDIENT
-                             if v.get('category', 'ingredient') == 'ingredient'
-                             else KIND_SETTING),
-        wording.NAME_LABEL: v['name'],
-        wording.LOWEST_LABEL: float(v['bounds'][0]),
-        wording.HIGHEST_LABEL: float(v['bounds'][1]),
-        # Plain Lowest and Highest with a Unit column of their own: "Lowest
-        # (g)" over a row measured in ml was a lie, and the water really is
-        # in ml.
-        wording.UNIT_LABEL: opt.unit_of(v['name']),
-        **({wording.BASELINE_LABEL: (fmt_setting(v.get('_absent_value'),
-                                     opt.unit_of(v['name']))
-                         if v.get('_absent_value') is not None else "")}
-           if any_baseline else {}),
-        **({wording.STATUS_LABEL: (wording.ACTIVE_STATUS if v.get('active', True)
-                       else wording.paused_status(_held_at(opt, v)))}
-           if any_paused else {}),
-        # One column per property, blank where an ingredient has no value —
-        # a 0 is a value and must not read like a gap. A process setting is
-        # weighed into nothing, so its cells are blank too.
-        **{prop: _property_cell(opt, v, prop) for prop in properties},
-    } for v in rows])
-    st.dataframe(frame, hide_index=True, key="variable_table",
-                 height=table_height(len(frame), max_rows=20))
-
-
-def _disarm_other_removals(pick):
-    """An armed Delete belongs to the row it was armed on. Changing the pick
-    would otherwise leave a confirmation armed with nothing on screen to
-    answer it, and the tab's Continue greyed behind it for ever."""
-    armed = armed_confirmation()
-    if armed and armed.startswith("rm_var_") and armed != f"rm_var_{pick}":
-        disarm(armed)
-
-
-def _variable_controls(opt, storage):
-    """One row for everything you can do to a row of the table: pause it or
-    resume it, set its unit, delete it."""
-    rows = _ordered_variables(opt)
-    if not rows:
-        return
-    properties = opt.properties()
-    widths = [2.4, 1, 1.2, 1, 1.6] + ([1.6] if properties else [])
-    cols = st.columns(widths)
-    with cols[0]:
-        pick = st.selectbox(wording.VARIABLE_PICK_LABEL,
-                            [v['name'] for v in rows],
-                            key="var_pick")
-    var = opt._var_by_name(pick)
-    is_ingredient = var.get('category', 'ingredient') == 'ingredient'
-    _disarm_other_removals(pick)
-    with cols[1]:
-        _pause_or_resume(opt, var, pick)
-    with cols[2]:
-        st.session_state.setdefault("unit_value", "")
-        # "New unit", not "Unit": the add form above has a Unit box of its
-        # own, and two of them on one row asked the reader which was which.
-        # The placeholder is the unit the picked row is in today.
-        typed = st.text_input(wording.NEW_UNIT_LABEL, key="unit_value",
-                              placeholder=opt.unit_of(pick) or "g")
-    with cols[3]:
-        if st.button(wording.SET_UNIT_BUTTON, key="set_unit"):
-            _set_unit_now(opt, pick, typed)
-    with cols[4]:
-        _remove_variable(opt, storage, pick, is_ingredient)
-    if properties:
-        with cols[5]:
-            # Disabled rather than hidden for a setting: a control that comes
-            # and goes as the pick changes reads as a fault in the app.
-            if st.button(wording.SET_PROPERTIES_BUTTON, key="set_props",
-                         disabled=not is_ingredient,
-                         help=(wording.ONLY_INGREDIENT_HAS_PROPERTIES
-                               if not is_ingredient else None)):
-                st.session_state["_props_for"] = pick
-                # Seeded here, the one moment a widget's value can be set:
-                # the boxes do not exist yet on the run that follows.
-                for prop in properties:
-                    park_clear(_pkey(pick, prop),
-                               float(opt.property_value(pick, prop))
-                               if opt.has_property_value(pick, prop) else None)
-                st.rerun()
-        if st.session_state.get("_props_for") == pick and is_ingredient:
-            _property_value_editor(opt, pick, properties)
-
-
-def _pkey(pick, prop):
-    return f"setprop_{pick}_{prop}"
-
-
-def _property_value_editor(opt, pick, properties):
-    """One box per property for the picked ingredient, opened by Set
-    properties. An empty box counts as 0 in the per-100 average — and
-    every limit on that property names the ingredients it is reading as
-    zeroes. The caption above the boxes is what names the properties; the
-    button cannot, because a property name is the project's own and may run
-    to "Sodium mg per 100 g"."""
-    # Property names carry their own basis as often as not ("Fat per 100 g"),
-    # and a caption that then adds ", per 100 g" said it three times.
-    said_already = all("per 100 g" in prop.lower() for prop in properties)
-    st.caption(wording.properties_for_caption(number_list(properties), pick,
-                                              said_already))
-    boxes = st.columns(min(4, len(properties)))
-    for j, prop in enumerate(properties):
-        with boxes[j % len(boxes)]:
-            st.session_state.setdefault(_pkey(pick, prop), None)
-            st.number_input(prop, key=_pkey(pick, prop),
-                           placeholder=wording.PROPERTY_PLACEHOLDER)
-    b1, b2 = st.columns(2)
-    with b1:
-        if st.button(wording.SAVE_BUTTON, key="save_props", use_container_width=True):
-            for prop in properties:
-                opt.set_property_value(pick, prop,
-                                       st.session_state.get(_pkey(pick, prop)))
-            if saved_ok(opt):
-                flash("success", wording.properties_saved(
-                    number_list(properties), pick))
-                st.session_state.pop("_props_for", None)
-                st.rerun()
-    with b2:
-        if st.button(wording.CLOSE_BUTTON, key="close_props", use_container_width=True):
-            st.session_state.pop("_props_for", None)
-            st.rerun()
-
-
-def _pause_or_resume(opt, var, pick):
-    """Whichever of the two applies to the row that is picked. A paused row is
-    left out of new formulations; nothing is removed."""
-    batch_no = opt.pending_batch_no
-    if not var.get('active', True):
-        if st.button(wording.resume_button(pick), key="resume_var",
-                     help=wording.RESUME_HELP):
-            opt.reactivate_variable(pick)
-            if saved_ok(opt):
-                flash("success", wording.resumed(pick))
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
-        return
-    alone = len(opt.active_variables()) <= 1
-    if st.button(wording.pause_button(pick), key="pause_var", disabled=alone,
-                 help=(wording.PAUSE_DISABLED_HELP if alone else
-                       wording.pause_help(_held_at(opt, var)))):
-        try:
-            opt.deactivate_variable(pick)
-        except ValueError as e:
-            st.error(str(e))
+def _save_ingredients(opt, storage, edited):
+    """The one write the ingredients grid makes. A deleted row is confirmed
+    by name first, an open round the save would take away is named in the
+    same question, and a copy is kept before anything goes."""
+    deletions = opt.ingredient_grid_deletions(edited)
+    key = ING_SAVE_KEY
+    # Before the colour is read and before the early return: a question that
+    # is no longer this grid's question has to come down first, or `lit`
+    # reads a confirmation that is about to be taken down anyway.
+    _disarm_stale_deletion(key, deletions)
+    lit = not confirmation_open()
+    # Read here rather than off the tick box below, which is drawn after the
+    # question and only while one is up.
+    forced = set(deletions) if st.session_state.get("delete_ing_force") else ()
+    at_risk = _round_at_risk(opt, edited, force=forced)
+    if not deletions:
+        _remember_armed_deletions(key, deletions)
+        if not at_risk:
+            if _save_and_discard(key, ING_GRID_KEY, lit):
+                _apply_ingredient_grid(opt, edited)
+            return
+        # No row is going, but the open round is: the same two-step every
+        # other irreversible action on this tab goes through.
+        if confirm_action(key, wording.SAVE_CHANGES_BUTTON, at_risk,
+                          confirm_label=wording.YES_SAVE_AND_DISCARD,
+                          primary=lit, disabled=other_confirmation(key)):
+            _apply_ingredient_grid(opt, edited)
         else:
-            if saved_ok(opt):
-                flash("success", wording.paused(pick))
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
-
-
-def _set_unit_now(opt, pick, typed):
-    """Change one row's unit, ingredient or process setting. Nothing is
-    rescored and the open batch stands: a unit is how a number is written,
-    not the number."""
-    if not str(typed).strip():
-        # A blank box looks like a no-op and is not one: it would rewrite the
-        # ingredient to no unit at all, and could take an amount limit with it.
-        st.error(wording.UNIT_REQUIRED_ERROR)
+            _discard_beside(key, ING_GRID_KEY)
         return
-    scaled, scaled_unit = _scaled_now(opt), opt.one_amount_unit()
-    try:
-        removed = opt.set_variable_unit(pick, typed)
-    except ValueError as e:
-        st.error(str(e))
-        return
-    if saved_ok(opt):
-        written = opt.unit_of(pick)
-        # What changed is how the number is written, not the number: nothing
-        # is converted and nothing is rescored, and only this sentence says so.
-        # An ingredient has amounts; a process setting has one value, and
-        # "the amounts" named something a cook temperature does not have.
-        var = opt._var_by_name(pick)
-        is_ingredient = var.get('category', 'ingredient') == 'ingredient'
-        said = wording.unit_changed(pick, written, is_ingredient)
-        # Scaling needs one unit, and this change may have taken it away; the
-        # batch is back to as-generated, so say so.
-        tail = _unscaled_tail(opt, scaled, scaled_unit)
-        flash("success", f"{said} {tail}" if tail else said)
-        # An amount limit is a sum, and this change may have left one adding
-        # grams to millilitres. It is gone; say which.
-        _flash_removed_limits(opt, removed)
-        # Emptied for the next ingredient: a unit left in the box is one click
-        # away from being applied to another row.
-        park_clear("unit_value", "")
-        st.rerun()
-
-
-def _remove_variable(opt, storage, pick, is_ingredient):
-    """Delete one row for good. Always confirmed, always copied first, history
-    or not: a deletion is a deletion and the user is told the same thing every
-    time."""
-    key = f"rm_var_{pick}"
     confirmed = confirm_action(
-        key, wording.delete_button(pick),
-        wording.delete_variable_warning(pick, is_ingredient),
-        confirm_label=wording.YES_DELETE,
-        disabled=other_confirmation(key),
-    )
-    # Read here, before the tick box below is cleared: the run that confirms
+        key, wording.SAVE_CHANGES_BUTTON,
+        " ".join(p for p in (wording.delete_rows_warning(
+            number_list(deletions)), at_risk) if p),
+        confirm_label=wording.YES_DELETE, primary=lit,
+        disabled=other_confirmation(key))
+    _remember_armed_deletions(key, deletions)
+    # Read here, before the tick box below is drawn: the run that confirms
     # is the run that disarms.
     force = bool(st.session_state.get("delete_ing_force", False))
     armed = (armed_confirmation() == key
              and st.session_state.get(f"{key}__pending"))
-    # The tick box is drawn AFTER confirm_action, because the click that arms
-    # the confirmation is only recorded inside it: asking first showed the box
-    # one click late. It is rarely needed and only ever seen while a deletion
-    # is armed — deleting an ingredient that was used above 0 would rewrite
-    # formulations nobody made.
-    if armed and is_ingredient:
-        st.caption(wording.DELETE_VS_PAUSE_CAPTION)
+    # Drawn AFTER confirm_action, because the click that arms the question is
+    # only recorded inside it. Rarely needed, and only ever seen while a
+    # deletion is armed: deleting an ingredient that was used above 0 would
+    # rewrite formulations nobody made.
+    if armed:
+        st.caption(wording.DELETE_VS_FIXING_CAPTION)
         st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX,
                     key="delete_ing_force")
-    elif not armed:
+    else:
         # Never carried into the next deletion, or the next project: a tick
         # left behind is one click away from discarding real results.
         st.session_state.pop("delete_ing_force", None)
-    if confirmed:
-        batch_no = opt.pending_batch_no
-        removed = []
-        try:
-            storage.archive(opt.project_name, "pre_delete", copy=True)
-            if is_ingredient:
-                # The total is over every ingredient, so deleting one can put
-                # it out of reach; what went comes back here to be said.
-                removed = opt.remove_ingredient(pick, force=force) or []
-            else:
-                opt.remove_process_parameter(pick)
-        except (ValueError, storage_backend.StorageError) as e:
-            st.error(str(e))
-        else:
-            if saved_ok(opt):
-                flash("success", wording.deleted(pick))
-                _flash_removed_limits(opt, removed)
-                _note_discarded_batch(opt, batch_no)
-                st.rerun()
+    if not confirmed:
+        _discard_beside(key, ING_GRID_KEY)
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    _apply_ingredient_grid(opt, edited,
+                           force=set(deletions) if force else ())
+
+
+def _discard_beside(key, grid):
+    """Discard on its own, under a Save that confirm_action has drawn: that
+    helper owns its own button row, so the pair cannot sit side by side while
+    a deletion is waiting to be confirmed.
+
+    Discarding while the question is up is the reader answering it with
+    "none of it": the question goes down with the edit that raised it. Left
+    armed, it greyed every coloured button in the app — on every tab — with
+    no Yes anywhere to reach."""
+    if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard"):
+        _disarm_grid_deletion(key)
+        _discard_grid(grid)
+
+
+# What set of rows one grid's deletion question was armed over — one key per
+# grid, named in ui_helpers beside the reset that has to pop both.
+_armed_deletions_key = armed_deletions_key
+
+
+def _disarm_grid_deletion(key):
+    """Take one grid's deletion question down, and forget what it was about.
+
+    Called wherever the grid stops asking for a deletion: Discard, the row
+    put back, the edit undone. Guarded on `disarm` having found something,
+    so this can be called on every run of a tab that has no question up
+    without touching a question belonging to somebody else."""
+    if disarm(key):
+        st.session_state.pop(_armed_deletions_key(key), None)
+
+
+def _disarm_stale_deletion(key, deletions):
+    """An armed Save belongs to the rows it was armed over. Put one back on
+    the grid — or take the whole edit away — and the question on screen is
+    about a different set of rows, so it is taken down rather than answered:
+    a "Delete Water?" left standing over a grid that no longer deletes Water
+    is one click from deleting something else.
+
+    Asked BEFORE the early return for a grid with no deletions left, because
+    no deletions at all is the commonest way for the question to stop being
+    the question that is up."""
+    armed = st.session_state.get(_armed_deletions_key(key))
+    if armed is not None and armed != sorted(deletions):
+        _disarm_grid_deletion(key)
+
+
+def _remember_armed_deletions(key, deletions):
+    """...which means remembering them at the moment of arming, and only
+    then: the click that arms is recorded INSIDE confirm_action, so nothing
+    before it can see the question go up."""
+    if armed_confirmation() == key:
+        st.session_state[_armed_deletions_key(key)] = sorted(deletions)
+    else:
+        st.session_state.pop(_armed_deletions_key(key), None)
+
+
+def _apply_ingredient_grid(opt, edited, force=()):
+    """Hand the finished grid to the model, and say what it did.
+
+    Every consequence arrives as one message from there, because the model
+    is what knows whether the default batch size survived, which limits were
+    pruned and whether the open round is still open. The one sentence the
+    screen owes on its own is the unit-split tail: it is the only one that
+    has a box on this tab to empty as well as something to say.
+    """
+    scaled = typed_batch_size(opt)
+    round_before = opt.pending_batch_no
+    # The properties grid is drawn ingredient by ingredient, in this order.
+    # A deletion, a rename or a reorder moves who sits in a row it may be
+    # holding a pending edit for; a changed Highest does not.
+    rows_before = opt.ingredient_names()
+    errors, messages = opt.apply_ingredient_grid(edited, force=force)
+    if errors:
+        # st.rerun() does not return: the errors are drawn into the slot
+        # under the grid on the run it raises.
+        st.session_state[_ING_ERRORS] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    # The model has already put the notice in `messages`; this is the copy
+    # that stays under the grid after the flash has gone.
+    _remember_discarded_round(opt, round_before)
+    tail = _unscaled_tail(opt, scaled)
+    if tail and messages:
+        kind, line = messages[0]
+        messages[0] = (kind, f"{line} {tail}")
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(ING_GRID_KEY)
+    # This rerun happens ABOVE the measurements grid, so Streamlit is about
+    # to throw its record away. Turning its key over — and keeping what it
+    # parked — is what lets that frame be drawn in its place: the edit, the
+    # banner and the Save all stay where the reader left them.
+    rekey_grid(MEAS_GRID_KEY)
+    if opt.ingredient_names() == rows_before:
+        # The rows the properties grid is drawn from have not moved, so it
+        # keeps its own edit exactly as the measurements grid does.
+        rekey_grid(PROP_GRID_KEY)
+    else:
+        # They have. That edit is positional, not a record of which
+        # ingredient it was typed against, so it is thrown away rather than
+        # replayed onto whoever inherited the row — and the reader is told,
+        # because a banner promised it was pending.
+        if _grid_is_pending(PROP_GRID_KEY):
+            flash("info", wording.PROPERTY_FIGURES_SET_ASIDE)
+        clear_grid(PROP_GRID_KEY)
+    st.session_state.pop(_armed_deletions_key(ING_SAVE_KEY), None)
+    st.rerun()
 
 
 def _load_label(opt):
@@ -793,41 +769,24 @@ def _upload_ingredients(opt):
                     # limit was written against.
                     _flash_removed_limits(opt, removed)
                     _note_discarded_batch(opt, batch_no)
+                    # The file replaces the list outright, so every row on
+                    # this tab is a different row now and no pending edit
+                    # typed against the old one can be replayed onto it.
+                    reset_grids()
                     st.rerun()
 
 
 def _flash_removed_limits(opt, removed):
     """Name every ingredient limit an edit just emptied of meaning, one line
-    each. Three edits can do it — a unit set on one ingredient, a new default
-    unit, a reloaded ingredient file — and all three say it the same way."""
-    for qc in removed:
-        if 'metric' in qc:
-            # A property limit is an average over the amounts, so it is the
-            # ingredients as a whole that stopped sharing a unit — there is no
-            # list of its own to name.
-            flash("warning", wording.property_limit_removed(qc['metric']))
-            continue
-        if qc.get('source') == 'formulation_total':
-            # The total is one number the user typed on this tab, not a rule
-            # about a few ingredients: it says the number and why it went.
-            total_text = join_unit(f"{float(qc.get('total')):g}",
-                                   qc.get('unit') or "")
-            flash("warning",
-                  wording.formulation_total_gone_unit(total_text)
-                  if qc.get('reason') == 'unit'
-                  else wording.formulation_total_gone_unreachable(total_text))
-            # The number goes out of the box as well as out of the file.
-            clear_formulation_total_box()
-            continue
-        label = _limit_label(opt, qc)
-        if qc.get('reason') == 'missing':
-            gone = qc.get('missing') or []
-            many = len(gone) > 1
-            who = wording.no_longer_ingredients(
-                number_list(gone) if many else gone[0], many)
-            flash("warning", wording.quantity_limit_removed_missing(label, who))
-        else:
-            flash("warning", wording.quantity_limit_removed_unit_mismatch(label))
+    each. Four doors reach it — a unit set on one ingredient, a new default
+    unit, a reloaded ingredient file and a grid Save — so the sentences
+    themselves live on the model and all four say them alike. What is left
+    here is the one thing only a screen can do: empty the box the number the
+    project has just lost is still sitting in."""
+    for kind, line in opt.limit_removed_messages(removed):
+        flash(kind, line)
+    if any(qc.get('source') == 'formulation_total' for qc in removed or []):
+        clear_formulation_total_box()
 
 
 def _limit_who(opt, qc):
@@ -873,195 +832,6 @@ def _limit_label(opt, qc):
     return opt.limit_label(qc)
 
 
-def _measurement_editor(opt, storage, editing):
-    """The add/edit fields. `editing` is the measurement being changed, or
-    None when adding a new one. No st.form: the Target box comes and goes the
-    moment the goal changes, which a form would defer to its submit."""
-    if editing is None:
-        st.session_state.setdefault(_mkey(None, "name"), "")
-        name = st.text_input(wording.NAME_LABEL, key=_mkey(None, "name"),
-                             placeholder=wording.MEASUREMENT_NAME_PLACEHOLDER)
-    else:
-        # The open editor replaces the table's Add expander, so without a
-        # title it was six boxes and a greyed Name, with nothing saying which
-        # measurement Save changes would change.
-        st.markdown(wording.edit_measurement_heading(editing['name']))
-        st.session_state.setdefault(_mkey(editing, "name"), editing['name'])
-        st.text_input(wording.NAME_LABEL, key=_mkey(editing, "name"), disabled=True)
-        name = editing['name']
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.session_state.setdefault(_mkey(editing, "unit"),
-                                    (editing or {}).get('unit', ""))
-        unit = st.text_input(wording.UNIT_LABEL, key=_mkey(editing, "unit"),
-                             placeholder=wording.MEASUREMENT_UNIT_PLACEHOLDER)
-    with c2:
-        st.session_state.setdefault(_mkey(editing, "goal"),
-                                    (editing or {}).get('goal', "max"))
-        goal = st.selectbox(wording.GOAL_LABEL, list(wording.GOAL_LABELS),
-                            key=_mkey(editing, "goal"),
-                            format_func=wording.GOAL_LABELS.get)
-
-    # Shown only for a target, not greyed out: this form is deliberately not
-    # an st.form, so the box can come and go the moment the Goal changes, and
-    # a greyed box asks the reader to work out why it is there at all.
-    st.session_state.setdefault(_mkey(editing, "target"),
-                                float((editing or {}).get('target') or 0.0))
-    if goal == 'target':
-        target = st.number_input(wording.TARGET_LABEL,
-                                 key=_mkey(editing, "target"))
-    else:
-        target = st.session_state.get(_mkey(editing, "target"))
-
-    st.markdown(wording.RANGE_HEADING)
-    s1, s2 = st.columns(2)
-    with s1:
-        st.session_state.setdefault(_mkey(editing, "min"),
-                                    float((editing or {}).get('min_val', 0.0)))
-        lowest = st.number_input(wording.LOWEST_MEASURABLE_LABEL, key=_mkey(editing, "min"))
-    with s2:
-        st.session_state.setdefault(_mkey(editing, "max"),
-                                    float((editing or {}).get('max_val', 10.0)))
-        highest = st.number_input(wording.HIGHEST_MEASURABLE_LABEL, key=_mkey(editing, "max"))
-    st.caption(wording.RANGE_HINT_CAPTION)
-
-    st.session_state.setdefault(_mkey(editing, "importance"),
-                                float((editing or {}).get('weight', 1.0)))
-    importance = st.number_input(
-        wording.IMPORTANCE_LABEL, min_value=0.1, max_value=100.0, step=0.1,
-        key=_mkey(editing, "importance"),
-        help=wording.IMPORTANCE_HELP,
-    )
-
-    if editing is None:
-        if st.button(wording.ADD_MEASUREMENT_BUTTON, key="add_measurement"):
-            # add_objective REPLACES a measurement of the same name, which
-            # would silently overwrite its goal, target and range and rescore
-            # every result with no copy kept. Editing is a different door.
-            if any(str(name).strip().lower() == o['name'].lower()
-                   for o in opt.objectives):
-                st.error(wording.MEASUREMENT_EXISTS_ERROR)
-                return
-            try:
-                opt.add_objective(
-                    name, importance, goal,
-                    target=(target if goal == 'target' else None),
-                    min_val=lowest, max_val=highest, unit=unit,
-                )
-            except (ValueError, storage_backend.StorageError) as e:
-                st.error(str(e))
-            else:
-                if not saved_ok(opt):
-                    return
-                _clear_measurement_keys(None)
-                flash("success", wording.added(str(name).strip()))
-                st.rerun()
-        return
-
-    b1, b2 = st.columns(2)
-    # The edit being made is the one thing to do while its row is open, as a
-    # correction is on tab 3; the foot's Continue steps aside (it would
-    # navigate away and throw the edit away).
-    lit = not confirmation_open()
-    with b1:
-        save = st.button(wording.SAVE_CHANGES_BUTTON, key="save_measurement",
-                         type="primary" if lit else "secondary",
-                         disabled=not lit, use_container_width=True) and lit
-    with b2:
-        if st.button(wording.CANCEL, key="cancel_measurement", use_container_width=True):
-            _clear_measurement_keys(editing)
-            st.session_state.pop("_editing_measurement", None)
-            st.rerun()
-    if save:
-        _apply_measurement_edit(opt, storage, editing, importance, goal, target,
-                                lowest, highest, unit)
-
-
-def _rescores(editing, importance, goal, target, lowest, highest):
-    """True when this edit changes how every stored result scores. Importance
-    is not the only such field: the goal, the target and either end of the
-    range all feed closeness, so all of them recalculate the history."""
-    def moved(before, after):
-        return abs(float(after) - float(before)) > 1e-9
-    if moved(editing['weight'], importance):
-        return True
-    if goal != editing['goal']:
-        return True
-    before_target = editing.get('target')
-    after_target = target if goal == 'target' else None
-    if (before_target is None) != (after_target is None):
-        return True
-    if before_target is not None and moved(before_target, after_target):
-        return True
-    return (moved(editing.get('min_val'), lowest)
-            or moved(editing.get('max_val'), highest))
-
-
-def _apply_measurement_edit(opt, storage, editing, importance, goal, target,
-                            lowest, highest, unit):
-    # editing is the live dict; update_objective mutates it, so read it first.
-    changed_importance = abs(float(importance) - float(editing['weight'])) > 1e-9
-    rescores = _rescores(editing, importance, goal, target, lowest, highest)
-    before = best_formulation_no(opt)
-    if rescores:
-        # No history guard: a copy is kept before every destructive action
-        # here, so the user always has one door back.
-        try:
-            storage.archive(opt.project_name, "pre_edit", copy=True)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-            return
-    try:
-        opt.update_objective(
-            editing['name'], weight=importance, goal=goal,
-            target=(target if goal == 'target' else None),
-            min_val=lowest, max_val=highest, unit=unit,
-        )
-    except ValueError as e:
-        st.error(str(e))
-        return
-    if not saved_ok(opt):
-        return
-    _clear_measurement_keys(editing)
-    st.session_state.pop("_editing_measurement", None)
-    if rescores:
-        after = best_formulation_no(opt)
-        # Nothing has been scored yet: there is no overall score to
-        # recalculate, and saying otherwise invents a history.
-        recalculated = wording.RECALCULATED_SUFFIX if opt.Y_history else ""
-        sentence = (
-            wording.importance_changed(editing['name'], importance)
-            if changed_importance else wording.updated(editing['name'])
-        ) + recalculated
-        parts = [sentence, best_move_sentence(before, after),
-                 # This edit has no confirmation before it, so the copy it
-                 # kept is named here, as a correction names its own.
-                 COPY_KEPT]
-        flash("success", " ".join(p for p in parts if p))
-    else:
-        flash("success", wording.updated(editing['name']))
-    st.rerun()
-
-
-def _remove_measurement(opt, storage, name):
-    before = best_formulation_no(opt)
-    try:
-        storage.archive(opt.project_name, "pre_edit", copy=True)
-    except storage_backend.StorageError as e:
-        st.error(str(e))
-        return
-    opt.remove_objective(name)
-    if not saved_ok(opt):
-        return
-    after = best_formulation_no(opt)
-    sentence = wording.measurement_deleted(name) + (
-        wording.RECALCULATED_SUFFIX if opt.Y_history else "")
-    move = best_move_sentence(before, after)
-    flash("success", f"{sentence} {move}".strip())
-    st.rerun()
-
-
 _TARGETS_SOURCE_OPEN = "_targets_source_open"
 _TARGETS_SOURCE_BOX = "targets_source_box"
 
@@ -1105,60 +875,116 @@ def _targets_source_editor(opt):
 
 
 def _measurements(opt, storage):
-    """Draw the measurements section. Returns True while a measurement is
-    open for editing: `Save changes` is then the tab's one lit action and the
-    foot steps aside."""
+    """The measurements, in a grid of their own.
+
+    Share of score is the column that is typed into (spec 1.3): change one
+    and the rest give way proportionally so the column still adds up to 100,
+    and the app derives the importances from it. There is no Importance
+    column any more, on this screen or on any sheet.
+
+    Returns True while there is an edit in hand, for the same reason the
+    grid above does.
+    """
     st.subheader(wording.MEASUREMENTS_HEADER)
-    editing_name = st.session_state.get("_editing_measurement")
-    editing = next((o for o in opt.objectives if o['name'] == editing_name), None)
-    if editing is not None:
-        _measurement_editor(opt, storage, editing)
-    elif not opt.objectives:
-        _measurement_editor(opt, storage, None)
+    st.caption(wording.MEASUREMENT_GRID_CAPTION)
+    saved = opt.measurement_grid_frame()
+    opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
+    edited = st.data_editor(
+        opening, key=grid_key(MEAS_GRID_KEY),
+        num_rows="dynamic",
+        column_config=_measurement_columns(), use_container_width=True,
+        height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    slot = st.empty()
+    _grid_errors(slot, _MEAS_ERRORS)
+    pending = _pending(saved, edited)
+    _keep_pending(MEAS_GRID_KEY, pending, edited, from_park)
+    if pending:
+        st.caption(wording.unsaved_grid_caption(wording.MEASUREMENTS_HEADER))
+        _save_measurements(opt, storage, edited, lit=not _ingredients_pending())
     else:
-        with st.expander(wording.ADD_A_MEASUREMENT_EXPANDER):
-            _measurement_editor(opt, storage, None)
+        _disarm_grid_deletion(MEAS_SAVE_KEY)
+    if opt.objectives:
+        st.caption(opt.score_function_line())
+    return pending
 
-    if not opt.objectives:
-        return editing is not None
 
-    ordered = opt.measurements_by_importance()
-    st.dataframe(pd.DataFrame([{
-        # No Priority column: it was the row's position in a table already
-        # sorted by importance, which is the same fact written twice.
-        wording.MEASUREMENT_COLUMN: label_with_unit(o['name'], o.get('unit')),
-        wording.GOAL_LABEL: _goal_text(o),
-        wording.RANGE_COLUMN: _range_text(o),
-        wording.IMPORTANCE_LABEL: float(o['weight']),
-        wording.COL_SHARE: opt.share_text(o['name']),
-    } for o in ordered]), hide_index=True, key="measurement_table",
-        height=table_height(len(ordered)))
-    for obj in ordered:
-        e1, e2 = st.columns(2)
-        with e1:
-            if st.button(wording.edit_button(obj['name']), key=f"edit_meas_{obj['name']}"):
-                st.session_state["_editing_measurement"] = obj['name']
-                st.rerun()
-        with e2:
-            if confirm_action(
-                f"rm_meas_{obj['name']}", wording.delete_button(obj['name']),
-                wording.delete_measurement_warning(obj['name']),
-                confirm_label=wording.YES_DELETE,
-                disabled=other_confirmation(f"rm_meas_{obj['name']}"),
-            ):
-                _remove_measurement(opt, storage, obj['name'])
+def _ingredients_pending():
+    """True when the grid above this one already has an edit in hand. Its
+    Save is then the coloured one: a tab shows one at a time, and the one
+    higher up the page is the one the reader is looking at."""
+    return st.session_state.get(ING_PENDING_KEY, False)
 
-    st.caption(opt.score_function_line())
-    _targets_source_editor(opt)
 
-    # Four flat bullets, then the arithmetic behind the second one folded
-    # directly beneath: one fold of nine bullets answered a question most
-    # readers never asked, in the middle of the four that say what happens.
-    with st.expander(wording.HOW_IT_WORKS_EXPANDER):
-        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
-    with st.expander(wording.HOW_CLOSENESS_EXPANDER):
-        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
-    return editing is not None
+def _save_measurements(opt, storage, edited, lit=True):
+    """The one write the measurements grid makes. A deleted row is confirmed
+    by name first, exactly as one on the grid above is."""
+    deletions = opt.measurement_grid_deletions(edited)
+    key = MEAS_SAVE_KEY
+    _disarm_stale_deletion(key, deletions)
+    lit = lit and not confirmation_open()
+    if not deletions:
+        _remember_armed_deletions(key, deletions)
+        if _save_and_discard(key, MEAS_GRID_KEY, lit):
+            _apply_measurement_grid(opt, storage, edited)
+        return
+    confirmed = confirm_action(
+        key, wording.SAVE_CHANGES_BUTTON,
+        wording.delete_measurement_warning(number_list(deletions),
+                                           many=len(deletions) > 1),
+        confirm_label=wording.YES_DELETE, primary=lit,
+        disabled=other_confirmation(key))
+    _remember_armed_deletions(key, deletions)
+    if not confirmed:
+        _discard_beside(key, MEAS_GRID_KEY)
+        return
+    _apply_measurement_grid(opt, storage, edited)
+
+
+def _apply_measurement_grid(opt, storage, edited):
+    """Write the measurements grid.
+
+    A copy is kept before every deletion on this tab, history or not, and
+    before any save that recalculates a score already stored — not before
+    every save: a unit corrected on one row is not something to keep a copy
+    of, and a copy per keystroke is a copy of nothing. Which of those it is
+    is the model's answer, handed in as a callback so the grid is read once
+    per save rather than planned twice.
+    """
+    before = best_formulation_no(opt)
+    copied = []
+
+    def keep_a_copy():
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+        copied.append(True)
+
+    try:
+        errors, messages = opt.apply_measurement_grid(edited,
+                                                      archive=keep_a_copy)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    if errors:
+        st.session_state[_MEAS_ERRORS] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    move = best_move_sentence(before, best_formulation_no(opt))
+    green = [i for i, (kind, _) in enumerate(messages) if kind == "success"]
+    if green:
+        # The copy and the best moving are facts about the save as a whole,
+        # so they land once, on its last green line.
+        kind, line = messages[green[-1]]
+        messages[green[-1]] = (kind, " ".join(
+            p for p in (line, move, COPY_KEPT if copied else "") if p))
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(MEAS_GRID_KEY)
+    # Above the properties grid, so its record is about to be dropped:
+    # turning its key over is what lets the frame it parked be drawn in its
+    # place. Its rows are the ingredients, which this save does not touch.
+    rekey_grid(PROP_GRID_KEY)
+    st.session_state.pop(_armed_deletions_key(MEAS_SAVE_KEY), None)
+    st.rerun()
 
 
 def _add_property(opt):
@@ -1185,69 +1011,182 @@ def _add_property(opt):
                 if saved_ok(opt):
                     flash("success", wording.property_added(added))
                     park_clear("prop_new", "")
+                    # The grid below gains a column; a record of edits made
+                    # against the old set of columns would be replayed onto
+                    # the new one.
+                    clear_grid(PROP_GRID_KEY)
                     st.rerun()
 
 
-def _property_list(opt, storage, properties):
-    """Every property, with a Delete that names what goes with it."""
+def _property_columns(properties):
+    """The row column is the ingredient's name and cannot be typed into: the
+    grid above owns the rows. Every other column is a property, and every
+    cell under it is one figure."""
+    columns = {wording.PROPERTIES_ROW_COLUMN: st.column_config.TextColumn(
+        wording.PROPERTIES_ROW_COLUMN, disabled=True)}
     for prop in properties:
-        limits = sum(1 for c in opt.constraints
-                     if str(c['metric']).strip().lower() == prop.lower())
-        key = f"rm_prop_{prop}"
-        limits_text = plural(limits, wording.LIMIT) if limits else None
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.text(prop)
-        with c2:
-            confirmed = confirm_action(
-                key, wording.delete_button(prop),
-                wording.delete_property_warning(prop, limits_text),
-                confirm_label=wording.YES_DELETE, disabled=other_confirmation(key),
-            )
-        if confirmed:
-            try:
-                storage.archive(opt.project_name, "pre_delete", copy=True)
-                removed = opt.remove_property(prop)
-            except (ValueError, storage_backend.StorageError) as e:
-                st.error(str(e))
-            else:
-                if saved_ok(opt):
-                    gone = (wording.limit_went_with_it(plural(len(removed), wording.LIMIT))
-                            if removed else "")
-                    flash("success", wording.property_deleted(prop, gone))
-                    st.rerun()
+        columns[prop] = _number_column(prop)
+    return columns
 
 
-def _property_limits(opt, storage):
+def _apply_property_grid(opt, edited):
+    """Hand the finished properties grid to the model, and say what it did.
+
+    One green line for the save as a whole, and none at all when nothing
+    moved: a grid saved unchanged has written nothing to report.
+    """
+    errors, messages = opt.apply_property_grid(edited)
+    if errors:
+        st.session_state[_PROP_ERRORS] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(PROP_GRID_KEY)
+    st.rerun()
+
+
+def _delete_property(opt, storage, properties):
+    """A property goes from a picker and one Delete, not from a Delete per
+    row: the list is beside a grid that already names every property across
+    its head, and a column of Delete buttons said each name twice."""
+    # Assigned before the widget is created, which is the only moment
+    # Streamlit allows it: the property the picker was left on may have just
+    # been deleted, and a select box whose stored value is not in its options
+    # refuses to draw at all.
+    if st.session_state.get(_PROP_DELETE) not in properties:
+        st.session_state.pop(_PROP_DELETE, None)
+    d1, d2 = st.columns([3, 1])
+    with d1:
+        prop = st.selectbox(wording.DELETE_PROPERTY_PICK_LABEL, properties,
+                            key=_PROP_DELETE)
+    key = f"rm_prop_{prop}"
+    # The question belongs to the property it was armed over. Pick another
+    # and the question on screen is about one the picker no longer shows, so
+    # it is taken down rather than left arming every coloured button away.
+    armed = armed_confirmation()
+    if armed != key and str(armed or "").startswith("rm_prop_"):
+        disarm(armed)
+    limits = sum(1 for c in opt.constraints
+                 if str(c['metric']).strip().lower() == prop.lower())
+    limits_text = plural(limits, wording.LIMIT) if limits else None
+    with d2:
+        confirmed = confirm_action(
+            key, wording.delete_button(prop),
+            wording.delete_property_warning(prop, limits_text),
+            confirm_label=wording.YES_DELETE,
+            disabled=other_confirmation(key))
+    if not confirmed:
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+        gone_limits = opt.remove_property(prop)
+    except (ValueError, storage_backend.StorageError) as e:
+        st.error(str(e))
+        return
+    if saved_ok(opt):
+        gone = (wording.limit_went_with_it(plural(len(gone_limits),
+                                                  wording.LIMIT))
+                if gone_limits else "")
+        flash("success", wording.property_deleted(prop, gone))
+        # The grid has lost a column; a record of edits against the old one
+        # would write a figure into a property that no longer exists.
+        clear_grid(PROP_GRID_KEY)
+        st.rerun()
+
+
+def _properties(opt, storage):
+    """Properties, as a grid of their own: rows are the ingredients, columns
+    are the properties, and a cell is that ingredient's figure per 100 g
+    (spec 1.5). It replaces a fold holding a picker and one box per property
+    — one ingredient at a time, with no way to read the column down.
+
+    `Save properties` is a SECONDARY button that applies on the click, where
+    the two grids above light a primary `Save changes` and hand the foot's
+    Continue aside. Two reasons, and both are about the one lit button. This
+    grid lives inside a collapsed expander, so a primary Save here would be
+    the tab's coloured button hidden inside a fold — the reader would see a
+    grey Continue and nothing lit anywhere. And a third pending flag would
+    have to be threaded through the topmost-grid rule to keep the count at
+    one. The unsaved line below still says nothing is written while typing;
+    what is typed survives until it is saved or the project changes.
+    """
+    st.markdown(wording.PROPERTIES_HEADING)
+    properties = opt.grid_properties()
+    # Every property the project knows, the row-column name included: a
+    # property named "Ingredient" can only have arrived as a column of an
+    # old ingredient file (the app itself refuses that name for a new one),
+    # and it deletes the same way as any other even though it never shows
+    # on the grid above.
+    all_properties = opt.properties()
+    names = opt.ingredient_names()
+    if properties and names:
+        # Property names carry their own basis as often as not ("Fat per
+        # 100 g"), and a caption that then adds ", per 100 g" said it twice.
+        said_already = all("per 100 g" in prop.lower() for prop in properties)
+        st.caption(wording.properties_grid_caption(said_already))
+        saved = opt.property_grid_frame()
+        # The third grid on this tab keeps its edit the same way the two
+        # above it do: a Save or a Discard up there reruns before this one
+        # is drawn, and Streamlit throws away the entry of a widget the run
+        # never created. It carries a banner of its own, so it has to be
+        # able to keep what the banner promises.
+        opening, from_park = _opening_frame(PROP_GRID_KEY, saved)
+        edited = st.data_editor(
+            opening, key=grid_key(PROP_GRID_KEY), num_rows="fixed",
+            column_config=_property_columns(properties),
+            use_container_width=True,
+            height=table_height(max(len(saved), 1), max_rows=20))
+        slot = st.empty()
+        _grid_errors(slot, _PROP_ERRORS)
+        pending = _pending(saved, edited)
+        _keep_pending(PROP_GRID_KEY, pending, edited, from_park)
+        if pending:
+            st.caption(wording.unsaved_grid_caption(
+                wording.PROPERTIES_NAME))
+        if st.button(wording.SAVE_PROPERTIES_BUTTON, key="save_properties",
+                     disabled=confirmation_open()):
+            _apply_property_grid(opt, edited)
+    _add_property(opt)
+    if all_properties:
+        _delete_property(opt, storage, all_properties)
+
+
+def _property_limits(opt):
     """The finished-product limit, and the properties it is written
     against. Ingredients only: a property is a value each ingredient carries,
     and a process setting is weighed into nothing."""
     st.markdown(wording.FINISHED_PRODUCT_LIMIT_HEADING)
     # Per 100 g of what you make, not a total that grows with the formulation:
     # the same limit then means the same thing at 100 g and at 10 kg. Written
-    # in the unit the ingredients are actually in.
+    # in the unit the ingredients are actually in. While the ingredients
+    # differ, there is no 100 of anything yet — but that is already said
+    # once, by the Default batch size box above (wording.NEEDS_ONE_UNIT), so
+    # nothing is drawn here rather than saying it again in different words.
     unit = opt.one_amount_unit()
-    if unit is None:
-        # The ingredients differ, so there is no 100 of anything yet, and the
-        # limit itself is refused in words that name the fix.
-        st.caption(wording.PER_100G_UNRESOLVED_CAPTION)
-    else:
+    if unit is not None:
         st.caption(wording.per_100_caption(unit or 'g'))
-    _add_property(opt)
-    properties = opt.properties()
+    properties = opt.grid_properties()
     if not properties:
+        # The grid that names one is further down this expander, so the line
+        # points at it rather than leaving an empty picker on screen.
+        st.caption(wording.NO_PROPERTIES_YET_CAPTION)
         return
-    _property_list(opt, storage, properties)
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
                           key="prop_metric")
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
-        st.number_input(wording.AT_LEAST_LABEL, placeholder=wording.NO_LIMIT_PLACEHOLDER,
+        st.number_input(wording.per_100_box_label(wording.AT_LEAST_LABEL,
+                                                 unit or 'g'),
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER,
                        key="prop_min")
     with p2:
         st.session_state.setdefault("prop_max", None)
-        st.number_input(wording.AT_MOST_LABEL, placeholder=wording.NO_LIMIT_PLACEHOLDER,
+        st.number_input(wording.per_100_box_label(wording.AT_MOST_LABEL,
+                                                 unit or 'g'),
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER,
                        key="prop_max")
     if st.button(wording.ADD_PROPERTY_LIMIT_BUTTON, key="add_property_limit"):
         low, high = st.session_state["prop_min"], st.session_state["prop_max"]
@@ -1275,6 +1214,10 @@ def _limit_gap_tail(opt, metric):
 
 
 def _limits(opt, storage):
+    """Limits, inside More settings. A heading and not a fold of its own:
+    Streamlit cannot nest one expander in another, and a tab that folded the
+    optional half away twice made the reader open two things to reach one.
+    """
     # A limit is a sum, and a sum only has a unit when the ingredients share
     # one. When they do not, the labels stay bare and the limit itself is
     # refused in words that name the ingredient to re-enter.
@@ -1285,99 +1228,102 @@ def _limits(opt, storage):
     # bounds.
     if not opt.has_ingredients():
         return
-    with st.expander(wording.LIMITS_EXPANDER):
-        # "of your ingredients", not "from your ingredient file": a property
-        # is named in the app as often as it arrives in a file, and the box
-        # that names one is two lines below this caption.
-        st.caption(wording.LIMITS_CAPTION)
+    st.markdown(wording.LIMITS_HEADING)
+    # "of your ingredients", not "from your ingredient file": a property
+    # is named in the app as often as it arrives in a file, and the grid
+    # that names one is further down this expander.
+    st.caption(wording.LIMITS_CAPTION)
 
-        _property_limits(opt, storage)
+    _property_limits(opt)
 
-        # A limit written before 0.3.0 was a total, and the file does not say
-        # so; the same stored number now means a per-100 g average. Said once,
-        # above the list, and only while such a limit is still there.
-        if any(c.get('basis') != 'per_100' for c in opt.constraints):
-            st.caption(wording.old_limit_basis_caption(opt.one_amount_unit() or 'g'))
+    # A limit written before 0.3.0 was a total, and the file does not say
+    # so; the same stored number now means a per-100 g average. Said once,
+    # above the list, and only while such a limit is still there.
+    if any(c.get('basis') != 'per_100' for c in opt.constraints):
+        st.caption(wording.old_limit_basis_caption(opt.one_amount_unit() or 'g'))
 
-        for i, constraint in enumerate(opt.constraints):
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                bounds = ([wording.at_least(constraint['min'])]
-                          if constraint['min'] is not None else [])
-                bounds += ([wording.at_most(constraint['max'])]
-                           if constraint['max'] is not None else [])
-                st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
-                        + _limit_gap_tail(opt, constraint['metric']))
-            with c2:
-                _delete_limit(opt, storage, f"rm_constr_{i}",
-                              constraint['metric'],
-                              lambda i=i: opt.remove_constraint(i))
+    for i, constraint in enumerate(opt.constraints):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            bounds = ([wording.at_least(constraint['min'])]
+                      if constraint['min'] is not None else [])
+            bounds += ([wording.at_most(constraint['max'])]
+                       if constraint['max'] is not None else [])
+            st.text(f"{constraint['metric']}: {' and '.join(bounds)}"
+                    + _limit_gap_tail(opt, constraint['metric']))
+        with c2:
+            _delete_limit(opt, storage, f"rm_constr_{i}",
+                          constraint['metric'],
+                          lambda i=i: opt.remove_constraint(i))
 
-        names = [v['name'] for v in opt.variables
-                 if v.get('category', 'ingredient') == 'ingredient']
+    names = opt.ingredient_names()
 
-        # ONE amount limit, on the ingredients the user names. The total
-        # over ALL of them is not written here — it is the box under the
-        # ingredients table, and this picker asks for a choice like every
-        # other picker in the app.
-        st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
-        picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
-                                key="qty_pick",
-                                placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
-        q1, q2 = st.columns(2)
-        with q1:
-            st.session_state.setdefault("qc_min", None)
-            st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(unit)}",
-                            placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
-        with q2:
-            st.session_state.setdefault("qc_max", None)
-            st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(unit)}",
-                            placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
-        # No "Set a maximum" tick box: a blank field already means no limit,
-        # and a box the user forgot to tick silently threw their number away.
-        # Nothing picked is no longer "every ingredient": the total over all
-        # of them has its own box under the ingredients table, and a picker
-        # that quietly meant all eight while showing none was the harder
-        # half of that one idea to read.
-        if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
-                     disabled=not picked) and picked:
-            low, high = st.session_state["qc_min"], st.session_state["qc_max"]
-            if low is None and high is None:
-                st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
+    # ONE amount limit, on the ingredients the user names. The total
+    # over ALL of them is not written here — it is the Default batch size
+    # box at the top of this expander, and this picker asks for a choice
+    # like every other picker in the app.
+    st.markdown(wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING)
+    picked = st.multiselect(wording.INGREDIENTS_TO_LIMIT_LABEL, names,
+                            key="qty_pick",
+                            placeholder=wording.CHOOSE_MANY_PLACEHOLDER)
+    q1, q2 = st.columns(2)
+    with q1:
+        st.session_state.setdefault("qc_min", None)
+        st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(unit)}",
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
+    with q2:
+        st.session_state.setdefault("qc_max", None)
+        st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(unit)}",
+                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
+    # No "Set a maximum" tick box: a blank field already means no limit,
+    # and a box the user forgot to tick silently threw their number away.
+    # Nothing picked is no longer "every ingredient": the total over all
+    # of them has its own box above, and a picker that quietly meant all
+    # eight while showing none was the harder half of that one idea to read.
+    if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
+                 disabled=not picked) and picked:
+        low, high = st.session_state["qc_min"], st.session_state["qc_max"]
+        if low is None and high is None:
+            st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
+        else:
+            try:
+                opt.add_quantity_constraint(picked, min_val=low,
+                                            max_val=high)
+            except ValueError as e:
+                st.error(str(e))
             else:
-                try:
-                    opt.add_quantity_constraint(picked, min_val=low,
-                                                max_val=high)
-                except ValueError as e:
-                    st.error(str(e))
-                else:
-                    _report_limit(opt,
-                                  wording.limit_added_on(" + ".join(picked)))
+                _report_limit(opt,
+                              wording.limit_added_on(" + ".join(picked)))
 
-        for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
-            l1, l2 = st.columns([3, 1])
-            with l1:
-                # One line per limit, written by the optimizer: a limit sums
-                # ingredients that share a unit, so it is written in that
-                # unit ("at most 400 g", never a bare 400), and the total
-                # reads as the one number it is rather than as the
-                # half-percent band it is enforced as.
-                st.text(opt.limit_text(qc))
-            if qc.get('source') == 'formulation_total':
-                # The total's row is a reading of the box at the top of this
-                # tab, not a second control for it. A Delete here let one
-                # rule be taken off in two places, and the cold read could
-                # not tell which of the two was the real one.
-                with l1:
-                    st.caption(wording.FORMULATION_TOTAL_IN_LIMITS_CAPTION)
-                continue
-            with l2:
-                _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
-                              lambda i=i: opt.remove_quantity_constraint(i))
+    for i, qc in enumerate(getattr(opt, "quantity_constraints", [])):
+        if qc.get('source') == 'formulation_total':
+            # Not listed at all. The default batch size is answered in its
+            # own box at the top of this expander, with a help line that
+            # says what it does; a third mention here, read-only, with a
+            # caption telling the reader to go back up and empty a box, was
+            # the one the reader could not act on where it stood.
+            continue
+        l1, l2 = st.columns([3, 1])
+        with l1:
+            # One line per limit, written by the optimizer: a limit sums
+            # ingredients that share a unit, so it is written in that
+            # unit ("at most 400 g", never a bare 400).
+            st.text(opt.limit_text(qc))
+        with l2:
+            _delete_limit(opt, storage, f"rm_qc_{i}", _limit_who(opt, qc),
+                          lambda i=i: opt.remove_quantity_constraint(i))
 
 
 def _advanced(opt):
-    with st.expander(wording.HOW_FORMULATIONS_CHOSEN_EXPANDER):
+    """The bottom tier (spec 1.5): the model settings and the two
+    explanations, in one small fold at the very foot of the tab.
+
+    The explanations are plain markdown lists rather than folds of their own
+    — Streamlit cannot nest an expander in an expander, and three things to
+    open before the first sentence is the state this tier exists to end.
+    """
+    with st.expander(wording.ADVANCED_EXPANDER):
+        st.markdown(wording.HOW_FORMULATIONS_CHOSEN_HEADING)
         st.caption(wording.STANDARD_VS_EXPERT_CAPTION)
         current = getattr(opt, "bo_config", None)
         # The radio's label is collapsed: the section it is the only control
@@ -1438,14 +1384,40 @@ def _advanced(opt):
             st.caption(wording.IN_USE_PREFIX
                        + ", ".join(f"{k}: {v}" for k, v in current.items()))
 
+        # Four flat bullets, then the arithmetic behind the second one
+        # directly beneath: the pair used to be two folds under the
+        # measurements grid, where they were the last thing on the tab a
+        # formulator needed and the first thing they saw.
+        st.markdown(wording.HOW_IT_WORKS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
+        st.markdown(wording.HOW_CLOSENESS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 
-def _foot(opt, editing=False):
+
+def _more_settings(opt, storage):
+    """The middle tier (spec 1.5): everything tab 1 asks at most once, in one
+    collapsed expander, in the order a project needs it — how big a
+    formulation is, where the targets came from, the hard rules, and the
+    figures those rules read.
+
+    Nothing in here is a fold of its own. Streamlit cannot nest one expander
+    in another, and the point of the tier is that the tab has ONE thing to
+    open rather than six.
+    """
+    with st.expander(wording.MORE_SETTINGS_EXPANDER):
+        _formulation_total(opt)
+        _targets_source_editor(opt)
+        _limits(opt, storage)
+        _properties(opt, storage)
+
+
+def _foot(opt, pending=False):
     ready, missing = readiness(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
-    # answering it is the one thing to do; moving on can wait a click. An open
-    # measurement editor is the same case: Save changes is the lit one, and
+    # answering it is the one thing to do; moving on can wait a click. An
+    # unsaved grid is the same case: its `Save changes` is the lit one, and
     # Continue would leave the tab and throw the edit away.
-    lit = ready and not confirmation_open() and not editing
+    lit = ready and not confirmation_open() and not pending
     if st.button(wording.NEXT_MAKE_BATCH_BUTTON,
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
@@ -1457,16 +1429,16 @@ def _foot(opt, editing=False):
 def render(opt, storage):
     # The sample's own welcome, directly under the tab's title: gone the
     # moment any formulation exists, scored or not — a batch whose one row
-    # was ticked Not scored has still been made, and "Next: make a batch"
+    # was ticked Not scored has still been made, and "Next: make a round"
     # would be wrong about it.
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
         st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
-    _variables(opt, storage)
+    pending = _variables(opt, storage)
     st.divider()
-    editing = _measurements(opt, storage)
+    pending = _measurements(opt, storage) or pending
     st.divider()
-    _limits(opt, storage)
+    _more_settings(opt, storage)
     _advanced(opt)
     st.divider()
-    _foot(opt, editing)
+    _foot(opt, pending)

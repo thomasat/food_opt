@@ -1,21 +1,26 @@
-"""Tab 2 · Make a batch: generate formulations, make them, record results.
+"""Tab 2 · Make a round: generate formulations, make them, record results.
 
-Nothing here fits a model or writes to disk on a plain rerun, and the result
-grid deliberately avoids st.form so `Save results` can light up the moment
-every kept row has a value. What the screen shows, the workbook the bench
-carries away shows too: both go through `scaled_recipe`.
+The result grid deliberately avoids st.form so `Save results` can light up
+the moment every kept row has a value. What the screen shows, the workbook
+the bench carries away shows too — and since 0.5.0 so does what is recorded:
+the Batch size box moves the stored amounts (`FoodOptimizer.scale_round`)
+rather than rewriting a picture of them on the way out.
+
+One write on a plain rerun, and only one: a change to the Batch size box.
 """
 import pandas as pd
 import streamlit as st
 
 import wording
-from food_bo import WORKBOOK_MIME
+from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from ui_helpers import (
-    TAB_RESULTS, TAB_SETUP, best_formulation_no, bounds_caution, confirm_action,
+    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    best_formulation_no,
+    bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, readiness, saved_ok, scale_error, scaled_caution,
-    table_height, unit_after_number,
+    park_clear, readiness, saved_ok, scale_error,
+    table_height, typed_batch_size, unit_after_number,
 )
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
@@ -36,92 +41,158 @@ def _left_out(formulation_no):
     return bool(st.session_state.get(f"f{formulation_no}_leave_out", False))
 
 
-# The (project, batch) this session has already opened the total box for.
-# After that an empty box means the user emptied it, which is a value of its
-# own and must reach the file.
+# The Batch size box. Its session key keeps its old spelling — clear_scale_total
+# and app.py's form list are written to it — while what it asks has changed:
+# it is the weight of ONE formulation in the round on screen, and changing it
+# rewrites the round rather than the picture of it. Named in ui_helpers,
+# because tab 1 reads the same box.
+_BATCH_SIZE_KEY = BATCH_SIZE_KEY
+
+# The (project, round, size) the box has already been opened for. The size is
+# part of the mark because it is also the number scale_round was last called
+# with: a box holding anything else is the bench changing it.
 _SEEDED_TOTAL = "_scale_total_seeded"
 
-
-def _seed_mark(opt, total):
-    """What the box is up to date with: whose batch it belongs to AND the
-    number stored on it. The batch's identity alone was not enough — the
-    stored total can change under a session that has already rendered that
-    same batch (Open a saved copy, Reload project after a save error,
-    reopening a project whose new batch is number 1 again), and the seed was
-    skipped every time."""
-    return (opt.project_name, opt.pending_batch_no, total)
+# Set by a size that was refused, read by the seeding on the next run: the
+# box goes back to the size the round is actually made to, rather than
+# sitting on a number nothing on the page is a number of.
+_BATCH_SIZE_REFUSED = "_scale_total_refused"
 
 
-def _seed_scale_total(opt):
-    """Open the box at the total its batch is stored with.
+def _seed_mark(opt, size):
+    """What the box is up to date with: whose round it belongs to AND the
+    size on it. The round's identity alone was not enough — the stored size
+    can change under a session that has already rendered that same round
+    (Open a saved copy, Reload project after a save error, reopening a
+    project whose new round is number 1 again), and the seed was skipped
+    every time.
+
+    An EMPTIED box is not an answer. There is no size of nothing: the round
+    keeps the amounts the box already moved, and clearing the stored size
+    while leaving those amounts would be worse than either. So the box is
+    re-seeded from the round's own size on the next run — it never sits
+    blank over a round that has one, saying nothing about the numbers
+    printed under it."""
+    return (opt.project_name, opt.pending_batch_no, size)
+
+
+def _prefill(opt):
+    """What the Batch size box opens holding, or None for a blank box.
+
+    Only a number the round is ALREADY made to: the size it is stored with,
+    else the project's default batch size. Nothing else — a box that opened
+    at the mean of the rows' own sums put a number on screen that no
+    formulation weighed, refused it out loud when the allowed amounts could
+    not reach it, and could not be confirmed by typing it back. A blank box
+    and the placeholder ask the question without answering it.
+    """
+    stored = getattr(opt, 'pending_batch_total', None)
+    if stored is not None:
+        return float(stored)
+    project = getattr(opt, 'formulation_total', None)
+    return None if project is None else float(project)
+
+
+def _seed_batch_size(opt):
+    """Open the box at the size the round is being made to.
 
     A session that did not type the number knows nothing about it — a
-    reopened window, a project switched back to, a saved copy just opened — and
-    drew an empty box. The empty box then wrote its own blank over the saved
-    total on the very first render, taking `batch_totals` down with it once
-    results were in.
-
-    Keyed rather than done once: a project switch parks the box empty rather
-    than popping it, so the key is there holding None when the next project
-    arrives, and `setdefault` would have passed straight over it. Assigning a
-    widget's key is legal here and nowhere later — this runs before the box
-    is created."""
-    if opt.has_formulation_total():
-        return          # no box on this tab to seed: tab 1 holds the total
-    stored = getattr(opt, 'pending_batch_total', None)
-    mark = _seed_mark(opt, stored)
-    if st.session_state.get(_SEEDED_TOTAL) == mark:
+    reopened window, a project switched back to, a saved copy just opened —
+    and drew an empty box. Keyed rather than done once: a project switch
+    parks the box empty rather than popping it, so the key is there holding
+    None when the next project arrives, and `setdefault` would have passed
+    straight over it. Assigning a widget's key is legal here and nowhere
+    later — this runs before the box is created."""
+    if opt.one_amount_unit() is None:
+        return          # no box is drawn while the units differ
+    size = _prefill(opt)
+    mark = _seed_mark(opt, size)
+    emptied = size is not None and typed_batch_size(opt) is None
+    refused = bool(st.session_state.pop(_BATCH_SIZE_REFUSED, False))
+    if st.session_state.get(_SEEDED_TOTAL) == mark and not (emptied or refused):
         return
     st.session_state[_SEEDED_TOTAL] = mark
-    if stored is not None and opt.one_amount_unit() is not None:
-        st.session_state["scale_total"] = float(stored)
+    if size is not None:
+        st.session_state[_BATCH_SIZE_KEY] = float(size)
 
 
-def _store_total(opt, scale_to):
-    """Keep what the box holds with the batch, so a reopened window and tab 3
-    both still know what the bench weighed out.
+def _previous_size_line(opt):
+    """The line this round owes the last one when it is not being made to
+    the same size, or "" when there is nothing to say.
 
-    A blank is written only when there was a box to blank. A project that
-    weighs nothing out never draws one, and a value left behind in its
-    session must not be read as the user clearing a total they were never
-    shown.
+    Only for a round with no size of its own: one the bench has re-sized is
+    at a number the bench typed, and saying where it came from is telling
+    them what they just did. A size belongs to the round it was typed for,
+    and the next round starts at the project's default — silently, until
+    now, with the old number still on the tab next door.
+    """
+    if getattr(opt, 'pending_batch_total', None) is not None:
+        return ""
+    size = opt.open_round_size()
+    no = opt.pending_batch_no
+    if size is None or no is None:
+        return ""
+    previous = opt.last_batch_no()
+    if previous is None:
+        return ""
+    was = opt.batch_total(previous)
+    if was is None or abs(float(was) - float(size)) < 1e-9:
+        return ""
+    return wording.round_uses_the_default_size(
+        no, opt.batch_total_text(size), previous,
+        opt.batch_total_text(was))
 
-    The mark is re-stamped afterwards: with the stored number in it, the
-    session's own write would otherwise read as a total that changed
-    somewhere else, and the next run would fill a deliberately emptied box
-    back in."""
-    if scale_to is None and not opt.has_ingredients():
-        return
-    if opt.has_formulation_total():
-        # The box is not drawn while the project has a total of its own, so
-        # there is no answer of the user's to record — and a value left
-        # behind in the session must not blank the total a past batch of this
-        # project was made to.
-        return
-    opt.set_pending_batch_total(scale_to)
-    st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, scale_to)
+
+def _unreachable(opt, typed):
+    """Why this size cannot be made, or "" when it can.
+
+    The same arithmetic Set up's box does, in the same two sentences, with
+    the noun of THIS box: a size outside what the allowed amounts add up to
+    has no answer, and no search can find one.
+    """
+    if typed is None:
+        return ""
+    lowest, highest = opt.total_reach()
+    if typed > highest:
+        return wording.total_not_reachable_at_most(
+            opt.batch_total_text(typed), opt.batch_total_text(highest),
+            noun=wording.BATCH_SIZE_NOUN)
+    if typed < lowest:
+        return wording.total_not_reachable_at_least(
+            opt.batch_total_text(typed), opt.batch_total_text(lowest),
+            noun=wording.BATCH_SIZE_NOUN)
+    return ""
 
 
-def _scale_to(opt):
-    """The total every formulation is scaled to, or None while the box is empty
-    — and always None while the ingredients are not all in one unit, because
-    the box is not offered then and a value left behind in it must not go on
-    quietly rewriting amounts nobody can see it acting on.
+def _apply_batch_size(opt, typed):
+    """Make the round to the size in the box, the moment that size changes,
+    and hand back the refusal when it cannot be made at all.
 
-    The box starts EMPTY, and empty means 'as generated'. It used to open
-    pre-filled with the first formulation's total, which was wrong in both
-    directions: the other rows still showed their own (larger) totals, and
-    typing that same number back was a silent no-op. An empty box has one
-    meaning, any number in it has the other, and clearing it undoes the
-    scaling."""
-    if opt.one_amount_unit() is None:
-        return None
-    if opt.has_formulation_total():
-        return None     # tab 1's total is the answer; the box is not drawn
-    value = st.session_state.get("scale_total")
-    if value is None or float(value) <= 0:
-        return None
-    return float(value)
+    Only a CHANGE scales. The box opens prefilled, and a round the bench has
+    not re-sized keeps the amounts the model chose — including the one
+    suggestion a limit would not let be snapped onto the project's default,
+    which says so in its own line under the table. Scaling on the prefill
+    would rewrite that row behind the caption explaining it.
+
+    A size the ingredients cannot add up to is not made. The app printed
+    sheets for 250 g directly under a line saying 250 g was impossible, and
+    sent the bench out with amounts the project says it does not allow. The
+    round keeps the size it has, the box comes back holding that size on the
+    next run, and the refusal is the only thing that changes on screen.
+    """
+    if typed is None:
+        return ""
+    mark = st.session_state.get(_SEEDED_TOTAL)
+    applied = mark[2] if isinstance(mark, tuple) and len(mark) == 3 else None
+    if applied is not None and float(applied) == typed:
+        return ""
+    trouble = _unreachable(opt, typed)
+    if trouble:
+        st.session_state[_BATCH_SIZE_REFUSED] = True
+        return trouble
+    opt.scale_round(typed)
+    st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, typed)
+    return ""
 
 
 def _any_value_typed(opt):
@@ -173,10 +244,12 @@ def _no_batch(opt):
     # The opening value comes from session state (see app.py's _FORM_FRESH):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
-    st.session_state.setdefault("batch_size", 3)
-    size = st.number_input(wording.FORMULATIONS_TO_GENERATE, min_value=1,
-                           max_value=10, step=1, key="batch_size")
-    n = int(size)
+    # "how_many", not "batch_size": Batch size is the weight of one
+    # formulation, and this box asks how many of them to make.
+    st.session_state.setdefault("how_many", 3)
+    how_many = st.number_input(wording.FORMULATIONS_TO_GENERATE, min_value=1,
+                               max_value=10, step=1, key="how_many")
+    n = int(how_many)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
@@ -200,30 +273,41 @@ def _own_key(name):
 def _own_recipe(opt):
     """What the boxes hold, or None while any of them is empty.
 
-    A paused variable is pinned exactly as a generated formulation pins it
-    (opt._frozen_value), so the stored amounts name every variable the
-    project has — which is what the batch table, the sheets and tell() all
-    expect. Inventing a second rule here would put one formulation's paused
-    ingredient at a different amount from its neighbour's in the same batch.
+    A fixed variable is pinned exactly as a generated formulation pins it —
+    at the one amount its Lowest and Highest agree on — so the stored amounts
+    name every variable the project has, which is what the batch table, the
+    sheets and tell() all expect. Inventing a second rule here would put one
+    formulation's fixed ingredient at a different amount from its
+    neighbour's in the same batch.
     """
     recipe = {}
-    for var in opt.active_variables():
+    for var in opt.varying_variables():
         value = st.session_state.get(_own_key(var['name']))
         if value is None:
             return None
         recipe[var['name']] = float(value)
-    for var in opt.inactive_variables():
-        recipe[var['name']] = opt._frozen_value(var)
+    for var in opt.fixed_variables():
+        recipe[var['name']] = opt._fixed_value(var)
     return recipe
+
+
+# What `Start from the best so far` typed into the boxes, and which
+# formulation it came from. Kept so the form can say, before Add, that the
+# app's own numbers sit outside today's allowed amounts — and so that being
+# told off for them afterwards is not the first the reader hears of it.
+_PREFILLED_FROM = "_own_prefilled_from"
+_PREFILLED_AMOUNTS = "_own_prefilled_amounts"
 
 
 def _clear_own(opt):
     """Empty the form for the next one. Popping a widget key does not reach
     the browser — the mounted box posts its old value straight back — so each
     is parked and assigned before the boxes are drawn again."""
-    for var in opt.active_variables():
+    for var in opt.varying_variables():
         park_clear(_own_key(var['name']), None)
     park_clear("own_note", "")
+    st.session_state.pop(_PREFILLED_FROM, None)
+    st.session_state.pop(_PREFILLED_AMOUNTS, None)
 
 
 def _start_from_best(opt, best_no):
@@ -235,14 +319,20 @@ def _start_from_best(opt, best_no):
     if index is None:
         return
     recipe = opt.recipe_history[index]
-    for var in opt.active_variables():
+    prefilled = {}
+    for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount
         # in it. Its box opens EMPTY rather than at zero: zero is an amount
         # the user never chose, and Add refuses a blank, which is the ask.
         recorded = recipe.get(var['name'])
-        park_clear(_own_key(var['name']),
-                   None if recorded is None else float(recorded))
+        # To the precision a balance works to, like every other amount on
+        # screen: the boxes opened at 21.738359306488338.
+        value = None if recorded is None else round(float(recorded), 2)
+        prefilled[var['name']] = value
+        park_clear(_own_key(var['name']), value)
     park_clear("own_note", wording.repeat_of_formulation(best_no))
+    st.session_state[_PREFILLED_FROM] = int(best_no)
+    st.session_state[_PREFILLED_AMOUNTS] = prefilled
     st.rerun()
 
 
@@ -259,8 +349,11 @@ def _add_own(opt):
         return
     # A caution, never a refusal: an amount outside what the project allows is
     # still a formulation the user means to make, and the model learns from it.
-    cautions = [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
-                            for v in opt.active_variables()) if c]
+    # Not said twice, though: amounts the app typed into the boxes itself have
+    # already been said once, in the form, before Add was pressed.
+    cautions = ([] if _prefilled_unchanged(opt) else
+                [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
+                             for v in opt.varying_variables()) if c])
     _clear_own(opt)
     flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
     for caution in cautions:
@@ -282,7 +375,7 @@ def _own_formulation(opt):
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
             st.caption(wording.ADD_OWN_NO_BATCH_CAPTION)
-        for var in opt.active_variables():
+        for var in opt.varying_variables():
             low, high = (float(b) for b in var['bounds'])
             # No min_value/max_value: clamping would turn a deliberate 30 g
             # into a silent 25, exactly as it would a measured value. The
@@ -291,12 +384,17 @@ def _own_formulation(opt):
             st.session_state.setdefault(_own_key(var['name']), None)
             # The batch table's own header, so the box asks for the amount in
             # the unit the table beneath it prints: `Pea protein (g)`, and a
-            # cook temperature in °C rather than in nothing at all.
+            # cook temperature in °C rather than in nothing at all. An amount
+            # reads to two decimals, as it does in every table and on every
+            # sheet; a setting is dialled in and keeps its own.
             st.number_input(
                 opt._amount_column(var['name']),
-                placeholder=f"{low:g}–{high:g}",
+                placeholder=amount_range_placeholder(low, high),
                 key=_own_key(var['name']),
+                **({} if var.get('category') == 'process'
+                   else {"format": "%.2f"}),
             )
+        _prefilled_caption(opt)
         st.session_state.setdefault("own_note", "")
         # The note is why this formulation is worth a place in the batch; it
         # rides onto the table, the sheet and the stored result.
@@ -320,6 +418,39 @@ def _own_formulation(opt):
                                 use_container_width=True)
         if add:
             _add_own(opt)
+
+
+def _prefilled_unchanged(opt):
+    """True while the boxes still hold exactly what Start from the best so
+    far typed into them. A number the reader has since changed is theirs,
+    and the caution on the way in belongs to it."""
+    prefilled = st.session_state.get(_PREFILLED_AMOUNTS)
+    if not prefilled:
+        return False
+    for var in opt.varying_variables():
+        held = st.session_state.get(_own_key(var['name']))
+        want = prefilled.get(var['name'])
+        if (held is None) != (want is None):
+            return False
+        if held is not None and round(float(held), 2) != round(float(want), 2):
+            return False
+    return True
+
+
+def _prefilled_caption(opt):
+    """The one line the form owes amounts the app typed into it that today's
+    Lowest and Highest no longer allow. Said here, before Add, rather than
+    as a warning after it: the reader was told off for numbers they had not
+    chosen."""
+    no = st.session_state.get(_PREFILLED_FROM)
+    if no is None or not _prefilled_unchanged(opt):
+        return
+    outside = any(bounds_caution(opt, var['name'],
+                                 st.session_state.get(_own_key(var['name'])))
+                  for var in opt.varying_variables()
+                  if st.session_state.get(_own_key(var['name'])) is not None)
+    if outside:
+        st.caption(wording.prefilled_outside_caption(no))
 
 
 def _amount_format(opt, frame):
@@ -370,7 +501,7 @@ def _batch_table(opt, scale_to):
     )
     if scale_to is None:
         if opt.has_ingredients():
-            st.caption(wording.NOT_HELD_TO_A_TOTAL)
+            st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
@@ -381,7 +512,7 @@ def _batch_table(opt, scale_to):
         st.caption(wording.HOW_CHOSEN)
 
 
-def _scaled_cautions(opt, rows, scale_to):
+def _scaled_cautions(opt, rows, scale_to, sized):
     """The amounts on the table, checked against what the project allows.
 
     ONE line, however many ingredients on however many rows are outside: the
@@ -389,95 +520,85 @@ def _scaled_cautions(opt, rows, scale_to):
     per ingredient per row put eight lines of raw numbers between the box and
     the step below it, and said nothing the one line does not.
     """
-    for caution in opt.scaled_cautions(rows, scale_to):
+    for caution in opt.scaled_cautions(rows, scale_to, sized):
         st.caption(caution)
 
 
-def _scale_control(opt, unit, scale_to):
-    """The box that rewrites every formulation to a total, and the line under
-    it. `unit` is the unit the ingredients share, or None when they differ.
+def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
+    """The Batch size box, above the round table, and the lines under it.
+    `unit` is the unit the ingredients share, or None when they differ.
 
-    Two projects are offered nothing at all: one that weighs nothing out (a
-    fermentation project of settings alone has no total to scale to), and one
-    whose ingredients are in different units — scaling 10 g of powder and
-    40 ml of water to "400" is not a total of anything, and that one says so.
+    Always drawn, whether or not Set up holds a default: the size of what the
+    bench is about to weigh out is the first thing it needs to know, and
+    until 0.5.0 a project with a default showed nothing here at all — the
+    number was two tabs away, and making ONE round bigger meant editing the
+    project. Changing it here makes this round to that size and leaves the
+    default alone.
+
+    One project is offered nothing: one that weighs nothing out (a
+    fermentation project of settings alone has no size), and one whose
+    ingredients are in different units — making 10 g of powder and 40 ml of
+    water "400" is not a size of anything, and that one says so.
     """
     if not opt.has_ingredients():
-        return
-    if opt.has_formulation_total():
-        # The project already says how big a formulation is, and every row in
-        # the table was BUILT to that total rather than rewritten to it. A
-        # second box for the same number would let the bench answer the
-        # question twice, differently.
         return
     if unit is None:
         st.caption(wording.NEEDS_ONE_UNIT)
         return
-    st.session_state.setdefault("scale_total", None)
-    # "Formulation total", not "Range": Range is the measurement's range on
-    # tab 1, and one word cannot be two things across two tabs.
+    st.session_state.setdefault(_BATCH_SIZE_KEY, None)
     st.number_input(
-        wording.batch_total_label(unit),
-        min_value=0.0, step=1.0, placeholder=wording.BATCH_TOTAL_PLACEHOLDER,
-        key="scale_total",
-        help=wording.BATCH_TOTAL_HELP,
+        wording.batch_size_label(unit),
+        min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
+        key=_BATCH_SIZE_KEY,
+        help=wording.batch_size_help(unit),
     )
-    # The same refusal tab 1's box gives the same number: a total the allowed
-    # amounts cannot add up to is arithmetic with no answer, and printing the
-    # sheets for it sends the bench out with amounts the project says it does
-    # not allow. A warning, not a block — these rows already exist and the
-    # cautions below say what it did to them.
-    if scale_to is not None:
-        lowest, highest = opt.total_reach()
-        if scale_to > highest:
-            st.caption(wording.total_not_reachable_at_most(
-                opt.batch_total_text(scale_to),
-                opt.batch_total_text(highest)))
-        elif scale_to < lowest:
-            st.caption(wording.total_not_reachable_at_least(
-                opt.batch_total_text(scale_to),
-                opt.batch_total_text(lowest)))
-    # No "Amounts shown for this total." under the box: the box holds the
-    # total, the help says what it does, and the line under the two download
-    # buttons names the number the files were written for. Three sentences
-    # for one fact; this was the one that carried nothing of its own.
+    line = _previous_size_line(opt)
+    if line:
+        st.caption(line)
+    # The refusal the size earned, worked out where the size is applied so
+    # that the sentence on screen and the round on disk can never disagree:
+    # the round was NOT made to this size, and the table, the download and
+    # its caption below are all still the size it was made to.
+    if refusal:
+        st.caption(refusal)
+    # The size is what pushed an amount out of what the project allows, so
+    # the line reads under the box that did it.
+    _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
 
 
-def _downloads(opt, scale_to):
-    """Step 2: the one file the bench works from, the total it is written to,
+def _downloads(opt, scale_to, sized):
+    """Step 2: the one file the bench works from, the size it is written to,
     and the one line that names it.
 
-    One download, not three. A batch used to leave the app as a sheet to fill
+    One download, not three. A round used to leave the app as a sheet to fill
     in, a set of sheets to print and a preview of those sheets on screen —
     three things to choose between before any of them could be carried to a
-    bench. The workbook is all three: a summary sheet the whole batch is
+    bench. The workbook is all three: a summary sheet the whole round is
     weighed out from and written back onto, and one sheet per formulation to
-    print and carry."""
+    print and carry.
+
+    No `Change the total` beside the line any more: the Batch size box is on
+    this screen, above the table, and a button that left the tab to answer a
+    question the tab already asks was the long way round.
+    """
     rows = opt.pending_batch
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
-        data=opt.workbook_bytes(rows, scale_to),
+        data=opt.workbook_bytes(rows, scale_to, sized),
         file_name=wording.workbook_file_name(opt.project_name,
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
         type="primary" if lit else "secondary",
         use_container_width=True,
     )
-    # The box belongs with the file it changes, not with the table: the table
-    # shows what it does, the sheets are what it is for.
-    _scale_control(opt, opt.one_amount_unit(), scale_to)
     if scale_to is not None:
         # The file carries the amounts on screen, so the size it was written
         # for is named directly under it.
         st.caption(wording.sheets_show_total_caption(
             opt.batch_total_text(scale_to)))
-    # The total is what pushed an amount out of what the project allows, so
-    # the line reads under the box that did it rather than under a table two
-    # steps above.
-    _scaled_cautions(opt, rows, scale_to)
 
 
 def _regenerate(opt, rows, numbers):
@@ -598,7 +719,7 @@ def _record_results(opt):
         st.info(wording.NOTHING_TO_SAVE)
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
-    # do not ("Back to Batch 2 · 2 to record"). One word could not mean both.
+    # do not ("Back to Round 2 · 2 to record"). One word could not mean both.
     #
     # The denominator is every row still open, ticked ones included, so it
     # matches the sheets in the technician's hand: "1 of 1 complete · 1 not
@@ -668,10 +789,15 @@ def _save_results(opt, kept, left_out, to_record):
 def _read_results_file(opt, uploaded):
     """An uploaded results file in either shape it can arrive in: the
     workbook's own summary sheet, read back as one row per formulation, or a
-    comma-separated file with the columns that sheet's rows are named for."""
+    comma-separated file with the columns that sheet's rows are named for.
+
+    Both come back as an UploadedWorkbook, so what the Save button reads is
+    one shape: a file of columns says nothing about lots or about what was
+    weighed, and says it by carrying nothing.
+    """
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
         return opt.results_from_workbook(uploaded)
-    return pd.read_csv(uploaded)
+    return UploadedWorkbook(pd.read_csv(uploaded), {}, {})
 
 
 def _upload_preview(opt, parsed, left_out):
@@ -734,12 +860,15 @@ def _upload(opt):
             except Exception:
                 st.session_state.pop("_results_upload", None)
                 st.error(wording.FILE_UNREADABLE)
-        sheet = st.session_state.get("_results_upload")
+        # The rows, what the Actual cells said, and the lots: three things
+        # the file carried, kept apart all the way to Save.
+        sheet, weighed, lots = uploaded_parts(
+            st.session_state.get("_results_upload"))
         if sheet is None:
             return
         try:
             parsed, left_out = opt.parse_batch_results(
-                sheet, opt.pending_batch, with_skipped=True)
+                sheet, opt.pending_batch, with_skipped=True, weighed=weighed)
         except ValueError as e:
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
@@ -755,7 +884,13 @@ def _upload(opt):
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
             try:
                 for number, results, note in parsed:
-                    opt.tell(by_number[number], results, formulation_no=number,
+                    # What was weighed, where the sheet's Actual cells say
+                    # something different from what was printed. The note
+                    # already says so: parse_batch_results put the marker in
+                    # front of it.
+                    opt.tell(opt.amounts_as_weighed(by_number[number],
+                                                    weighed.get(number)),
+                             results, formulation_no=number,
                              batch_no=batch_no, note=note)
                     # Stop at the first row that did not reach the disk rather
                     # than telling the user a whole sheet was recorded.
@@ -765,11 +900,18 @@ def _upload(opt):
                     # The box was ticked on the sheet, so the row is recorded
                     # as not scored in the same words the grid's tick writes.
                     opt.record_skipped(
-                        number, batch_no, by_number[number],
+                        number, batch_no,
+                        opt.amounts_as_weighed(by_number[number],
+                                               weighed.get(number)),
                         note=(wording.not_scored_with_note(note) if note
                               else wording.NOT_SCORED))
                     if not saved_ok(opt):
                         return
+                # The lots the sheet came back with belong to the round, not
+                # to any one formulation, so they are kept once at the end.
+                opt.store_lots(batch_no, lots)
+                if not saved_ok(opt):
+                    return
             except (ValueError, TypeError, KeyError) as e:
                 st.error(wording.could_not_save(e))
                 return
@@ -828,18 +970,29 @@ def render(opt, storage):
         _own_formulation(opt)
         return
 
+    _seed_batch_size(opt)
+    typed = typed_batch_size(opt)
+    # A change to the box makes the round to that size — the amounts
+    # themselves, not a picture of them — and remembers it with the round, so
+    # a reopened window and tab 3 both still know what the bench weighed out.
+    refusal = _apply_batch_size(opt, typed)
+    # After the scaling, never before: scale_round replaces the rows, and a
+    # list read a line earlier would be the amounts nobody is making.
     rows = opt.pending_batch
-    _seed_scale_total(opt)
-    typed = _scale_to(opt)
-    # Kept with the batch, so tab 3 can still say what the bench weighed out
-    # once the batch is closed. A no-op on a rerun that changed nothing.
-    _store_total(opt, typed)
-    # The project's own total wins over the box, and the one accessor is what
-    # keeps the table, the workbook and tab 3 naming the same number.
-    scale_to = opt.sheet_total(typed)
+    # The round's own size wins over the project's default, and the one
+    # accessor is what keeps the table, the workbook and tab 3 naming the
+    # same number.
+    scale_to = opt.open_round_size()
+    # Whether scale_round has been over these rows. Only this screen knows
+    # it, so it is said here once and handed to everything that draws a
+    # caution off it rather than being guessed at inside the model.
+    sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
     st.markdown(wording.STEP_MAKE_HEADING)
+    # Above the table: the size is what the table is a table of.
+    _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
+                        sized, refusal)
     _batch_table(opt, scale_to)
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()
@@ -871,7 +1024,7 @@ def render(opt, storage):
     )
 
     with print_slot:
-        _downloads(opt, scale_to)
+        _downloads(opt, scale_to, sized)
     with record_slot:
         _record_results(opt)
     with own_slot:

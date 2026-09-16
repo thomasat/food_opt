@@ -225,7 +225,7 @@ def test_fmt_setting_rounds_a_dial_to_what_a_dial_can_hold():
 
 def test_join_unit_and_goal_line_are_re_exported():
     assert join_unit("7", "/10") == "7/10"
-    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "target 6 N"
+    assert goal_line({"goal": "target", "target": 6, "unit": "N"}) == "Target 6 N"
 
 
 def test_scale_error_names_the_value_the_range_and_the_fix():
@@ -233,8 +233,8 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Widen the range in "
-        "Set up, or check the value."
+        "Firmness 12 N is outside your range of 0 to 10 N. Raise Highest "
+        "measurable in Set up, or check the value."
     )
 
 
@@ -463,16 +463,16 @@ def _stray_literals(path):
     return offenders
 
 
-def test_the_discarded_notice_names_the_batch_and_what_to_do_next():
-    """Three edits lead here — the ingredient list, a paused ingredient or
+def test_the_discarded_notice_names_the_round_and_what_to_do_next():
+    """Three edits lead here — the ingredient list, a held ingredient or
     setting, the allowed amounts — and naming all three in one subordinate
     clause was unreadable on one pass and still never said what to do. The
-    batch is named because the notice lands above the tabs."""
+    round is named because the notice lands above the tabs."""
     notice = wording.batch_discarded_notice(2)
-    assert notice == ("Batch 2 was discarded: your set-up changed after it "
+    assert notice == ("Round 2 was discarded: your set-up changed after it "
                       "was made. Generate a new one."), notice
     assert "generated" not in notice, notice
-    assert wording.batch_discarded_notice().startswith("The open batch")
+    assert wording.batch_discarded_notice().startswith("The open round")
 
 
 def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():
@@ -552,39 +552,43 @@ def test_the_scaled_caution_names_the_ingredients_only_while_it_can():
     named = wording.scaled_amounts_caution("150 g", names_text="Water",
                                            n_outside=1, n_total=8)
     assert named == ("At 150 g, Water goes past the amounts you allowed. "
-                     "Print at a smaller total, or widen them in Set up.")
+                     "Print at a smaller batch size, or widen them in "
+                     "Set up.")
     two = wording.scaled_amounts_caution("150 g", names_text="Water and Salt",
                                          n_outside=2, n_total=8)
     assert two.startswith("At 150 g, Water and Salt go past the amounts you "
                           "allowed.")
     counted = wording.scaled_amounts_caution("150 g", n_outside=8, n_total=8)
     assert counted == ("At 150 g, 8 of 8 ingredients go past the amounts you "
-                       "allowed. Print at a smaller total, or widen them in "
+                       "allowed. Print at a smaller batch size, or widen them in "
                        "Set up.")
     # One spelling of what was exceeded, whichever branch wrote the line.
     for line in (named, two, counted):
         assert wording.AMOUNTS_YOU_ALLOWED in line, line
 
 
-def test_the_property_controls_name_the_properties_they_set():
-    """"Set property values" said the developer's word for the thing twice
-    and the thing itself never. The button keeps a short, stable label — a
-    property name is the project's own and can be long — and the dialog it
-    opens does the naming, as does the flash."""
-    assert wording.SET_PROPERTIES_BUTTON == "Set properties"
-    assert wording.properties_for_caption("Fat and Sodium", "Water") == (
-        "Fat and Sodium in Water, per 100 g. An empty box counts as 0 in "
+def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
+    """The grid names every property across its head, so its caption says the
+    two things the head cannot: what one figure is per, and what the app does
+    with a cell nobody filled in."""
+    assert wording.PROPERTIES_HEADING == "**Properties**"
+    assert wording.properties_grid_caption() == (
+        "Each ingredient's figure, per 100 g. An empty cell counts as 0 in "
         "any limit.")
-    # Names that carry the basis themselves do not have it added a third time.
-    said = wording.properties_for_caption(
-        "Fat per 100 g and Sodium per 100 g", "Pea protein isolate", True)
-    assert said == ("Fat per 100 g and Sodium per 100 g in Pea protein "
-                    "isolate. An empty box counts as 0 in any limit.")
+    # Names that carry the basis themselves do not have it added twice.
+    said = wording.properties_grid_caption(True)
+    assert said == ("Each ingredient's figure. An empty cell counts as 0 in "
+                    "any limit.")
     assert ", per 100 g." not in said, said
-    # Short names keep the caption inside the tab's one-line budget.
-    assert len(wording.properties_for_caption("Fat and Sodium", "Water")) < 100
-    assert wording.properties_saved("Fat", "Water") == "Saved Fat for Water."
+    # It keeps the caption inside the tab's one-line budget.
+    assert len(wording.properties_grid_caption()) < 100
+    assert wording.PROPERTIES_SAVED == "Properties saved."
+    assert wording.SAVE_PROPERTIES_BUTTON == "Save changes"
     assert wording.SAVE_BUTTON == "Save"
+    # The one-ingredient-at-a-time editor and its words are gone.
+    assert not hasattr(wording, "SET_PROPERTIES_BUTTON")
+    assert not hasattr(wording, "properties_for_caption")
+    assert not hasattr(wording, "properties_saved")
     assert not hasattr(wording, "SAVE_VALUES_BUTTON")
     assert not hasattr(wording, "values_for_caption")
 
@@ -600,10 +604,14 @@ def test_the_delete_button_prints_the_numbers_while_they_fit():
 
 def test_the_property_rule_is_read_where_properties_are_used():
     """Properties never touch closeness — they feed limits only — so the
-    sentence about a blank box belongs in the Limits caption, not in the
-    closeness fold two sections above it."""
-    assert ("An ingredient with no figure for a property counts as 0 in any "
-            "limit on it.") in wording.LIMITS_CAPTION
+    blank-figure rule belongs beside the properties themselves.
+
+    It used to ride on the Limits caption because the properties were a fold
+    somewhere else on the tab. They are a grid a few lines under that
+    caption now, so the caption above the grid says it and the Limits
+    caption does not say it a second time."""
+    assert "counts as 0" in wording.properties_grid_caption()
+    assert "counts as 0" not in wording.LIMITS_CAPTION, wording.LIMITS_CAPTION
     joined = " ".join(wording.HOW_CLOSENESS)
     assert "property" not in joined, joined
     assert "counts as containing none" not in joined, joined
@@ -627,8 +635,10 @@ def test_the_not_made_names_are_gone_from_wording():
                  "FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION"):
         assert not hasattr(wording, name), name
     assert wording.NOT_SCORED == "Not scored"
-    # A box to tick with a pen, on a sheet a spreadsheet now prints.
-    assert wording.NOT_SCORED_CHECKBOX_SHEET == "Not scored ☐"
+    # The label is the words; the box goes in the cell beside it, which is
+    # the cell the sheet will take a mark in.
+    assert wording.NOT_SCORED_CHECKBOX_SHEET == "Not scored"
+    assert wording.TICK_BOX == "☐"
     assert wording.NOT_SCORED_CAN_BE_SCORED_CAPTION == (
         "Not-scored formulations can be scored here.")
     assert wording.formulation_scored(5) == "Formulation 5 scored."
@@ -653,3 +663,56 @@ def test_the_results_counter_says_complete():
     assert not hasattr(wording, "filled_in_counter")
     assert wording.partly_filled_suffix(1) == " · 1 partly filled"
     assert wording.not_scored_counter_suffix(1) == " · 1 not scored"
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 · tab 1's editable grids keep their state under a key that
+#  turns over
+# ------------------------------------------------------------------ #
+
+def test_a_grid_is_emptied_by_drawing_a_new_one():
+    """A data editor's value cannot be assigned from session state at all —
+    Streamlit refuses the write — so the park-and-assign discipline every
+    other box on the page uses is not available here. Discard changes, a
+    Save that lands and a project switch all turn the key over instead,
+    which draws a new editor; Streamlit then drops the state of the widget
+    the run did not create.
+
+    The key and the counter are two different keys, and the counter's name
+    is not a widget's: assigning it is legal from a handler."""
+    import streamlit as st
+    import ui_helpers
+    st.session_state.clear()
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_0"
+    ui_helpers.clear_grid("ingredient_grid")
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_1"
+    # One grid's counter is its own: turning the ingredients grid over must
+    # not throw away what has been typed into the measurements grid.
+    assert ui_helpers.grid_key("measurement_grid") == "measurement_grid_0"
+    ui_helpers.clear_grid("measurement_grid")
+    assert ui_helpers.grid_key("measurement_grid") == "measurement_grid_1"
+    assert ui_helpers.grid_key("ingredient_grid") == "ingredient_grid_1"
+    st.session_state.clear()
+
+
+def test_the_three_grid_keys_the_app_owns_are_named_once():
+    """Every door that replaces the variable list turns all three over
+    through reset_grids(), and the test helpers address them by name;
+    ui_helpers is where they are spelled."""
+    import ui_helpers
+    assert ui_helpers.GRID_KEYS == ("ingredient_grid", "measurement_grid",
+                                    "property_grid")
+    import ui_setup
+    assert (ui_setup.ING_GRID_KEY, ui_setup.MEAS_GRID_KEY,
+            ui_setup.PROP_GRID_KEY) == ui_helpers.GRID_KEYS
+
+
+def test_the_out_of_range_hint_names_a_control_on_the_screen():
+    """R13: "Widen the range in Set up" named nothing there — the
+    measurements grid's columns are Lowest measurable and Highest
+    measurable. The two spellings are pinned together because the hint is
+    written above the column headers and cannot read them."""
+    import wording
+    assert wording.HIGHEST_MEASURABLE_LABEL in wording.WIDEN_RANGE_HINT
+    assert wording.WIDEN_RANGE_HINT == (
+        " Raise Highest measurable in Set up, or check the value.")
