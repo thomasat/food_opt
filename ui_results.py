@@ -144,9 +144,14 @@ def _best(opt):
     row = {'formulation': number, 'recipe': recipe, 'note': note}
     shown, _ = opt.shown_recipe(row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
-    st.table(pd.DataFrame(_amount_rows(opt, shown),
+    # A blank index: st.table always draws one, and a list of ingredients
+    # numbered from 0 beside a properties grid numbered from 1 had the cold
+    # reader reading two different tables of the same ingredients.
+    rows = _amount_rows(opt, shown)
+    st.table(pd.DataFrame(rows,
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN]))
+                                   wording.AMOUNT_COLUMN],
+                          index=[""] * len(rows)))
     # The amounts above are the ones the bench weighed out, so the same lines
     # tab 2 shows under the box belong under the table that shows them: it
     # is the total, not the formulation, that pushed them out — and a row
@@ -382,9 +387,14 @@ def _score_row(opt, choice):
     shown_row = {'formulation': int(choice), 'recipe': recipe}
     shown, _ = opt.shown_recipe(shown_row, total)
     st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
-    st.table(pd.DataFrame(_amount_rows(opt, shown),
+    # A blank index: st.table always draws one, and a list of ingredients
+    # numbered from 0 beside a properties grid numbered from 1 had the cold
+    # reader reading two different tables of the same ingredients.
+    rows = _amount_rows(opt, shown)
+    st.table(pd.DataFrame(rows,
                           columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN]))
+                                   wording.AMOUNT_COLUMN],
+                          index=[""] * len(rows)))
     # It is the total, not the formulation, that pushes an amount out of the
     # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
@@ -677,7 +687,12 @@ def _progress_chart(opt):
             wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
             wording.OVERALL_SCORE_COLUMN: [float(y) for y in opt.Y_history],
             wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
-        }).set_index(wording.FORMULATION_CAP), height=220)
+        }).set_index(wording.FORMULATION_CAP), height=220,
+            # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
+            # with one round of data and nothing on the chart said what
+            # either number was.
+            x_label=wording.FORMULATION_CAP,
+            y_label=wording.OVERALL_SCORE_COLUMN)
         st.caption(wording.PROGRESS_CHART_CAPTION)
 
 

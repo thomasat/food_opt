@@ -7783,7 +7783,9 @@ def _first(order, text):
 
 def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
     """Make them, print the sheets, record what you measured. The screen is
-    in that order, and each step says which one it is."""
+    in that order. The headings carry no numbers of their own: the tab
+    strip above them is 1 · 2 · 3, and "3 · Record the results" under
+    "3 · Results" had the cold reader clicking the tab."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
@@ -7812,9 +7814,9 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.GENERATE_DIFFERENT_BATCH)), order
     assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
     # Step 1 carries no count of its own: the title above it already has one.
-    assert wording.STEP_MAKE_HEADING == "##### 1 · Make the formulations"
-    assert wording.STEP_PRINT_HEADING == "##### 2 · Print the sheets"
-    assert wording.STEP_RECORD_HEADING == "##### 3 · Record the results"
+    assert wording.STEP_MAKE_HEADING == "##### Make the formulations"
+    assert wording.STEP_PRINT_HEADING == "##### Print the sheets"
+    assert wording.STEP_RECORD_HEADING == "##### Record the results"
 
 
 def test_the_ready_flash_says_what_to_do_next(burger):

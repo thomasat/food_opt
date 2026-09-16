@@ -328,7 +328,8 @@ def _ingredient_columns(opt, frame):
             wording.UNIT_LABEL, default=opt.amount_unit or "g"),
         wording.VENDOR_LABEL: st.column_config.TextColumn(
             wording.VENDOR_LABEL, help=wording.VENDOR_HELP),
-        wording.SKU_LABEL: st.column_config.TextColumn(wording.SKU_LABEL),
+        wording.SKU_LABEL: st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP),
     }
     if wording.BASELINE_LABEL in frame.columns:
         columns[wording.BASELINE_LABEL] = _number_column(

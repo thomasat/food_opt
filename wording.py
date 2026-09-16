@@ -490,7 +490,7 @@ FORMULATIONS_TO_GENERATE = "Formulations to generate"
 # open): a formulation the scientist chose, added to the batch beside the
 # generated ones. It replaced the Repeat checkbox, which could only ever
 # repeat the best.
-ADD_OWN_EXPANDER = f"Add a {FORMULATION} of your own"
+ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND}"
 ADD_OWN_NO_BATCH_CAPTION = ("Want the app's suggestions too? Click "
                             "Generate first, then add yours.")
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
@@ -524,9 +524,13 @@ HOW_CHOSEN = ("Until five formulations have results, new ones are spread out "
 # The open batch reads as the three steps of the work, each headed with its
 # number. Step 1 takes no count of its own: the title directly above it
 # already says how many formulations there are.
-STEP_MAKE_HEADING = f"##### 1 · Make the {FORMULATION}s"
-STEP_PRINT_HEADING = "##### 2 · Print the sheets"
-STEP_RECORD_HEADING = "##### 3 · Record the results"
+# Unnumbered. The tab strip above them is 1 · Set up, 2 · Make a round,
+# 3 · Results, and "3 · Record the results" sitting under "3 · Results"
+# had the cold reader clicking the tab when they meant the section. The
+# order is the order they are drawn in.
+STEP_MAKE_HEADING = f"##### Make the {FORMULATION}s"
+STEP_PRINT_HEADING = "##### Print the sheets"
+STEP_RECORD_HEADING = "##### Record the results"
 
 
 def make_these(no, n):
@@ -661,7 +665,7 @@ def sheets_show_total_caption(total_text):
     return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
-GENERATE_DIFFERENT_BATCH = f"Generate a different {ROUND}"
+GENERATE_DIFFERENT_BATCH = f"Throw this {ROUND} away and generate again"
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):
@@ -945,6 +949,8 @@ VENDOR_LABEL = "Vendor"
 SKU_LABEL = "SKU"
 VENDOR_HELP = ("Printed on the sheets so the bench knows what to reach "
                "for. The app never reads it.")
+SKU_HELP = ("The supplier's own code for it, printed on the sheets beside "
+            "the vendor. The app never reads it.")
 # What each measurement is worth out of 100. It moved up here from the
 # measurements block below because the grid's own header is built from it,
 # and a module reads top to bottom.
@@ -954,9 +960,24 @@ SHARE_HELP = ("What this measurement is worth out of 100. Change one and "
               "the others move to keep the column adding up to 100.")
 SHARES_REBALANCED_CAPTION = "Shares adjusted to add up to 100 %."
 
-INGREDIENT_GRID_CAPTION = ("One row per ingredient or process setting. Type "
-                           "a new one on the empty row at the bottom. Type "
-                           "the same number in Lowest and Highest to fix an "
+
+def share_adjusted_to(name, share_text):
+    """'Juiciness adjusted to 30 %' — one row that gave way."""
+    return f"{name} adjusted to {share_text}"
+
+
+def shares_rebalanced(named):
+    """'Juiciness adjusted to 30 % so the shares add up to 100 %.' — the
+    rows that gave way, named. "Shares adjusted to add up to 100 %" beside
+    "Firmness saved." left the reader to find out which of the others had
+    moved, in a toast that fades."""
+    return f"{named} so the shares add up to 100 %."
+
+INGREDIENT_GRID_CAPTION = (f"One row per {INGREDIENT} or process setting; "
+                           f"Type says which ({KIND_INGREDIENT} or "
+                           f"{KIND_SETTING}). Type a new one on the empty "
+                           "row at the bottom. Type the same number in "
+                           f"{LOWEST_LABEL} and {HIGHEST_LABEL} to fix an "
                            "amount.")
 MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
                             "what each one is worth out of 100.")

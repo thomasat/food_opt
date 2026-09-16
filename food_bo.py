@@ -6541,8 +6541,22 @@ class FoodOptimizer:
                            for name, old in was_called.items()}
             self.set_shares(self._rebalanced_shares(typed, moved,
                                                     was_showing))
-            if _shares_moved(typed, self.share_percents()):
-                messages.append(("info", wording.SHARES_REBALANCED_CAPTION))
+            final = self.share_percents()
+            if _shares_moved(typed, final):
+                # Named, not counted: the reader typed one number and two
+                # other rows moved, and a line that said only "Shares
+                # adjusted" left them to find out which — in a toast.
+                gave_way = [wording.share_adjusted_to(name,
+                                                      self.share_text(name))
+                            for name in typed
+                            if name not in moved
+                            and abs(final.get(name, 0.0)
+                                    - was_showing.get(name, 0.0)) >= 0.5]
+                messages.append(("info",
+                                 wording.shares_rebalanced(
+                                     number_list(gave_way))
+                                 if gave_way
+                                 else wording.SHARES_REBALANCED_CAPTION))
             # A share moved is a row saved: without this a save that changed
             # nothing but the column of shares had no green line at all, and
             # the sentences that ride on it — the rescore, the best moving,

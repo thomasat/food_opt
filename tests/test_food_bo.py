@@ -3502,7 +3502,11 @@ class TestTheMeasurementsGrid:
                   **{wording.SHARE_COLUMN: 80.0}))
         assert errors == []
         assert opt.share_percents() == {"Firmness": 80, "Juiciness": 20}
-        assert wording.SHARES_REBALANCED_CAPTION in _said(messages, "info")
+        # The row that gave way is named, with what it gave way TO: the
+        # reader typed one number and watched another move.
+        assert _said(messages, "info") == [
+            "Juiciness adjusted to 20 % so the shares add up to 100 %."], \
+            _said(messages, "info")
 
     def test_three_shares_give_way_proportionally(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
