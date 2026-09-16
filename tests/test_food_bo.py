@@ -8628,11 +8628,21 @@ class TestFormulaRows:
 
     def test_a_balance_row_makes_every_formulation_add_up_to_the_batch_size(
             self, tmp_path, monkeypatch):
-        opt = self._opt(tmp_path, monkeypatch)
+        # Ranges the other two rows can overspend the batch size with:
+        # 80 + 60 is 140 against 100, so the balance really can be asked
+        # for less than none of the water and its floor is what stops it.
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("balance_rows")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 80)
+        opt.add_ingredient("Sugar", 5, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= rest")
         assert opt._var_by_name("Water")['balance'] is True
         assert opt._var_by_name("Water")['formula'] == "= rest"
+        assert opt._check_constraints({"Flour": 70.0, "Sugar": 50.0}) is False
         for recipe in opt.ask(3):
             assert sum(recipe.values()) == pytest.approx(100.0, abs=1e-6)
             assert recipe["Water"] >= 0.0
@@ -8858,3 +8868,86 @@ class TestFormulaRows:
         # The formula row itself is nobody's dependency and goes as ever.
         opt.remove_ingredient("Water")
         assert "Water" not in [v['name'] for v in opt.variables]
+
+    # ---------------------------------------------------------------- #
+    #  Fix round 1
+    # ---------------------------------------------------------------- #
+
+    def test_sizing_a_round_works_its_formulas_out_again(self, tmp_path,
+                                                         monkeypatch):
+        """Scaling every amount by one factor is right for a formula that is
+        a multiple and wrong for one with a number in it: the rows the
+        search moves are scaled, and the rows that are worked out are worked
+        out again at the new size."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("sized_formulas")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 50)
+        opt.add_ingredient("Sugar", 0, 50)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formula("Water", "= 5 + 0.1 × Flour")
+        assert opt.scaled_recipe({"Water": 7.0, "Flour": 20.0,
+                                  "Sugar": 10.0}, 74) == {
+            "Water": 9.0, "Flour": 40.0, "Sugar": 20.0}
+        opt.set_pending_batch([{"Water": 7.0, "Flour": 20.0, "Sugar": 10.0}])
+        opt.scale_round(74)
+        sized = opt._batch_rows(opt.pending_batch)[0]['recipe']
+        assert sized == {"Water": 9.0, "Flour": 40.0, "Sugar": 20.0}
+        assert opt._check_constraints(sized) is True
+
+        # ...and the balance takes up whatever that leaves, so a round with
+        # one lands exactly on the size that was asked for.
+        opt.clear_formula("Water")
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        opt.set_pending_batch([{"Water": 70.0, "Flour": 20.0, "Sugar": 10.0}])
+        opt.scale_round(150)
+        balanced = opt._batch_rows(opt.pending_batch)[0]['recipe']
+        assert balanced["Flour"] == pytest.approx(30.0)
+        assert balanced["Sugar"] == pytest.approx(15.0)
+        assert sum(balanced.values()) == pytest.approx(150.0)
+
+    def test_deleting_a_process_setting_a_formula_names_is_refused(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_process_parameter("Oven", 100, 200)
+        opt.set_formula("Water", "= 0.1 × Oven")
+        with pytest.raises(ValueError) as caught:
+            opt.remove_process_parameter("Oven")
+        assert str(caught.value) == wording.formula_reads_this_row("Oven",
+                                                                  "Water")
+        assert "Oven" in [v['name'] for v in opt.variables]
+        assert len(opt.ask(1)) == 1
+        # Cleared, it goes the way it always did.
+        opt.clear_formula("Water")
+        opt.remove_process_parameter("Oven")
+        assert "Oven" not in [v['name'] for v in opt.variables]
+
+    def test_the_amounts_recorded_are_what_the_tables_show(self, tmp_path,
+                                                           monkeypatch):
+        """A formulation was made at the amounts it was made at. A formula
+        written afterwards works out what the NEXT one will be; it does not
+        rewrite what the bench weighed out last week."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 70.0, "Flour": 20.0, "Sugar": 10.0},
+                 {"Taste": 6.0})
+        opt.set_formulation_total(120)
+        opt.set_formula("Water", "= rest")
+        column = opt._amount_column("Water")
+        shown = opt.history_frame(include_amounts=True)
+        assert shown[column].iloc[0] == pytest.approx(70.0)
+        exported = opt.history_export_frame()
+        assert exported[column].iloc[0] == pytest.approx(70.0)
+        assert exported[opt.total_column()].iloc[0] == pytest.approx(100.0)
+
+    def test_a_new_row_is_stored_the_way_a_saved_copy_restores_it(
+            self, tmp_path, monkeypatch):
+        """One shape on disk: a row added today and the same row restored
+        from a copy hold the same keys, or every comparison between them
+        reads as a change nobody made."""
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        other = FoodOptimizer("copy_of_rows")
+        other.import_json(state)
+        assert other.variables == opt.variables

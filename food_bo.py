@@ -1394,6 +1394,13 @@ class FoodOptimizer:
             # the shape on disk is one shape.
             'vendor': "",
             'sku': "",
+            # Worked out rather than searched, and the one row that takes
+            # whatever is left of the batch size. Blank and False are what
+            # a row typed by hand holds, and what import_json backfills, so
+            # a row added today and the same row restored from a copy are
+            # the same dict.
+            'formula': "",
+            'balance': False,
         }
         if unit is not None:
             var['unit'] = str(unit).strip()
@@ -1585,7 +1592,16 @@ class FoodOptimizer:
         self.save()
 
     def remove_process_parameter(self, name):
-        """Remove a process parameter by name."""
+        """Remove a process parameter by name.
+
+        Refused while another row's formula reads it: a cook temperature
+        can be half of what a row is worked out from, and deleting it would
+        leave that formula naming nothing."""
+        if any(v['name'] == name and v.get('category') == 'process'
+               for v in self.variables):
+            trouble = self._formula_reads_refusal(name)
+            if trouble:
+                raise ValueError(trouble)
         self.variables = [
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
@@ -2482,7 +2498,15 @@ class FoodOptimizer:
     def scaled_recipe(self, recipe, scale_to=None):
         """The same formulation written for a different formulation total. Every
         screen, sheet and download that shows a scaled amount goes through
-        this, so what is printed always equals what is displayed."""
+        this, so what is printed always equals what is displayed.
+
+        A row that is WORKED OUT is not scaled, it is worked out again at
+        the new size: multiplying `= 5 + 0.1 × Flour` by two makes 14 where
+        the formula says 9, and the row would then be the one thing on the
+        sheet that does not do what the Formula cell says. The rows the
+        search moves are scaled, `batch size` reads the new size, and the
+        formulas are filled in after — which is what puts a balance row
+        exactly on the size that was asked for."""
         if scale_to is None:
             return dict(recipe)
         total = self.ingredient_total(recipe)
@@ -2491,11 +2515,13 @@ class FoodOptimizer:
         factor = float(scale_to) / total
         out = dict(recipe)
         for var in self.variables:
+            if self.has_formula(var):
+                continue
             value = float(recipe.get(var['name'], 0.0))
             out[var['name']] = (value * factor
                                 if var.get('category', 'ingredient') == 'ingredient'
                                 else value)
-        return out
+        return self.fill_formulas(out, batch=scale_to)
 
     def _rewrites_amounts(self, own=False):
         """Whether a row is rewritten for a size on the way to the screen.
@@ -2597,6 +2623,24 @@ class FoodOptimizer:
         unit = self.unit_of(name)
         return f"{name} ({unit})" if unit else name
 
+    def _recorded_recipe(self, index):
+        """What formulation `index` was actually made to.
+
+        A formula row has no column in the encoded history — it left the
+        search vector — so decoding alone would work it out AGAIN, from
+        today's formula and today's batch size. That is what the NEXT
+        formulation will hold, not what the bench weighed out last week.
+        recipe_history keeps the amounts as they were recorded, so they are
+        the truth wherever it has them and the decode fills in only the
+        rest."""
+        recipe = self._decode(self.X_history[index])
+        recorded = (self.recipe_history[index]
+                    if index < len(self.recipe_history) else {})
+        for var in self._formula_rows():
+            if var['name'] in recorded:
+                recipe[var['name']] = recorded[var['name']]
+        return recipe
+
     def _amount_columns(self, recipe):
         return {self._amount_column(v['name']): recipe.get(v['name'])
                 for v in self.variables}
@@ -2637,7 +2681,7 @@ class FoodOptimizer:
             row[wording.DATE_RECORDED_COLUMN] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
-                row.update(self._amount_columns(self._decode(self.X_history[i])))
+                row.update(self._amount_columns(self._recorded_recipe(i)))
             rows.append(row)
         for k, s in enumerate(self.skipped):
             batch = s.get(ROUND_FIELD)
@@ -3768,7 +3812,7 @@ class FoodOptimizer:
         objs = self.measurements_by_importance()
         total_col = self.total_column()
         rows = []
-        for i, x in enumerate(self.X_history):
+        for i in range(len(self.X_history)):
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             results = self.results_history[i] if i < len(self.results_history) else {}
@@ -3780,7 +3824,7 @@ class FoodOptimizer:
                 # 2.625 where the table says 2.62 reads as a third number.
                 wording.OVERALL_SCORE_COLUMN: round(float(self.Y_history[i]), 2),
             }
-            recipe = self._decode(x)
+            recipe = self._recorded_recipe(i)
             row.update(self._amount_columns(recipe))
             if total_col is not None:
                 row[total_col] = self._total_cell(recipe)
@@ -4355,9 +4399,10 @@ class FoodOptimizer:
                 continue
             form = form + self._linear_form(var['name'])
         constant = form.const + form.batch * self._batch_size()
+        by_name = self._by_name()
         weights = {}
         for name, coeff in form.terms.items():
-            var = next((v for v in self.variables if v['name'] == name), None)
+            var = by_name.get(name)
             if var is None:
                 continue
             if self.is_fixed(var):
@@ -5986,20 +6031,23 @@ class FoodOptimizer:
             return LinearForm(terms={name: 1.0})
         return self._resolved_forms()[name]
 
-    def _form_value(self, form, recipe):
-        """One linear form, worked out over the amounts of one
-        formulation."""
-        value = form.const + form.batch * self._batch_size()
+    def _form_value(self, form, recipe, batch=None):
+        """One linear form, worked out over the amounts of one formulation.
+        `batch` is what `batch size` reads, for the one caller that is
+        writing a formulation for a size other than the project's."""
+        size = self._batch_size() if batch is None else float(batch)
+        value = form.const + form.batch * size
         for name, coeff in form.terms.items():
             value += coeff * _amount(recipe.get(name))
         return value
 
-    def fill_formulas(self, recipe):
+    def fill_formulas(self, recipe, batch=None):
         """`recipe` with every formula row written in.
 
         The rows are written in _formula_order, each from the rows it
         names, with the project's default batch size standing in for
-        `batch size`. The one door: every formulation the app hands out —
+        `batch size` — or `batch`, when a round is being written for a size
+        of its own. The one door: every formulation the app hands out —
         decoded, snapped, or scaled — comes through here, so no screen and
         no sheet ever shows a formula row that does not hold."""
         forms = self._resolved_forms()
@@ -6007,8 +6055,38 @@ class FoodOptimizer:
             return recipe
         filled = dict(recipe)
         for name, form in forms.items():
-            filled[name] = self._form_value(form, filled)
+            filled[name] = self._form_value(form, filled, batch)
         return filled
+
+    def _formula_reads_refusal(self, name):
+        """Why this row cannot be deleted while another row's formula reads
+        it by name, or None.
+
+        Both doors ask — an ingredient's and a process setting's — because
+        a formula may read either, and a formula left naming a row the
+        project no longer has refuses every later round instead of the one
+        save that caused it. The balance reads whatever is left rather than
+        any row by name, so it rebalances around a deletion and has nothing
+        to say here. Force is no answer either: it is about amounts already
+        recorded, not about a formula that would stop reading."""
+        for var in self.variables:
+            if (var['name'] == name or var.get('balance')
+                    or not self.has_formula(var)):
+                continue
+            try:
+                reads = self._raw_form(var).names()
+            except FormulaError:
+                continue
+            if name in reads:
+                return wording.formula_reads_this_row(name, var['name'])
+        return None
+
+    def _by_name(self):
+        """{name: variable} for one pass of work. A formula's reach and its
+        columns are asked for once per candidate of a 2048-point pool, and
+        a scan of the variable list per term made that quadratic in the
+        size of the project."""
+        return {var['name']: var for var in self.variables}
 
     def _free_ingredients(self):
         """The ingredients the search really moves: neither worked out from
@@ -6047,15 +6125,16 @@ class FoodOptimizer:
             form = form + self._linear_form(var['name']).scaled(coeff)
         return form
 
-    def _form_reach(self, form, batch):
+    def _form_reach(self, form, batch, by_name=None):
         """(lowest, highest) one linear form can come to while every row it
         names ranges over its allowed amounts. Handles negative
         coefficients."""
+        by_name = self._by_name() if by_name is None else by_name
         lo = hi = form.const + form.batch * float(batch)
         for name, coeff in form.terms.items():
             if coeff == 0:
                 continue
-            var = next((v for v in self.variables if v['name'] == name), None)
+            var = by_name.get(name)
             if var is None or var['type'] != 'continuous':
                 continue
             a = coeff * float(var['bounds'][0])
@@ -6064,17 +6143,18 @@ class FoodOptimizer:
             hi += max(a, b)
         return lo, hi
 
-    def _form_over_columns(self, form, columns):
+    def _form_over_columns(self, form, columns, by_name=None):
         """(columns, coefficients, offset) — one linear form as the model
         is handed it, in the [0, 1] frame the search runs in. A fixed row
         is the same number at both ends, so it moves the offset rather than
         riding in the form; so do the constant and the batch size."""
+        by_name = self._by_name() if by_name is None else by_name
         indices, coeffs = [], []
         offset = form.const + form.batch * self._batch_size()
         for name, coeff in form.terms.items():
             if coeff == 0:
                 continue
-            var = next((v for v in self.variables if v['name'] == name), None)
+            var = by_name.get(name)
             if var is None or var['type'] != 'continuous':
                 continue
             v_min = float(var['bounds'][0])
@@ -6794,21 +6874,9 @@ class FoodOptimizer:
         refuse the whole save rather than half of it."""
         if self.X_history and len(self.recipe_history) != len(self.X_history):
             return AMOUNTS_MISSING_DELETE_ERROR
-        # A row another row's formula reads by name. Deleting it would leave
-        # that formula naming nothing, so the formula is changed first —
-        # whatever force says, which is about amounts already recorded.
-        # The balance reads whatever is left rather than any row by name, so
-        # it rebalances around a deletion and has nothing to say here.
-        for var in self.variables:
-            if (var['name'] == name or var.get('balance')
-                    or not self.has_formula(var)):
-                continue
-            try:
-                reads = self._raw_form(var).names()
-            except FormulaError:
-                continue
-            if name in reads:
-                return wording.formula_reads_this_row(name, var['name'])
+        trouble = self._formula_reads_refusal(name)
+        if trouble:
+            return trouble
         used = [i for i, r in enumerate(self.recipe_history)
                 if float(r.get(name, 0.0)) != 0.0]
         if used and not force:
