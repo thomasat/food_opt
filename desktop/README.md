@@ -156,9 +156,11 @@ warnings entirely, and the checklist below gates distribution on that.
    round", generate one, change "Batch size (g)" and watch every amount
    in the round table follow it, download the round sheets (Excel) and
    open it: the sheets
-   are protected, only the shaded cells take a value, and each formulation
-   page has an "Actual (g)" column beside its amounts with a "Lot" cell
-   per ingredient on the "Round 1" page. Record a result (or mark one Not
+   are protected, only the cells the instruction line names take a value,
+   and a printed greyscale copy makes clear which they are — every one of
+   them is boxed and nothing else is shaded. Each formulation page has an
+   "Actual (g)" column beside its amounts, with a "Lot" cell per
+   ingredient on the "Round 1" page. Record a result (or mark one Not
    scored and score it later from Results), and confirm the `.pkl` appears
    in `~/FoodOptimizer/`.
 7. Quit, relaunch: fast start, project still listed and loads.
