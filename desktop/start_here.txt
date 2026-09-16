@@ -25,7 +25,7 @@ HOW TO INSTALL
 
 TRYING IT OUT
 - The app comes with a sample project: a plant-based burger with eight
-  ingredients and two panel scores. On the first screen, click
+  ingredients and two panel ratings. On the first screen, click
   "Try the sample project" to explore before setting up your own.
 - Your ingredients and your measurements are two tables on the Set up
   tab, and you type straight into them: change a cell, type a new row
@@ -34,7 +34,8 @@ TRYING IT OUT
   "Save changes" lights up, and "Discard changes" beside it puts the
   table back the way it was.
 - To fix an ingredient at one amount, type the same number in Lowest
-  and Highest. Widen the range again and the app is free to move it.
+  and Highest. Set Lowest and Highest apart again and the app is free to
+  move it.
 - Starting from a spreadsheet? On the Set up tab, open "Or upload an
   ingredients file" to download the template, fill it in, and upload it
   from the same place.
@@ -43,11 +44,13 @@ USING IT DAY TO DAY
 - "Batch size (g)" on the Make a round tab is what one formulation adds
   up to. Change it and the round on screen, and the sheets you print,
   are worked out again at that size.
-- The round sheets open in Excel. They are locked except the shaded
-  cells, so you can only write where the app reads: what you measured,
-  Not scored, a note, the Lot each ingredient came from, and
-  "Actual (g)" when the balance gave you something other than the
-  amount printed. Upload the file again and the app takes all of it.
+- The round sheets open in Excel. They are locked except the boxed
+  cells, so you can only write where the app reads: Tick, what you
+  measured, Not scored, a note, "Actual (g)" when the balance gave you
+  something other than the amount printed, and the Lot each ingredient
+  came from. "Actual (g)" is on each formulation's sheet; Lot is on the
+  Round sheet, one per ingredient for the whole round. Upload the file
+  again and the app takes all of it.
 - To open the app again, open Food Optimizer from Applications, like
   any app. It runs in its own window.
 - To quit, close the window.

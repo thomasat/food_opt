@@ -163,7 +163,7 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "A ready-made plant-based burger: eight ingredients, and panel scores "
+    "A ready-made plant-based burger: eight ingredients, and panel ratings "
     "for juiciness and firmness. Try it before setting up your own."
 )
 
@@ -174,7 +174,7 @@ SAMPLE_PROJECT_NAME = "Sample project"
 
 # The sample's own targets_source, set once when it is built.
 SAMPLE_TARGETS_SOURCE = (
-    "A benchmark burger scored by a trained panel: firmer than 6 is "
+    "A benchmark burger rated by a trained panel: firmer than 6 is "
     "rubbery, juicier than 7 falls apart."
 )
 
@@ -182,7 +182,7 @@ SAMPLE_TARGETS_SOURCE = (
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "A plant-based burger with eight ingredients and two panel scores. "
+    "A plant-based burger with eight ingredients and two panel ratings. "
     "Next: make a round."
 )
 
@@ -671,7 +671,7 @@ def recorded_line_note(line, note):
 
 
 RECORD_RESULTS_CAPTION = ("One number per measurement; the panel mean where "
-                          "a panel scored it. Leave blank if it was not "
+                          "a panel rated it. Leave blank if it was not "
                           "measured.")
 
 
@@ -1762,14 +1762,18 @@ SHEET_GOAL_SEPARATOR = " · "
 # A box to tick with a pen, not a run of typed underscores. The box alone
 # fills the Tick column's cells, which had a header and nothing under it.
 TICK_BOX = "☐"
-NOT_SCORED_CHECKBOX_SHEET = f"{NOT_SCORED} {TICK_BOX}"
+# The label of the Not scored row, and the box that goes in the cell BESIDE
+# it. The box used to be printed into the locked label, under an
+# instruction to mark it — so the one cell the reader was told to write in
+# was the one cell the sheet would not take a mark in.
+NOT_SCORED_CHECKBOX_SHEET = NOT_SCORED
 
 # The one line above a sheet's measurements block. On paper there is nothing
 # to hover and nobody to ask, so the sheet says what mark it will read: the
 # cold read put a cross in the Not scored row without knowing the app would
 # take it.
 SHEET_WRITE_IN_NOTE = ("Write what you measured. If you did not score it, "
-                       f"mark {NOT_SCORED_CHECKBOX_SHEET} with an X.")
+                       f"tick the {NOT_SCORED} box.")
 
 # The title row of the All formulations sheet. The amounts in it are the
 # ones the project RECORDED — as generated — which are not always the ones a
@@ -1788,8 +1792,15 @@ MADE_BY_FOOTER = "Made by ____ on ____"
 SUMMARY_TICK_NOTE = (f"A ticked {NOT_SCORED} box wins over numbers typed in "
                      f"that column.")
 
+# S6: the Lot is one per ingredient for the whole round, so it lives on the
+# round's own sheet. A page carried to the bench says where it is rather
+# than leaving the reader to find out that this page has no such column.
+def lots_are_on_the_round_sheet(batch_no):
+    """'Lots: on the Round 1 sheet.'"""
+    return f"{LOTS_SHEET}: on the {batch_sheet_name(batch_no)} sheet."
+
 ALL_FORMULATIONS_SHEET = f"All {FORMULATION}s"
-SET_UP_SHEET = "Set-up"
+SET_UP_SHEET = "Set up"
 INGREDIENTS_SHEET = "Ingredients"
 
 
@@ -1922,22 +1933,41 @@ ACTUAL_COLUMN = "Actual"
 # so this says what can be typed and where: a locked cell that refuses a
 # number without saying why is the worst kind of paper.
 #
+# BOXED, not shaded. "Fill in the shaded cells only" was false twice over:
+# every ingredient row was shaded too, and on the black-and-white printer a
+# bench sheet actually goes through, the writable cream and the pastel
+# bands were the same grey. Only a write-in cell is shaded now, and every
+# one of them is drawn as a box — which survives a mono printer.
+#
 # One line per sheet, naming that sheet's own cells and no others: the
-# Lot cells are on the summary and the Actual cells are on the pages, and
-# a single line long enough to name both was cut off where the page ends.
-SUMMARY_SHADED_NOTE = (
-    f"Fill in the shaded cells only: what you measured, {NOT_SCORED}, "
-    f"{NOTE} and {LOT_COLUMN}.")
-SHEET_SHADED_NOTE = (
-    f"Fill in the shaded cells only: what you measured, {NOT_SCORED}, "
-    f"{NOTE}, and {ACTUAL_COLUMN} if you weighed something different.")
+# Lot cells are on the summary and the Actual and Tick cells are on the
+# pages, and a line naming a column that is not on the page in the
+# reader's hand sends them hunting for it.
+def write_in_note(columns):
+    """'Write in the boxed cells only: Measured, Not scored, Note, Lot.'"""
+    return f"Write in the boxed cells only: {', '.join(columns)}."
+
+
+SUMMARY_SHADED_NOTE = write_in_note(
+    [MEASURED_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN])
+
+
+def sheet_write_in_note(actual_head=ACTUAL_COLUMN):
+    """The formulation page's own line. `actual_head` is that page's own
+    column header — 'Actual (g)' — so the line names a column the reader
+    can point at rather than a shorter word beside it."""
+    return write_in_note(
+        [TICK_COLUMN, actual_head, MEASURED_COLUMN, NOT_SCORED, NOTE])
+
+
+SHEET_SHADED_NOTE = sheet_write_in_note()
 
 # What a formulation's note says when its amounts came back off the
 # sheet rather than off the screen. It goes in front of whatever the
 # bench wrote, exactly as the not-scored marker does: the row's amounts
 # are no longer the ones the app suggested, and nothing else on the
 # Results tab would say so.
-AMOUNTS_AS_WEIGHED = "Amounts as weighed"
+AMOUNTS_AS_WEIGHED = "Actual amounts"
 
 
 def amounts_as_weighed_note(note):

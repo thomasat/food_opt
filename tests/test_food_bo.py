@@ -2381,7 +2381,7 @@ class TestUnitsAndImportance:
         assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
                            "measured": "8 N", "off_by": "2 N too high"}
         # "measured", not "scored": the column is headed Measured, and a
-        # panel score is one kind of measurement among several.
+        # panel rating is one kind of measurement among several.
         assert rows[1]["measured"] == "not measured"
         assert rows[1]["off_by"] == "not measured"
 
@@ -5772,18 +5772,29 @@ class TestTheWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
         labels = list(_labelled(sheet))
-        # The block is headed in the word every sentence about it uses, the
-        # measurements are in importance order, and the last line says which
-        # of the two ways of filling a column in wins.
-        assert labels[-7:] == ["Measured", wording.SHEET_WRITE_IN_NOTE,
+        # The block is headed in the word both kinds of sheet use for it,
+        # the formulation names are repeated directly above the cells they
+        # head, the measurements are in importance order, and the last two
+        # lines say which of the two ways of filling a column in wins and
+        # who made it.
+        assert labels[-9:] == ["Measurements", wording.SHEET_WRITE_IN_NOTE,
+                               "Measurement",
                                "Firmness · target 6 N",
                                "Juiciness (/10) · higher is better",
-                               "Not scored ☐", "Note",
-                               wording.SUMMARY_TICK_NOTE], labels
+                               "Not scored", "Note",
+                               wording.SUMMARY_TICK_NOTE,
+                               wording.MADE_BY_FOOTER], labels
         assert wording.SUMMARY_TICK_NOTE == (
             "A ticked Not scored box wins over numbers typed in that column.")
-        for label in labels[-5:-1]:
+        # The measurement rows open empty; the Not scored row opens holding
+        # the box the instruction asks the reader to tick, in the cell the
+        # pen can reach.
+        for label in ("Firmness · target 6 N",
+                      "Juiciness (/10) · higher is better"):
             assert _labelled(sheet)[label] == [None] * 7, label
+        assert _labelled(sheet)["Not scored"] == [
+            wording.TICK_BOX, None, wording.TICK_BOX, None,
+            wording.TICK_BOX, None, None]
 
     def test_a_note_the_app_wrote_is_already_on_the_sheet(self, tmp_path,
                                                           monkeypatch):
@@ -5812,8 +5823,9 @@ class TestTheWorkbook:
         # so the line is the cell alone: "Compared with the allowed amounts:
         # Spread across the allowed amounts" is that sentence twice.
         assert rows[1][0] == wording.SUGGESTION_SPREAD.capitalize()
-        # Then the one line that says which cells the sheet will take.
-        assert rows[2][0] == wording.SHEET_SHADED_NOTE
+        # Then the one line that says which cells the sheet will take,
+        # naming the Actual column as this page's own header writes it.
+        assert rows[2][0] == wording.sheet_write_in_note("Actual (g)")
         # A column to tick as each ingredient goes in, in set-up order, and
         # a column to write what the balance actually said.
         assert rows[4] == ("Tick", "Ingredient", "Amount (g)", "Actual (g)",
@@ -5832,25 +5844,25 @@ class TestTheWorkbook:
         # Whose work it was, on the page that comes back a week later.
         assert text[-1] == wording.MADE_BY_FOOTER, text
 
-    def test_one_ingredient_wears_one_colour_on_every_sheet(self, tmp_path,
-                                                            monkeypatch):
-        """A technician weighing three bowls reads down a colour, not a
-        name, so the colour has to mean the same thing on every page."""
+    def test_only_a_write_in_cell_is_shaded_on_any_sheet(self, tmp_path,
+                                                         monkeypatch):
+        """There used to be eight pastel bands down the ingredient rows, and
+        an instruction line reading "fill in the shaded cells only" over
+        twenty shaded cells that were locked. On the black-and-white
+        printer a bench sheet actually goes through, the writable cream and
+        the pastel bands came out the same grey."""
         opt = self._opt(tmp_path, monkeypatch)
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
-        summary = book["Round 2"]
-        wanted = {}
-        for row in summary.iter_rows(min_row=4, max_row=6, max_col=1):
-            wanted[row[0].value] = row[0].fill.fgColor.rgb
-        assert len(set(wanted.values())) == 3, wanted
-        for name in book.sheetnames[1:]:
+        for name in book.sheetnames:
             sheet = book[name]
-            for row in sheet.iter_rows(min_row=6, max_row=8):
-                label = f"{row[1].value} (g)"
-                assert row[1].fill.fgColor.rgb == wanted[label], (name, label)
-                # The amount beside it is shaded the same, so the eye can
-                # run along the row.
-                assert row[2].fill.fgColor.rgb == wanted[label], (name, label)
+            for row in sheet.iter_rows():
+                for cell in row:
+                    shaded = cell.fill.fgColor.rgb not in (None, "00000000")
+                    writable = cell.protection.locked is False
+                    assert shaded == writable, (name, cell.coordinate,
+                                                cell.fill.fgColor.rgb)
+                    if writable:
+                        assert cell.border.left.style == "thin", cell.coordinate
 
     def test_the_share_is_of_the_total_the_sheet_was_written_to(
             self, tmp_path, monkeypatch):
@@ -5878,7 +5890,7 @@ class TestTheWorkbook:
         assert sheet.page_setup.orientation == "portrait"
         assert sheet.sheet_properties.pageSetUpPr.fitToPage is True
         assert sheet.page_setup.fitToWidth == 1
-        assert sheet.print_area == "'Formulation 1'!$A$1:$E$23"
+        assert sheet.print_area == "'Formulation 1'!$A$1:$E$24"
         assert sheet.column_dimensions["B"].width == 34
 
     # -------------------------- and back again -------------------------- #
@@ -6163,7 +6175,7 @@ class TestTheWorkbook:
         opt.record_skipped(3, 2, rows[2]['recipe'],
                            note=wording.not_scored_with_note("burner failed"))
         book = _book(opt.all_formulations_workbook())
-        assert book.sheetnames == ["All formulations", "Set-up"]
+        assert book.sheetnames == ["All formulations", "Set up"]
         # The same table the download used to carry, to the cell.
         # A title row above the header says which amounts these are: the
         # RECORDED ones, which are not always the ones a batch sheet printed.
@@ -6176,7 +6188,7 @@ class TestTheWorkbook:
         pd.testing.assert_frame_equal(written, downloaded, check_dtype=False)
         # ... and the set-up it was made under, which no table of numbers
         # can be read without six months later.
-        setup = [v for row in _rows(book["Set-up"]) for v in row
+        setup = [v for row in _rows(book["Set up"]) for v in row
                  if v is not None]
         for expected in ("Ingredients and process settings", "Pea protein",
                          "Process setting", "Measurements and targets",
@@ -6549,7 +6561,7 @@ class TestTheWorkbookFinalWave:
         types, so the sheet no longer prints the importance behind it beside
         it — one fact, in one scale."""
         opt = self._opt(tmp_path, monkeypatch)
-        rows = _rows(_book(opt.all_formulations_workbook())["Set-up"])
+        rows = _rows(_book(opt.all_formulations_workbook())["Set up"])
         head = next(r for r in rows if r[0] == wording.MEASUREMENT_COLUMN)
         assert head[4] == wording.SHARE_COLUMN
         assert len([c for c in head if c]) == 5
@@ -8038,7 +8050,7 @@ class TestTheLockedWorkbook:
         book.save(out)
         out.seek(0)
         self._save(opt, opt.results_from_workbook(out))
-        assert opt.notes_history[0] == "Amounts as weighed · lumpy"
+        assert opt.notes_history[0] == "Actual amounts · lumpy"
 
     def test_a_workbook_a_spreadsheet_re_saved_still_imports(self, tmp_path,
                                                              monkeypatch):
@@ -8088,7 +8100,7 @@ class TestTheLockedWorkbook:
         for sheet, row, note in ((book["Round 2"], 2,
                                   wording.SUMMARY_SHADED_NOTE),
                                  (book["Formulation 1"], 3,
-                                  wording.SHEET_SHADED_NOTE)):
+                                  wording.sheet_write_in_note("Actual (g)"))):
             last = sheet.print_area.split(":")[-1].strip("'$0123456789")
             merged = [str(m) for m in sheet.merged_cells.ranges]
             assert f"A{row}:{last}{row}" in merged, (sheet.title, merged)

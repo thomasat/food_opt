@@ -634,8 +634,10 @@ def test_the_not_made_names_are_gone_from_wording():
                  "FORMULATIONS_NOT_MADE_NO_RESULT_CAPTION"):
         assert not hasattr(wording, name), name
     assert wording.NOT_SCORED == "Not scored"
-    # A box to tick with a pen, on a sheet a spreadsheet now prints.
-    assert wording.NOT_SCORED_CHECKBOX_SHEET == "Not scored ☐"
+    # The label is the words; the box goes in the cell beside it, which is
+    # the cell the sheet will take a mark in.
+    assert wording.NOT_SCORED_CHECKBOX_SHEET == "Not scored"
+    assert wording.TICK_BOX == "☐"
     assert wording.NOT_SCORED_CAN_BE_SCORED_CAPTION == (
         "Not-scored formulations can be scored here.")
     assert wording.formulation_scored(5) == "Formulation 5 scored."

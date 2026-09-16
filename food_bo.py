@@ -585,12 +585,6 @@ def measurement_range_text(obj):
 # --------------------------------------------------------------------- #
 #  The workbook: what the bench carries away from the screen.
 # --------------------------------------------------------------------- #
-# Eight pastel fills, cycled in set-up order, so one ingredient wears one
-# colour on the summary sheet and on every formulation sheet in the file.
-# A technician weighing eight bowls reads down a colour, not a name.
-SHEET_COLOURS = ("FFF1E0", "E7F3E8", "E3EEF7", "F2E8F4",
-                 "FBF6DC", "FCE8E6", "E2F1F1", "EDEDED")
-
 # What an uploaded workbook came back with. The frame is the rows
 # parse_batch_results reads, and beside it travel the two things a sheet
 # says that are not results: the amounts somebody wrote in the Actual
@@ -641,8 +635,11 @@ _UNLOCKED = Protection(locked=False)
 
 # What a technician's tick looks like once a spreadsheet has read it: a
 # cross, a tick, a letter, TRUE. A cell holding 0, "no" or "false" is
-# somebody answering the question rather than leaving it blank.
-_NOT_TICKED = {"", "0", "0.0", "no", "n", "false", "none", "-"}
+# somebody answering the question rather than leaving it blank — and so is
+# the empty box the sheet prints into that cell, which is what an untouched
+# Not scored cell comes back holding.
+_NOT_TICKED = {"", "0", "0.0", "no", "n", "false", "none", "-",
+               wording.TICK_BOX}
 
 
 def _is_ticked(value):
@@ -2656,17 +2653,6 @@ class FoodOptimizer:
     def _process_settings(self):
         return [v for v in self.variables if v.get('category') == 'process']
 
-    def _ingredient_fill(self, name):
-        """The colour this ingredient wears on every sheet of the workbook.
-        Keyed on its position in the set-up order, which is the order every
-        sheet lists it in, so the colours run down the page in sequence."""
-        names = [v['name'] for v in self._ingredients()]
-        if name not in names:
-            return None
-        return PatternFill("solid",
-                           fgColor=SHEET_COLOURS[names.index(name)
-                                                 % len(SHEET_COLOURS)])
-
     def _percent_of(self, recipe, var, total):
         """`%` — one amount as a share of the formulation total, to one
         decimal. The share is of the total the sheet was written to, so the
@@ -2848,28 +2834,25 @@ class FoodOptimizer:
 
         r = 4
         for var in ingredients:
-            fill = self._ingredient_fill(var['name'])
             _write_cell(sheet, r, 1, self._amount_column(var['name']),
-                        bold=True, fill=fill)
+                        bold=True)
             for j, recipe in enumerate(recipes):
                 _write_cell(sheet, r, column(j),
                             round(float(recipe.get(var['name'], 0.0)), 2),
-                            fill=fill, number_format=_TWO_DP)
+                            number_format=_TWO_DP)
                 if shares:
                     _write_cell(sheet, r, column(j, 1),
                                 self._percent_of(recipe, var, bases[j]),
-                                fill=fill, number_format=_ONE_DP)
+                                number_format=_ONE_DP)
             # One lot for the round, written once on the row it belongs to.
             if lot_column:
                 _write_in_cell(sheet, r, lot_column)
             if vendor_column:
                 _write_cell(sheet, r, vendor_column,
-                            str(var.get('vendor') or "").strip() or None,
-                            fill=fill)
+                            str(var.get('vendor') or "").strip() or None)
             if sku_column:
                 _write_cell(sheet, r, sku_column,
-                            str(var.get('sku') or "").strip() or None,
-                            fill=fill)
+                            str(var.get('sku') or "").strip() or None)
             r += 1
         if ingredients:
             _write_cell(sheet, r, 1, self.total_column(), bold=True)
@@ -2903,23 +2886,37 @@ class FoodOptimizer:
         r += 1   # a blank line: what to make above it, what to write below
 
         # The block is headed in the word the app uses for it everywhere
-        # else, so "fill in the Measured cells" names something the reader
-        # can see on the sheet, and the line under it says what mark the app
-        # will read — the one thing the paper cannot be asked.
-        _write_cell(sheet, r, 1, wording.MEASURED_COLUMN, bold=True)
+        # else — the same heading the formulation pages give it — so
+        # "write in the Measured cells" names something the reader can see
+        # on the sheet, and the line under it says what mark the app will
+        # read, which is the one thing the paper cannot be asked.
+        _write_cell(sheet, r, 1, wording.MEASUREMENTS_SHEET_HEADING,
+                    bold=True)
         r += 1
         _write_banner(sheet, r, 1, wording.SHEET_WRITE_IN_NOTE, last_column)
+        r += 1
+        # The formulation names again, directly above the cells they are
+        # the heading for. They are otherwise seven rows up with a % column
+        # in between, and the bench had to count columns back up the page
+        # to know which formulation a firmness belonged to.
+        _write_cell(sheet, r, 1, wording.MEASUREMENT_COLUMN, bold=True)
+        for j, row in enumerate(rows):
+            _write_cell(sheet, r, column(j),
+                        wording.formulation_sheet_name(row['formulation']),
+                        bold=True)
         r += 1
         for obj in objs:
             _write_cell(sheet, r, 1, self._measurement_sheet_label(obj))
             for j in range(len(rows)):
                 _write_in_cell(sheet, r, column(j))
             r += 1
-        # The box is in the label, exactly as the formulation sheets write
-        # it: two sheets of one workbook spelled the same tick two ways.
+        # The label is the words; the BOX is in the cell the pen can reach.
+        # Printed into the locked label, the one thing the instruction asked
+        # the reader to mark was the one cell the sheet would not take a
+        # mark in.
         _write_cell(sheet, r, 1, wording.NOT_SCORED_CHECKBOX_SHEET)
         for j in range(len(rows)):
-            _write_in_cell(sheet, r, column(j))
+            _write_in_cell(sheet, r, column(j), wording.TICK_BOX)
         r += 1
         _write_cell(sheet, r, 1, wording.NOTE)
         for j, row in enumerate(rows):
@@ -2927,6 +2924,11 @@ class FoodOptimizer:
                            wrap=True)
         r += 1
         _write_cell(sheet, r, 1, wording.SUMMARY_TICK_NOTE)
+        r += 2
+        # This is the page the whole round is weighed out from and the page
+        # the Lot numbers are written on, and it came back from the bench
+        # with nothing on it to say whose work it was.
+        _write_cell(sheet, r, 1, wording.MADE_BY_FOOTER)
 
         # The Lot is written in, so it gets a hand's width; the vendor and
         # the SKU are printed, so they get the width of what they say —
@@ -2989,7 +2991,9 @@ class FoodOptimizer:
         # a number — the Actual cells are in the table below, a long way
         # from the Measured ones. Across the page, because a sentence left
         # in the first column is cut off where the printed page ends.
-        _write_banner(sheet, 3, 1, wording.SHEET_SHADED_NOTE, page_width)
+        _write_banner(sheet, 3, 1,
+                      wording.sheet_write_in_note(self._actual_column_head()),
+                      page_width)
 
         r = 5
         if ingredients:
@@ -3007,8 +3011,7 @@ class FoodOptimizer:
                 _write_cell(sheet, r, c, name, bold=True)
             r += 1
             for var in ingredients:
-                fill = self._ingredient_fill(var['name'])
-                # The box is drawn, not left as an empty bordered cell: the
+                    # The box is drawn, not left as an empty bordered cell: the
                 # column had a header and nothing under it to put a mark in.
                 # It is a write-in cell like any other — a sheet filled in
                 # on a screen has to be tickable there too — so it wears
@@ -3016,22 +3019,22 @@ class FoodOptimizer:
                 _write_in_cell(sheet, r, 1, wording.TICK_BOX)
                 _write_cell(sheet, r, 2,
                             self._sheet_ingredient_label(var['name']),
-                            bold=True, fill=fill)
+                            bold=True)
                 _write_cell(sheet, r, 3,
                             round(float(recipe.get(var['name'], 0.0)), 2),
-                            fill=fill, number_format=_TWO_DP)
+                            number_format=_TWO_DP)
                 _write_in_cell(sheet, r, 4)
                 if shares:
                     _write_cell(sheet, r, 5,
                                 self._percent_of(recipe, var, basis),
-                                fill=fill, number_format=_ONE_DP)
+                                number_format=_ONE_DP)
                 r += 1
                 # Where it was bought, under the name and in grey: a column
                 # for it would push a page that already gained Actual into
                 # landscape, and the vendor is read once, at the shelf.
                 bought = self._vendor_line(var)
                 if bought:
-                    _write_cell(sheet, r, 2, bought, fill=fill).font = _QUIET_FONT
+                    _write_cell(sheet, r, 2, bought).font = _QUIET_FONT
                     r += 1
             _write_cell(sheet, r, 2, wording.TOTAL_LABEL, bold=True)
             cell = _write_cell(sheet, r, 3, self._total_cell(recipe), bold=True)
@@ -3086,10 +3089,10 @@ class FoodOptimizer:
             r += 1
         r += 1
         _write_cell(sheet, r, 2, wording.NOT_SCORED_CHECKBOX_SHEET)
-        # A box beside the printed one, so a sheet filled in on a screen has
-        # somewhere to say it: this is what the upload reads when the summary
+        # The box is in the cell a pen can reach, not in the locked label
+        # beside it. This is also what the upload reads when the summary
         # sheet was left empty.
-        _write_in_cell(sheet, r, 4)
+        _write_in_cell(sheet, r, 4, wording.TICK_BOX)
         r += 1
         _write_cell(sheet, r, 2, wording.NOTE)
         note = str(row.get('note') or "").strip()
@@ -3099,6 +3102,13 @@ class FoodOptimizer:
         _write_in_cell(sheet, r, 3, note or None, wrap=True)
         _write_in_cell(sheet, r, 4)
         r += 2
+        # One lot per ingredient for the whole round, so it is recorded
+        # once, on the round's own sheet. The page says where rather than
+        # leaving the bench to discover that this one has no such column.
+        if ingredients:
+            _write_cell(sheet, r, 2, wording.lots_are_on_the_round_sheet(
+                self.pending_batch_no))
+            r += 1
         # The sheet leaves the app and comes back days later: without these
         # two blanks nothing on the page says whose work it was.
         _write_cell(sheet, r, 2, wording.MADE_BY_FOOTER)
@@ -3331,21 +3341,29 @@ class FoodOptimizer:
         lowered = [label.lower() for label in labels]
 
         by_measurement, last_row, guessed = {}, -1, {}
+        # The block's heading. `Measurements` is what it says now, on both
+        # kinds of sheet; `Measured` is what the summary sheet said before
+        # the two were brought into line, and a workbook downloaded then is
+        # still on somebody's bench.
+        headings = {wording.MEASUREMENTS_SHEET_HEADING.lower(),
+                    wording.MEASURED_COLUMN.lower()}
         heading = next((i for i in range(len(lowered) - 1, -1, -1)
-                        if lowered[i] == wording.MEASURED_COLUMN.lower()), None)
+                        if lowered[i] in headings), None)
         # Where the write-in block's FIRST measurement sits, which is not
-        # always the row under the heading: the sheet carries one line of
-        # instruction between the two ("Write what you measured…"), and a
-        # fallback that counted from the heading landed one row too high —
-        # rename Juiciness's label and its 8.0 came back as Firmness's 5.5,
-        # silently. A sheet written before that line existed has no such row,
-        # so it is skipped only when it is there.
+        # the row under the heading: between them sit one line of
+        # instruction ("Write what you measured…") and the row of
+        # formulation names that heads the block's columns. A fallback that
+        # counted from the heading landed rows too high — rename
+        # Juiciness's label and its 8.0 came back as Firmness's 5.5,
+        # silently. A sheet written before either row existed has neither,
+        # so each is skipped only when it is there.
+        skippable = {wording.SHEET_WRITE_IN_NOTE.lower(),
+                     wording.MEASUREMENT_COLUMN.lower()}
         first_measurement = None
         if heading is not None:
             first_measurement = heading + 1
-            if (first_measurement < len(lowered)
-                    and lowered[first_measurement]
-                    == wording.SHEET_WRITE_IN_NOTE.lower()):
+            while (first_measurement < len(lowered)
+                    and lowered[first_measurement] in skippable):
                 first_measurement += 1
         for position, obj in enumerate(self.measurements_by_importance()):
             names = {self._measurement_sheet_label(obj).lower(),
@@ -3609,8 +3627,7 @@ class FoodOptimizer:
         r += 1
         for var in self.variables:
             ingredient = var.get('category', 'ingredient') == 'ingredient'
-            _write_cell(sheet, r, 1, var['name'],
-                        fill=self._ingredient_fill(var['name']))
+            _write_cell(sheet, r, 1, var['name'])
             _write_cell(sheet, r, 2, wording.KIND_INGREDIENT if ingredient
                         else wording.KIND_SETTING)
             _write_cell(sheet, r, 3, float(var['bounds'][0]))

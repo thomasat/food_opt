@@ -448,7 +448,7 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     # its set-up so the user sees what they are about to make.
     assert at.session_state["main_tab"] == wording.TAB_SETUP
     grid = _grid_frame(at, 1)
-    # A panel score's "/10" is a column of its own on the grid: the name
+    # A panel rating's "/10" is a column of its own on the grid: the name
     # cell is the name, because it is the cell a rename would be typed in.
     assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
     assert list(grid[wording.UNIT_LABEL]) == ["/10", "/10"]
@@ -1953,7 +1953,7 @@ def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(ope
     assert (labels.index("Firmness · target 6 N")
             < labels.index("Juiciness (/10) · target 7"))
     assert any(c.value == ("One number per measurement; the panel mean where "
-                           "a panel scored it. Leave blank if it was not "
+                           "a panel rated it. Leave blank if it was not "
                            "measured.") for c in at.caption), \
         [c.value for c in at.caption]
 
@@ -4379,11 +4379,13 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     rows = _summary_rows(at)
     assert list(rows)[2:] == ["Ingredient", "Pea protein (g)",
                               "Water (ml)", "Total",
-                              wording.MEASURED_COLUMN,
+                              wording.MEASUREMENTS_SHEET_HEADING,
                               wording.SHEET_WRITE_IN_NOTE,
+                              wording.MEASUREMENT_COLUMN,
                               "Firmness · target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
-                              wording.SUMMARY_TICK_NOTE], list(rows)
+                              wording.SUMMARY_TICK_NOTE,
+                              wording.MADE_BY_FOOTER], list(rows)
     # Under the title, the line that says which of this sheet's cells take
     # a number.
     assert list(rows)[1] == wording.SUMMARY_SHADED_NOTE
@@ -5345,7 +5347,7 @@ def test_vendor_and_sku_ride_on_the_row_and_reach_the_sheet(burger):
     var = saved._var_by_name("Pea protein")
     assert (var["vendor"], var["sku"]) == ("Roquette", "NUTRALYS F85M")
     sheet = openpyxl.load_workbook(
-        io.BytesIO(saved.all_formulations_workbook()))["Set-up"]
+        io.BytesIO(saved.all_formulations_workbook()))["Set up"]
     rows = [[c.value for c in row] for row in sheet.iter_rows()]
     head = next(r for r in rows if r[0] == wording.NAME_LABEL)
     assert head[6] == wording.VENDOR_LABEL and head[7] == wording.SKU_LABEL
@@ -7692,11 +7694,11 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, the Not scored box, a note box and its overflow, and
-    # one Actual cell per ingredient (two) and per setting (none here), on
-    # each of the two sheets. The tick cells carry a printed box, so they
-    # are bordered AND written in — they are not counted here.
-    assert boxed == 2 * (2 + 1 + 2 + 2), boxed
+    # Two measurements, a note box and its overflow, and one Actual cell
+    # per ingredient (two) and per setting (none here), on each of the two
+    # sheets. The tick cells and the Not scored cell carry a printed box,
+    # so they are bordered AND written in — not counted here.
+    assert boxed == 2 * (2 + 2 + 2), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -8530,7 +8532,7 @@ def test_the_goal_column_offers_its_three_options_and_no_more(burger):
 
 
 def test_all_formulations_shows_every_number_to_two_decimals(burger):
-    """A panel score typed as 5 read 5.000000 beside an amount written 11.88:
+    """A panel rating typed as 5 read 5.000000 beside an amount written 11.88:
     pandas' default for a column nobody formatted. Every number in the table
     reads to two decimals; a blank measurement stays blank."""
     burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0},
