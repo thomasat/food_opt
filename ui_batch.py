@@ -539,6 +539,10 @@ def _batch_table(opt, scale_to):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
+    # The table is read only, whatever it holds — a worked-out row's amount
+    # included. What was actually weighed is corrected where it is
+    # recorded, not by overtyping a cell here.
+    st.caption(wording.CORRECTIONS_ON_RESULTS_CAPTION)
     if scale_to is None:
         if opt.has_ingredients():
             st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)

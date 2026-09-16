@@ -3227,8 +3227,10 @@ class FoodOptimizer:
 
         r = 4
         for var in ingredients:
-            _write_cell(sheet, r, 1, self._amount_column(var['name']),
-                        bold=True)
+            label = self._amount_column(var['name'])
+            if self.has_formula(var):
+                label = wording.worked_out_label(label)
+            _write_cell(sheet, r, 1, label, bold=True)
             for j, recipe in enumerate(recipes):
                 _write_cell(sheet, r, column(j),
                             round(float(recipe.get(var['name'], 0.0)), 2),
@@ -3275,6 +3277,11 @@ class FoodOptimizer:
         for line in (self.scaled_cautions(rows, total, sized)
                      + self.total_mismatch_lines(rows, total)):
             _write_cell(sheet, r, 1, line)
+            r += 1
+        # Said once, only when a row on the sheet is one: the rest of a
+        # project with no formula has nothing worked out to explain.
+        if self._formula_rows():
+            _write_cell(sheet, r, 1, wording.FORMULA_ROW_NOTE)
             r += 1
         r += 1   # a blank line: what to make above it, what to write below
 
@@ -3410,9 +3417,10 @@ class FoodOptimizer:
                 # on a screen has to be tickable there too — so it wears
                 # the write-in shade rather than the ingredient's colour.
                 _write_in_cell(sheet, r, 1, wording.TICK_BOX)
-                _write_cell(sheet, r, 2,
-                            self._sheet_ingredient_label(var['name']),
-                            bold=True)
+                label = self._sheet_ingredient_label(var['name'])
+                if self.has_formula(var):
+                    label = wording.worked_out_label(label)
+                _write_cell(sheet, r, 2, label, bold=True)
                 _write_cell(sheet, r, 3,
                             round(float(recipe.get(var['name'], 0.0)), 2),
                             number_format=_TWO_DP)
@@ -3443,6 +3451,9 @@ class FoodOptimizer:
             for line in (self.scaled_cautions([row], total, sized)
                          + self.total_mismatch_lines([row], total)):
                 _write_cell(sheet, r, 2, line)
+                r += 1
+            if self._formula_rows():
+                _write_cell(sheet, r, 2, wording.FORMULA_ROW_NOTE)
                 r += 1
             r += 1
 
@@ -4045,7 +4056,9 @@ class FoodOptimizer:
             c = 7
             if any_formula:
                 _write_cell(sheet, r, c,
-                            self._formula_text(var) if worked_out else None)
+                            wording.setup_sheet_formula_text(
+                                self._formula_text(var))
+                            if worked_out else None)
                 c += 1
             if any_supplier:
                 _write_cell(sheet, r, c, var.get('vendor') or None)

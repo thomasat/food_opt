@@ -9947,3 +9947,20 @@ def test_opening_the_sample_again_keeps_its_default_batch_size(tmp_path,
     assert opened.formulation_total == 100.0
     assert [qc['source'] for qc in opened.quantity_constraints] == [
         'formulation_total']
+
+
+def test_the_round_table_is_not_an_editor(worked_out):
+    """The round table on tab 2 gains no editing of its own — a worked-out
+    row's amount is drawn like any other, never typed over — and the
+    caption under it says where a correction actually happens."""
+    worked_out.set_pending_batch([{"Pea protein": 12.0, "Water": 38.0}],
+                                 batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "rest_burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    tab = at.tabs[1]
+    assert list(tab.get("data_editor")) == []
+    assert any(c.value == wording.CORRECTIONS_ON_RESULTS_CAPTION
+              for c in tab.caption), [c.value for c in tab.caption]

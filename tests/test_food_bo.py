@@ -9193,3 +9193,146 @@ class TestTheFormulaColumn:
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
             assert row["Water"] >= -1e-9
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 wave 2, task 4 (2026-09-16): a worked-out row on the workbook the
+#  bench prints, and the round table on tab 2 stays read only.
+# ------------------------------------------------------------------ #
+class TestFormulasOnTheSheets:
+    """A formula row prints the amount it computed to, marked so a bench
+    reading the printed page knows it was not chosen, only worked out."""
+
+    def _opt(self, tmp_path, monkeypatch, name="sheet_formulas"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 30, 50)
+        opt.add_ingredient("Salt", 8, 10)
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= batch size − Pea protein − Salt")
+        opt.set_pending_batch([
+            {"Pea protein": 40.0, "Salt": 9.0, "Water": 51.0},
+        ], batch_no=1)
+        return opt
+
+    def _no_formula_opt(self, tmp_path, monkeypatch, name="sheet_plain"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 30, 50)
+        opt.add_ingredient("Salt", 8, 10)
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_pending_batch([
+            {"Pea protein": 40.0, "Salt": 9.0, "Water": 51.0},
+        ], batch_no=1)
+        return opt
+
+    def _balance_opt(self, tmp_path, monkeypatch, name="sheet_balance"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 30, 50)
+        opt.add_ingredient("Salt", 8, 10)
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        return opt
+
+    # ---- the mark on the amount ------------------------------------- #
+
+    def test_the_summary_sheet_marks_a_worked_out_row(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+        names = {row[0] for row in _rows(summary) if isinstance(row[0], str)}
+        assert wording.worked_out_label("Water (g)") in names
+        assert "Water (g)" not in names
+        # A row with no formula wears no mark.
+        assert "Salt (g)" in names
+
+    def test_each_formulation_page_marks_it_too(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        page = book["Formulation 1"]
+        names = {row[1] for row in _rows(page) if isinstance(row[1], str)}
+        assert wording.worked_out_label("Water") in names
+        assert "Salt" in names
+
+    # ---- the sparse note ---------------------------------------------- #
+
+    def test_the_note_only_appears_when_a_round_has_a_formula(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+        page = book["Formulation 1"]
+        assert any(row[0] == wording.FORMULA_ROW_NOTE
+                  for row in _rows(summary))
+        assert any(row[1] == wording.FORMULA_ROW_NOTE for row in _rows(page))
+
+        plain = self._no_formula_opt(tmp_path, monkeypatch)
+        plain_book = _book(plain.workbook_bytes(plain.pending_batch, 100.0))
+        plain_summary = plain_book[wording.batch_sheet_name(
+            plain.pending_batch_no)]
+        plain_page = plain_book["Formulation 1"]
+        assert not any(row[0] == wording.FORMULA_ROW_NOTE
+                      for row in _rows(plain_summary))
+        assert not any(row[1] == wording.FORMULA_ROW_NOTE
+                      for row in _rows(plain_page))
+
+    # ---- the Set-up sheet's Formula column ----------------------------- #
+
+    def test_the_set_up_sheet_prints_the_formula(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.all_formulations_workbook())
+        sheet = book[wording.SET_UP_SHEET]
+        header = [c.value for c in sheet[2]]
+        assert header[6] == wording.FORMULA_LABEL
+        at = {sheet.cell(row=r, column=1).value: r
+             for r in range(1, sheet.max_row + 1)}
+        assert sheet.cell(row=at["Water"], column=7).value == \
+            "= batch size − Pea protein − Salt"
+        assert sheet.cell(row=at["Salt"], column=7).value is None
+
+    def test_the_sheet_has_no_formula_column_without_one(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._no_formula_opt(tmp_path, monkeypatch)
+        book = _book(opt.all_formulations_workbook())
+        header = [c.value for c in book[wording.SET_UP_SHEET][2]]
+        assert wording.FORMULA_LABEL not in header
+
+    def test_the_balance_row_prints_its_long_form(self, tmp_path,
+                                                  monkeypatch):
+        opt = self._balance_opt(tmp_path, monkeypatch)
+        book = _book(opt.all_formulations_workbook())
+        sheet = book[wording.SET_UP_SHEET]
+        at = {sheet.cell(row=r, column=1).value: r
+             for r in range(1, sheet.max_row + 1)}
+        assert sheet.cell(row=at["Water"], column=7).value == (
+            "= rest (batch size − every other ingredient)")
+
+    # ---- the Actual cell is unaffected --------------------------------- #
+
+    def test_a_worked_out_row_still_has_an_actual_cell(self, tmp_path,
+                                                       monkeypatch):
+        """What was weighed is what was weighed: a worked-out row's Actual
+        cell is unlocked exactly like any other row's."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        page = book["Formulation 1"]
+        at = {page.cell(row=r, column=2).value: r
+             for r in range(1, page.max_row + 1)}
+        row = at[wording.worked_out_label("Water")]
+        actual = page.cell(row=row, column=4)
+        assert actual.value is None
+        assert not actual.protection.locked
+        # The amount beside it, what it computed to, is still locked.
+        amount = page.cell(row=row, column=3)
+        assert amount.value == 51.0
+        assert amount.protection.locked

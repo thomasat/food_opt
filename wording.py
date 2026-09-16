@@ -2582,3 +2582,36 @@ def formulations_keep_their_amounts(names_text, many=False):
         tail = f"{names_text} is {WORKED_OUT} from its {FORMULA_IN_RANGE}"
     return (f"{FORMULATION_CAP}s already made keep their amounts. "
             f"{tail} from the next {ROUND} on.")
+
+
+# ------------------------------------------------------------------ #
+# The workbook and the round table (0.5.0 wave 2, "rules", task 4): a
+# worked-out row prints the amount it computed to, marked so a bench
+# reading the page knows it was not chosen but left over, and the round
+# table on tab 2 stays as it always was — read only.
+# ------------------------------------------------------------------ #
+
+def worked_out_label(name):
+    """'Water · worked out' — the mark a worked-out row's own name wears on
+    the summary sheet and on its own formulation page, so a bench reading
+    the printed page knows this amount was not chosen, only computed."""
+    return f"{name} · {WORKED_OUT}"
+
+
+FORMULA_ROW_NOTE = "A row marked worked out is filled in from its formula."
+
+
+def setup_sheet_formula_text(text):
+    """'= rest (batch size − every other ingredient)' — what the row that
+    takes the remainder prints in the Set-up sheet's Formula column; every
+    other row prints exactly what it was typed as."""
+    if str(text).strip().lower() == f"= {REST_TOKEN}":
+        return f"= {REST_TOKEN} ({BATCH_SIZE_NOUN} − every other {INGREDIENT})"
+    return text
+
+
+# The round table on tab 2 gains no editing of its own: a worked-out row's
+# amount is what it computed to, and correcting what the bench actually
+# weighed happens after the round is recorded, on the Results tab.
+CORRECTIONS_ON_RESULTS_CAPTION = (
+    "Correct what you made on the Results tab, after you record it.")
