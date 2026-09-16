@@ -4196,8 +4196,9 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
                               "Firmness · target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
                               wording.SUMMARY_TICK_NOTE], list(rows)
-    # Under the title, the line that says which cells take a number.
-    assert list(rows)[1] == wording.SHEET_SHADED_NOTE
+    # Under the title, the line that says which of this sheet's cells take
+    # a number.
+    assert list(rows)[1] == wording.SUMMARY_SHADED_NOTE
     # One column per formulation, not two — and the Lot cell after it.
     assert rows["Pea protein (g)"] == [10.0, None], rows["Pea protein (g)"]
 
@@ -8436,15 +8437,19 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     filled.save(out)
     out.seek(0)
     out.name = "burger · Round 1.xlsx"
+    # Both shapes come back as one record: the rows, and beside them what
+    # the file said about lots and about what was weighed — nothing, in a
+    # file of columns.
     from_workbook = ui_batch._read_results_file(opt, out)
-    assert list(from_workbook["Formulation"]) == [1]
-    assert from_workbook["Firmness"].iloc[0] == 6.0
+    assert list(from_workbook.frame["Formulation"]) == [1]
+    assert from_workbook.frame["Firmness"].iloc[0] == 6.0
 
     plain = io.BytesIO(b"Formulation,Firmness,Juiciness\n1,6.0,7.0\n")
     plain.name = "results.csv"
     from_csv = ui_batch._read_results_file(opt, plain)
-    assert list(from_csv["Formulation"]) == [1]
-    assert opt.parse_batch_results(from_csv, opt.pending_batch) == \
+    assert list(from_csv.frame["Formulation"]) == [1]
+    assert from_csv.actual == {} and from_csv.lots == {}
+    assert opt.parse_batch_results(from_csv.frame, opt.pending_batch) == \
         [(1, {"Firmness": 6.0, "Juiciness": 7.0}, "")]
 
 

@@ -1817,10 +1817,16 @@ ACTUAL_COLUMN = "Actual"
 # The one line under each sheet's title. The sheets are protected now,
 # so this says what can be typed and where: a locked cell that refuses a
 # number without saying why is the worst kind of paper.
+#
+# One line per sheet, naming that sheet's own cells and no others: the
+# Lot cells are on the summary and the Actual cells are on the pages, and
+# a single line long enough to name both was cut off where the page ends.
+SUMMARY_SHADED_NOTE = (
+    f"Fill in the shaded cells only: what you measured, {NOT_SCORED}, "
+    f"{NOTE} and {LOT_COLUMN}.")
 SHEET_SHADED_NOTE = (
     f"Fill in the shaded cells only: what you measured, {NOT_SCORED}, "
-    f"{NOTE}, {LOT_COLUMN}, and {ACTUAL_COLUMN} if you weighed something "
-    "different.")
+    f"{NOTE}, and {ACTUAL_COLUMN} if you weighed something different.")
 
 # What a formulation's note says when its amounts came back off the
 # sheet rather than off the screen. It goes in front of whatever the
@@ -1834,6 +1840,14 @@ def amounts_as_weighed_note(note):
     """'Amounts as weighed · lumpy' — the marker, then what was typed."""
     text = str(note or "").strip()
     return f"{AMOUNTS_AS_WEIGHED} · {text}" if text else AMOUNTS_AS_WEIGHED
+
+
+def workbook_actual_below_zero(number, name):
+    """A weight written as a negative number. Nothing was ever weighed out
+    of a bowl, so it is a slip of the pen or a minus sign left in front of
+    a correction, and either way the sheet says which cell."""
+    return (f"{FORMULATION_CAP} {number}: the {ACTUAL_COLUMN} cell for "
+            f"{name} cannot be less than zero.")
 
 
 def workbook_actual_not_a_number(number, name):

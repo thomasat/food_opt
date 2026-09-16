@@ -5671,8 +5671,12 @@ class TestTheWorkbook:
         assert rows[0][0] == wording.summary_title(2, "sheets",
                                                    opt._sheet_date(), "100 g")
         # Under the title, the one line that says which cells can be
-        # written in; the header the upload reads is under that.
-        assert rows[1][0] == wording.SHEET_SHADED_NOTE
+        # written in — this sheet's own, the Lot among them, and not the
+        # Actual cells that live on the pages; the header the upload reads
+        # is under that.
+        assert rows[1][0] == wording.SUMMARY_SHADED_NOTE
+        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
+        assert wording.ACTUAL_COLUMN not in wording.SUMMARY_SHADED_NOTE
         assert rows[2] == ("Ingredient or process setting", "Formulation 1", "%",
                            "Formulation 2", "%", "Formulation 3", "%",
                            "Lot"), rows[2]
@@ -5834,7 +5838,7 @@ class TestTheWorkbook:
     def test_a_filled_in_workbook_comes_back_as_results_and_a_ticked_row(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        frame = opt.results_from_workbook(self._filled_in(opt))
+        frame = opt.results_from_workbook(self._filled_in(opt)).frame
         assert list(frame["Formulation"]) == [1, 2, 3]
         parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
                                                   with_skipped=True)
@@ -5860,7 +5864,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         assert list(frame["Formulation"]) == [1]
 
     def test_last_weeks_workbook_says_which_sheet_it_wanted(self, tmp_path,
@@ -5948,11 +5952,11 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         assert list(frame["Formulation"]) == [1]
         assert frame["Firmness"].iloc[0] == 5.5
         # ... and the file the app writes today reads back the same way.
-        today = opt.results_from_workbook(self._filled_in(opt))
+        today = opt.results_from_workbook(self._filled_in(opt)).frame
         assert list(today["Formulation"]) == [1, 2, 3]
 
     def test_an_ingredient_called_not_scored_cannot_hijack_the_tick(
@@ -5978,7 +5982,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         assert list(frame["Formulation"]) == [1]
         assert frame["Firmness"].iloc[0] == 5.5
         assert frame[wording.NOT_SCORED].iloc[0] == "", frame.to_dict()
@@ -6006,7 +6010,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         assert list(frame["Formulation"]) == [2, 3]
         parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
                                                   with_skipped=True)
@@ -6030,7 +6034,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         parsed, skipped = opt.parse_batch_results(frame, opt.pending_batch,
                                                   with_skipped=True)
         assert parsed == [(1, {"Firmness": 5.5, "Juiciness": 7.0}, ""),
@@ -6070,7 +6074,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out)
+        frame = opt.results_from_workbook(out).frame
         assert frame["Firmness"].iloc[0] == 5.5, frame.to_dict()
 
     # ------------------------- the whole project ------------------------ #
@@ -6552,7 +6556,7 @@ class TestTheWorkbookFinalWave:
                 if row and len(row) > 1 and str(row[1]).strip() == wording.NOTE:
                     sheet.cell(row=r, column=4).value = "second try"
 
-        frame = opt.results_from_workbook(self._filled(opt, edit))
+        frame = opt.results_from_workbook(self._filled(opt, edit)).frame
         assert list(frame[wording.NOTE]) == ["second try"]
 
 
@@ -6602,7 +6606,7 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
             sheet.cell(row=firm, column=2).value = 5.5
             sheet.cell(row=juice, column=2).value = 8.0
 
-        frame = opt.results_from_workbook(self._handed_back(opt, edit))
+        frame = opt.results_from_workbook(self._handed_back(opt, edit)).frame
         assert list(frame["Firmness"]) == [5.5]
         assert list(frame["Juiciness"]) == [8.0]
 
@@ -7821,11 +7825,17 @@ class TestTheLockedWorkbook:
         # Both note cells: the app reads the printed one back as its own, and
         # a technician who corrects it there is not writing to no effect.
         expected.add(f"C{at[wording.NOTE]}")
+        # And the tick boxes: a sheet filled in on a screen has to be
+        # tickable on the screen.
+        expected |= {f"A{at[name]}" for name in ("Pea protein", "Water")}
         assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
-        # The amount beside the Actual cell is locked, and so is the tick.
+        # The amount beside the Actual cell is locked.
         amount = sheet.cell(row=at["Water"], column=3)
         assert amount.value == 80.0 and amount.protection.locked
-        assert sheet.cell(row=at["Water"], column=1).protection.locked
+        # The tick cell carries its printed box and the write-in shade.
+        tick = sheet.cell(row=at["Water"], column=1)
+        assert tick.value == wording.TICK_BOX
+        assert tick.fill.fgColor.rgb.endswith("FFF2CC")
 
     # ---- Lot, Actual, and the trip back -------------------------------- #
 
@@ -7890,24 +7900,30 @@ class TestTheLockedWorkbook:
         out.seek(0)
         return out
 
-    def _save(self, opt, sheet):
+    def _save(self, opt, upload):
         """The upload path the round screen runs on Save: the parsed rows,
         the amounts as weighed, and the lots kept with the round."""
-        parsed = opt.parse_batch_results(sheet, opt.pending_batch)
+        parsed = opt.parse_batch_results(upload.frame, opt.pending_batch,
+                                         weighed=upload.actual)
         by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
         batch_no = opt.pending_batch_no
         for number, results, note in parsed:
-            opt.tell(opt.amounts_as_weighed(sheet, number, by_number[number]),
+            opt.tell(opt.amounts_as_weighed(by_number[number],
+                                            upload.actual.get(number)),
                      results, formulation_no=number, batch_no=batch_no,
                      note=note)
-        opt.store_lots(batch_no, sheet)
+        opt.store_lots(batch_no, upload.lots)
         return parsed
 
     def test_what_was_weighed_is_what_is_recorded_and_the_note_says_so(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        sheet = opt.results_from_workbook(self._filled(opt, actual=82.5))
-        self._save(opt, sheet)
+        upload = opt.results_from_workbook(self._filled(opt, actual=82.5))
+        # The three things the file carried, in the open: the rows, what was
+        # weighed, and the lots.
+        assert upload.actual == {1: {"Water": 82.5}}
+        assert upload.lots == {"Water": "L-7"}
+        self._save(opt, upload)
         # Formulation 1 came back with 82.5 g of water in it, and the row
         # says why its amounts are not the ones that were suggested.
         assert opt.recipe_history[0] == {"Pea protein": 20.0, "Water": 82.5,
@@ -7932,8 +7948,7 @@ class TestTheLockedWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        sheet = opt.results_from_workbook(out)
-        self._save(opt, sheet)
+        self._save(opt, opt.results_from_workbook(out))
         assert opt.notes_history[0] == "Amounts as weighed · lumpy"
 
     def test_a_workbook_a_spreadsheet_re_saved_still_imports(self, tmp_path,
@@ -7944,9 +7959,9 @@ class TestTheLockedWorkbook:
         again = io.BytesIO()
         openpyxl.load_workbook(self._filled(opt, actual=82.5)).save(again)
         again.seek(0)
-        sheet = opt.results_from_workbook(again)
-        assert list(sheet["Formulation"]) == [1, 2]
-        self._save(opt, sheet)
+        upload = opt.results_from_workbook(again)
+        assert list(upload.frame["Formulation"]) == [1, 2]
+        self._save(opt, upload)
         assert opt.recipe_history[0]["Water"] == 82.5
         assert opt.lots == {2: {"Water": "L-7"}}
 
@@ -7972,6 +7987,55 @@ class TestTheLockedWorkbook:
         self._save(opt, opt.results_from_workbook(self._filled(opt, lot=None)))
         assert wording.LOTS_SHEET not in \
             _book(opt.all_formulations_workbook()).sheetnames
+
+    def test_the_instruction_line_fits_the_printed_page(self, tmp_path,
+                                                        monkeypatch):
+        """A line left in one column is cut off at the print edge, and an
+        instruction the page ends halfway through is worse than none. It is
+        merged across the sheet, wrapped, and given a row to wrap into —
+        and it names that sheet's own cells, nobody else's."""
+        opt = self._opt(tmp_path, monkeypatch)
+        book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
+        for sheet, row, note in ((book["Round 2"], 2,
+                                  wording.SUMMARY_SHADED_NOTE),
+                                 (book["Formulation 1"], 3,
+                                  wording.SHEET_SHADED_NOTE)):
+            last = sheet.print_area.split(":")[-1].strip("'$0123456789")
+            merged = [str(m) for m in sheet.merged_cells.ranges]
+            assert f"A{row}:{last}{row}" in merged, (sheet.title, merged)
+            cell = sheet.cell(row=row, column=1)
+            assert cell.value == note
+            assert cell.alignment.wrap_text
+            assert sheet.row_dimensions[row].height >= 30
+        # Lot is named where the Lot cells are, Actual where they are.
+        assert wording.ACTUAL_COLUMN in wording.SHEET_SHADED_NOTE
+        assert wording.LOT_COLUMN not in wording.SHEET_SHADED_NOTE
+        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
+        # And the line the measurements block carries is merged too.
+        page = book["Formulation 1"]
+        row = self._rows_of(page, column=2)[wording.SHEET_WRITE_IN_NOTE]
+        assert any(str(m).startswith(f"B{row}:")
+                   for m in page.merged_cells.ranges), page.merged_cells
+
+    def test_a_long_vendor_name_does_not_stretch_the_sheet(self, tmp_path,
+                                                           monkeypatch):
+        """Vendor and SKU are as wide as what they say — and no wider than a
+        column a printed page can carry."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt._var_by_name("Water")['vendor'] = "A supplier with a very long name"
+        opt._var_by_name("Water")['sku'] = "W-1"
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
+        # Two formulations and their shares, then Lot, Vendor and SKU.
+        assert sheet.column_dimensions["G"].width == 30    # capped
+        assert sheet.column_dimensions["H"].width == 12    # the short SKU
+
+    def test_an_actual_cell_below_zero_is_refused_in_its_own_words(
+            self, tmp_path, monkeypatch):
+        """Nothing was ever weighed out of a bowl, and "is not a number" is
+        the wrong thing to say about -80."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="cannot be less than zero"):
+            opt.results_from_workbook(self._filled(opt, actual=-80.0))
 
     def test_an_actual_cell_that_is_not_a_weight_is_refused(self, tmp_path,
                                                             monkeypatch):
@@ -8002,9 +8066,10 @@ class TestTheLockedWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        sheet = opt.results_from_workbook(out)
-        assert list(sheet["Formulation"]) == [1]
-        self._save(opt, sheet)
+        upload = opt.results_from_workbook(out)
+        assert list(upload.frame["Formulation"]) == [1]
+        assert upload.actual == {} and upload.lots == {}
+        self._save(opt, upload)
         assert opt.recipe_history[0] == {"Pea protein": 20.0, "Water": 80.0,
                                          "Cook temperature": 180.0}
         assert opt.notes_history[0] == ""       # nothing was weighed differently
@@ -8019,7 +8084,10 @@ class TestTheLockedWorkbook:
         state = opt.export_json()
         assert state['lots'] == {"2": {"Water": "L-7"}}
         FoodOptimizer.validate_state(state)      # the good one passes
-        for broken in ("L-7", {"two": {"Water": "L-7"}}, {"2": "L-7"}):
+        # A lot is text: a number written into that cell comes back as one,
+        # and import_json would file 7 where the sheet said 007.
+        for broken in ("L-7", {"two": {"Water": "L-7"}}, {"2": "L-7"},
+                       {"2": {"Water": 7}}, {"2": {7: "L-7"}}):
             state['lots'] = broken
             with pytest.raises(ValueError, match="'lots' section"):
                 FoodOptimizer.validate_state(state)

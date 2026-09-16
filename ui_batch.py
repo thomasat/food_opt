@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 import wording
-from food_bo import WORKBOOK_MIME
+from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from ui_helpers import (
     TAB_RESULTS, TAB_SETUP, amount_range_placeholder, best_formulation_no,
     bounds_caution, confirm_action,
@@ -679,10 +679,15 @@ def _save_results(opt, kept, left_out, to_record):
 def _read_results_file(opt, uploaded):
     """An uploaded results file in either shape it can arrive in: the
     workbook's own summary sheet, read back as one row per formulation, or a
-    comma-separated file with the columns that sheet's rows are named for."""
+    comma-separated file with the columns that sheet's rows are named for.
+
+    Both come back as an UploadedWorkbook, so what the Save button reads is
+    one shape: a file of columns says nothing about lots or about what was
+    weighed, and says it by carrying nothing.
+    """
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
         return opt.results_from_workbook(uploaded)
-    return pd.read_csv(uploaded)
+    return UploadedWorkbook(pd.read_csv(uploaded), {}, {})
 
 
 def _upload_preview(opt, parsed, left_out):
@@ -745,12 +750,15 @@ def _upload(opt):
             except Exception:
                 st.session_state.pop("_results_upload", None)
                 st.error(wording.FILE_UNREADABLE)
-        sheet = st.session_state.get("_results_upload")
+        # The rows, what the Actual cells said, and the lots: three things
+        # the file carried, kept apart all the way to Save.
+        sheet, weighed, lots = uploaded_parts(
+            st.session_state.get("_results_upload"))
         if sheet is None:
             return
         try:
             parsed, left_out = opt.parse_batch_results(
-                sheet, opt.pending_batch, with_skipped=True)
+                sheet, opt.pending_batch, with_skipped=True, weighed=weighed)
         except ValueError as e:
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
@@ -770,8 +778,8 @@ def _upload(opt):
                     # something different from what was printed. The note
                     # already says so: parse_batch_results put the marker in
                     # front of it.
-                    opt.tell(opt.amounts_as_weighed(sheet, number,
-                                                    by_number[number]),
+                    opt.tell(opt.amounts_as_weighed(by_number[number],
+                                                    weighed.get(number)),
                              results, formulation_no=number,
                              batch_no=batch_no, note=note)
                     # Stop at the first row that did not reach the disk rather
@@ -783,15 +791,15 @@ def _upload(opt):
                     # as not scored in the same words the grid's tick writes.
                     opt.record_skipped(
                         number, batch_no,
-                        opt.amounts_as_weighed(sheet, number,
-                                               by_number[number]),
+                        opt.amounts_as_weighed(by_number[number],
+                                               weighed.get(number)),
                         note=(wording.not_scored_with_note(note) if note
                               else wording.NOT_SCORED))
                     if not saved_ok(opt):
                         return
                 # The lots the sheet came back with belong to the round, not
                 # to any one formulation, so they are kept once at the end.
-                opt.store_lots(batch_no, sheet)
+                opt.store_lots(batch_no, lots)
                 if not saved_ok(opt):
                     return
             except (ValueError, TypeError, KeyError) as e:

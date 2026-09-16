@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import re
+from collections import namedtuple
 from datetime import datetime, timezone
 
 import numpy as np
@@ -588,13 +589,25 @@ def measurement_range_text(obj):
 SHEET_COLOURS = ("FFF1E0", "E7F3E8", "E3EEF7", "F2E8F4",
                  "FBF6DC", "FCE8E6", "E2F1F1", "EDEDED")
 
-# Where an uploaded workbook's two extras ride on the frame the parser
-# reads: the lot numbers, which belong to the round rather than to any one
-# formulation, and the amounts somebody wrote in the Actual cells. Not
-# columns, because the columns of that frame are the shape
-# parse_batch_results reads and a lot number is not a result.
-_LOTS_ATTR = "food_opt_lots"
-_ACTUAL_ATTR = "food_opt_actual"
+# What an uploaded workbook came back with. The frame is the rows
+# parse_batch_results reads, and beside it travel the two things a sheet
+# says that are not results: the amounts somebody wrote in the Actual
+# cells, and the lot numbers, which belong to the round rather than to any
+# one formulation. They are not columns of the frame — its columns are the
+# shape the parser reads, and a lot number is not a result — and they are
+# not smuggled on the frame either: something that has to survive a trip
+# through session state should be visible in the signature that hands it
+# over.
+UploadedWorkbook = namedtuple("UploadedWorkbook", "frame actual lots")
+
+
+def uploaded_parts(upload):
+    """(rows, what was weighed, the lots) out of whatever the upload step
+    left behind. A comma-separated file — and a frame put straight into the
+    app's own state — carries the rows and nothing else."""
+    if isinstance(upload, UploadedWorkbook):
+        return upload.frame, dict(upload.actual or {}), dict(upload.lots or {})
+    return upload, {}, {}
 
 # What a browser is told a workbook is. Not screen text: the one string
 # every download button hands to Streamlit.
@@ -662,6 +675,19 @@ def _write_in_cell(sheet, row, column, value=None, wrap=False):
     cell = _write_cell(sheet, row, column, value, fill=_WRITE_IN_FILL,
                        border=True, wrap=wrap)
     cell.protection = _UNLOCKED
+    return cell
+
+
+def _write_banner(sheet, row, column, text, last_column):
+    """One line of instruction across the width of the sheet: merged,
+    wrapped and given the room its second line needs. Left in a single
+    column it is cut off at the print edge, and an instruction the printed
+    page ends halfway through is worse than none."""
+    cell = _write_cell(sheet, row, column, text, wrap=True)
+    if last_column > column:
+        sheet.merge_cells(start_row=row, start_column=column,
+                          end_row=row, end_column=last_column)
+    sheet.row_dimensions[row].height = 30
     return cell
 
 
@@ -2435,7 +2461,7 @@ class FoodOptimizer:
         items = sorted(pairs, key=lambda kv: kv[1], reverse=True)
         return items if limit is None else items[:limit]
 
-    def parse_batch_results(self, df, batch, with_skipped=False):
+    def parse_batch_results(self, df, batch, with_skipped=False, weighed=None):
         """Match an uploaded results sheet to the open batch.
 
         The sheet needs a Formulation column holding the global numbers from
@@ -2453,6 +2479,11 @@ class FoodOptimizer:
         and it is kept apart rather than refused. Returns [(formulation
         number, {measurement: value}, note), ...], or that and the not-scored
         rows as [(number, note), ...] when `with_skipped` is set.
+
+        `weighed` is what an uploaded workbook's Actual cells said, keyed by
+        formulation number (UploadedWorkbook.actual). A row that has any is
+        a row whose amounts are no longer the ones the app suggested, and
+        its note says so in front of whatever the bench wrote.
         """
         rows = self._batch_rows(batch)
         numbers = [r['formulation'] for r in rows]
@@ -2482,11 +2513,8 @@ class FoodOptimizer:
         if len(df) == 0:
             raise ValueError("The sheet has no result rows.")
         in_batch = ", ".join(str(n) for n in numbers)
-        # Which formulations came back with amounts of their own. Their note
-        # says so in front of whatever the bench wrote: the row's amounts are
-        # no longer the ones the app suggested, and nothing else on the
-        # Results tab would say it.
-        weighed = self._upload_extra(df, _ACTUAL_ATTR)
+        # Which formulations came back with amounts of their own.
+        weighed = {int(k): v for k, v in (weighed or {}).items()}
         parsed, skipped, seen = [], [], set()
         for _, sheet_row in df.iterrows():
             raw_no = sheet_row[key_col]
@@ -2695,12 +2723,13 @@ class FoodOptimizer:
         as one column of numbers."""
         return name if self._shows_shares() else self._amount_column(name)
 
-    def _actual_column_head(self, var=None):
+    def _actual_column_head(self):
         """'Actual (g)' — the header of the column the bench writes what it
-        really weighed into. A process setting carries its own unit, as it
-        does in every other column the app prints: a cook temperature's
-        Actual is never in grams."""
-        unit = self._unit_of(var) if var is not None else self.one_amount_unit()
+        really weighed into, carrying the unit the Amount column beside it
+        carries. Over the settings block it is a bare 'Actual': a cook
+        temperature and a proving time share no unit, and each setting's
+        row says its own."""
+        unit = self.one_amount_unit()
         return (f"{wording.ACTUAL_COLUMN} ({unit})" if unit
                 else wording.ACTUAL_COLUMN)
 
@@ -2760,10 +2789,11 @@ class FoodOptimizer:
             self.pending_batch_no, self.project_name, self._sheet_date(),
             self.batch_total_text(total)))
         title.font = _TITLE_FONT
-        # Under the title, because Lot and Actual are up here in the amounts
+        # Under the title, because the Lot cells are up here in the amounts
         # and the Measured cells are pages below: one line about the whole
-        # sheet belongs where the sheet starts.
-        _write_cell(sheet, 2, 1, wording.SHEET_SHADED_NOTE)
+        # sheet belongs where the sheet starts. It names this sheet's own
+        # cells; the Actual cells are named on the pages that carry them.
+        _write_banner(sheet, 2, 1, wording.SUMMARY_SHADED_NOTE, last_column)
 
         # The first column carries the settings too when the project has
         # any: they were filed silently under "Ingredient".
@@ -2845,7 +2875,7 @@ class FoodOptimizer:
         # will read — the one thing the paper cannot be asked.
         _write_cell(sheet, r, 1, wording.MEASURED_COLUMN, bold=True)
         r += 1
-        _write_cell(sheet, r, 1, wording.SHEET_WRITE_IN_NOTE)
+        _write_banner(sheet, r, 1, wording.SHEET_WRITE_IN_NOTE, last_column)
         r += 1
         for obj in objs:
             _write_cell(sheet, r, 1, self._measurement_sheet_label(obj))
@@ -2865,10 +2895,24 @@ class FoodOptimizer:
         r += 1
         _write_cell(sheet, r, 1, wording.SUMMARY_TICK_NOTE)
 
+        # The Lot is written in, so it gets a hand's width; the vendor and
+        # the SKU are printed, so they get the width of what they say —
+        # capped, because one long supplier name must not push the sheet
+        # onto a second page.
+        def printed_width(key):
+            longest = max([len(str(v.get(key) or "").strip())
+                           for v in ingredients] or [0])
+            return min(30, max(12, longest + 4))
+
+        extra = []
+        if lot_column:
+            extra.append(14)
+        if vendor_column:
+            extra.append(printed_width('vendor'))
+        if sku_column:
+            extra.append(printed_width('sku'))
         _set_widths(sheet, [34] + ([14, 7] if shares else [18])
-                    * max(1, len(rows))
-                    + [14] * (last_column - lot_column + 1 if lot_column
-                              else 0))
+                    * max(1, len(rows)) + extra)
         sheet.freeze_panes = "B4"
         # The title and the header ride on every printed page: page two of a
         # wide batch is a grid of numbers with nothing to read it by.
@@ -2886,6 +2930,10 @@ class FoodOptimizer:
         ingredients, process = self._ingredients(), self._process_settings()
         unit = self.one_amount_unit()
         shares = self._shows_shares()
+        # Tick, name, amount and Actual, with the share behind them where
+        # the project has one: what the page is printed to, and what an
+        # instruction line is merged across.
+        page_width = 5 if shares else 4
 
         title = _write_cell(sheet, 1, 1,
                             wording.sheet_title(row['formulation'],
@@ -2906,8 +2954,9 @@ class FoodOptimizer:
                     else wording.compared_with_line(column_head, cell_text))
         # The page is protected, so it says up front which cells still take
         # a number — the Actual cells are in the table below, a long way
-        # from the Measured ones.
-        _write_cell(sheet, 3, 1, wording.SHEET_SHADED_NOTE)
+        # from the Measured ones. Across the page, because a sentence left
+        # in the first column is cut off where the printed page ends.
+        _write_banner(sheet, 3, 1, wording.SHEET_SHADED_NOTE, page_width)
 
         r = 5
         if ingredients:
@@ -2928,8 +2977,10 @@ class FoodOptimizer:
                 fill = self._ingredient_fill(var['name'])
                 # The box is drawn, not left as an empty bordered cell: the
                 # column had a header and nothing under it to put a mark in.
-                _write_cell(sheet, r, 1, wording.TICK_BOX, fill=fill,
-                            border=True)
+                # It is a write-in cell like any other — a sheet filled in
+                # on a screen has to be tickable there too — so it wears
+                # the write-in shade rather than the ingredient's colour.
+                _write_in_cell(sheet, r, 1, wording.TICK_BOX)
                 _write_cell(sheet, r, 2,
                             self._sheet_ingredient_label(var['name']),
                             bold=True, fill=fill)
@@ -2986,7 +3037,7 @@ class FoodOptimizer:
         # What mark the app will read, said on the page that asks for it:
         # the summary sheet carried this and the pages the bench actually
         # writes on carried nothing.
-        _write_cell(sheet, r, 2, wording.SHEET_WRITE_IN_NOTE)
+        _write_banner(sheet, r, 2, wording.SHEET_WRITE_IN_NOTE, page_width)
         r += 1
         _write_cell(sheet, r, 2, wording.MEASUREMENT_COLUMN, bold=True)
         # Goal for the words, Target for the number: this column holds
@@ -3022,7 +3073,7 @@ class FoodOptimizer:
         # below it are Measurement, Target and Measured, beside the tick,
         # and the share rides at the end of the amounts table alone.
         _set_widths(sheet, [6, 34, 14, 14] + ([7] if shares else []))
-        _fit_to_page(sheet, r, 5 if shares else 4)
+        _fit_to_page(sheet, r, page_width)
         _protect(sheet)
 
     def results_from_workbook(self, source, batch_no=None):
@@ -3059,15 +3110,11 @@ class FoodOptimizer:
             raise ValueError(wording.workbook_nothing_filled_in(wanted))
         columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
                        + [wording.NOT_SCORED, wording.NOTE])
-        frame = pd.DataFrame(rows, columns=columns_out)
-        # What the sheet says about the round rather than about one
-        # measurement, carried on the frame itself: the columns are the
-        # shape parse_batch_results reads, and a Lot number is not a
-        # result. They survive the trip through session state because
-        # nothing copies the frame between here and the Save button.
-        frame.attrs[_LOTS_ATTR] = lots
-        frame.attrs[_ACTUAL_ATTR] = actual
-        return frame
+        # The rows, and beside them the two things the sheet says that are
+        # not results. See UploadedWorkbook: they travel in the open, named
+        # in the signature, rather than smuggled on the frame.
+        return UploadedWorkbook(pd.DataFrame(rows, columns=columns_out),
+                                actual, lots)
 
     def _lots_from_summary(self, frame):
         """{ingredient: lot} off the summary sheet's Lot column.
@@ -3118,8 +3165,6 @@ class FoodOptimizer:
                 labels[str(label).strip().lower()] = var['name']
         headers = {self._actual_column_head().strip().lower(),
                    wording.ACTUAL_COLUMN.strip().lower()}
-        headers.update(self._actual_column_head(var).strip().lower()
-                       for var in self.variables)
         out = {}
         for number in numbers:
             name = wording.formulation_sheet_name(number)
@@ -3144,7 +3189,7 @@ class FoodOptimizer:
                     raise ValueError(wording.workbook_actual_not_a_number(
                         number, variable))
                 if amount < 0:
-                    raise ValueError(wording.workbook_actual_not_a_number(
+                    raise ValueError(wording.workbook_actual_below_zero(
                         number, variable))
                 weighed[variable] = amount
             if weighed:
@@ -3152,36 +3197,24 @@ class FoodOptimizer:
         return out
 
     @staticmethod
-    def _upload_extra(sheet, key):
-        """One of the two things a workbook carries besides results. A
-        comma-separated file carries neither, and neither does a frame the
-        app built itself."""
-        attrs = getattr(sheet, "attrs", None)
-        value = (attrs or {}).get(key)
-        return value if isinstance(value, dict) else {}
-
-    def amounts_as_weighed(self, sheet, number, recipe):
-        """What to record as this formulation's amounts: what the bench
-        wrote in the Actual cells, over the amounts it was given, or the
-        amounts unchanged where nothing was written.
+    def amounts_as_weighed(recipe, weighed=None):
+        """What to record as one formulation's amounts: what the bench wrote
+        in the Actual cells, over the amounts it was given, or the amounts
+        unchanged where nothing was written.
 
         Only the cells somebody filled in move — a blank Actual cell means
         the printed amount was weighed out — and the sheets print the stored
         amounts, so what comes back sits on the basis the model reads.
         """
-        weighed = self._upload_extra(sheet, _ACTUAL_ATTR).get(int(number))
-        if not weighed:
-            return dict(recipe)
         out = dict(recipe)
-        out.update(weighed)
+        out.update(weighed or {})
         return out
 
-    def store_lots(self, batch_no, sheet):
+    def store_lots(self, batch_no, lots):
         """Keep the lot numbers an uploaded workbook came back with against
         the round they were weighed for. They are never read by the model:
         they are what a formulation is traced back through six months
         later."""
-        lots = self._upload_extra(sheet, _LOTS_ATTR)
         if not lots or batch_no is None:
             return {}
         if not isinstance(getattr(self, 'lots', None), dict):
@@ -6883,7 +6916,8 @@ class FoodOptimizer:
         for key, written in (lots or {}).items():
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
                     or not isinstance(written, dict) \
-                    or not all(isinstance(name, str) for name in written):
+                    or not all(isinstance(name, str) and isinstance(lot, str)
+                               for name, lot in written.items()):
                 raise ValueError(
                     "This copy's 'lots' section has the wrong shape.")
         pending = state.get('pending_batch')
