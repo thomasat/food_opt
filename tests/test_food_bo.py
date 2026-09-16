@@ -7703,23 +7703,6 @@ class TestTheDisplayRescaleIsOnlyForOlderRounds:
     """
 
     def _opt(self, tmp_path, monkeypatch, name="rescale"):
-# ------------------------------------------------------------------ #
-#  0.5.0 §1.6: the workbook is locked where the app will not read it.
-#  The cells a bench writes in are unlocked and shaded, two of them are
-#  new — the Lot and the Actual weight — and both come back.
-# ------------------------------------------------------------------ #
-
-def _unlocked(sheet):
-    """Every cell of a sheet a pen — or a keyboard — can still reach."""
-    return {cell.coordinate for row in sheet.iter_rows() for cell in row
-            if not cell.protection.locked}
-
-
-class TestTheLockedWorkbook:
-    """A sheet that can be overtyped anywhere comes back as results for a
-    formulation the app never suggested, and nothing in the file says so."""
-
-    def _opt(self, tmp_path, monkeypatch, name="locked"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
         opt.set_amount_unit("g")
@@ -7764,6 +7747,30 @@ class TestTheLockedWorkbook:
         assert basis == 150.0
         assert reloaded.ingredient_total(shown) == pytest.approx(150.0)
         assert shown["Pea protein"] == pytest.approx(60.0)
+
+
+# ------------------------------------------------------------------ #
+#  0.5.0 §1.6: the workbook is locked where the app will not read it.
+#  The cells a bench writes in are unlocked and shaded, two of them are
+#  new — the Lot and the Actual weight — and both come back.
+# ------------------------------------------------------------------ #
+
+def _unlocked(sheet):
+    """Every cell of a sheet a pen — or a keyboard — can still reach."""
+    return {cell.coordinate for row in sheet.iter_rows() for cell in row
+            if not cell.protection.locked}
+
+
+class TestTheLockedWorkbook:
+    """A sheet that can be overtyped anywhere comes back as results for a
+    formulation the app never suggested, and nothing in the file says so."""
+
+    def _opt(self, tmp_path, monkeypatch, name="locked"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Pea protein", 0, 100)
+        opt.add_ingredient("Water", 0, 100)
         opt.add_process_parameter("Cook temperature", 100, 220, unit="°C")
         opt.add_objective("Firmness", 1.5, goal="target", target=6,
                           min_val=0, max_val=10, unit="N")

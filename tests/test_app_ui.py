@@ -9102,6 +9102,8 @@ def test_moving_the_property_picker_takes_the_question_down(burger):
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
         _tab_primaries(at, 0)
     assert FoodOptimizer("burger").properties() == ["Cost", "Fat per 100 g"]
+
+
 def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
         open_batch):
     """0.5.0 §1.6, end to end: the file the bench hands back carries an
