@@ -1394,6 +1394,13 @@ def formulation_total_row(total_text):
     return f"{FORMULATION_TOTAL_NAME} · {total_text} (set in Set up)"
 
 
+def round_stays_at(size_text):
+    """The second half of a refused batch size: what the round, the table and
+    the sheets are still made to, so the number left in the box is never
+    mistaken for the one under it."""
+    return f"The {ROUND} stays at {size_text}."
+
+
 def total_not_reachable_at_most(total_text, most_text,
                                 noun=FORMULATION_TOTAL_NOUN):
     """A size above everything the allowed amounts can add up to. The two

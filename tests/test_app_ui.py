@@ -7521,7 +7521,8 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     250 g was impossible, and the bench would have been sent out to weigh
     amounts the project says it does not allow. The size is refused: the
     round keeps the one it has, the table and the download stay at that
-    size, and the box comes back holding it on the next run."""
+    size, and the box keeps the refused number beside the line that says
+    what the round is still made to."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(25.0)
@@ -7531,7 +7532,8 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     at.run()
     assert not at.exception
     assert any(c.value == ("A batch size of 250 g is not reachable: the most "
-                           "these ingredients can make is 28 g.")
+                           "these ingredients can make is 28 g. The round "
+                           "stays at 25 g.")
                for c in at.caption), [c.value for c in at.caption]
     # Not made to it: the round, the table and the sheets are all still 25 g.
     saved = FoodOptimizer("burger")
@@ -7541,11 +7543,33 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
     assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in at.caption), [c.value for c in at.caption]
-    # No extra button: the box itself comes back to the round's own size.
+    # No extra button, and the box is not changed under the hand: it still
+    # holds the refused number next to the reason, on this run and the next.
     assert wording.YES_CONTINUE not in _labels(at), _labels(at)
     at.run()
-    assert at.number_input(key="scale_total").value == 25.0
+    assert at.number_input(key="scale_total").value == 250.0
     assert FoodOptimizer("burger").pending_batch_total == 25.0
+
+
+def test_a_reachable_size_typed_after_a_refused_one_is_made(open_batch):
+    """In the browser: 150 g refused, then 120 g typed — and the box came
+    back holding the old 100 g with the 150 g refusal still under it. The
+    re-seed that followed a refusal ate the next number. A refusal changes
+    nothing but the line; the next size typed is made like any other."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="scale_total").set_value(250.0)
+    at.run()
+    assert any("is not reachable" in c.value for c in at.caption)
+    at.number_input(key="scale_total").set_value(28.0)
+    at.run()
+    assert not at.exception
+    assert not any("is not reachable" in c.value for c in at.caption), \
+        [c.value for c in at.caption]
+    assert at.number_input(key="scale_total").value == 28.0
+    assert FoodOptimizer("burger").pending_batch_total == 28.0
+    assert any(c.value == "Sheets show each formulation made to 28 g."
+               for c in at.caption), [c.value for c in at.caption]
 
 
 def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(

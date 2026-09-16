@@ -56,7 +56,6 @@ _SEEDED_TOTAL = "_scale_total_seeded"
 # Set by a size that was refused, read by the seeding on the next run: the
 # box goes back to the size the round is actually made to, rather than
 # sitting on a number nothing on the page is a number of.
-_BATCH_SIZE_REFUSED = "_scale_total_refused"
 
 
 def _seed_mark(opt, size):
@@ -108,8 +107,7 @@ def _seed_batch_size(opt):
     size = _prefill(opt)
     mark = _seed_mark(opt, size)
     emptied = size is not None and typed_batch_size(opt) is None
-    refused = bool(st.session_state.pop(_BATCH_SIZE_REFUSED, False))
-    if st.session_state.get(_SEEDED_TOTAL) == mark and not (emptied or refused):
+    if st.session_state.get(_SEEDED_TOTAL) == mark and not emptied:
         return
     st.session_state[_SEEDED_TOTAL] = mark
     if size is not None:
@@ -177,8 +175,9 @@ def _apply_batch_size(opt, typed):
     A size the ingredients cannot add up to is not made. The app printed
     sheets for 250 g directly under a line saying 250 g was impossible, and
     sent the bench out with amounts the project says it does not allow. The
-    round keeps the size it has, the box comes back holding that size on the
-    next run, and the refusal is the only thing that changes on screen.
+    round keeps the size it has, the box keeps the number that was refused
+    next to the line that says why, and the refusal is the only thing that
+    changes on screen.
     """
     if typed is None:
         return ""
@@ -188,8 +187,13 @@ def _apply_batch_size(opt, typed):
         return ""
     trouble = _unreachable(opt, typed)
     if trouble:
-        st.session_state[_BATCH_SIZE_REFUSED] = True
-        return trouble
+        # The refused number stays in the box, beside the reason it was not
+        # made: re-seeding the box on the next run took the NEXT number the
+        # bench typed with it (a reachable 120 after a refused 150 came back
+        # as the old 100), and a box that changes under the hand is worse
+        # than one holding a number the line beneath it explains.
+        return trouble + " " + wording.round_stays_at(
+            opt.batch_total_text(opt.open_round_size()))
     opt.scale_round(typed)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, typed)
     return ""
