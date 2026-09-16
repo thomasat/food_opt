@@ -320,7 +320,15 @@ def _grid_ids(frame):
 
 def _row_is_blank(row):
     """True for the empty line at the bottom of a dynamic grid, clicked and
-    then left alone. It is not an addition and it is not an error."""
+    then left alone. It is not an addition and it is not an error.
+
+    A row that carries an `_id` is never blank however empty its cells look:
+    it is a row of the project with its visible answers rubbed out, and
+    skipping it would have taken it off the grid — a deletion, applied with
+    no question asked and no copy kept. It falls through to the row reader
+    and is refused there for having no name."""
+    if _text_cell(row, GRID_ID):
+        return False
     return not any(str(_cell(row, c, "")).strip() for c in row.index
                    if c != GRID_ID)
 
@@ -365,17 +373,70 @@ def _proposed_variable(spec):
     return var
 
 
-def _limits_over(limits, names):
+def _duplicate_name_errors(rows):
+    """Two rows of one grid wearing one name, blamed on the row that MOVED.
+
+    One name, one thing: two rows with the same name are two columns of one
+    name on every table in the app, and a second spelling of it is the same
+    collision under another face. Which row to say it against is the whole
+    question — the reader typed into one of them, and blaming the other asks
+    them to fix a row they never touched. The row that moved is the one
+    whose Name no longer matches the identity it arrived with; when both
+    moved (or both are new) the later one is the one they just typed.
+    """
+    errors = []
+    first = {}
+    for row_no, spec in rows:
+        lowered = spec['name'].lower()
+        twin = first.get(lowered)
+        if twin is None:
+            first[lowered] = (row_no, spec)
+            continue
+        blamed, other = (twin, spec) if _row_moved(twin[1]) and not _row_moved(
+            spec) else ((row_no, spec), twin[1])
+        errors.append((blamed[0],
+                       _name_taken_message(other['name'], blamed[1]['category'])
+                       if other['name'] == blamed[1]['name']
+                       else wording.name_differs_only_by_case(other['name'])))
+    return errors
+
+
+def _row_moved(spec):
+    """True when this row's name is not the one it arrived under — a rename,
+    or a row typed on the empty line at the bottom."""
+    return spec['id'] is None or spec['id'] != spec['name']
+
+
+def _renames(rows):
+    """{old name: new name} for the rows of a finished grid that moved."""
+    return {spec['id']: spec['name'] for _, spec in rows
+            if spec['id'] and spec['id'] != spec['name']}
+
+
+def _limits_over(limits, names, renamed=None):
     """The amount limits that would survive the finished grid: one that has
-    lost an ingredient is pruned, and the total's own limit is over whatever
-    the ingredient list now is."""
+    lost an ingredient is pruned, one whose ingredients were renamed is
+    rewritten (rename_variable does exactly that), and the total's own limit
+    is over whatever the ingredient list now is."""
+    renamed = renamed or {}
     kept = []
     for qc in limits:
         if qc.get('source') == 'formulation_total':
             kept.append(dict(qc, ingredients=list(names)))
-        elif all(n in names for n in qc['ingredients']):
-            kept.append(qc)
+            continue
+        moved = [renamed.get(n, n) for n in qc['ingredients']]
+        if all(n in names for n in moved):
+            kept.append(dict(qc, ingredients=moved))
     return kept
+
+
+def _properties_over(properties, renamed):
+    """An ingredient's property figures follow its name, as rename_variable
+    moves them. Without this a row renamed in the same save reads as having
+    no figure for anything, and a property limit looks broken when it is
+    not."""
+    return {renamed.get(name, name): values
+            for name, values in (properties or {}).items()}
 
 
 def _what_moved(before, after):
@@ -390,8 +451,10 @@ def _what_moved(before, after):
     nothing. The row's NAME is not in here at all: a rename goes through
     rename_variable, which moves everything filed under it.
     """
-    if before is None or before == after:
-        return set() if before == after else {'other'}
+    if before == after:
+        return set()
+    if before is None:
+        return {'other'}                 # a row that was not there before
     moved = set()
     if before[3] != after[3]:
         moved.add('unit')
@@ -632,14 +695,6 @@ def ingredients_template_workbook(path):
         {wording.INGREDIENTS_SHEET: pd.read_csv(path).head(1)})
 
 
-def _fmt_weight(w):
-    """'1', '1.5', '2.25' — a whole importance drops its decimal now that
-    its share of the score sits right beside it in parentheses; anything
-    with a fraction still shows one."""
-    txt = f"{float(w):.2f}".rstrip("0").rstrip(".")
-    return txt
-
-
 # --------------------------------------------------------------------------- #
 #  Expert-selectable BO hyperparameters (optional "arm 3").
 #  bo_config == None  =>  library defaults, i.e. byte-identical to the standard
@@ -698,7 +753,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 10  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 11  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -833,8 +888,22 @@ class FoodOptimizer:
                 continue
             raise ValueError(_name_taken_message(
                 var['name'], var.get('category', 'ingredient')))
+        self._name_is_free_of_measurements(name, skip=skip)
+
+    def _name_is_free_of_measurements(self, name, skip=None):
+        """The half of the question that is not about the variables: a
+        measurement, a property.
+
+        Split out for the grids. A grid is saved whole, so a name another
+        ROW is giving up in the same save is free by the time the save
+        lands — Flour renamed to Barley leaves Flour for the next row to
+        take — and the grid's own pass over its finished names is what
+        catches a real collision. A measurement or a property is not on that
+        grid and cannot move under it, so this half still stands.
+        """
+        lowered = str(name).strip().lower()
         for obj in self.objectives:
-            if obj['name'].lower() == lowered:
+            if obj is not skip and obj['name'].lower() == lowered:
                 raise ValueError(
                     f"{obj['name']} is already the name of a measurement. "
                     f"Choose another name.")
@@ -1205,9 +1274,54 @@ class FoodOptimizer:
         self.save()
         return replaced
 
+    def _check_rename_objective(self, name, new_name):
+        """The stripped name `rename_objective` would give this measurement,
+        or a ValueError saying why it cannot have it. Separate from the
+        rename itself so a grid Save can refuse the whole thing before it
+        writes a word."""
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        if obj is None:
+            raise ValueError(f"No measurement named {name}.")
+        new_name = str(new_name).strip()
+        if not new_name:
+            raise ValueError(wording.NAME_REQUIRED_ERROR)
+        if new_name == name:
+            return name
+        if is_reserved_name(new_name):
+            raise ValueError(_reserved_name_message(new_name))
+        # A measurement heads a column of the same tables an ingredient
+        # does, so it is refused for the same clashes in the same words.
+        self._name_is_free(new_name, skip=obj)
+        return new_name
+
+    def rename_objective(self, name, new_name):
+        """Give one measurement a different name, keeping every result
+        recorded under the old one.
+
+        A measurement's name is a KEY: every row of results_history is a
+        dict filed under it, and the utility of every formulation is worked
+        out by looking it up. So the rename moves the objective and every
+        one of those keys together, and the scores do not move at all —
+        which is why nothing is recalculated here and no copy is kept.
+
+        Where the targets came from is a note about the project, not about
+        this measurement, and is left exactly as it was.
+        """
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        new_name = self._check_rename_objective(name, new_name)
+        if new_name == name:
+            return
+        obj['name'] = new_name
+        for results in self.results_history:
+            if name in results:
+                results[new_name] = results.pop(name)
+        self.save()
+
     def remove_objective(self, name):
-        """Remove an objective and recalculate stored utility scores."""
+        """Remove an objective and recalculate stored utility scores. What
+        is left shares the whole 100 between them."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
+        self._shares_to_100()
         self._recompute_utilities()
         self.save()
 
@@ -1663,6 +1777,37 @@ class FoodOptimizer:
         self.save()
         return obj
 
+    def _shares_to_100(self):
+        """Hold the one invariant 0.5.0 rests on: what each measurement is
+        worth is its SHARE of the score, and the shares add up to 100.
+
+        Before 0.5.0 an importance was any positive number and the ceiling
+        was whatever they summed to — 2.50 for the sample's 1.5 and 1. The
+        column on the grid is typed in percent, so there is one scale now
+        and everything that can change the set of measurements comes
+        through here: adding one, deleting one, typing the column, and
+        opening a file written before the rule existed.
+
+        `add_objective` is deliberately NOT one of them. Its `weight` is a
+        number on whatever scale the caller is using, and a series of adds
+        has no last one the model can recognise; normalizing after each
+        would measure the second against a first already rewritten as 100.
+        So a project assembled in memory keeps the scale it was assembled
+        on, and is brought onto this one the moment it is opened — which is
+        how every screen sees it, because every screen reads the project
+        back off the file.
+
+        It is a change of units and nothing else: every ratio, every
+        closeness and therefore the ORDER of every formulation is untouched,
+        and the score each one reads moves by the same factor. Idempotent,
+        so a project already at 100 is left alone and its mtime with it.
+        """
+        total = sum(float(o['weight']) for o in self.objectives)
+        if not self.objectives or total <= 0 or abs(total - 100.0) <= 1e-9:
+            return
+        for obj in self.objectives:
+            obj['weight'] = float(obj['weight']) * 100.0 / total
+
     def measurements_by_importance(self):
         """Measurements as every screen orders them: most important first,
         ties in the order they were added."""
@@ -1710,23 +1855,26 @@ class FoodOptimizer:
         return join_unit(f"{shares[name]:d}", "%")
 
     def score_function_line(self):
-        """The one line under the measurements table that writes the score
-        out, each importance beside its share of the total."""
+        """The one line under the measurements grid that writes the score
+        out, in the shares the reader typed and nothing else.
+
+        It used to carry the importance as well — "1.5 (60 %) × Firmness" —
+        because the two were different numbers. Since 0.5.0 they are one
+        number, so the line says it once."""
         if not self.objectives:
             return ""
         terms = " + ".join(
-            f"{_fmt_weight(o['weight'])} ({self.share_text(o['name'])}) "
-            f"× {o['name']} closeness"
+            f"{self.share_text(o['name'])} × {o['name']} closeness"
             for o in self.measurements_by_importance()
         )
         # How closeness is worked out belongs in the expander below this
         # line, per goal: two of the three goals have no target at all, so a
         # sentence about distance from one was wrong on most screens.
-        # The subject is the formulation, not the measurement: 2.50 is the
-        # whole-formulation ceiling, and "every measurement ... scores 2.50"
+        # The subject is the formulation, not the measurement: 100 is the
+        # whole-formulation ceiling, and "every measurement ... scores 100"
         # read as each one scoring it.
         return (f"Overall score = {terms}. A formulation that hits every "
-                f"goal scores {self.utility_ceiling():.2f}.")
+                f"goal scores {self.utility_ceiling():g}.")
 
     def set_targets_source(self, text):
         """Remember where the measurement targets came from. Written only on
@@ -2031,7 +2179,9 @@ class FoodOptimizer:
                 self.Y_history[i] = self._compute_utility(results_dict)
 
     def utility_ceiling(self):
-        """The Overall Score a perfect recipe would get: the sum of weights."""
+        """The overall score a formulation that hits every goal would get:
+        the sum of the shares, which is 100 for any project saved since
+        0.5.0 (see set_shares and _rescale_shares_to_100)."""
         return float(sum(obj['weight'] for obj in self.objectives))
 
     def best_index(self):
@@ -3854,6 +4004,26 @@ class FoodOptimizer:
         for var in self.variables:
             if var['type'] == 'continuous':
                 lo, hi = float(var['bounds'][0]), float(var['bounds'][1])
+                # A row whose ABSENT value sits outside its allowed
+                # amounts: an ingredient added mid-run with a Lowest above 0
+                # (0.5.0 lets the grid ask for that), or a setting fixed away
+                # from the baseline its past bakes ran at. Those formulations
+                # really are encoded at that value, so the frame has to reach
+                # it or the GP is handed training rows outside its own [0, 1]
+                # box.
+                #
+                # Only when some recipe actually LACKS the row, which is the
+                # only way the absent value reaches the encoding. An
+                # ingredient that has been there all along was recorded at
+                # its own amounts, and widening its frame down to 0 would
+                # change what the GP sees for every project that has one.
+                absent = var.get(
+                    '_absent_value',
+                    0.0 if var.get('category', 'ingredient') == 'ingredient'
+                    else None)
+                if absent is not None and any(var['name'] not in recipe
+                                              for recipe in self.recipe_history):
+                    lo, hi = min(lo, float(absent)), max(hi, float(absent))
                 if hi <= lo:
                     seen = [float(row[col]) for row in self.X_history
                             if col < len(row)]
@@ -5283,7 +5453,7 @@ class FoodOptimizer:
     def _plan_ingredient_grid(self, frame, force=()):
         """Read the grid, refuse everything that cannot be saved, and hand
         back what to do. Nothing here writes."""
-        errors, rows, seen = [], [], {}
+        errors, rows = [], []
         by_id = {v['name']: v for v in self.variables}
         ids_used = set()
         for row_no, row in _grid_rows(frame):
@@ -5295,31 +5465,22 @@ class FoodOptimizer:
             if trouble:
                 errors.append((row_no, trouble))
                 continue
-            twin = seen.get(spec['name'].lower())
-            if twin is not None:
-                # Two rows with one name are two columns of one name on every
-                # table in the app; a second SPELLING of it is the same
-                # collision, and has always had its own sentence.
-                errors.append((row_no,
-                               _name_taken_message(twin, spec['category'])
-                               if twin == spec['name']
-                               else wording.name_differs_only_by_case(twin)))
-                continue
-            seen[spec['name'].lower()] = spec['name']
             rows.append((row_no, spec))
         if errors:
             return errors, None
 
+        errors += _duplicate_name_errors(rows)
         # A name may clash with something that is not on this grid at all —
-        # a measurement, a property — and that is the refusal the add form
-        # gave, in the same words.
+        # a measurement, a property. The VARIABLES are not asked: a name
+        # another row is giving up in this same save is free by the time the
+        # save lands, and the pass above is what catches a real collision.
         for row_no, spec in rows:
             try:
-                self._name_is_free(spec['name'], skip=spec['var'])
+                self._name_is_free_of_measurements(spec['name'])
             except ValueError as e:
                 errors.append((row_no, str(e)))
         if errors:
-            return errors, None
+            return sorted(errors, key=lambda e: e[0]), None
 
         deleted = [v['name'] for v in self.grid_variables()
                    if v['name'] not in ids_used]
@@ -5327,6 +5488,10 @@ class FoodOptimizer:
         if errors:
             return errors, None
 
+        # The order the rows that STAY are written in. It is not cosmetic:
+        # a rename onto a name another row is still wearing is refused by
+        # the model, so the renames have to go in an order that frees each
+        # name before it is taken.
         order, stuck = _rename_order(rows)
         if stuck is not None:
             errors.append((stuck[0], _name_taken_message(
@@ -5454,16 +5619,29 @@ class FoodOptimizer:
 
     def _refusals_with(self, rows):
         """The same question with the finished grid in place, and the project
-        put back exactly as it was afterwards."""
-        variables, limits = self.variables, self.quantity_constraints
+        put back exactly as it was afterwards.
+
+        Everything a limit reads through a NAME moves with the rows: the
+        variables, the ingredients each amount limit lists, and the property
+        figures filed per ingredient. Leaving the figures behind made a
+        renamed row read as having none, which refused a save that was
+        perfectly legal."""
+        variables = self.variables
+        limits = self.quantity_constraints
+        properties = self.ingredient_properties
+        renamed = _renames(rows)
         try:
             self.variables = [_proposed_variable(spec) for _, spec in rows]
+            self.ingredient_properties = _properties_over(properties, renamed)
             self.quantity_constraints = _limits_over(
                 limits, [v['name'] for v in self.variables
-                         if v.get('category', 'ingredient') == 'ingredient'])
+                         if v.get('category', 'ingredient') == 'ingredient'],
+                renamed)
             return self._limit_refusals()
         finally:
-            self.variables, self.quantity_constraints = variables, limits
+            self.variables = variables
+            self.quantity_constraints = limits
+            self.ingredient_properties = properties
 
     def _apply_ingredient_plan(self, plan, force=()):
         """Write the plan through the paths the form used, in the one order
@@ -5694,19 +5872,17 @@ class FoodOptimizer:
         """Say what each measurement is worth out of 100, and derive the
         importances from that (spec 1.3).
 
-        The shares are scaled proportionally so the column adds up to 100:
-        the reader is typing into a column whose sum they can see, and a
-        column of 30, 30, 30 has to mean something. True comes back when
-        that scaling moved anything, which is what the caption under the
-        grid is about.
+        The shares ARE the importances. They are scaled proportionally so
+        the column adds up to 100 — the reader is typing into a column whose
+        sum they can see, and a column of 30, 30, 30 has to mean something —
+        and that sum, 100, is then the ceiling every overall score is
+        written against: a formulation that hits every goal scores 100, and
+        one that is most of the way there reads 88 of 100.
 
-        What the shares set is the RATIO between the measurements; the sum
-        of the importances behind them is left where it was. That sum is
-        the ceiling every stored overall score is written against ("2.20 of
-        2.50"), and shares are the one thing that cannot carry it — so
-        deriving the importances as the percents themselves would have
-        rescaled every score in the project's history the first time
-        anybody touched the column.
+        One scale, everywhere: no second number behind the column, and
+        nothing on screen the reader did not type. `True` comes back when
+        the scaling moved what was handed in, which is what the caption
+        under the grid is about.
         """
         if not self.objectives:
             return False
@@ -5718,31 +5894,35 @@ class FoodOptimizer:
             values[obj['name']] = float(value)
         total = sum(values.values())
         rebalanced = abs(total - 100.0) > 1e-9
-        scale = sum(float(o['weight']) for o in self.objectives) / total
         for obj in self.objectives:
-            obj['weight'] = values[obj['name']] * scale
+            obj['weight'] = values[obj['name']]
+        self._shares_to_100()
         self._recompute_utilities()
         self.save()
         return rebalanced
 
-    def apply_measurement_grid(self, frame):
+    def apply_measurement_grid(self, frame, archive=None):
         """Write the measurements grid to the project. The same contract as
         apply_ingredient_grid: `(errors, messages)`, and nothing is written
-        while there is an error."""
+        while there is an error.
+
+        `archive` is called once, after the grid reads clean and before the
+        first write, when this save would take something away — a deleted
+        measurement, or a change that recalculates every overall score
+        already stored. It is the screen's own "keep a copy first", handed
+        in rather than asked for, so the grid is read ONCE per save: asking
+        the model whether it would rescore and then telling it to save
+        planned the whole thing twice, and the second plan is the one that
+        counts. Anything it raises comes back out before a word is
+        written."""
         errors, plan = self._plan_measurement_grid(frame)
         if errors:
             return errors, []
+        if archive is not None and (plan['deleted']
+                                    or (self.Y_history
+                                        and self._plan_rescores(plan))):
+            archive()
         return [], self._apply_measurement_plan(plan)
-
-    def measurement_grid_rescores(self, frame):
-        """True when saving this grid would recalculate every overall score
-        already stored. Asked by the screen BEFORE it writes, because that
-        is what decides whether a copy is kept first — and a copy kept after
-        the fact is not a copy of anything."""
-        errors, plan = self._plan_measurement_grid(frame)
-        if errors or plan is None:
-            return False
-        return self._plan_rescores(plan)
 
     def _plan_rescores(self, plan):
         if plan['deleted'] or any(spec['obj'] is None
@@ -5755,13 +5935,15 @@ class FoodOptimizer:
                     None if spec['target'] is None else float(spec['target']),
                     float(spec['min_val']), float(spec['max_val'])):
                 return True
-            if abs(float(stored.get(spec['name'], 0))
+            # Under the name it is filed under today: a rename moves the
+            # results with it, so it recalculates nothing.
+            if abs(float(stored.get(spec['id'] or spec['name'], 0))
                    - float(spec['share_of_score'])) > 1e-9:
                 return True
         return False
 
     def _plan_measurement_grid(self, frame):
-        errors, rows, seen = [], [], set()
+        errors, rows, seen = [], [], {}
         by_id = {o['name']: o for o in self.objectives}
         ids_used = set()
         for row_no, row in _grid_rows(frame):
@@ -5771,10 +5953,16 @@ class FoodOptimizer:
             if trouble:
                 errors.append((row_no, trouble))
                 continue
-            if spec['name'].lower() in seen:
-                errors.append((row_no, wording.MEASUREMENT_EXISTS_ERROR))
+            twin = seen.get(spec['name'].lower())
+            if twin is not None:
+                # Blamed on the row that moved, as on the grid above: the
+                # reader typed into one of the two, and asking them to fix
+                # the other is asking them to fix a row they never touched.
+                blamed = (twin if _row_moved(twin[1]) and not _row_moved(spec)
+                          else (row_no, spec))
+                errors.append((blamed[0], wording.MEASUREMENT_EXISTS_ERROR))
                 continue
-            seen.add(spec['name'].lower())
+            seen[spec['name'].lower()] = (row_no, spec)
             rows.append((row_no, spec))
         if errors:
             return errors, None
@@ -5800,10 +5988,14 @@ class FoodOptimizer:
         if not name:
             return None, wording.NAME_REQUIRED_ERROR
         if obj is not None and name != obj['name']:
-            # Every result already recorded is filed under this name, and
-            # there is no rename_objective to move them: an honest refusal
-            # beats a silent half-move.
-            return None, wording.MEASUREMENT_RENAME_ERROR
+            # A name typed over another is a rename of THAT measurement:
+            # every result already recorded is filed under it, and
+            # rename_objective moves them together. Asked here, without
+            # writing, so a name that is taken refuses the whole save.
+            try:
+                self._check_rename_objective(obj['name'], name)
+            except ValueError as e:
+                return None, str(e)
         goal_label = _text_cell(row, wording.GOAL_LABEL)
         goal = next((k for k, v in wording.GOAL_LABELS.items()
                      if v == goal_label), goal_label or 'max')
@@ -5825,7 +6017,8 @@ class FoodOptimizer:
         if not share_ok or share is None or share <= 0:
             return None, wording.SHARE_REQUIRED_ERROR
         return {
-            'obj': obj, 'name': name, 'goal': goal,
+            'obj': obj, 'id': row_id if obj is not None else None,
+            'name': name, 'goal': goal,
             'target': target if goal == 'target' else None,
             'min_val': low, 'max_val': high,
             'unit': _text_cell(row, wording.UNIT_LABEL),
@@ -5853,21 +6046,31 @@ class FoodOptimizer:
                                    max_val=spec['max_val'], unit=spec['unit'])
                 added.append(spec['name'])
                 continue
+            # Everything below acts on the row as it is filed TODAY; the
+            # rename follows, once it has gone through — the same order the
+            # ingredients grid keeps, and for the same reason.
             before = _objective_state(obj)
-            self.update_objective(spec['name'], goal=spec['goal'],
+            self.update_objective(spec['id'], goal=spec['goal'],
                                   target=spec['target'],
                                   min_val=spec['min_val'],
                                   max_val=spec['max_val'], unit=spec['unit'])
-            if before != _objective_state(obj):
+            moved_name = spec['id'] != spec['name']
+            if moved_name:
+                self.rename_objective(spec['id'], spec['name'])
+            if moved_name or before != _objective_state(obj):
                 changed.append(spec['name'])
         typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
+        # A renamed row is the same row: its share is compared against what
+        # it was showing under its old name, not read as a new one.
+        was_called = {spec['name']: (spec['id'] or spec['name'])
+                      for _, spec in rows}
         if typed:
             # A row the reader typed a share into is one they have
             # answered — and a row they have just added is always one of
             # those, because there was nothing there to leave alone.
             moved = {name for name, share in typed.items()
-                     if name not in stored_shares
-                     or abs(stored_shares[name] - share) > 1e-9}
+                     if was_called[name] not in stored_shares
+                     or abs(stored_shares[was_called[name]] - share) > 1e-9}
             self.set_shares(self._rebalanced_shares(typed, moved))
             if _shares_moved(typed, self.share_percents()):
                 messages.append(("info", wording.SHARES_REBALANCED_CAPTION))
@@ -6377,6 +6580,7 @@ class FoodOptimizer:
 
         for obj in self.objectives:
             obj.setdefault('unit', "")
+        self._shares_to_100()
 
         # Rebuild encoded vectors and utility scores from raw data
         if self.recipe_history and self.variables:

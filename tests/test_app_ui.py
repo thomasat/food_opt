@@ -1073,9 +1073,9 @@ def test_the_score_function_is_written_out_under_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert any(c.value == (
-        "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
+        "Overall score = 60 % × Firmness closeness + 40 % × "
         "Juiciness closeness. A formulation that hits every goal scores "
-        "2.50."
+        "100."
     ) for c in at.caption), [c.value for c in at.caption]
     # How closeness works is said once, in the expander, per goal.
     assert not any("falls evenly with distance" in c.value for c in at.caption)
@@ -1153,17 +1153,35 @@ def test_an_armed_confirmation_takes_the_colour_off_continue(burger):
         "Firmness", "Juiciness"}
 
 
-def test_a_measurements_name_cannot_be_typed_over(burger):
-    """Every result already recorded is filed under the name, and there is
-    no path that moves them, so the grid refuses the rename by row rather
-    than half-moving the measurement."""
+def test_a_measurements_name_typed_over_is_a_rename(burger):
+    """Every result already recorded is filed under the name, so the rename
+    moves the two together — nothing is rescored and no copy is kept."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    before = list(FoodOptimizer("burger").Y_history)
     _save_grid(at, MEAS_GRID,
                edited={0: {wording.MEASUREMENT_COLUMN: "Bite"}})
     assert not at.exception
-    assert [e.value for e in at.error] == [
-        wording.row_error(1, wording.MEASUREMENT_RENAME_ERROR)]
+    assert [e.value for e in at.error] == []
+    saved = FoodOptimizer("burger")
+    assert {o["name"] for o in saved.objectives} == {"Bite", "Juiciness"}
+    assert saved.results_history[0] == {"Bite": 6.0, "Juiciness": 7.0}
+    assert saved.Y_history == before
+    assert any(s.value == "Bite saved." for s in at.success), \
+        [s.value for s in at.success]
+
+
+def test_a_measurement_renamed_onto_a_taken_name_is_refused_by_row(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, MEAS_GRID,
+               edited={0: {wording.MEASUREMENT_COLUMN: "Pea protein"}})
+    assert [e.value for e in at.error] == [wording.row_error(
+        1, "Pea protein is already the name of an ingredient. Choose "
+           "another name.")]
     assert {o["name"] for o in FoodOptimizer("burger").objectives} == {
         "Firmness", "Juiciness"}
 
@@ -1398,7 +1416,8 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
                for e in at.error), [e.value for e in at.error]
     kept = next(o for o in FoodOptimizer("burger").objectives
                 if o["name"] == "Firmness")
-    assert kept["unit"] == "N" and kept["weight"] == 1.5
+    # 60 %, not 1.5: a saved project reads its importances as shares of 100.
+    assert kept["unit"] == "N" and kept["weight"] == 60.0
     assert kept["goal"] == "target" and kept["target"] == 6.0
     assert not any("Added" in m.value for m in at.success), [m.value for m in at.success]
 
@@ -2532,9 +2551,10 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
     # on Set up. The whole caption, word for word:
-    assert any(c.value == ("Overall score 2.20 of 2.50. Scores only compare "
-                           "within this project. Change a share, a goal or "
-                           "a range and every score is worked out again.")
+    assert any(c.value == ("Overall score 88.00 of 100.00. Scores only "
+                           "compare within this project. Change a share, a "
+                           "goal or a range and every score is worked out "
+                           "again.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -2564,7 +2584,7 @@ def test_the_progress_line_reports_an_improvement_and_a_flat_trial(scored):
                 {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=4, batch_no=2)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == wording.batch_recorded_progress(2, 2.20, 2.50)
+    assert any(c.value == wording.batch_recorded_progress(2, 88.00, 100.00)
                for c in at.caption), [c.value for c in at.caption]
     scored.tell({"Pea protein": 30.0, "Methylcellulose": 0.5},
                 {"Juiciness": 1.0, "Firmness": 1.0}, formulation_no=5, batch_no=3)
@@ -4555,7 +4575,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     assert not at.exception
     # The missing measurement is NAMED after the ceiling, and nothing after
     # it claims the measurements were on target.
-    assert any(c.value == ("Overall score 1.50 of 2.50 · Juiciness not "
+    assert any(c.value == ("Overall score 60.00 of 100.00 · Juiciness not "
                            "measured. Scores only compare within this "
                            "project. Change a share, a goal or a range and "
                            "every score is worked out again.")
@@ -5469,6 +5489,101 @@ def test_deleting_a_row_confirms_names_it_and_keeps_a_copy(burger, tmp_path):
         [s.value for s in at.success]
 
 
+def test_a_deletion_leaves_the_tab_exactly_one_lit_button(burger):
+    """Through the whole question, not only at the ends of it. The run that
+    puts the question up used to draw the lit Save changes AND the lit Yes
+    below it, which is the one thing this tab promises never to do."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    # An edit in hand: Save changes is the lit one and the foot demotes.
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    # The question is up: its Yes is the lit one, and Save changes demotes.
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+    assert _grid_save(at, ING_GRID).proto.type == "secondary"
+    _submit_button(at, "Cancel").click()
+    _grid_edits(at, ING_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+
+
+def test_a_measurement_deletion_takes_the_colour_the_same_way(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+
+
+def test_putting_a_measurement_row_back_disarms_its_deletion(burger):
+    """The grid above has always done this; the one below it now does too."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, MEAS_GRID, deleted=[1])
+    at.run()
+    assert "Yes, delete" in _labels(at)
+    _grid_edits(at, MEAS_GRID, deleted=[0])
+    at.run()
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert len(FoodOptimizer("burger").objectives) == 2
+
+
+def test_a_row_rubbed_out_is_refused_not_quietly_deleted(burger):
+    """It carries the grid's hidden identity, so it is a row of the project
+    with its answers rubbed out — not the empty line at the bottom. Skipped,
+    it left the grid, and the save applied a deletion with no question asked
+    and no copy kept."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID, edited={1: {
+        wording.NAME_LABEL: "", wording.TYPE_LABEL: "",
+        wording.LOWEST_LABEL: None, wording.HIGHEST_LABEL: None,
+        wording.UNIT_LABEL: ""}})
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        wording.row_error(2, wording.NAME_REQUIRED_ERROR)]
+    assert "Yes, delete" not in _labels(at), _labels(at)
+    assert [v["name"] for v in FoodOptimizer("burger").variables] == [
+        "Pea protein", "Methylcellulose"]
+
+
+def test_a_name_given_up_in_the_same_save_can_be_taken(burger):
+    """Pea protein becomes Pea protein isolate and Methylcellulose takes the
+    name it gave up. One edit, one Save, and the write order frees each name
+    before it is taken."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={0: {wording.NAME_LABEL: "Pea protein isolate"},
+                       1: {wording.NAME_LABEL: "Pea protein"}})
+    assert not at.exception
+    assert [e.value for e in at.error] == []
+    assert [v["name"] for v in FoodOptimizer("burger").variables] == [
+        "Pea protein isolate", "Pea protein"]
+
+
+def test_a_clash_is_blamed_on_the_row_the_reader_typed_into(burger):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _save_grid(at, ING_GRID,
+               edited={1: {wording.NAME_LABEL: "Pea protein"}})
+    assert [e.value for e in at.error] == [wording.row_error(
+        2, "Pea protein is already the name of an ingredient. Choose "
+           "another name.")]
+
+
 def test_delete_still_offers_the_used_ingredient_path(burger):
     """The permanent-deletion tick box lives inside the confirmation, and
     the refusal comes BEFORE anything is written."""
@@ -5574,7 +5689,9 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Firmness": 0.0}, formulation_no=1, batch_no=1)
     reloaded = _FO(burger.project_name)
-    assert float(reloaded.Y_history[0]) == pytest.approx(1.5 * 0.4)
+    # Firmness is worth 60 % of the score, and a measured 0 against a target
+    # of 6 on a 0 to 10 range is 0.4 closeness — never 0.
+    assert float(reloaded.Y_history[0]) == pytest.approx(60.0 * 0.4)
 
 
 def test_how_it_works_says_what_the_model_does_in_five_lines(burger):

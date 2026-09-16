@@ -14,8 +14,7 @@ import streamlit as st
 import storage as storage_backend
 import wording
 from food_bo import (
-    GRID_ID, WORKBOOK_MIME, goal_text, grid_signature,
-    ingredients_template_workbook, measurement_range_text,
+    GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
 )
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, armed_confirmation, best_formulation_no,
@@ -58,16 +57,6 @@ def _note_discarded_batch(opt, batch_no_before,
     done."""
     if batch_no_before is not None and opt.pending_batch_no is None:
         flash("info", wording.batch_discarded_notice(batch_no_before, reason))
-
-
-def _goal_text(obj):
-    """'Target 6 N', 'Higher is better', 'Lower is better'. It lives in
-    food_bo, because the workbook's Set-up sheet says it too."""
-    return goal_text(obj)
-
-
-def _range_text(obj):
-    return measurement_range_text(obj)
 
 
 def _nothing_made_fits(opt):
@@ -507,9 +496,10 @@ def _apply_ingredient_grid(opt, edited, force=()):
     scaled = _scaled_now(opt)
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
+        # st.rerun() does not return: the errors are drawn into the slot
+        # under the grid on the run it raises.
         st.session_state[_ING_ERRORS] = errors
         st.rerun()
-        return
     if not saved_ok(opt):
         return
     tail = _unscaled_tail(opt, scaled)
@@ -796,6 +786,8 @@ def _ingredients_pending():
 
 
 def _save_measurements(opt, storage, edited, lit=True):
+    """The one write the measurements grid makes. A deleted row is confirmed
+    by name first, exactly as one on the grid above is."""
     deletions = opt.measurement_grid_deletions(edited)
     key = "save_measurement_grid"
     lit = lit and not confirmation_open()
@@ -803,12 +795,14 @@ def _save_measurements(opt, storage, edited, lit=True):
         if _save_and_discard(key, MEAS_GRID_KEY, lit):
             _apply_measurement_grid(opt, storage, edited)
         return
+    _disarm_stale_deletion(key, deletions)
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
         wording.delete_measurement_warning(number_list(deletions),
                                            many=len(deletions) > 1),
         confirm_label=wording.YES_DELETE, primary=lit,
         disabled=other_confirmation(key))
+    _remember_armed_deletions(key, deletions)
     if not confirmed:
         _discard_beside(key, MEAS_GRID_KEY)
         return
@@ -816,28 +810,31 @@ def _save_measurements(opt, storage, edited, lit=True):
 
 
 def _apply_measurement_grid(opt, storage, edited):
-    """Write the measurements grid. A copy is kept first whenever there is a
-    history to rescore: this save has no confirmation of its own to promise
-    one, and every stored overall score can move under it."""
+    """Write the measurements grid.
+
+    A copy is kept before every deletion on this tab, history or not, and
+    before any save that recalculates a score already stored — not before
+    every save: a unit corrected on one row is not something to keep a copy
+    of, and a copy per keystroke is a copy of nothing. Which of those it is
+    is the model's answer, handed in as a callback so the grid is read once
+    per save rather than planned twice.
+    """
     before = best_formulation_no(opt)
-    copied = False
-    # A copy is kept before every deletion on this tab, history or not, and
-    # before any save that recalculates a score already stored. Not before
-    # every save: a unit corrected on one row is not something to keep a
-    # copy of, and a copy per keystroke is a copy of nothing.
-    if (opt.measurement_grid_deletions(edited)
-            or (opt.Y_history and opt.measurement_grid_rescores(edited))):
-        try:
-            storage.archive(opt.project_name, "pre_edit", copy=True)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
-            return
-        copied = True
-    errors, messages = opt.apply_measurement_grid(edited)
+    copied = []
+
+    def keep_a_copy():
+        storage.archive(opt.project_name, "pre_edit", copy=True)
+        copied.append(True)
+
+    try:
+        errors, messages = opt.apply_measurement_grid(edited,
+                                                      archive=keep_a_copy)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
     if errors:
         st.session_state[_MEAS_ERRORS] = errors
         st.rerun()
-        return
     if not saved_ok(opt):
         return
     move = best_move_sentence(before, best_formulation_no(opt))

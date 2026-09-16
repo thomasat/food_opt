@@ -145,9 +145,29 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     drawn into its reserved slot. Streamlit discards the session-state entry
     of every widget a run did not create, so without it the Cancel empties
     the sheet the user has already half-recorded.
+
+    `primary` colours the trigger. Every confirmation in the app is reached
+    from a grey button — the coloured one is the Yes it leads to — except
+    the grids' own `Save changes`, which IS the tab's one lit action while
+    there is an edit in hand and happens to have a deleted row in it. Once
+    the question is up, the Yes below is the coloured one and the trigger
+    goes grey with everything else, so the tab never shows two.
     """
     pending_key = f"{key}__pending"
-    if st.button(button_label, key=f"{key}__btn", disabled=disabled):
+    btn_key = f"{key}__btn"
+    # The click that puts the question up has already arrived by the time
+    # the script runs, and Streamlit files it in session state under the
+    # button's own key BEFORE the button is drawn. So the trigger knows, at
+    # the moment it is drawn, whether the Yes below is about to be the
+    # coloured one — without that, the one run that arms a question drew two
+    # coloured buttons.
+    arming = (bool(st.session_state.get(btn_key))
+              and armed_confirmation() in (None, key))
+    up_already = (armed_confirmation() == key
+                  and st.session_state.get(pending_key))
+    lit = primary and not (arming or up_already)
+    if st.button(button_label, key=btn_key, disabled=disabled,
+                 type="primary" if lit else "secondary"):
         # One at a time. A click that arrives while another confirmation is
         # armed — a second click in the same frame, or a click already in
         # flight against a button this frame draws greyed — is ignored rather

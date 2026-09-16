@@ -169,8 +169,8 @@ def _best(opt):
     unmeasured = [o['name'] for o in opt.measurements_by_importance()
                   if o['name'] not in recorded]
     partial = bool(unmeasured)
-    # What the ceiling MEANS is said once, under the measurements table on
-    # Set up ("Every measurement at its goal scores 2.50."). Repeating it
+    # What the ceiling MEANS is said once, under the measurements grid on
+    # Set up ("A formulation that hits every goal scores 100."). Repeating it
     # here read as a claim about the formulation on screen — false whenever
     # it is off target, and flatly contradictory beside the missing ones.
     #

@@ -14,7 +14,10 @@ import pytest
 import openpyxl
 
 import wording
-from food_bo import FoodOptimizer, ingredients_template_workbook
+from food_bo import (
+    FoodOptimizer, ingredients_template_workbook,
+    _name_taken_message,
+)
 
 
 @pytest.fixture
@@ -391,6 +394,12 @@ class TestConstraints:
 
 
 class TestUtility:
+    """The closeness arithmetic, on a project assembled in memory — so the
+    importances are still on the scale the caller passed them on (see
+    _shares_to_100: a series of adds has no last one the model can
+    recognise). What a SAVED project reads them against is 100, and
+    TestSharesAreTheWeights holds that half."""
+
     def test_maximize(self, opt):
         opt.add_objective("Score", weight=1.0, goal="max", min_val=0, max_val=10)
         assert opt._compute_utility({"Score": 10}) == pytest.approx(1.0)
@@ -2271,14 +2280,21 @@ class TestUnitsAndImportance:
         assert [o["name"] for o in opt.measurements_by_importance()] == ["Firmness", "Juiciness"]
 
     def test_score_line_carries_the_shares(self, tmp_path, monkeypatch):
-        """No sentence about distance from a target: two of the three goals
-        have none, and how closeness works lives in the expander below."""
+        """In the shares the reader typed and nothing else: since 0.5.0 the
+        share IS the importance, so the line says the number once and the
+        ceiling is 100. No sentence about distance from a target either —
+        two of the three goals have none, and how closeness works lives in
+        the expander below.
+
+        Read back off the file, which is how every screen reads it."""
         opt = self._opt(tmp_path, monkeypatch)
-        assert opt.score_function_line() == (
-            "Overall score = 1.5 (60 %) × Firmness closeness + 1 (40 %) × "
+        saved = FoodOptimizer(opt.project_name)
+        assert saved.score_function_line() == (
+            "Overall score = 60 % × Firmness closeness + 40 % × "
             "Juiciness closeness. A formulation that hits every goal "
-            "scores 2.50."
+            "scores 100."
         )
+        assert saved.utility_ceiling() == 100.0
 
     def test_share_of_score_sums_to_one_and_reads_as_whole_percent(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3499,12 +3515,38 @@ class TestTheMeasurementsGrid:
                   **{wording.SHARE_COLUMN: 0.0}))
         assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
 
-    def test_a_renamed_measurement_is_refused(self, tmp_path, monkeypatch):
+    def test_a_renamed_measurement_keeps_every_result_filed_under_it(
+            self, tmp_path, monkeypatch):
+        """The name is a KEY: every row of results_history is a dict filed
+        under it. rename_objective moves the two together, so nothing is
+        recalculated and no copy is kept."""
         opt = self._opt(tmp_path, monkeypatch)
-        errors, _ = opt.apply_measurement_grid(
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        opt.set_shares(opt.share_percents())     # as every screen sees it
+        before = list(opt.Y_history)
+        errors, messages = opt.apply_measurement_grid(
             _edit(opt.measurement_grid_frame(), 1,
                   **{wording.MEASUREMENT_COLUMN: "Bite"}))
-        assert errors == [(1, wording.MEASUREMENT_RENAME_ERROR)]
+        assert errors == []
+        assert [o["name"] for o in opt.objectives] == ["Bite", "Juiciness"]
+        assert opt.results_history[0] == {"Bite": 6.0, "Juiciness": 7.0}
+        assert opt.Y_history == before
+        assert _said(messages, "success") == ["Bite saved."]
+        # Where the targets came from is a note about the project, not about
+        # this measurement.
+        assert opt.targets_source == ""
+
+    def test_a_rename_onto_a_name_that_is_taken_is_refused(self, tmp_path,
+                                                           monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, messages = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 1,
+                  **{wording.MEASUREMENT_COLUMN: "Water"}))
+        assert errors == [
+            (1, "Water is already the name of an ingredient. Choose another "
+                "name.")]
+        assert messages == []
+        assert [o["name"] for o in opt.objectives] == ["Firmness", "Juiciness"]
 
     def test_a_target_outside_the_range_is_refused(self, tmp_path,
                                                    monkeypatch):
@@ -3538,22 +3580,359 @@ class TestTheMeasurementsGrid:
         assert any(wording.RECALCULATED_SUFFIX.strip() in line
                    for line in _said(messages, "success"))
 
-    def test_a_unit_on_its_own_rescores_nothing(self, tmp_path, monkeypatch):
+    def test_a_unit_on_its_own_keeps_no_copy(self, tmp_path, monkeypatch):
+        """A copy is kept before a save that takes something away. A unit
+        corrected on one row takes nothing away, and a copy per keystroke is
+        a copy of nothing."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
         frame = _edit(opt.measurement_grid_frame(), 1,
                       **{wording.UNIT_LABEL: "kPa"})
-        assert opt.measurement_grid_rescores(frame) is False
-        errors, messages = opt.apply_measurement_grid(frame)
-        assert errors == []
+        copies = []
+        errors, messages = opt.apply_measurement_grid(
+            frame, archive=lambda: copies.append(True))
+        assert errors == [] and copies == []
         assert _said(messages, "success") == ["Firmness saved."]
 
-    def test_a_range_moved_does_rescore(self, tmp_path, monkeypatch):
+    def test_a_range_moved_keeps_a_copy_first(self, tmp_path, monkeypatch):
+        """Asked once per save, and before the first write: a copy kept
+        afterwards is a copy of nothing."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
         frame = _edit(opt.measurement_grid_frame(), 1,
                       **{wording.HIGHEST_MEASURABLE_LABEL: 20.0})
-        assert opt.measurement_grid_rescores(frame) is True
+        seen = []
+        opt.apply_measurement_grid(
+            frame, archive=lambda: seen.append(opt.objectives[0]["max_val"]))
+        assert seen == [10.0], seen
+
+    def test_a_refused_grid_never_reaches_the_copy(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0, "Juiciness": 7.0})
+        copies = []
+        errors, _ = opt.apply_measurement_grid(
+            _edit(opt.measurement_grid_frame(), 2,
+                  **{wording.SHARE_COLUMN: 0.0}),
+            archive=lambda: copies.append(True))
+        assert errors and copies == []
+
+
+class TestSharesAreTheWeights:
+    """0.5.0 ruling: what a measurement is worth IS its share of the score.
+    The shares add up to 100, so the ceiling is 100 and every score is read
+    against it — one number on screen, and it is the one the reader typed."""
+
+    def _opt(self, tmp_path, monkeypatch, name="shares"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.5, goal="target", target=6,
+                          min_val=0, max_val=10, unit="N")
+        opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def test_an_older_project_is_rescaled_the_moment_it_opens(
+            self, tmp_path, monkeypatch):
+        """1.5 and 1 out of 2.50 become 60 and 40 out of 100. A change of
+        units: the ORDER of the formulations does not move, and each score
+        moves by the one factor."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": 2.0})
+        opt.tell({"Water": 20.0}, {"Firmness": 3.0, "Juiciness": 9.0})
+        was = list(opt.Y_history)
+        assert opt.utility_ceiling() == pytest.approx(2.5)
+        saved = FoodOptimizer(opt.project_name)
+        assert saved.utility_ceiling() == 100.0
+        assert saved.share_percents() == {"Firmness": 60, "Juiciness": 40}
+        assert saved.Y_history == pytest.approx([y * 40.0 for y in was])
+        assert saved.best_index() == opt.best_index()
+
+    def test_a_project_already_at_a_hundred_is_left_alone(self, tmp_path,
+                                                          monkeypatch):
+        """Idempotent, so opening a file twice does not drift it — and its
+        mtime is not bumped for nothing."""
+        opt = self._opt(tmp_path, monkeypatch)
+        once = FoodOptimizer(opt.project_name)
+        assert once.utility_ceiling() == 100.0
+        weights = [o['weight'] for o in once.objectives]
+        once.import_json(once.export_json())
+        assert [o['weight'] for o in once.objectives] == weights
+
+    def test_the_score_is_read_against_a_hundred(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": 10.0})
+        saved = FoodOptimizer(opt.project_name)
+        assert saved.Y_history[0] == pytest.approx(100.0)
+        assert wording.overall_score_caption(
+            saved.Y_history[0], saved.utility_ceiling()).startswith(
+            "Overall score 100.00 of 100.00")
+
+    def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
+            self, tmp_path, monkeypatch):
+        opt = FoodOptimizer("shares_del")
+        monkeypatch.chdir(tmp_path)
+        opt = self._opt(tmp_path, monkeypatch, name="shares_del")
+        opt.remove_objective("Juiciness")
+        assert opt.share_percents() == {"Firmness": 100}
+        assert opt.utility_ceiling() == 100.0
+
+    def test_set_shares_says_whether_it_had_to_move_anything(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="shares_ret")
+        assert opt.set_shares({"Firmness": 70, "Juiciness": 30}) is False
+        assert opt.share_percents() == {"Firmness": 70, "Juiciness": 30}
+        # A column that does not add up is scaled, and says so.
+        assert opt.set_shares({"Firmness": 30, "Juiciness": 30}) is True
+        assert opt.share_percents() == {"Firmness": 50, "Juiciness": 50}
+
+
+class TestRenamingAMeasurement:
+
+    def _opt(self, tmp_path, monkeypatch, name="mrename"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10,
+                          unit="N")
+        opt.add_property("Cost")
+        opt.set_targets_source("A trained panel")
+        opt.tell({"Water": 50.0}, {"Firmness": 6.0})
+        return opt
+
+    def test_the_results_move_with_the_name(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        before = list(opt.Y_history)
+        opt.rename_objective("Firmness", "Bite")
+        assert [o['name'] for o in opt.objectives] == ["Bite"]
+        assert opt.results_history[0] == {"Bite": 6.0}
+        assert opt.Y_history == before          # nothing is rescored
+        assert opt.targets_source == "A trained panel"
+
+    def test_a_name_that_is_taken_is_refused_before_anything_moves(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="mrename_taken")
+        for taken, why in (("Water", "already the name of an ingredient"),
+                           ("Cost", "already a property"),
+                           ("Total", "column name")):
+            with pytest.raises(ValueError, match=why):
+                opt.rename_objective("Firmness", taken)
+        with pytest.raises(ValueError, match="cannot be empty"):
+            opt.rename_objective("Firmness", "   ")
+        assert [o['name'] for o in opt.objectives] == ["Firmness"]
+        assert opt.results_history[0] == {"Firmness": 6.0}
+
+    def test_renaming_to_its_own_name_is_a_no_op(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="mrename_same")
+        stamp = opt.last_saved_at
+        opt.rename_objective("Firmness", "Firmness")
+        assert opt.last_saved_at == stamp
+
+
+class TestTheGridFixesRoundOne:
+    """The five findings of fix round 1, each at the layer it lives at."""
+
+    def _opt(self, tmp_path, monkeypatch, name="round1"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Flour", 0, 100)
+        opt.add_ingredient("Water", 0, 80)
+        opt.add_ingredient("Salt", 0, 10)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    # ---- the row that moved is the row that is blamed ---------------- #
+
+    def test_a_clash_is_blamed_on_the_row_that_moved(self, tmp_path,
+                                                     monkeypatch):
+        """Row 2 is typed over to read Flour; row 1 has said Flour all
+        along. Blaming row 1 asks the reader to fix a row they never
+        touched."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 2,
+                  **{wording.NAME_LABEL: "Flour"}))
+        assert errors == [(2, _name_taken_message("Flour", 'ingredient'))]
+
+    def test_a_clash_is_blamed_on_the_row_that_moved_whichever_way_it_reads(
+            self, tmp_path, monkeypatch):
+        """...and the same when the row that moved is the FIRST one: row 1
+        is typed over to read Salt, row 3 has said Salt all along."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_first")
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 1,
+                  **{wording.NAME_LABEL: "Salt"}))
+        assert errors == [(1, _name_taken_message("Salt", 'ingredient'))]
+
+    def test_a_case_only_clash_is_blamed_the_same_way(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round1_case")
+        errors, _ = opt.apply_ingredient_grid(
+            _edit(opt.ingredient_grid_frame(), 1,
+                  **{wording.NAME_LABEL: "salt"}))
+        assert errors == [(1, wording.name_differs_only_by_case("Salt"))]
+
+    def test_two_new_rows_of_one_name_blame_the_later(self, tmp_path,
+                                                      monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round1_new")
+        frame = _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0))
+        frame = _add(frame, **_ing_row("Oil", high=6.0))
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [(5, _name_taken_message("Oil", 'ingredient'))]
+
+    # ---- a name freed in the same save is free ----------------------- #
+
+    def test_a_name_renamed_away_can_be_taken_in_the_same_save(
+            self, tmp_path, monkeypatch):
+        """Flour becomes Barley and Water becomes Flour. Both at once is one
+        edit the reader can make in a grid, and the write order frees the
+        name before it is taken."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_free")
+        opt.tell({"Flour": 40.0, "Water": 30.0, "Salt": 1.0}, {"Taste": 7.0})
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.NAME_LABEL: "Barley"})
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Flour"})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert [v['name'] for v in opt.variables] == ["Barley", "Flour", "Salt"]
+        # Everything filed under each name moved with it, and did not
+        # collide on the way.
+        assert opt.recipe_history[0] == {"Barley": 40.0, "Flour": 30.0,
+                                         "Salt": 1.0}
+
+    def test_a_name_deleted_in_the_same_save_can_be_taken(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round1_del")
+        frame = _drop(opt.ingredient_grid_frame(), 3)       # Salt goes
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Salt"})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert [v['name'] for v in opt.variables] == ["Flour", "Salt"]
+
+    def test_a_true_swap_is_refused_rather_than_half_applied(self, tmp_path,
+                                                             monkeypatch):
+        """Flour to Water and Water to Flour cannot both go first. Refused
+        by name, and nothing is written."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_swap")
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.NAME_LABEL: "Water"})
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Flour"})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors and messages == []
+        assert [v['name'] for v in opt.variables] == ["Flour", "Water", "Salt"]
+
+    # ---- the feasibility snapshot follows the renames ---------------- #
+
+    def test_a_rename_and_a_fix_and_a_property_limit_is_a_legal_save(
+            self, tmp_path, monkeypatch):
+        """The limit reads a figure filed under the ingredient's name. Left
+        behind in the snapshot, the renamed row read as having none and a
+        perfectly legal save was refused."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_props")
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 2.0)
+        opt.set_property_value("Water", "Fat per 100 g", 0.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 0.0)
+        opt.add_constraint("Fat per 100 g", max_val=2.0)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.NAME_LABEL: "Wheat flour"})
+        frame = _edit(frame, 3, **{wording.LOWEST_LABEL: 1.0,
+                                   wording.HIGHEST_LABEL: 1.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [], errors
+        assert opt.property_value("Wheat flour", "Fat per 100 g") == 2.0
+
+    def test_an_amount_limit_follows_the_rename_in_the_snapshot_too(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round1_qc")
+        opt.add_quantity_constraint(["Flour", "Water"], min_val=10)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.NAME_LABEL: "Wheat flour"})
+        frame = _edit(frame, 3, **{wording.LOWEST_LABEL: 1.0,
+                                   wording.HIGHEST_LABEL: 1.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [], errors
+        assert opt.quantity_constraints[0]['ingredients'] == ["Wheat flour",
+                                                              "Water"]
+
+    # ---- an emptied row is not a deletion ---------------------------- #
+
+    def test_a_row_whose_cells_are_rubbed_out_is_refused_not_deleted(
+            self, tmp_path, monkeypatch):
+        """It carries an identity, so it is a row of the project with its
+        answers rubbed out — not the empty line at the bottom. Skipping it
+        took it off the grid, which applied a deletion with no question
+        asked and no copy kept."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_blank")
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.NAME_LABEL: "", wording.TYPE_LABEL: "",
+                         wording.LOWEST_LABEL: None,
+                         wording.HIGHEST_LABEL: None,
+                         wording.UNIT_LABEL: ""})
+        assert opt.ingredient_grid_deletions(frame) == []
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == [(2, wording.NAME_REQUIRED_ERROR)]
+        assert messages == []
+        assert [v['name'] for v in opt.variables] == ["Flour", "Water", "Salt"]
+
+    def test_an_emptied_measurement_row_is_refused_too(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch, name="round1_mblank")
+        opt.add_objective("Colour", 1.0, goal="max", min_val=0, max_val=10)
+        frame = _edit(opt.measurement_grid_frame(), 1,
+                      **{wording.MEASUREMENT_COLUMN: "",
+                         wording.GOAL_LABEL: "",
+                         wording.LOWEST_MEASURABLE_LABEL: None,
+                         wording.HIGHEST_MEASURABLE_LABEL: None,
+                         wording.SHARE_COLUMN: None})
+        assert opt.measurement_grid_deletions(frame) == []
+        errors, _ = opt.apply_measurement_grid(frame)
+        assert errors == [(1, wording.NAME_REQUIRED_ERROR)]
+        assert len(opt.objectives) == 2
+
+    def test_the_line_at_the_bottom_is_still_not_a_row(self, tmp_path,
+                                                       monkeypatch):
+        """The one it must not catch: a blank row with no identity is the
+        empty line of a dynamic grid, clicked and left alone."""
+        opt = self._opt(tmp_path, monkeypatch, name="round1_trailing")
+        errors, messages = opt.apply_ingredient_grid(
+            _add(opt.ingredient_grid_frame()))
+        assert (errors, messages) == ([], [])
+
+
+def test_a_column_whose_absent_value_is_outside_its_range_keeps_its_frame(
+        tmp_path, monkeypatch):
+    """An ingredient added mid-run with a Lowest above 0 is encoded at 0 in
+    every formulation made before it. The search frame has to reach that or
+    the GP is handed training rows outside its own [0, 1] box."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("absent_frame")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 50.0}, {"Taste": 7.0})
+    opt.add_ingredient("Salt", 5, 5, keep_lowest=True)
+    spans = opt._search_bounds()
+    assert spans[1][0] <= 0.0 <= spans[1][1], spans
+    lo, hi = spans[1]
+    assert all(lo <= row[1] <= hi for row in opt.X_history), opt.X_history
+    # An ingredient that has been there all along is untouched: widening its
+    # frame down to 0 would change what the GP sees for every project.
+    assert spans[0] == (0.0, 100.0)
+
+
+def test_an_ingredient_that_is_in_every_formulation_keeps_its_own_frame(
+        tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("absent_none")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 20, 60)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Water": 30.0}, {"Taste": 7.0})
+    assert opt._search_bounds() == [(20.0, 60.0)]
 
 import ast
 import pathlib
@@ -6633,7 +7012,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 10
+        assert state['CLASS_VERSION'] == 11
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)

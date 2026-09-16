@@ -845,9 +845,9 @@ SHARE_HELP = ("What this measurement is worth out of 100. Change one and "
 SHARES_REBALANCED_CAPTION = "Shares adjusted to add up to 100 %."
 
 INGREDIENT_GRID_CAPTION = ("One row per ingredient or process setting. Type "
-                           "a new one on the empty row at the bottom; set "
-                           "Lowest and Highest to the same number to fix it "
-                           "at one amount.")
+                           "a new one on the empty row at the bottom. Type "
+                           "the same number in Lowest and Highest to fix an "
+                           "amount.")
 MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
                             "what each one is worth out of 100.")
 
@@ -884,9 +884,6 @@ def only_an_ingredient_has(column):
 NAME_REQUIRED_ERROR = "Name cannot be empty."
 NUMBER_REQUIRED_ERROR = "Enter a number."
 SHARE_REQUIRED_ERROR = "Enter a share above 0."
-MEASUREMENT_RENAME_ERROR = ("A measurement's name cannot change: every "
-                            "result already recorded is filed under it. "
-                            "Delete it and add it again.")
 TYPE_LOCKED_ERROR = ("Type cannot change once formulations have been "
                      "recorded. Delete the row and add it again.")
 
