@@ -983,6 +983,11 @@ MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
                             "what each one is worth out of 100.")
 
 DISCARD_CHANGES_BUTTON = "Discard changes"
+PROPERTY_FIGURES_SET_ASIDE = (
+    "Your unsaved property figures were set aside because the ingredients "
+    "changed.")
+
+
 def unsaved_grid_caption(heading):
     """'Ingredients and process settings — not saved yet.'
 

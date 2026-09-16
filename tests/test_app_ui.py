@@ -3851,6 +3851,71 @@ def test_saving_one_grid_leaves_the_other_s_edit_where_it_was(burger):
                                                         "Juiciness": 30}
 
 
+def test_a_property_edit_survives_a_save_on_the_grid_above_it(burger):
+    """The third grid on the tab carries a banner of its own now, so it has
+    to be able to keep what that banner promises: a Save on either grid
+    above it reruns before it is drawn, and Streamlit throws away the entry
+    of a widget the run never created."""
+    burger.add_property("Cost")
+    burger.set_property_value("Pea protein", "Cost", 3.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    prop = {0: {"Cost": 9.0}}
+    meas = {0: {wording.SHARE_COLUMN: 70.0}}
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    captions = [c.value for c in at.caption]
+    assert "Properties — not saved yet." in captions, captions
+    # Save the measurements only.
+    _grid_save(at, MEAS_GRID).click()
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, MEAS_GRID, edited=meas)
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").share_percents() == {"Firmness": 70,
+                                                        "Juiciness": 30}
+    # The property edit is still on screen, still pending, and still unsaved.
+    captions = [c.value for c in at.caption]
+    assert "Properties — not saved yet." in captions, captions
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 3.0
+    assert list(_grid_frame(at, 2)["Cost"])[0] == 9.0
+    # ...and its own Save lands it.
+    next(b for b in at.button if b.key == "save_properties").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").property_value("Pea protein", "Cost") == 9.0
+
+
+def test_a_property_edit_is_set_aside_when_the_ingredients_change(burger):
+    """The properties grid is drawn ingredient by ingredient, so a deletion,
+    a rename or a reorder above it moves who sits in the row a pending edit
+    was typed against. That edit goes — and the reader is told, because a
+    banner said it was pending."""
+    burger.add_property("Cost")
+    burger.set_property_value("Methylcellulose", "Cost", 4.0)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    prop = {0: {"Cost": 99.0}}
+    ing = {0: {wording.NAME_LABEL: "Pea protein isolate"}}
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, ING_GRID, edited=ing)
+    at.run()
+    assert "Properties — not saved yet." in [c.value for c in at.caption]
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, PROP_GRID, edited=prop)
+    _grid_edits(at, ING_GRID, edited=ing)
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert [v["name"] for v in saved.variables][0] == "Pea protein isolate"
+    # The stale figure is nowhere: not written, not on screen, and said.
+    assert saved.property_value("Methylcellulose", "Cost") == 4.0
+    assert "Properties — not saved yet." not in [c.value for c in at.caption]
+    assert any(i.value == wording.PROPERTY_FIGURES_SET_ASIDE
+               for i in at.info), [i.value for i in at.info]
+
+
 def test_discard_changes_puts_the_grid_back(burger):
     """Discard turns the grid's key over, which is the only way to drop what
     the browser is holding: a data editor's value cannot be assigned from
