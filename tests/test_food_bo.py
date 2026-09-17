@@ -9517,6 +9517,59 @@ class TestTheFormulaColumnFixes:
         assert errors == []
         assert opt._var_by_name("Oil")['formula'] == "= Sea salt + Salt"
 
+    def test_a_formula_that_puts_the_default_out_of_reach_says_so_at_the_save(
+            self, tmp_path, monkeypatch):
+        """A formula folds a whole row's coefficients into the sum, so it
+        moves what the ingredients can add up to more sharply than a range
+        edit does. Neither door that writes one re-asked the total, so the
+        save came back clean and tab 2's one lit button refused afterwards,
+        naming a fix that was not the problem."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("stale_total")
+        opt.set_amount_unit("g")
+        for name in ("A", "B"):
+            opt.add_ingredient(name, 5, 20)
+        opt.add_ingredient("Filler", 0, 100)
+        opt.set_formulation_total(75)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        errors, messages = opt.apply_ingredient_grid(self._formula(
+            opt.ingredient_grid_frame(), 3, "= batch size - 2 * A - 2 * B"))
+        assert errors == []
+        assert opt.formulation_total is None
+        assert any(wording.formulation_total_gone_unreachable(
+            opt.batch_total_text(75.0)) == text for _, text in messages)
+
+    def test_rubbing_a_formula_out_re_asks_the_default_batch_size_too(
+            self, tmp_path, monkeypatch):
+        """The other half of the one door. Clearing = rest takes the row
+        that absorbed any size back out of the sum, so a default the rest
+        row made reachable stops being reachable."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= rest")
+        opt.set_formulation_total(95)
+        assert opt.formulation_total == 95
+        errors, messages = opt.apply_ingredient_grid(
+            self._formula(opt.ingredient_grid_frame(), 1, ""))
+        assert errors == []
+        assert opt.formulation_total is None
+        assert any(wording.formulation_total_gone_unreachable(
+            opt.batch_total_text(95.0)) == text for _, text in messages)
+
+    def test_set_formula_hands_back_what_the_default_batch_size_cost(
+            self, tmp_path, monkeypatch):
+        """The setter is the door, so the setter owes the sentence."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("setter_total")
+        opt.set_amount_unit("g")
+        for name in ("A", "B"):
+            opt.add_ingredient(name, 5, 20)
+        opt.add_ingredient("Filler", 0, 100)
+        opt.set_formulation_total(75)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        removed = opt.set_formula("Filler", "= batch size - 2 * A - 2 * B")
+        assert [qc.get('reason') for qc in removed] == ['unreachable']
+        assert opt.formulation_total is None
+
     def test_clearing_a_formula_needs_the_amounts_too(self, tmp_path,
                                                       monkeypatch):
         """Giving a row a formula rebuilds the history and taking one away

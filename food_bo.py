@@ -369,6 +369,22 @@ def parse_formula(text, names, has_batch_size):
     return _FormulaParser(tokens).parse()
 
 
+def formula_is_rest(text):
+    """True when this cell says '= rest' and nothing else.
+
+    Through the parser, never a string compare: '=rest', '= REST' and
+    '=  rest ' are all the same cell to parse_formula, and every reader of
+    a Formula cell — the grid, the CSV loader, the Set-up sheet — has to
+    agree with it or a project loads with half the app thinking it has a
+    rest row and half thinking it has none. `names` is empty on purpose:
+    '= rest' is decided before a single name is looked up, and anything
+    else is not the rest whatever it reads."""
+    try:
+        return parse_formula(text, (), True).rest
+    except FormulaError:
+        return False
+
+
 def _amount(value):
     """One cell of a formulation as a number: a blank, a missing row or a
     value that is not a number at all counts as nothing. A formula reads
@@ -6565,22 +6581,41 @@ class FoodOptimizer:
 
     def set_formula(self, name, text):
         """Work this row's amount out from the others instead of searching
-        it, from the text as typed.
+        it, from the text as typed. THE one door a formula is written
+        through; the grid's Save comes through here too.
 
         The text is stored as typed, so the cell reads back the way it was
         written. Refused — with nothing written — for a formula that cannot
         be read, one that leads back to itself, and one no allowed amounts
-        can ever make a real amount of. The open round goes the way every
-        other set-up change sends it, and the history is re-encoded: the
-        row has left the search vector, so every recorded formulation is
-        one column shorter than it was."""
+        can ever make a real amount of. Those three questions are about ONE
+        row, so a grid Save has already asked them over the finished grid
+        and they are held back for the length of it (`_in_grid_apply`), the
+        way _check_fixed_feasible and remove_ingredient hold back theirs:
+        asking again half way through refuses a save for a state nothing
+        ever sees.
+
+        What is NOT held back is what a formula costs the project as a
+        whole. The open round goes the way every other set-up change sends
+        it; the history is re-encoded, because the row has left the search
+        vector and every recorded formulation is one column shorter; and
+        the total's own limit is re-asked, because a formula folds a whole
+        row's coefficients into the sum and can put the default batch size
+        out of reach. What that drops comes back here, the way
+        add_ingredient and remove_ingredient hand theirs back, so the
+        screen says it at the Save rather than leaving Generate to refuse.
+        """
         var = self._var_by_name(name)
         text = str(text).strip()
-        self._refuse_without_amounts()
-        form = parse_formula(text, self._formula_names(name),
-                             self.has_formulation_total())
-        if form.rest and not self.has_formulation_total():
-            raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
+        in_grid = getattr(self, '_in_grid_apply', False)
+        if not in_grid:
+            self._refuse_without_amounts()
+            form = parse_formula(text, self._formula_names(name),
+                                 self.has_formulation_total())
+            if form.rest and not self.has_formulation_total():
+                raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
+            rest = form.rest
+        else:
+            rest = formula_is_rest(text)
         before = [(v, v.get('formula'), v.get('balance'))
                   for v in self.variables]
 
@@ -6594,35 +6629,45 @@ class FoodOptimizer:
                     row.pop('balance')
 
         var['formula'] = text
-        if form.rest:
+        if rest:
             self.set_balance(name)
         else:
             var['balance'] = False
-        try:
-            self._formula_order()      # refuses a loop, naming the chain
-            if self._form_reach(self._linear_form(name),
-                                self._batch_size())[1] < 0:
-                raise ValueError(wording.formula_below_zero(
-                    text, self._unit_of(var)))
-        except ValueError:
-            put_back()
-            raise
-        self._reencode_history()
-        self._drop_pending_batch()
-        self.save()
+        if not in_grid:
+            try:
+                self._formula_order()  # refuses a loop, naming the chain
+                if self._form_reach(self._linear_form(name),
+                                    self._batch_size())[1] < 0:
+                    raise ValueError(wording.formula_below_zero(
+                        text, self._unit_of(var)))
+            except ValueError:
+                put_back()
+                raise
+        return self._after_formula_written()
 
     def clear_formula(self, name):
         """Type this row's amounts by hand again. A no-op on a row that has
-        no formula, so a rerun does not bump the file's mtime."""
+        no formula, so a rerun does not bump the file's mtime. The other
+        half of the one door: rubbing a formula out moves the sum exactly
+        as writing one does, and owes the same consequences."""
         var = self._var_by_name(name)
         if not self.has_formula(var):
-            return
-        self._refuse_without_amounts()
+            return []
+        if not getattr(self, '_in_grid_apply', False):
+            self._refuse_without_amounts()
         var['formula'] = ""
         var['balance'] = False
+        return self._after_formula_written()
+
+    def _after_formula_written(self):
+        """What every formula write owes the project, in one place: the
+        re-encoded history, the open round, the total's own limit, and the
+        file. What the total dropped comes back, for the screen to say."""
         self._reencode_history()
+        removed = self._sync_formulation_total()
         self._drop_pending_batch()
         self.save()
+        return removed
 
     def _achievable_range(self, coeff_of):
         """Range of sum_i coeff_i * x_i attainable while every variable ranges
@@ -7515,7 +7560,8 @@ class FoodOptimizer:
                 self._write_ingredient_row(spec)
                 removed += spec.pop('_removed', [])
                 added.append(spec['name'])
-            worked_out = self._write_grid_formulas(rows)
+            worked_out, dropped = self._write_grid_formulas(rows)
+            removed += dropped
         finally:
             self._in_grid_apply = False
         return self._ingredient_grid_messages(added, changed, deleted, units,
@@ -7523,37 +7569,33 @@ class FoodOptimizer:
                                               worked_out)
 
     def _write_grid_formulas(self, rows):
-        """The formula cells, written LAST — and the names of the rows that
-        newly have one.
+        """The formula cells, written LAST — the names of the rows that
+        newly have one, and whatever the writes cost the limits.
 
         Last, because a formula may name a row this same save adds, and a
-        row is added after the rows that stay are written. The cells are
-        written straight onto the rows rather than through set_formula: that
-        door asks its own questions of a project one row at a time, and
-        every one of them has already been asked over the finished grid (a
-        loop, a second balance, a formula that can never be a real amount) —
-        asking them again half way through would refuse a save for a state
-        nothing ever sees. What the door does OWE is done once here: the
-        history is re-encoded, because a row that is worked out has left the
-        search vector and every recorded formulation is a column shorter.
+        row is added after the rows that stay are written. Each cell goes
+        through set_formula / clear_formula, the one door a formula is
+        written through: the per-row refusals that door asks are held back
+        for the length of a grid Save (`_in_grid_apply`), because the grid
+        has already asked them over the finished grid, and everything the
+        door owes the project as a whole — the re-encoded history, the open
+        round, the total's own limit — happens there, once, for both
+        callers.
         """
-        new = []
-        moved = False
+        new, removed = [], []
         for _, spec in rows:
             var = self._var_by_name(spec['name'])
             was = (str(var.get('formula') or ""), bool(var.get('balance')))
             now = (spec['formula'], spec['balance'])
             if was == now:
                 continue
-            var['formula'], var['balance'] = now
-            moved = True
             if spec['formula']:
+                removed += self.set_formula(spec['name'],
+                                            spec['formula']) or []
                 new.append(spec['name'])
-        if moved:
-            self._reencode_history()
-            self._drop_pending_batch()
-            self.save()
-        return new
+            else:
+                removed += self.clear_formula(spec['name']) or []
+        return new, removed
 
     def _write_ingredient_row(self, spec):
         """One row's answers, through the narrowest door that carries them.
