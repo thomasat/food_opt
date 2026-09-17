@@ -8828,6 +8828,56 @@ class TestFormulaRows:
             with pytest.raises(ValueError):
                 FoodOptimizer.validate_state(bad)
 
+    def test_a_copy_whose_formula_cannot_be_read_is_refused_at_the_door(
+            self, tmp_path, monkeypatch):
+        """'formula' was checked for TYPE and never for readability, so a
+        copy naming a row it does not have imported cleanly and then raised
+        under the grid on every render — above the Save button, so there
+        was no way to edit out of it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        state = opt.export_json()
+        for text in ("= Nonexistent", "= Sugar ÷ 0", "= Sugar × Flour",
+                     "not a formula"):
+            bad = json.loads(json.dumps(state))
+            bad['variables'][1]['formula'] = text
+            with pytest.raises(ValueError):
+                FoodOptimizer.validate_state(bad)
+
+    def test_a_copy_whose_exactly_is_not_a_number_is_refused_at_the_door(
+            self, tmp_path, monkeypatch):
+        """limit_text prints Exactly with a 'g' format code, so a copy
+        holding 'twelve' raised on every render of the Limits section and
+        of the Set-up sheet."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Flour", "Sugar"], exactly=12.0)
+        state = opt.export_json()
+        for value in ("twelve", True, [12]):
+            bad = json.loads(json.dumps(state, default=str))
+            for qc in bad['quantity_constraints']:
+                if qc.get('source') != 'formulation_total':
+                    qc['exactly'] = value
+            with pytest.raises(ValueError):
+                FoodOptimizer.validate_state(bad)
+
+    def test_an_unreadable_formula_costs_its_caption_and_not_the_screen(
+            self, tmp_path, monkeypatch):
+        """Belt and braces behind validate_state: whatever route a project
+        reached the grid by, the captions are drawn above the Save button
+        and must leave the reader one."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        assert len(opt.worked_out_captions()) == 1
+        opt._var_by_name("Sugar")['formula'] = "= Nonexistent"
+        # No line, and no raise: the grid still draws, so there is still a
+        # Save button under it to edit the cell out with.
+        assert opt.worked_out_captions() == []
+        assert sorted(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
+            "Flour", "Sugar", "Water"]
+
     def test_a_version_11_project_without_formulas_loads_at_version_12(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

@@ -6451,12 +6451,21 @@ class FoodOptimizer:
         other rows' allowed amounts leave this one, read against the default
         batch size. Empty for a project with no formula, which is what keeps
         the space under the grid blank until there is something to say.
+
+        A row whose formula cannot be read gets no line rather than taking
+        the screen down with it. validate_state refuses such a copy at the
+        door, but this is drawn ABOVE the Save button, so a project that
+        reached the grid by any other route has to leave the reader a way
+        to edit their way out.
         """
         lines = []
         for var in self._formula_rows():
             name = var['name']
-            low, high = self._achievable_range(
-                lambda n, row=name: 1.0 if n == row else 0.0)
+            try:
+                low, high = self._achievable_range(
+                    lambda n, row=name: 1.0 if n == row else 0.0)
+            except (FormulaError, ValueError):
+                continue
             unit = self._unit_of(var)
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
@@ -8413,14 +8422,28 @@ class FoodOptimizer:
         # and, for the one row that takes whatever is left of the batch
         # size, a flag. import_json reads both straight back into the search
         # vector, so a copy that holds anything else is refused here.
-        balanced = 0
+        balanced = []
+        copy_names = [item['name'] for item in state['variables']]
         for item in state['variables']:
             if not isinstance(item.get('formula', ""), str):
                 raise _damaged("'variables' section has the wrong shape")
             if not isinstance(item.get('balance', False), bool):
                 raise _damaged("'variables' section has the wrong shape")
-            balanced += 1 if item.get('balance') else 0
-        if balanced > 1:
+            if item.get('balance'):
+                balanced.append(item['name'])
+            # Readable, not just a string: every screen that draws the grid
+            # asks the parser what this cell means, and ui_setup calls
+            # worked_out_captions BEFORE it draws the Save button. A copy
+            # holding '= Nonexistent' rendered the grid, raised under it,
+            # and left the reader with no Save to edit their way out with.
+            if item.get('formula'):
+                try:
+                    parse_formula(item['formula'],
+                                  [n for n in copy_names if n != item['name']],
+                                  True)
+                except FormulaError:
+                    raise _damaged("'variables' section has the wrong shape")
+        if len(balanced) > 1:
             raise ValueError(wording.COPY_TWO_BALANCE_ROWS)
         for key in ('recipe_history', 'results_history'):
             for item in state[key]:
@@ -8433,6 +8456,16 @@ class FoodOptimizer:
         # the batch size on the very first render.
         for qc in state.get('quantity_constraints') or []:
             if not isinstance(qc, dict):
+                raise _damaged("'quantity_constraints' section has the "
+                               "wrong shape")
+            # Exactly is the same kind of number as the two beside it, and
+            # limit_text prints it with a 'g' format code: a copy holding
+            # 'twelve' raised on every render of the Limits section and of
+            # the Set-up sheet.
+            exactly = qc.get('exactly')
+            if exactly is not None and (isinstance(exactly, bool)
+                                        or not isinstance(exactly,
+                                                          (int, float))):
                 raise _damaged("'quantity_constraints' section has the "
                                "wrong shape")
             percent = qc.get('percent')
