@@ -1417,7 +1417,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 13  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 14  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -1494,6 +1494,7 @@ class FoodOptimizer:
         # says nothing was recorded; shown as a caption once it is set.
         self.targets_source = ""
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
+        self.result_drafts = {}       # formulation -> unfinished measurements/note
         self.pending_batch_no = None  # its batch number
         self.pending_batch_created = None   # ISO date it was generated, for the sheets
         self.pending_batch_discarded = []   # numbers a regenerate retired, for one caption
@@ -2209,12 +2210,18 @@ class FoodOptimizer:
         for results in self.results_history:
             if name in results:
                 results[new_name] = results.pop(name)
+        for draft in self.result_drafts.values():
+            results = draft['results']
+            if name in results:
+                results[new_name] = results.pop(name)
         self.save()
 
     def remove_objective(self, name):
         """Remove an objective and recalculate stored utility scores. What
         is left shares the whole 100 between them."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
+        for draft in self.result_drafts.values():
+            draft['results'].pop(name, None)
         self._shares_to_100()
         self._recompute_utilities()
         self.save()
@@ -6697,6 +6704,7 @@ class FoodOptimizer:
         self.formulation_ids.append(int(formulation_no))
         self.batch_history.append(None if batch_no is None else int(batch_no))
         self.notes_history.append("" if note is None else str(note))
+        self.result_drafts.pop(int(formulation_no), None)
         # The total the open batch's sheets were printed to belongs with the
         # batch number, not with the row: the amounts stored are as generated,
         # and only this says what the bench weighed out. It is written when a
@@ -6723,6 +6731,7 @@ class FoodOptimizer:
         """Forget the open batch. The numbers it used retire — they are never
         reissued, so a discarded batch can never be confused with a later one."""
         self.pending_batch = None
+        self.result_drafts = {}
         self.pending_batch_no = None
         self.pending_batch_created = None
         self.pending_batch_discarded = []
@@ -6830,6 +6839,7 @@ class FoodOptimizer:
         its number and amounts, and stays out of the scored history and the
         model. score_skipped() moves it into the scored history if a result
         turns up later."""
+        self.result_drafts.pop(int(formulation_no), None)
         self.skipped.append({
             'formulation': int(formulation_no),
             ROUND_FIELD: None if batch_no is None else int(batch_no),
@@ -7122,7 +7132,19 @@ class FoodOptimizer:
             if discarded is not None:
                 self.pending_batch_discarded = [int(n) for n in discarded]
             self.pending_batch = rows
+            numbers = {r['formulation'] for r in rows}
+            self.result_drafts = {n: d for n, d in self.result_drafts.items()
+                                  if n in numbers}
         self.save()
+
+    def save_result_drafts(self, drafts):
+        """Persist committed form fields without recording unfinished work."""
+        done = set(self.formulation_ids) | {r['formulation'] for r in self.skipped}
+        available = {r['formulation'] for r in self.pending_batch or []} - done
+        drafts = {n: d for n, d in drafts.items() if n in available}
+        if drafts != self.result_drafts:
+            self.result_drafts = drafts
+            self.save()
 
     # ------------------------------------------------------------------ #
     #  Adaptivity + expert BO config (optional arms 2 & 3)
@@ -10807,6 +10829,7 @@ class FoodOptimizer:
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
             'pending_batch': self.pending_batch,
+            'result_drafts': self.result_drafts,
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
@@ -11062,6 +11085,21 @@ class FoodOptimizer:
             if (isinstance(item, dict) and item.get('formulation') is not None
                     and not _number(item['formulation'])):
                 raise _damaged("'pending_batch' section has the wrong shape")
+        drafts = state.get('result_drafts', {})
+        if not isinstance(drafts, dict):
+            raise _damaged("'result_drafts' section has the wrong shape")
+        open_numbers = {r.get('formulation') for r in pending or []
+                        if isinstance(r, dict)}
+        for number, draft in drafts.items():
+            if (not _number(_as_int(number)) or _as_int(number) not in open_numbers
+                    or not isinstance(draft, dict)
+                    or not isinstance(draft.get('results'), dict)
+                    or not all(isinstance(k, str) for k in draft['results'])
+                    or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                               and np.isfinite(v) for v in draft['results'].values())
+                    or not isinstance(draft.get('note'), str)
+                    or not isinstance(draft.get('not_scored'), bool)):
+                raise _damaged("'result_drafts' section has the wrong shape")
         # A formulation's number is permanent and never reissued. A file that
         # numbers two rows the same breaks that for good — index_of_formulation
         # finds only the first, so deleting one leaves the others behind — and
@@ -11159,6 +11197,8 @@ class FoodOptimizer:
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
         self.pending_batch = state.get('pending_batch', None)
+        self.result_drafts = {int(n): dict(d) for n, d in
+                              state.get('result_drafts', {}).items()}
         self.pending_batch_no = state.get('pending_batch_no', None)
         self.pending_batch_created = state.get('pending_batch_created', None)
         self.pending_batch_discarded = [

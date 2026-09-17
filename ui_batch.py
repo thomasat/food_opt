@@ -1,12 +1,13 @@
 """Tab 2 · Make a round: generate formulations, make them, record results.
 
 The result grid deliberately avoids st.form so `Save results` can light up
-the moment every kept row has a value. What the screen shows, the workbook
+when at least one formulation has a measurement. What the screen shows, the workbook
 the bench carries away shows too — and since 0.5.0 so does what is recorded:
 the Batch size box moves the stored amounts (`FoodOptimizer.scale_round`)
 rather than rewriting a picture of them on the way out.
 
-One write on a plain rerun, and only one: a change to the Batch size box.
+Changed batch sizes and committed measurement drafts are persisted; unchanged
+reruns do not write.
 """
 import pandas as pd
 import streamlit as st
@@ -686,6 +687,10 @@ def _recorded_row(opt, number, ordered):
     note is part of the record, so it is shown with the numbers rather than
     being kept for tab 3."""
     index = opt.index_of_formulation(number)
+    skipped = next((r for r in opt.skipped if r['formulation'] == number), None)
+    if skipped is not None:
+        st.caption(skipped.get('note') or wording.NOT_SCORED)
+        return
     results = opt.results_history[index] if index is not None else {}
     line = " · ".join(
         join_unit(f"{label_with_unit(o['name'], o.get('unit'))} "
@@ -710,6 +715,17 @@ def _record_results(opt):
     to_record = open_rows(opt)
     open_numbers = {r['formulation'] for r in to_record}
     ordered = opt.measurements_by_importance()
+    seed = (id(opt), opt.pending_batch_no, tuple(o['name'] for o in ordered))
+    if st.session_state.get('_result_draft_seed') != seed:
+        for row in to_record:
+            number = row['formulation']
+            draft = opt.result_drafts.get(number, {})
+            for obj in ordered:
+                st.session_state[_result_key(number, obj['name'])] = (
+                    draft.get('results', {}).get(obj['name']))
+            st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
+            st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
+        st.session_state['_result_draft_seed'] = seed
     st.caption(wording.RECORD_RESULTS_CAPTION)
     left_out, entered, partly = set(), 0, 0
 
@@ -749,9 +765,8 @@ def _record_results(opt):
                     if problem:
                         outside.append(problem)
         # Said as it is typed, under the boxes it was typed into: Save is
-        # grey until every row has a value, so a reading outside its range
-        # was refused only on a press the user could not make — and the grey
-        # button explained nothing. Save still refuses it, in these words.
+        # available for entered formulations; an out-of-range reading is
+        # explained immediately and refused again on save.
         for problem in outside:
             st.caption(problem)
         if row.get('note'):
@@ -774,13 +789,22 @@ def _record_results(opt):
                 partly += 1
         st.divider()
 
-    kept = [r for r in to_record if r['formulation'] not in left_out]
-    ready = bool(kept) and all(
-        any(st.session_state.get(_result_key(r['formulation'], o['name'])) is not None
-            for o in opt.objectives)
-        for r in kept
-    )
-    if to_record and not kept:
+    drafts = {}
+    for row in to_record:
+        number = row['formulation']
+        values = {o['name']: st.session_state.get(_result_key(number, o['name']))
+                  for o in ordered}
+        values = {name: value for name, value in values.items() if value is not None}
+        note = st.session_state.get(f'f{number}_note') or ''
+        if values or note != (row.get('note') or '') or number in left_out:
+            drafts[number] = dict(results=values, note=note, not_scored=number in left_out)
+    opt.save_result_drafts(drafts)
+    if drafts and saved_ok(opt):
+        st.caption(wording.RESULT_DRAFT_SAVED)
+    kept = [r for r in to_record if r['formulation'] not in left_out
+            and drafts.get(r['formulation'], {}).get('results')]
+    ready = bool(kept)
+    if to_record and len(left_out) == len(to_record):
         st.info(wording.NOTHING_TO_SAVE)
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
@@ -841,11 +865,18 @@ def _save_results(opt, kept, left_out, to_record):
             opt.record_skipped(number, batch_no, row['recipe'],
                                note=(wording.not_scored_with_note(note) if note
                                      else wording.NOT_SCORED))
-    opt.set_pending_batch(None)
-    clear_scale_total()
     st.session_state.pop("_results_upload", None)
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
+        return
+    if open_rows(opt):
+        flash('success', wording.upload_partial_flash(
+            len(kept) + len(left_out), len(opt.pending_batch),
+            batch_no, len(open_rows(opt))))
+        st.rerun()
+    opt.set_pending_batch(None)
+    clear_scale_total()
+    if not saved_ok(opt):
         return
     flash("success", wording.batch_recorded_flash(batch_no))
     go_to_tab(TAB_RESULTS)
@@ -865,7 +896,7 @@ def _read_results_file(opt, uploaded):
     return UploadedWorkbook(pd.read_csv(uploaded), {}, {})
 
 
-def _upload_preview(opt, parsed, left_out):
+def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
     """The numbers the file was read as, before anything is saved.
 
     The check step counted the formulations it found and showed none of
@@ -894,13 +925,59 @@ def _upload_preview(opt, parsed, left_out):
          if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
         hide_index=True, key="upload_preview",
         height=table_height(len(frame)))
+    by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
+    imported = {no for no, _, _ in parsed} | {no for no, _ in left_out}
+    if weighed:
+        with st.expander(wording.UPLOAD_AMOUNTS_HEADING, expanded=True):
+            comparisons = []
+            for number in sorted(imported):
+                actual = weighed.get(number, {})
+                if not actual:
+                    continue
+                planned = by_number[number]
+                for name, amount in actual.items():
+                    unit = opt.unit_of(name)
+                    comparisons.append({wording.FORMULATION_CAP: number,
+                        wording.NAME_LABEL: name,
+                        wording.PLANNED_COLUMN: planned.get(name, 0),
+                        wording.ACTUAL_COLUMN: amount, wording.UNIT_LABEL: unit})
+                recipe = opt.amounts_as_weighed(planned, actual)
+                st.caption(wording.upload_amounts_total(
+                    number, opt.total_text(planned), opt.total_text(recipe)))
+                mismatch = opt.total_mismatch(number, recipe, opt.open_round_size())
+                if mismatch:
+                    st.caption(mismatch)
+                for name, amount in actual.items():
+                    caution = opt.bounds_caution(name, amount)
+                    if caution:
+                        st.caption(caution)
+                if opt.one_amount_unit() and opt.ingredient_total(recipe) > 0:
+                    caution = opt.scaled_limit_caution(
+                        [recipe], opt.ingredient_total(recipe), sized=True)
+                    if caution:
+                        st.caption(caution)
+            if comparisons:
+                frame = pd.DataFrame(comparisons)
+                unit = opt.one_amount_unit()
+                if unit and all(r[wording.UNIT_LABEL] == unit for r in comparisons):
+                    frame = frame.drop(columns=[wording.UNIT_LABEL]).rename(columns={
+                        c: f'{c} ({unit})' for c in
+                        (wording.PLANNED_COLUMN, wording.ACTUAL_COLUMN)})
+                st.dataframe(frame, hide_index=True, key='upload_amounts_preview',
+                    column_config={c: st.column_config.NumberColumn(c, format='%.2f')
+                        for c in frame.columns if c not in
+                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)})
+    if lots:
+        with st.expander(wording.UPLOAD_LOTS_HEADING):
+            st.dataframe(pd.DataFrame([{wording.NAME_LABEL: name, wording.LOT_COLUMN: lot}
+                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview')
 
 
 def _blank_or_number(value):
     """A measurement nobody took is a blank cell, never 'nan'."""
     if value is None or pd.isna(value):
         return ""
-    return f"{float(value):g}"
+    return f"{float(value):.2f}"
 
 
 def _upload(opt):
@@ -943,7 +1020,7 @@ def _upload(opt):
             ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
             + (wording.not_scored_counter_suffix(len(left_out)) if left_out
                else ""))
-        _upload_preview(opt, parsed, left_out)
+        _upload_preview(opt, parsed, left_out, weighed, lots)
         if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}

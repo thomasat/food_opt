@@ -349,10 +349,10 @@ _MEAS_ERRORS = MEAS_ERRORS_KEY
 _PROP_ERRORS = PROP_ERRORS_KEY
 
 
-def _number_column(label, help=None):
+def _number_column(label, help=None, width=None):
     """Every number on these grids is an amount, and an amount is written to
     two decimal places everywhere else in the app."""
-    return st.column_config.NumberColumn(label, format="%.2f", help=help)
+    return st.column_config.NumberColumn(label, format="%.2f", help=help, width=width)
 
 
 def _ingredient_columns(opt, frame):
@@ -409,19 +409,19 @@ def _measurement_columns():
     return {
         GRID_ID: None,
         wording.MEASUREMENT_COLUMN: st.column_config.TextColumn(
-            wording.MEASUREMENT_COLUMN, required=True),
+            wording.MEASUREMENT_COLUMN, required=True, width=130),
         wording.GOAL_LABEL: st.column_config.SelectboxColumn(
             wording.GOAL_LABEL, options=list(wording.GOAL_LABELS.values()),
-            default=wording.GOAL_LABELS['max'], required=True),
-        wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL),
+            default=wording.GOAL_LABELS['max'], required=True, width=115),
+        wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL, width=75),
         wording.LOWEST_MEASURABLE_LABEL: _number_column(
-            wording.LOWEST_MEASURABLE_LABEL),
+            wording.LOWEST_LABEL, help=wording.LOWEST_MEASURABLE_LABEL, width=80),
         wording.HIGHEST_MEASURABLE_LABEL: _number_column(
-            wording.HIGHEST_MEASURABLE_LABEL),
-        wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL),
+            wording.HIGHEST_LABEL, help=wording.HIGHEST_MEASURABLE_LABEL, width=80),
+        wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL, width=55),
         wording.SHARE_COLUMN: st.column_config.NumberColumn(
             wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
-            format="%.2f", help=wording.SHARE_HELP),
+            format="%.2f", help=wording.SHARE_HELP, width=145),
     }
 
 
@@ -1164,6 +1164,10 @@ def _measurements(opt, storage):
     edited = st.data_editor(
         opening, key=grid_key(MEAS_GRID_KEY),
         num_rows="dynamic",
+        column_order=[wording.MEASUREMENT_COLUMN, wording.GOAL_LABEL,
+                      wording.TARGET_LABEL, wording.SHARE_COLUMN,
+                      wording.UNIT_LABEL, wording.LOWEST_MEASURABLE_LABEL,
+                      wording.HIGHEST_MEASURABLE_LABEL],
         column_config=_measurement_columns(), use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     slot = st.empty()

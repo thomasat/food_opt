@@ -136,7 +136,7 @@ def _reset_project_session():
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
-              "_results_upload", "_import_rows",
+              "_results_upload", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
               ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,

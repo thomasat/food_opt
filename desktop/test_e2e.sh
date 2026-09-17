@@ -623,11 +623,25 @@ assert wording.SHOPPING_TOTAL_HEADING in [c.value for row in summary for c in ro
 page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
 assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
 print("PREMIX_OK")
+# Committed manual fields survive a fresh application session.
+at.run()
+number = opt.pending_batch[0]["formulation"]
+at.number_input(key=f"f{number}_Firmness").set_value(6).run()
+fresh = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+fresh.session_state["_loaded_project"] = opt.project_name
+fresh.run()
+assert not fresh.exception, fresh.exception
+assert fresh.number_input(key=f"f{number}_Firmness").value == 6
+assert not next(b for b in fresh.button if b.label == wording.SAVE_RESULTS).disabled
+print("DRAFT_OK")
 PY
 )"
 if echo "$RULES_OUT" | grep -q RULES_OK; then ok "rules controls in packaged app"; else fail "rules controls in packaged app ($RULES_OUT)"; fi
 
 if echo "$RULES_OUT" | grep -q PREMIX_OK; then ok "pre-mix sample and workbook in packaged app"; else fail "pre-mix sample and workbook in packaged app ($RULES_OUT)"; fi
+
+if echo "$RULES_OUT" | grep -q DRAFT_OK; then ok "manual results persist in packaged app"; else fail "manual results persist in packaged app ($RULES_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"

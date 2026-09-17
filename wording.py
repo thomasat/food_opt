@@ -2199,6 +2199,10 @@ LOT_COLUMN = "Lot"
 # carries the project's unit, as the Amount column does.
 ACTUAL_COLUMN = "Actual"
 
+
+def upload_amounts_total(number, planned, actual):
+    return f"Formulation {number} total: planned {planned}; actual {actual}."
+
 # The one line under each sheet's title. The sheets are protected now,
 # so this says what can be typed and where: a locked cell that refuses a
 # number without saying why is the worst kind of paper.
@@ -2791,7 +2795,9 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     if size_text:
         span = f"{span} in a {size_text} {FORMULATION}"
     if outside_text:
-        return f"{span} — outside the {outside_text} you gave it."
+        return (f"{span}. The stored bounds ({outside_text}) do not apply while "
+                "this rule is active. Change the rule or the other ingredients’ "
+                "bounds to change this range.")
     return f"{span}."
 
 
@@ -3085,3 +3091,10 @@ def workbook_lot_conflict(name):
 
 def premix_needs_parts(name):
     return f"Add at least one part to {name} in Set up before making a round."
+
+
+RESULT_DRAFT_SAVED = "Draft measurements and notes saved on this Mac. Save results to record the formulations you have entered; blank formulations stay open."
+UPLOAD_AMOUNTS_HEADING = "Amounts from the file"
+UPLOAD_LOTS_HEADING = "Lot numbers from the file"
+PLANNED_COLUMN = "Planned"
+ACTUAL_COLUMN = "Actual"

@@ -2016,13 +2016,13 @@ def test_leave_out_comes_after_the_note_field(open_batch):
     assert order.index("f1_Firmness") < order.index("f1_note") < order.index("f1_leave_out"), order
 
 
-def test_save_lights_only_when_every_kept_row_has_a_value(open_batch):
+def test_save_lights_when_any_formulation_has_a_value(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _submit_button(at, "Save results").disabled
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
-    assert _submit_button(at, "Save results").disabled
+    assert not _submit_button(at, "Save results").disabled
     # "complete", not "to record": every other screen uses "to record" for
     # the rows that still have no number ("Back to Round 1 · 2 to record"),
     # and this line counts the opposite. A row is complete only when EVERY
@@ -8106,10 +8106,8 @@ def test_adding_your_own_formulation_keeps_what_was_typed_into_the_grid(
     assert not at.exception
     assert at.session_state["f4_Firmness"] == 5.0
     assert at.session_state["f4_note"] == "second try"
-    # The row that was just added has no result in it yet, so nothing is lit:
-    # the batch sheet stepped aside when the first value was typed, and Save
-    # waits for every kept row. Filling the new row lights it again.
-    assert _tab_primaries(at, 1) == [], _tab_primaries(at, 1)
+    # Entered formulations can be saved while the new blank row stays open.
+    assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
     at.number_input(key="f5_Firmness").set_value(7.0)
     at.run()
     assert _tab_primaries(at, 1) == [wording.SAVE_RESULTS], _tab_primaries(at, 1)
@@ -8556,7 +8554,9 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert (order.index(said[0])
             < _first(order, wording.formulation_heading(2))), order
     save = _submit_button(at, wording.SAVE_RESULTS)
-    assert save.disabled and save.proto.type == "secondary"
+    assert not save.disabled
+    save.click().run()
+    assert any("outside your range" in e.value for e in at.error)
 
 
 def test_the_picker_clears_after_a_saved_correction(scored):
@@ -10285,3 +10285,98 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
         assert sum(recipe.values()) == pytest.approx(100)
         assert recipe['Seasoning blend'] == 2.5
         assert 32.5 <= recipe['Water'] <= 77.5
+
+
+def test_manual_result_drafts_survive_reopening_and_save_one_formulation(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    at.number_input(key='f1_Firmness').set_value(6).run()
+    at.text_input(key='f1_note').set_value('Measured first').run()
+    reopened = AppTest.from_file(APP_PATH, default_timeout=180)
+    reopened.session_state['main_tab'] = wording.TAB_BATCH
+    reopened.run()
+    assert reopened.number_input(key='f1_Firmness').value == 6
+    assert reopened.text_input(key='f1_note').value == 'Measured first'
+    reopened.number_input(key='f1_Juiciness').set_value(7).run()
+    assert not _submit_button(reopened, wording.SAVE_RESULTS).disabled
+    _submit_button(reopened, wording.SAVE_RESULTS).click().run()
+    opt = FoodOptimizer('burger')
+    assert opt.formulation_ids == [1]
+    assert opt.pending_batch_no == 1
+    assert len(opt.pending_batch) == 2
+    assert opt.result_drafts == {}
+    assert not opt.skipped
+    assert reopened.session_state['main_tab'] == wording.TAB_BATCH
+    reopened.number_input(key='f2_Firmness').set_value(5).run()
+    reopened.number_input(key='f2_Juiciness').set_value(6).run()
+    _submit_button(reopened, wording.SAVE_RESULTS).click().run()
+    opt = FoodOptimizer('burger')
+    assert opt.formulation_ids == [1, 2]
+    assert opt.pending_batch is None
+
+
+def test_upload_preview_shows_actual_changes_and_total_warning_before_save(open_batch):
+    from food_bo import UploadedWorkbook
+    open_batch.add_ingredient("Pea protein", 0, 40)
+    open_batch.set_formulation_total(30)
+    open_batch.set_pending_batch([{'Pea protein': 28, 'Methylcellulose': 2}])
+    number = open_batch.pending_batch[0]['formulation']
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state['_loaded_project'] = 'burger'
+    at.session_state['main_tab'] = wording.TAB_BATCH
+    at.session_state['_results_upload'] = UploadedWorkbook(
+        pd.DataFrame({'Formulation':[number], 'Firmness':[6], 'Juiciness':[7]}),
+        {number:{'Pea protein':28.5}}, {'Pea protein':'LOT-42'})
+    at.run()
+    assert not at.exception
+    frame = next(d.value for d in at.dataframe if 'Actual (g)' in d.value.columns)
+    assert frame['Planned (g)'].tolist() == [28]
+    assert frame['Actual (g)'].tolist() == [28.5]
+    assert any('30.50 g' in c.value for c in at.caption)
+    assert any('LOT-42' in str(d.value) for d in at.dataframe)
+    assert FoodOptimizer('burger').formulation_ids == []
+
+
+def test_result_drafts_clear_after_recording_and_skipping(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    at.number_input(key='f1_Firmness').set_value(6).run()
+    at.checkbox(key='f2_leave_out').check().run()
+    saved = FoodOptimizer('burger')
+    assert saved.result_drafts[1]['results'] == {'Firmness': 6}
+    assert saved.result_drafts[2]['not_scored']
+    _submit_button(at, wording.SAVE_RESULTS).click().run()
+    saved = FoodOptimizer('burger')
+    assert saved.pending_batch is None
+    assert saved.result_drafts == {}
+    assert len(saved.skipped) == 1
+    assert saved.formulation_ids == [1]
+
+
+def test_switching_projects_restores_only_their_own_result_drafts(open_batch):
+    other = FoodOptimizer('second')
+    state = open_batch.export_json()
+    state['project_name'] = 'second'
+    other.import_json(state)
+    other.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state['_loaded_project'] = 'burger'
+    at.run()
+    at.number_input(key='f1_Firmness').set_value(6).run()
+    at.selectbox(key='project_select').set_value('second').run()
+    _submit_button(at.sidebar, 'Open').click().run()
+    at.run()
+    assert at.number_input(key='f1_Firmness').value is None
+    at.number_input(key='f1_Firmness').set_value(8).run()
+    at.selectbox(key='project_select').set_value('burger').run()
+    _submit_button(at.sidebar, 'Open').click().run()
+    at.run()
+    assert at.number_input(key='f1_Firmness').value == 6
+    assert FoodOptimizer('second').result_drafts[1]['results']['Firmness'] == 8
+
+
+def test_renaming_a_measurement_keeps_the_visible_draft(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    at.number_input(key='f1_Firmness').set_value(6).run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.MEASUREMENT_COLUMN: 'Bite'}})
+    assert not at.exception
+    assert at.number_input(key='f1_Bite').value == 6
+    assert FoodOptimizer('burger').result_drafts[1]['results'] == {'Bite': 6}

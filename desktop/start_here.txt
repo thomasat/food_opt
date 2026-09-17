@@ -108,3 +108,9 @@ PRE-MIXES ON THE BENCH
 - Parts weighed separately sit under their group on each formulation
   page. "To weigh for this round" on the summary totals every ingredient
   once. Write any different amounts in the shaded "Actual" cells.
+
+RESULTS AS YOU GO
+Measurements and notes save as drafts when you finish editing a field.
+Save results records the formulations you have entered; blank formulations
+stay open for later. Before saving an uploaded workbook, review its actual
+amounts, totals and lot numbers in the preview.

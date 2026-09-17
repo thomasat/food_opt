@@ -7580,7 +7580,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 13
+        assert state['CLASS_VERSION'] == 14
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)
@@ -9058,7 +9058,7 @@ class TestFormulaRows:
         opt.set_formula("Water", "= rest")
         opt.set_formula("Sugar", "= 0.1 × batch size")
         state = opt.export_json()
-        assert FoodOptimizer.validate_state(state)['version'] == 13
+        assert FoodOptimizer.validate_state(state)['version'] == 14
 
         other = FoodOptimizer("copy_of_formulas")
         other.import_json(state)
@@ -9145,9 +9145,9 @@ class TestFormulaRows:
 
         other = FoodOptimizer("wave_one_project")
         other.import_json(state)
-        assert FoodOptimizer.CLASS_VERSION == 13
+        assert FoodOptimizer.CLASS_VERSION == 14
         assert not any(other.has_formula(v) for v in other.variables)
-        assert other.export_json()['CLASS_VERSION'] == 13
+        assert other.export_json()['CLASS_VERSION'] == 14
         assert len(other._search_bounds()) == 3
         assert len(other.ask(1)) == 1
 
@@ -9453,15 +9453,17 @@ class TestTheFormulaColumn:
         # Highest are named where the rule takes it past them.
         assert opt.worked_out_captions() == [
             "Water is worked out as = batch size − Pea protein − Salt: "
-            "between 40.00 and 62.00 g in a 100 g formulation — outside "
-            "the 20.00 to 60.00 g you gave it."]
+            "between 40.00 and 62.00 g in a 100 g formulation. "
+            "The stored bounds (20.00 to 60.00 g) do not apply while this rule is active. "
+            "Change the rule or the other ingredients’ bounds to change this range."]
         # The balance says the same thing in the words it was written in.
         opt.apply_ingredient_grid(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"))
         assert opt.worked_out_captions() == [
             "Water is worked out as = rest, whatever is left of the batch "
-            "size: between 40.00 and 62.00 g in a 100 g formulation — "
-            "outside the 20.00 to 60.00 g you gave it."]
+            "size: between 40.00 and 62.00 g in a 100 g formulation. "
+            "The stored bounds (20.00 to 60.00 g) do not apply while this rule is active. "
+            "Change the rule or the other ingredients’ bounds to change this range."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
@@ -9516,7 +9518,7 @@ class TestTheFormulaColumn:
         assert errors == []
         assert opt.worked_out_captions() == [
             "Salt is worked out as = 1.5 % of batch size: 1.50 g in a "
-            "100 g formulation — outside the 8.00 to 10.00 g you gave it."]
+            "100 g formulation. The stored bounds (8.00 to 10.00 g) do not apply while this rule is active. Change the rule or the other ingredients’ bounds to change this range."]
 
     def test_the_caption_is_absent_without_a_formula(self, tmp_path,
                                                      monkeypatch):
@@ -10612,7 +10614,7 @@ class TestPreMixes:
         # A JSON object's keys are strings, so the round numbers go out as
         # text and come back whole.
         assert list(state['premixes']['Dry blend']['versions']) == ["1"]
-        assert FoodOptimizer.validate_state(state)['version'] == 13
+        assert FoodOptimizer.validate_state(state)['version'] == 14
 
         monkeypatch.chdir(tmp_path)
         other = FoodOptimizer("premix_copy", robust=False)
@@ -10647,11 +10649,11 @@ class TestPreMixes:
             "Protein", {'mode': "portioned", 'parts': [], 'versions': {}})
             or s.__setitem__('property_names', ["Protein"]))
         # And the copy the app itself writes is accepted.
-        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 13
+        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 14
 
     def test_a_version_12_project_loads_with_no_premixes_at_version_13(
             self, tmp_path, monkeypatch):
-        assert FoodOptimizer.CLASS_VERSION == 13
+        assert FoodOptimizer.CLASS_VERSION == 14
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         del state['premixes']
@@ -10661,7 +10663,7 @@ class TestPreMixes:
         other = FoodOptimizer("held_project", robust=False)
         other.import_json(state)
         assert other.premixes == {}
-        assert other.export_json()['CLASS_VERSION'] == 13
+        assert other.export_json()['CLASS_VERSION'] == 14
 
     # ---- a file ---------------------------------------------------------- #
 

@@ -279,6 +279,7 @@ def open_rows(opt):
     count them — the line under the title, the result grid on tab 2 and the
     foot of tab 3 — and they must agree."""
     recorded = {int(i) for i in opt.formulation_ids}
+    recorded.update(int(r['formulation']) for r in opt.skipped)
     return [r for r in (opt.pending_batch or [])
             if r['formulation'] not in recorded]
 
