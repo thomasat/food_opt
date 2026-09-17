@@ -9477,6 +9477,46 @@ class TestTheFormulaColumnFixes:
         assert opt.fill_formulas({"Pea protein": 20.0, "Sea salt": 2.0}) == {
             "Pea protein": 20.0, "Sea salt": 2.0, "Water": 28.0}
 
+    def test_two_renames_in_one_save_are_read_against_the_old_spelling(
+            self, tmp_path, monkeypatch):
+        """A chain of renames in one Save — Salt→Butter, Pea protein→Salt —
+        rewrote the formula one rename at a time, so the second pass read
+        the Butter the first pass had only just written and the cell ended
+        up naming one row twice. Every name is looked up once now, against
+        the spelling the reader typed the cell in."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= Pea protein + Salt")
+        frame = opt.ingredient_grid_frame()
+        frame = _edit(frame, 3, **{wording.NAME_LABEL: "Butter"})
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Salt"})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt._var_by_name("Water")['formula'] == "= Salt + Butter"
+        assert opt._linear_form("Water").terms == {"Salt": 1.0,
+                                                   "Butter": 1.0}
+
+    def test_three_renames_in_one_chain_land_where_the_reader_typed_them(
+            self, tmp_path, monkeypatch):
+        """The same one pass over a longer chain: Salt→Sea salt,
+        Pea protein→Salt, Water→Pea protein, with a formula naming two of
+        the three."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("three_chain")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_ingredient("Pea protein", 10, 25)
+        opt.add_ingredient("Salt", 0, 3)
+        opt.add_ingredient("Oil", 0, 10)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formula("Oil", "= Salt + Pea protein")
+        frame = opt.ingredient_grid_frame()
+        frame = _edit(frame, 3, **{wording.NAME_LABEL: "Sea salt"})
+        frame = _edit(frame, 2, **{wording.NAME_LABEL: "Salt"})
+        frame = _edit(frame, 1, **{wording.NAME_LABEL: "Pea protein"})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt._var_by_name("Oil")['formula'] == "= Sea salt + Salt"
+
     def test_clearing_a_formula_needs_the_amounts_too(self, tmp_path,
                                                       monkeypatch):
         """Giving a row a formula rebuilds the history and taking one away

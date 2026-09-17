@@ -380,16 +380,24 @@ def _amount(value):
         return 0.0
 
 
-def _renamed_in_formula(text, old, new, names):
-    """`text` with the row `old` renamed to `new`, and every other name in
-    it left exactly as it was.
+def _renamed_in_formula(text, renames, names):
+    """`text` with every row `renames` moves rewritten, and every other name
+    in it left exactly as it was.
+
+    `renames` is the whole {old name: new name} map of one save, applied in
+    ONE pass: each name in the cell is looked up once, in the spelling the
+    project had when the cell was typed, and the answer is written straight
+    out. Applying them one after another would read the second rename
+    against the text the first one just wrote, so a chain (Sugar→Butter,
+    Flour→Sugar) would rewrite the Butter it had only just produced.
 
     Longest name first, the same order the tokenizer reads them in, so
     renaming Cream in a project that also has Cream cheese leaves the
     longer row alone. Capitals are ignored on the way in and the new name
     is written as the project spells it."""
     known = sorted({n for n in names if n}, key=len, reverse=True)
-    if not known:
+    moves = {str(old).lower(): new for old, new in (renames or {}).items()}
+    if not known or not moves:
         return text
     pattern = re.compile("|".join(re.escape(n) for n in known), re.I)
     out, at = [], 0
@@ -401,8 +409,7 @@ def _renamed_in_formula(text, old, new, names):
                 or (end < len(text) and text[end].isalnum())):
             continue
         out.append(text[at:start])
-        out.append(new if match.group().lower() == old.lower()
-                   else match.group())
+        out.append(moves.get(match.group().lower(), match.group()))
         at = end
     out.append(text[at:])
     return "".join(out)
@@ -789,13 +796,12 @@ def _formula_after_renames(text, renames, spelled):
     same _renamed_in_formula; this is the same answer BEFORE the save, so
     the grid never refuses an untouched cell for a row the reader can see.
 
-    One rename at a time, each read against the spelling the last one left,
-    which is the order the save writes them in.
+    Every rename of the save at once, read against the spelling the project
+    had before any of them landed: a chain (Sugar→Butter, Flour→Sugar) means
+    what it says on the grid the reader is looking at, not what one pass
+    would leave for the next to read.
     """
-    for old_name, new_name in renames.items():
-        text = _renamed_in_formula(text, old_name, new_name, spelled)
-        spelled = [new_name if n == old_name else n for n in spelled]
-    return text
+    return _renamed_in_formula(text, renames, spelled)
 
 
 def _formula_cell_moved(spec):
@@ -6873,7 +6879,7 @@ class FoodOptimizer:
         for row in self.variables:
             if row.get('formula'):
                 row['formula'] = _renamed_in_formula(
-                    row['formula'], name, new_name, spelled)
+                    row['formula'], {name: new_name}, spelled)
         var['name'] = new_name
         for recipe in self.recipe_history:
             if name in recipe:
