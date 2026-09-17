@@ -723,6 +723,32 @@ def _row_is_blank(row):
                    if c != GRID_ID)
 
 
+def _share_to_total(free, room_of, need):
+    """`free` moved so that it adds up to `need`, every part of it kept
+    between 0 and its own `room_of`.
+
+    The correction is shared out in proportion to what each part can still
+    take, which is what stops an amount pinned at its end from swallowing
+    it and the loop from stalling. The numbers are contributions to the
+    total, not amounts: the caller works in what each part of an amount is
+    WORTH and divides the coefficient back out afterwards.
+    """
+    free = list(free)
+    for _ in range(40):
+        residual = need - sum(free)
+        if abs(residual) <= 1e-9:
+            break
+        headroom = ([c - f for f, c in zip(free, room_of)] if residual > 0
+                    else list(free))
+        share = sum(headroom)
+        if share <= 1e-12:
+            break
+        for k, head in enumerate(headroom):
+            free[k] = min(room_of[k],
+                          max(0.0, free[k] + residual * head / share))
+    return free
+
+
 def _rename_order(rows):
     """The order to write the existing rows in so that no rename ever lands
     on a name another row is still wearing.
@@ -4728,12 +4754,13 @@ class FoodOptimizer:
         base = constant + sum(c * low for c, low in zip(coeffs, lows))
         base += sum(c * s for c, s in zip(coeffs, start) if c <= 0)
         movable = [i for i, c in enumerate(coeffs) if c > 0]
+        sinks = [i for i, c in enumerate(coeffs) if c < 0]
         need = float(total) - base
         snapped = dict(recipe)
         for i, name in enumerate(names):
             snapped[name] = lows[i] + start[i]
 
-        if not movable:
+        if not movable and not sinks:
             # Nothing the search moves changes the total. Either the point
             # is already on it — every ingredient fixed and adding up, or a
             # balance row making it hold identically — or nothing can put it
@@ -4747,32 +4774,42 @@ class FoodOptimizer:
                     snapped[var['name']] = self._fixed_value(var)
             return self.fill_formulas(snapped)
 
+        # Which way each row moves the total, and how far. A row worth more
+        # than nothing raises it by rising; a row worth LESS than nothing —
+        # one a formula subtracts more of than it adds — raises it by
+        # falling, and lowers it by rising. Both are real ways onto the
+        # total, and leaving the second out is what made total_reach and
+        # this disagree about the same project: the reach counted a row the
+        # projection would not move.
         room = sum(coeffs[i] * caps[i] for i in movable)
-        if need < -1e-9 or need > room + 1e-9:
+        lift = sum(-coeffs[i] * start[i] for i in sinks)
+        drop = sum(-coeffs[i] * (caps[i] - start[i]) for i in sinks)
+        if need < -drop - 1e-9 or need > room + lift + 1e-9:
             return None         # the ingredients that can move cannot reach it
-        need = min(max(need, 0.0), room)
+        # The rows worth more than nothing go first, so a point a one-sided
+        # projection already handled comes out of this exactly as it did
+        # before; what is left over is what the rows worth less than nothing
+        # have to answer for.
+        up_need = min(max(need, 0.0), room)
+        sink_need = need - up_need
         # Worked in what each part of an amount is WORTH to the total, so
-        # the loop below is the one it always was and the coefficients are
-        # divided back out at the end.
-        free = [coeffs[i] * start[i] for i in movable]
-        room_of = [coeffs[i] * caps[i] for i in movable]
-        for _ in range(40):
-            residual = need - sum(free)
-            if abs(residual) <= 1e-9:
-                break
-            # Only the amounts that can still move in that direction take a
-            # share, which is what stops an amount pinned at its Highest from
-            # swallowing the correction and the loop from stalling.
-            headroom = ([c - f for f, c in zip(free, room_of)] if residual > 0
-                        else list(free))
-            share = sum(headroom)
-            if share <= 1e-12:
-                break
-            for k, head in enumerate(headroom):
-                free[k] = min(room_of[k],
-                              max(0.0, free[k] + residual * head / share))
+        # the share-out below is the one it always was and the coefficients
+        # are divided back out at the end.
+        free = _share_to_total([coeffs[i] * start[i] for i in movable],
+                               [coeffs[i] * caps[i] for i in movable],
+                               up_need)
         for k, i in enumerate(movable):
             snapped[names[i]] = lows[i] + free[k] / coeffs[i]
+        if sinks:
+            # Read from the row's Highest down, so the same share-out reads
+            # a rising number as a rising total here too.
+            headroom = [-coeffs[i] * (caps[i] - start[i]) for i in sinks]
+            fell = _share_to_total(
+                headroom, [-coeffs[i] * caps[i] for i in sinks],
+                sum(headroom) + sink_need)
+            for k, i in enumerate(sinks):
+                snapped[names[i]] = (lows[i] + caps[i]
+                                     + fell[k] / coeffs[i])
         return self.fill_formulas(snapped)
 
     def _formulation_total_bounds(self, total):

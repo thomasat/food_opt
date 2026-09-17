@@ -5637,6 +5637,67 @@ class TestTheTotalIsAlwaysReachable:
                 low, high = bounds[name]
                 assert low - 1e-6 <= value <= high + 1e-6, (name, value)
 
+    def test_a_row_worth_less_than_nothing_moves_the_other_way(
+            self, tmp_path, monkeypatch):
+        """A free row whose effective coefficient is negative was pinned
+        wherever the space-filling point dropped it and never moved, even
+        when moving it was the ONLY way onto the total. total_reach and
+        set_formulation_total counted it, so the box accepted a size the
+        projection then refused for every candidate and Generate raised.
+
+        Filler = 50 − 2 × A makes A worth −1 to the total, so a 40 g
+        formulation is A = 10, Filler = 30 and nothing else."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("neg_snap", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("A", 5, 20)
+        opt.add_ingredient("Filler", 0, 100)
+        opt.add_process_parameter("Temp", 100, 200, baseline=150)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(40)
+        opt.set_formula("Filler", "= 50 - 2 * A")
+        assert opt.total_reach() == (30.0, 45.0)
+        # Wherever the point lands, the projection walks A onto the total.
+        for started_at in (5.0, 10.0, 12.0, 20.0):
+            snapped = opt._snap_to_total({"A": started_at, "Temp": 150}, 40)
+            assert snapped is not None
+            assert snapped["A"] == pytest.approx(10.0)
+            assert snapped["Filler"] == pytest.approx(30.0)
+        rows = opt.ask(n_suggestions=3)
+        assert len(rows) == 3
+        for row in rows:
+            assert row["A"] + row["Filler"] == pytest.approx(40.0, abs=0.5)
+
+    def test_a_negative_row_only_takes_what_the_positive_rows_cannot(
+            self, tmp_path, monkeypatch):
+        """Mixed signs: the rows worth more than nothing go first, so a
+        point a one-sided projection already handled comes out of this
+        unchanged, and the negative row answers only for the rest."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("mixed_snap", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("A", 0, 20)
+        opt.add_ingredient("B", 0, 20)
+        opt.add_ingredient("Filler", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(50)
+        # Filler = 60 − 2A + B, so the sum is 60 − A + 2B: A is worth −1
+        # to the total and B worth +2.
+        opt.set_formula("Filler", "= 60 - 2 * A + B")
+        # 70 g is within what B alone can add, so A stays exactly where the
+        # space-filling point put it — this is the one-sided answer, kept.
+        snapped = opt._snap_to_total({"A": 4.0, "B": 10.0}, 70)
+        assert snapped["A"] == pytest.approx(4.0)
+        assert snapped["B"] == pytest.approx(7.0)
+        assert sum(snapped.values()) == pytest.approx(70.0)
+        # 100 g is more than B can add on its own, so A comes down for the
+        # rest of it rather than the projection giving up.
+        snapped = opt._snap_to_total({"A": 4.0, "B": 10.0}, 100)
+        assert snapped is not None
+        assert snapped["B"] == pytest.approx(20.0)
+        assert snapped["A"] == pytest.approx(0.0)
+        assert sum(snapped.values()) == pytest.approx(100.0)
+
     def test_a_warm_batch_lands_exactly_on_the_total(self, tmp_path,
                                                       monkeypatch):
         """The limit the total is enforced as is a band of ±0.5 %, so the
