@@ -258,6 +258,9 @@ def test_saved_line_shows_the_time_today_and_the_date_before_that():
 
 
 class _FakeOpt:
+    def premix_readiness_error(self):
+        return None
+
     def __init__(self, variables, objectives, pending_batch=None,
                  X_history=None, skipped=None):
         self.variables = variables

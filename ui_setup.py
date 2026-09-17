@@ -1528,7 +1528,7 @@ def _limits(opt, storage):
                           constraint['metric'],
                           lambda i=i: opt.remove_constraint(i))
 
-    names = opt.ingredient_names()
+    names = opt.quantity_limit_choices()
 
     # ONE amount limit, on the ingredients the user names. The total
     # over ALL of them is not written here — it is the Default batch size
@@ -1595,7 +1595,7 @@ def _limits(opt, storage):
             st.error(wording.LIMIT_NUMBER_NEEDED_ERROR)
         else:
             try:
-                opt.add_quantity_constraint(picked, min_val=low, max_val=high,
+                opt.add_chosen_quantity_constraint(picked, min_val=low, max_val=high,
                                             exactly=exact, percent=is_percent)
             except ValueError as e:
                 st.error(str(e))

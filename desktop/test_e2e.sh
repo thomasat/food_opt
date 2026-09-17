@@ -491,7 +491,7 @@ assert not at.exception, at.exception
 # and SKU beside the range and Rule last (0.6.0). Baseline joins it only
 # once results exist.
 assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
-    "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+    "Name", "Type", "Made as", "Lowest", "Highest", "Unit", "Vendor", "SKU",
     "Rule"], list(at.dataframe[0].value.columns)
 
 # Three tiers on the tab: the grids, then More settings, then Advanced.
@@ -602,9 +602,32 @@ assert unit_select.label == wording.LIMIT_WRITTEN_AS_LABEL, unit_select.label
 assert wording.PERCENT_OF_BATCH_SIZE_UNIT in unit_select.options, \
     unit_select.options
 print("RULES_OK")
+
+# Both pre-mix modes and the preparation pages are in the shipped app.
+import io
+from openpyxl import load_workbook
+opt = at.session_state["optimizer"]
+assert list(grid[wording.NAME_LABEL]) == ["Dry blend", "Fat phase", "Seasoning blend", "Water"]
+assert wording.MADE_AS_LABEL in columns
+assert opt.premixes["Fat phase"]["mode"] == "weighed"
+assert len(opt.premixes["Dry blend"]["parts"]) == 4
+assert opt._by_name()["Seasoning blend"]["bounds"] == (2.5, 2.5)
+opt.ask(3)
+book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
+assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
+assert book.active["A1"].value.startswith("Dry blend · make ")
+assert book.active["A1"].value.endswith(" g for this round")
+assert book.active.protection.sheet and not book.active["D4"].protection.locked
+summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+assert wording.SHOPPING_TOTAL_HEADING in [c.value for row in summary for c in row]
+page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
+assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
+print("PREMIX_OK")
 PY
 )"
 if echo "$RULES_OUT" | grep -q RULES_OK; then ok "rules controls in packaged app"; else fail "rules controls in packaged app ($RULES_OUT)"; fi
+
+if echo "$RULES_OUT" | grep -q PREMIX_OK; then ok "pre-mix sample and workbook in packaged app"; else fail "pre-mix sample and workbook in packaged app ($RULES_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"

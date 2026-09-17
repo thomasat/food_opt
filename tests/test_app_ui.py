@@ -429,7 +429,7 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     opt = FoodOptimizer("Sample project")
     # Eight ingredients: enough for a real formulation, few enough to read at
     # a glance in the batch table and the printable sheets.
-    assert len(opt.variables) == 8
+    assert len(opt.variables) == 5
     assert opt.amount_unit == "g"
     # The sample is the plant-based burger brief for a trained panel: two
     # intensity scores with targets (7 and 6 out of 10), firmness the more
@@ -453,7 +453,7 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     # Set up is complete, but nothing has been made yet: the sample opens on
     # its set-up so the user sees what they are about to make.
     assert at.session_state["main_tab"] == wording.TAB_SETUP
-    grid = _grid_frame(at, 1)
+    grid = next(d.value for d in at.dataframe if "Measurement" in d.value.columns)
     # A panel rating's "/10" is a column of its own on the grid: the name
     # cell is the name, because it is the cell a rename would be typed in.
     assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
@@ -9707,7 +9707,8 @@ def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
     assert [o["name"] for o in rebuilt.objectives] == ["Juiciness", "Firmness"]
     # The old project's own set-up is gone, not added to.
     assert "Oat flour" not in [v["name"] for v in rebuilt.variables]
-    assert len(rebuilt.variables) == 8
+    assert len(rebuilt.variables) == 5
+    assert len(rebuilt.premixes) == 3
     # It opens as the sample it now is, welcome line and all, and it is an
     # opening: the project was already there.
     assert any(s.value == wording.sample_project_rebuilt(
@@ -10242,3 +10243,45 @@ def test_clearing_made_as_asks_before_deleting_the_parts(burger):
     assert not at.exception
     assert "Dry blend" not in at.session_state["optimizer"].premixes
     assert "Dry blend" in at.session_state["optimizer"]._by_name()
+
+
+def test_a_weighed_group_can_be_limited_from_the_screen(burger):
+    burger.add_premix("Fat phase", "weighed")
+    burger.set_premix_parts("Fat phase", [
+        {'name': "Coconut oil", 'share': 50, 'unit': "g"},
+        {'name': "Sunflower oil", 'share': 50, 'unit': "g"}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    picker = next(w for w in at.multiselect if w.key == "qty_pick")
+    assert "Fat phase" in picker.options
+    picker.set_value(["Fat phase"])
+    at.run()
+    next(w for w in at.number_input if w.key == "qc_one").set_value(20.0)
+    next(b for b in at.button if b.key == "add_amount_limit").click()
+    at.run()
+    assert not at.exception
+    opt = at.session_state['optimizer']
+    qc = next(q for q in opt.quantity_constraints if q.get('source') == 'premix:Fat phase')
+    assert qc['ingredients'] == ["Coconut oil", "Sunflower oil"]
+    assert opt.limit_label(qc) == "Fat phase"
+
+
+def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    _submit_button(at.main, wording.TRY_SAMPLE_LABEL).click()
+    at.run()
+    assert not at.exception
+    opt = at.session_state['optimizer']
+    assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
+        'Dry blend', 'Fat phase', 'Seasoning blend', 'Water']
+    assert {name: p['mode'] for name, p in opt.premixes.items()} == {
+        'Dry blend': 'portioned', 'Fat phase': 'weighed', 'Seasoning blend': 'portioned'}
+    assert sum(len(p['parts']) for p in opt.premixes.values()) == 9
+    for name in ('Dry blend', 'Seasoning blend'):
+        assert sum(p['share'] for p in opt.premix_parts(name)) == 100
+    assert opt._by_name()['Seasoning blend']['bounds'] == (2.5, 2.5)
+    assert opt.formulation_total == 100
+    for recipe in opt.ask(3):
+        assert sum(recipe.values()) == pytest.approx(100)
+        assert recipe['Seasoning blend'] == 2.5
+        assert 32.5 <= recipe['Water'] <= 77.5

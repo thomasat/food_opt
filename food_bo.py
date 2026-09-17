@@ -1344,8 +1344,19 @@ def ingredients_template_workbook(path):
     One row, not eight. A file arriving with a full ingredient list already
     in it is an export, and the reader who downloaded a "template" then has
     to work out which lines are theirs and which the app's."""
-    return frame_workbook(
-        {wording.INGREDIENTS_SHEET: pd.read_csv(path).head(1)})
+    frame = pd.read_csv(path)
+    if wording.MADE_AS_LABEL in frame:
+        ordinary = frame[wording.MADE_AS_LABEL].fillna("").eq("")
+        ordinary &= frame[wording.LOWEST_LABEL].notna()
+        if wording.FORMULA_LABEL in frame:
+            ordinary &= frame[wording.FORMULA_LABEL].fillna("").eq("")
+        frame = frame[ordinary].drop(columns=[wording.PREMIX_LABEL,
+                                             wording.MADE_AS_LABEL,
+                                             wording.PREMIX_SHARE_LABEL], errors='ignore')
+    first = [wording.NAME_LABEL, wording.LOWEST_LABEL,
+             wording.HIGHEST_LABEL, wording.UNIT_LABEL]
+    frame = frame[first + [c for c in frame.columns if c not in first]]
+    return frame_workbook({wording.INGREDIENTS_SHEET: frame.head(1)})
 
 
 # --------------------------------------------------------------------------- #
@@ -2461,7 +2472,7 @@ class FoodOptimizer:
             name = v['name']
             premix = self.premixes.get(name)
             if premix and premix.get('mode') == PREMIX_PORTIONED:
-                for part in self.premix_parts(name, self.pending_batch_no):
+                for part in self._property_parts(name):
                     part_name = part['name']
                     if (part_name not in seen
                             and not self.has_property_value(part_name, metric)):
@@ -2498,6 +2509,32 @@ class FoodOptimizer:
                 return float(value)
         return 0.0
 
+    def _property_parts(self, name):
+        generating = getattr(self, '_generation_premixes', None)
+        if generating is not None:
+            return generating.get(name, [])
+        return self.premix_parts(name, self.pending_batch_no)
+
+    @contextlib.contextmanager
+    def _premixes_for_generation(self, round_no=None):
+        """Calculate and stamp one make-up without changing an open round."""
+        # A partially recorded round already owns its make-up. Replacing
+        # its remaining suggestions must not rewrite the recorded rows.
+        if round_no is None:
+            round_no = self.pending_batch_no
+        recorded = round_no is not None and (
+            round_no in self.batch_history
+            or any(row.get(ROUND_FIELD) == round_no for row in self.skipped))
+        parts = {name: [dict(p) for p in (
+                     self.premix_parts(name, round_no) if recorded
+                     else group['parts'])]
+                 for name, group in self.premixes.items()}
+        self._generation_premixes = parts
+        try:
+            yield parts
+        finally:
+            del self._generation_premixes
+
     def _premix_property_average(self, name, metric):
         """A portioned pre-mix's per-100 g figure: the share-weighted
         average of its parts' own values, through the round's make-up when
@@ -2506,7 +2543,7 @@ class FoodOptimizer:
         A part with no figure counts as 0 in the average, exactly as an
         ordinary ingredient with none does — limit_gap_tail says so by
         naming the part, not the pre-mix row that has no figure to give."""
-        parts = self.premix_parts(name, self.pending_batch_no)
+        parts = self._property_parts(name)
         total_share = sum(p['share'] for p in parts)
         if total_share <= 0:
             return 0.0
@@ -3650,9 +3687,68 @@ class FoodOptimizer:
                 book.create_sheet(
                     wording.formulation_sheet_name(row['formulation'])),
                 row, total, sized)
+        for index, (name, title) in enumerate(self._premix_sheet_names(
+                [row['formulation'] for row in rows]).items()):
+            self._write_premix_sheet(book.create_sheet(title, index), name, rows, total)
+        book.active = 0
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()
+
+    def _premix_sheet_names(self, numbers, summary_name=None):
+        reserved = {str(summary_name or wording.batch_sheet_name(
+            self.pending_batch_no)).lower()}
+        reserved.update(wording.formulation_sheet_name(n).lower() for n in numbers)
+        names = {}
+        for name in self.premix_grid_order():
+            if self.premixes[name]['mode'] != PREMIX_PORTIONED:
+                continue
+            base = re.sub(r'[\\/*?:\[\]]', '-', wording.premix_sheet_name(name))
+            base = base.strip("'")[:31].rstrip("'")
+            title, suffix = base, 1
+            while title.lower() in reserved:
+                suffix += 1
+                tail = f" ({suffix})"
+                title = base[:31 - len(tail)] + tail
+            reserved.add(title.lower())
+            names[name] = title
+        return names
+
+    def _write_premix_sheet(self, sheet, name, rows, total):
+        amount = sum(float(self.shown_recipe(row, total)[0].get(name, 0))
+                     for row in rows)
+        unit = self.unit_of(name) or self.amount_unit
+        title = _write_cell(sheet, 1, 1, wording.premix_sheet_title(
+            name, join_unit(f"{amount:.2f}", unit)))
+        title.font = _TITLE_FONT
+        _write_banner(sheet, 2, 1, wording.PREMIX_SHADED_NOTE, 6)
+        headers = [wording.PART_LABEL, f"{wording.AMOUNT_COLUMN} ({unit})",
+                   wording.PREMIX_SHARE_LABEL, wording.LOT_COLUMN,
+                   wording.VENDOR_LABEL, wording.SKU_LABEL]
+        for c, header in enumerate(headers, 1):
+            _write_cell(sheet, 3, c, header, bold=True)
+        parts = self.premix_parts(name, self.pending_batch_no)
+        shares = sum(p['share'] for p in parts) or 100.0
+        lots = self.lots.get(self.pending_batch_no, {})
+        r = 4
+        for part in parts:
+            _write_cell(sheet, r, 1, part['name'])
+            _write_cell(sheet, r, 2, round(amount * part['share'] / shares, 2),
+                        number_format=_TWO_DP)
+            _write_cell(sheet, r, 3, round(part['share'] * 100 / shares, 2),
+                        number_format=_TWO_DP)
+            _write_in_cell(sheet, r, 4, lots.get(part['name']))
+            _write_cell(sheet, r, 5, part.get('vendor') or None)
+            _write_cell(sheet, r, 6, part.get('sku') or None)
+            r += 1
+        _write_cell(sheet, r, 1, wording.TOTAL_LABEL, bold=True)
+        _write_cell(sheet, r, 2, round(amount, 2), bold=True, number_format=_TWO_DP)
+        _write_cell(sheet, r, 3, 100.0, bold=True, number_format=_TWO_DP)
+        _set_widths(sheet, [34, 20, 18, 18, 24, 20])
+        sheet.freeze_panes = "B4"
+        sheet.print_title_rows = "$1:$3"
+        _fit_to_page(sheet, r, 6)
+        _protect(sheet)
 
     def _sheet_date(self):
         """The date the sheets are for: when the batch was generated, when
@@ -3839,7 +3935,18 @@ class FoodOptimizer:
         if self._formula_rows():
             _write_cell(sheet, r, 1, self.worked_out_note())
             r += 1
-        r += 1   # a blank line: what to make above it, what to write below
+        r += 1
+        if self.premixes:
+            _write_cell(sheet, r, 1, wording.SHOPPING_TOTAL_HEADING, bold=True)
+            _write_cell(sheet, r + 1, 1, wording.KIND_INGREDIENT, bold=True)
+            _write_cell(sheet, r + 1, 2, (f"{wording.ROUND_TOTAL_COLUMN} ({self.one_amount_unit()})"
+                if self.one_amount_unit() else wording.ROUND_TOTAL_COLUMN), bold=True)
+            r += 2
+            for name, amount in self.round_shopping_totals(rows, total):
+                _write_cell(sheet, r, 1, name)
+                _write_cell(sheet, r, 2, round(amount, 2), number_format=_TWO_DP)
+                r += 1
+            r += 1
 
         # The block is headed in the word the app uses for it everywhere
         # else — the same heading the formulation pages give it — so
@@ -3913,6 +4020,20 @@ class FoodOptimizer:
         _fit_to_page(sheet, r, last_column, landscape=len(rows) > 2)
         _protect(sheet)
 
+    def _formulation_ingredient_lines(self):
+        """Group weighed parts without ever printing their mass twice."""
+        by_name = self._by_name()
+        for line in self.grid_lines():
+            group = line['premix']
+            if group and self.premixes[group]['mode'] == PREMIX_WEIGHED:
+                yield group, None
+                for part in self.premixes[group]['parts']:
+                    if part['name'] in by_name:
+                        yield group, by_name[part['name']]
+                yield group, 'total'
+            elif line['var'].get('category', 'ingredient') == 'ingredient':
+                yield None, line['var']
+
     def _write_formulation_sheet(self, sheet, row, total, sized=False):
         """One formulation, as the page a technician carries to the bench:
         what it is trying, what to weigh out in the order it is set up, what
@@ -3966,17 +4087,26 @@ class FoodOptimizer:
             for c, name in enumerate(headers, start=1):
                 _write_cell(sheet, r, c, name, bold=True)
             r += 1
-            for var in ingredients:
-                    # The box is drawn, not left as an empty bordered cell: the
-                # column had a header and nothing under it to put a mark in.
-                # It is a write-in cell like any other — a sheet filled in
-                # on a screen has to be tickable there too — so it wears
-                # the write-in shade rather than the ingredient's colour.
+            for group, var in self._formulation_ingredient_lines():
+                if var is None:
+                    _write_cell(sheet, r, 2, wording.premix_group_line(group), bold=True)
+                    r += 1
+                    continue
+                if var == 'total':
+                    amount = sum(float(recipe.get(p['name'], 0))
+                                 for p in self.premixes[group]['parts'])
+                    _write_cell(sheet, r, 2, wording.premix_group_total_line(group), bold=True)
+                    _write_cell(sheet, r, 3, round(amount, 2), bold=True,
+                                number_format=_TWO_DP)
+                    r += 1
+                    continue
                 _write_in_cell(sheet, r, 1, wording.TICK_BOX)
                 label = self._sheet_ingredient_label(var['name'])
                 if self.has_formula(var):
                     label = wording.worked_out_label(label)
-                _write_cell(sheet, r, 2, label, bold=True)
+                cell = _write_cell(sheet, r, 2, label, bold=True)
+                if group:
+                    cell.alignment = Alignment(indent=1)
                 _write_cell(sheet, r, 3,
                             round(float(recipe.get(var['name'], 0.0)), 2),
                             number_format=_TWO_DP)
@@ -4108,6 +4238,27 @@ class FoodOptimizer:
             if not rows:
                 rows = self._read_formulation_sheets(book, numbers)
             lots = self._lots_from_summary(summary)
+            for group, title in self._premix_sheet_names(numbers, wanted).items():
+                if title not in book.sheet_names:
+                    continue
+                grid = book.parse(title, header=None).values.tolist()
+                header = next((i for i, row in enumerate(grid)
+                               if row and str(row[0]).strip() == wording.PART_LABEL), None)
+                if header is None:
+                    continue
+                column = next((c for c, value in enumerate(grid[header])
+                               if str(value).strip() == wording.LOT_COLUMN), None)
+                if column is None:
+                    continue
+                known = {p['name'] for p in self.premix_parts(group, self.pending_batch_no)}
+                for row in grid[header + 1:]:
+                    name = str(row[0]).strip() if row else ""
+                    lot = self._cell(row, column)
+                    if name in known and lot is not None:
+                        lot = str(lot).strip()
+                        if name in lots and lots[name] != lot:
+                            raise ValueError(wording.workbook_lot_conflict(name))
+                        lots[name] = lot
             actual = self._actual_from_sheets(book, numbers)
         if not rows:
             raise ValueError(wording.workbook_nothing_filled_in(wanted))
@@ -4732,6 +4883,24 @@ class FoodOptimizer:
             r += 1
         r += 1
 
+        if self.premixes:
+            _write_cell(sheet, r, 1, wording.PREMIXES_HEADING, bold=True)
+            r += 1
+            for name in self.premix_grid_order():
+                premix = self.premixes[name]
+                _write_cell(sheet, r, 1, name, bold=True)
+                _write_cell(sheet, r, 2, PREMIX_MADE_AS[premix['mode']])
+                r += 1
+                frame = self.premix_grid_frame(name).drop(columns=[GRID_ID])
+                for c, label in enumerate(frame.columns, 1):
+                    _write_cell(sheet, r, c, label, bold=True)
+                r += 1
+                for _, part in frame.iterrows():
+                    for c, value in enumerate(part, 1):
+                        _write_cell(sheet, r, c, value)
+                    r += 1
+                r += 1
+
         _write_cell(sheet, r, 1, wording.MEASUREMENTS_HEADER, bold=True)
         r += 1
         # No Importance column: 0.5.0 makes Share of score the number the
@@ -5076,6 +5245,26 @@ class FoodOptimizer:
             self.constraints.pop(index)
             self.save()
 
+    def quantity_limit_choices(self):
+        """Ingredients and weighed groups that can own an amount limit."""
+        return self.ingredient_names() + [name for name, group in self.premixes.items()
+                                         if group['mode'] == PREMIX_WEIGHED]
+
+    def add_chosen_quantity_constraint(self, chosen, **bounds):
+        """Keep a selected group's identity as its parts change later."""
+        groups = [n for n in chosen if n in self.premixes
+                  and self.premixes[n]['mode'] == PREMIX_WEIGHED]
+        if groups:
+            if len(chosen) != 1:
+                raise ValueError(wording.PREMIX_LIMIT_ON_ITS_OWN)
+            group = groups[0]
+            parts = [p['name'] for p in self.premixes[group]['parts']]
+            if not parts:
+                raise ValueError(wording.PREMIX_NEEDS_A_PART)
+            return self.add_quantity_constraint(
+                parts, source=premix_limit_source(group), **bounds)
+        return self.add_quantity_constraint(chosen, **bounds)
+
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None,
                                 source=None, exactly=None, percent=None):
         """Add a constraint on the sum of selected ingredient quantities.
@@ -5111,7 +5300,8 @@ class FoodOptimizer:
         # one control for one idea and cannot produce the combination, and
         # a caller that sends both gets the well-defined answer below —
         # Exactly wins and writes its own band.
-        if exactly is not None and len(ingredients) == 1:
+        if (exactly is not None and len(ingredients) == 1
+                and premix_named_by(source) is None):
             raise ValueError(wording.EXACTLY_ONE_INGREDIENT)
         # A limit can only change what the search moves. Every row of this
         # one worked out from a rule means the limit has nothing to act on:
@@ -5773,7 +5963,7 @@ class FoodOptimizer:
         project_total = getattr(self, 'formulation_total', None)
         return None if project_total is None else float(project_total)
 
-    def round_shopping_totals(self):
+    def round_shopping_totals(self, batch=None, total=None):
         """[(name, grams)] — everything the open round needs, added across
         every one of its formulations at the round's own batch size
         (open_round_size): what the summary sheet's shopping-total block
@@ -5791,7 +5981,9 @@ class FoodOptimizer:
         once, and each portioned pre-mix's share of it once each — never
         twice for the same row, because a portioned pre-mix's row is never
         also counted under its own name."""
-        total = self.open_round_size()
+        if batch is None:
+            batch = self.pending_batch or []
+            total = self.open_round_size() if total is None else total
         totals, order = {}, []
 
         def add(name, grams):
@@ -5800,7 +5992,7 @@ class FoodOptimizer:
                 order.append(name)
             totals[name] += grams
 
-        for row in self._batch_rows(self.pending_batch or []):
+        for row in self._batch_rows(batch):
             recipe, _ = self.shown_recipe(row, total)
             for var in self._ingredients():
                 name = var['name']
@@ -6234,6 +6426,12 @@ class FoodOptimizer:
     #  Core Loop: Ask / Tell
     # ------------------------------------------------------------------ #
 
+    def premix_readiness_error(self):
+        for name, premix in self.premixes.items():
+            if not premix['parts']:
+                return wording.premix_needs_parts(name)
+        return ""
+
     def ask(self, n_suggestions=1, n_init_random=COLD_START_RUNS, batch_no=None,
             discarded=None):
         """Suggest the next batch of recipes to try.
@@ -6248,27 +6446,31 @@ class FoodOptimizer:
         Passing the number HERE rather than re-stamping the batch afterwards
         is what stops a regenerate spending a batch number nobody ever saw.
         """
+        missing = self.premix_readiness_error()
+        if missing:
+            raise ValueError(missing)
         if not self.varying_variables():
             raise ValueError(wording.EVERYTHING_IS_FIXED)
-        bounds_tensor = self._get_bounds()
-        dim = bounds_tensor.shape[1]
+        with self._premixes_for_generation(batch_no) as makeups:
+            bounds_tensor = self._get_bounds()
+            dim = bounds_tensor.shape[1]
 
-        # Cold start: space-filling Sobol sequence
-        if len(self.X_history) < n_init_random:
-            recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
-        else:
-            # Warm: GP-based Bayesian optimization
-            recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
-            if self.has_formulation_total():
-                recipes = [self._snapped_if_it_still_fits(rec)
-                           for rec in recipes]
+            # Cold start: space-filling Sobol sequence
+            if len(self.X_history) < n_init_random:
+                recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
+            else:
+                # Warm: GP-based Bayesian optimization
+                recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
+                if self.has_formulation_total():
+                    recipes = [self._snapped_if_it_still_fits(rec)
+                               for rec in recipes]
 
         # Numbers are issued here, at generation, and never reissued.
         self.set_pending_batch(recipes, batch_no=batch_no, discarded=discarded)
         # And so is the make-up each pre-mix was generated from: the round
         # is made from what the pre-mixes say today, and what they said
         # today is a fact about the round.
-        self._snapshot_premixes(self.pending_batch_no)
+        self._snapshot_premixes(self.pending_batch_no, makeups)
         return recipes
 
     def _snapped_if_it_still_fits(self, recipe):
@@ -8420,7 +8622,7 @@ class FoodOptimizer:
         round_no = history[index] if 0 <= index < len(history) else None
         return self.premix_parts(name, round_no)
 
-    def _snapshot_premixes(self, round_no):
+    def _snapshot_premixes(self, round_no, parts=None):
         """File every pre-mix's make-up under the round just generated.
 
         Written at generation, because a make-up can move the same
@@ -8429,9 +8631,10 @@ class FoodOptimizer:
         a round that is already on the bench."""
         if round_no is None or not self.premixes:
             return
-        for premix in self.premixes.values():
+        for name, premix in self.premixes.items():
+            makeups = premix['parts'] if parts is None else parts[name]
             premix.setdefault('versions', {})[int(round_no)] = [
-                dict(part) for part in premix['parts']]
+                dict(part) for part in makeups]
         self.save()
 
     def set_premix_parts(self, name, parts):
@@ -9378,9 +9581,11 @@ class FoodOptimizer:
             # Without them a limit over a part read as a limit over nothing.
             on_grid = {spec['name'] for _, spec in rows}
             on_grid |= {spec['id'] for _, spec in rows if spec['id']}
+            weighed = {p['name'] for _, spec in rows
+                       if spec['made_as'] == PREMIX_WEIGHED
+                       for p in self.premixes.get(spec['id'], {}).get('parts', [])}
             hidden = [dict(v) for v in variables
-                      if v['name'] not in on_grid
-                      and v['name'] in self._premix_controlled()]
+                      if v['name'] not in on_grid and v['name'] in weighed]
             self.variables = [_proposed_variable(spec)
                               for _, spec in rows if spec['is_row']] + hidden
             self.ingredient_properties = _properties_over(properties, renamed,

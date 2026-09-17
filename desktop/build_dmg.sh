@@ -96,7 +96,11 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
   if [ -n "${NOTARY_PROFILE:-}" ]; then
     echo "submitting for notarization (this can take a few minutes)..."
-    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+    NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+    if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
+      NOTARY_ARGS+=(--keychain "$NOTARY_KEYCHAIN")
+    fi
+    xcrun notarytool submit "$DMG_PATH" "${NOTARY_ARGS[@]}" --wait
     xcrun stapler staple "$DMG_PATH"
   else
     echo "WARNING: signed but NOT notarized (NOTARY_PROFILE unset) - Gatekeeper will warn." >&2

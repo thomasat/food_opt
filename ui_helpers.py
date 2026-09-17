@@ -465,6 +465,9 @@ def readiness(opt):
         return False, wording.NEED_A_VARIABLE
     if not opt.objectives:
         return False, wording.NEED_A_MEASUREMENT
+    missing = opt.premix_readiness_error()
+    if missing:
+        return False, missing
     return True, ""
 
 

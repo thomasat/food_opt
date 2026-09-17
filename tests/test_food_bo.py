@@ -1508,16 +1508,18 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 8
-    assert set(sample_names) <= set(names)
+    assert len(sample_names) == 5
+    assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
+        "Dry blend", "Fat phase", "Seasoning blend", "Water"]
+    assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
     # questions the screen asks. data/ingredients.csv is the experiments'
     # list, not a template, and keeps the lowercase headers those scripts
     # read by name; the columns are the same columns either way.
-    assert list(sample.columns) == ["Name", "Lowest", "Highest", "Unit",
-                                    "Rule", "Fat per 100 g",
-                                    "Sodium per 100 g"]
+    assert list(sample.columns) == ["Name", "Pre-mix", "Made as", "Lowest",
+                                    "Highest", "% of pre-mix", "Rule", "Unit",
+                                    "Fat per 100 g", "Sodium per 100 g"]
     assert [c.lower() for c in df.columns] == [
         "name", "min", "max", "unit", "fat per 100 g", "sodium per 100 g"]
 
@@ -5166,6 +5168,9 @@ _SAMPLE_CSV = pathlib.Path(__file__).resolve().parent.parent / "data" / \
     "sample_ingredients.csv"
 
 
+_FLAT_BURGER_CSV = os.path.join(os.path.dirname(__file__), "fixtures", "flat_burger.csv")
+
+
 class TestFormulationTotal:
     """One number on tab 1 says how big a formulation is, and every
     suggestion adds up to it. It is stored as a number AND written as the
@@ -5185,7 +5190,7 @@ class TestFormulationTotal:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name, robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.clear_formula("Water")
         opt.add_ingredient("Water", 20, 60, unit="g")
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
@@ -5645,7 +5650,7 @@ class TestTheTotalIsAlwaysReachable:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name, robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.clear_formula("Water")
         opt.add_ingredient("Water", 20, 60, unit="g")
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
@@ -6527,8 +6532,8 @@ class TestTheWorkbook:
         opt.set_amount_unit("g")
         opt.load_ingredients_from_csv(frame)
         assert [v['name'] for v in opt.variables] == \
-            list(pd.read_csv(template)["Name"])[:1]
-        assert opt.unit_of("Pea protein isolate") == "g"
+            ["Coconut oil"]
+        assert opt.unit_of("Coconut oil") == "g"
 
 
 # ------------------------------------------------------------------ #
@@ -8951,7 +8956,7 @@ class TestFormulaRows:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("rest_reach", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
@@ -9594,7 +9599,7 @@ class TestTheFormulaColumn:
         opt.set_formulation_total(100.0)
         assert opt._var_by_name("Water")['balance'] is True
         assert opt._formula_text(opt._var_by_name("Water")) == "= rest"
-        assert len(opt.varying_variables()) == 7
+        assert len(opt.varying_variables()) == 3
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
             assert row["Water"] >= -1e-9
@@ -10149,7 +10154,7 @@ class TestTheFormulaColumnFixes:
         assert row[wording.LOWEST_LABEL] == ""
         assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
         errors, _ = opt.apply_ingredient_grid(_edit(
-            frame, 8, **{wording.FORMULA_LABEL: ""}))
+            frame, 4, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
         back = opt.ingredient_grid_frame()
         row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
@@ -10708,7 +10713,9 @@ class TestPreMixes:
                                                           monkeypatch):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("plain_file", robust=False)
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Water", "Flour"], "Lowest": [10, 20],
+            "Highest": [60, 40], "Unit": ["g", "g"]}))
         assert opt.premixes == {}
         assert opt.variables
         assert all(opt.premix_of(v['name']) == [] for v in opt.variables)
@@ -11742,3 +11749,43 @@ class TestPreMixRollUpsAndLimits:
         opt.set_property_value("Flour", "Fat per 100 g", 10.0)
         with pytest.raises(ValueError, match="No ingredient named Dry blend"):
             opt.set_property_value("Dry blend", "Fat per 100 g", 1.0)
+
+
+class TestPreMixReviewFixes:
+    _opt = TestPreMixRollUpsAndLimits._opt
+    _dry_blend = TestPreMixRollUpsAndLimits._dry_blend
+    _parts = staticmethod(TestPreMixRollUpsAndLimits._parts)
+
+    def test_regeneration_calculates_and_snapshots_the_same_makeup(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_property("Fat")
+        opt.set_property_value("Flour", "Fat", 10)
+        opt.ask(1)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 50)))
+        during = []
+        def generate(*args):
+            during.append(opt.property_value("Dry blend", "Fat"))
+            return [{"Sugar": 2, "Dry blend": 10}]
+        monkeypatch.setattr(opt, '_ask_cold_start', generate)
+        opt.ask(1)
+        assert during == [5.0]
+        assert opt.property_value("Dry blend", "Fat") == 5.0
+        before = opt.export_json()
+        def fail(*args):
+            raise ValueError("generation failed")
+        monkeypatch.setattr(opt, '_ask_cold_start', fail)
+        with pytest.raises(ValueError, match="generation failed"):
+            opt.ask(1)
+        assert opt.export_json() == before
+        assert not hasattr(opt, '_generation_premixes')
+
+    def test_a_chosen_group_limit_follows_its_new_parts(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch), mode="weighed")
+        assert "Dry blend" in opt.quantity_limit_choices()
+        opt.add_chosen_quantity_constraint(["Dry blend"], max_val=45)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 30), ("Pepper", 20)))
+        assert opt.quantity_constraints[-1]['ingredients'] == ["Flour", "Salt", "Pepper"]
+        assert opt.limit_label(opt.quantity_constraints[-1]) == "Dry blend"
+        with pytest.raises(ValueError, match="Choose a pre-mix on its own"):
+            opt.add_chosen_quantity_constraint(["Dry blend", "Flour"], max_val=45)

@@ -170,7 +170,7 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "A ready-made plant-based burger: eight ingredients, and panel ratings "
+    "A ready-made plant-based burger: three pre-mixes, water, and panel ratings "
     "for juiciness and firmness. Try it before setting up your own."
 )
 
@@ -189,7 +189,7 @@ SAMPLE_TARGETS_SOURCE = (
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "A plant-based burger with eight ingredients and two panel ratings. "
+    "A plant-based burger with three pre-mixes and water: four rows, with nine parts inside the pre-mixes. "
     "Next: make a round."
 )
 
@@ -3052,3 +3052,36 @@ def premix_no_longer_a_premix(name, parts_text="", many=False):
     if parts_text:
         line += f" {parts_text} {'go' if many else 'goes'} with it."
     return f"{line} {COPY_KEPT}"
+
+
+PREMIX_LIMIT_ON_ITS_OWN = "Choose a pre-mix on its own to limit its total. To limit particular ingredients together, choose their names instead."
+
+
+PREMIXES_HEADING = "Pre-mixes"
+SHOPPING_TOTAL_HEADING = "To weigh for this round"
+ROUND_TOTAL_COLUMN = "Total for this round"
+PREMIX_SHADED_NOTE = "Write lot numbers in the shaded cells."
+
+
+def premix_sheet_title(name, total_text):
+    return f"{name} · make {total_text} for this round"
+
+
+def premix_sheet_name(name):
+    return f"Pre-mix · {name}"
+
+
+def premix_group_line(name):
+    return name
+
+
+def premix_group_total_line(name):
+    return f"{name} · total"
+
+
+def workbook_lot_conflict(name):
+    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this round."
+
+
+def premix_needs_parts(name):
+    return f"Add at least one part to {name} in Set up before making a round."

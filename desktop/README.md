@@ -148,9 +148,10 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload an ingredients file (file picker opens), save a
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. UI walkthrough: click "Try the sample project" (eight ingredients,
-   Juiciness and Firmness, formulations of 100 g). Seven ingredients get
-   an amount chosen for them; Water's Rule cell says "= rest", so its
+6. UI walkthrough: click "Try the sample project" (four rows and nine
+   parts, Juiciness and Firmness, formulations of 100 g). Dry blend is
+   portioned; Fat phase holds two oils weighed into each formulation;
+   Seasoning blend stays at 2.5 g. Water's Rule cell says "= rest", so its
    Highest reads "worked out" and one line under the grid gives
    what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
@@ -191,3 +192,12 @@ warnings entirely, and the checklist below gates distribution on that.
 11. Upgrade path: with an older version already in /Applications,
     install the new dmg over it and open - no "damaged app" warning,
     and the new version runs.
+
+Pre-mix workbook check: preparation pages for Dry blend and Seasoning blend
+come before the round summary; each formulation has an indented Fat phase
+block. Enter a part lot number on a preparation page and an actual oil
+amount on a formulation page, then upload the completed workbook and verify
+both are retained. The summary carries “To weigh for this round”.
+
+For notarization credentials stored outside the login keychain, set
+`NOTARY_KEYCHAIN` to that keychain's path alongside `NOTARY_PROFILE`.

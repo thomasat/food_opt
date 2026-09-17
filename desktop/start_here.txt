@@ -24,11 +24,13 @@ HOW TO INSTALL
    If your Mac asks whether you are sure you want to open it, click Open.
 
 TRYING IT OUT
-- The app comes with a sample project: a plant-based burger with eight
-  ingredients and two panel ratings. The app picks amounts for seven of
-  them; Water is worked out from its formula, so every formulation adds
-  up to 100 g. On the first screen, click "Try the sample project" to
-  explore before setting up your own.
+- On the first screen, click "Try the sample project" to explore a
+  plant-based burger before setting up your own. Its four rows are Dry
+  blend, Fat phase, Seasoning blend and Water. Open the parts underneath
+  the grid to see the nine ingredients inside the three pre-mixes.
+  Dry blend is made once for the round; the two oils in Fat phase are
+  weighed into each formulation; Seasoning blend stays at 2.5 g.
+  Water takes the rest, so every formulation adds up to 100 g.
 - Your ingredients and your measurements are two tables on the Set up
   tab, and you type straight into them: change a cell, type a new row
   on the empty line at the bottom, or take a row out. Nothing reaches
@@ -98,3 +100,11 @@ for you. If the app will not open, find it in Finder instead: click the
 Go menu, choose "Go to Folder...", paste the line below, press Return,
 and attach the file that opens:
   ~/Library/Application Support/FoodOptimizer/launcher.log
+
+PRE-MIXES ON THE BENCH
+- The Excel workbook starts with a preparation page for each pre-mix
+  made once for the round. Weigh its parts, write their lot numbers in
+  the shaded cells, and portion it as one line on each formulation page.
+- Parts weighed separately sit under their group on each formulation
+  page. "To weigh for this round" on the summary totals every ingredient
+  once. Write any different amounts in the shaded "Actual" cells.

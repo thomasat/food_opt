@@ -1,9 +1,14 @@
-Name,Lowest,Highest,Unit,Rule,Fat per 100 g,Sodium per 100 g
-Pea protein isolate,0,25,g,,2.0,800
-Wheat gluten,0,15,g,,1.8,30
-Coconut oil,0,15,g,,99.0,0
-Potato starch,0,8,g,,0.1,10
-Methylcellulose,0,3,g,,0.0,50
-Beet juice powder,0,2,g,,0.0,150
-Salt,0,3,g,,0.0,39000
-Water,30,70,g,= rest,0.0,0
+Name,Pre-mix,Made as,Lowest,Highest,% of pre-mix,Rule,Unit,Fat per 100 g,Sodium per 100 g
+Dry blend,,"one pre-mix, portioned",20,40,,,g,,
+Pea protein isolate,Dry blend,,,,55,,g,2.0,800
+Wheat gluten,Dry blend,,,,25,,g,1.8,30
+Potato starch,Dry blend,,,,12,,g,0.1,10
+Methylcellulose,Dry blend,,,,8,,g,0.0,50
+Fat phase,,weighed into each formulation,,,,,g,,
+Coconut oil,Fat phase,,0,15,,,g,99.0,0
+Sunflower oil,Fat phase,,0,10,,,g,100.0,0
+Seasoning blend,,"one pre-mix, portioned",2.5,2.5,,,g,,
+Salt,Seasoning blend,,,,60,,g,0.0,39000
+Onion powder,Seasoning blend,,,,24,,g,1.0,70
+Beet juice powder,Seasoning blend,,,,16,,g,0.0,150
+Water,,,30,70,,= rest,g,0.0,0
