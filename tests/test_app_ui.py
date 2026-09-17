@@ -1584,8 +1584,8 @@ def test_the_ingredient_grid_has_no_status_column_at_all(burger):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Rule"], \
+        "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
+        "Vendor", "SKU", "Rule"], \
         list(grid.columns)
     row = grid[grid["Name"] == "Methylcellulose"].iloc[0]
     assert (row["Lowest"], row["Highest"]) == ("1.00", "1.00")
@@ -4368,8 +4368,8 @@ def test_the_ingredient_grid_has_plain_headers_and_a_unit_column(mixed_units):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Rule"]
+        "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
+        "Vendor", "SKU", "Rule"]
     assert dict(zip(grid["Name"], grid["Unit"])) == {"Pea protein": "g",
                                                       "Water": "ml"}
 
@@ -5387,8 +5387,8 @@ def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
     at.run()
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
-        "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Rule"]
+        "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
+        "Vendor", "SKU", "Rule"]
     assert list(grid["Name"]) == ["Pea protein", "Methylcellulose"]
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
     folded = {id(d) for e in _tab1(at).expander for d in e.dataframe}
@@ -10151,3 +10151,48 @@ def test_the_round_table_is_not_an_editor(worked_out):
     assert list(tab.get("data_editor")) == []
     assert any(c.value == wording.CORRECTIONS_ON_RESULTS_CAPTION
               for c in tab.caption), [c.value for c in tab.caption]
+
+
+# ------------------------------------------------------------------ #
+#  0.7.0 wave 3, task 3 — the pre-mix folds under the ingredients grid
+# ------------------------------------------------------------------ #
+
+def _premix_grid_base(name):
+    return f"premix_grid__{name}"
+
+
+def test_one_lit_button_with_two_premix_grids_open(burger):
+    """Two pre-mixes, each with its own fold, its own parts grid and its own
+    Save/Discard — and the tab still shows exactly one coloured button. A
+    pre-mix's Save is never the lit one: the grid above it is where the
+    reader is, and its Save is the tab's one action."""
+    burger.add_premix("Dry blend", wording.PREMIX_MADE_AS_PORTIONED)
+    burger.set_premix_parts("Dry blend", [
+        {'name': "Pea flour", 'share': 60, 'unit': "g"},
+        {'name': "Starch", 'share': 40, 'unit': "g"}])
+    burger.add_ingredient("Dry blend", 5, 20)
+    burger.add_premix("Fat phase", wording.PREMIX_MADE_AS_WEIGHED)
+    burger.set_premix_parts("Fat phase", [
+        {'name': "Coconut oil", 'share': 50, 'unit': "g"},
+        {'name': "Sunflower oil", 'share': 50, 'unit': "g"}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    titles = [e.label for e in at.expander]
+    assert wording.premix_grid_title("Dry blend") in titles, titles
+    assert wording.premix_grid_title("Fat phase") in titles, titles
+    # Both folds mid-edit at once, with the ingredients grid mid-edit too.
+    _grid_edits(at, ING_GRID, edited={0: {wording.HIGHEST_LABEL: "40"}})
+    _grid_edits(at, _premix_grid_base("Dry blend"),
+                edited={0: {wording.PREMIX_SHARE_LABEL: 70.0}})
+    _grid_edits(at, _premix_grid_base("Fat phase"),
+                edited={0: {wording.HIGHEST_LABEL: "9"}})
+    at.run()
+    assert not at.exception
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON], \
+        _tab_primaries(at, 0)
+    greys = [b for b in at.button
+             if b.key in ("save_premix_grid__Dry blend__save",
+                          "save_premix_grid__Fat phase__save")]
+    assert len(greys) == 2, [b.key for b in at.button]
+    assert all(b.proto.type == "secondary" for b in greys)

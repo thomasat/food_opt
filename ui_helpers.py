@@ -558,6 +558,45 @@ GRID_ERROR_KEYS = (ING_ERRORS_KEY, MEAS_ERRORS_KEY, PROP_ERRORS_KEY)
 # only one Save is coloured.
 ING_PENDING_KEY = "_ingredient_grid_pending"
 
+# 0.7.0 · a pre-mix's own parts grid. There is one per pre-mix and the set
+# moves as the reader works, so the keys are made from the name rather than
+# written down — and the names drawn on the last run are remembered, because
+# reset_grids() has to reach every one of them and a project switch happens
+# before the new project's folds are drawn.
+PREMIX_GRID_PREFIX = "premix_grid__"
+PREMIX_SAVE_PREFIX = "save_premix_grid__"
+PREMIX_ERRORS_PREFIX = "_premix_grid_errors__"
+_PREMIX_GRIDS = "_premix_grid_names"
+
+
+def premix_grid_key(name):
+    return f"{PREMIX_GRID_PREFIX}{name}"
+
+
+def premix_save_key(name):
+    return f"{PREMIX_SAVE_PREFIX}{name}"
+
+
+def premix_errors_key(name):
+    return f"{PREMIX_ERRORS_PREFIX}{name}"
+
+
+def note_premix_grids(names):
+    """Remember which pre-mixes have a fold on screen. Called on every run
+    that draws them, so the record is never of a project that has gone."""
+    st.session_state[_PREMIX_GRIDS] = list(names)
+
+
+def premix_grid_names():
+    return list(st.session_state.get(_PREMIX_GRIDS, []))
+
+
+def all_grid_keys():
+    """Every editable grid on tab 1, the pre-mix folds included. What a
+    Discard on one of them has to turn over, so the others keep theirs."""
+    return list(GRID_KEYS) + [premix_grid_key(n) for n in premix_grid_names()]
+
+
 # What set of rows one grid's deletion question was armed over. ONE KEY PER
 # GRID: shared, the second grid's bookkeeping ran after the first's on every
 # run and popped the record out from under it.
@@ -640,11 +679,15 @@ def reset_grids():
     standing writes one project's number onto whatever now sits in that
     row. Turning every key over is the only way to drop it.
     """
-    for name in GRID_KEYS:
+    for name in all_grid_keys():
         clear_grid(name)
         unpark_grid(name)
     for key in SAVE_KEYS:
         st.session_state.pop(armed_deletions_key(key), None)
     for key in GRID_ERROR_KEYS:
         st.session_state.pop(key, None)
+    for name in premix_grid_names():
+        st.session_state.pop(armed_deletions_key(premix_save_key(name)), None)
+        st.session_state.pop(premix_errors_key(name), None)
+    st.session_state.pop(_PREMIX_GRIDS, None)
     st.session_state.pop(ING_PENDING_KEY, None)

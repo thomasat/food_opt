@@ -29,15 +29,17 @@ from food_bo import (
     GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
 )
 from ui_helpers import (
-    COPY_KEPT, GRID_KEYS, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
+    COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
     PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
-    armed_confirmation, armed_deletions_key, best_formulation_no,
+    all_grid_keys, armed_confirmation, armed_deletions_key,
+    best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,
     clear_scale_total, confirm_action, confirmation_open,
     disarm, flash,
-    go_to_tab, number_list, other_confirmation, park_clear, park_grid,
-    parked_grid, plural,
+    go_to_tab, note_premix_grids, number_list, other_confirmation, park_clear,
+    park_grid, parked_grid, plural, premix_errors_key, premix_grid_key,
+    premix_save_key,
     parked_grid_key, preserve_tab_forms, readiness, rekey_grid, reset_grids,
     saved_ok, table_height, typed_batch_size, unpark_grid,
 )
@@ -364,6 +366,16 @@ def _ingredient_columns(opt, frame):
             wording.TYPE_LABEL, options=[KIND_INGREDIENT, KIND_SETTING],
             default=KIND_INGREDIENT, required=True,
             help=wording.VARIABLE_TYPE_HELP),
+        # Right after Type, because it is the other half of what the row IS.
+        # Blank is an ordinary ingredient; the two ways a pre-mix is made
+        # are the bench's own words for them, and the first is the default
+        # because that is how a pilot line works — blend once, scoop into
+        # every mix.
+        wording.MADE_AS_LABEL: st.column_config.SelectboxColumn(
+            wording.MADE_AS_LABEL,
+            options=[wording.PREMIX_MADE_AS_PORTIONED,
+                     wording.PREMIX_MADE_AS_WEIGHED],
+            help=wording.MADE_AS_HELP),
         # Text, not numbers, and only on this grid. A row with a formula
         # has no Lowest and no Highest of its own: both cells read the
         # app's own word for it, and a number column cannot hold a word.
@@ -506,7 +518,7 @@ def _discard_grid(grid):
     its key turns over so that the frame it parked is what it opens at,
     because this rerun may never reach it to read its record."""
     clear_grid(grid)
-    for other in GRID_KEYS:
+    for other in all_grid_keys():
         if other != grid:
             rekey_grid(other)
     st.rerun()
@@ -572,6 +584,9 @@ def _variables(opt, storage):
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
         st.caption(wording.made_before_units_caption(opt.amount_unit))
+    # Directly beneath the grid, in the grid's own order: a pre-mix's parts
+    # open under the row that says how it is made.
+    pending = _premixes(opt, storage) or pending
     with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
         _upload_ingredients(opt)
     return pending, captions
@@ -729,6 +744,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     # A deletion, a rename or a reorder moves who sits in a row it may be
     # holding a pending edit for; a changed Highest does not.
     rows_before = opt.ingredient_names()
+    premixes_before = list(opt.premixes)
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
         # st.rerun() does not return: the errors are drawn into the slot
@@ -764,7 +780,183 @@ def _apply_ingredient_grid(opt, edited, force=()):
         if _grid_is_pending(PROP_GRID_KEY):
             flash("info", wording.PROPERTY_FIGURES_SET_ASIDE)
         clear_grid(PROP_GRID_KEY)
+    for name in premixes_before:
+        # A fold whose pre-mix is made another way now is a different grid
+        # — different columns, different rules — so what was typed into the
+        # old one is not an edit this one can still draw. One that is only
+        # further down the page keeps its edit, exactly as the grids below
+        # it do.
+        grid = premix_grid_key(name)
+        if name in opt.premixes:
+            rekey_grid(grid)
+        else:
+            clear_grid(grid)
+            st.session_state.pop(premix_errors_key(name), None)
+            st.session_state.pop(
+                _armed_deletions_key(premix_save_key(name)), None)
     st.session_state.pop(_armed_deletions_key(ING_SAVE_KEY), None)
+    st.rerun()
+
+
+# ------------------------------------------------------------------ #
+#  A pre-mix's parts, in a fold of its own
+#
+#  Directly under the ingredients grid, in the grid's own order, one
+#  `st.expander` per pre-mix. Collapsed is the sparse view: the grid above
+#  shows one line per pre-mix and never a line per part, and the parts are
+#  one click away for the reader who wants them.
+#
+#  Named deviation (spec 3.1 asks for indented parts): st.data_editor has
+#  no tree, so the parts cannot literally be indented inside the one grid.
+#  The alternative considered — one flat grid with a read-only `Part of`
+#  column — was refused because a part and an ingredient would then share a
+#  row shape while obeying different rules, which is the confusion the fold
+#  exists to remove.
+#
+#  Each fold keeps its own Save/Discard, and they are grey: the grid above
+#  is where the reader is, and a tab shows one coloured button.
+# ------------------------------------------------------------------ #
+
+def _premix_columns(opt, name):
+    """Only the columns the way this pre-mix is made actually needs. A cell
+    that is there but means nothing is the thing the fold takes away."""
+    weighed = opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED
+    columns = {
+        GRID_ID: None,
+        wording.PART_LABEL: st.column_config.TextColumn(
+            wording.PART_LABEL, required=True),
+    }
+    if weighed:
+        # Weighed, a part IS a row of the list and carries its own allowed
+        # amounts. Text for the same reason the grid above uses text.
+        columns[wording.LOWEST_LABEL] = st.column_config.TextColumn(
+            wording.LOWEST_LABEL)
+        columns[wording.HIGHEST_LABEL] = st.column_config.TextColumn(
+            wording.HIGHEST_LABEL)
+    else:
+        columns[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
+            wording.PREMIX_SHARE_LABEL, min_value=0.0, format="%.2f")
+    columns[wording.UNIT_LABEL] = st.column_config.TextColumn(
+        wording.UNIT_LABEL, default=opt.amount_unit or "g")
+    columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
+        wording.VENDOR_LABEL, help=wording.VENDOR_HELP)
+    columns[wording.SKU_LABEL] = st.column_config.TextColumn(
+        wording.SKU_LABEL, help=wording.SKU_HELP)
+    return columns
+
+
+def _premixes(opt, storage):
+    """One fold per pre-mix. True while any of them has an edit in hand."""
+    names = opt.premix_grid_order()
+    note_premix_grids(names)
+    pending = False
+    for name in names:
+        pending = _premix_grid(opt, storage, name) or pending
+    return pending
+
+
+def _premix_grid(opt, storage, name):
+    grid = premix_grid_key(name)
+    saved = opt.premix_grid_frame(name)
+    with st.expander(wording.premix_grid_title(name)):
+        opening, from_park = _opening_frame(grid, saved)
+        edited = st.data_editor(
+            opening, key=grid_key(grid), num_rows="dynamic",
+            column_config=_premix_columns(opt, name),
+            use_container_width=True,
+            height=table_height(max(len(saved) + 1, 2), max_rows=20))
+        slot = st.empty()
+        _grid_errors(slot, premix_errors_key(name), names={
+            int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
+            for no in edited.index
+            if wording.PART_LABEL in edited.columns})
+        if wording.PREMIX_SHARE_LABEL in edited.columns:
+            # The column the reader is typing in, with its own sum under it:
+            # the shares are scaled to 100 at the Save, and this is what
+            # they add up to now.
+            st.caption(wording.premix_parts_total(
+                _share_text(opt.premix_parts_total(edited))))
+        pending = _pending(saved, edited)
+        _keep_pending(grid, pending, edited, from_park)
+        if pending:
+            st.caption(wording.unsaved_grid_caption(
+                wording.premix_grid_title(name)))
+            _save_premix(opt, storage, name, edited)
+        else:
+            _disarm_grid_deletion(premix_save_key(name))
+    return pending
+
+
+def _share_text(total):
+    """A share as the app writes one: two decimals, and no trailing pair of
+    zeros on a number that has none to write."""
+    text = f"{float(total):.2f}".rstrip("0").rstrip(".")
+    return f"{text or '0'} %"
+
+
+def _save_premix(opt, storage, name, edited):
+    """The one write a pre-mix's parts grid makes. Its Save is grey: the
+    grid above is the tab's one coloured action."""
+    deletions = opt.premix_grid_deletions(name, edited)
+    key = premix_save_key(name)
+    grid = premix_grid_key(name)
+    _disarm_stale_deletion(key, deletions)
+    force_key = f"delete_part_force__{name}"
+    if not deletions:
+        st.session_state.pop(force_key, None)
+        _remember_armed_deletions(key, deletions)
+        if _save_and_discard(key, grid, False):
+            _apply_premix_grid(opt, storage, name, edited)
+        return
+    confirmed = confirm_action(
+        key, wording.SAVE_CHANGES_BUTTON,
+        wording.delete_rows_warning(number_list(deletions)),
+        confirm_label=wording.YES_DELETE, primary=False,
+        disabled=other_confirmation(key))
+    _remember_armed_deletions(key, deletions)
+    force = bool(st.session_state.get(force_key, False))
+    armed = (armed_confirmation() == key
+             and st.session_state.get(f"{key}__pending"))
+    if armed:
+        st.caption(wording.DELETE_VS_FIXING_CAPTION)
+        st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX, key=force_key)
+    else:
+        st.session_state.pop(force_key, None)
+    if not confirmed:
+        _discard_beside(key, grid)
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    _apply_premix_grid(opt, storage, name, edited,
+                       force=set(deletions) if force else ())
+
+
+def _apply_premix_grid(opt, storage, name, edited, force=()):
+    """Hand one pre-mix's finished parts grid to the model, and say what it
+    did. Every consequence arrives as one message from there, exactly as the
+    ingredients grid's do."""
+    round_before = opt.pending_batch_no
+    errors, messages = opt.apply_premix_grid(name, edited, force=force)
+    if errors:
+        st.session_state[premix_errors_key(name)] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    _remember_discarded_round(opt, round_before)
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(premix_grid_key(name))
+    # This rerun happens above every grid further down the page, and
+    # Streamlit throws away the record of a widget the run did not create.
+    # Turning their keys over is what lets the frames they parked be drawn
+    # in their place, so their edits and their banners stay where they were.
+    for other in all_grid_keys():
+        if other != premix_grid_key(name):
+            rekey_grid(other)
+    st.session_state.pop(armed_deletions_key(premix_save_key(name)), None)
     st.rerun()
 
 

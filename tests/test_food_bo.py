@@ -3110,10 +3110,15 @@ class TestTheIngredientsGrid:
                                                              monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         frame = opt.ingredient_grid_frame()
+        # Made as sits right after Type: it says what the row IS, which is
+        # the question Type half answers, and a pre-mix's parts open in a
+        # fold underneath rather than in a column of their own.
         assert list(frame.columns) == [
             "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
+            wording.MADE_AS_LABEL,
             wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
             wording.VENDOR_LABEL, wording.SKU_LABEL, wording.FORMULA_LABEL]
+        assert list(frame[wording.MADE_AS_LABEL]) == ["", ""]
         # Numbered from 1, so "Row 2" under the grid is the second row the
         # reader can see.
         assert list(frame.index) == [1, 2]
@@ -11284,3 +11289,234 @@ class TestPreMixesFixRoundOne:
         opt.set_premix_mode("Fry blend", "portioned")
         opt.set_premix_parts("Fry blend", [{'name': "Oil", 'share': 100}])
         assert opt.premix_of("Oil") == ["Wet blend", "Fry blend"]
+
+
+# ------------------------------------------------------------------ #
+#  0.7.0 wave 3, task 3 — the pre-mix on the grid
+# ------------------------------------------------------------------ #
+
+def _part_row(name, share=None, low=None, high=None, unit="g",
+              vendor="", sku=""):
+    row = {wording.PART_LABEL: name, wording.UNIT_LABEL: unit,
+           wording.VENDOR_LABEL: vendor, wording.SKU_LABEL: sku}
+    if share is not None:
+        row[wording.PREMIX_SHARE_LABEL] = share
+    if low is not None:
+        row[wording.LOWEST_LABEL] = low
+    if high is not None:
+        row[wording.HIGHEST_LABEL] = high
+    return row
+
+
+class TestThePreMixGrid:
+    """The choice sits on the ingredients grid — one `Made as` column right
+    after Type — and a pre-mix's parts are typed in a fold of their own
+    underneath it, in the columns the way it is made actually needs."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_grid"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def _dry(self, opt, mode="portioned"):
+        opt.add_premix("Dry blend", mode)
+        opt.set_premix_parts("Dry blend", [
+            {'name': "Flour", 'share': 70, 'unit': "g"},
+            {'name': "Salt", 'share': 30, 'unit': "g"}])
+        return opt
+
+    # ---- the parts grid, by mode ------------------------------------- #
+
+    def test_a_portioned_grid_takes_shares_and_no_ranges(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = opt.premix_grid_frame("Dry blend")
+        assert list(frame.columns) == [
+            "_id", wording.PART_LABEL, wording.PREMIX_SHARE_LABEL,
+            wording.UNIT_LABEL, wording.VENDOR_LABEL, wording.SKU_LABEL]
+        assert list(frame[wording.PART_LABEL]) == ["Flour", "Salt"]
+        assert list(frame[wording.PREMIX_SHARE_LABEL]) == [70.0, 30.0]
+        errors, messages = opt.apply_premix_grid("Dry blend", _edit(
+            frame, 1, **{wording.PREMIX_SHARE_LABEL: 50.0,
+                         wording.VENDOR_LABEL: "Acme"}))
+        assert errors == []
+        parts = opt.premix_parts("Dry blend")
+        assert [p['name'] for p in parts] == ["Flour", "Salt"]
+        assert round(parts[0]['share'], 6) == 62.5
+        assert parts[0]['vendor'] == "Acme"
+        # Portioned, the parts are not rows of the list at all.
+        assert [v['name'] for v in opt.variables] == ["Water", "Dry blend"]
+
+    def test_a_weighed_grid_takes_ranges_and_no_shares(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        frame = opt.premix_grid_frame("Dry blend")
+        assert list(frame.columns) == [
+            "_id", wording.PART_LABEL, wording.LOWEST_LABEL,
+            wording.HIGHEST_LABEL, wording.UNIT_LABEL, wording.VENDOR_LABEL,
+            wording.SKU_LABEL]
+        assert wording.PREMIX_SHARE_LABEL not in frame.columns
+        errors, messages = opt.apply_premix_grid("Dry blend", _edit(
+            frame, 1, **{wording.LOWEST_LABEL: "5",
+                         wording.HIGHEST_LABEL: "15"}))
+        assert errors == []
+        assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
+        # Lowest above Highest is refused at its own row, and nothing moves.
+        errors, _ = opt.apply_premix_grid("Dry blend", _edit(
+            opt.premix_grid_frame("Dry blend"), 2,
+            **{wording.LOWEST_LABEL: "9", wording.HIGHEST_LABEL: "1"}))
+        assert errors == [(2, wording.LOWEST_ABOVE_HIGHEST_ERROR)]
+        assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
+
+    def test_parts_are_rebalanced_and_the_caption_says_so(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = _edit(opt.premix_grid_frame("Dry blend"), 1,
+                      **{wording.PREMIX_SHARE_LABEL: 10.0})
+        errors, messages = opt.apply_premix_grid("Dry blend", frame)
+        assert errors == []
+        assert wording.SHARES_ADJUSTED_PREMIX in _said(messages)
+        assert round(sum(p['share'] for p in opt.premix_parts("Dry blend")),
+                     6) == 100.0
+        # A column of nothing but zeros is one refusal for the grid.
+        zeroed = opt.premix_grid_frame("Dry blend")
+        for row in (1, 2):
+            zeroed.loc[row, wording.PREMIX_SHARE_LABEL] = 0.0
+        errors, _ = opt.apply_premix_grid("Dry blend", zeroed)
+        assert errors == [(None, wording.PARTS_ADD_TO_NOTHING)]
+
+    def test_a_weighed_premix_row_reads_sum_of_its_parts(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        frame = opt.ingredient_grid_frame()
+        assert list(frame.columns)[:4] == [
+            "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
+            wording.MADE_AS_LABEL]
+        # One line per pre-mix, never a line per part: collapsed, the grid
+        # is the project as the bench talks about it.
+        assert list(frame[wording.NAME_LABEL]) == ["Water", "Dry blend"]
+        line = frame.loc[2]
+        assert line[wording.MADE_AS_LABEL] == wording.PREMIX_MADE_AS_WEIGHED
+        assert line[wording.LOWEST_LABEL] == wording.SUM_OF_ITS_PARTS
+        assert line[wording.HIGHEST_LABEL] == wording.SUM_OF_ITS_PARTS
+        # And the word in those cells is not a refusal: a save that touches
+        # nothing else leaves the pre-mix exactly as it was.
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "weighed"
+        assert [v['name'] for v in opt.variables] == ["Water", "Flour", "Salt"]
+
+    def test_a_taken_part_name_is_refused_at_its_row(self, tmp_path,
+                                                     monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = _edit(opt.premix_grid_frame("Dry blend"), 2,
+                      **{wording.PART_LABEL: "Water"})
+        errors, _ = opt.apply_premix_grid("Dry blend", frame)
+        assert errors == [(2, _name_taken_message("Water", "ingredient"))]
+        # A part with no unit is refused at its row too, and a blank name.
+        errors, _ = opt.apply_premix_grid("Dry blend", _edit(
+            opt.premix_grid_frame("Dry blend"), 1,
+            **{wording.UNIT_LABEL: ""}))
+        assert errors == [(1, wording.UNIT_REQUIRED_ERROR)]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
+            "Flour", "Salt"]
+
+    def test_the_last_part_cannot_be_deleted(self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        one = _drop(opt.premix_grid_frame("Dry blend"), 2)
+        errors, _ = opt.apply_premix_grid("Dry blend", one)
+        assert errors == []
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Flour"]
+        empty = _drop(opt.premix_grid_frame("Dry blend"), 1)
+        assert opt.premix_grid_deletions("Dry blend", empty) == ["Flour"]
+        errors, _ = opt.apply_premix_grid("Dry blend", empty)
+        assert errors == [(None, wording.PREMIX_NEEDS_A_PART)]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Flour"]
+
+    def test_deleting_a_used_part_confirms_first(self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 0, 50)
+        opt.add_ingredient("Salt", 0, 5)
+        opt.tell({"Water": 50.0, "Flour": 40.0, "Salt": 2.0}, {"Taste": 7.0})
+        frame = _drop(opt.premix_grid_frame("Dry blend"), 1)
+        assert opt.premix_grid_deletions("Dry blend", frame) == ["Flour"]
+        errors, _ = opt.apply_premix_grid("Dry blend", frame)
+        assert len(errors) == 1 and "Flour" in errors[0][1]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
+            "Flour", "Salt"]
+        errors, _ = opt.apply_premix_grid("Dry blend", frame,
+                                          force={"Flour"})
+        assert errors == []
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Salt"]
+        assert "Flour" not in opt._by_name()
+
+    # ---- Made as, on the row ----------------------------------------- #
+
+    def test_made_as_on_a_new_row_makes_a_premix(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = _add(opt.ingredient_grid_frame(), **_ing_row(
+            "Dry blend", low="10", high="30",
+            **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED}))
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        # The row it arrives as is the row the reader typed, not a row
+        # fixed at nothing.
+        assert opt._by_name()["Dry blend"]['bounds'] == (10.0, 30.0)
+        # The consequence is said once, at the choice.
+        assert opt.premix_consequence("Dry blend") in _said(messages)
+        # Both cells are still asked for, exactly as a new ingredient's are.
+        opt2 = self._opt(tmp_path, monkeypatch, name="premix_grid_2")
+        blank = _add(opt2.ingredient_grid_frame(), **{
+            wording.NAME_LABEL: "Fat phase",
+            wording.TYPE_LABEL: wording.KIND_INGREDIENT,
+            wording.UNIT_LABEL: "g",
+            wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED})
+        errors, _ = opt2.apply_ingredient_grid(blank)
+        assert errors == [(2, wording.NUMBER_REQUIRED_ERROR)]
+        assert opt2.premixes == {}
+
+    def test_blanking_made_as_takes_the_premix_away(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: ""})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes == {}
+        # The row is handed back to the ordinary list, with the amounts the
+        # grid was showing.
+        assert [v['name'] for v in opt.variables] == ["Water", "Dry blend"]
+        assert opt.premix_of("Flour") == []
+
+    def test_switching_made_as_on_the_row_puts_the_round_at_risk(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 20)
+        opt.set_pending_batch([{"Water": 50.0, "Dry blend": 10.0}])
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED})
+        assert opt.ingredient_grid_retires_round(frame) == opt.pending_batch_no
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "weighed"
+        assert opt.pending_batch_no is None
+
+    def test_a_switch_that_would_leave_nothing_to_vary_is_refused_at_the_row(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_grid_last", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [{'name': "Flour", 'share': 100,
+                                            'unit': "g"}])
+        opt.add_ingredient("Dry blend", 5, 20)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [(1, wording.LAST_VARYING_ROW_ERROR)]
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"

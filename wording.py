@@ -2988,3 +2988,50 @@ def part_in_two_weighed_premixes(name, first, second):
     everywhere it is read."""
     return (f"{name} is already {PREMIX_MADE_AS_WEIGHED} as part of "
             f"{first}, so it cannot also be part of {second}.")
+
+
+# ------------------------------------------------------------------ #
+# 0.7.0 wave 3, task 3: the pre-mix on the grid.
+#
+# The choice sits on the row — one select column right after Type — and
+# the parts open in a fold directly underneath the grid. A part is read
+# where it is typed, exactly as an ingredient is, and the fold shows only
+# the columns the way the pre-mix is made actually needs.
+# ------------------------------------------------------------------ #
+MADE_AS_HELP = "An ingredient you make yourself. Its parts open underneath."
+# The first column of a pre-mix's own grid. The row IS the part, so the
+# header is the noun and not "Name": the grid above already has a Name.
+PART_LABEL = "Part"
+# What a weighed pre-mix's own row says where its allowed amounts would be.
+# It has none: the pre-mix is not a row of the list at all, its parts are,
+# and the amount of it in a formulation is whatever they add up to.
+SUM_OF_ITS_PARTS = "sum of its parts"
+PARTS_ADD_TO_NOTHING = ("The parts add up to nothing. Give at least one of "
+                        "them a share.")
+PREMIX_NEEDS_A_PART = "A pre-mix needs at least one part."
+
+
+def premix_grid_title(name):
+    """'Dry blend · parts' — the fold under the ingredients grid, named for
+    the pre-mix it belongs to and for what is inside it. The same separator
+    every other two-part title in the app uses."""
+    return f"{name} · parts"
+
+
+def premix_parts_total(share_text):
+    """'Total 100 %' — the caption under a portioned pre-mix's parts, so the
+    column the reader is typing into shows its own sum. The shares are
+    scaled to 100 at the save; this is what they add up to now."""
+    return f"{TOTAL_LABEL} {share_text}"
+
+
+def premix_no_longer_a_premix(name, parts_text="", many=False):
+    """'Dry blend will not be a pre-mix any more. Flour and Salt go with it.'
+
+    Clearing Made as hands the row back to the ordinary list, and the parts
+    have nowhere to be — so they are named before they go, the way every
+    other Delete on this tab names what it takes."""
+    line = f"{name} will not be a pre-mix any more."
+    if parts_text:
+        line += f" {parts_text} {'go' if many else 'goes'} with it."
+    return f"{line} {COPY_KEPT}"
