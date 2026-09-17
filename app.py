@@ -94,7 +94,8 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 # same pattern clear_selection has always used for a select box.
 _FORM_FRESH = {
     "prop_min": None, "prop_max": None, "prop_new": "",
-    "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
+    "qc_min": None, "qc_max": None, "qc_one": None,
+    "tm_min": None, "tm_max": None,
     "qty_pick": [], "delete_formulations": [],
     "how_many": 3, "scale_total": None, "own_note": "",
     "formulation_total": None,

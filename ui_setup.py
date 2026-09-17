@@ -452,17 +452,28 @@ def _keep_pending(grid, pending, edited, from_park):
         unpark_grid(grid)
 
 
-def _grid_errors(slot, key):
+def _grid_errors(slot, key, names=None):
     """The refusals a Save left behind, one line per row, under the grid
-    they belong to. The row number is the one the grid shows down its left
-    edge; a refusal about the grid as a whole has no number and says its
-    sentence plainly."""
+    they belong to. A refusal about the grid as a whole has no row and says
+    its sentence plainly.
+
+    `names` is {row number: the name in that row} for a grid that shows no
+    row numbers — the ingredients grid, whose first column is Name. The
+    reader was being addressed as "Row 7:" over a grid with no 7 on it,
+    while every success line beside it named the ingredient.
+    """
     errors = st.session_state.pop(key, None)
     if not errors:
         return
     with slot.container():
         for row, message in errors:
-            st.error(message if row is None else wording.row_error(row, message))
+            if row is None:
+                st.error(message)
+            elif names is None:
+                st.error(wording.row_error(row, message))
+            else:
+                st.error(wording.named_row_error(
+                    names.get(row) or wording.NEW_GRID_ROW, message))
 
 
 def _save_and_discard(key, grid, lit):
@@ -531,7 +542,10 @@ def _variables(opt, storage):
         use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     slot = st.empty()            # where a refused Save writes its rows
-    _grid_errors(slot, _ING_ERRORS)
+    _grid_errors(slot, _ING_ERRORS, names={
+        int(no): str(edited.loc[no, wording.NAME_LABEL] or "").strip()
+        for no in edited.index
+        if wording.NAME_LABEL in edited.columns})
     # Every rule shows its consequence in numbers: one line per row that is
     # worked out, saying what the other rows' allowed amounts leave it. The
     # project's own rows, not the edited frame's — it is what has been
@@ -1322,42 +1336,57 @@ def _limits(opt, storage):
     # while there is a default batch size to be a percent OF — without one
     # there is nothing the choice could mean.
     percent_offered = opt.has_formulation_total()
-    if percent_offered:
-        st.session_state.setdefault("qc_unit", unit)
-        chosen_unit = st.selectbox(
-            wording.UNIT_LABEL, [unit, wording.PERCENT_OF_BATCH_SIZE_UNIT],
-            key="qc_unit")
-    else:
-        st.session_state.pop("qc_unit", None)
-        chosen_unit = unit
+    # One control for one idea: "Limit is" asks what SHAPE this limit is,
+    # and only the boxes that shape needs are drawn. Three number boxes side
+    # side asked the reader to pick a combination and then refused the ones
+    # that do not exist.
+    k1, k2 = st.columns(2)
+    with k1:
+        st.session_state.setdefault("qc_kind", wording.LIMIT_KIND_AT_MOST)
+        kind = st.selectbox(wording.LIMIT_KIND_LABEL, wording.LIMIT_KINDS,
+                            key="qc_kind")
+    with k2:
+        if percent_offered:
+            st.session_state.setdefault("qc_unit", unit)
+            chosen_unit = st.selectbox(
+                wording.LIMIT_WRITTEN_AS_LABEL,
+                [unit, wording.PERCENT_OF_BATCH_SIZE_UNIT], key="qc_unit")
+        else:
+            st.session_state.pop("qc_unit", None)
+            chosen_unit = unit
     is_percent = chosen_unit == wording.PERCENT_OF_BATCH_SIZE_UNIT
     box_unit = "%" if is_percent else unit
-    q1, q2, q3 = st.columns(3)
-    with q1:
-        st.session_state.setdefault("qc_min", None)
-        st.number_input(f"{wording.AT_LEAST_LABEL}{_unit_suffix(box_unit)}",
-                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
-    with q2:
-        st.session_state.setdefault("qc_max", None)
-        st.number_input(f"{wording.AT_MOST_LABEL}{_unit_suffix(box_unit)}",
-                        placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
-    with q3:
-        st.session_state.setdefault("qc_exactly", None)
-        st.number_input(f"{wording.EXACTLY_LABEL}{_unit_suffix(box_unit)}",
+    between = kind == wording.LIMIT_KIND_BETWEEN
+    st.session_state.setdefault("qc_min", None)
+    st.session_state.setdefault("qc_max", None)
+    if between:
+        q1, q2 = st.columns(2)
+        with q1:
+            st.number_input(
+                f"{wording.AT_LEAST_LABEL}{_unit_suffix(box_unit)}",
+                placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_min")
+        with q2:
+            st.number_input(
+                f"{wording.AT_MOST_LABEL}{_unit_suffix(box_unit)}",
+                placeholder=wording.NO_LIMIT_PLACEHOLDER, key="qc_max")
+    else:
+        st.session_state.setdefault("qc_one", None)
+        st.number_input(f"{kind}{_unit_suffix(box_unit)}",
                         placeholder=wording.NO_LIMIT_PLACEHOLDER,
-                        key="qc_exactly")
-    # No "Set a maximum" tick box: a blank field already means no limit,
-    # and a box the user forgot to tick silently threw their number away.
+                        key="qc_one")
     # Nothing picked is no longer "every ingredient": the total over all
     # of them has its own box above, and a picker that quietly meant all
     # eight while showing none was the harder half of that one idea to read.
     if st.button(wording.ADD_INGREDIENT_LIMIT_BUTTON, key="add_amount_limit",
                  disabled=not picked) and picked:
-        low = st.session_state["qc_min"]
-        high = st.session_state["qc_max"]
-        exact = st.session_state["qc_exactly"]
+        one = st.session_state.get("qc_one")
+        low = st.session_state["qc_min"] if between else (
+            one if kind == wording.LIMIT_KIND_AT_LEAST else None)
+        high = st.session_state["qc_max"] if between else (
+            one if kind == wording.LIMIT_KIND_AT_MOST else None)
+        exact = None if between or kind != wording.LIMIT_KIND_EXACTLY else one
         if low is None and high is None and exact is None:
-            st.error(wording.ENTER_LOWEST_HIGHEST_ERROR)
+            st.error(wording.LIMIT_NUMBER_NEEDED_ERROR)
         else:
             try:
                 opt.add_quantity_constraint(picked, min_val=low, max_val=high,
@@ -1467,6 +1496,24 @@ def _advanced(opt):
         st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 
 
+# What counts as a limit still being written: anything typed into the
+# ingredient-limit form, or into the property-limit form beside it. Read on
+# every run, before the expander is drawn.
+_LIMIT_FORM_KEYS = ("qty_pick", "qc_min", "qc_max", "qc_one",
+                    "prop_min", "prop_max", "prop_new")
+
+
+def _limit_half_written():
+    """True while a limit form holds something the reader has typed, so the
+    tier it lives in stays open across the rerun its own pickers cause."""
+    for key in _LIMIT_FORM_KEYS:
+        value = st.session_state.get(key)
+        if value is None or value == "" or value == []:
+            continue
+        return True
+    return False
+
+
 def _more_settings(opt, storage):
     """The middle tier (spec 1.5): everything tab 1 asks at most once, in one
     collapsed expander, in the order a project needs it — how big a
@@ -1476,8 +1523,14 @@ def _more_settings(opt, storage):
     Nothing in here is a fold of its own. Streamlit cannot nest one expander
     in another, and the point of the tier is that the tab has ONE thing to
     open rather than six.
+
+    It stays OPEN while a limit is half-written. Every picker and select in
+    here causes a rerun, and a rerun closed the whole tier under the
+    reader's hand: writing one limit takes four fields, and each of them
+    shut the fold and sent them scrolling back.
     """
-    with st.expander(wording.MORE_SETTINGS_EXPANDER):
+    with st.expander(wording.MORE_SETTINGS_EXPANDER,
+                     expanded=_limit_half_written()):
         _formulation_total(opt)
         _targets_source_editor(opt)
         _limits(opt, storage)
@@ -1519,8 +1572,16 @@ def render(opt, storage):
     # More settings, and a caption drawn before it read the old number on
     # the very run the reader changed it.
     with captions:
-        for line in opt.worked_out_captions():
+        lines = opt.worked_out_captions()
+        for line in lines:
             st.caption(line)
+        if not lines:
+            # The column arrived with no header tooltip anybody reads, no
+            # placeholder and no mention in the caption above the grid, so
+            # everything a cold reader learned about it they learned from
+            # refusals. One line, and only while there is nothing better to
+            # say: the worked-out captions take its place.
+            st.caption(wording.RULE_HINT)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

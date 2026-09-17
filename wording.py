@@ -638,7 +638,7 @@ def batch_size_help(unit=""):
     with it" said neither, in the one word that shipped meaning two things
     last cycle."""
     return (f"Every {FORMULATION} in this {ROUND} adds up to this. Change "
-            "it and the amounts are worked out again at that size; the "
+            "it and the amounts are recalculated at that size; the "
             f"table's {total_column(unit)} shows it.")
 # An example, not a description: the help above already says what the box is
 # for.
@@ -1112,9 +1112,13 @@ def deleted(name):
 
 REPLACE_INGREDIENTS_BUTTON = "Replace ingredients"
 LOAD_INGREDIENTS_BUTTON = "Load ingredients"
+# The template this caption describes carries a Rule column, and a reader
+# who downloaded it was told extra columns become properties — which that
+# one does not (the name is reserved) — with nothing on screen to say what
+# it is for.
 INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
-                            "and, optionally, Unit. Extra columns become "
-                            "properties you can set limits on.")
+                            "and, optionally, Unit and Rule. Extra columns "
+                            "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
 
@@ -1271,8 +1275,9 @@ def per_100_box_label(label, unit):
     return f"{label} (per 100 {unit})"
 NO_LIMIT_PLACEHOLDER = "no limit"
 ADD_PROPERTY_LIMIT_BUTTON = "Add property limit"
-# The two limit forms ask for At least and At most, so their refusals name
-# those two boxes. (The ingredient form's own Lowest/Highest keeps its own.)
+# The PROPERTY limit form asks for At least and At most, so its refusal
+# names those two boxes. The ingredient limit form has a Kind picker and one
+# box, and says LIMIT_NUMBER_NEEDED_ERROR instead.
 ENTER_LOWEST_HIGHEST_ERROR = (f"Enter {AT_LEAST_LABEL.lower()}, "
                               f"{AT_MOST_LABEL.lower()}, or both.")
 LIMIT_BOUNDS_ORDER_ERROR = f"{AT_LEAST_LABEL} must be less than {AT_MOST_LABEL}."
@@ -1304,8 +1309,8 @@ LIMITS_HEADING = "**Limits (optional)**"
 # properties were a fold somewhere else on the tab; they are now a grid a
 # few lines below this line, under a caption that says it, and each limit's
 # own line names the ingredients it is reading as zeroes.
-LIMITS_CAPTION = ("Limits are hard rules for every formulation the app "
-                  "suggests. A formulation of your own is recorded as you "
+LIMITS_CAPTION = ("Every formulation the app suggests keeps every limit "
+                  "here. A formulation of your own is recorded as you "
                   "typed it. A limit is on an amount you weigh out or a "
                   "property of your ingredients; measurements have goals and "
                   "targets instead.")
@@ -1589,7 +1594,7 @@ def overall_score_caption(score, ceiling, missing_text=""):
     return (f"{OVERALL_SCORE_COLUMN} {score:.2f} of {ceiling:g}"
             + (not_measured_tail(missing_text) if missing_text else "")
             + ". Scores only compare within this project. Change a share, a "
-            "goal or a range and every score is worked out again.")
+            "goal or a range and every score is recalculated.")
 
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
@@ -1801,6 +1806,18 @@ def row_error(position, problem):
     return f"Row {position}: {problem}"
 
 
+def named_row_error(name, problem):
+    """'Salt: this rule could not be read.' — the ingredients grid has no
+    row numbers down its left edge (Name is its first column), so a refusal
+    about one of its rows names the row the way every success line already
+    does. `name` is NEW_GRID_ROW for a row typed on the empty line at the
+    bottom that has no name yet."""
+    return f"{name}: {problem}"
+
+
+NEW_GRID_ROW = "The new row"
+
+
 def stopped_at_row(row_no, failure):
     return f"Stopped at row {row_no}: {failure}"
 
@@ -1847,7 +1864,7 @@ DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND} sheets (Excel)"
 # The summary sheet's own columns. The amount column carries its unit
 # (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
 TICK_COLUMN = "Tick"
-PERCENT_COLUMN = "%"
+PERCENT_COLUMN = f"% of {BATCH_SIZE_NOUN}"
 
 SETTINGS_SHEET_HEADING = "Settings"
 MEASUREMENTS_SHEET_HEADING = "Measurements"
@@ -2019,6 +2036,28 @@ def fixed_rows_tail(names_text):
 
 
 # ------------------------------------------------------------------ #
+# The four words of a rule row. They are defined here, above the limits,
+# because a limit's own refusal names the Rule cell as the other way to
+# say the same thing; everything else about a rule is further down, under
+# "Rule cells".
+# ------------------------------------------------------------------ #
+FORMULA_LABEL = "Rule"
+FORMULA_IN_RANGE = "rule"
+# The word for a row filled in from its rule rather than typed by hand.
+# One word, spelled once, for the range cell's own marker and every sheet
+# that has to say the same thing about the same row. It is NOT the app's
+# verb for "recomputed" — that is "recalculated" — so the two never meet
+# on one screen meaning two things.
+WORKED_OUT = "worked out"
+
+# '= rest' on its own is the balance of the batch size once every other row
+# is filled in. The word is spelled once here so the parser and its own
+# refusal can never drift apart. On screen it is always "= rest": "the
+# balance" is the instrument the bench weighs on.
+REST_TOKEN = "rest"
+
+
+# ------------------------------------------------------------------ #
 # 0.5.0 wave 2, "rules" (task 5): a limit over several ingredients can say
 # Exactly, and can be written in the ingredients' own unit or as a % of
 # the default batch size. One idea, one control each: Exactly replaces At
@@ -2027,12 +2066,41 @@ def fixed_rows_tail(names_text):
 # size to be a percent OF.
 # ------------------------------------------------------------------ #
 EXACTLY_LABEL = "Exactly"
-PERCENT_OF_BATCH_SIZE_UNIT = f"% of {BATCH_SIZE_NOUN}"
+# One control for one idea. The form used to sit At least, At most and
+# Exactly side by side in three equal boxes and refuse the combinations
+# afterwards, with a "fill one of these two" sentence printed under three
+# boxes. The "Limit is" picker asks the question once and shows only the
+# its answer needs, so the Exactly-and-a-range refusal has gone entirely
+# and ENTER_LOWEST_HIGHEST_ERROR is the property form's alone.
+LIMIT_KIND_LABEL = "Limit is"
+LIMIT_KIND_AT_LEAST = "At least"
+LIMIT_KIND_AT_MOST = "At most"
+LIMIT_KIND_BETWEEN = "Between"
+LIMIT_KIND_EXACTLY = "Exactly"
+LIMIT_KINDS = [LIMIT_KIND_AT_LEAST, LIMIT_KIND_AT_MOST, LIMIT_KIND_BETWEEN,
+               LIMIT_KIND_EXACTLY]
+# `Unit` already heads two grid columns, where it means the unit an amount
+# is weighed in. This control chooses how a limit is WRITTEN, which is not
+# a unit at all.
+LIMIT_WRITTEN_AS_LABEL = "Write it as"
+LIMIT_NUMBER_NEEDED_ERROR = "Enter a number for this limit."
+PERCENT_OF_BATCH_SIZE_UNIT = f"% of {FORMULATION_TOTAL_NOUN}"
 
-EXACTLY_AND_RANGE_ERROR = "Use Exactly, or At least and At most — not both."
 EXACTLY_ONE_INGREDIENT = (
-    "For one ingredient, give the row the same Lowest and Highest in the "
-    "grid instead.")
+    f"For one ingredient, give the row the same {LOWEST_LABEL} and "
+    f"{HIGHEST_LABEL} in the grid, or write it as a {FORMULA_IN_RANGE} "
+    f"such as = 1.5 % of {BATCH_SIZE_NOUN}.")
+
+
+def limit_on_worked_out_rows(names_text, many=False):
+    """'Water and Salt are worked out from their rules, so this limit
+    cannot change them.' — every row of a limit filled in by a rule leaves
+    the limit nothing to act on, and the app accepted it and then let the
+    rules contradict it."""
+    verb, tail, them = (("are", "their rules", "them") if many
+                        else ("is", "its rule", "it"))
+    return (f"{names_text} {verb} {WORKED_OUT} from {tail}, so this limit "
+            f"cannot change {them}.")
 
 
 def exactly(value):
@@ -2049,35 +2117,44 @@ def limit_exactly_row(who, amount_text):
     return f"{who}: exactly {amount_text}"
 
 
-def limit_percent_row(who, percent_text, grams_text):
-    """'Water + Oil: at most 30 % of batch size (30 g today)' — a percent
-    limit's read-back, in both the percent it is written as and the grams
-    it means today, so the number the search actually enforces from is
-    never hidden behind a percentage."""
-    return f"{who}: {percent_text} of {BATCH_SIZE_NOUN} ({grams_text} today)"
+def limit_percent_row(who, percent_text, grams_text, size_text=""):
+    """'Water + Oil: at most 30 % of default batch size (30 g at the
+    default 100 g)' — a percent limit's read-back, in both the percent it
+    is written as and the grams it means, so the number the search actually
+    enforces from is never hidden behind a percentage.
+
+    "today" read as a date. The number it meant is the default batch size,
+    so the line names it."""
+    tail = (f"{grams_text} at the default {size_text}" if size_text
+            else grams_text)
+    return (f"{who}: {percent_text} of {FORMULATION_TOTAL_NOUN} ({tail})")
 
 
 def percent_limits_rebased(size_text):
-    """'Limits written as a % of batch size now read against 120 g.' — the
-    one line a new default batch size says once, however many percent
-    limits it just rewrote."""
-    return (f"Limits written as a % of {BATCH_SIZE_NOUN} now read against "
-            f"{size_text}.")
+    """'Limits written as a % of the default batch size are now worked out
+    from 120 g.' — the one line a new default batch size says once,
+    however many percent limits it just rewrote."""
+    return (f"Limits written as a % of the {FORMULATION_TOTAL_NOUN} are "
+            f"now {WORKED_OUT} from {size_text}.")
 
 
 def percent_limit_removed(who):
-    """'The limit on Dry blend was a % of batch size, and there is no
-    default batch size now.' — clearing the default takes every percent
-    limit with it: there is nothing left for it to be a percent OF."""
-    return (f"The limit on {who} was a % of {BATCH_SIZE_NOUN}, and there "
-            f"is no default {BATCH_SIZE_NOUN} now.")
+    """'The limit on Dry blend was deleted: it was a % of the default
+    batch size, and there is none now.' — clearing the default takes every
+    percent limit with it: there is nothing left for it to be a percent OF.
+
+    Same verb, same position, same noun as its sibling below. The old
+    sentence said what the limit WAS and stated an unrelated fact about the
+    project, and never said the limit was gone."""
+    return (f"The limit on {who} was deleted: it was a % of the "
+            f"{FORMULATION_TOTAL_NOUN}, and there is none now.")
 
 
 def quantity_limit_removed_percent_unreachable(label, size_text):
-    """'The limit on Pea protein was deleted because a batch size of
+    """'The limit on Pea protein was deleted: a default batch size of
     120 g can no longer reach it.' — a percent limit a new default
     rewrote past what the ingredients can actually make."""
-    return (f"The limit on {label} was deleted because a {BATCH_SIZE_NOUN} "
+    return (f"The limit on {label} was deleted: a {FORMULATION_TOTAL_NOUN} "
             f"of {size_text} can no longer reach it.")
 
 
@@ -2259,7 +2336,7 @@ LAST_VARYING_ROW_ERROR = (
     "first.")
 AMOUNTS_MISSING_DELETE_ERROR = (
     "Cannot delete this: some formulations were recorded without their "
-    "amounts, so what was made cannot be worked out again. Fix it at one "
+    "amounts, so what was made cannot be recalculated. Fix it at one "
     "amount instead, or start this project over.")
 
 LOWEST_ABOVE_HIGHEST_ERROR = "Lowest cannot be above Highest."
@@ -2511,131 +2588,182 @@ PROJECT_FILE_DAMAGED = (
 
 
 # ------------------------------------------------------------------ #
-# Formula cells (0.5.0 wave 2, "rules"): the Set up grid's Formula column
-# lets an ingredient's amount be read off the batch size and the other rows
-# instead of typed by hand.
+# Rule cells (0.5.0 wave 2, "rules"): the Set up grid's Rule column lets an
+# ingredient's amount be read off the batch size and the other rows instead
+# of typed by hand.
+#
+# RULE, not "formula". To a food formulation scientist a formula IS the
+# recipe — the thing this app calls a Formulation — and the column sat one
+# cell from it on the same row. The stored field, the parser and the
+# helpers keep their own names; nothing a reader sees says "formula" any
+# more, and nothing else in the app is called a rule (a limit is a limit).
 # ------------------------------------------------------------------ #
-FORMULA_LABEL = "Formula"
-FORMULA_IN_RANGE = "formula"
-# The word for a row filled in from its formula rather than typed by hand.
-# One word, spelled once, for the range cell's own marker and every sheet
-# that has to say the same thing about the same row.
-WORKED_OUT = "worked out"
-
-# '= rest' on its own is the balance of the batch size once every other row
-# is filled in. The word is spelled once here so the parser and its own
-# refusal can never drift apart.
-REST_TOKEN = "rest"
-
 FORMULA_REST_ALONE = ("Write = rest on its own: it is whatever is left of "
                       "the batch size.")
-FORMULA_TWO_AMOUNTS = ("A formula can add or subtract amounts and multiply "
+FORMULA_TWO_AMOUNTS = ("A rule can add or subtract amounts and multiply "
                        "by a number. It cannot multiply two amounts.")
-FORMULA_DIVIDE_BY_AMOUNT = ("A formula can divide by a number, not by an "
+FORMULA_DIVIDE_BY_AMOUNT = ("A rule can divide by a number, not by an "
                            "amount.")
-FORMULA_DIVIDE_BY_ZERO = "A formula cannot divide by zero."
-FORMULA_UNREADABLE = ("This formula could not be read. Use + − × ÷, "
-                      "numbers, brackets and ingredient names.")
+FORMULA_DIVIDE_BY_ZERO = "A rule cannot divide by zero."
+# Every word the grammar really takes, in both the alphabet the spec
+# prints and the one on the keyboard. The old sentence listed four
+# characters, three of them untypable, and omitted the leading '=', the
+# percentage, 'batch size' and 'rest' — the four things a reader who is
+# stuck most plausibly got wrong.
+FORMULA_UNREADABLE = ("This rule could not be read. Use =, + − × ÷ (or "
+                      "- * /), %, numbers, brackets, batch size, rest and "
+                      "ingredient names.")
+RULE_NEEDS_EQUALS = "Start a rule with =."
+RULE_USES_ITS_OWN_ROW = "A rule cannot use its own row."
+RULE_INGREDIENTS_ONLY_PREFIX = "A rule can use ingredients and batch size, not"
+
+
+def rule_ingredients_only(name):
+    """'A rule can use ingredients and batch size, not Cook temperature.' —
+    a rule naming a process setting. Grams of salt worked out from minutes
+    of cooking is arithmetic across two units that cannot be mixed, and the
+    app refused a setting a rule of its own while allowing the reverse."""
+    return f"{RULE_INGREDIENTS_ONLY_PREFIX} {name}."
 
 
 def formula_unknown_name(name):
-    """'There is no ingredient called Sodium citrate.' — a formula naming a
+    """'There is no ingredient called Sodium citrate.' — a rule naming a
     row the project does not have."""
     return f"There is no ingredient called {name}."
 
 
 def formula_loop(chain):
-    """'A formula cannot lead back to itself: Fat → Water → Fat.' — `chain`
+    """'A rule cannot lead back to itself: Fat → Water → Fat.' — `chain`
     is the arrow-joined names that already spell the loop out."""
-    return f"A formula cannot lead back to itself: {chain}."
+    return f"A rule cannot lead back to itself: {chain}."
 
 
 FORMULA_NEEDS_BATCH_SIZE = (
-    "There is no default batch size to work this out from. Set one in "
-    "More settings, or write the amounts instead.")
+    f"There is no {FORMULATION_TOTAL_NOUN} to work this out from. Set one "
+    "in More settings, or write the amounts instead.")
+PERCENT_NEEDS_BATCH_SIZE = (
+    f"There is no {FORMULATION_TOTAL_NOUN} to take a percent of. Set one "
+    "in More settings.")
 
 
 # ------------------------------------------------------------------ #
-# Formula rows (0.5.0 wave 2, "rules", task 2): what the model owes the
-# reader once a formula row is worked out from the others instead of being
+# Rule rows (0.5.0 wave 2, "rules", task 2): what the model owes the
+# reader once a rule row is worked out from the others instead of being
 # searched. Nothing here mentions the model: a row that cannot be worked
-# out is refused in the amounts and the formula the reader typed.
+# out is refused in the amounts and the rule the reader typed.
 # ------------------------------------------------------------------ #
 
-def formula_below_zero(text, unit):
-    """'= batch size − Water − Oil is below 0 g in every formulation the
-    allowed amounts reach. Widen an amount, or change the formula.' — a
-    formula no allowed amounts can ever make a real amount of."""
+def formula_below_zero(name, unit):
+    """'Water is below 0 g in every formulation the allowed amounts reach.
+    Widen an amount, or change its rule.' — a rule no allowed amounts can
+    ever make a real amount of.
+
+    The ROW, not the expression it was typed as: on a grid of eight rows
+    the reader had to match an expression back to a row by eye, and every
+    other refusal names the row."""
     zero = f"0 {unit}".strip()
-    return (f"{text} is below {zero} in every {FORMULATION} the allowed "
-            "amounts reach. Widen an amount, or change the formula.")
+    return (f"{name} is below {zero} in every {FORMULATION} the allowed "
+            f"amounts reach. Widen an amount, or change its "
+            f"{FORMULA_IN_RANGE}.")
 
 
-def balance_would_go_negative(name, size_text, least_text):
-    """'A batch size of 60 g leaves Water below 0. The other ingredients
-    need at least 70 g.' — the balance row is whatever is left of the
-    batch size, and there is nothing left."""
-    return (f"A {BATCH_SIZE_NOUN} of {size_text} leaves {name} below 0. "
-            f"The other {INGREDIENT}s need at least {least_text}.")
+def balance_would_go_negative(name, size_text, least_text, unit="",
+                              noun=None):
+    """'A default batch size of 60 g leaves Water below 0 g. The other
+    ingredients need at least 70 g.' — the = rest row is whatever is left
+    of the batch size, and there is nothing left.
+
+    The unit is on all three numbers: the one that needed it most was the
+    one going without. And the noun is the box that asked — the Default
+    batch size box on Set up, the Batch size box on Make a round — because
+    wave 1 settled those as two names for two things."""
+    zero = f"0 {unit}".strip()
+    return (f"A {noun or FORMULATION_TOTAL_NOUN} of {size_text} leaves "
+            f"{name} below {zero}. The other {INGREDIENT}s need at least "
+            f"{least_text}.")
 
 
 def formula_reads_this_row(name, row):
-    """'Water is worked out from Flour. Change Water's formula first.' —
-    deleting a row another row's formula reads would leave that formula
-    naming nothing."""
+    """'Water is worked out from Flour. Change Water's rule first.' —
+    deleting a row another row's rule reads would leave that rule naming
+    nothing."""
     return (f"{row} is {WORKED_OUT} from {name}. Change {row}'s "
             f"{FORMULA_IN_RANGE} first.")
 
 
-COPY_TWO_BALANCE_ROWS = ("This copy gives two rows the balance, and only "
-                         "one row can take it.")
+COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
+                         "only one row can take it.")
 
 
 # ------------------------------------------------------------------ #
-# The Formula column (0.5.0 wave 2, "rules", task 3): the one new column on
+# The Rule column (0.5.0 wave 2, "rules", task 3): the one new column on
 # the ingredients grid, the consequence every worked-out row owes in
-# numbers, and the two refusals a formula earns over the finished grid
-# rather than at one cell.
+# numbers, and the two refusals a rule earns over the finished grid rather
+# than at one cell.
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
     "Write what this ingredient is, in terms of the others: = batch size − "
     "Water − Salt. Write = rest for the row that takes whatever is left. "
     "Leave it blank to give the row its own Lowest and Highest.")
 
-# Two rows each taking whatever is left of the same number is not arithmetic
-# anybody can do. Said over the grid as a whole: it is about the pair, and
-# neither cell is more wrong than the other.
-ONE_BALANCE_ONLY = f"Only one row can be = {REST_TOKEN}."
+# The one line under the grid while no row has a rule: the column arrived
+# with no header tooltip anybody reads, no placeholder and no mention in
+# the caption, and everything a cold reader learned about it they learned
+# from refusals. It stands down the moment a rule exists — the worked-out
+# captions take its place.
+RULE_HINT = (f"To write a {FORMULA_IN_RANGE} for a row, type it in its "
+             f"{FORMULA_LABEL} cell: = {BATCH_SIZE_NOUN} − Water, or "
+             f"= {REST_TOKEN}.")
+
+
+def one_balance_only(names_text, many=False):
+    """'Only one row can be = rest: Water and Salt both are.' — two rows
+    each taking whatever is left of the same number is not arithmetic
+    anybody can do. Said over the grid as a whole, because it is about the
+    pair — and it names the pair, which the old sentence did not, leaving
+    the reader to go and find the other one."""
+    return (f"Only one row can be = {REST_TOKEN}: {names_text} "
+            f"{'all' if many else 'both'} are.")
+
+
 
 
 def worked_out_caption(name, formula_text, low_text, high_text, size_text,
-                       rest=False):
+                       rest=False, outside_text=""):
     """'Water is worked out as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
     row that is worked out rather than typed, so the rule shows its
     consequence in numbers.
 
     A row that takes the remainder says so in the words it was written in:
-    'Water is = rest, whatever is left of the batch size: ...'. The amounts
-    are what the other rows' allowed amounts leave it, and `size_text` is
-    the default batch size they are read against — blank while the project
-    has none, and the sentence then stops at the amounts.
+    'Water is worked out as = rest, whatever is left of the batch size:
+    ...'. The amounts are what the other rows' allowed amounts leave it,
+    and `size_text` is the default batch size they are read against — blank
+    while the project has none, and the sentence then stops at the amounts.
 
-    `rest` is the parser's own answer to "is this the rest row" — passed in
-    rather than read off the text, so '=rest' and '= REST' say the same
-    thing here as they do everywhere else.
+    Both branches say `worked out`, the word in the two cells beside them,
+    and both quote the cell WITH its '=', so the reader can match the line
+    to what they typed. `rest` is the parser's own answer to "is this the
+    rest row" — passed in rather than read off the text, so '=rest' and
+    '= REST' say the same thing here as they do everywhere else.
+
+    `outside_text` is the row's own Lowest and Highest when the rule takes
+    it past them. They are dormant on a worked-out row — the rule decides
+    the amount, not the range — but a rule that puts Salt at 16 g over a
+    cap of 3 g was landing with nothing said at all.
     """
     text = str(formula_text).strip()
     if rest:
-        head = (f"{name} is = {REST_TOKEN}, whatever is left of the "
-                f"{BATCH_SIZE_NOUN}")
+        head = (f"{name} is {WORKED_OUT} as = {REST_TOKEN}, whatever is "
+                f"left of the {BATCH_SIZE_NOUN}")
     else:
-        body = text[1:].strip() if text.startswith("=") else text
-        head = f"{name} is {WORKED_OUT} as {body}"
+        head = f"{name} is {WORKED_OUT} as {text}"
     span = f"{head}: between {low_text} and {high_text}"
-    if not size_text:
-        return f"{span}."
-    return f"{span} in a {size_text} {FORMULATION}."
+    if size_text:
+        span = f"{span} in a {size_text} {FORMULATION}"
+    if outside_text:
+        return f"{span} — outside the {outside_text} you gave it."
+    return f"{span}."
 
 
 def rest_row_takes_the_difference(name, low_text, high_text, size_text):
@@ -2680,7 +2808,21 @@ def worked_out_label(name):
     return f"{name} · {WORKED_OUT}"
 
 
-FORMULA_ROW_NOTE = "A row marked worked out is filled in from its formula."
+FORMULA_ROW_NOTE = (f"A row marked {WORKED_OUT} is filled in from its "
+                    f"{FORMULA_IN_RANGE}. Weigh the amount printed.")
+
+
+def worked_out_row_note(lines_text):
+    """'Water is worked out: = rest. Weigh the amount printed.' — the
+    summary sheet's note, naming each worked-out row's own rule. The rule
+    is on no sheet of the round workbook, so a bench holding the page was
+    told the amount came from one and had nowhere to see it."""
+    return f"{lines_text} Weigh the amount printed."
+
+
+def worked_out_row_rule(name, rule_text):
+    """'Water is worked out: = rest.' — one row of the note above."""
+    return f"{name} is {WORKED_OUT}: {rule_text}."
 
 
 def setup_sheet_formula_text(text, rest=False):
@@ -2697,4 +2839,4 @@ def setup_sheet_formula_text(text, rest=False):
 # amount is what it computed to, and correcting what the bench actually
 # weighed happens after the round is recorded, on the Results tab.
 CORRECTIONS_ON_RESULTS_CAPTION = (
-    "Correct what you made on the Results tab, after you record it.")
+    "Correct what you made in Results, after you record it.")

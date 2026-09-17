@@ -167,7 +167,9 @@ def _unreachable(opt, typed):
         if balance is not None:
             return wording.balance_would_go_negative(
                 balance, opt.batch_total_text(typed),
-                opt.batch_total_text(lowest))
+                opt.batch_total_text(lowest),
+                unit=opt.unit_of(balance),
+                noun=wording.BATCH_SIZE_NOUN)
         return wording.total_not_reachable_at_least(
             opt.batch_total_text(typed), opt.batch_total_text(lowest),
             noun=wording.BATCH_SIZE_NOUN)
@@ -551,16 +553,19 @@ def _batch_table(opt, scale_to):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
-    # The table is read only, whatever it holds — a worked-out row's amount
-    # included. What was actually weighed is corrected where it is
-    # recorded, not by overtyping a cell here.
-    st.caption(wording.CORRECTIONS_ON_RESULTS_CAPTION)
+    # The size first, then the corrections line. Three captions under one
+    # table, two of them about the size, used to sit with the one that is
+    # not in the middle of them.
     if scale_to is None:
         if opt.has_ingredients():
             st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
+    # The table is read only, whatever it holds — a worked-out row's amount
+    # included. What was actually weighed is corrected where it is
+    # recorded, not by overtyping a cell here.
+    st.caption(wording.CORRECTIONS_ON_RESULTS_CAPTION)
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.
@@ -622,7 +627,7 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
 
 
-def _downloads(opt, scale_to, sized):
+def _downloads(opt, scale_to, sized, said_size=False):
     """Step 2: the one file the bench works from, the size it is written to,
     and the one line that names it.
 
@@ -650,9 +655,12 @@ def _downloads(opt, scale_to, sized):
         type="primary" if lit else "secondary",
         use_container_width=True,
     )
-    if scale_to is not None:
+    if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
-        # for is named directly under it.
+        # for is named directly under it — unless the refusal above the
+        # table has just said that same number ("The round stays at 100 g"),
+        # in which case this repeats one fact with a different subject one
+        # line apart.
         st.caption(wording.sheets_show_total_caption(
             opt.batch_total_text(scale_to)))
 
@@ -1032,6 +1040,9 @@ def render(opt, storage):
     # themselves, not a picture of them — and remembers it with the round, so
     # a reopened window and tab 3 both still know what the bench weighed out.
     refusal = _apply_batch_size(opt, typed)
+    # A refused size has already named the size the round IS, right above
+    # the table; the caption under the download must not say it again.
+    said_size = bool(refusal)
     # After the scaling, never before: scale_round replaces the rows, and a
     # list read a line earlier would be the amounts nobody is making.
     rows = opt.pending_batch
@@ -1080,7 +1091,7 @@ def render(opt, storage):
     )
 
     with print_slot:
-        _downloads(opt, scale_to, sized)
+        _downloads(opt, scale_to, sized, said_size)
     with record_slot:
         _record_results(opt)
     with own_slot:

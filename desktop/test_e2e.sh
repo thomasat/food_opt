@@ -488,11 +488,11 @@ at.run()
 assert not at.exception, at.exception
 
 # Tab 1 - Set up: the ingredients list is one editable grid, with Vendor
-# and SKU beside the range and Formula last (0.6.0). Baseline joins it only
+# and SKU beside the range and Rule last (0.6.0). Baseline joins it only
 # once results exist.
 assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
     "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-    "Formula"], list(at.dataframe[0].value.columns)
+    "Rule"], list(at.dataframe[0].value.columns)
 
 # Three tiers on the tab: the grids, then More settings, then Advanced.
 labels = [e.label for e in at.expander]
@@ -569,32 +569,36 @@ next(b for b in at.button if b.label == wording.TRY_SAMPLE_LABEL).click()
 at.run()
 assert not at.exception, at.exception
 
-# Tab 1 - Set up: Formula is the last column on the ingredients grid.
+# Tab 1 - Set up: Rule is the last column on the ingredients grid.
 grid = at.dataframe[0].value
 columns = [c for c in grid.columns if c != "_id"]
 assert columns[-1] == wording.FORMULA_LABEL, columns
 
-# The sample gives Water the rest of the batch size, so its two amounts
-# are not typed: both cells read the one word the whole app uses for it,
-# and one caption under the grid says what the rule comes to in numbers.
+# The sample gives Water the rest of the batch size, so its amount is not
+# typed: Highest reads the one word the whole app uses for it, Lowest is
+# blank beside it, and one caption under the grid says what the rule comes
+# to in numbers.
 water = grid[grid[wording.NAME_LABEL] == "Water"]
 assert len(water) == 1, list(grid[wording.NAME_LABEL])
 assert water.iloc[0][wording.FORMULA_LABEL] == "= " + wording.REST_TOKEN, \
     water.iloc[0][wording.FORMULA_LABEL]
-assert water.iloc[0][wording.LOWEST_LABEL] == wording.WORKED_OUT, \
+assert water.iloc[0][wording.LOWEST_LABEL] == "", \
     water.iloc[0][wording.LOWEST_LABEL]
 assert water.iloc[0][wording.HIGHEST_LABEL] == wording.WORKED_OUT, \
     water.iloc[0][wording.HIGHEST_LABEL]
 captions = [c.value for c in at.caption]
-assert any(c.startswith("Water is = " + wording.REST_TOKEN) for c in captions), \
-    captions
+assert any(c.startswith("Water is " + wording.WORKED_OUT + " as = "
+                        + wording.REST_TOKEN) for c in captions), captions
 
-# More settings - Limits: a limit can say Exactly, and because the sample
-# has a default batch size the unit choice offers % of batch size too.
-labels = [n.label for n in at.number_input]
-assert wording.EXACTLY_LABEL + " (g)" in labels, labels
+# More settings - Limits: one Kind picker choosing the shape of the limit,
+# and because the sample has a default batch size the "Write it as" choice
+# offers % of default batch size too.
+kind_select = next((s for s in at.selectbox if s.key == "qc_kind"), None)
+assert kind_select is not None, [s.key for s in at.selectbox]
+assert list(kind_select.options) == wording.LIMIT_KINDS, kind_select.options
 unit_select = next((s for s in at.selectbox if s.key == "qc_unit"), None)
 assert unit_select is not None, [s.key for s in at.selectbox]
+assert unit_select.label == wording.LIMIT_WRITTEN_AS_LABEL, unit_select.label
 assert wording.PERCENT_OF_BATCH_SIZE_UNIT in unit_select.options, \
     unit_select.options
 print("RULES_OK")

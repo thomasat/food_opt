@@ -1397,8 +1397,18 @@ def test_deleting_a_process_setting_confirms_and_archives(burger, tmp_path):
 def test_limit_fields_start_blank_and_there_is_no_maximum_tick_box(burger):
     """A pre-filled 100 g maximum on a 400 g burger made every future batch
     infeasible in one click; a tick box the user forgot then threw away the
-    number they did type. Blank means no limit, everywhere."""
+    number they did type. Blank means no limit, everywhere.
+
+    One box, not three: "Limit is" chooses the shape, and only Between
+    needs two."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert at.selectbox(key="qc_kind").options == wording.LIMIT_KINDS
+    assert at.number_input(key="qc_one").value is None
+    assert at.number_input(key="qc_one").placeholder == "no limit"
+    assert [n.key for n in at.number_input
+            if n.key in ("qc_min", "qc_max")] == []
+    at.selectbox(key="qc_kind").set_value(wording.LIMIT_KIND_BETWEEN)
     at.run()
     for key in ("qc_max", "qc_min"):
         assert at.number_input(key=key).value is None, key
@@ -1412,7 +1422,7 @@ def test_a_new_limit_says_past_formulations_are_kept(burger):
     at.run()
     at.multiselect(key="qty_pick").select("Pea protein")
     at.run()
-    at.number_input(key="qc_max").set_value(400.0)
+    at.number_input(key="qc_one").set_value(400.0)
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
@@ -1427,7 +1437,7 @@ def test_a_limit_that_excludes_everything_made_so_far_warns(burger):
     at.multiselect(key="qty_pick").select("Pea protein")
     at.multiselect(key="qty_pick").select("Methylcellulose")
     at.run()
-    at.number_input(key="qc_max").set_value(5.0)     # the one formulation is 22 g
+    at.number_input(key="qc_one").set_value(5.0)     # the one formulation is 22 g
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
@@ -1575,7 +1585,7 @@ def test_the_ingredient_grid_has_no_status_column_at_all(burger):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Formula"], \
+        "Rule"], \
         list(grid.columns)
     row = grid[grid["Name"] == "Methylcellulose"].iloc[0]
     assert (row["Lowest"], row["Highest"]) == ("1.00", "1.00")
@@ -2613,8 +2623,8 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # on Set up. The whole caption, word for word:
     assert any(c.value == ("Overall score 88.00 of 100. Scores only "
                            "compare within this project. Change a share, a "
-                           "goal or a range and every score is worked out "
-                           "again.")
+                           "goal or a range and every score is "
+                           "recalculated.")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -4145,12 +4155,10 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     with_properties.add_property("Sodium mg per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Limits are hard rules for every formulation the "
-                           "app suggests. A formulation of your own is "
-                           "recorded as you typed it. A limit is on an amount "
-                           "you weigh out or a property of your ingredients; "
-                           "measurements have goals and targets instead.")
+    assert any(c.value == wording.LIMITS_CAPTION
                for c in at.caption), [c.value for c in at.caption]
+    assert wording.LIMITS_CAPTION.startswith(
+        "Every formulation the app suggests keeps every limit here.")
     said = [c.value for c in at.caption if "counts as 0 in any limit" in c.value]
     assert said == [wording.properties_grid_caption(True)], said
 
@@ -4358,7 +4366,7 @@ def test_the_ingredient_grid_has_plain_headers_and_a_unit_column(mixed_units):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Formula"]
+        "Rule"]
     assert dict(zip(grid["Name"], grid["Unit"])) == {"Pea protein": "g",
                                                       "Water": "ml"}
 
@@ -4482,7 +4490,7 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     at.run()
     at.multiselect(key="qty_pick").select("Pea protein")
     at.multiselect(key="qty_pick").select("Water")
-    at.number_input(key="qc_max").set_value(50.0)
+    at.number_input(key="qc_one").set_value(50.0)
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
@@ -4672,8 +4680,11 @@ def test_a_blank_unit_cell_is_refused_by_row(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _save_grid(at, ING_GRID, edited={1: {wording.UNIT_LABEL: ""}})
+    # The ingredients grid shows no row numbers, so its refusals name the
+    # row the way every success line already does.
     assert [e.value for e in at.error] == [
-        wording.row_error(2, wording.UNIT_REQUIRED_ERROR)]
+        wording.named_row_error("Methylcellulose",
+                                wording.UNIT_REQUIRED_ERROR)]
     reloaded = FoodOptimizer("burger")
     assert reloaded.unit_of("Methylcellulose") == "g"
     assert len(reloaded.quantity_constraints) == 1
@@ -4781,7 +4792,7 @@ def test_a_limit_on_all_ingredients_is_refused_in_words_the_screen_can_obey(
     at.multiselect(key="qty_pick").select("Pea protein")
     at.multiselect(key="qty_pick").select("Water")
     at.run()
-    at.number_input(key="qc_max").set_value(300.0)
+    at.number_input(key="qc_one").set_value(300.0)
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
@@ -4864,7 +4875,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     assert any(c.value == ("Overall score 60.00 of 100 · Juiciness not "
                            "measured. Scores only compare within this "
                            "project. Change a share, a goal or a range and "
-                           "every score is worked out again.")
+                           "every score is recalculated.")
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
@@ -5374,7 +5385,7 @@ def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
-        "Formula"]
+        "Rule"]
     assert list(grid["Name"]) == ["Pea protein", "Methylcellulose"]
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
     folded = {id(d) for e in _tab1(at).expander for d in e.dataframe}
@@ -5438,8 +5449,9 @@ def test_a_vendor_typed_on_a_setting_is_refused_by_row(burger):
     at.run()
     _save_grid(at, ING_GRID, edited={2: {wording.VENDOR_LABEL: "Acme"}})
     assert [e.value for e in at.error] == [
-        wording.row_error(3, wording.only_an_ingredient_has(
-            wording.VENDOR_LABEL))]
+        wording.named_row_error("Cook temperature",
+                                wording.only_an_ingredient_has(
+                                    wording.VENDOR_LABEL))]
 
 
 def test_a_baseline_typed_on_an_ingredient_is_refused_by_row(burger):
@@ -5450,7 +5462,7 @@ def test_a_baseline_typed_on_an_ingredient_is_refused_by_row(burger):
     at.run()
     _save_grid(at, ING_GRID, edited={0: {wording.BASELINE_LABEL: 5.0}})
     assert [e.value for e in at.error] == [
-        wording.row_error(1, wording.only_a_setting_has(
+        wording.named_row_error("Pea protein", wording.only_a_setting_has(
             wording.BASELINE_LABEL))]
 
 
@@ -5472,7 +5484,8 @@ def test_the_baseline_column_belongs_to_a_project_with_results(burger):
         _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
                         low=150.0, high=200.0, unit="°C")])
     assert [e.value for e in at.error] == [
-        wording.row_error(3, wording.ADD_BASELINE_ERROR)]
+        wording.named_row_error("Cook temperature",
+                                wording.ADD_BASELINE_ERROR)]
 
 
 def test_the_grid_names_the_type_of_every_row(burger):
@@ -5631,9 +5644,9 @@ def test_a_rename_onto_a_name_that_is_taken_refuses_and_changes_nothing(burger):
     at.run()
     _save_grid(at, ING_GRID, edited={1: {wording.NAME_LABEL: "Pea protein",
                                          wording.HIGHEST_LABEL: 6.0}})
-    assert [e.value for e in at.error] == [wording.row_error(
-        2, "Pea protein is already the name of an ingredient. Choose "
-           "another name.")]
+    assert [e.value for e in at.error] == [wording.named_row_error(
+        "Pea protein", "Pea protein is already the name of an ingredient. "
+                       "Choose another name.")]
     saved = FoodOptimizer("burger")
     assert [v["name"] for v in saved.variables] == ["Pea protein",
                                                     "Methylcellulose"]
@@ -5980,7 +5993,8 @@ def test_a_row_rubbed_out_is_refused_not_quietly_deleted(burger):
         wording.UNIT_LABEL: ""}})
     assert not at.exception
     assert [e.value for e in at.error] == [
-        wording.row_error(2, wording.NAME_REQUIRED_ERROR)]
+        wording.named_row_error(wording.NEW_GRID_ROW,
+                                wording.NAME_REQUIRED_ERROR)]
     assert "Yes, delete" not in _labels(at), _labels(at)
     assert [v["name"] for v in FoodOptimizer("burger").variables] == [
         "Pea protein", "Methylcellulose"]
@@ -6006,9 +6020,9 @@ def test_a_clash_is_blamed_on_the_row_the_reader_typed_into(burger):
     at.run()
     _save_grid(at, ING_GRID,
                edited={1: {wording.NAME_LABEL: "Pea protein"}})
-    assert [e.value for e in at.error] == [wording.row_error(
-        2, "Pea protein is already the name of an ingredient. Choose "
-           "another name.")]
+    assert [e.value for e in at.error] == [wording.named_row_error(
+        "Pea protein", "Pea protein is already the name of an ingredient. "
+                       "Choose another name.")]
 
 
 def _any_armed(at):
@@ -6198,8 +6212,8 @@ def test_the_upload_is_folded_away_beneath(burger):
     at.run()
     fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit. Extra columns become "
-                           "properties you can set limits on.")
+                           "and, optionally, Unit and Rule. Extra columns "
+                           "become properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
     assert [b.label for b in _unknowns(fold, "download_button")] == \
@@ -6644,15 +6658,20 @@ def test_the_amount_limit_picker_needs_an_ingredient_chosen(burger):
     picker = at.multiselect(key="qty_pick")
     assert picker.value == []
     assert picker.proto.placeholder != "All ingredients"
-    assert at.number_input(key="qc_min").label == "At least (g)"
-    assert at.number_input(key="qc_max").label == "At most (g)"
+    # One box, labelled by the Kind the picker is on.
+    assert at.number_input(key="qc_one").label == "At most (g)"
+    at.selectbox(key="qc_kind").set_value(wording.LIMIT_KIND_AT_LEAST)
+    at.run()
+    assert at.number_input(key="qc_one").label == "At least (g)"
+    at.selectbox(key="qc_kind").set_value(wording.LIMIT_KIND_AT_MOST)
+    at.run()
     # One button, not three: there is no second ingredient-limit control.
     assert [b.label for b in at.button
             if "ingredient limit" in b.label] == ["Add ingredient limit"]
     assert _submit_button(at, "Add ingredient limit").disabled
     # Nothing is written by a click on it, and nothing is refused in words
     # either: a disabled button has nothing to say.
-    at.number_input(key="qc_max").set_value(100.0)
+    at.number_input(key="qc_one").set_value(100.0)
     at.run()
     assert _submit_button(at, "Add ingredient limit").disabled
     assert FoodOptimizer("burger").quantity_constraints == []
@@ -6660,7 +6679,7 @@ def test_the_amount_limit_picker_needs_an_ingredient_chosen(burger):
     at.multiselect(key="qty_pick").select("Pea protein")
     at.run()
     assert not _submit_button(at, "Add ingredient limit").disabled
-    at.number_input(key="qc_max").set_value(50.0)
+    at.number_input(key="qc_one").set_value(50.0)
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
@@ -6677,7 +6696,7 @@ def test_an_amount_limit_needs_a_number(burger):
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
-    assert [e.value for e in at.error] == ["Enter at least, at most, or both."]
+    assert [e.value for e in at.error] == ["Enter a number for this limit."]
     assert FoodOptimizer("burger").quantity_constraints == []
 
 
@@ -7076,7 +7095,7 @@ def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
     at.run()
     assert at.number_input(key="scale_total").help == (
         "Every formulation in this round adds up to this. Change it and the "
-        "amounts are worked out again at that size; the table's Total (g) "
+        "amounts are recalculated at that size; the table's Total (g) "
         "shows it.")
 
 
@@ -7139,8 +7158,9 @@ def test_a_round_with_a_rest_row_takes_any_batch_size_it_fits_in(rest_round):
     at.number_input(key="scale_total").set_value(5.0)
     at.run()
     said = [e.value for e in at.error] + [c.value for c in at.caption]
-    assert any(wording.balance_would_go_negative("Water", "5 g", "11 g")
-               in line for line in said), said
+    assert any(wording.balance_would_go_negative(
+        "Water", "5 g", "11 g", unit="g", noun=wording.BATCH_SIZE_NOUN)
+        in line for line in said), said
 
 
 def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
@@ -7162,7 +7182,8 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
     # ...and the consequence under the grid is read at the new size on the
     # very run the number moved, not on the next visit to the tab.
     assert any("in a 250 g formulation" in line
-               and line.startswith("Water is = rest") for line in said), said
+               and line.startswith("Water is worked out as = rest")
+               for line in said), said
     assert not any("in a 100 g formulation" in line for line in said), said
 
 
@@ -7523,7 +7544,7 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     assert box.label == "Batch size (g)"
     assert box.proto.placeholder == "e.g. 100"
     assert box.help == ("Every formulation in this round adds up to this. "
-                        "Change it and the amounts are worked out again at "
+                        "Change it and the amounts are recalculated at "
                         "that size; the table's Total (g) shows it.")
     box.set_value(25.0)
     at.run()
@@ -7607,8 +7628,11 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
     assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
-    assert any(c.value == "Sheets show each formulation made to 25 g."
-               for c in at.caption), [c.value for c in at.caption]
+    # The refusal above the table has just named 25 g as the size the round
+    # IS ("The round stays at 25 g."), so the caption under the download
+    # does not say the same number again one line later.
+    assert not any(c.value.startswith("Sheets show each formulation made")
+                   for c in at.caption), [c.value for c in at.caption]
     # No extra button, and the box is not changed under the hand: it still
     # holds the refused number next to the reason, on this run and the next.
     assert wording.YES_CONTINUE not in _labels(at), _labels(at)
@@ -8832,21 +8856,24 @@ def test_the_total_box_is_not_offered_while_the_units_differ(mixed_units):
 
 
 def test_the_unit_select_is_hidden_without_a_default_batch_size(burger):
-    """% of batch size is a Unit choice beside the plain one, offered only
-    while there is a default batch size to be a percent OF — without one
-    the choice would mean nothing."""
+    """% of default batch size is a "Write it as" choice beside the plain
+    one, offered only while there is a default batch size to be a percent
+    OF — without one the choice would mean nothing."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert "qc_unit" not in [b.key for b in at.selectbox]
-    assert at.number_input(key="qc_exactly").label == "Exactly (g)"
+    at.selectbox(key="qc_kind").set_value(wording.LIMIT_KIND_EXACTLY)
+    at.run()
+    assert at.number_input(key="qc_one").label == "Exactly (g)"
     _total_box(at).set_value(20.0)        # 0-25 g plus 0-3 g reaches 20 g
     at.run()
     assert "qc_unit" in [b.key for b in at.selectbox]
     unit_box = at.selectbox(key="qc_unit")
+    assert unit_box.label == wording.LIMIT_WRITTEN_AS_LABEL
     assert unit_box.options == ["g", wording.PERCENT_OF_BATCH_SIZE_UNIT]
     unit_box.set_value(wording.PERCENT_OF_BATCH_SIZE_UNIT)
     at.run()
-    assert at.number_input(key="qc_exactly").label == "Exactly (%)"
+    assert at.number_input(key="qc_one").label == "Exactly (%)"
     # Clearing the default takes the choice away again.
     _total_box(at).set_value(0.0)
     at.run()
@@ -9459,9 +9486,9 @@ def test_a_refused_row_keeps_what_was_typed_into_it(scored):
     typed = _ingredient_row("Cook time", kind=wording.KIND_SETTING,
                             low=0.0, high=30.0, unit="min")
     _save_grid(at, ING_GRID, added=[typed])
-    # Refused for the missing baseline, by row...
+    # Refused for the missing baseline, by name...
     assert [e.value for e in at.error] == [
-        wording.row_error(3, wording.ADD_BASELINE_ERROR)]
+        wording.named_row_error("Cook time", wording.ADD_BASELINE_ERROR)]
     # ...and the row is still on the grid, still holding what was typed.
     _grid_edits(at, ING_GRID, added=[typed])
     at.run()
@@ -9968,11 +9995,11 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     grid = _grid_frame(at, 0)
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
-        wording.WORKED_OUT, wording.WORKED_OUT)
+        "", wording.WORKED_OUT)
     assert row[wording.FORMULA_LABEL] == "= rest"
-    assert any(c.value == ("Water is = rest, whatever is left of the batch "
-                           "size: between 25.00 and 40.00 g in a 50 g "
-                           "formulation.")
+    assert any(c.value.startswith("Water is worked out as = rest, whatever "
+                                  "is left of the batch size: between 25.00 "
+                                  "and 40.00 g in a 50 g formulation")
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -9998,7 +10025,8 @@ def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
                                                   "Water": 38.0}
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
-    assert list(table["Water (g)"]) == [38.0]
+    # The round table wears the mark the printed sheets do.
+    assert list(table["Water · worked out (g)"]) == [38.0]
 
 
 
