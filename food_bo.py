@@ -2715,13 +2715,23 @@ class FoodOptimizer:
         sheet that does not do what the Formula cell says. The rows the
         search moves are scaled, `batch size` reads the new size, and the
         formulas are filled in after — which is what puts a balance row
-        exactly on the size that was asked for."""
+        exactly on the size that was asked for.
+
+        Which means the factor is not the ratio of the two sizes. A
+        formula's constant term does not scale — `= 5 + 0.1 × Flour` keeps
+        its 5 — so scaling the other rows by size/total lands the round
+        NEXT to the size it was asked for, and every row on the sheet then
+        wears a caption apologising for it. The factor is solved instead:
+        the sum is linear in it, so there is exactly one that puts the
+        total on the size, and it is the plain ratio whenever no formula
+        holds a constant.
+        """
         if scale_to is None:
             return dict(recipe)
         total = self.ingredient_total(recipe)
         if total <= 0:
             return dict(recipe)
-        factor = float(scale_to) / total
+        factor = self._scale_factor(recipe, float(scale_to), total)
         out = dict(recipe)
         for var in self.variables:
             if self.has_formula(var):
@@ -2731,6 +2741,48 @@ class FoodOptimizer:
                                 if var.get('category', 'ingredient') == 'ingredient'
                                 else value)
         return self.fill_formulas(out, batch=scale_to)
+
+    def _scale_factor(self, recipe, scale_to, total):
+        """What to multiply the rows the search moves by, so that the
+        formulation adds up to `scale_to` once the formulas are worked out
+        again at that size.
+
+        The sum is linear in the factor: each row the search moves is worth
+        its own gram plus whatever every formula reads it at, and what a
+        formula holds that does NOT move with the rows — its constant, its
+        `batch size` term, a process setting it reads — is the same number
+        whatever the factor is. So one division answers it. The plain ratio
+        comes back when nothing holds a constant, which is every project
+        without a formula and every proportional formula there is.
+        """
+        names = {v['name'] for v in self.variables
+                 if v.get('category', 'ingredient') == 'ingredient'}
+        try:
+            form = self._weighted_form(
+                lambda name: 1.0 if name in names else 0.0)
+        except (FormulaError, ValueError):
+            return scale_to / total
+        fixed_part = form.const + form.batch * scale_to
+        moving = 0.0
+        by_name = self._by_name()
+        for name, coeff in form.terms.items():
+            var = by_name.get(name)
+            value = _amount(recipe.get(name))
+            if var is not None and var.get('category',
+                                           'ingredient') != 'ingredient':
+                # A cook temperature is not an amount of anything and is
+                # not scaled, so a formula reading one reads the same
+                # number whatever the factor is.
+                fixed_part += coeff * value
+            else:
+                moving += coeff * value
+        if abs(moving) <= 1e-12:
+            # Nothing the factor touches reaches the total — a balance row
+            # makes every factor land on the size — so the rows keep the
+            # proportions they came with.
+            return scale_to / total
+        factor = (scale_to - fixed_part) / moving
+        return factor if factor > 0 else scale_to / total
 
     def _rewrites_amounts(self, own=False):
         """Whether a row is rewritten for a size on the way to the screen.
@@ -4622,12 +4674,23 @@ class FoodOptimizer:
         """Remove a quantity constraint by index. Taking out the one the
         Total of each formulation box owns takes the total with it: the
         number on tab 1 says the suggestions add up to it, and a number
-        nothing enforces would be a lie."""
+        nothing enforces would be a lie.
+
+        And every limit written as a % of the default batch size goes with
+        it, one line each — there is nothing left for one to be a percent
+        OF. The third door onto that, beside clear_formulation_total and
+        _sync_formulation_total; what comes back is the notice the screen
+        prints, in the shape both of them hand it."""
         if 0 <= index < len(self.quantity_constraints):
             gone = self.quantity_constraints.pop(index)
             if gone.get('source') == 'formulation_total':
                 self.formulation_total = None
+                removed = self._drop_percent_limits()
+                self.save()
+                return self.limit_removed_messages(
+                    [dict(qc, reason='no_default') for qc in removed])
             self.save()
+        return []
 
     # ------------------------------------------------------------------ #
     #  Total of each formulation
@@ -6494,6 +6557,13 @@ class FoodOptimizer:
         door, but this is drawn ABOVE the Save button, so a project that
         reached the grid by any other route has to leave the reader a way
         to edit their way out.
+
+        The low end is what the app will ALLOW, not what the arithmetic
+        reaches: no amount is weighed out below nothing, and the model and
+        _check_constraints both hold a worked-out row at or above 0. The
+        line said "between -5.00 and 55.00 g" where the app would never
+        suggest one of those numbers, and a negative gram is not a
+        consequence anybody can act on.
         """
         lines = []
         for var in self._formula_rows():
@@ -6503,6 +6573,7 @@ class FoodOptimizer:
                     lambda n, row=name: 1.0 if n == row else 0.0)
             except (FormulaError, ValueError):
                 continue
+            low = max(low, 0.0)
             unit = self._unit_of(var)
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
@@ -7225,15 +7296,28 @@ class FoodOptimizer:
         # renaming — both read before any row is, so a formula may name a
         # row this same save adds, and an untouched one may still spell a
         # row it renames.
-        names, renames = [], {}
+        names, renames, kept = [], {}, set()
         for _, row in _grid_rows(frame):
             if _row_is_blank(row):
                 continue
             was, now = _text_cell(row, GRID_ID), _text_cell(row,
                                                             wording.NAME_LABEL)
             names.append(now)
+            if was:
+                kept.add(was)
             if was and now and was != now:
                 renames[was] = now
+        # A row another row's rule reads cannot go, and that is said FIRST —
+        # before a single row is read. The per-row parse would otherwise get
+        # there first and say "there is no ingredient called Salt" against
+        # the rule's own row, which is true of the name list it is asked
+        # against and flatly untrue of the grid the reader is looking at.
+        # The same helper the process-setting door has always used.
+        reads = [(None, self._formula_reads_refusal(v['name']))
+                 for v in self.grid_variables() if v['name'] not in kept]
+        reads = [pair for pair in reads if pair[1]]
+        if reads:
+            return reads, None
         for row_no, row in _grid_rows(frame):
             if _row_is_blank(row):
                 # The empty line at the bottom of a dynamic grid, clicked and
@@ -7528,7 +7612,11 @@ class FoodOptimizer:
 
     def _check_grid_deletions(self, deleted, rows, force):
         """Refuse a deletion before anything is written, in the words
-        remove_ingredient would have used after the fact."""
+        remove_ingredient would have used after the fact.
+
+        A row another row's rule reads is refused earlier still, in
+        _plan_ingredient_grid, before the rows are read at all — and for
+        every category, because a rule may read a process setting too."""
         errors = []
         for name in deleted:
             if self._var_by_name(name).get('category',

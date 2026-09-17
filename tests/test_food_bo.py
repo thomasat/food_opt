@@ -5300,6 +5300,25 @@ class TestFormulationTotal:
         opt.remove_quantity_constraint(0)
         assert opt.formulation_total is None
 
+    def test_deleting_the_limit_by_index_takes_the_percent_limits_too(
+            self, tmp_path, monkeypatch):
+        """The third door onto a blanked default batch size. Its two
+        siblings take every % of batch size limit with them — there is
+        nothing left for one to be a percent OF — and this one set the
+        number to None and returned, leaving a percent limit naming a batch
+        size the project no longer had and still enforced at yesterday's
+        grams."""
+        opt = self._sample(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Salt", "Beet juice powder"],
+                                    percent={'min': None, 'max': 3.0})
+        assert any(qc.get('percent') for qc in opt.quantity_constraints)
+        messages = opt.remove_quantity_constraint(
+            opt._formulation_total_index())
+        assert opt.formulation_total is None
+        assert not any(qc.get('percent') for qc in opt.quantity_constraints)
+        assert [kind for kind, _ in messages] == ["warning"]
+
     def test_an_added_ingredient_is_covered_by_the_total(self, tmp_path,
                                                          monkeypatch):
         opt = self._sample(tmp_path, monkeypatch)
@@ -9007,7 +9026,13 @@ class TestFormulaRows:
         """Scaling every amount by one factor is right for a formula that is
         a multiple and wrong for one with a number in it: the rows the
         search moves are scaled, and the rows that are worked out are worked
-        out again at the new size."""
+        out again at the new size.
+
+        Which is why the factor is solved rather than taken as the ratio of
+        the two sizes. `= 5 + 0.1 × Flour` keeps its 5 whatever the size,
+        so doubling the other rows landed the round at 69 g when 74 g was
+        asked for — and every row on the sheet then wore a caption
+        apologising for it."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sized_formulas")
         opt.set_amount_unit("g")
@@ -9016,14 +9041,24 @@ class TestFormulaRows:
         opt.add_ingredient("Sugar", 0, 50)
         opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
         opt.set_formula("Water", "= 5 + 0.1 × Flour")
-        assert opt.scaled_recipe({"Water": 7.0, "Flour": 20.0,
-                                  "Sugar": 10.0}, 74) == {
-            "Water": 9.0, "Flour": 40.0, "Sugar": 20.0}
+        sized = opt.scaled_recipe({"Water": 7.0, "Flour": 20.0,
+                                   "Sugar": 10.0}, 74)
+        assert sum(sized.values()) == pytest.approx(74.0)
+        # Flour and Sugar keep the proportion they came in, and Water is
+        # worked out again rather than scaled.
+        assert sized["Flour"] / sized["Sugar"] == pytest.approx(2.0)
+        assert sized["Water"] == pytest.approx(5 + 0.1 * sized["Flour"])
         opt.set_pending_batch([{"Water": 7.0, "Flour": 20.0, "Sugar": 10.0}])
         opt.scale_round(74)
         sized = opt._batch_rows(opt.pending_batch)[0]['recipe']
-        assert sized == {"Water": 9.0, "Flour": 40.0, "Sugar": 20.0}
+        assert sum(sized.values()) == pytest.approx(74.0)
         assert opt._check_constraints(sized) is True
+        # A purely proportional formula is the plain ratio, as it always was.
+        opt.clear_formula("Water")
+        opt.set_formula("Water", "= 0.5 × Flour")
+        assert opt.scaled_recipe({"Water": 10.0, "Flour": 20.0,
+                                  "Sugar": 10.0}, 80) == {
+            "Water": 20.0, "Flour": 40.0, "Sugar": 20.0}
 
         # ...and the balance takes up whatever that leaves, so a round with
         # one lands exactly on the size that was asked for.
@@ -9036,6 +9071,32 @@ class TestFormulaRows:
         assert balanced["Flour"] == pytest.approx(30.0)
         assert balanced["Sugar"] == pytest.approx(15.0)
         assert sum(balanced.values()) == pytest.approx(150.0)
+
+    def test_the_grid_refuses_a_deletion_in_the_words_written_for_it(
+            self, tmp_path, monkeypatch):
+        """formula_reads_this_row names the row at fault and says what to
+        change. It was reachable only by deleting a process setting: from
+        the grid, the per-row parse got there first and said "there is no
+        ingredient called Salt" — true of the name list it was asked
+        against, and flatly untrue of the grid on screen. Asked now for
+        every deleted row, before any row is read, whatever its category.
+        """
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= Sugar × 2")
+        errors, _ = opt.apply_ingredient_grid(
+            _drop(opt.ingredient_grid_frame(), 3))
+        assert errors == [(None, wording.formula_reads_this_row("Sugar",
+                                                                "Water"))]
+        assert "Sugar" in [v['name'] for v in opt.variables]
+
+        opt.clear_formula("Water")
+        opt.add_process_parameter("Oven", 100, 200)
+        opt.set_formula("Water", "= 0.1 × Oven")
+        errors, _ = opt.apply_ingredient_grid(
+            _drop(opt.ingredient_grid_frame(), 4))
+        assert errors == [(None, wording.formula_reads_this_row("Oven",
+                                                                "Water"))]
+        assert "Oven" in [v['name'] for v in opt.variables]
 
     def test_deleting_a_process_setting_a_formula_names_is_refused(
             self, tmp_path, monkeypatch):
@@ -9218,6 +9279,27 @@ class TestTheFormulaColumn:
         assert opt.worked_out_captions() == [
             "Water is = rest, whatever is left of the batch size: "
             "between 40.00 and 62.00 g in a 100 g formulation."]
+
+    def test_the_caption_never_offers_an_amount_below_nothing(
+            self, tmp_path, monkeypatch):
+        """Every rule shows its consequence in numbers, and a negative gram
+        is not one of them: the app holds a worked-out row at or above 0,
+        so the line says the range the app will allow."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("caption_floor")
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 50)
+        opt.add_ingredient("Sugar", 0, 50)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(50)
+        errors, _ = opt.apply_ingredient_grid(
+            self._formula(opt.ingredient_grid_frame(), 1, "= 20 − Flour"))
+        assert errors == []
+        # The arithmetic reaches −30.00 g; the app never will.
+        assert opt.worked_out_captions() == [
+            "Water is worked out as 20 − Flour: between 0.00 and 20.00 g "
+            "in a 50 g formulation."]
 
     def test_the_caption_is_absent_without_a_formula(self, tmp_path,
                                                      monkeypatch):
