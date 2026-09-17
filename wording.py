@@ -2949,3 +2949,42 @@ def premix_weighed_consequence(names_text):
     """
     return (f"The suggestions vary {names_text} separately. Each "
             f"{FORMULATION} gets its own blend.")
+
+
+# ------------------------------------------------------------------ #
+# 0.7.0 wave 3, fix round 1: the pre-mix invariant, said in both
+# directions. A name a pre-mix owns is a row of the list the suggestions
+# move, or the thing such a row is made of. Nothing else in the project
+# may wear it, and nothing else may take it away behind the pre-mix's
+# back — so these are the sentences the other doors refuse in.
+# ------------------------------------------------------------------ #
+
+def name_taken_by_part(name, premix):
+    """'Flour is already a part of Dry blend.' — an ordinary row wearing
+    the name of something inside a pre-mix is the same flour in the bowl
+    twice, and the sentence names the pre-mix so the reader knows where to
+    look."""
+    return f"{name} is already a part of {premix}."
+
+
+def delete_the_premix_instead(name, premix):
+    """'Water is part of Wet blend. Take it out of the pre-mix instead.'
+    — deleting the row left the part behind, and the next save of the
+    make-up put the row straight back at no amount at all.
+
+    A pre-mix's own row names itself, which reads as one sentence either
+    way: 'Dry blend is part of Dry blend' would not, so that case says
+    what it is instead."""
+    if name == premix:
+        return (f"{name} is a pre-mix. Delete the pre-mix itself to take "
+                f"it out.")
+    return f"{name} is part of {premix}. Take it out of the pre-mix instead."
+
+
+def part_in_two_weighed_premixes(name, first, second):
+    """'Oil is already weighed into each formulation as part of Wet
+    blend, so it cannot also be part of Fry blend.' — weighed, a part IS
+    a row, and one row standing for two lots of mass is counted twice
+    everywhere it is read."""
+    return (f"{name} is already {PREMIX_MADE_AS_WEIGHED} as part of "
+            f"{first}, so it cannot also be part of {second}.")

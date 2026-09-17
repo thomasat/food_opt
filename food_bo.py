@@ -1548,8 +1548,9 @@ class FoodOptimizer:
         self._name_is_free_of_variables(name, skip=skip)
         self._name_is_free_of_measurements(name, skip=skip)
         self._name_is_free_of_properties(name)
+        self._name_is_free_of_premixes(name, skip=skip)
 
-    # Three passes, asked together everywhere but on a grid.
+    # Four passes, asked together everywhere but on a grid.
     #
     # A grid is saved whole, so a name another ROW of it is giving up in the
     # same save is free by the time the save lands — Flour renamed to Barley
@@ -1576,6 +1577,37 @@ class FoodOptimizer:
     def _name_is_free_of_properties(self, name):
         if self._known_property(name) is not None:
             raise ValueError(wording.name_taken_by_property(name))
+
+    def _name_is_free_of_premixes(self, name, skip=None):
+        """Raise unless `name` is free of the pre-mixes.
+
+        A pre-mix owns names as surely as the variable list does. A
+        pre-mix made in one bowl IS a row; its parts are what that row is
+        made of, and a weighed pre-mix's parts are rows in their own
+        right. An ordinary ingredient wearing one of those names is the
+        same flour in the bowl twice — once inside the blend and once
+        beside it — and nothing downstream can tell which mass is which.
+
+        `skip` is the row already wearing the name and entitled to keep
+        it. The one row that qualifies is the row a PRE-MIX itself put in
+        the list: setting its allowed amounts, or re-adding it to edit
+        them, is not a second thing taking the name. Everything else —
+        a new row, a rename onto the name, a property — is refused.
+        """
+        lowered = str(name).strip().lower()
+        if (isinstance(skip, dict)
+                and str(skip.get('name', "")).strip().lower() == lowered
+                and lowered in {n.lower()
+                                for n in self._premix_row_names()}):
+            return
+        for group, premix in self.premixes.items():
+            if group.lower() == lowered:
+                raise ValueError(wording.name_taken_by(group,
+                                                       wording.A_PREMIX))
+            for part in premix['parts']:
+                if part['name'].lower() == lowered:
+                    raise ValueError(
+                        wording.name_taken_by_part(part['name'], group))
 
     def _check_new_variable(self, name, min_val, max_val, category):
         """Shared validation for add_ingredient / add_process_parameter.
@@ -1816,7 +1848,7 @@ class FoodOptimizer:
             # One name, one thing — with the one exception a pre-mix makes:
             # the same water may be a part of the dry blend and of the wet
             # one, so a name is repeated only across DIFFERENT pre-mixes.
-            key = (group.lower(), name.lower()) if group else ("", name.lower())
+            key = (group.lower(), name.lower())
             if key in taken:
                 raise ValueError(wording.file_row_duplicate_name(row_no, name))
             taken.add(key)
@@ -4476,12 +4508,12 @@ class FoodOptimizer:
         one row of the list, and two places it is used.
         """
         lines, done = [], set()
+        by_name = self._by_name()
 
         def group_lines(group):
             done.add(group)
             premix = self.premixes[group]
             portioned = premix['mode'] == PREMIX_PORTIONED
-            by_name = self._by_name()
             lines.append({'var': by_name.get(group) if portioned else None,
                           'part': None, 'name': group, 'group': "",
                           'made_as': PREMIX_MADE_AS[premix['mode']],
@@ -4500,14 +4532,12 @@ class FoodOptimizer:
                 group_lines(name)
                 written.add(name)
                 continue
-            groups = [g for g in self.premix_of(name) if g not in done]
-            if groups:
-                for group in groups:
-                    group_lines(group)
-                    written.update(p['name'] for p
-                                   in self.premixes[group]['parts'])
-                if name in written:
+            for group in self.premix_of(name):
+                if group in done:
                     continue
+                group_lines(group)
+                written.update(p['name'] for p
+                               in self.premixes[group]['parts'])
             if name in written:
                 continue
             written.add(name)
@@ -4696,7 +4726,11 @@ class FoodOptimizer:
         # over its PARTS — they are the rows the search moves — and named
         # for the pre-mix, which is the thing the reader limited.
         premix = premix_named_by(qc.get('source'))
-        if premix:
+        if premix and premix in self.premixes:
+            # ...while it is still a pre-mix. A limit outlives the pre-mix
+            # that tagged it — the rows it names may be somebody else's
+            # now — and a label naming something the project no longer has
+            # is a line the reader cannot act on.
             return premix
         names = [v['name'] for v in self._ingredients()]
         if names and set(qc['ingredients']) == set(names):
@@ -7627,10 +7661,16 @@ class FoodOptimizer:
 
         A name is a KEY here, not a label: the amounts of every formulation
         are stored against it, the open batch and every not-scored row hold
-        it, an amount limit lists it, the total's own limit lists it, and an
-        ingredient's property values are filed under it. Renaming rewrites
-        all six and re-encodes the history, so the project after the rename
+        it, an amount limit lists it, the total's own limit lists it, an
+        ingredient's property values are filed under it, and a pre-mix is
+        keyed by it or names it as one of its parts. Renaming rewrites all
+        seven and re-encodes the history, so the project after the rename
         holds exactly what it held before, under the new name.
+
+        The pre-mixes move in the SAME pass as the row, not after it. Left
+        behind, the pre-mix was keyed to a name no row wore any more, and
+        the next sync saw an orphan row plus a name with no row and built a
+        second one — the blend counted twice.
 
         Refused for a name that is empty, reserved, or already the name of
         something else in this project — the same refusals adding one gives,
@@ -7672,6 +7712,7 @@ class FoodOptimizer:
         if name in self.ingredient_properties:
             self.ingredient_properties[new_name] = \
                 self.ingredient_properties.pop(name)
+        self._rename_in_premixes(name, new_name)
         # The lot numbers are filed per round, per ingredient, under the
         # name as well: left alone, the Lots sheet printed a name the
         # project no longer has.
@@ -7697,6 +7738,13 @@ class FoodOptimizer:
         if var.get('category', 'ingredient') != 'ingredient':
             raise ValueError(
                 wording.delete_the_process_setting_instead(name))
+        # A row a pre-mix put in the list is the pre-mix's, not this
+        # door's: deleting it here left the part standing in `parts`, and
+        # the next save of the make-up built the row again at no amount at
+        # all. The pre-mix is where a part is taken out.
+        owner = self._premix_owning(name)
+        if owner is not None:
+            raise ValueError(wording.delete_the_premix_instead(name, owner))
         trouble = self._ingredient_delete_refusal(name, force)
         if trouble:
             raise ValueError(trouble)
@@ -7710,7 +7758,7 @@ class FoodOptimizer:
                             for v in remaining)):
             raise ValueError(LAST_VARYING_ROW_ERROR)
 
-        self._forget_ingredient_rows([name])
+        removed = self._forget_ingredient_rows([name])
         # A deleted ingredient takes its facts with it. A row that merely
         # LEAVES the searched list — a pre-mix's part, when the pre-mix
         # goes back to being made in one bowl — keeps them, which is why
@@ -7719,7 +7767,7 @@ class FoodOptimizer:
         # The total is over every ingredient, and there is one fewer now. It
         # is handed back the way add_ingredient hands back what a unit change
         # emptied: the screen owes the same one-line notice either way.
-        removed = self._sync_formulation_total()
+        removed += self._sync_formulation_total()
         self._drop_pending_batch()
         self.save()
         return removed
@@ -7733,10 +7781,16 @@ class FoodOptimizer:
         belong to the name, and a part that has stopped being a row of its
         own is still a part with a protein figure. Deleting the ingredient
         outright is what forgets those, and remove_ingredient says so in
-        its own line."""
+        its own line.
+
+        Hands back the limits these rows emptied of meaning, in the shape
+        prune_amount_limits uses, so the screen names them the way it
+        names every other dropped limit. A limit whose EVERY row went was
+        dropped here in silence, before the pruning that would have
+        reported it could see it."""
         gone = {str(n) for n in names}
         if not gone:
-            return
+            return []
         self.variables = [v for v in self.variables if v['name'] not in gone]
         for written in (getattr(self, 'lots', None) or {}).values():
             if isinstance(written, dict):
@@ -7745,13 +7799,26 @@ class FoodOptimizer:
         for recipe in self.recipe_history:
             for name in gone:
                 recipe.pop(name, None)
-        kept = []
+        kept, removed = [], []
         for qc in getattr(self, 'quantity_constraints', []):
-            qc['ingredients'] = [n for n in qc['ingredients'] if n not in gone]
-            if qc['ingredients']:
+            left = [n for n in qc['ingredients'] if n not in gone]
+            if left:
+                # A limit that merely lost one of its rows goes on naming
+                # the rows it still has, as it always has here.
+                qc['ingredients'] = left
                 kept.append(qc)
+            elif qc.get('source') == 'formulation_total':
+                # The total's own limit is over every ingredient by
+                # definition; _sync_formulation_total rewrites it, or drops
+                # it in its own words.
+                continue
+            else:
+                removed.append(dict(qc, reason='missing',
+                                    missing=[n for n in qc['ingredients']
+                                             if n in gone]))
         self.quantity_constraints = kept
         self._reencode_history()
+        return removed
 
     # ------------------------------------------------------------------ #
     #  0.7.0 wave 3 · pre-mixes
@@ -7839,6 +7906,28 @@ class FoodOptimizer:
                 facts.setdefault(part['name'].lower(), part)
         return facts
 
+    def _sync_premix_facts(self, rows, facts):
+        """Carry the vendor and the SKU off each part entry onto the row
+        the pre-mix put in the list.
+
+        The UNIT does not follow. It is arithmetic, not a label: an amount
+        limit is a sum in one unit and the default batch size is written
+        in one, so a part entry saved with its unit cell empty would move
+        both behind the reader's back. A row's unit is set where it is
+        read — the grid, or the part entry that first built the row.
+        """
+        for var in self.variables:
+            if var.get('category', 'ingredient') != 'ingredient':
+                continue
+            lowered = var['name'].lower()
+            if lowered not in rows:
+                continue
+            part = facts.get(lowered)
+            if part is None:
+                continue
+            var['vendor'] = part.get('vendor', "") or ""
+            var['sku'] = part.get('sku', "") or ""
+
     def _premix_variable(self, name, part=None):
         """A new ingredient row for a name a pre-mix puts in the list.
 
@@ -7899,17 +7988,22 @@ class FoodOptimizer:
                 and v['name'].lower() in controlled - seen]
         have = {v['name'].lower() for v in self.variables}
         added = [row for row in wanted if row.lower() not in have]
+        # The facts a part carries are the reader's, typed against the part
+        # and printed on the sheets from the row. They are reconciled on
+        # every sync, not only when a row arrives: the early return below
+        # meant a vendor typed against an existing part never reached the
+        # row it is printed from.
+        self._sync_premix_facts(seen, facts)
         if not gone and not added:
             return []
-        if gone:
-            self._forget_ingredient_rows(gone)
+        removed = self._forget_ingredient_rows(gone) if gone else []
         for row in added:
             self.variables.append(
                 self._premix_variable(row, facts.get(row.lower())))
             self.ingredient_properties.setdefault(row, {})
         if added:
             self._reencode_history()
-        removed = self.prune_amount_limits()
+        removed += self.prune_amount_limits()
         removed += self._sync_formulation_total()
         self._drop_pending_batch()
         return removed
@@ -7928,6 +8022,13 @@ class FoodOptimizer:
         for other in self.premixes:
             if other.lower() == name.lower():
                 raise ValueError(wording.name_taken_by(other, wording.A_PREMIX))
+        # A name already inside another pre-mix, made a pre-mix in its own
+        # right, is a pre-mix inside a pre-mix — which is the refusal the
+        # parts grid gives for the same shape, in the same words. It is
+        # asked HERE, before the general pass, because that pass would
+        # name the clash as a part clash and the answer is the other one.
+        if self.premix_of(name):
+            raise ValueError(wording.PREMIX_INSIDE_PREMIX)
         self._name_is_free(name)
         self.premixes[name] = {'mode': mode, 'parts': [], 'versions': {}}
         removed = self._sync_premix(name)
@@ -8164,6 +8265,19 @@ class FoodOptimizer:
             raise ValueError(wording.PREMIX_INSIDE_PREMIX)
         if name.lower() in seen:
             raise ValueError(wording.name_taken_by(name, wording.A_PART))
+        # Weighed, a part IS a row of the list. In two weighed pre-mixes it
+        # is ONE row standing for two lots of mass, and every reader of it
+        # — the total, a limit, a roll-up — counts it twice. Portioned, the
+        # part is no row at all, so sharing it is exactly what the entries
+        # are for.
+        if self.premixes[group]['mode'] == PREMIX_WEIGHED:
+            for other, premix in self.premixes.items():
+                if other == group or premix['mode'] != PREMIX_WEIGHED:
+                    continue
+                if any(p['name'].lower() == name.lower()
+                       for p in premix['parts']):
+                    raise ValueError(wording.part_in_two_weighed_premixes(
+                        name, other, group))
         share = entry.get('share', 0.0)
         try:
             share = 0.0 if share is None or share == "" else float(share)
@@ -8203,6 +8317,40 @@ class FoodOptimizer:
                 if any(p['name'].lower() == lowered
                        for p in premix['parts'])]
 
+    def _rename_in_premixes(self, name, new_name):
+        """Carry one rename into the pre-mixes: the key of the pre-mix
+        that IS this row, and every part entry that names it, in the parts
+        as they stand and in every make-up already filed under a round.
+
+        The key is moved in place rather than popped and re-added, so the
+        pre-mixes keep the order they were added in — that order is what
+        the parts grid and the Set-up sheet read down."""
+        renamed = {}
+        for group, premix in self.premixes.items():
+            for parts in [premix['parts']] + list(
+                    (premix.get('versions') or {}).values()):
+                for part in parts:
+                    if part['name'] == name:
+                        part['name'] = new_name
+            renamed[new_name if group == name else group] = premix
+        if list(renamed) != list(self.premixes):
+            self.premixes = renamed
+
+    def _premix_owning(self, name):
+        """The pre-mix that put this row in the searched list, or None for
+        a loose ingredient.
+
+        A pre-mix's own row answers with itself — it IS the pre-mix — and
+        a part answers with the first pre-mix that names it, which is the
+        one whose facts built the row (_premix_part_facts). The one
+        question every door that would take a row AWAY has to ask."""
+        text = str(name).strip()
+        for group in self.premixes:
+            if group.lower() == text.lower():
+                return group
+        held = self.premix_of(text)
+        return held[0] if held else None
+
     def premix_parts(self, name, round_no=None):
         """What one pre-mix is made of: its parts as they stand, or the
         make-up the round numbered `round_no` was made with when that
@@ -8230,15 +8378,23 @@ class FoodOptimizer:
         premix = self._premix_by_name(name)
         mine = ([name] if premix['mode'] == PREMIX_PORTIONED
                 else [p['name'] for p in premix['parts']])
-        others = set()
+        others, kept_rows = set(), set()
         for group, other in self.premixes.items():
             if group == name:
                 continue
             others.add(group)
             others.update(p['name'] for p in other['parts'])
+            kept_rows.update(
+                n.lower() for n in ([group]
+                                    if other['mode'] == PREMIX_PORTIONED
+                                    else [p['name'] for p in other['parts']]))
         by_name = self._by_name()
+        # A row another pre-mix still puts in the list stays; being a PART
+        # of one is not the same thing — a pre-mix made in one bowl keeps
+        # its parts out of the list, so its naming this one is no reason to
+        # leave a row behind with nothing to put in it.
         rows = [row for row in mine
-                if row not in others and row in by_name]
+                if row.lower() not in kept_rows and row in by_name]
         for row in rows:
             trouble = self._ingredient_delete_refusal(row, force)
             if trouble:
@@ -8249,8 +8405,8 @@ class FoodOptimizer:
             raise ValueError(LAST_VARYING_ROW_ERROR)
         forgotten = [p['name'] for p in premix['parts']] + [name]
         del self.premixes[name]
-        self._forget_ingredient_rows(rows)
-        removed = self.prune_amount_limits()
+        removed = self._forget_ingredient_rows(rows)
+        removed += self.prune_amount_limits()
         kept = self._by_name()
         for gone in forgotten:
             if gone not in others and gone not in kept:
@@ -8468,6 +8624,12 @@ class FoodOptimizer:
             try:
                 self._name_is_free_of_measurements(spec['name'])
                 self._name_is_free_of_properties(spec['name'])
+                # The pre-mixes are not on this grid either, and a part of
+                # one is not a row the reader may name over. The row this
+                # grid line IS goes in as `skip`, so a pre-mix's own row
+                # keeps its name through every save.
+                self._name_is_free_of_premixes(spec['name'],
+                                               skip=by_id.get(spec['id']))
             except ValueError as e:
                 errors.append((row_no, str(e)))
         if errors:

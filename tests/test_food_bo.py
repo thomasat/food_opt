@@ -10540,25 +10540,33 @@ class TestPreMixes:
 
     def test_removing_a_premix_takes_its_rows_with_it(self, tmp_path,
                                                       monkeypatch):
-        """And leaves a row another pre-mix still needs, because that row
-        is the other pre-mix's too."""
+        """The rows go; the name stays where another pre-mix still holds
+        it as a part, with the facts filed under it."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_premix("Wet blend", "weighed")
         opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
                                                       ("Oil", 40)))
-        opt.add_premix("Fry blend", "weighed")
+        opt.add_premix("Fry blend", "portioned")
         opt.set_premix_parts("Fry blend", self._parts(("Oil", 100)))
         opt.add_ingredient("Water", 20, 40)
         opt.add_ingredient("Oil", 2, 8)
         opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
                                     source="premix:Wet blend")
-        opt.remove_premix("Wet blend")
+        removed = opt.remove_premix("Wet blend")
         assert list(opt.premixes) == ["Fry blend"]
-        # Oil stays: it is Fry blend's row as well. Water goes, and the
-        # limit that read it is left naming only Oil.
-        assert self._names(opt) == ["Sugar", "Oil"]
-        assert opt.quantity_constraints[-1]['ingredients'] == ["Oil"]
+        # Both rows go: Fry blend is made in one bowl, so Oil being one of
+        # its parts is not a row. Fry blend's own row is what is left.
+        assert self._names(opt) == ["Sugar", "Fry blend"]
+        assert opt.quantity_constraints == []
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Water + Oil",
+                wording.no_longer_ingredients("Water and Oil", True)))]
+        # Oil is still a part, and still a name the project knows facts
+        # about; Water went with the pre-mix that was its only home.
         assert opt.premix_of("Oil") == ["Fry blend"]
+        assert "Oil" in opt.ingredient_properties
+        assert "Water" not in opt.ingredient_properties
         with pytest.raises(ValueError) as caught:
             opt.premix_parts("Wet blend")
         assert str(caught.value) == wording.premix_unknown("Wet blend")
@@ -11019,3 +11027,260 @@ def test_a_bare_share_is_refused_everywhere_but_food_bo(word):
             assert refused == [], (name, word)
         else:
             assert refused == [(name, word)], (name, word)
+
+
+class TestPreMixesFixRoundOne:
+    """Fix round 1 on the pre-mixes. Every one of these is the same
+    invariant defended in one direction only: a name a pre-mix owns is a
+    row of the searched list, or the thing a row is made of, and nothing
+    else in the project may wear it or take it away behind the pre-mix's
+    back."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_fixes"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [{'name': "Flour", 'share': 70},
+                                           {'name': "Salt", 'share': 30}])
+        opt.add_ingredient("Dry blend", 5, 15)
+        return opt
+
+    @staticmethod
+    def _names(opt):
+        return [v['name'] for v in opt.variables]
+
+    @staticmethod
+    def _row(opt, name):
+        return opt._by_name().get(name)
+
+    # ---- 1 · a name a pre-mix owns is not free -------------------------- #
+
+    def test_an_ingredient_cannot_take_a_name_a_premix_owns(
+            self, tmp_path, monkeypatch):
+        """Flour is inside Dry blend. A loose row called Flour is the same
+        flour in the bowl twice, and the list cannot say which."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.add_ingredient("Flour", 0, 10)
+        assert str(caught.value) == wording.name_taken_by_part("Flour",
+                                                               "Dry blend")
+        assert wording.name_taken_by_part("Flour", "Dry blend") == \
+            "Flour is already a part of Dry blend."
+        # Nor a process setting, nor a property: the pass is asked at every
+        # door that names something.
+        with pytest.raises(ValueError):
+            opt.add_process_parameter("Salt", 0, 10)
+        with pytest.raises(ValueError):
+            opt.add_property("Flour")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+        # A pre-mix's own name is taken too — said in the pre-mix's words
+        # when it is not also a row, and in the row's when it is.
+        opt.add_premix("Wet blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.add_ingredient("Wet blend", 0, 10)
+        assert str(caught.value) == wording.name_taken_by("Wet blend",
+                                                          wording.A_PREMIX)
+        with pytest.raises(ValueError) as caught:
+            opt.add_process_parameter("Dry blend", 0, 10)
+        assert str(caught.value) == wording.name_taken_by(
+            "Dry blend", wording.AN_INGREDIENT)
+        # ...but the row the pre-mix itself put in the list is still the
+        # reader's to set amounts on.
+        opt.add_ingredient("Dry blend", 4, 16)
+        assert self._row(opt, "Dry blend")['bounds'] == (4.0, 16.0)
+
+    def test_a_rename_cannot_take_a_name_a_premix_owns(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Flour")
+        assert str(caught.value) == wording.name_taken_by_part("Flour",
+                                                               "Dry blend")
+        # A pre-mix that is not also a row — one weighed into each
+        # formulation, before anything is in it — is caught by the pre-mix
+        # pass and nothing else; a portioned one is its own row, and the
+        # variables pass gets there first with the same answer.
+        opt.add_premix("Wet blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Wet blend")
+        assert str(caught.value) == wording.name_taken_by("Wet blend",
+                                                          wording.A_PREMIX)
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Dry blend")
+        assert str(caught.value) == _name_taken_message("Dry blend",
+                                                        "ingredient")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+        # And the grid is the same door: it reads every row's name against
+        # what is not on the grid, and a pre-mix's parts are not.
+        errors, _ = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 1, **{wording.NAME_LABEL: "Salt"}))
+        assert errors == [(1, wording.name_taken_by_part("Salt",
+                                                         "Dry blend"))]
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+
+    # ---- 2 · a pre-mix's row is not deleted as an ingredient ------------ #
+
+    def test_a_premix_row_cannot_be_deleted_as_an_ingredient(
+            self, tmp_path, monkeypatch):
+        """Deleting a weighed pre-mix's part left it in `parts`, so the
+        next save of the make-up resurrected it at 0-0. The pre-mix is
+        where a part is taken out."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.remove_ingredient("Dry blend")
+        assert str(caught.value) == wording.delete_the_premix_instead(
+            "Dry blend", "Dry blend")
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        with pytest.raises(ValueError) as caught:
+            opt.remove_ingredient("Water")
+        assert str(caught.value) == wording.delete_the_premix_instead(
+            "Water", "Wet blend")
+        assert self._row(opt, "Water") is not None
+        # The pre-mix's own door still works, and takes the rows with it.
+        opt.remove_premix("Wet blend")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+
+    # ---- 3 · a rename moves the pre-mix with the row -------------------- #
+
+    def test_renaming_a_premix_row_moves_the_premix_with_it(
+            self, tmp_path, monkeypatch):
+        """A rename left the pre-mix keyed to the old name, so the next
+        sync saw an orphan row plus a name with no row and built a second
+        one."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        opt.rename_variable("Dry blend", "Blend")
+        assert list(opt.premixes) == ["Blend"]
+        assert self._names(opt) == ["Sugar", "Blend"]
+        assert [p['name'] for p in opt.premix_parts("Blend")] == \
+            ["Flour", "Salt"]
+        assert [p['name'] for p in opt.premix_parts("Blend", 1)] == \
+            ["Flour", "Salt"]
+        # A second sync builds nothing: the key and its row are one again.
+        opt.set_premix_parts("Blend", [{'name': "Flour", 'share': 70},
+                                       {'name': "Salt", 'share': 30}])
+        assert self._names(opt) == ["Sugar", "Blend"]
+
+        # And a weighed part's row carries its part entries with it, in
+        # every pre-mix that names it and in every make-up on file.
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.premixes["Wet blend"]['versions'][2] = opt.premix_parts("Wet blend")
+        opt.rename_variable("Water", "Spring water")
+        assert [p['name'] for p in opt.premix_parts("Wet blend")] == \
+            ["Spring water", "Oil"]
+        assert [p['name'] for p in opt.premix_parts("Wet blend", 2)] == \
+            ["Spring water", "Oil"]
+        assert self._names(opt) == ["Sugar", "Blend", "Spring water", "Oil"]
+
+    # ---- 4 · a pre-mix is not named after a part ------------------------ #
+
+    def test_a_premix_cannot_be_named_after_a_part(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.add_premix("Flour", "weighed")
+        assert str(caught.value) == wording.PREMIX_INSIDE_PREMIX
+        assert list(opt.premixes) == ["Dry blend"]
+
+    # ---- 5 · edited part facts reach the row ---------------------------- #
+
+    def test_edited_part_facts_reach_the_row(self, tmp_path, monkeypatch):
+        """A vendor typed against a part of a weighed pre-mix never
+        reached the row: the sync returned early whenever no row arrived
+        or left."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'unit': "ml"},
+            {'name': "Oil", 'share': 40}])
+        assert opt.unit_of("Water") == "ml"
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'unit': "ml",
+             'vendor': "Spring Co", 'sku': "W-1"},
+            {'name': "Oil", 'share': 40, 'vendor': "Press Co"}])
+        assert self._row(opt, "Water")['vendor'] == "Spring Co"
+        assert self._row(opt, "Water")['sku'] == "W-1"
+        assert self._row(opt, "Oil")['vendor'] == "Press Co"
+        # The unit is sticky: it is part of a limit's arithmetic and of the
+        # default batch size, and blanking it from a part entry would move
+        # both behind the reader's back. The unit is set where it is read.
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'vendor': "Spring Co"},
+            {'name': "Oil", 'share': 40}])
+        assert opt.unit_of("Water") == "ml"
+        assert self._row(opt, "Oil")['vendor'] == ""
+
+    # ---- 6 · a deleted pre-mix does not name a limit -------------------- #
+
+    def test_a_limit_does_not_name_a_deleted_premix(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        qc = opt.quantity_constraints[-1]
+        assert opt.limit_label(qc) == "Wet blend"
+        del opt.premixes["Wet blend"]
+        assert opt.limit_label(qc) == "Water + Oil"
+
+    # ---- 7 · the rulings from Task 2's concerns ------------------------- #
+
+    def test_a_limit_the_premix_row_took_with_it_is_said(self, tmp_path,
+                                                         monkeypatch):
+        """A limit whose every row went with the pre-mix was dropped in
+        silence, because it never reached prune_amount_limits. It is named
+        the way every other dropped limit is."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        removed = opt.set_premix_mode("Wet blend", "portioned")
+        # Named for the pre-mix, because the pre-mix is still there — it is
+        # the rows underneath it that went.
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Wet blend",
+                wording.no_longer_ingredients("Water and Oil", True)))]
+        assert opt.quantity_constraints == []
+        # remove_ingredient owes the same line, through the same tail.
+        opt.add_quantity_constraint(["Sugar"], max_val=4)
+        removed = opt.remove_ingredient("Sugar", force=True)
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Sugar", wording.no_longer_ingredients("Sugar", False)))]
+
+    def test_a_part_cannot_be_in_two_weighed_premixes(self, tmp_path,
+                                                      monkeypatch):
+        """Weighed, a part IS a row. In two weighed pre-mixes it is one row
+        standing for two lots of mass, and every roll-up counts it twice.
+        Portioned, the part is no row at all, so sharing it is fine."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_premix("Fry blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_parts("Fry blend", [{'name': "Oil", 'share': 100}])
+        assert str(caught.value) == wording.part_in_two_weighed_premixes(
+            "Oil", "Wet blend", "Fry blend")
+        assert opt.premix_parts("Fry blend") == []
+        # Shared between two PORTIONED pre-mixes is still allowed, and so is
+        # sharing with a portioned one from a weighed one.
+        opt.set_premix_mode("Fry blend", "portioned")
+        opt.set_premix_parts("Fry blend", [{'name': "Oil", 'share': 100}])
+        assert opt.premix_of("Oil") == ["Wet blend", "Fry blend"]
