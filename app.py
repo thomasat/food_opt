@@ -94,7 +94,8 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 # same pattern clear_selection has always used for a select box.
 _FORM_FRESH = {
     "prop_min": None, "prop_max": None, "prop_new": "",
-    "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
+    "qc_min": None, "qc_max": None, "qc_one": None,
+    "tm_min": None, "tm_max": None,
     "qty_pick": [], "delete_formulations": [],
     "how_many": 3, "scale_total": None, "own_note": "",
     "formulation_total": None,
@@ -139,6 +140,12 @@ def _reset_project_session():
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
               ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,
+              # What the Default batch size box is up to date with. Parked
+              # empty three lines below like every other box, so a mark left
+              # behind here told its own seed the empty box was current —
+              # and the blank was written back over the project's total.
+              ui_setup._SEEDED_FORMULATION_TOTAL,
+              ui_setup._SHOWN_FORMULATION_TOTAL,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
@@ -161,10 +168,12 @@ def _reset_project_session():
             st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False, made=False):
+def _open_project(name, create=False, made=False, rebuilt=False):
     """Open a project. `create` makes an empty one first; `made` says the
     project was built a moment ago by another handler (the sample), so the
-    user is told it was created rather than opened."""
+    user is told it was created rather than opened; `rebuilt` says the
+    sample was put back the way it started, throwing away edits the reader
+    had made to it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -178,9 +187,13 @@ def _open_project(name, create=False, made=False):
     # previous project's name straight back, leaving the sidebar naming one
     # project, the box another, and Open lit over the project just abandoned.
     clear_selection("project_select")
-    flash("success",
-          wording.project_created(name) if (create or made)
-          else wording.project_opened(name))
+    if rebuilt:
+        line = wording.sample_project_rebuilt(name)
+    elif create or made:
+        line = wording.project_created(name)
+    else:
+        line = wording.project_opened(name)
+    flash("success", line)
     st.rerun()
 
 
@@ -261,9 +274,12 @@ def _open_sample_project():
         if _sample.save_error:
             st.error(_sample.save_error)
         else:
-            # "Created" only the first time: rebuilding a sample the user
-            # never used is still, to them, opening the sample.
-            _open_project(_name, made=_existing is None)
+            # "Created" only the first time. A sample that WAS on disk is
+            # being rebuilt, which throws away whatever the reader typed
+            # into it — rules, amounts, a changed Highest — and the line
+            # says so rather than calling it an open.
+            _open_project(_name, made=_existing is None,
+                          rebuilt=_existing is not None)
 
 
 def _safety_copies(opt):

@@ -144,9 +144,16 @@ def _previous_size_line(opt):
 def _unreachable(opt, typed):
     """Why this size cannot be made, or "" when it can.
 
-    The same arithmetic Set up's box does, in the same two sentences, with
-    the noun of THIS box: a size outside what the allowed amounts add up to
-    has no answer, and no search can find one.
+    The same arithmetic Set up's box does, in the same sentences, with the
+    noun of THIS box: a size outside what the allowed amounts add up to has
+    no answer, and no search can find one.
+
+    A project with a row written = rest has no top at all — that row takes
+    whatever is left, so any size the other rows fit inside can be made —
+    and its floor is said in the balance's own words, which name the row
+    and what the others need. Reading the batch size at both ends told one
+    round its floor and its ceiling were both 100 g, and the box accepted
+    nothing at all.
     """
     if typed is None:
         return ""
@@ -156,6 +163,13 @@ def _unreachable(opt, typed):
             opt.batch_total_text(typed), opt.batch_total_text(highest),
             noun=wording.BATCH_SIZE_NOUN)
     if typed < lowest:
+        balance = opt.balance_row_name()
+        if balance is not None:
+            return wording.balance_would_go_negative(
+                balance, opt.batch_total_text(typed),
+                opt.batch_total_text(lowest),
+                unit=opt.unit_of(balance),
+                noun=wording.BATCH_SIZE_NOUN)
         return wording.total_not_reachable_at_least(
             opt.batch_total_text(typed), opt.batch_total_text(lowest),
             noun=wording.BATCH_SIZE_NOUN)
@@ -398,6 +412,7 @@ def _own_formulation(opt):
                 **({} if var.get('category') == 'process'
                    else {"format": "%.2f"}),
             )
+        _worked_out_boxes(opt)
         _prefilled_caption(opt)
         st.session_state.setdefault("own_note", "")
         # The note is why this formulation is worth a place in the batch; it
@@ -422,6 +437,42 @@ def _own_formulation(opt):
                                 use_container_width=True)
         if add:
             _add_own(opt)
+
+
+def _worked_out_boxes(opt):
+    """The rows that are worked out, under the ones that are typed: greyed,
+    and holding the amount the formula makes of what is in the boxes above.
+
+    A worked-out row has no box of its own to type into — its amount is
+    arithmetic over the others — but the bench still weighs it, so leaving
+    it off the form would have asked for a formulation the table then showed
+    a row of that nobody had seen. It fills in as the boxes above it do; it
+    reads `worked out` until they are all answered.
+    """
+    worked = [v for v in opt.variables if opt.has_formula(v)]
+    if not worked:
+        return
+    st.caption(wording.WORKED_OUT_BOXES_CAPTION)
+    typed = {var['name']: st.session_state.get(_own_key(var['name']))
+             for var in opt.varying_variables()}
+    filled = {}
+    if all(value is not None for value in typed.values()):
+        filled = opt.fill_formulas(
+            {**{name: float(value) for name, value in typed.items()},
+             **{v['name']: opt._fixed_value(v)
+                for v in opt.fixed_variables()}})
+    for var in worked:
+        value = filled.get(var['name'])
+        # No key. A keyed box keeps the first value it was given — session
+        # state wins over the argument on every later run — and this one has
+        # to follow the boxes above it as they are typed into.
+        st.number_input(
+            opt._amount_column(var['name']),
+            value=None if value is None else round(float(value), 2),
+            placeholder=wording.WORKED_OUT, disabled=True,
+            **({} if var.get('category') == 'process'
+               else {"format": "%.2f"}),
+        )
 
 
 def _prefilled_unchanged(opt):
@@ -503,12 +554,19 @@ def _batch_table(opt, scale_to):
         frame.style.format(_amount_format(opt, frame)),
         hide_index=True, key="batch_table", height=table_height(len(frame)),
     )
+    # The size first, then the corrections line. Three captions under one
+    # table, two of them about the size, used to sit with the one that is
+    # not in the middle of them.
     if scale_to is None:
         if opt.has_ingredients():
             st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
+    # The table is read only, whatever it holds — a worked-out row's amount
+    # included. What was actually weighed is corrected where it is
+    # recorded, not by overtyping a cell here.
+    st.caption(wording.CORRECTIONS_ON_RESULTS_CAPTION)
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.
@@ -570,7 +628,7 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
 
 
-def _downloads(opt, scale_to, sized):
+def _downloads(opt, scale_to, sized, said_size=False):
     """Step 2: the one file the bench works from, the size it is written to,
     and the one line that names it.
 
@@ -598,9 +656,12 @@ def _downloads(opt, scale_to, sized):
         type="primary" if lit else "secondary",
         use_container_width=True,
     )
-    if scale_to is not None:
+    if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
-        # for is named directly under it.
+        # for is named directly under it — unless the refusal above the
+        # table has just said that same number ("The round stays at 100 g"),
+        # in which case this repeats one fact with a different subject one
+        # line apart.
         st.caption(wording.sheets_show_total_caption(
             opt.batch_total_text(scale_to)))
 
@@ -980,6 +1041,9 @@ def render(opt, storage):
     # themselves, not a picture of them — and remembers it with the round, so
     # a reopened window and tab 3 both still know what the bench weighed out.
     refusal = _apply_batch_size(opt, typed)
+    # A refused size has already named the size the round IS, right above
+    # the table; the caption under the download must not say it again.
+    said_size = bool(refusal)
     # After the scaling, never before: scale_round replaces the rows, and a
     # list read a line earlier would be the amounts nobody is making.
     rows = opt.pending_batch
@@ -1028,7 +1092,7 @@ def render(opt, storage):
     )
 
     with print_slot:
-        _downloads(opt, scale_to, sized)
+        _downloads(opt, scale_to, sized, said_size)
     with record_slot:
         _record_results(opt)
     with own_slot:

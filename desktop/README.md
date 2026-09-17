@@ -6,10 +6,10 @@ Design spec: `docs/superpowers/specs/2026-08-13-desktop-packaging-design.md`.
 ## Build
 
 ```bash
-./desktop/build_dmg.sh 0.5.0        # version is the only argument
+./desktop/build_dmg.sh 0.6.0        # version is the only argument
 ```
 
-Output: `desktop/dist/FoodOptimizer-0.5.0.dmg`. Unsigned builds print a
+Output: `desktop/dist/FoodOptimizer-0.6.0.dmg`. Unsigned builds print a
 loud warning and are for internal testing only — never send one to a
 recipient.
 
@@ -46,7 +46,7 @@ Then every distribution build:
 ```bash
 export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
 export NOTARY_PROFILE=foodopt-notary
-./desktop/build_dmg.sh 0.5.0
+./desktop/build_dmg.sh 0.6.0
 ```
 
 ## Updating dependencies
@@ -149,20 +149,39 @@ warnings entirely, and the checklist below gates distribution on that.
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
 6. UI walkthrough: click "Try the sample project" (eight ingredients,
-   Juiciness and Firmness, formulations of 100 g). On "1 · Set up", type
+   Juiciness and Firmness, formulations of 100 g). Seven ingredients get
+   an amount chosen for them; Water's Rule cell says "= rest", so its
+   Highest reads "worked out" and one line under the grid gives
+   what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
    "Discard changes" puts the grid back; open "More settings" and
-   "Advanced" and check nothing else sits on the tab. Go to "2 · Make a
-   round", generate one, change "Batch size (g)" and watch every amount
+   "Advanced" and check nothing else sits on the tab. In "More settings",
+   check that an ingredient limit offers a "Limit is" choice of "At
+   least", "At most", "Between" or "Exactly" - one box, or two for
+   "Between" -
+   and that "Write it as" offers "% of default batch size" (it is
+   there only while a default batch size is set), and that picking an
+   ingredient does not close "More settings" under you. Go to "2 · Make a
+   round", generate one, check every row of the round table totals the
+   batch size and that Water's column is headed "Water · worked out (g)",
+   change "Batch size (g)" to 250 and watch every amount
    in the round table follow it, download the round sheets (Excel) and
    open it: the sheets
    are protected, only the cells the instruction line names take a value,
    and a printed greyscale copy makes clear which they are — every one of
    them is boxed and nothing else is shaded. Each formulation page has an
    "Actual (g)" column beside its amounts, with a "Lot" cell per
-   ingredient on the "Round 1" page. Record a result (or mark one Not
+   ingredient on the "Round 1" page. Water is printed as "Water · worked
+   out" on both pages, with the line "Water is worked out: = rest
+   (batch size − every other ingredient). Weigh the amount printed."
+   under the amounts. Record a result (or mark one Not
    scored and score it later from Results), and confirm the `.pkl` appears
    in `~/FoodOptimizer/`.
+6a. On "3 · Results", click "Download all formulations (Excel)" and open
+   it: the "Set up" sheet in THAT file is the one with the Rule column,
+   and it spells Water out as "= rest (batch size − every other
+   ingredient)" with "worked out" in its Status cell. (The round sheets
+   in step 6 are a different download and carry no Set-up sheet.)
 7. Quit, relaunch: fast start, project still listed and loads.
 8. Wi-Fi off on a set-up machine: works fully offline.
 9. Wi-Fi off on a fresh machine: plain-language "needs internet once"

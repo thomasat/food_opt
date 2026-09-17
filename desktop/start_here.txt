@@ -25,8 +25,10 @@ HOW TO INSTALL
 
 TRYING IT OUT
 - The app comes with a sample project: a plant-based burger with eight
-  ingredients and two panel ratings. On the first screen, click
-  "Try the sample project" to explore before setting up your own.
+  ingredients and two panel ratings. The app picks amounts for seven of
+  them; Water is worked out from its formula, so every formulation adds
+  up to 100 g. On the first screen, click "Try the sample project" to
+  explore before setting up your own.
 - Your ingredients and your measurements are two tables on the Set up
   tab, and you type straight into them: change a cell, type a new row
   on the empty line at the bottom, or take a row out. Nothing reaches
@@ -36,6 +38,18 @@ TRYING IT OUT
 - To fix an ingredient at one amount, type the same number in Lowest
   and Highest. Set Lowest and Highest apart again and the app is free to
   move it.
+- To work an amount out from the other rows instead of letting the app
+  choose it, type a rule in the Rule cell: "= batch size − Water −
+  Salt", "= 1.5 % of batch size", or "= rest" for the one row that takes
+  whatever is left of the batch size. That row then reads "worked out"
+  where its Highest was, and a line under the table says what it comes
+  to in numbers. Clear the cell and the row gets its Lowest and Highest
+  back.
+- Under "More settings", a limit over several ingredients says "Limit
+  is": at least, at most, between, or exactly. Once you have set a
+  default batch size you can write any of them in grams or as a
+  "% of default batch size", and the app keeps the grams up to date when
+  the default batch size changes.
 - Starting from a spreadsheet? On the Set up tab, open "Or upload an
   ingredients file" to download the template, fill it in, and upload it
   from the same place.
@@ -43,14 +57,19 @@ TRYING IT OUT
 USING IT DAY TO DAY
 - "Batch size (g)" on the Make a round tab is what one formulation adds
   up to. Change it and the round on screen, and the sheets you print,
-  are worked out again at that size.
+  are recalculated at that size.
+- The round on screen is a table you read, not one you type into.
+  Correct what you made in Results, after you record it.
 - The round sheets open in Excel. They are locked except the boxed
   cells, so you can only write where the app reads: Tick, what you
   measured, Not scored, a note, "Actual (g)" when the balance gave you
   something other than the amount printed, and the Lot each ingredient
   came from. "Actual (g)" is on each formulation's sheet; Lot is on the
-  Round sheet, one per ingredient for the whole round. Upload the file
-  again and the app takes all of it.
+  Round sheet, one per ingredient for the whole round. A row filled in
+  from its rule prints as "Water · worked out", with a line naming that
+  rule under the amounts; it has an "Actual (g)" cell and a Lot cell
+  like any other row. Upload the file again and the app takes all of
+  it.
 - To open the app again, open Food Optimizer from Applications, like
   any app. It runs in its own window.
 - To quit, close the window.
