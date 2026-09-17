@@ -180,8 +180,14 @@ class LinearForm:
 # Both alphabets a formula may be typed in, mapped to the one symbol the
 # parser below reads: the typographic row the spec prints (−×÷) and the
 # ASCII row the bench types (-*/) mean the same four operators.
-_FORMULA_OPS = {'+': '+', '-': '-', '−': '-',
-               '*': '*', '×': '*', '/': '/', '÷': '/'}
+#
+# And the characters a keyboard produces without being asked. macOS smart
+# dashes, Word and Excel all turn a typed '-' into an en or em dash, which
+# looks like a minus sign and is not one; '·' is the multiplication dot a
+# scientist writes by hand. Refusing them named a character the reader
+# could not tell apart from the one that works.
+_FORMULA_OPS = {'+': '+', '-': '-', '−': '-', '–': '-', '—': '-',
+               '*': '*', '×': '*', '·': '*', '/': '/', '÷': '/'}
 
 
 def _formula_word_ends(body, end):

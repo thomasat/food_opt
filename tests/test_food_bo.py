@@ -8598,6 +8598,19 @@ class TestFormulaGrammar:
                              has_batch_size=False)
         assert form == LinearForm(terms={"Cream cheese": 1.0, "Cream": -1.0})
 
+    @pytest.mark.parametrize("dash", ["\u2013", "\u2014"])
+    def test_a_dash_a_keyboard_makes_on_its_own_is_a_minus_sign(self, dash):
+        """macOS smart dashes, Word and Excel all turn a typed '-' into an
+        en or em dash. Refusing them printed a list of characters one of
+        which looks identical to the one the reader had just typed."""
+        form = parse_formula(f"= Water {dash} Salt", self.NAMES,
+                             has_batch_size=False)
+        assert form == LinearForm(terms={"Water": 1.0, "Salt": -1.0})
+
+    def test_a_multiplication_dot_is_a_times_sign(self):
+        form = parse_formula("= Water · 2", self.NAMES, has_batch_size=False)
+        assert form == LinearForm(terms={"Water": 2.0})
+
     def test_two_amounts_multiplied_is_refused_in_the_spec_sentence(self):
         with pytest.raises(FormulaError) as excinfo:
             parse_formula("= Water × Salt", self.NAMES, has_batch_size=False)
