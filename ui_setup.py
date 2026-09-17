@@ -178,6 +178,10 @@ _SEEDED_FORMULATION_TOTAL = "_formulation_total_seeded"
 # the same thing whether the user typed it or the app seeded it — so the one
 # value a returned number can be compared against is tracked here.
 _SHOWN_FORMULATION_TOTAL = "_formulation_total_shown"
+# What the row written = rest takes at the number the box has just moved to.
+# Said under the box, and held for one run because that same change retires
+# the open round and the rerun would take the line with it.
+_REST_ROW_LINE = "_formulation_total_rest_line"
 
 
 def _formulation_total_mark(opt, total):
@@ -276,6 +280,7 @@ def _formulation_total(opt):
     shown = st.session_state.get(_SHOWN_FORMULATION_TOTAL)
     shown = None if not shown else float(shown)
     batch_no = opt.pending_batch_no
+    before = getattr(opt, 'formulation_total', None)
     typed = st.number_input(
         wording.formulation_total_label(opt.one_amount_unit()),
         min_value=0.0, step=1.0,
@@ -290,6 +295,19 @@ def _formulation_total(opt):
     # not queued for a rerun that this render does not make.
     for kind, line in messages:
         getattr(st, kind)(line)
+    # And so is what the row written = rest now takes. Amounts in grams do
+    # not follow the batch size and that row does, so a project can go from
+    # a burger to soup on one keystroke with nothing said about it.
+    #
+    # Kept in session state for one run rather than printed and forgotten:
+    # a changed total retires the open round, and the rerun that ends this
+    # render would throw the line away with everything else drawn on it.
+    # `render` drops it once a run gets past this point without rerunning.
+    if getattr(opt, 'formulation_total', None) != before:
+        st.session_state[_REST_ROW_LINE] = opt.batch_size_consequence()
+    standing = st.session_state.get(_REST_ROW_LINE)
+    if standing:
+        st.caption(standing)
     # The open batch was built to the old answer, so a changed total retires
     # it like every other set-up change — with the same notice. The notice
     # lands above the tabs on the NEXT run, so this one is ended here:
@@ -491,9 +509,16 @@ def _variables(opt, storage):
     read; a new one goes on the empty line at the bottom; a row taken out is
     a deletion, asked about by name before Save applies it.
 
-    Returns True while there is an edit in hand: `Save changes` is then the
-    tab's one lit action and the foot steps aside, exactly as the per-row
-    editors used to make it.
+    Returns the edit-in-hand flag and the slot the worked-out captions are
+    written into. True while there is an edit in hand: `Save changes` is
+    then the tab's one lit action and the foot steps aside, exactly as the
+    per-row editors used to make it.
+
+    The captions are written LAST, from `render`, because the Default batch
+    size box lives further down the page and this one runs first: a caption
+    drawn here read "in a 100 g formulation" on the very run the reader
+    typed 250 into that box, and only came right after they left the tab
+    and came back.
     """
     st.subheader(wording.VARIABLES_HEADER)
     st.caption(wording.INGREDIENT_GRID_CAPTION)
@@ -510,9 +535,9 @@ def _variables(opt, storage):
     # Every rule shows its consequence in numbers: one line per row that is
     # worked out, saying what the other rows' allowed amounts leave it. The
     # project's own rows, not the edited frame's — it is what has been
-    # saved that the model answers for.
-    for line in opt.worked_out_captions():
-        st.caption(line)
+    # saved that the model answers for. Filled in by `render`, once the
+    # Default batch size box below has had its say.
+    captions = st.container()
     pending = _pending(saved, edited)
     _keep_pending(ING_GRID_KEY, pending, edited, from_park)
     # Read by the grid below, which keeps its own pair of buttons grey while
@@ -535,7 +560,7 @@ def _variables(opt, storage):
         st.caption(wording.made_before_units_caption(opt.amount_unit))
     with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
         _upload_ingredients(opt)
-    return pending
+    return pending, captions
 
 
 def _round_at_risk(opt, edited, force=()):
@@ -1482,11 +1507,20 @@ def render(opt, storage):
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
         st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
-    pending = _variables(opt, storage)
+    pending, captions = _variables(opt, storage)
     st.divider()
     pending = _measurements(opt, storage) or pending
     st.divider()
     _more_settings(opt, storage)
+    # Past the one rerun tab 1 raises from inside More settings, so the line
+    # that box left behind has been on screen and is done with.
+    st.session_state.pop(_REST_ROW_LINE, None)
+    # Written now, not where they appear: the Default batch size box is in
+    # More settings, and a caption drawn before it read the old number on
+    # the very run the reader changed it.
+    with captions:
+        for line in opt.worked_out_captions():
+            st.caption(line)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

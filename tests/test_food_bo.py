@@ -8598,6 +8598,42 @@ class TestFormulaGrammar:
                              has_batch_size=False)
         assert form == LinearForm(terms={"Cream cheese": 1.0, "Cream": -1.0})
 
+    @pytest.mark.parametrize("cell", ["= 1.5 % of batch size",
+                                      "= 1.5% of batch size",
+                                      "= 1.5 % OF batch size"])
+    def test_a_percentage_of_the_batch_size_is_the_wording_on_screen(
+            self, cell):
+        """The Limits box above the grid writes this idea as
+        "% of batch size", and the one control that can hold it for a single
+        row refused the same words. 1.5 % is × 0.015."""
+        form = parse_formula(cell, self.NAMES, has_batch_size=True)
+        assert form == LinearForm(batch=0.015)
+
+    def test_a_percentage_of_another_row_reads_that_row(self):
+        form = parse_formula("= 50 % of Water", self.NAMES,
+                             has_batch_size=False)
+        assert form == LinearForm(terms={"Water": 0.5})
+
+    def test_a_percentage_binds_like_a_multiplication(self):
+        form = parse_formula("= 10 % of Water + Salt", self.NAMES,
+                             has_batch_size=False)
+        assert form == LinearForm(terms={"Water": 0.1, "Salt": 1.0})
+
+    def test_a_percentage_of_an_amount_is_refused_like_any_other_product(
+            self):
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("= Water % of Salt", self.NAMES,
+                          has_batch_size=False)
+        assert str(excinfo.value) == wording.FORMULA_TWO_AMOUNTS
+
+    def test_of_is_only_the_second_half_of_a_percentage(self):
+        """A row really called 'of' is matched as a name, and the word on
+        its own is not a formula."""
+        with pytest.raises(FormulaError):
+            parse_formula("= of", self.NAMES, has_batch_size=False)
+        assert parse_formula("= of", ["of"], has_batch_size=False) == \
+            LinearForm(terms={"of": 1.0})
+
     @pytest.mark.parametrize("dash", ["\u2013", "\u2014"])
     def test_a_dash_a_keyboard_makes_on_its_own_is_a_minus_sign(self, dash):
         """macOS smart dashes, Word and Excel all turn a typed '-' into an
@@ -8835,11 +8871,75 @@ class TestFormulaRows:
         assert opt.has_formula(opt._var_by_name("Sugar")) is False
 
     def test_total_reach_folds_a_balance_row_in(self, tmp_path, monkeypatch):
+        """A balance row takes whatever is left of the batch size, so there
+        is no size these ingredients cannot make — only one too small for
+        the other rows to fit inside. Reading the batch size at both ends
+        said the same number was the floor and the ceiling, and the Batch
+        size box then accepted nothing at all."""
         opt = self._opt(tmp_path, monkeypatch)
         assert opt.total_reach() == (15.0, 180.0)
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= rest")
-        assert opt.total_reach() == (100.0, 100.0)
+        assert opt.total_reach() == (15.0, float('inf'))
+        # Flour 10-50 and Sugar 5-30 need 15 g between them, whatever the
+        # size; anything at or above that is reachable.
+        opt.set_formulation_total(250)
+        assert opt.formulation_total == 250
+
+    def test_a_rest_row_has_no_largest_batch_size(self, tmp_path,
+                                                  monkeypatch):
+        """The Batch size box on Make a round accepted no value at all: the
+        same round was told its floor was 100 g and its ceiling was 100 g.
+        A rest row takes whatever is left, so any size the other rows fit
+        inside can be made."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("rest_reach", robust=False)
+        opt.set_amount_unit("g")
+        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.add_objective("Juiciness", 1.0, goal="target", target=7,
+                          min_val=0, max_val=10, unit="/10")
+        opt.set_formulation_total(100.0)
+        low, high = opt.total_reach()
+        assert high == float('inf')
+        assert low == 0.0        # every other row may be 0
+        for size in (120.0, 250.0):
+            opt.set_formulation_total(size)
+            assert opt.formulation_total == size
+        # And the floor, when there is one, is the least the OTHER rows
+        # need — said in the balance's own words by every box that asks.
+        opt.set_formulation_total(100.0)
+        opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 1,
+            **{wording.LOWEST_LABEL: 20.0, wording.HIGHEST_LABEL: 25.0}))
+        assert opt.total_reach() == (20.0, float('inf'))
+        assert opt.balance_row_name() == "Water"
+        with pytest.raises(ValueError) as caught:
+            opt.set_formulation_total(15.0)
+        assert str(caught.value) == wording.balance_would_go_negative(
+            "Water", "15 g", "20 g")
+
+    def test_changing_the_default_says_what_the_rest_row_now_takes(
+            self, tmp_path, monkeypatch):
+        """Amounts written in grams do not follow the batch size and a rest
+        row does, so one keystroke turned a burger into soup with nothing
+        said about it but a deleted limit."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("rest_consequence", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 10, 50)
+        opt.add_ingredient("Sugar", 20, 28)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        opt.set_formulation_total(250)
+        assert opt.batch_size_consequence() == (
+            "Water takes up the difference: between 172.00 and 220.00 g in "
+            "a 250 g formulation. To keep the same proportions, widen "
+            "Lowest and Highest too.")
+        # Nothing to say for a project with no rest row.
+        opt.clear_formula("Water")
+        assert opt.batch_size_consequence() == ""
 
     def test_a_batch_size_that_drives_the_balance_negative_is_refused(
             self, tmp_path, monkeypatch):

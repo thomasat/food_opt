@@ -7105,6 +7105,67 @@ def test_a_scaled_amount_outside_the_allowed_amounts_is_flagged(room_to_scale):
                    for c in at.caption), [c.value for c in at.caption]
 
 
+@pytest.fixture
+def rest_round(burger):
+    """A round on the bench in a project whose Water row is = rest."""
+    burger.add_ingredient("Pea protein", 10, 25)
+    burger.add_ingredient("Methylcellulose", 1, 3)
+    burger.add_ingredient("Water", 20, 60)
+    burger.set_formulation_total(80)
+    burger.set_formula("Water", "= rest")
+    burger.set_formulation_total(100)
+    burger.set_pending_batch([{"Pea protein": 10.0, "Methylcellulose": 1.0,
+                               "Water": 89.0}])
+    return burger
+
+
+def test_a_round_with_a_rest_row_takes_any_batch_size_it_fits_in(rest_round):
+    """The box accepted no value at all: the same round was told its floor
+    was 100 g and its ceiling was 100 g, one refusal after the other, while
+    the number it refused stayed in the box. A rest row takes whatever is
+    left, so there is no largest size — only one too small for the other
+    rows to fit inside, said in that row's own words."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    for size in (120.0, 250.0):
+        at.number_input(key="scale_total").set_value(size)
+        at.run()
+        assert not at.exception
+        assert not any("not reachable" in e.value for e in at.error), \
+            [e.value for e in at.error]
+        table = next(d.value for d in at.dataframe
+                     if "Formulation" in d.value.columns)
+        assert table["Total (g)"].iloc[0] == pytest.approx(size)
+    at.number_input(key="scale_total").set_value(5.0)
+    at.run()
+    said = [e.value for e in at.error] + [c.value for c in at.caption]
+    assert any(wording.balance_would_go_negative("Water", "5 g", "11 g")
+               in line for line in said), said
+
+
+def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
+        rest_round):
+    """One keystroke turns a burger into soup: amounts in grams do not
+    follow the batch size and the rest row does. And the caption under the
+    grid read the OLD number on that same run, because it is drawn above
+    the box that changed it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.number_input(key="formulation_total").set_value(250.0)
+    at.run()
+    assert not at.exception
+    said = [c.value for c in at.caption]
+    assert any(line.startswith("Water takes up the difference:")
+               and "in a 250 g formulation" in line
+               and "widen Lowest and Highest too" in line
+               for line in said), said
+    # ...and the consequence under the grid is read at the new size on the
+    # very run the number moved, not on the next visit to the tab.
+    assert any("in a 250 g formulation" in line
+               and line.startswith("Water is = rest") for line in said), said
+    assert not any("in a 100 g formulation" in line for line in said), said
+
+
 def test_the_properties_grid_says_what_an_empty_cell_holds(burger):
     burger.add_property("Fat per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)

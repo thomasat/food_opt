@@ -144,9 +144,16 @@ def _previous_size_line(opt):
 def _unreachable(opt, typed):
     """Why this size cannot be made, or "" when it can.
 
-    The same arithmetic Set up's box does, in the same two sentences, with
-    the noun of THIS box: a size outside what the allowed amounts add up to
-    has no answer, and no search can find one.
+    The same arithmetic Set up's box does, in the same sentences, with the
+    noun of THIS box: a size outside what the allowed amounts add up to has
+    no answer, and no search can find one.
+
+    A project with a row written = rest has no top at all — that row takes
+    whatever is left, so any size the other rows fit inside can be made —
+    and its floor is said in the balance's own words, which name the row
+    and what the others need. Reading the batch size at both ends told one
+    round its floor and its ceiling were both 100 g, and the box accepted
+    nothing at all.
     """
     if typed is None:
         return ""
@@ -156,6 +163,11 @@ def _unreachable(opt, typed):
             opt.batch_total_text(typed), opt.batch_total_text(highest),
             noun=wording.BATCH_SIZE_NOUN)
     if typed < lowest:
+        balance = opt.balance_row_name()
+        if balance is not None:
+            return wording.balance_would_go_negative(
+                balance, opt.batch_total_text(typed),
+                opt.batch_total_text(lowest))
         return wording.total_not_reachable_at_least(
             opt.batch_total_text(typed), opt.batch_total_text(lowest),
             noun=wording.BATCH_SIZE_NOUN)

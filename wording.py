@@ -2638,6 +2638,20 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     return f"{span} in a {size_text} {FORMULATION}."
 
 
+def rest_row_takes_the_difference(name, low_text, high_text, size_text):
+    """'Water takes up the difference: between 152.00 and 220.00 g in a
+    250 g formulation. To keep the same proportions, widen Lowest and
+    Highest too.' — said under the Default batch size box the moment that
+    number moves, for a project with a row written = rest.
+
+    Amounts written in grams do not follow the batch size and that row
+    does: a burger turns into soup one number at a time, and the only
+    thing the app said about it was that a limit had been deleted."""
+    return (f"{name} takes up the difference: between {low_text} and "
+            f"{high_text} in a {size_text} {FORMULATION}. To keep the same "
+            f"proportions, widen {LOWEST_LABEL} and {HIGHEST_LABEL} too.")
+
+
 def formulations_keep_their_amounts(names_text, many=False):
     """'Formulations already made keep their amounts. Water is worked out
     from its formula from the next round on.' — a formula landing on a

@@ -201,7 +201,8 @@ def _formula_word_ends(body, end):
 def _tokenize_formula(body, names, has_batch_size):
     """The text after the Formula cell's leading '=' has been stripped, cut
     into the grammar's tokens: numbers, 'batch size', the given names
-    (longest first, case-insensitive), brackets and the four operators.
+    (longest first, case-insensitive), brackets, the four operators and the
+    two words of a percentage ('%' and 'of').
 
     Raises FormulaError as soon as a token cannot be placed: a character
     the grammar has no use for, a name nothing in the project wears, or
@@ -218,6 +219,12 @@ def _tokenize_formula(body, names, has_batch_size):
             i += 1
         elif ch in _FORMULA_OPS:
             tokens.append((_FORMULA_OPS[ch], None))
+            i += 1
+        elif ch == '%':
+            # A percentage is the wording the Limits box above the grid
+            # uses for the same idea, so the cell reads it too: '1.5 % of
+            # batch size' is '× 0.015'.
+            tokens.append(('%', None))
             i += 1
         elif ch in '()':
             tokens.append((ch, None))
@@ -252,6 +259,12 @@ def _tokenize_formula(body, names, has_batch_size):
                 tokens.append(('NAME', matched))
                 i += len(matched)
                 continue
+            # The second half of a percentage, and only ever that: a row
+            # really called 'of' is matched above, as a name.
+            if lowered.startswith('of', i) and _formula_word_ends(body, i + 2):
+                tokens.append(('OF', None))
+                i += 2
+                continue
             end = i + len(rest_word)
             if (lowered.startswith(rest_word.lower(), i)
                     and _formula_word_ends(body, end)):
@@ -266,10 +279,11 @@ def _tokenize_formula(body, names, has_batch_size):
 
 
 class _FormulaParser:
-    """expr := term (('+'|'−') term)* · term := factor (('×'|'÷') factor)*
-    · factor := ['−'] (number | name | 'batch size' | '(' expr ')')
-    — the grammar in task-1-brief.md, read over the token list
-    _tokenize_formula produced."""
+    """expr := term (('+'|'−') term)* · term := factor (('×'|'÷') factor |
+    '%' 'of' factor)* · factor := ['−'] (number | name | 'batch size' |
+    '(' expr ')') — the grammar in task-1-brief.md, read over the token
+    list _tokenize_formula produced, plus the percentage the Limits box
+    above the grid writes the same idea in."""
 
     def __init__(self, tokens):
         self.tokens = tokens
@@ -301,8 +315,20 @@ class _FormulaParser:
 
     def _term(self):
         value = self._factor()
-        while self._peek()[0] in ('*', '/'):
+        while self._peek()[0] in ('*', '/', '%'):
             op, _ = self._advance()
+            if op == '%':
+                # 'N % of X' is 'X × N/100'. It binds like a multiplication
+                # because that is what it is, and the number has to be a
+                # plain one for the same reason a multiplier does.
+                if self._peek()[0] != 'OF':
+                    raise FormulaError(wording.FORMULA_UNREADABLE)
+                self._advance()
+                rhs = self._factor()
+                if not value.is_constant():
+                    raise FormulaError(wording.FORMULA_TWO_AMOUNTS)
+                value = rhs.scaled(value.const / 100.0)
+                continue
             rhs = self._factor()
             if op == '*':
                 if value.is_constant():
@@ -359,7 +385,7 @@ def parse_formula(text, names, has_batch_size):
     the moment the text cannot be read as this grammar:
 
         expr := term (('+'|'−') term)*
-        term := factor (('×'|'÷') factor)*
+        term := factor (('×'|'÷') factor | '%' 'of' factor)*
         factor := ['−'] (number | name | 'batch size' | '(' expr ')')
 
     '= rest' (wording.REST_TOKEN, case-insensitive, alone in the cell) is
@@ -4737,11 +4763,28 @@ class FoodOptimizer:
         A FORMULA row does need one, and gets it from _achievable_range: the
         sum is read off the rows each formula is worked out FROM, so a
         balance row does not leave the reach reading as the two ends of
-        rows that can never both be at them. With a balance row the sum is
-        the batch size at both ends, which is the plain truth of it.
+        rows that can never both be at them.
+
+        A BALANCE row is the one case with no top at all. It takes whatever
+        is left of the batch size, so every formulation adds up to the size
+        asked for however large that is: there is no size these ingredients
+        cannot make, only a size too small for the other rows to fit
+        inside. So the reach is (what the other rows need at least,
+        unbounded) — and the low end is refused in the balance's own words,
+        not as "the least these ingredients can make". Reading the batch
+        size at both ends said the same number was the floor and the
+        ceiling, and the box then accepted nothing at all.
         """
         names = {v['name'] for v in self.variables
                  if v.get('category', 'ingredient') == 'ingredient'}
+        balance = self._balance_row()
+        if balance is not None:
+            others = names - {balance['name']}
+            least = self._form_reach(
+                self._weighted_form(
+                    lambda name: 1.0 if name in others else 0.0),
+                self._batch_size())[0]
+            return (least, float('inf'))
         return self._achievable_range(
             lambda name: 1.0 if name in names else 0.0)
 
@@ -6587,6 +6630,35 @@ class FoodOptimizer:
                 self.batch_total_text(self.formulation_total),
                 rest=bool(var.get('balance'))))
         return lines
+
+    def batch_size_consequence(self):
+        """What the row written = rest comes to at the default batch size,
+        or "" when there is no such row, as one line for the box that has
+        just moved that number.
+
+        Amounts written in grams do not follow the batch size; a rest row
+        does. Nothing said so, and a reader who changed 100 to 250 found a
+        burger that was 86 % water with no comment but a deleted limit."""
+        row = self._balance_row()
+        if row is None or not self.has_formulation_total():
+            return ""
+        name = row['name']
+        try:
+            low, high = self._achievable_range(
+                lambda n: 1.0 if n == name else 0.0)
+        except (FormulaError, ValueError):
+            return ""
+        unit = self._unit_of(row)
+        return wording.rest_row_takes_the_difference(
+            name, f"{max(low, 0.0):.2f}", join_unit(f"{high:.2f}", unit),
+            self.batch_total_text(self.formulation_total))
+
+    def balance_row_name(self):
+        """The name of the row written = rest, or None. The screen's own
+        way of asking: a project with one has no largest batch size, and
+        the floor it does have is said in that row's name."""
+        row = self._balance_row()
+        return None if row is None else row['name']
 
     def _formula_reads_refusal(self, name):
         """Why this row cannot be deleted while another row's formula reads
