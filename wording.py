@@ -433,6 +433,15 @@ def project_created(name):
     return f"Created {name}."
 
 
+def sample_project_rebuilt(name):
+    """'Sample project put back the way it started.' — clicking Try the
+    sample project again on a sample nobody has made a round from rebuilds
+    it, which throws away every edit made to it. It said only "Opened
+    Sample project.", so the reader\'s own rules and amounts were gone with
+    nothing on screen about it."""
+    return f"{name} put back the way it started."
+
+
 def project_opened(name):
     return f"Opened {name}."
 
@@ -2758,7 +2767,10 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
                 f"left of the {BATCH_SIZE_NOUN}")
     else:
         head = f"{name} is {WORKED_OUT} as {text}"
-    span = f"{head}: between {low_text} and {high_text}"
+    # A rule that comes to one number says that number: "between 1.50 and
+    # 1.50 g" asked the reader to read a range where nothing can vary.
+    span = (f"{head}: {high_text}" if low_text == high_text.split(" ")[0]
+            else f"{head}: between {low_text} and {high_text}")
     if size_text:
         span = f"{span} in a {size_text} {FORMULATION}"
     if outside_text:
@@ -2838,5 +2850,12 @@ def setup_sheet_formula_text(text, rest=False):
 # The round table on tab 2 gains no editing of its own: a worked-out row's
 # amount is what it computed to, and correcting what the bench actually
 # weighed happens after the round is recorded, on the Results tab.
+# The greyed boxes at the foot of `Add a formulation to this round`, and
+# the one line that says why they are last: they fill in from the boxes
+# above, so they cannot be anywhere else, and the form was the only table
+# in the app listing the rows in a different order with nothing said.
+WORKED_OUT_BOXES_CAPTION = ("These are worked out from the amounts above, "
+                            "so they come last.")
+
 CORRECTIONS_ON_RESULTS_CAPTION = (
     "Correct what you made in Results, after you record it.")

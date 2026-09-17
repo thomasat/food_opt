@@ -198,6 +198,26 @@ def _formula_word_ends(body, end):
     return end >= len(body) or not body[end].isalnum()
 
 
+def _phrase_ends(body, start, phrase):
+    """Where `phrase` ends in `body` at `start` when it is there however
+    much space was typed between its words, else None.
+
+    'batch  size' with two spaces is 'batch size' to every reader but the
+    tokenizer, which called it an ingredient and printed the name back in a
+    sentence the reader could not tell from the one that works."""
+    at = start
+    for k, word in enumerate(phrase.split()):
+        if k:
+            while at < len(body) and body[at].isspace():
+                at += 1
+            if at == start:
+                return None
+        if not body[at:].lower().startswith(word.lower()):
+            return None
+        at += len(word)
+    return at if _formula_word_ends(body, at) else None
+
+
 def _tokenize_formula(body, names, has_batch_size):
     """The text after the Formula cell's leading '=' has been stripped, cut
     into the grammar's tokens: numbers, 'batch size', the given names
@@ -240,9 +260,11 @@ def _tokenize_formula(body, names, has_batch_size):
             tokens.append(('NUMBER', float(body[i:j])))
             i = j
         elif ch.isalpha():
-            end = i + len(batch_phrase)
-            if (lowered.startswith(batch_phrase.lower(), i)
-                    and _formula_word_ends(body, end)):
+            # However much space was typed between its two words: the
+            # refusal printed the name back character for character as the
+            # one that works, and the reader could not see the difference.
+            end = _phrase_ends(body, i, batch_phrase)
+            if end is not None:
                 if not has_batch_size:
                     raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
                 tokens.append(('BATCH_SIZE', None))
@@ -258,6 +280,14 @@ def _tokenize_formula(body, names, has_batch_size):
             if matched is not None:
                 tokens.append(('NAME', matched))
                 i += len(matched)
+                continue
+            # A lone x is what a scientist's hand writes for ×, and what a
+            # keyboard offers instead of it. Only ever a LONE one: the
+            # names above are matched first, so a row called X, an Xanthan
+            # gum and a Flax all win, and 'x2' is not a times sign at all.
+            if ch in 'xX' and _formula_word_ends(body, i + 1):
+                tokens.append(('*', None))
+                i += 1
                 continue
             # The second half of a percentage, and only ever that: a row
             # really called 'of' is matched above, as a name.
@@ -4495,7 +4525,14 @@ class FoodOptimizer:
         scaled = self._rewritten(recipes, total, sized)
         if not scaled:
             return ""
-        ingredients = [var['name'] for var in self._ingredients()]
+        # A worked-out row takes no part. Its Lowest and Highest are
+        # dormant — the rule decides the amount, and the grid shows the word
+        # where those two numbers were — so a caution telling the bench to
+        # widen them names two numbers that are not on the screen and are
+        # not what is being enforced. The rule's own caption under the grid
+        # is where that row's range is said.
+        ingredients = [var['name'] for var in self._ingredients()
+                       if not self.has_formula(var)]
         names = [name for name in ingredients
                  if any(self.bounds_caution(name, recipe.get(name))
                         for recipe in scaled)]

@@ -8644,6 +8644,44 @@ class TestFormulaGrammar:
                              has_batch_size=False)
         assert form == LinearForm(terms={"Water": 1.0, "Salt": -1.0})
 
+    @pytest.mark.parametrize("cell", ["= Water x 2", "= Water X 2",
+                                      "= 2 x Water", "= 2x Water"])
+    def test_a_lone_x_is_a_times_sign(self, cell):
+        """A scientist types the letter x for ×. It was read as the start
+        of an ingredient name and refused with "There is no ingredient
+        called x 2." — a name they never typed."""
+        assert parse_formula(cell, self.NAMES, has_batch_size=False) == \
+            LinearForm(terms={"Water": 2.0})
+
+    def test_a_name_that_contains_an_x_is_untouched(self):
+        """Names are matched first and whole, so a lone x is only ever the
+        one that is on its own."""
+        names = ["Flax", "Xanthan gum"]
+        assert parse_formula("= Flax x 2", names, has_batch_size=False) == \
+            LinearForm(terms={"Flax": 2.0})
+        assert parse_formula("= Xanthan gum x 3", names,
+                             has_batch_size=False) == \
+            LinearForm(terms={"Xanthan gum": 3.0})
+        # A row really called x wins over the operator: the names are
+        # matched before it, and this is what that is for.
+        assert parse_formula("= x × 2", ["x"], has_batch_size=False) == \
+            LinearForm(terms={"x": 2.0})
+
+    def test_batch_size_typed_with_extra_space_is_still_batch_size(self):
+        """The refusal printed the name back character for character as the
+        one that works, and the reader could not see the difference."""
+        assert parse_formula("= batch  size - Water", self.NAMES,
+                             has_batch_size=True) == \
+            LinearForm(batch=1.0, terms={"Water": -1.0})
+
+    def test_a_rule_without_its_equals_says_which_character_is_missing(self):
+        """A correct rule one character short was told only that it could
+        not be read."""
+        with pytest.raises(FormulaError) as excinfo:
+            parse_formula("Water × 2", self.NAMES, has_batch_size=False)
+        assert str(excinfo.value) == wording.RULE_NEEDS_EQUALS
+        assert wording.RULE_NEEDS_EQUALS == "Start a rule with =."
+
     def test_a_multiplication_dot_is_a_times_sign(self):
         form = parse_formula("= Water · 2", self.NAMES, has_batch_size=False)
         assert form == LinearForm(terms={"Water": 2.0})
@@ -9429,6 +9467,40 @@ class TestTheFormulaColumn:
             "Water is worked out as = 20 − Flour: between 0.00 and 20.00 g "
             "in a 50 g formulation."]
 
+    def test_no_allowed_amounts_caution_lands_on_a_worked_out_row(
+            self, tmp_path, monkeypatch):
+        """A worked-out row's Lowest and Highest are dormant — the rule
+        decides the amount, and the grid shows the word where those two
+        numbers were — so a caution telling the bench to widen them names
+        two numbers that are not on screen and are not enforced."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("no_caution", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 30, 70)
+        opt.add_ingredient("Flour", 10, 30)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        rows = [{"Water": 80.0, "Flour": 20.0}]
+        # Water is at 80 g over a dormant 30-70 g: no caution, because
+        # those two numbers are not what holds it.
+        assert opt.scaled_caution(rows, 100.0, sized=True) == ""
+        # ...and the caution still lands on a row that HAS its own amounts.
+        opt.clear_formula("Water")
+        assert "Water" in opt.scaled_caution(rows, 100.0, sized=True)
+
+    def test_a_rule_that_comes_to_one_number_says_that_number(
+            self, tmp_path, monkeypatch):
+        """"between 1.50 and 1.50 g" asked the reader to read a range where
+        nothing can vary."""
+        opt = self._opt(tmp_path, monkeypatch)
+        errors, _ = opt.apply_ingredient_grid(self._formula(
+            opt.ingredient_grid_frame(), 3, "= 1.5 % of batch size"))
+        assert errors == []
+        assert opt.worked_out_captions() == [
+            "Salt is worked out as = 1.5 % of batch size: 1.50 g in a "
+            "100 g formulation — outside the 8.00 to 10.00 g you gave it."]
+
     def test_the_caption_is_absent_without_a_formula(self, tmp_path,
                                                      monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -10191,6 +10263,24 @@ class TestExactlyAndPercentLimits:
                        "now.")]
         assert opt.quantity_constraints == []
         assert opt.formulation_total is None
+
+    def test_a_limit_whose_every_row_is_worked_out_is_refused(
+            self, tmp_path, monkeypatch):
+        """A limit can only change what the search moves. One whose every
+        row is filled in by a rule was accepted, listed, and then quietly
+        contradicted by those rules."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100)
+        opt.set_formula("Water", "= rest")
+        opt.set_formula("Oil", "= 0.1 × Salt")
+        with pytest.raises(ValueError) as refused:
+            opt.add_quantity_constraint(["Water", "Oil"], max_val=40)
+        assert str(refused.value) == wording.limit_on_worked_out_rows(
+            "Water and Oil", many=True)
+        # One row the search still moves and the limit stands.
+        opt.add_quantity_constraint(["Water", "Salt"], max_val=90)
+        assert opt.quantity_constraints[-1]['ingredients'] == ["Water",
+                                                               "Salt"]
 
     def test_a_percent_limit_survives_export_and_import(self, tmp_path,
                                                          monkeypatch):

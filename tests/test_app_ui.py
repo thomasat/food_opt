@@ -4185,13 +4185,16 @@ def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
     assert not at.exception
     assert any(s.value == "Created Sample project." for s in at.success), \
         [s.value for s in at.success]
-    # And opening it again later is an opening.
+    # And clicking it again on a sample nobody has made a round from
+    # REBUILDS it, which throws away whatever was typed into it. That is
+    # what the line says: it used to say "Opened Sample project." and the
+    # reader's own rules and amounts were gone with nothing about it.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.sidebar, "Try the sample project").click()
     at.run()
-    assert any(s.value == "Opened Sample project." for s in at.success), \
-        [s.value for s in at.success]
+    assert any(s.value == "Sample project put back the way it started."
+               for s in at.success), [s.value for s in at.success]
 
 
 def test_a_partly_uploaded_sheet_says_what_it_recorded(open_batch):
@@ -7187,6 +7190,49 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
     assert not any("in a 100 g formulation" in line for line in said), said
 
 
+def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
+    """The column arrived with no header tooltip anybody reads, no
+    placeholder, and no mention in the caption above the grid: everything a
+    cold reader learned about it they learned from refusals. One line under
+    the grid, and it stands down the moment a rule exists."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert wording.RULE_HINT in _tab1_captions(at), _tab1_captions(at)
+    assert wording.RULE_HINT == (
+        "To write a rule for a row, type it in its Rule cell: "
+        "= batch size − Water, or = rest.")
+    burger.set_formulation_total(20)
+    burger.set_formula("Methylcellulose", "= rest")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    said = _tab1_captions(at)
+    assert wording.RULE_HINT not in said, said
+    assert any(c.startswith("Methylcellulose is worked out as = rest")
+               for c in said), said
+
+
+def test_more_settings_stays_open_while_a_limit_is_being_written(burger):
+    """Every picker in the limit form causes a rerun, and the rerun closed
+    the whole tier under the reader's hand: writing one limit takes four
+    fields, and each of them sent them scrolling back."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    fold = _more_settings(at)
+    assert fold.proto.expanded is False
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.run()
+    assert _more_settings(at).proto.expanded is True
+    at.number_input(key="qc_one").set_value(5.0)
+    at.run()
+    assert _more_settings(at).proto.expanded is True
+    # ...and the limit lands without the fold shutting on the way.
+    _submit_button(at, "Add ingredient limit").click()
+    at.run()
+    assert not at.exception
+    assert _more_settings(at).proto.expanded is True
+    assert FoodOptimizer("burger").quantity_constraints
+
+
 def test_the_properties_grid_says_what_an_empty_cell_holds(burger):
     burger.add_property("Fat per 100 g")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -9664,7 +9710,8 @@ def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
     assert len(rebuilt.variables) == 8
     # It opens as the sample it now is, welcome line and all, and it is an
     # opening: the project was already there.
-    assert any(s.value == wording.project_opened(wording.SAMPLE_PROJECT_NAME)
+    assert any(s.value == wording.sample_project_rebuilt(
+        wording.SAMPLE_PROJECT_NAME)
                for s in at.success), [s.value for s in at.success]
     assert wording.SAMPLE_TAB1_DESCRIPTION in [c.value for c in at.tabs[0].caption]
 
@@ -10001,6 +10048,35 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
                                   "is left of the batch size: between 25.00 "
                                   "and 40.00 g in a 50 g formulation")
                for c in at.caption), [c.value for c in at.caption]
+
+
+def test_the_results_boxes_never_offer_a_worked_out_rows_stale_range(
+        worked_out):
+    """The Results tab had no idea the concept existed. Its boxes opened
+    with the 0-100 g the row carried BEFORE it was given a rule — numbers
+    the Set up grid has replaced with a word — so three screens gave three
+    answers for one row. The form that RECORDS a formulation greys it, the
+    way Make a round does; the one that CORRECTS one stays typeable,
+    because what the balance actually gave is the point of correcting and
+    the printed sheet leaves that row's Actual (g) open for it."""
+    worked_out.tell({"Pea protein": 12.0, "Water": 38.0}, {"Firmness": 6.0})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "rest_burger"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    past = at.number_input(key="past_Water")
+    assert past.proto.placeholder == wording.WORKED_OUT
+    assert past.proto.disabled is True
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    correct = at.number_input(key="correct_amount_1_Water")
+    assert correct.proto.placeholder == wording.WORKED_OUT
+    assert correct.proto.disabled is False
+    # A row the search still moves keeps its own range as the hint.
+    from ui_helpers import amount_range_placeholder
+    assert at.number_input(key="past_Pea protein").proto.placeholder == \
+        amount_range_placeholder(10.0, 25.0)
 
 
 def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(

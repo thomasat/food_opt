@@ -452,6 +452,7 @@ def _worked_out_boxes(opt):
     worked = [v for v in opt.variables if opt.has_formula(v)]
     if not worked:
         return
+    st.caption(wording.WORKED_OUT_BOXES_CAPTION)
     typed = {var['name']: st.session_state.get(_own_key(var['name']))
              for var in opt.varying_variables()}
     filled = {}
