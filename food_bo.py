@@ -8248,7 +8248,7 @@ class FoodOptimizer:
         A portioned pre-mix is renamed through `rename_variable` with the
         row it IS; this is the other half, and it asks the same one-name-one
         -thing question before it moves anything."""
-        premix = self._premix_by_name(name)
+        self._premix_by_name(name)
         new_name = str(new_name).strip()
         if new_name == name:
             return
@@ -8257,7 +8257,6 @@ class FoodOptimizer:
         if is_reserved_name(new_name):
             raise ValueError(_reserved_name_message(new_name))
         self._name_is_free(new_name)
-        del premix
         self._rename_in_premixes(name, new_name)
         self.save()
 
@@ -8851,6 +8850,12 @@ class FoodOptimizer:
         return [line['name'] for line in self.grid_lines()
                 if line['name'] not in kept]
 
+    def ingredient_grid_blanked_premixes(self, frame):
+        """Pre-mixes whose Made as choice is being cleared, in grid order."""
+        return [_text_cell(row, GRID_ID) for _, row in _grid_rows(frame)
+                if _text_cell(row, GRID_ID) in self.premixes
+                and not _text_cell(row, wording.MADE_AS_LABEL)]
+
     def measurement_grid_deletions(self, frame):
         kept = {i for i in _grid_ids(frame) if i}
         return [o['name'] for o in self.measurements_by_importance()
@@ -9012,6 +9017,12 @@ class FoodOptimizer:
             errors.append((None, LAST_VARYING_ROW_ERROR))
         return errors
 
+    def _other_premix_rows(self, name):
+        return {n.lower() for group, other in self.premixes.items()
+                if group != name
+                for n in ([group] if other['mode'] == PREMIX_PORTIONED
+                          else [p['name'] for p in other['parts']])}
+
     def _premix_rows_leaving(self, name, parts):
         """The rows the flat list loses if this pre-mix is made of `parts`.
 
@@ -9023,10 +9034,7 @@ class FoodOptimizer:
         if premix['mode'] != PREMIX_WEIGHED:
             return []
         kept = {p['name'].lower() for p in parts}
-        others = {n.lower() for group, other in self.premixes.items()
-                  if group != name
-                  for n in ([group] if other['mode'] == PREMIX_PORTIONED
-                            else [p['name'] for p in other['parts']])}
+        others = self._other_premix_rows(name)
         rows = self._by_name()
         return [p['name'] for p in premix['parts']
                 if p['name'].lower() not in kept
@@ -9034,7 +9042,8 @@ class FoodOptimizer:
 
     def _apply_premix_plan(self, name, plan):
         """Write the plan, and say what it did — one line per consequence."""
-        before = {p['name'] for p in self.premix_parts(name)}
+        before = {p['name']: p for p in self.premix_parts(name)}
+        before_amounts = {v['name']: tuple(v['bounds']) for v in self.variables}
         round_before = self.pending_batch_no
         # Which rows this save takes out of the list, read BEFORE the parts
         # move: a part that has stopped being a part is no longer a name the
@@ -9061,7 +9070,11 @@ class FoodOptimizer:
         added = [p['name'] for p in plan['parts'] if p['name'] not in before]
         if added:
             messages.append(("success", wording.added(number_list(added))))
-        kept = [p['name'] for p in plan['parts'] if p['name'] in before]
+        kept = [p['name'] for p in self.premix_parts(name)
+                if p['name'] in before and (p != before[p['name']]
+                    or (p['name'] in plan['amounts'] and
+                        tuple(plan['amounts'][p['name']]) !=
+                        before_amounts.get(p['name'])))]
         if kept:
             messages.append(("success", wording.saved(number_list(kept))))
         gone = [n for n in before if n not in now]
@@ -9271,10 +9284,7 @@ class FoodOptimizer:
         premix = self.premixes.get(name)
         if premix is None:
             return None
-        kept = {n.lower() for group, other in self.premixes.items()
-                if group != name
-                for n in ([group] if other['mode'] == PREMIX_PORTIONED
-                          else [p['name'] for p in other['parts']])}
+        kept = self._other_premix_rows(name)
         mine = ([name] if premix['mode'] == PREMIX_PORTIONED
                 else [p['name'] for p in premix['parts']])
         rows = self._by_name()
@@ -9521,6 +9531,16 @@ class FoodOptimizer:
                 # anyone types in it the project can have a size, and a
                 # rest row without one has nothing to be the rest OF.
                 return None, wording.FORMULA_NEEDS_BATCH_SIZE
+        if made_as_was == PREMIX_WEIGHED:
+            row = row.copy()
+            parts = self.premixes[premix_was]['parts']
+            for column, end in ((wording.LOWEST_LABEL, 0),
+                                (wording.HIGHEST_LABEL, 1)):
+                if _text_cell(row, column) == wording.SUM_OF_ITS_PARTS:
+                    row[column] = sum(by_id[p['name']]['bounds'][end]
+                                      for p in parts if p['name'] in by_id)
+            if not _text_cell(row, wording.UNIT_LABEL):
+                row[wording.UNIT_LABEL] = self.amount_unit
         low, high, range_ok = _range_from_cells(row)
         kept = None if var is None else tuple(float(b) for b in var['bounds'])
         if formula:
@@ -9584,7 +9604,7 @@ class FoodOptimizer:
         if moved and category == 'process' and not (low <= baseline <= high):
             return None, _baseline_outside_message(baseline, low, high)
         return {
-            'var': var, 'id': row_id if var is not None else None,
+            'var': var, 'id': row_id if (var is not None or premix_was is not None) else None,
             'name': name, 'category': category, 'low': low, 'high': high,
             'unit': unit, 'vendor': vendor, 'sku': sku, 'baseline': baseline,
             'baseline_moved': moved, 'formula': formula,
@@ -9611,8 +9631,15 @@ class FoodOptimizer:
             trouble = self._ingredient_delete_refusal(name, name in force)
             if trouble:
                 errors.append((None, trouble))
-        if deleted and not any(spec['low'] < spec['high']
-                               for _, spec in rows if not spec['formula']):
+        weighed_parts = {p['name'] for _, spec in rows
+                         if spec['made_as'] == PREMIX_WEIGHED
+                         for p in self.premixes.get(spec['id'], {}).get('parts', [])}
+        varying_part = any(v['name'] in weighed_parts
+                           and not self.is_fixed(v) and not self.has_formula(v)
+                           for v in self.variables)
+        if deleted and not varying_part and not any(
+                spec['low'] < spec['high'] for _, spec in rows
+                if spec['is_row'] and not spec['formula']):
             errors.append((None, LAST_VARYING_ROW_ERROR))
         return errors
 
@@ -9695,11 +9722,20 @@ class FoodOptimizer:
             for name in plan['premix_gone'] + plan['premix_blanked']:
                 removed += self.remove_premix(
                     name, force=name in force) or []
-            if plan['premix_gone'] or plan['premix_blanked']:
-                still = self._by_name()
-                for _, spec in rows:
-                    if spec['var'] is not None and spec['id'] not in still:
-                        spec['var'], spec['id'] = None, None
+            for _, spec in rows:
+                if spec['id'] in plan['premix_blanked']:
+                    self._add_grid_row(spec, spec['id'])
+                    removed += spec.pop('_removed', [])
+                    spec['var'] = self._by_name()[spec['id']]
+                    changed.append(spec['name'])
+            # A weighed label becomes a real row through the mode switch
+            # before the ordinary row writer can update or rename it.
+            for today, _, mode in plan['premix_mode']:
+                if mode == PREMIX_PORTIONED:
+                    removed += self.set_premix_mode(today, mode) or []
+                    for _, spec in rows:
+                        if spec['id'] == today:
+                            spec['var'] = self._by_name()[today]
             for name in deleted:
                 var = self._by_name().get(name)
                 if var is None:

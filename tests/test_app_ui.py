@@ -10164,8 +10164,8 @@ def _premix_grid_base(name):
 def test_one_lit_button_with_two_premix_grids_open(burger):
     """Two pre-mixes, each with its own fold, its own parts grid and its own
     Save/Discard — and the tab still shows exactly one coloured button. A
-    pre-mix's Save is never the lit one: the grid above it is where the
-    reader is, and its Save is the tab's one action."""
+    pre-mix's Save stays grey while the ingredients grid also has a pending
+    edit: the first pending grid owns the tab's coloured action."""
     burger.add_premix("Dry blend", wording.PREMIX_MADE_AS_PORTIONED)
     burger.set_premix_parts("Dry blend", [
         {'name': "Pea flour", 'share': 60, 'unit': "g"},
@@ -10196,3 +10196,49 @@ def test_one_lit_button_with_two_premix_grids_open(burger):
                           "save_premix_grid__Fat phase__save")]
     assert len(greys) == 2, [b.key for b in at.button]
     assert all(b.proto.type == "secondary" for b in greys)
+
+
+def test_a_pending_premix_fold_owns_the_only_coloured_save(burger):
+    burger.add_premix("Dry blend", "portioned")
+    burger.set_premix_parts("Dry blend", [
+        {'name': "Pea flour", 'share': 60, 'unit': "g"},
+        {'name': "Starch", 'share': 40, 'unit': "g"}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    _grid_edits(at, _premix_grid_base("Dry blend"),
+                edited={0: {wording.PREMIX_SHARE_LABEL: 70.0}})
+    _grid_edits(at, MEAS_GRID,
+                edited={0: {wording.TARGET_LABEL: 6.0}})
+    at.run()
+    assert not at.exception
+    assert _tab_primaries(at, 0) == [wording.SAVE_CHANGES_BUTTON]
+    button = next(b for b in at.button
+                  if b.key == "save_premix_grid__Dry blend__save")
+    assert button.proto.type == "primary"
+
+
+def test_clearing_made_as_asks_before_deleting_the_parts(burger):
+    burger.add_premix("Dry blend", "portioned")
+    burger.set_premix_parts("Dry blend", [
+        {'name': "Pea flour", 'share': 60, 'unit': "g"},
+        {'name': "Starch", 'share': 40, 'unit': "g"}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    frame = burger.ingredient_grid_frame()
+    index = list(frame[wording.NAME_LABEL]).index("Dry blend")
+    edits = {index: {wording.MADE_AS_LABEL: ""}}
+    _grid_edits(at, ING_GRID, edited=edits)
+    at.run()
+    _grid_save(at, ING_GRID).click()
+    _grid_edits(at, ING_GRID, edited=edits)
+    at.run()
+    assert not at.exception
+    assert "Dry blend" in at.session_state["optimizer"].premixes
+    expected = wording.premix_no_longer_a_premix(
+        "Dry blend", "Pea flour and Starch", many=True)
+    assert any(expected in w.value for w in at.warning)
+    assert _tab_primaries(at, 0) == [wording.YES_SAVE_AND_DISCARD]
+    _submit_button(at, wording.YES_SAVE_AND_DISCARD).click()
+    _grid_edits(at, ING_GRID, edited=edits)
+    at.run()
+    assert not at.exception
+    assert "Dry blend" not in at.session_state["optimizer"].premixes
+    assert "Dry blend" in at.session_state["optimizer"]._by_name()

@@ -612,7 +612,19 @@ def _save_ingredients(opt, storage, edited):
     """The one write the ingredients grid makes. A deleted row is confirmed
     by name first, an open round the save would take away is named in the
     same question, and a copy is kept before anything goes."""
-    deletions = opt.ingredient_grid_deletions(edited)
+    deleted_rows = opt.ingredient_grid_deletions(edited)
+    blanked = opt.ingredient_grid_blanked_premixes(edited)
+    deletions = deleted_rows + blanked
+    force_names = set(deletions)
+    for name in deletions:
+        if name in opt.premixes:
+            force_names.update(p['name'] for p in opt.premix_parts(name))
+    warnings = ([wording.delete_rows_warning(number_list(deleted_rows))]
+                if deleted_rows else [])
+    for name in blanked:
+        parts = [p['name'] for p in opt.premix_parts(name)]
+        warnings.append(wording.premix_no_longer_a_premix(
+            name, number_list(parts), many=len(parts) > 1))
     key = ING_SAVE_KEY
     # Before the colour is read and before the early return: a question that
     # is no longer this grid's question has to come down first, or `lit`
@@ -621,7 +633,7 @@ def _save_ingredients(opt, storage, edited):
     lit = not confirmation_open()
     # Read here rather than off the tick box below, which is drawn after the
     # question and only while one is up.
-    forced = set(deletions) if st.session_state.get("delete_ing_force") else ()
+    forced = force_names if st.session_state.get("delete_ing_force") else ()
     at_risk = _round_at_risk(opt, edited, force=forced)
     if not deletions:
         _remember_armed_deletions(key, deletions)
@@ -640,9 +652,9 @@ def _save_ingredients(opt, storage, edited):
         return
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
-        " ".join(p for p in (wording.delete_rows_warning(
-            number_list(deletions)), at_risk) if p),
-        confirm_label=wording.YES_DELETE, primary=lit,
+        " ".join(p for p in [*warnings, at_risk] if p),
+        confirm_label=(wording.YES_DELETE if deleted_rows
+                       else wording.YES_SAVE_AND_DISCARD), primary=lit,
         disabled=other_confirmation(key))
     _remember_armed_deletions(key, deletions)
     # Read here, before the tick box below is drawn: the run that confirms
@@ -671,7 +683,7 @@ def _save_ingredients(opt, storage, edited):
         st.error(str(e))
         return
     _apply_ingredient_grid(opt, edited,
-                           force=set(deletions) if force else ())
+                           force=force_names if force else ())
 
 
 def _discard_beside(key, grid):
@@ -814,8 +826,8 @@ def _apply_ingredient_grid(opt, edited, force=()):
 #  row shape while obeying different rules, which is the confusion the fold
 #  exists to remove.
 #
-#  Each fold keeps its own Save/Discard, and they are grey: the grid above
-#  is where the reader is, and a tab shows one coloured button.
+#  Each fold keeps its own Save/Discard. The first pending grid on the tab
+#  owns the coloured Save, including a fold when the grid above is saved.
 # ------------------------------------------------------------------ #
 
 def _premix_columns(opt, name):
@@ -853,6 +865,7 @@ def _premixes(opt, storage):
     pending = False
     for name in names:
         pending = _premix_grid(opt, storage, name) or pending
+        st.session_state[ING_PENDING_KEY] = _ingredients_pending() or pending
     return pending
 
 
@@ -867,10 +880,10 @@ def _premix_grid(opt, storage, name):
             use_container_width=True,
             height=table_height(max(len(saved) + 1, 2), max_rows=20))
         slot = st.empty()
-        _grid_errors(slot, premix_errors_key(name), names={
-            int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
-            for no in edited.index
-            if wording.PART_LABEL in edited.columns})
+        names = ({int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
+                  for no in edited.index}
+                 if wording.PART_LABEL in edited.columns else {})
+        _grid_errors(slot, premix_errors_key(name), names=names)
         if wording.PREMIX_SHARE_LABEL in edited.columns:
             # The column the reader is typing in, with its own sum under it:
             # the shares are scaled to 100 at the Save, and this is what
@@ -892,27 +905,27 @@ def _share_text(total):
     """A share as the app writes one: two decimals, and no trailing pair of
     zeros on a number that has none to write."""
     text = f"{float(total):.2f}".rstrip("0").rstrip(".")
-    return f"{text or '0'} %"
+    return f"{text} %"
 
 
 def _save_premix(opt, storage, name, edited):
-    """The one write a pre-mix's parts grid makes. Its Save is grey: the
-    grid above is the tab's one coloured action."""
+    """Save the parts, highlighting the first pending grid on this tab."""
     deletions = opt.premix_grid_deletions(name, edited)
     key = premix_save_key(name)
     grid = premix_grid_key(name)
     _disarm_stale_deletion(key, deletions)
+    lit = not _ingredients_pending() and not confirmation_open()
     force_key = f"delete_part_force__{name}"
     if not deletions:
         st.session_state.pop(force_key, None)
         _remember_armed_deletions(key, deletions)
-        if _save_and_discard(key, grid, False):
+        if _save_and_discard(key, grid, lit):
             _apply_premix_grid(opt, storage, name, edited)
         return
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
         wording.delete_rows_warning(number_list(deletions)),
-        confirm_label=wording.YES_DELETE, primary=False,
+        confirm_label=wording.YES_DELETE, primary=lit,
         disabled=other_confirmation(key))
     _remember_armed_deletions(key, deletions)
     force = bool(st.session_state.get(force_key, False))

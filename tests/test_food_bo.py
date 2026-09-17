@@ -11328,6 +11328,45 @@ class TestThePreMixGrid:
             {'name': "Salt", 'share': 30, 'unit': "g"}])
         return opt
 
+    @pytest.mark.parametrize("mode", ["", wording.PREMIX_MADE_AS_PORTIONED])
+    def test_weighed_mode_can_be_cleared_or_switched_without_typing_amounts(
+            self, tmp_path, monkeypatch, mode):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 5, 20)
+        opt.add_ingredient("Salt", 1, 3)
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: mode})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt._by_name()["Dry blend"]['bounds'] == (6.0, 23.0)
+        assert set(opt._by_name()) == {"Water", "Dry blend"}
+        assert bool(opt.premixes) == bool(mode)
+        assert wording.added("Dry blend") not in _said(messages)
+
+    def test_blanking_a_portioned_row_does_not_report_it_as_added(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        errors, messages = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 2, **{wording.MADE_AS_LABEL: ""}))
+        assert errors == []
+        assert wording.added("Dry blend") not in _said(messages)
+
+    def test_unchanged_parts_do_not_claim_to_have_been_saved(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        errors, messages = opt.apply_premix_grid(
+            "Dry blend", opt.premix_grid_frame("Dry blend"))
+        assert errors == []
+        assert messages == []
+
+    def test_weighed_parts_count_when_deleting_the_last_visible_varying_row(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 5, 20)
+        errors, _ = opt.apply_ingredient_grid(_drop(opt.ingredient_grid_frame(), 1))
+        assert errors == []
+        assert "Water" not in opt._by_name()
+
     # ---- the parts grid, by mode ------------------------------------- #
 
     def test_a_portioned_grid_takes_shares_and_no_ranges(self, tmp_path,
