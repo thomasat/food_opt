@@ -2608,7 +2608,8 @@ FORMULA_HELP = (
 ONE_BALANCE_ONLY = f"Only one row can be = {REST_TOKEN}."
 
 
-def worked_out_caption(name, formula_text, low_text, high_text, size_text):
+def worked_out_caption(name, formula_text, low_text, high_text, size_text,
+                       rest=False):
     """'Water is worked out as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
     row that is worked out rather than typed, so the rule shows its
@@ -2619,9 +2620,13 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text):
     are what the other rows' allowed amounts leave it, and `size_text` is
     the default batch size they are read against — blank while the project
     has none, and the sentence then stops at the amounts.
+
+    `rest` is the parser's own answer to "is this the rest row" — passed in
+    rather than read off the text, so '=rest' and '= REST' say the same
+    thing here as they do everywhere else.
     """
     text = str(formula_text).strip()
-    if text.lower() == f"= {REST_TOKEN}":
+    if rest:
         head = (f"{name} is = {REST_TOKEN}, whatever is left of the "
                 f"{BATCH_SIZE_NOUN}")
     else:
@@ -2664,11 +2669,12 @@ def worked_out_label(name):
 FORMULA_ROW_NOTE = "A row marked worked out is filled in from its formula."
 
 
-def setup_sheet_formula_text(text):
+def setup_sheet_formula_text(text, rest=False):
     """'= rest (batch size − every other ingredient)' — what the row that
     takes the remainder prints in the Set-up sheet's Formula column; every
-    other row prints exactly what it was typed as."""
-    if str(text).strip().lower() == f"= {REST_TOKEN}":
+    other row prints exactly what it was typed as. `rest` comes from the
+    parser, not from the spelling of the cell."""
+    if rest:
         return f"= {REST_TOKEN} ({BATCH_SIZE_NOUN} − every other {INGREDIENT})"
     return text
 

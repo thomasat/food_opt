@@ -1615,7 +1615,12 @@ class FoodOptimizer:
                     'vendor': "",
                     'sku': "",
                     'formula': formula,
-                    'balance': formula.lower() == f"= {wording.REST_TOKEN}",
+                    # Through the parser, never a string compare: '=rest'
+                    # and '= REST' are the rest to every other reader of
+                    # this cell, and a file that set the flag by spelling
+                    # left the project with a rest row half the app could
+                    # not see.
+                    'balance': formula_is_rest(formula),
                 }
                 # A blank Unit cell means "the project's default", not a blank
                 # unit: a file listing ml against the water alone should leave
@@ -1674,13 +1679,19 @@ class FoodOptimizer:
         allowed whatever the project's default is now — a file is loaded
         before the size is set, and a project with none answers 0 — so the
         one thing not asked here is a default a later save will supply.
+
+        Every formula row is parsed, the rest ones included: skipping the
+        rows a flag called the rest meant the flag was trusted to say what
+        the text says, and the two could differ.
         """
         if not any(self.has_formula(v) for v in self.variables):
             return
-        if len([v for v in self.variables if v.get('balance')]) > 1:
+        balance = [v for v in self.variables
+                   if formula_is_rest(v.get('formula') or "")]
+        if len(balance) > 1:
             raise ValueError(wording.ONE_BALANCE_ONLY)
         for var in self.variables:
-            if var.get('formula') and not var.get('balance'):
+            if var.get('formula'):
                 parse_formula(var['formula'],
                               self._formula_names(var['name']), True)
         self._formula_order()
@@ -4160,7 +4171,8 @@ class FoodOptimizer:
             if any_formula:
                 _write_cell(sheet, r, c,
                             wording.setup_sheet_formula_text(
-                                self._formula_text(var))
+                                self._formula_text(var),
+                                rest=bool(var.get('balance')))
                             if worked_out else None)
                 c += 1
             if any_supplier:
@@ -6449,7 +6461,8 @@ class FoodOptimizer:
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
                 join_unit(f"{high:.2f}", unit),
-                self.batch_total_text(self.formulation_total)))
+                self.batch_total_text(self.formulation_total),
+                rest=bool(var.get('balance'))))
         return lines
 
     def _formula_reads_refusal(self, name):
@@ -7375,6 +7388,13 @@ class FoodOptimizer:
             except FormulaError as e:
                 return None, str(e)
             if form.rest and not self.has_formulation_total():
+                # The file door (_check_file_formulas) is deliberately
+                # looser about this one: a file is loaded before a size can
+                # be set at all — there are no ingredients to reach one —
+                # so it lets '= rest' in and the reader sets the size
+                # after. The grid is the other way round: by the time
+                # anyone types in it the project can have a size, and a
+                # rest row without one has nothing to be the rest OF.
                 return None, wording.FORMULA_NEEDS_BATCH_SIZE
         low, high, range_ok = _range_from_cells(row)
         kept = None if var is None else tuple(float(b) for b in var['bounds'])

@@ -9630,6 +9630,53 @@ class TestTheFormulaColumnFixes:
         assert opt.fill_formulas({"Flour": 20.0, "Oven": 180.0})["Glaze"] == \
             pytest.approx(18.0)
 
+    @pytest.mark.parametrize("cell", ["=rest", "= REST", "=  rest",
+                                      "= rest "])
+    def test_a_file_spells_the_rest_row_however_it_likes(
+            self, cell, tmp_path, monkeypatch):
+        """The loader compared the cell with the literal '= rest', where
+        every other reader asks the parser. A file written '=rest' loaded
+        with the flag unset, so the project behaved as the rest row to the
+        arithmetic and as having none to the default batch size box — and
+        could not be given a size at all."""
+        opt = self._opt(tmp_path, monkeypatch, name="file_rest")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Sugar", "Water"], "Lowest": [10, 5, None],
+            "Highest": [60, 20, None], "Unit": ["g", "g", "g"],
+            "Formula": [None, None, cell]}))
+        assert opt._var_by_name("Water")['balance'] is True
+        assert opt._balance_row()['name'] == "Water"
+        opt.set_formulation_total(100)
+        assert opt.formulation_total == 100
+        assert opt.fill_formulas({"Flour": 20.0, "Sugar": 10.0})["Water"] == \
+            pytest.approx(70.0)
+
+    def test_two_rest_rows_spelled_differently_are_still_two(
+            self, tmp_path, monkeypatch):
+        """The uniqueness check counted the flag the compare had just set,
+        so a file could bring in two rest rows by spelling one of them
+        '=rest'."""
+        opt = self._opt(tmp_path, monkeypatch, name="file_two_rest")
+        with pytest.raises(ValueError) as refused:
+            opt.load_ingredients_from_csv(pd.DataFrame({
+                "Name": ["Flour", "Water"], "Lowest": [10, None],
+                "Highest": [50, None], "Unit": ["g", "g"],
+                "Formula": ["=REST", "= rest"]}))
+        assert str(refused.value) == wording.ONE_BALANCE_ONLY
+
+    def test_the_set_up_sheet_glosses_the_rest_row_however_it_was_spelled(
+            self, tmp_path, monkeypatch):
+        """The Set-up sheet's own compare was the second literal one."""
+        opt = self._opt(tmp_path, monkeypatch, name="sheet_rest")
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Flour", "Water"], "Lowest": [10, None],
+            "Highest": [60, None], "Unit": ["g", "g"],
+            "Formula": [None, "=REST"]}))
+        assert wording.setup_sheet_formula_text(
+            opt._formula_text(opt._var_by_name("Water")),
+            rest=bool(opt._var_by_name("Water").get('balance'))) == (
+                "= rest (batch size − every other ingredient)")
+
     def test_a_refused_file_leaves_the_ingredients_alone(self, tmp_path,
                                                          monkeypatch):
         """A refusal writes nothing, here as everywhere. The list was
