@@ -302,7 +302,7 @@ def scale_error(obj, value):
                            wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
 
 
-def bounds_caution(opt, name, value):
+def bounds_caution(opt, name, value, scale=1.0):
     """The line for an amount outside what the project allows, or '' when it
     fits. Built by the same helper that refuses an out-of-range measurement,
     so the two sentences read alike.
@@ -311,7 +311,7 @@ def bounds_caution(opt, name, value):
     is a fact about work already done, and a formulation of the user's own is
     a formulation they mean to make. Both teach the model more than a blank.
     """
-    return opt.bounds_caution(name, value)
+    return opt.bounds_caution(name, value, scale)
 
 
 def table_height(n_rows, max_rows=12):
@@ -454,7 +454,7 @@ def best_move_sentence(before, after):
     return wording.best_moved(before, after)
 
 
-def readiness(opt):
+def readiness(opt, here=False):
     """(ready, the missing item named) for the foot button on tab 1 and the
     Generate button on tab 2. Ready means something to vary — an ingredient
     OR a process setting — and at least one measurement.
@@ -466,7 +466,7 @@ def readiness(opt):
         return False, wording.NEED_A_VARIABLE
     if not opt.objectives:
         return False, wording.NEED_A_MEASUREMENT
-    missing = opt.premix_readiness_error()
+    missing = opt.premix_readiness_error(here=here)
     if missing:
         return False, missing
     return True, ""

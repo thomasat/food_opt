@@ -207,9 +207,16 @@ def _amount_format(opt, frame):
     def weighed(value):
         # A not-scored row may hold no amount for a variable added later,
         # and a measurement left blank stays blank rather than reading "nan".
-        if value is None or pd.isna(value):
+        # A cell that is not a number at all — a note, a date, a score with
+        # a sentence behind it — is handed back as it came.
+        if value is None:
             return ""
-        return fmt_amount(value)
+        if not isinstance(value, str) and pd.isna(value):
+            return ""
+        try:
+            return fmt_amount(float(value))
+        except (TypeError, ValueError):
+            return value
 
     # Every number in the table reads to two decimals: the amounts, the
     # measurements and the score alike. Left to pandas, a panel score typed
@@ -217,8 +224,12 @@ def _amount_format(opt, frame):
     # setting keeps fmt_setting (180, not 180.00), and a text column — the
     # score with "· Juiciness not measured" behind it, Note, Best — is left
     # alone.
+    # Every column but the two counts and the settings. Read off the dtype,
+    # a column that holds one blank went to `object` and slipped the net
+    # entirely: the amounts of a row recorded before a pre-mix moved printed
+    # as 31.13258332014084 beside their neighbours' 31.13.
     numeric = {c for c in frame.columns
-               if c not in amounts and frame[c].dtype != object
+               if c not in amounts
                and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP)}
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
@@ -331,7 +342,11 @@ def _amount_boxes(opt, key_of, recipe=None, lock_worked_out=False):
     for var, col in _in_fours(opt.variables):
         with col:
             name = var['name']
-            low, high = (float(b) for b in var['bounds'])
+            # The placeholder is the allowed amounts at the size this row
+            # was made to: the boxes were prefilled with 250 g grams under
+            # a hint reading "0–15", which is the band per 100 g.
+            scale = opt.recipe_scale(recipe) if recipe else 1.0
+            low, high = (float(b) * scale for b in var['bounds'])
             worked_out = opt.has_formula(var)
             # No min_value/max_value: an amount outside what the project
             # allows is a fact about work already done, and clamping it would
@@ -610,7 +625,8 @@ def _save_correction(opt, storage, pending):
     if move:
         sentences.append(move)
     sentences.append(COPY_KEPT)
-    cautions = [c for c in (bounds_caution(opt, name, recipe[name])
+    scale = opt.recipe_scale(recipe)
+    cautions = [c for c in (bounds_caution(opt, name, recipe[name], scale)
                             for name in amount_changes) if c]
     flash("success", " ".join(sentences))
     for caution in cautions:
@@ -901,7 +917,8 @@ def _add_typed_past(opt, ordered):
         return
     # A caution, never a refusal: an amount outside what the project allows is
     # a fact about work already done, and the model learns from it.
-    cautions = [c for c in (bounds_caution(opt, name, value)
+    scale = opt.recipe_scale(recipe)
+    cautions = [c for c in (bounds_caution(opt, name, value, scale)
                             for name, value in recipe.items()) if c]
     number = int(opt.formulation_ids[-1])
     for var in opt.variables:
@@ -1007,8 +1024,11 @@ def _import(opt):
             # Left out below (nothing measured): no caution for a row that
             # is never recorded.
             continue
+        scale = opt.recipe_scale({name: _number(row[col_for[name]])
+                                  for name in variables})
         for name in variables:
-            caution = bounds_caution(opt, name, _number(row[col_for[name]]))
+            caution = bounds_caution(opt, name, _number(row[col_for[name]]),
+                                     scale)
             if caution:
                 cautions.append(wording.row_error(position, caution))
     imported, nothing_measured, failure, reached = 0, 0, None, 0

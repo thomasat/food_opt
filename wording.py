@@ -114,6 +114,19 @@ def scaled_limit_caution(total_text, limit_text):
             + SMALLER_TOTAL_OR_LIMIT_HINT)
 
 
+def scaled_amounts_note(total_text, factor_text, size_text):
+    """'Made to 250 g — every amount is 2.5 × the amounts you set per
+    100 g.' — the line a round made bigger than one formulation carries.
+
+    It used to read `At 250 g, 5 of 5 ingredients go past the amounts you
+    allowed`, on screen, on every formulation page and on the Round sheet.
+    Making a bigger lot of the same formula is ordinary bench work, and the
+    app called all five of them mistakes.
+    """
+    return (f"Made to {total_text} — every amount is {factor_text} × the "
+            f"amounts you set per {size_text}.")
+
+
 def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
     """'At 150 g, Pea protein isolate and Water go past the amounts you
     allowed. Print at a smaller total, or widen them in Set up.' — the one
@@ -910,8 +923,12 @@ LOWEST_LABEL = "Lowest"
 HIGHEST_LABEL = "Highest"
 UNIT_LABEL = "Unit"
 BASELINE_LABEL = "Baseline"
-BASELINE_HELP = ("The setting you used for every formulation already made, "
-                 "so those results still count.")
+# The column arrives on its own, in the grid the reader sets their rules
+# in, the moment the first round is recorded — so its one tooltip has to
+# say what the number is as well as what it is for.
+BASELINE_HELP = ("The amounts of the first formulation recorded. Later "
+                 "suggestions are read against it, so those results still "
+                 "count.")
 def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
@@ -1992,11 +2009,14 @@ def workbook_measurement_missing(name, sheet_name):
 def workbook_file_name(project_name, batch_no):
     """'Sample project · Batch 2.xlsx' — what the download is called in
     the Downloads folder, a month later, beside eleven others."""
-    return f"{project_name} · {batch_sheet_name(batch_no)}.xlsx"
+    # A hyphen, not the app's own `·`: the browser writes the file to disk
+    # with the dot dropped, and `Sample project  Round 1.xlsx` came out with
+    # two spaces in the middle of it.
+    return f"{project_name} - {batch_sheet_name(batch_no)}.xlsx"
 
 
 def all_formulations_file_name(project_name):
-    return f"{project_name} · {ALL_FORMULATIONS_SHEET.lower()}.xlsx"
+    return f"{project_name} - {ALL_FORMULATIONS_SHEET.lower()}.xlsx"
 
 
 INGREDIENTS_TEMPLATE_FILE_NAME = "ingredients_template.xlsx"
@@ -2201,7 +2221,11 @@ ACTUAL_COLUMN = "Actual"
 
 
 def upload_amounts_total(number, planned, actual):
-    return f"Formulation {number} total: planned {planned}; actual {actual}."
+    """'Formulation 1 total: 100.00 g printed, 99.80 g actual.' — the two
+    numbers under the table that puts them side by side. The words are the
+    table's own two column heads, lowercased into a sentence."""
+    return (f"{FORMULATION_CAP} {number} {TOTAL_LABEL.lower()}: "
+            f"{planned} printed, {actual} actual.")
 
 # The one line under each sheet's title. The sheets are protected now,
 # so this says what can be typed and where: a locked cell that refuses a
@@ -2228,8 +2252,12 @@ def write_in_note(columns):
 # column, both read from MEASUREMENT_COLUMN. The formulation pages keep
 # `Measured`, because that IS the header they write over their write-in
 # column.
+# Who made it and when is a cell the pen reaches too. It was printed into a
+# LOCKED cell, so the blanks could not be filled in the file they were
+# printed in — and the sheets now come back as a file.
+MADE_BY_COLUMN = "Made by"
 SUMMARY_SHADED_NOTE = write_in_note(
-    [MEASUREMENT_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN])
+    [MEASUREMENT_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN, MADE_BY_COLUMN])
 
 
 def sheet_write_in_note(actual_head=ACTUAL_COLUMN):
@@ -2237,7 +2265,8 @@ def sheet_write_in_note(actual_head=ACTUAL_COLUMN):
     column header — 'Actual (g)' — so the line names a column the reader
     can point at rather than a shorter word beside it."""
     return write_in_note(
-        [TICK_COLUMN, actual_head, MEASURED_COLUMN, NOT_SCORED, NOTE])
+        [TICK_COLUMN, actual_head, MEASURED_COLUMN, NOT_SCORED, NOTE,
+         MADE_BY_COLUMN])
 
 
 SHEET_SHADED_NOTE = sheet_write_in_note()
@@ -2795,9 +2824,8 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     if size_text:
         span = f"{span} in a {size_text} {FORMULATION}"
     if outside_text:
-        return (f"{span}. The stored bounds ({outside_text}) do not apply while "
-                "this rule is active. Change the rule or the other ingredients’ "
-                "bounds to change this range.")
+        return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
+                f"({outside_text}) do not apply while the rule does.")
     return f"{span}."
 
 
@@ -2898,9 +2926,27 @@ CORRECTIONS_ON_RESULTS_CAPTION = (
 # formulation part by part.
 # ------------------------------------------------------------------ #
 PREMIX_LABEL = "Pre-mix"
+# The column that says which pre-mix a row is a PART of. It is not "Pre-mix":
+# on a pre-mix's own row that cell is blank and on a part's row it is filled,
+# so the one header named the thing and the relationship to the thing at once.
+# `Part of` is the word the parts fold already uses, and it cannot be read as
+# "this row is a pre-mix".
+PART_OF_LABEL = "Part of"
 MADE_AS_LABEL = "Made as"
 PREMIX_SHARE_LABEL = "% of pre-mix"
-PREMIX_MADE_AS_PORTIONED = "one pre-mix, portioned"
+# The three answers to `Made as`, and the whole of what the column asks.
+# Neither of the two pre-mix answers carries a comma any more: two sentences
+# list both options, and "one pre-mix, portioned, or weighed into each
+# formulation" reads as three things where the select offers two.
+# `bought in` is the ordinary case and the default — the cell was blank, and
+# a blank is not an answer a reader can recognise as the one they want.
+PREMIX_MADE_AS_BOUGHT_IN = "bought in"
+# What the portioned answer was called before the comma came out of it, in
+# both the spellings a hand-typed file uses. An ingredients file written
+# then still loads.
+PREMIX_MADE_AS_PORTIONED_WAS = ("one pre-mix, portioned",
+                                "one premix, portioned")
+PREMIX_MADE_AS_PORTIONED = "portioned from one pre-mix"
 PREMIX_MADE_AS_WEIGHED = "weighed into each formulation"
 # How a pre-mix is named when something else found the clash, alongside
 # AN_INGREDIENT and A_PROCESS_SETTING above.
@@ -2908,15 +2954,36 @@ A_PREMIX = "a pre-mix"
 A_PART = "a part of this pre-mix"
 
 MADE_AS_REQUIRED_ERROR = (
-    f"Say how this pre-mix is made: {PREMIX_MADE_AS_PORTIONED}, or "
-    f"{PREMIX_MADE_AS_WEIGHED}.")
+    f"Say how this row is made: {PREMIX_MADE_AS_BOUGHT_IN}, "
+    f"{PREMIX_MADE_AS_PORTIONED} or {PREMIX_MADE_AS_WEIGHED}.")
 PART_SHARE_ERROR = f"Enter the {PREMIX_SHARE_LABEL} as a number, or leave it empty."
 PART_IS_ITS_OWN_PREMIX = "A pre-mix cannot be one of its own parts."
 PREMIX_INSIDE_PREMIX = "A pre-mix cannot go inside another pre-mix yet."
 # The same caption the measurements grid shows, in the pre-mix's own
 # noun: what the reader typed did not add up to 100, and the app moved
 # the rest of the column rather than refusing the save.
-SHARES_ADJUSTED_PREMIX = "Parts adjusted to add up to 100 %."
+def shares_adjusted_premix(pairs_text):
+    """'% of pre-mix adjusted to add up to 100 %: Pea protein isolate 66.00,
+    Potato starch 26.00, Methylcellulose 8.00.'
+
+    It said only that the column had been adjusted. The reader typed 20 and
+    70 and the app wrote 22.22 and 77.78, and nothing on the screen said to
+    what — so the numbers are in the sentence.
+
+    The noun is the COLUMN's own name. Its sibling on the measurements grid
+    is `Shares adjusted to add up to 100 %.`, over a column headed `Share of
+    score (%)`; `share` on this grid is a word on no control at all.
+    """
+    return f"{PREMIX_SHARE_LABEL} adjusted to add up to 100 %: {pairs_text}."
+
+
+def premix_amount_is_its_parts(name):
+    """'Fat phase's amount is the sum of its parts. Change the parts in its
+    fold.' — a number typed over the word in a weighed pre-mix's Lowest or
+    Highest cell. The cell lets a pen in and the app cannot take what it
+    says: the amount of a weighed pre-mix is arithmetic over its parts."""
+    return (f"{name}'s amount is the {SUM_OF_ITS_PARTS}. Change the "
+            f"{PART_LABEL.lower()}s in its fold.")
 
 
 def premix_unknown(name):
@@ -2963,15 +3030,49 @@ def premix_portioned_consequence(name):
 
 def premix_weighed_consequence(names_text):
     """'The suggestions vary pea protein, fibre and salt separately. Each
-    formulation gets its own blend.'
+    formulation gets its own amounts of them.'
 
     The other half of the same choice, in the same two halves. Weighed, it
     IS the parts that vary, so they are named: the reader is agreeing to a
     search over three amounts instead of one, and the list is the only
     thing on screen that says so.
+
+    The second half says what the bench does, as the portioned sentence's
+    second half does. It said "its own blend", which is the concept word
+    the app does not use — and two of the sample's own pre-mixes are named
+    `Dry blend` and `Seasoning blend`, so a reader who had just typed those
+    read it as a statement about a row of their grid.
     """
     return (f"The suggestions vary {names_text} separately. Each "
-            f"{FORMULATION} gets its own blend.")
+            f"{FORMULATION} gets its own amounts of them.")
+
+
+def premix_row_band(name, low_text, high_text):
+    """'Dry blend goes in at 20.00 to 40.00 g.' — said beside the choice,
+    so the numbers the switch produced are on the screen that made it.
+
+    A mode switch moves which rows the suggestions hold amounts for, and
+    the amounts themselves were left at 0.00 to 0.00 with nothing said: a
+    round generated in that state has no protein in it at all."""
+    return f"{name} goes in at {low_text} to {high_text}."
+
+
+def premix_part_bands(pairs_text):
+    """'Each part has its own Lowest and Highest now: Pea protein isolate
+    11.00 to 22.00 g, Potato starch 4.33 to 8.67 g.' — the other side of
+    the same switch, said in the same breath as the choice."""
+    return (f"Each {PART_LABEL.lower()} has its own {LOWEST_LABEL} and "
+            f"{HIGHEST_LABEL} now: {pairs_text}.")
+
+
+def premix_parts_need_amounts(names_text, many=False):
+    """'Give Pea protein isolate and Potato starch a Lowest and a Highest
+    before making a round: they are at 0.00 g.' — the honest answer when a
+    switch could not work the amounts out, because the pre-mix's own row
+    had none or the parts' % of pre-mix add up to nothing."""
+    verb = "they are" if many else "it is"
+    return (f"Give {names_text} a {LOWEST_LABEL} and a {HIGHEST_LABEL} "
+            f"before making a {ROUND}: {verb} at 0.00 now.")
 
 
 # ------------------------------------------------------------------ #
@@ -3021,7 +3122,14 @@ def part_in_two_weighed_premixes(name, first, second):
 # where it is typed, exactly as an ingredient is, and the fold shows only
 # the columns the way the pre-mix is made actually needs.
 # ------------------------------------------------------------------ #
-MADE_AS_HELP = "An ingredient you make yourself. Its parts open underneath."
+MADE_AS_HELP = (
+    f"{PREMIX_MADE_AS_BOUGHT_IN} — you weigh it straight in, and the "
+    f"suggestions move that one amount. "
+    f"{PREMIX_MADE_AS_PORTIONED} — one lot made for the whole {ROUND}, and "
+    f"the suggestions move how much of it goes in. "
+    f"{PREMIX_MADE_AS_WEIGHED} — the parts go in one by one, and the "
+    "suggestions move each of them. The parts of either open in a fold "
+    "under the grid.")
 # The first column of a pre-mix's own grid. The row IS the part, so the
 # header is the noun and not "Name": the grid above already has a Name.
 PART_LABEL = "Part"
@@ -3032,6 +3140,24 @@ SUM_OF_ITS_PARTS = "sum of its parts"
 PARTS_ADD_TO_NOTHING = ("The parts add up to nothing. Give at least one of "
                         "them a share.")
 PREMIX_NEEDS_A_PART = "A pre-mix needs at least one part."
+
+
+def premix_fold_caption(weighed):
+    """The one line at the top of a pre-mix's parts fold: what the numbers
+    in it are, and what may be a part.
+
+    `% of pre-mix` had no tooltip, no caption and no line under the grid —
+    the one term on the tab that was never said — and it is the central
+    number of a portioned pre-mix. The second sentence answers the other
+    thing nothing said: an ingredient already on the grid can be a part of
+    a pre-mix too.
+    """
+    if weighed:
+        return (f"Parts weighed into each {FORMULATION}, each with its own "
+                f"{LOWEST_LABEL} and {HIGHEST_LABEL}. An ingredient already "
+                "on the grid can be a part too.")
+    return (f"Parts and their {PREMIX_SHARE_LABEL}, adding up to 100 %. An "
+            "ingredient already on the grid can be a part too.")
 
 
 def premix_grid_title(name):
@@ -3089,12 +3215,14 @@ def workbook_lot_conflict(name):
     return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this round."
 
 
-def premix_needs_parts(name):
-    return f"Add at least one part to {name} in Set up before making a round."
+def premix_needs_parts(name, here=False):
+    """'Add at least one part to Wet blend in Set up before making a round.'
+    — and, on Set up itself, 'in the fold below', because the tab it sent
+    the reader to is the tab they are standing on."""
+    where = "in the fold below" if here else f"in {SET_UP_SHEET}"
+    return f"Add at least one {PART_LABEL.lower()} to {name} {where} before making a {ROUND}."
 
 
-RESULT_DRAFT_SAVED = "Draft measurements and notes saved on this Mac. Save results to record the formulations you have entered; blank formulations stay open."
+RESULT_DRAFT_SAVED = "Measurements and notes are saved as you type. Save results to record the formulations you have entered; blank formulations stay to record."
 UPLOAD_AMOUNTS_HEADING = "Amounts from the file"
 UPLOAD_LOTS_HEADING = "Lot numbers from the file"
-PLANNED_COLUMN = "Planned"
-ACTUAL_COLUMN = "Actual"

@@ -715,7 +715,11 @@ def _record_results(opt):
     to_record = open_rows(opt)
     open_numbers = {r['formulation'] for r in to_record}
     ordered = opt.measurements_by_importance()
-    seed = (id(opt), opt.pending_batch_no, tuple(o['name'] for o in ordered))
+    # The project's own name, not id(opt): a memory address is reused the
+    # moment the object it belonged to is collected, and app.py replaces
+    # st.session_state.optimizer outright on a CLASS_VERSION refresh.
+    seed = (opt.project_name, opt.pending_batch_no,
+            tuple(o['name'] for o in ordered))
     if st.session_state.get('_result_draft_seed') != seed:
         for row in to_record:
             number = row['formulation']
@@ -939,7 +943,7 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                     unit = opt.unit_of(name)
                     comparisons.append({wording.FORMULATION_CAP: number,
                         wording.NAME_LABEL: name,
-                        wording.PLANNED_COLUMN: planned.get(name, 0),
+                        wording.AMOUNT_COLUMN: planned.get(name, 0),
                         wording.ACTUAL_COLUMN: amount, wording.UNIT_LABEL: unit})
                 recipe = opt.amounts_as_weighed(planned, actual)
                 st.caption(wording.upload_amounts_total(
@@ -948,7 +952,8 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                 if mismatch:
                     st.caption(mismatch)
                 for name, amount in actual.items():
-                    caution = opt.bounds_caution(name, amount)
+                    caution = opt.bounds_caution(
+                        name, amount, opt.amount_scale(opt.open_round_size()))
                     if caution:
                         st.caption(caution)
                 if opt.one_amount_unit() and opt.ingredient_total(recipe) > 0:
@@ -962,7 +967,7 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                 if unit and all(r[wording.UNIT_LABEL] == unit for r in comparisons):
                     frame = frame.drop(columns=[wording.UNIT_LABEL]).rename(columns={
                         c: f'{c} ({unit})' for c in
-                        (wording.PLANNED_COLUMN, wording.ACTUAL_COLUMN)})
+                        (wording.AMOUNT_COLUMN, wording.ACTUAL_COLUMN)})
                 st.dataframe(frame, hide_index=True, key='upload_amounts_preview',
                     column_config={c: st.column_config.NumberColumn(c, format='%.2f')
                         for c in frame.columns if c not in
@@ -974,10 +979,14 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
 
 
 def _blank_or_number(value):
-    """A measurement nobody took is a blank cell, never 'nan'."""
+    """A measurement nobody took is a blank cell, never 'nan'.
+
+    Two decimals are the app's rule for an AMOUNT. These are measurements: a
+    panel score of 6 reads 6, and a sodium reading of 39000 reads 39000.
+    """
     if value is None or pd.isna(value):
         return ""
-    return f"{float(value):.2f}"
+    return f"{float(value):g}"
 
 
 def _upload(opt):

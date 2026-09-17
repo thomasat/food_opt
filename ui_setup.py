@@ -357,15 +357,24 @@ def _number_column(label, help=None, width=None):
 
 def _ingredient_columns(opt, frame):
     """The typed columns. Every label is read off wording — a bare string
-    here would be a screen label the vocabulary guard never sees."""
+    here would be a screen label the vocabulary guard never sees.
+
+    Every column carries a width. The desktop bundle opens at 1280 px, which
+    leaves the grid about 820 px, and without widths the browser gave each
+    column the same generous share and pushed `Rule` — the column wave 2
+    made the headline of this grid — off the right edge, reachable only by
+    scrolling the canvas sideways, which nothing on the screen asks for.
+    The numbers add up to the space there is, the way the measurements grid
+    below already does.
+    """
     columns = {
         GRID_ID: None,                    # the hidden row identity
         wording.NAME_LABEL: st.column_config.TextColumn(
-            wording.NAME_LABEL, required=True),
+            wording.NAME_LABEL, required=True, width=140),
         wording.TYPE_LABEL: st.column_config.SelectboxColumn(
             wording.TYPE_LABEL, options=[KIND_INGREDIENT, KIND_SETTING],
             default=KIND_INGREDIENT, required=True,
-            help=wording.VARIABLE_TYPE_HELP),
+            help=wording.VARIABLE_TYPE_HELP, width=105),
         # Right after Type, because it is the other half of what the row IS.
         # Blank is an ordinary ingredient; the two ways a pre-mix is made
         # are the bench's own words for them, and the first is the default
@@ -373,9 +382,11 @@ def _ingredient_columns(opt, frame):
         # every mix.
         wording.MADE_AS_LABEL: st.column_config.SelectboxColumn(
             wording.MADE_AS_LABEL,
-            options=[wording.PREMIX_MADE_AS_PORTIONED,
+            options=[wording.PREMIX_MADE_AS_BOUGHT_IN,
+                     wording.PREMIX_MADE_AS_PORTIONED,
                      wording.PREMIX_MADE_AS_WEIGHED],
-            help=wording.MADE_AS_HELP),
+            default=wording.PREMIX_MADE_AS_BOUGHT_IN,
+            help=wording.MADE_AS_HELP, width=170),
         # Text, not numbers, and only on this grid. A row with a formula
         # has no Lowest and no Highest of its own: both cells read the
         # app's own word for it, and a number column cannot hold a word.
@@ -384,24 +395,29 @@ def _ingredient_columns(opt, frame):
         # back, so a cell holding something that is not a number is still
         # answered by Enter a number.
         wording.LOWEST_LABEL: st.column_config.TextColumn(
-            wording.LOWEST_LABEL),
+            wording.LOWEST_LABEL, width=80),
         wording.HIGHEST_LABEL: st.column_config.TextColumn(
-            wording.HIGHEST_LABEL),
+            wording.HIGHEST_LABEL, width=80),
         wording.UNIT_LABEL: st.column_config.TextColumn(
-            wording.UNIT_LABEL, default=opt.amount_unit or "g"),
-        wording.VENDOR_LABEL: st.column_config.TextColumn(
-            wording.VENDOR_LABEL, help=wording.VENDOR_HELP),
-        wording.SKU_LABEL: st.column_config.TextColumn(
-            wording.SKU_LABEL, help=wording.SKU_HELP),
+            wording.UNIT_LABEL, default=opt.amount_unit or "g", width=50),
     }
+    # Vendor and SKU are specification data, typed once and never looked at
+    # again, so they are off until the project asks for them (More settings
+    # → Also record). Off, the grid is two columns narrower.
+    if wording.VENDOR_LABEL in frame.columns:
+        columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
+            wording.VENDOR_LABEL, help=wording.VENDOR_HELP, width=95)
+    if wording.SKU_LABEL in frame.columns:
+        columns[wording.SKU_LABEL] = st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP, width=95)
     if wording.BASELINE_LABEL in frame.columns:
         columns[wording.BASELINE_LABEL] = _number_column(
-            wording.BASELINE_LABEL, help=wording.BASELINE_HELP)
+            wording.BASELINE_LABEL, help=wording.BASELINE_HELP, width=90)
     # Last and narrow: one column for one idea, and the idea is the answer
     # to the two columns it replaces. `= rest` is typed here too, so there
     # is no Balance column beside it.
     columns[wording.FORMULA_LABEL] = st.column_config.TextColumn(
-        wording.FORMULA_LABEL, width="small", help=wording.FORMULA_HELP)
+        wording.FORMULA_LABEL, width=115, help=wording.FORMULA_HELP)
     return columns
 
 
@@ -414,10 +430,14 @@ def _measurement_columns():
             wording.GOAL_LABEL, options=list(wording.GOAL_LABELS.values()),
             default=wording.GOAL_LABELS['max'], required=True, width=115),
         wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL, width=75),
+        # The full words, not `Lowest` / `Highest`: those two are an
+        # ingredient's allowed amounts on the grid directly above, and one
+        # word says one thing. The width is what makes the column fit; the
+        # header does not have to be shortened to pay for it.
         wording.LOWEST_MEASURABLE_LABEL: _number_column(
-            wording.LOWEST_LABEL, help=wording.LOWEST_MEASURABLE_LABEL, width=80),
+            wording.LOWEST_MEASURABLE_LABEL, width=105),
         wording.HIGHEST_MEASURABLE_LABEL: _number_column(
-            wording.HIGHEST_LABEL, help=wording.HIGHEST_MEASURABLE_LABEL, width=80),
+            wording.HIGHEST_MEASURABLE_LABEL, width=105),
         wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL, width=55),
         wording.SHARE_COLUMN: st.column_config.NumberColumn(
             wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
@@ -869,10 +889,41 @@ def _premixes(opt, storage):
     return pending
 
 
+def _premix_fold_open(name, grid):
+    """True while this fold holds something the reader must not lose sight
+    of: an edit in hand, a refusal to read, or a cell typed on the run that
+    is being drawn now.
+
+    A `st.data_editor` reruns the script on every keystroke, and the fold
+    came back shut each time — with `Save changes`, `Discard changes` and
+    the "not saved yet" caption all inside it. The screen went back to
+    looking finished over an unsaved edit, and entering a four-part pre-mix
+    meant reopening the fold nine times.
+
+    The third question is asked of the editor's own record of what was
+    typed, which Streamlit writes into session state BEFORE this run: the
+    park below is written at the END of the run, so on the very run that
+    carries the first keystroke there is nothing parked yet.
+    """
+    if _grid_is_pending(grid) or st.session_state.get(premix_errors_key(name)):
+        return True
+    typed = st.session_state.get(grid_key(grid))
+    if isinstance(typed, dict):
+        return any(typed.get(k) for k in
+                   ("edited_rows", "added_rows", "deleted_rows"))
+    return False
+
+
 def _premix_grid(opt, storage, name):
     grid = premix_grid_key(name)
     saved = opt.premix_grid_frame(name)
-    with st.expander(wording.premix_grid_title(name)):
+    with st.expander(wording.premix_grid_title(name),
+                     expanded=_premix_fold_open(name, grid)):
+        # One caption at the top of the fold, saying what the column under
+        # it is and what may go in it. `% of pre-mix` was the one term on
+        # the tab with no tooltip, no caption and no line under the grid.
+        st.caption(wording.premix_fold_caption(
+            opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED))
         opening, from_park = _opening_frame(grid, saved)
         edited = st.data_editor(
             opening, key=grid_key(grid), num_rows="dynamic",
@@ -1748,7 +1799,7 @@ def _more_settings(opt, storage):
 
 
 def _foot(opt, pending=False):
-    ready, missing = readiness(opt)
+    ready, missing = readiness(opt, here=True)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; moving on can wait a click. An
     # unsaved grid is the same case: its `Save changes` is the lit one, and

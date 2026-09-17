@@ -7776,8 +7776,9 @@ def test_the_size_is_kept_with_the_round_and_then_with_its_number(open_batch):
 @pytest.fixture
 def resized_and_recorded(tmp_path, monkeypatch):
     """One round, made to 200 g by the Batch size box and recorded there.
-    Water's 120 g is past the 100 g the project allows, so tab 2 said so
-    before the bench weighed it."""
+    Every amount is twice what the project's own per-formulation amounts
+    say, which is ordinary bench work — so what the two screens owe the
+    reader is the line that says the sheets followed the box."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("resized")
     opt.set_amount_unit("g")
@@ -7796,11 +7797,11 @@ def test_a_round_the_box_resized_still_says_so_on_results(resized_and_recorded):
     rewritten, so without the flag tab 3 checked it against nothing."""
     opt = resized_and_recorded
     assert opt.pending_batch[0]['recipe']["Water"] == pytest.approx(120.0)
+    said_here = "every amount is 2 × the amounts you set per 100 g"
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     # Tab 2 says it while the round is on the bench.
-    assert [c.value for c in at.caption
-            if "Water goes past the amounts you allowed" in c.value], \
+    assert [c.value for c in at.caption if said_here in c.value], \
         [c.value for c in at.caption]
     at.number_input(key="f1_Taste").set_value(7.0)
     at.run()
@@ -7810,8 +7811,7 @@ def test_a_round_the_box_resized_still_says_so_on_results(resized_and_recorded):
     assert FoodOptimizer("resized").recorded_total(1) == 200.0
     # The round is closed, so tab 2 has nothing to say any more: whatever
     # says it now is tab 3's own line, under the amounts it is about.
-    said = [c.value for c in at.caption
-            if "Water goes past the amounts you allowed" in c.value]
+    said = [c.value for c in at.caption if said_here in c.value]
     assert said, [c.value for c in at.caption]
 
 
@@ -7957,7 +7957,9 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
 def test_the_workbook_is_named_for_the_project_and_the_batch(open_batch):
     """A downloaded file is found in a Downloads folder a month later,
     beside eleven others, so it carries both names."""
-    assert wording.workbook_file_name("burger", 1) == "burger · Round 1.xlsx"
+    # A hyphen, not the app's own `·`: the browser drops the dot on the way
+    # to disk and the file came out `burger  Round 1.xlsx`, with two spaces.
+    assert wording.workbook_file_name("burger", 1) == "burger - Round 1.xlsx"
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
@@ -10329,7 +10331,9 @@ def test_upload_preview_shows_actual_changes_and_total_warning_before_save(open_
     at.run()
     assert not at.exception
     frame = next(d.value for d in at.dataframe if 'Actual (g)' in d.value.columns)
-    assert frame['Planned (g)'].tolist() == [28]
+    # The sheet's own word for the printed number, not a new one for it:
+    # `Amount (g)` heads this column on every page the reader filled in.
+    assert frame['Amount (g)'].tolist() == [28]
     assert frame['Actual (g)'].tolist() == [28.5]
     assert any('30.50 g' in c.value for c in at.caption)
     assert any('LOT-42' in str(d.value) for d in at.dataframe)

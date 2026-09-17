@@ -258,7 +258,7 @@ def test_saved_line_shows_the_time_today_and_the_date_before_that():
 
 
 class _FakeOpt:
-    def premix_readiness_error(self):
+    def premix_readiness_error(self, here=False):
         return None
 
     def __init__(self, variables, objectives, pending_batch=None,
@@ -719,3 +719,111 @@ def test_the_out_of_range_hint_names_a_control_on_the_screen():
     assert wording.HIGHEST_MEASURABLE_LABEL in wording.WIDEN_RANGE_HINT
     assert wording.WIDEN_RANGE_HINT == (
         " Raise Highest measurable in Set up, or check the value.")
+
+
+def test_every_ingredient_column_carries_a_width():
+    """I1: the desktop bundle opens at 1280 px, which leaves the grid about
+    820 px. With no widths the browser shared the space out evenly and
+    pushed `Rule` — the column wave 2 made this grid's headline — off the
+    right edge. AppTest cannot measure pixels, so what is pinned here is
+    that every column declares a width and that they add up to something
+    that fits; the browser script checks the fit itself."""
+    import pandas as pd
+    import ui_setup
+    import wording
+
+    class _Opt:
+        amount_unit = "g"
+
+    frame = pd.DataFrame(columns=[
+        wording.NAME_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL,
+        wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+        wording.FORMULA_LABEL])
+    columns = ui_setup._ingredient_columns(_Opt(), frame)
+    widths = {}
+    for label, config in columns.items():
+        if config is None:            # the hidden row identity
+            continue
+        width = config["width"]
+        assert width, f"{label} has no width"
+        widths[label] = width
+    assert set(widths) == {
+        wording.NAME_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL,
+        wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+        wording.FORMULA_LABEL}
+    assert sum(widths.values()) <= 820
+
+
+def test_the_measurement_range_columns_keep_their_own_two_words():
+    """I2: the headers were shortened to `Lowest` / `Highest` to make the
+    columns fit, which is what an ingredient's allowed amounts are called on
+    the grid directly above. One word says one thing: the width does the
+    fitting, the header keeps the meaning."""
+    import ui_setup
+    import wording
+    columns = ui_setup._measurement_columns()
+    assert (columns[wording.LOWEST_MEASURABLE_LABEL]["label"]
+            == wording.LOWEST_MEASURABLE_LABEL)
+    assert (columns[wording.HIGHEST_MEASURABLE_LABEL]["label"]
+            == wording.HIGHEST_MEASURABLE_LABEL)
+    for label, config in columns.items():
+        if config is not None:
+            assert config["width"], f"{label} has no width"
+
+
+def test_a_parts_fold_stays_open_while_it_holds_an_edit():
+    """B3: a data_editor reruns the script on every keystroke, and the fold
+    came back shut each time — with Save changes, Discard changes and the
+    "not saved yet" caption all inside it. The screen went back to looking
+    finished over an unsaved edit."""
+    import streamlit as st
+    import ui_setup
+    from ui_helpers import grid_key, premix_errors_key, premix_grid_key
+    st.session_state.clear()
+    grid = premix_grid_key("Dry blend")
+    assert ui_setup._premix_fold_open("Dry blend", grid) is False
+    # The editor's own record of what was typed, which Streamlit writes
+    # before the run that processes it — the park below is written at the
+    # end of that same run, so on the first keystroke there is nothing
+    # parked yet.
+    st.session_state[grid_key(grid)] = {
+        "edited_rows": {0: {"% of pre-mix": 20}},
+        "added_rows": [], "deleted_rows": []}
+    assert ui_setup._premix_fold_open("Dry blend", grid) is True
+    st.session_state[grid_key(grid)] = {
+        "edited_rows": {}, "added_rows": [], "deleted_rows": []}
+    assert ui_setup._premix_fold_open("Dry blend", grid) is False
+    # A refusal to read keeps it open too.
+    st.session_state[premix_errors_key("Dry blend")] = [(1, "no")]
+    assert ui_setup._premix_fold_open("Dry blend", grid) is True
+    st.session_state.clear()
+
+
+def test_each_parts_fold_says_what_its_numbers_are():
+    """S10: `% of pre-mix` had no tooltip, no caption and no line under the
+    grid — the one term on the tab that was never said — and it is the
+    central number of a portioned pre-mix's fold."""
+    import wording
+    portioned = wording.premix_fold_caption(False)
+    weighed = wording.premix_fold_caption(True)
+    assert wording.PREMIX_SHARE_LABEL in portioned
+    assert "100 %" in portioned
+    assert wording.LOWEST_LABEL in weighed and wording.HIGHEST_LABEL in weighed
+    # And both say the thing nothing else on the tab said: a row already on
+    # the grid can be a part.
+    for line in (portioned, weighed):
+        assert "already on the grid can be a part too" in line
+
+
+def test_the_made_as_help_says_what_each_of_the_three_answers_means():
+    """S11 and S12: the tooltip defined the column and not the choices, and
+    the ordinary case was a blank with no words at all."""
+    import wording
+    for option in (wording.PREMIX_MADE_AS_BOUGHT_IN,
+                   wording.PREMIX_MADE_AS_PORTIONED,
+                   wording.PREMIX_MADE_AS_WEIGHED):
+        assert option in wording.MADE_AS_HELP
+        # Neither pre-mix answer carries a comma any more: two sentences
+        # list both, and a three-item list of two options is unreadable.
+        assert "," not in option
+    assert wording.PREMIX_MADE_AS_PORTIONED == "portioned from one pre-mix"
