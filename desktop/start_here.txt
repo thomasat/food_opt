@@ -25,12 +25,17 @@ HOW TO INSTALL
 
 TRYING IT OUT
 - On the first screen, click "Try the sample project" to explore a
-  plant-based burger before setting up your own. Its four rows are Dry
-  blend, Fat phase, Seasoning blend and Water. Open the parts underneath
-  the grid to see the nine ingredients inside the three pre-mixes.
+  plant-based burger before setting up your own. Its six rows are
+  Textured pea protein, Dry blend, Wheat gluten, Fat phase, Seasoning
+  blend and Water. Open the parts underneath the grid to see the ten
+  parts inside the three pre-mixes.
   Dry blend is made once for the round; the two oils in Fat phase are
-  weighed into each formulation; Seasoning blend stays at 2.5 g.
+  weighed into each formulation; Seasoning blend stays at 2.2 g.
   Water takes the rest, so every formulation adds up to 100 g.
+- A formulation is one thing you make and measure: something you weigh
+  out, a process run, a fermentation. A project whose rows are all
+  process settings weighs nothing out, and the app asks it for no
+  batch size and prints it no amounts.
 - Your ingredients and your measurements are two tables on the Set up
   tab, and you type straight into them: change a cell, type a new row
   on the empty line at the bottom, or take a row out. Nothing reaches
@@ -103,11 +108,15 @@ and attach the file that opens:
 
 PRE-MIXES ON THE BENCH
 - The Excel workbook starts with a preparation page for each pre-mix
-  made once for the round. Weigh its parts, write their lot numbers in
-  the shaded cells, and portion it as one line on each formulation page.
-- Parts weighed separately sit under their group on each formulation
-  page. "To weigh for this round" on the summary totals every ingredient
-  once. Write any different amounts in the shaded "Actual" cells.
+  made once for the round. It says how much to make - a little over what
+  the round needs, and never less than 100 g - and what the round takes
+  out of it. Weigh its parts, write their lot numbers in the boxed
+  cells, give the pre-mix its own lot at the foot of the page, and
+  portion it as one line on each formulation page.
+- Parts weighed separately sit under their pre-mix on each formulation
+  page. The round sheet says what to "Make for this round" and what to
+  "Have on hand"; the second is a total across every formulation, not
+  one weighing. Write any different amounts in the boxed "Actual" cells.
 
 RESULTS AS YOU GO
 Measurements and notes save as drafts when you finish editing a field.

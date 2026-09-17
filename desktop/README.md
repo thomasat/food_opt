@@ -148,10 +148,11 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload an ingredients file (file picker opens), save a
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. UI walkthrough: click "Try the sample project" (four rows and nine
-   parts, Juiciness and Firmness, formulations of 100 g). Dry blend is
-   portioned; Fat phase holds two oils weighed into each formulation;
-   Seasoning blend stays at 2.5 g. Water's Rule cell says "= rest", so its
+6. UI walkthrough: click "Try the sample project" (six rows and ten
+   parts, Firmness, Juiciness and Cook loss, formulations of 100 g, one
+   process setting and one fat limit). Dry blend is portioned; Fat phase
+   holds two oils weighed into each formulation; Seasoning blend stays at
+   2.2 g. Water's Rule cell says "= rest", so its
    Highest reads "worked out" and one line under the grid gives
    what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
@@ -170,10 +171,13 @@ warnings entirely, and the checklist below gates distribution on that.
    open it: the sheets
    are protected, only the cells the instruction line names take a value,
    and a printed greyscale copy makes clear which they are — every one of
-   them is boxed and nothing else is shaded. Each formulation page has an
+   them is boxed, and boxed and shaded are the one treatment: there is no
+   second, shaded-but-locked kind of cell. Each formulation page has an
    "Actual (g)" column beside its amounts, with a "Lot" cell per
    ingredient on the "Round 1" page. Water is printed as "Water · worked
-   out" on both pages, with the line "Water is worked out: = rest
+   out" on the formulation pages and "Water · worked out (g)" on the
+   round sheet — the mark on the name, the unit behind it, one shape
+   everywhere, with the line "Water is worked out: = rest
    (batch size − every other ingredient). Weigh the amount printed."
    under the amounts. Record a result (or mark one Not
    scored and score it later from Results), and confirm the `.pkl` appears
@@ -194,10 +198,13 @@ warnings entirely, and the checklist below gates distribution on that.
     and the new version runs.
 
 Pre-mix workbook check: preparation pages for Dry blend and Seasoning blend
-come before the round summary; each formulation has an indented Fat phase
-block. Enter a part lot number on a preparation page and an actual oil
-amount on a formulation page, then upload the completed workbook and verify
-both are retained. The summary carries “To weigh for this round”.
+come before the round summary, each headed "make N g (this round needs M g)"
+and each ending in a "Pre-mix lot" line; every formulation page indents the
+Fat phase parts under the pre-mix they belong to. Enter a part lot number on
+a preparation page and an actual oil amount on a formulation page, then
+upload the completed workbook and verify both are retained. The summary
+carries "Make for this round" and "Have on hand", and the project's Method
+under the round's amounts.
 
 For notarization credentials stored outside the login keychain, set
 `NOTARY_KEYCHAIN` to that keychain's path alongside `NOTARY_PROFILE`.

@@ -1197,6 +1197,38 @@ def _targets_source_editor(opt):
             st.rerun()
 
 
+_METHOD_BOX = "method_box"
+
+
+def _method_editor(opt):
+    """How the formulation is made, in the order the bench does it: one text
+    area, saved the moment it loses focus, printed on the Round sheet.
+
+    A text area rather than the targets note's one-line box with its own
+    Add/Edit pair: a method is six lines, and the page that carries it to
+    the bench prints them one to a row. It saves on change, which is what
+    every other box in this tier does, and the flash is the only line it
+    owes.
+    """
+    st.session_state.setdefault(_METHOD_BOX, getattr(opt, 'method', "") or "")
+
+    def _save():
+        typed = str(st.session_state.get(_METHOD_BOX) or "").strip()
+        had = bool(getattr(opt, 'method', ""))
+        if typed == (getattr(opt, 'method', "") or ""):
+            return
+        opt.set_method(typed)
+        if saved_ok(opt):
+            flash("success",
+                  wording.METHOD_SAVED if typed
+                  else (wording.METHOD_CLEARED if had else wording.METHOD_SAVED))
+
+    st.text_area(wording.METHOD_LABEL, key=_METHOD_BOX,
+                 help=wording.METHOD_HELP,
+                 placeholder=wording.METHOD_PLACEHOLDER,
+                 on_change=_save)
+
+
 def _measurements(opt, storage):
     """The measurements, in a grid of their own.
 
@@ -1793,6 +1825,7 @@ def _more_settings(opt, storage):
     with st.expander(wording.MORE_SETTINGS_EXPANDER,
                      expanded=_limit_half_written()):
         _formulation_total(opt)
+        _method_editor(opt)
         _targets_source_editor(opt)
         _limits(opt, storage)
         _properties(opt, storage)

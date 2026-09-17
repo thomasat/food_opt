@@ -183,8 +183,9 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "A ready-made plant-based burger: three pre-mixes, water, and panel ratings "
-    "for juiciness and firmness. Try it before setting up your own."
+    "A ready-made plant-based burger: six rows, three pre-mixes, a mixing "
+    "time, a fat limit, and firmness, juiciness and cook loss. Try it "
+    "before setting up your own."
 )
 
 # The sample project's own name, so app.py and ui_setup.py agree on how it is
@@ -194,17 +195,44 @@ SAMPLE_PROJECT_NAME = "Sample project"
 
 # The sample's own targets_source, set once when it is built.
 SAMPLE_TARGETS_SOURCE = (
-    "A benchmark burger rated by a trained panel: firmer than 6 is "
-    "rubbery, juicier than 7 falls apart."
+    "Scores are against an 80/20 beef control cooked to 71 °C core, which "
+    "our panel rates firmness 6 and juiciness 7 out of 10, against written "
+    "anchors (12 panellists, two sessions, February 2026). Above firmness 7 "
+    "the patty eats rubbery; below juiciness 5 it eats dry and chalky."
+)
+
+# The sample's Method: how the bench makes one formulation, in the order it
+# is done. Printed on the Round sheet under the title, because three
+# formulations that must be made identically except for the amounts had
+# nothing on paper saying how.
+SAMPLE_METHOD = (
+    "Hydrate the textured pea protein in 2.2 x as much of the water, "
+    "10 min at 45 °C. Add the dry blend and gluten to the rest of the water "
+    "and mix 60 s. Add the fat phase and mix for the mixing time. Form "
+    "100 g patties, 100 mm x 12 mm. Chill 20 min at 4 °C. Griddle at "
+    "180 °C, 3 min per side, to 74 °C core; serve within 3 min."
 )
 
 # Tab 1's two-line welcome for the sample project, shown only before its
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "A plant-based burger with three pre-mixes and water: four rows, with nine parts inside the pre-mixes. "
+    "A plant-based burger: six rows, three of them pre-mixes with ten parts "
+    "inside them, one mixing time, and a fat limit. "
     "Next: make a round."
 )
+
+# The project-level Method: one text area in More settings, printed on the
+# Round sheet under the title.
+METHOD_LABEL = "Method"
+METHOD_HELP = "How the formulation is made, in the order the bench does it."
+METHOD_PLACEHOLDER = ("e.g. Mix the dry blend into the water, 60 s. Add the "
+                      "fat phase. Form 100 g patties.")
+METHOD_SAVED = "Method saved."
+METHOD_CLEARED = "Method cleared."
+# The heading it prints under on the Round sheet: every formulation of a
+# round is made the same way, and the sheet says so once.
+METHOD_SHEET_HEADING = "Method — the same for every formulation"
 
 PROJECT_LOAD_ERROR_SIDEBAR_NOTE = ("This project could not be opened. The "
                                    "main screen says why.")
@@ -1959,7 +1987,8 @@ def summary_title(batch_no, project_name, made_on, total_text=""):
     `total_text` puts the size on the page too: the app's own caption said
     "Sheets show each formulation made to 100 g" and that sentence was
     nowhere on the sheet the bench carried."""
-    line = f"{batch_sheet_name(batch_no)} · {project_name} · {made_on}"
+    line = (f"{batch_sheet_name(batch_no)} · {project_name} · "
+            f"printed {made_on}")
     return f"{line} · made to {total_text}" if total_text else line
 
 
@@ -3190,13 +3219,40 @@ PREMIX_LIMIT_ON_ITS_OWN = "Choose a pre-mix on its own to limit its total. To li
 
 
 PREMIXES_HEADING = "Pre-mixes"
-SHOPPING_TOTAL_HEADING = "To weigh for this round"
+# Two headings, not one. `To weigh for this round` totalled two kinds of
+# number under one instruction: a pre-mix's parts ARE weighed together at
+# the number printed, and a loose row's total is three formulations added up
+# and is never weighed at that number anywhere. A tired bench operator
+# weighed out 167.52 g of water.
+MAKE_FOR_ROUND_HEADING = "Make for this round"
+HAVE_ON_HAND_HEADING = "Have on hand"
+HAVE_ON_HAND_CAPTION = ("Across every formulation; a worked-out row's total "
+                        "is what the round comes to, not one weighing.")
 ROUND_TOTAL_COLUMN = "Total for this round"
-PREMIX_SHADED_NOTE = "Write lot numbers in the shaded cells."
+PREMIX_SHADED_NOTE = write_in_note([LOT_COLUMN])
+# The write-in line at the foot of a pre-mix page. The Round sheet has a Lot
+# box against `Dry blend (g)` — a thing the bench made itself, which has no
+# lot until somebody gives it one, and nothing anywhere assigned it one.
+PREMIX_LOT_LABEL = "Pre-mix lot"
+PREMIX_BLENDED_BY_LABEL = "Blended by"
+PREMIX_BLENDED_ON_LABEL = "On"
+PREMIX_BLEND_TIME_LABEL = "Blend time (min)"
+# What the Round sheet's Lot cell says against a portioned pre-mix's row.
+PREMIX_LOT_ON_ITS_PAGE = "see its page"
 
 
-def premix_sheet_title(name, total_text):
-    return f"{name} · make {total_text} for this round"
+def premix_sheet_title(name, total_text, need_text=""):
+    """'Seasoning blend · make 100 g (this round needs 6.60 g)'.
+
+    `make 7.50 g` was the worst number in the workbook: you cannot blend
+    7.5 g of coarse salt and four fine powders to any homogeneity, and you
+    cannot portion three 2.5 g scoops out of it without the salt segregating
+    to the bottom. Nor can you dispense a blend with nothing left in the
+    bowl, on the paddle or on the scoop. So the page asks for a makeable
+    quantity and says what the round takes out of it.
+    """
+    line = f"{name} · make {total_text}"
+    return f"{line} (this round needs {need_text})" if need_text else line
 
 
 def premix_sheet_name(name):

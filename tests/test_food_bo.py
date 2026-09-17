@@ -1508,18 +1508,20 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 5
+    assert len(sample_names) == 7
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Dry blend", "Fat phase", "Seasoning blend", "Water"]
+        "Textured pea protein", "Dry blend", "Wheat gluten", "Fat phase",
+        "Seasoning blend", "Water"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
     # questions the screen asks. data/ingredients.csv is the experiments'
     # list, not a template, and keeps the lowercase headers those scripts
     # read by name; the columns are the same columns either way.
-    assert list(sample.columns) == ["Name", "Pre-mix", "Made as", "Lowest",
+    assert list(sample.columns) == ["Name", "Part of", "Made as", "Lowest",
                                     "Highest", "% of pre-mix", "Rule", "Unit",
-                                    "Fat per 100 g", "Sodium per 100 g"]
+                                    "Fat per 100 g", "Sodium per 100 g",
+                                    "Cost per 100 g"]
     assert [c.lower() for c in df.columns] == [
         "name", "min", "max", "unit", "fat per 100 g", "sodium per 100 g"]
 
@@ -6174,8 +6176,16 @@ class TestTheWorkbook:
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         for name in book.sheetnames:
             sheet = book[name]
+            # A merged box is ONE cell to the reader and to the pen: Excel
+            # paints the whole of it in the anchor's shade, and openpyxl
+            # keeps no style on the cells the merge swallowed. The anchor is
+            # the cell this rule is about.
+            swallowed = {c for rng in sheet.merged_cells.ranges
+                         for row in sheet[rng.coord] for c in row[1:]}
             for row in sheet.iter_rows():
                 for cell in row:
+                    if cell in swallowed:
+                        continue
                     shaded = cell.fill.fgColor.rgb not in (None, "00000000")
                     writable = cell.protection.locked is False
                     assert shaded == writable, (name, cell.coordinate,
@@ -8297,6 +8307,12 @@ class TestTheLockedWorkbook:
         # And the signature line, which the app does not read but a pen
         # must reach: it was printed into a locked cell.
         expected.add(f"B{at[wording.MADE_BY_FOOTER]}")
+        # The Total line's own Actual cell: a patty that came off the bench
+        # at 97.4 g is a fact the model needs, and every row above it had
+        # one while the line they add up to had none.
+        expected.add(f"D{at[wording.TOTAL_LABEL]}")
+        # And the tail of the merged Note box.
+        expected.add(f"E{at[wording.NOTE]}")
         assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
         # The amount beside the Actual cell is locked.
         amount = sheet.cell(row=at["Water"], column=3)
@@ -9623,7 +9639,10 @@ class TestTheFormulaColumn:
         opt.set_formulation_total(100.0)
         assert opt._var_by_name("Water")['balance'] is True
         assert opt._formula_text(opt._var_by_name("Water")) == "= rest"
-        assert len(opt.varying_variables()) == 3
+        # Textured pea protein, Dry blend, Wheat gluten and the two oils
+        # the Fat phase is weighed out as; Seasoning blend is fixed at
+        # 2.20 g and Water is worked out.
+        assert len(opt.varying_variables()) == 5
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
             assert row["Water"] >= -1e-9
@@ -10172,18 +10191,19 @@ class TestTheFormulaColumnFixes:
         opt.set_formulation_total(100.0)
         water = opt._var_by_name("Water")
         assert water['balance'] is True
-        assert water['bounds'] == (30.0, 70.0)
+        assert water['bounds'] == (35.0, 65.0)
         frame = opt.ingredient_grid_frame()
         row = frame[frame[wording.NAME_LABEL] == "Water"].iloc[0]
         assert row[wording.LOWEST_LABEL] == ""
         assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
+        at = int(frame.index[frame[wording.NAME_LABEL] == "Water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
-            frame, 4, **{wording.FORMULA_LABEL: ""}))
+            frame, at, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
         back = opt.ingredient_grid_frame()
         row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \
-            ("30.00", "70.00")
+            ("35.00", "65.00")
 
 
 # ------------------------------------------------------------------ #
@@ -12141,3 +12161,72 @@ class TestTheColdRead:
         errors, messages = opt.apply_ingredient_grid(frame)
         assert (errors, messages) == ([], [])
         assert "Water" not in opt.premixes
+
+
+class TestTheMethod:
+    """How the formulation is made, in the order the bench does it: one
+    project-level text, printed on the Round sheet under the amounts."""
+
+    def _opt(self, tmp_path, monkeypatch, name="method"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_pending_batch([{'Water': 60, 'Flour': 40}])
+        return opt
+
+    def test_the_round_sheet_prints_it_one_line_to_a_row(self, tmp_path,
+                                                         monkeypatch):
+        """Three formulations that must be made identically except for the
+        amounts went to the bench with nothing on the page saying how."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_method("Mix 60 s.\n\nForm to 100 g.\nGriddle 3 min a side.")
+        assert opt.method_lines() == ["Mix 60 s.", "Form to 100 g.",
+                                      "Griddle 3 min a side."]
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 1"]
+        column = [sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1)]
+        at = column.index(wording.METHOD_SHEET_HEADING)
+        assert column[at + 1:at + 4] == opt.method_lines()
+
+    def test_a_project_with_no_method_prints_no_heading(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.method_lines() == []
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 1"]
+        assert wording.METHOD_SHEET_HEADING not in [
+            sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1)]
+
+    def test_it_survives_a_save_and_a_file_without_one_still_loads(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_method("  Mix 60 s.  ")
+        assert FoodOptimizer("method").method == "Mix 60 s."
+        state = opt.export_json()
+        assert state['method'] == "Mix 60 s."
+        assert FoodOptimizer.validate_state(state)['version'] == \
+            FoodOptimizer.CLASS_VERSION
+        # A file written before the box existed says nothing about it.
+        del state['method']
+        assert FoodOptimizer.validate_state(state)['version'] == \
+            FoodOptimizer.CLASS_VERSION
+        monkeypatch.chdir(tmp_path)
+        other = FoodOptimizer("method_back", robust=False)
+        other.import_json(state)
+        assert other.method == ""
+        # ...and anything that is not text is a damaged file.
+        state['method'] = 7
+        with pytest.raises(ValueError):
+            FoodOptimizer.validate_state(state)
+
+    def test_the_make_quantity_is_makeable(self, tmp_path, monkeypatch):
+        """`make 7.50 g` of five powders cannot be blended to any
+        homogeneity nor portioned out of without the salt segregating to
+        the bottom, and `make 85.71 g` asks for a blend dispensed with
+        nothing left in the bowl."""
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.premix_make_quantity(6.60) == 100.0
+        assert opt.premix_make_quantity(85.71) == 100.0
+        assert opt.premix_make_quantity(160.0) == 180.0
+        assert opt.premix_make_quantity(253.25) == 280.0

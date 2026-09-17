@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import re
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -1547,6 +1548,7 @@ class FoodOptimizer:
         # benchmark product, a published panel, a brief from marketing. Blank
         # says nothing was recorded; shown as a caption once it is set.
         self.targets_source = ""
+        self.method = ""
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.result_drafts = {}       # formulation -> unfinished measurements/note
         self.pending_batch_no = None  # its batch number
@@ -2949,6 +2951,26 @@ class FoodOptimizer:
         self.targets_source = value
         self.save()
 
+    def set_method(self, text):
+        """Remember how the formulation is made, in the order the bench does
+        it. Written only on a change, exactly as the targets note is: the box
+        posts back on every render while it is open.
+
+        It is printed on the Round sheet under the title. Three formulations
+        that must be made identically except for the amounts went to the
+        bench with nothing on paper saying how."""
+        value = "" if text is None else str(text).strip()
+        if value == getattr(self, 'method', ""):
+            return
+        self.method = value
+        self.save()
+
+    def method_lines(self):
+        """The method as the sheet prints it: one row per line the reader
+        typed, blank lines dropped. [] when the project has none."""
+        text = str(getattr(self, 'method', "") or "").strip()
+        return [line.strip() for line in text.splitlines() if line.strip()]
+
     def closeness_details(self, index):
         """The best-formulation table, most important first: one dict per
         measurement with 'name', 'goal', 'measured' and 'off_by' as the
@@ -3793,11 +3815,16 @@ class FoodOptimizer:
         return names
 
     def _write_premix_sheet(self, sheet, name, rows, total):
-        amount = sum(float(self.shown_recipe(row, total)[0].get(name, 0))
-                     for row in rows)
+        need = sum(round(float(self.shown_recipe(row, total)[0].get(name, 0)
+                               or 0.0), 2) for row in rows)
+        amount = self.premix_make_quantity(need)
         unit = self.unit_of(name) or self.amount_unit
+        # The make quantity is a round number by construction (the next 5 g
+        # up), so it is written as one: `make 100 g`, not `make 100.00 g`.
+        # The need beside it is an amount and keeps the two decimals.
         title = _write_cell(sheet, 1, 1, wording.premix_sheet_title(
-            name, join_unit(f"{amount:.2f}", unit)))
+            name, join_unit(f"{amount:g}", unit),
+            join_unit(f"{need:.2f}", unit)))
         title.font = _TITLE_FONT
         _write_banner(sheet, 2, 1, wording.PREMIX_SHADED_NOTE, 6)
         headers = [wording.PART_LABEL, f"{wording.AMOUNT_COLUMN} ({unit})",
@@ -3809,10 +3836,16 @@ class FoodOptimizer:
         shares = sum(p['share'] for p in parts) or 100.0
         lots = self.lots.get(self.pending_batch_no, {})
         r = 4
+        printed = 0.0
         for part in parts:
+            # The parts are scaled to what is MADE, not to what the round
+            # takes out of it, and the Total adds the printed numbers: a
+            # bench that checks its arithmetic must not chase a gram that
+            # rounding put there.
+            weighed = round(amount * part['share'] / shares, 2)
+            printed += weighed
             _write_cell(sheet, r, 1, part['name'])
-            _write_cell(sheet, r, 2, round(amount * part['share'] / shares, 2),
-                        number_format=_TWO_DP)
+            _write_cell(sheet, r, 2, weighed, number_format=_TWO_DP)
             _write_cell(sheet, r, 3, round(part['share'] * 100 / shares, 2),
                         number_format=_TWO_DP)
             _write_in_cell(sheet, r, 4, lots.get(part['name']))
@@ -3820,8 +3853,19 @@ class FoodOptimizer:
             _write_cell(sheet, r, 6, part.get('sku') or None)
             r += 1
         _write_cell(sheet, r, 1, wording.TOTAL_LABEL, bold=True)
-        _write_cell(sheet, r, 2, round(amount, 2), bold=True, number_format=_TWO_DP)
+        _write_cell(sheet, r, 2, round(printed, 2), bold=True,
+                    number_format=_TWO_DP)
         _write_cell(sheet, r, 3, 100.0, bold=True, number_format=_TWO_DP)
+        r += 2
+        # The pre-mix's own lot. The Round sheet has a Lot box against this
+        # pre-mix's row — a thing the bench made itself, which has no lot
+        # until somebody writes one here.
+        for label in (wording.PREMIX_LOT_LABEL, wording.PREMIX_BLENDED_BY_LABEL,
+                      wording.PREMIX_BLENDED_ON_LABEL,
+                      wording.PREMIX_BLEND_TIME_LABEL):
+            _write_cell(sheet, r, 1, label, bold=True)
+            _write_in_cell(sheet, r, 2)
+            r += 1
         _set_widths(sheet, [34, 20, 18, 18, 24, 20])
         sheet.freeze_panes = "B4"
         sheet.print_title_rows = "$1:$3"
@@ -3975,9 +4019,18 @@ class FoodOptimizer:
                     _write_cell(sheet, r, column(j, 1),
                                 self._percent_of(recipe, var, bases[j]),
                                 number_format=_ONE_DP)
-            # One lot for the round, written once on the row it belongs to.
+            # One lot for the round, written once on the row it belongs to
+            # — except a portioned pre-mix, which the bench MADE: its lot is
+            # written on the page that makes it, and a second box here is a
+            # second answer to one question.
             if lot_column:
-                _write_in_cell(sheet, r, lot_column)
+                if (var['name'] in self.premixes
+                        and self.premixes[var['name']]['mode']
+                        == PREMIX_PORTIONED):
+                    _write_cell(sheet, r, lot_column,
+                                wording.PREMIX_LOT_ON_ITS_PAGE)
+                else:
+                    _write_in_cell(sheet, r, lot_column)
             if vendor_column:
                 _write_cell(sheet, r, vendor_column,
                             str(var.get('vendor') or "").strip() or None)
@@ -4019,18 +4072,56 @@ class FoodOptimizer:
         if self._formula_rows():
             _write_cell(sheet, r, 1, self.worked_out_note())
             r += 1
-        r += 1
-        if self.premixes:
-            _write_cell(sheet, r, 1, wording.SHOPPING_TOTAL_HEADING, bold=True)
-            _write_cell(sheet, r + 1, 1, wording.KIND_INGREDIENT, bold=True)
-            _write_cell(sheet, r + 1, 2, (f"{wording.ROUND_TOTAL_COLUMN} ({self.one_amount_unit()})"
-                if self.one_amount_unit() else wording.ROUND_TOTAL_COLUMN), bold=True)
-            r += 2
-            for name, amount in self.round_shopping_totals(rows, total):
+        # The method, once, under the amounts: three formulations that must
+        # be made identically except for the amounts went to the bench with
+        # nothing on the page saying how.
+        method = self.method_lines()
+        if method:
+            _write_cell(sheet, r, 1, wording.METHOD_SHEET_HEADING, bold=True)
+            r += 1
+            for line in method:
+                _write_banner(sheet, r, 1, line, last_column)
+                r += 1
+            r += 1
+
+        unit = self.one_amount_unit()
+        total_head = (f"{wording.ROUND_TOTAL_COLUMN} ({unit})" if unit
+                      else wording.ROUND_TOTAL_COLUMN)
+        # Two blocks, because the numbers under them mean two different
+        # things. A pre-mix's make quantity IS weighed, once, at the number
+        # printed; everything else is three formulations added up and is
+        # never weighed at that number anywhere.
+        made = self.round_make_quantities(rows, total)
+        if made:
+            _write_cell(sheet, r, 1, wording.MAKE_FOR_ROUND_HEADING, bold=True)
+            r += 1
+            _write_cell(sheet, r, 1, wording.PREMIXES_HEADING, bold=True)
+            _write_cell(sheet, r, 2, (f"{wording.AMOUNT_COLUMN} ({unit})"
+                                      if unit else wording.AMOUNT_COLUMN),
+                        bold=True)
+            r += 1
+            for name, make, need in made:
+                _write_cell(sheet, r, 1, wording.premix_sheet_title(
+                    name, join_unit(f"{make:g}", unit),
+                    join_unit(f"{need:.2f}", unit)))
+                _write_cell(sheet, r, 2, round(make, 2),
+                            number_format=_TWO_DP)
+                r += 1
+            r += 1
+        on_hand = self.round_on_hand_totals(rows, total)
+        if on_hand:
+            _write_cell(sheet, r, 1, wording.HAVE_ON_HAND_HEADING, bold=True)
+            r += 1
+            _write_cell(sheet, r, 1, wording.KIND_INGREDIENT, bold=True)
+            _write_cell(sheet, r, 2, total_head, bold=True)
+            r += 1
+            for name, amount in on_hand:
                 _write_cell(sheet, r, 1, name)
                 _write_cell(sheet, r, 2, round(amount, 2), number_format=_TWO_DP)
                 r += 1
-            r += 1
+            _write_banner(sheet, r, 1, wording.HAVE_ON_HAND_CAPTION,
+                          last_column)
+            r += 2
 
         # The block is headed in the word the app uses for it everywhere
         # else — the same heading the formulation pages give it — so
@@ -4214,6 +4305,12 @@ class FoodOptimizer:
                     r += 1
             _write_cell(sheet, r, 2, wording.TOTAL_LABEL, bold=True)
             cell = _write_cell(sheet, r, 3, self._total_cell(recipe), bold=True)
+            # The most useful check on the page: a patty that came off the
+            # bench at 97.4 g is a fact the model needs, and every row above
+            # had an Actual cell while the line they add up to had none.
+            # The GROUP total keeps none: its two parts each have one, and
+            # a third box over the same mass is a second answer.
+            _write_in_cell(sheet, r, 4)
             if shares:
                 cell.number_format = _TWO_DP
                 _write_cell(sheet, r, 5, 100.0, bold=True,
@@ -4275,11 +4372,30 @@ class FoodOptimizer:
         r += 1
         _write_cell(sheet, r, 2, wording.NOTE)
         note = str(row.get('note') or "").strip()
-        # Both note cells are open: the app reads the printed one back as
-        # what it said itself, and a technician who corrects it there is
-        # not writing into a locked sheet to no effect.
+        # ONE box, merged across the columns beside the label and two lines
+        # high. Two unmerged cells side by side asked the bench which of
+        # them to write in, and neither was wide enough for a sentence.
         _write_in_cell(sheet, r, 3, note or None, wrap=True)
         _write_in_cell(sheet, r, 4)
+        # ONE box for the bench's own note, two lines high: the two write-in
+        # cells side by side asked which of them to write in, and neither
+        # was wide enough for a sentence. The merge starts at the bench's
+        # cell — the app reads that one back, and a merge over it would make
+        # it unwritable — and runs to the end of the page.
+        if page_width > 4:
+            sheet.merge_cells(start_row=r, start_column=4,
+                              end_row=r, end_column=page_width)
+            # AFTER the merge, which throws the tail cells' styling away:
+            # the rest of the box wears the same shade, the same border and
+            # the same unlocking, so it reads as ONE box rather than a box
+            # with a pale tail, and the sheet's own "shaded means writable"
+            # rule holds cell by cell.
+            for c in range(5, page_width + 1):
+                tail = sheet.cell(row=r, column=c)
+                tail.fill = _WRITE_IN_FILL
+                tail.border = _WRITE_IN
+                tail.protection = _UNLOCKED
+        sheet.row_dimensions[r].height = 30
         r += 2
         # One lot per ingredient for the whole round, so it is recorded
         # once, on the round's own sheet. The page says where rather than
@@ -4399,6 +4515,11 @@ class FoodOptimizer:
             name = wanted.get(label)
             value = self._cell(row, column)
             if name is not None and value is not None:
+                # A portioned pre-mix's Lot cell is a pointer at the page
+                # that makes it, printed by the app and locked; it is not a
+                # lot somebody wrote down.
+                if str(value).strip() == wording.PREMIX_LOT_ON_ITS_PAGE:
+                    continue
                 lots[name] = str(value).strip()
         return lots
 
@@ -6140,6 +6261,78 @@ class FoodOptimizer:
         project_total = getattr(self, 'formulation_total', None)
         return None if project_total is None else float(project_total)
 
+    def premix_make_quantity(self, need):
+        """How much of a portioned pre-mix to make for a round that takes
+        `need` out of it: the larger of the need plus a tenth and 100 g,
+        rounded up to the next 5 g.
+
+        `make 85.71 g` asks for a blend dispensed with zero loss — nothing
+        in the bowl, nothing on the paddle, nothing on the scoop. And
+        `make 7.50 g` of four fine powders and coarse salt cannot be blended
+        to any homogeneity nor portioned out of without the salt segregating
+        to the bottom, so the third formulation gets a different seasoning
+        from the first. A floor and a tenth over fix both.
+        """
+        wanted = max(float(need) * 1.1, 100.0)
+        return math.ceil(wanted / 5.0) * 5.0
+
+    def round_make_quantities(self, batch=None, total=None):
+        """[(pre-mix, how much to make, what this round needs)] for every
+        portioned pre-mix in the round, in grid order. These numbers ARE
+        weighed, once, on the pre-mix's own page."""
+        if batch is None:
+            batch = self.pending_batch or []
+        if total is None:
+            total = self.open_round_size()
+        rows = self._batch_rows(batch)
+        made = []
+        for name in self.premix_grid_order():
+            if self.premixes[name]['mode'] != PREMIX_PORTIONED:
+                continue
+            need = sum(round(float(self.shown_recipe(row, total)[0]
+                                   .get(name, 0) or 0.0), 2) for row in rows)
+            made.append((name, self.premix_make_quantity(need), need))
+        return made
+
+    def round_on_hand_totals(self, batch=None, total=None):
+        """[(name, how much the round needs in all)] for every raw material
+        that is NOT weighed together into a pre-mix: the rows of the list,
+        a worked-out row included, added across the formulations.
+
+        A portioned pre-mix's parts are on the block above, at the numbers
+        they are really weighed at; these are shopping totals and are never
+        weighed at the number printed.
+        """
+        if batch is None:
+            batch = self.pending_batch or []
+        if total is None:
+            total = self.open_round_size()
+        inside = {p['name'].lower()
+                  for name, premix in self.premixes.items()
+                  if premix['mode'] == PREMIX_PORTIONED
+                  for p in self.premix_parts(name, self.pending_batch_no)}
+        totals, order = {}, []
+        for row in self._batch_rows(batch):
+            recipe, _ = self.shown_recipe(row, total)
+            for var in self._ingredients():
+                name = var['name']
+                if name in self.premixes:
+                    continue      # made on its own page, not bought
+                # Two decimals, the printed ones: the three amounts on the
+                # page above add to 27.13 and the total said 27.14, and a
+                # bench that checks its arithmetic chases a gram that is
+                # not there.
+                amount = round(float(recipe.get(name, 0.0) or 0.0), 2)
+                if name not in totals:
+                    totals[name] = 0.0
+                    order.append(name)
+                totals[name] += amount
+        # A part of a portioned pre-mix that is ALSO a row of its own keeps
+        # its row's total here; the pre-mix's share of it is on the page
+        # that makes the pre-mix.
+        return [(name, round(totals[name], 2)) for name in order
+                if name.lower() not in inside or name in totals]
+
     def round_shopping_totals(self, batch=None, total=None):
         """[(name, grams)] — everything the open round needs, added across
         every one of its formulations at the round's own batch size
@@ -7208,6 +7401,9 @@ class FoodOptimizer:
         # exactly right — nothing was ever said about where the targets
         # came from.
         self.targets_source = getattr(self, 'targets_source', "") or ""
+        # And how it is made: a file written before the box existed says
+        # nothing about the method, which is exactly blank.
+        self.method = getattr(self, 'method', "") or ""
         # The same for the total every suggested formulation is built to: a
         # file from before it existed asked nothing of the sum, and the limit
         # it would have written is not there either.
@@ -11263,6 +11459,7 @@ class FoodOptimizer:
                              for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
+            'method': getattr(self, 'method', "") or "",
             'pending_batch': self.pending_batch,
             'result_drafts': self.result_drafts,
             'bo_config': self.bo_config,
@@ -11473,6 +11670,11 @@ class FoodOptimizer:
         targets_source = state.get('targets_source')
         if targets_source is not None and not isinstance(targets_source, str):
             raise _damaged("'targets_source' section has the wrong shape")
+        # How it is made: the same shape and the same rule. Missing is the
+        # answer for every file written before the box existed.
+        method = state.get('method')
+        if method is not None and not isinstance(method, str):
+            raise _damaged("'method' section has the wrong shape")
         # The total a batch was made to. A bad one would silently rewrite
         # every amount tab 3 shows for the best formulation.
         def _total(x):
@@ -11635,6 +11837,7 @@ class FoodOptimizer:
         # A file written before this was stored has no key at all; blank is
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
+        self.method = str(state.get('method') or "").strip()
         self.pending_batch = state.get('pending_batch', None)
         self.result_drafts = {int(n): dict(d) for n, d in
                               state.get('result_drafts', {}).items()}

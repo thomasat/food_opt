@@ -2,9 +2,11 @@ Food Optimizer helps food product developers find better formulations in fewer r
 
 Not every ingredient has to be searched for. Give a row a **Rule** — `= batch size − Water − Salt`, `= 1.5 % of batch size`, or `= rest` for the one row that takes whatever is left of the batch size — and the app works that amount out from the other rows every time. A limit over several ingredients can say **Exactly** as well as At least, At most and Between, in grams or as a **% of default batch size**.
 
-An ingredient can also be a **pre-mix**. Choose **Made as** on its row: make one pre-mix for the round and portion it into each formulation, or weigh its parts separately into each formulation. Open the parts underneath the grid to edit them. The Excel workbook puts preparation pages first for portioned pre-mixes, groups separately weighed parts on each formulation page, and totals the ingredients needed for the round. Lot numbers and actual amounts entered in the shaded cells come back with the results.
+An ingredient can also be a **pre-mix**. Choose **Made as** on its row: `bought in` for an ordinary ingredient, `portioned from one pre-mix` to make one lot for the round and portion it into each formulation, or `weighed into each formulation` to weigh its parts separately every time. Open the parts underneath the grid to edit them. An ingredient the project already has can be a part too. The Excel workbook puts preparation pages first for portioned pre-mixes, groups a pre-mix's separately weighed parts on each formulation page, says what to **make for this round** and what to **have on hand**, and prints the project's **Method** under the round's title. Lot numbers and actual amounts entered in the boxed cells come back with the results.
 
-The sample burger shows both ways: Dry blend made once, two oils weighed separately in Fat phase, Seasoning blend fixed at 2.5 g, and Water taking the rest of each 100 g formulation. Four rows open into nine parts.
+The sample burger shows both ways: Dry blend made once, two oils weighed separately in Fat phase, Seasoning blend fixed at 2.2 g, and Water taking the rest of each 100 g formulation. Six rows open into ten parts, with one process setting (Mixing time after fat), one finished-product limit (Fat per 100 g, at most 16) and three measurements: Firmness, Juiciness and Cook loss.
+
+A **formulation** is one thing you make and measure: something you weigh out, a process run, a fermentation. A project whose rows are all process settings weighs nothing out, and the app asks it for no batch size and prints it no amounts.
 
 **Desktop app (macOS):** download the latest `.dmg` from the
 [releases page](https://github.com/thomasat/food_opt/releases), drag the app to

@@ -427,21 +427,30 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     opt = FoodOptimizer("Sample project")
-    # Eight ingredients: enough for a real formulation, few enough to read at
-    # a glance in the batch table and the printable sheets.
-    assert len(opt.variables) == 5
+    # Six lines on the collapsed grid: a texturate, a dry blend portioned
+    # from one lot, gluten as its own row so the firmness lever can move, a
+    # fat phase weighed in two oils, a fixed seasoning, and water worked
+    # out. Eight rows in the searched list, and one process setting.
+    assert len(opt.variables) == 8
     assert opt.amount_unit == "g"
+    assert [v["name"] for v in opt.variables if v.get("category") == "process"] \
+        == ["Mixing time after fat"]
     # The sample is the plant-based burger brief for a trained panel: two
-    # intensity scores with targets (7 and 6 out of 10), firmness the more
-    # important of the two.
-    assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness"]
-    assert all(o["goal"] == "target" for o in opt.objectives)
-    assert {o["name"]: o["target"] for o in opt.objectives} == {"Juiciness": 7,
-                                                                "Firmness": 6}
-    assert {o["name"]: o["unit"] for o in opt.objectives} == {"Juiciness": "/10",
-                                                               "Firmness": "/10"}
+    # intensity scores with targets (7 and 6 out of 10), and one
+    # instrumental measurement a balance gives you with no panel to book.
+    assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness",
+                                                   "Cook loss"]
+    assert [o["goal"] for o in opt.objectives] == ["target", "target", "min"]
+    assert {o["name"]: o["target"] for o in opt.objectives
+            if o["goal"] == "target"} == {"Juiciness": 7, "Firmness": 6}
+    assert {o["name"]: o["unit"] for o in opt.objectives} == {
+        "Juiciness": "/10", "Firmness": "/10", "Cook loss": "%"}
     weights = {o["name"]: o["weight"] for o in opt.objectives}
-    assert weights["Firmness"] > weights["Juiciness"]
+    assert weights["Firmness"] > weights["Juiciness"] > weights["Cook loss"]
+    # One finished-product limit, and one that binds.
+    assert [(c["metric"], c["max"]) for c in opt.constraints] == [
+        ("Fat per 100 g", 16.0)]
+    assert opt.method
 
 
 def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
@@ -456,10 +465,12 @@ def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
     grid = next(d.value for d in at.dataframe if "Measurement" in d.value.columns)
     # A panel rating's "/10" is a column of its own on the grid: the name
     # cell is the name, because it is the cell a rename would be typed in.
-    assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
-    assert list(grid[wording.UNIT_LABEL]) == ["/10", "/10"]
-    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2
-    assert list(grid["Target"]) == [6.0, 7.0]
+    assert list(grid["Measurement"]) == ["Firmness", "Juiciness",
+                                        "Cook loss"]
+    assert list(grid[wording.UNIT_LABEL]) == ["/10", "/10", "%"]
+    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2 + [
+        wording.GOAL_LABELS["min"]]
+    assert list(grid["Target"])[:2] == [6.0, 7.0]
 
 
 def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, monkeypatch):
@@ -4461,8 +4472,14 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
     # total that also holds 40 ml of water.
     assert wording.PERCENT_COLUMN not in texts, texts
     rows = _summary_rows(at)
+    # `Have on hand` is on every round now, not only a round with a pre-mix
+    # in it: the block is what the shop is read from, and a project without
+    # pre-mixes needs it as much as one with them.
     assert list(rows)[2:] == ["Ingredient", "Pea protein (g)",
                               "Water (ml)", "Total",
+                              wording.HAVE_ON_HAND_HEADING,
+                              "Pea protein", "Water",
+                              wording.HAVE_ON_HAND_CAPTION,
                               wording.MEASUREMENTS_SHEET_HEADING,
                               wording.SHEET_WRITE_IN_NOTE,
                               wording.MEASUREMENT_COLUMN,
@@ -7944,11 +7961,12 @@ def test_every_sheet_has_boxes_to_write_in_and_a_line_to_sign(open_batch):
             for cell in row:
                 if cell.value is None and cell.border.left.style:
                     boxed += 1
-    # Two measurements, a note box and its overflow, and one Actual cell
-    # per ingredient (two) and per setting (none here), on each of the two
-    # sheets. The tick cells and the Not scored cell carry a printed box,
-    # so they are bordered AND written in — not counted here.
-    assert boxed == 2 * (2 + 2 + 2), boxed
+    # Two measurements, a note box and its merged tail, one Actual cell per
+    # ingredient (two) and per setting (none here), the Total line's own
+    # Actual cell and the signature line, on each of the two sheets. The
+    # tick cells and the Not scored cell carry a printed box, so they are
+    # bordered AND written in — not counted here.
+    assert boxed == 2 * (2 + 2 + 2 + 1), boxed
     texts = _sheet_text(at)
     assert texts.count(wording.MADE_BY_FOOTER) == 2, texts
     assert texts.count(wording.NOT_SCORED_CHECKBOX_SHEET) == 2, texts
@@ -9027,7 +9045,8 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
     written = json.loads(
         (tmp_path / f"{wording.SAMPLE_PROJECT_NAME}.pkl").read_text())
     weights = {o['name']: o['weight'] for o in written['objectives']}
-    assert weights == {"Juiciness": 40.0, "Firmness": 60.0}, weights
+    assert weights == {"Juiciness": 35.0, "Firmness": 45.0,
+                       "Cook loss": 20.0}, weights
     assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
 
 
@@ -9706,10 +9725,12 @@ def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
     rebuilt = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
     assert rebuilt.formulation_total == 100
     assert rebuilt.targets_source == wording.SAMPLE_TARGETS_SOURCE
-    assert [o["name"] for o in rebuilt.objectives] == ["Juiciness", "Firmness"]
+    assert [o["name"] for o in rebuilt.objectives] == [
+        "Juiciness", "Firmness", "Cook loss"]
+    assert rebuilt.method == wording.SAMPLE_METHOD
     # The old project's own set-up is gone, not added to.
     assert "Oat flour" not in [v["name"] for v in rebuilt.variables]
-    assert len(rebuilt.variables) == 5
+    assert len(rebuilt.variables) == 8
     assert len(rebuilt.premixes) == 3
     # It opens as the sample it now is, welcome line and all, and it is an
     # opening: the project was already there.
@@ -10275,18 +10296,24 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
     assert not at.exception
     opt = at.session_state['optimizer']
     assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        'Dry blend', 'Fat phase', 'Seasoning blend', 'Water']
+        'Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fat phase',
+        'Seasoning blend', 'Water', 'Mixing time after fat']
     assert {name: p['mode'] for name, p in opt.premixes.items()} == {
         'Dry blend': 'portioned', 'Fat phase': 'weighed', 'Seasoning blend': 'portioned'}
-    assert sum(len(p['parts']) for p in opt.premixes.values()) == 9
+    assert sum(len(p['parts']) for p in opt.premixes.values()) == 10
     for name in ('Dry blend', 'Seasoning blend'):
         assert sum(p['share'] for p in opt.premix_parts(name)) == 100
-    assert opt._by_name()['Seasoning blend']['bounds'] == (2.5, 2.5)
+    assert opt._by_name()['Seasoning blend']['bounds'] == (2.2, 2.2)
     assert opt.formulation_total == 100
     for recipe in opt.ask(3):
-        assert sum(recipe.values()) == pytest.approx(100)
-        assert recipe['Seasoning blend'] == 2.5
-        assert 32.5 <= recipe['Water'] <= 77.5
+        ingredients = {k: v for k, v in recipe.items()
+                       if k != 'Mixing time after fat'}
+        assert sum(ingredients.values()) == pytest.approx(100)
+        assert recipe['Seasoning blend'] == 2.2
+        # Every corner of this space is a makeable patty: the stored 35-65 g
+        # and what `= rest` leaves agree.
+        assert 35.0 <= recipe['Water'] <= 65.0
+        assert 45 <= recipe['Mixing time after fat'] <= 150
 
 
 def test_manual_result_drafts_survive_reopening_and_save_one_formulation(open_batch):
