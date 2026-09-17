@@ -740,10 +740,11 @@ def _apply_ingredient_grid(opt, edited, force=()):
     """
     scaled = typed_batch_size(opt)
     round_before = opt.pending_batch_no
-    # The properties grid is drawn ingredient by ingredient, in this order.
-    # A deletion, a rename or a reorder moves who sits in a row it may be
+    # The properties grid is drawn ingredient by ingredient, in this order —
+    # a portioned pre-mix's own row stands in for its parts there. A
+    # deletion, a rename or a reorder moves who sits in a row it may be
     # holding a pending edit for; a changed Highest does not.
-    rows_before = opt.ingredient_names()
+    rows_before = opt.property_grid_names()
     premixes_before = list(opt.premixes)
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
@@ -768,7 +769,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     # parked — is what lets that frame be drawn in its place: the edit, the
     # banner and the Save all stay where the reader left them.
     rekey_grid(MEAS_GRID_KEY)
-    if opt.ingredient_names() == rows_before:
+    if opt.property_grid_names() == rows_before:
         # The rows the properties grid is drawn from have not moved, so it
         # keeps its own edit exactly as the measurements grid does.
         rekey_grid(PROP_GRID_KEY)
@@ -1378,7 +1379,7 @@ def _properties(opt, storage):
     # and it deletes the same way as any other even though it never shows
     # on the grid above.
     all_properties = opt.properties()
-    names = opt.ingredient_names()
+    names = opt.property_grid_names()
     if properties and names:
         # Property names carry their own basis as often as not ("Fat per
         # 100 g"), and a caption that then adds ", per 100 g" said it twice.

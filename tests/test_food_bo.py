@@ -11520,3 +11520,186 @@ class TestThePreMixGrid:
         errors, _ = opt.apply_ingredient_grid(frame)
         assert errors == [(1, wording.LAST_VARYING_ROW_ERROR)]
         assert opt.premixes["Dry blend"]['mode'] == "portioned"
+
+
+class TestPreMixRollUpsAndLimits:
+    """Task 4: an ingredient property rolls up through a portioned pre-mix's
+    parts by share, the round owes a shopping total across ingredients and
+    parts alike, and a limit on a weighed group reads in the pre-mix's own
+    name, in wave 2's unit words when it is a percent."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_rollups"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    @staticmethod
+    def _parts(*pairs):
+        return [{'name': name, 'share': share} for name, share in pairs]
+
+    def _dry_blend(self, opt, mode="portioned"):
+        opt.add_premix("Dry blend", mode)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        return opt
+
+    # ---- the roll-up ---------------------------------------------------- #
+
+    def test_a_portioned_premix_rolls_its_parts_properties_up_by_share(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 2.0)
+        # 0.7 * 10 + 0.3 * 2 = 7.6 — the pre-mix's own row holds no figure
+        # of its own; this IS the figure.
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.6)
+        # property_per_100 needs no case of its own: the pre-mix's row is
+        # one ingredient, at whatever amount the recipe gives it.
+        assert opt.property_per_100({"Dry blend": 50.0}, "Fat per 100 g") == \
+            pytest.approx(7.6)
+
+    def test_a_part_with_no_figure_counts_as_zero_and_is_named(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Sugar", "Fat per 100 g", 0.0)
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        # Salt has no figure at all — it counts as 0 in the average, and is
+        # named itself, not the pre-mix row that has no figure to be
+        # missing.
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.0)
+        assert opt.ingredients_without_property("Fat per 100 g") == ["Salt"]
+
+    def test_the_roll_up_uses_the_rounds_version_not_todays_parts(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 0.0)
+        opt.ask(1)
+        assert opt.pending_batch_no is not None
+        # The make-up moves the same afternoon the round is on the bench —
+        # the round keeps what it was generated with (70 / 30 == 7.0), not
+        # today's parts (50 / 50 == 5.0).
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.0)
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        # No round open: today's make-up answers.
+        opt.set_pending_batch(None)
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(5.0)
+
+    # ---- the shopping total ---------------------------------------------- #
+
+    def test_water_in_two_premixes_is_added_once_across_them(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", self._parts(("Water", 50),
+                                                      ("Flour", 50)))
+        opt.add_premix("Wet blend", "portioned")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 100)))
+        opt.add_ingredient("Dry blend", 50, 50)
+        opt.add_ingredient("Wet blend", 20, 20)
+        opt.set_pending_batch([{"Sugar": 2.0, "Dry blend": 50.0,
+                                "Wet blend": 20.0}])
+        totals = dict(opt.round_shopping_totals())
+        # Half of Dry blend's 50 g, plus all of Wet blend's 20 g: one number
+        # for Water, not two.
+        assert totals["Water"] == pytest.approx(45.0)
+        assert list(totals) == ["Sugar", "Water", "Flour"]
+
+    def test_the_shopping_total_covers_ingredients_and_parts(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Dry blend", 40, 40)
+        opt.add_ingredient("Water", 30, 30)
+        opt.add_ingredient("Oil", 20, 20)
+        opt.set_pending_batch([{"Sugar": 2.0, "Dry blend": 40.0,
+                                "Water": 18.0, "Oil": 12.0}])
+        totals = dict(opt.round_shopping_totals())
+        assert totals["Sugar"] == pytest.approx(2.0)
+        # Portioned: shared out by share, under the PARTS' names.
+        assert totals["Flour"] == pytest.approx(28.0)
+        assert totals["Salt"] == pytest.approx(12.0)
+        # Weighed: the parts are already rows, added in as they are.
+        assert totals["Water"] == pytest.approx(18.0)
+        assert totals["Oil"] == pytest.approx(12.0)
+        # Nobody weighs out "Dry blend" at the shop.
+        assert "Dry blend" not in totals
+        assert "Wet blend" not in totals
+
+    # ---- the group limit --------------------------------------------------- #
+
+    def test_a_limit_on_a_weighed_group_reads_in_the_premix_name(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 60),
+                                                      ("Salt", 40)))
+        opt.add_ingredient("Flour", 20, 80)
+        opt.add_ingredient("Salt", 10, 40)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Flour", "Salt"], min_val=30, max_val=40,
+                                    percent=True, source="premix:Dry blend")
+        qc = opt.quantity_constraints[-1]
+        assert opt.limit_label(qc) == "Dry blend"
+        assert opt.limit_text(qc) == (
+            "Dry blend is 30 to 40 % of the default batch size "
+            "(30 to 40 g at the default 100 g)")
+
+    def test_a_group_limit_follows_a_part_added_later(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 60),
+                                                      ("Salt", 40)))
+        opt.add_ingredient("Flour", 20, 40)
+        opt.add_ingredient("Salt", 10, 20)
+        opt.add_quantity_constraint(["Flour", "Salt"], max_val=45,
+                                    source="premix:Dry blend")
+        index = len(opt.quantity_constraints) - 1
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 30),
+                                                      ("Pepper", 20)))
+        qc = opt.quantity_constraints[index]
+        assert opt.limit_label(qc) == "Dry blend"
+        assert set(qc['ingredients']) == {"Flour", "Salt", "Pepper"}
+
+    # ---- the properties grid --------------------------------------------- #
+
+    def test_the_properties_grid_lists_parts_not_portioned_premix_rows(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 5, 15)
+        names = opt.property_grid_names()
+        assert names == ["Sugar", "Flour", "Salt", "Water", "Oil"]
+        assert "Dry blend" not in names
+        frame = opt.property_grid_frame()
+        assert list(frame[wording.PROPERTIES_ROW_COLUMN]) == names
+        # A figure is set against the PART, not the pre-mix row.
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        with pytest.raises(ValueError, match="No ingredient named Dry blend"):
+            opt.set_property_value("Dry blend", "Fat per 100 g", 1.0)

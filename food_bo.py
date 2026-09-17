@@ -2420,11 +2420,12 @@ class FoodOptimizer:
     def set_property_value(self, ingredient, metric, value):
         """One ingredient's value for one property. `None` clears it, and an
         ingredient with no value counts as 0 in the average — which is what
-        the limit line says on screen."""
-        var = next((v for v in self.variables
-                    if v['name'] == ingredient
-                    and v.get('category', 'ingredient') == 'ingredient'), None)
-        if var is None:
+        the limit line says on screen.
+
+        `ingredient` need not be a row of its own: a part of a portioned
+        pre-mix carries a figure the same way and is what the properties
+        grid opens a cell on in its place."""
+        if ingredient not in self.property_grid_names():
             raise ValueError(wording.no_ingredient_named(ingredient))
         stored = self._known_property(metric)
         if stored is None:
@@ -2447,10 +2448,30 @@ class FoodOptimizer:
     def ingredients_without_property(self, metric):
         """The ingredients that have no value for this property, in order.
         They count as 0 in the per-100 average, and every limit on it says so
-        in as many words."""
-        return [v['name'] for v in self.variables
-                if v.get('category', 'ingredient') == 'ingredient'
-                and not self.has_property_value(v['name'], metric)]
+        in as many words.
+
+        A portioned pre-mix's own row holds no figure of its own to be
+        missing — its number is the parts' roll-up — so it is named here by
+        the PARTS that have none, not by itself; a part named by more than
+        one pre-mix, or missing from more than one, is named once."""
+        names, seen = [], set()
+        for v in self.variables:
+            if v.get('category', 'ingredient') != 'ingredient':
+                continue
+            name = v['name']
+            premix = self.premixes.get(name)
+            if premix and premix.get('mode') == PREMIX_PORTIONED:
+                for part in self.premix_parts(name, self.pending_batch_no):
+                    part_name = part['name']
+                    if (part_name not in seen
+                            and not self.has_property_value(part_name, metric)):
+                        seen.add(part_name)
+                        names.append(part_name)
+                continue
+            if name not in seen and not self.has_property_value(name, metric):
+                seen.add(name)
+                names.append(name)
+        return names
 
     def property_value(self, name, metric):
         """One ingredient's value for a property — 0.0 when it has none.
@@ -2458,7 +2479,16 @@ class FoodOptimizer:
         Matched without regard to capitalisation: the stored key carries the
         file's own capitalisation ('Fat per 100 g'), while a limit written
         against an older project stored it lower-cased, and both must find
-        the same column."""
+        the same column.
+
+        A portioned pre-mix's own row holds no figure of its own — it IS its
+        parts — so its answer is _premix_property_average instead: the
+        share-weighted average of the parts, which is what makes this stay
+        one lookup for property_per_100 and _property_coeff, in either
+        mode."""
+        premix = self.premixes.get(name)
+        if premix and premix.get('mode') == PREMIX_PORTIONED:
+            return self._premix_property_average(name, metric)
         props = self.ingredient_properties.get(name, {}) or {}
         if metric in props:
             return float(props[metric])
@@ -2467,6 +2497,22 @@ class FoodOptimizer:
             if str(key).strip().lower() == lowered:
                 return float(value)
         return 0.0
+
+    def _premix_property_average(self, name, metric):
+        """A portioned pre-mix's per-100 g figure: the share-weighted
+        average of its parts' own values, through the round's make-up when
+        one is open (the make-up it was generated with), else today's.
+
+        A part with no figure counts as 0 in the average, exactly as an
+        ordinary ingredient with none does — limit_gap_tail says so by
+        naming the part, not the pre-mix row that has no figure to give."""
+        parts = self.premix_parts(name, self.pending_batch_no)
+        total_share = sum(p['share'] for p in parts)
+        if total_share <= 0:
+            return 0.0
+        weighted = sum(p['share'] * self.property_value(p['name'], metric)
+                       for p in parts)
+        return weighted / total_share
 
     def per_amount_text(self):
         """'per 100 g' — how a limit on the finished formulation reads, in the
@@ -2478,7 +2524,11 @@ class FoodOptimizer:
         mass-weighted average of its ingredients' own per-100 g values. None
         when the formulation weighs nothing, which has no average.
 
-        A process setting is not part of the mass and takes no part."""
+        A process setting is not part of the mass and takes no part. A
+        portioned pre-mix's row is one ingredient here, at whatever amount
+        the recipe gives it — property_value is where its own figure is
+        rolled up from its parts, so this stays linear in the amounts and
+        needs no case of its own."""
         total = weighted = 0.0
         for var in self.variables:
             if var.get('category', 'ingredient') != 'ingredient':
@@ -2496,7 +2546,10 @@ class FoodOptimizer:
         the amounts — ≤ 0 is 'at most the limit', ≥ 0 is 'at least'.
 
         Linear is what BoTorch can be given, and giving the screen the same
-        form is what keeps the two agreeing to the last decimal."""
+        form is what keeps the two agreeing to the last decimal. A portioned
+        pre-mix's row carries property_value's own roll-up as its
+        coefficient, one number per row exactly like any other ingredient —
+        the search still moves the pre-mix's OWN amount, never its parts."""
         limit = float(limit)
         names = {v['name'] for v in self.variables
                  if v.get('category', 'ingredient') == 'ingredient'}
@@ -3511,11 +3564,40 @@ class FoodOptimizer:
     def ingredient_names(self):
         """Every ingredient's name, in set-up order.
 
-        The screens ask this three times over — the properties grid, the
-        amount-limit picker and tab 3's "not used" line — and each had
-        written the category filter out again beside an accessor that
-        already knew it."""
+        The screens ask this twice over — the amount-limit picker and tab
+        3's "not used" line — and each had written the category filter out
+        again beside an accessor that already knew it. The properties grid
+        has its own, property_grid_names: an amount limit and the "not
+        used" line are both about rows the search moves, and a portioned
+        pre-mix's row is one of those; the properties grid is about names
+        that carry a figure, and that row is not one."""
         return [v['name'] for v in self._ingredients()]
+
+    def property_grid_names(self):
+        """The rows the properties grid holds: every ingredient, with a
+        portioned pre-mix's own row replaced by its parts.
+
+        The pre-mix's row holds no figure of its own — it IS its parts,
+        rolled up by share (property_value) — so there is nothing for the
+        grid to open a cell on there; the parts are names that do carry
+        one. A weighed pre-mix's parts are already rows and need no such
+        swap. A part named by more than one portioned pre-mix, or one that
+        is also a row of its own because it is part of a weighed group too,
+        is named once."""
+        names, seen = [], set()
+        for var in self._ingredients():
+            name = var['name']
+            premix = self.premixes.get(name)
+            if premix and premix.get('mode') == PREMIX_PORTIONED:
+                for part in premix['parts']:
+                    if part['name'] not in seen:
+                        seen.add(part['name'])
+                        names.append(part['name'])
+                continue
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+        return names
 
     def _process_settings(self):
         return [v for v in self.variables if v.get('category') == 'process']
@@ -4756,13 +4838,26 @@ class FoodOptimizer:
         amounts += ([join_unit(f"{max_v:g}", unit)] if max_v is not None else [])
         return wording.AND_JOIN.join(amounts)
 
+    @staticmethod
+    def _range_amounts(min_v, max_v, unit):
+        """'30 to 40 g' — the same two numbers joined the way a pre-mix's
+        own percent limit reads its grams, one number alone when only one
+        bound is set."""
+        if min_v is not None and max_v is not None:
+            return join_unit(wording.range_text(min_v, max_v), unit)
+        value = min_v if min_v is not None else max_v
+        return join_unit(f"{value:g}", unit)
+
     def limit_text(self, qc):
         """One limit as one line: 'Water + Oil: at least 10 g and at most
         40 g'; an Exactly limit as the number typed, not the band it is
         enforced as ('Water + Oil: exactly 50 g'); a percent limit in both
         the percent it is written as and the grams it means today ('Water +
-        Oil: at most 30 % of batch size (30 g today)'); or the total
-        written as the one number the user typed."""
+        Oil: at most 30 % of batch size (30 g today)'); a weighed pre-mix's
+        own percent limit in wave 2's unit words but the group's own
+        sentence ('Dry blend is 30 to 40 % of the default batch size (30 to
+        40 g at the default 100 g)'); or the total written as the one
+        number the user typed."""
         if qc.get('source') == 'formulation_total':
             return wording.formulation_total_row(
                 self.batch_total_text(self.formulation_total))
@@ -4774,9 +4869,22 @@ class FoodOptimizer:
             if percent.get('exactly') is not None:
                 percent_text = join_unit(wording.exactly(percent['exactly']), '%')
                 grams_text = join_unit(f"{qc['exactly']:g}", unit)
-            else:
-                percent_text = self._bound_words(percent['min'], percent['max'], '%')
-                grams_text = self._bound_amounts(qc['min'], qc['max'], unit)
+                return wording.limit_percent_row(
+                    who, percent_text, grams_text,
+                    self.batch_total_text(self.formulation_total))
+            # A limit tagged for a WEIGHED pre-mix reads in the group's own
+            # sentence — "is 30 to 40 %", not "at least ... and at most ..."
+            # — because the group is a share of the batch, not an
+            # ingredient with a floor and a ceiling. A portioned group's
+            # limit is over its own one row and stays the ordinary sentence.
+            group = premix_named_by(qc.get('source'))
+            if group and self.premixes.get(group, {}).get('mode') == PREMIX_WEIGHED:
+                return wording.premix_limit_row(
+                    who, percent['min'], percent['max'],
+                    self._range_amounts(qc['min'], qc['max'], unit),
+                    self.batch_total_text(self.formulation_total))
+            percent_text = self._bound_words(percent['min'], percent['max'], '%')
+            grams_text = self._bound_amounts(qc['min'], qc['max'], unit)
             return wording.limit_percent_row(
                 who, percent_text, grams_text,
                 self.batch_total_text(self.formulation_total))
@@ -5664,6 +5772,48 @@ class FoodOptimizer:
             return float(stored)
         project_total = getattr(self, 'formulation_total', None)
         return None if project_total is None else float(project_total)
+
+    def round_shopping_totals(self):
+        """[(name, grams)] — everything the open round needs, added across
+        every one of its formulations at the round's own batch size
+        (open_round_size): what the summary sheet's shopping-total block
+        (Task 5) is made from.
+
+        A weighed pre-mix's parts are already rows, and are added in like
+        any other ingredient. A portioned pre-mix's own row is not
+        something bought under that name — nobody weighs out '40 g of Dry
+        blend' at the shop — so its grams are shared out to its parts, by
+        the make-up the round was generated with (premix_parts through
+        pending_batch_no), and added under the PARTS' names instead. A part
+        named by more than one pre-mix, or one that is also a row of its
+        own because it is part of a weighed group as well, is added once
+        for every place its mass actually is: its own row (if it has one)
+        once, and each portioned pre-mix's share of it once each — never
+        twice for the same row, because a portioned pre-mix's row is never
+        also counted under its own name."""
+        total = self.open_round_size()
+        totals, order = {}, []
+
+        def add(name, grams):
+            if name not in totals:
+                totals[name] = 0.0
+                order.append(name)
+            totals[name] += grams
+
+        for row in self._batch_rows(self.pending_batch or []):
+            recipe, _ = self.shown_recipe(row, total)
+            for var in self._ingredients():
+                name = var['name']
+                amount = float(recipe.get(name, 0.0) or 0.0)
+                premix = self.premixes.get(name)
+                if premix and premix.get('mode') == PREMIX_PORTIONED:
+                    parts = self.premix_parts(name, self.pending_batch_no)
+                    share_total = sum(p['share'] for p in parts) or 100.0
+                    for part in parts:
+                        add(part['name'], amount * part['share'] / share_total)
+                else:
+                    add(name, amount)
+        return [(name, totals[name]) for name in order]
 
     # ------------------------------------------------------------------ #
     #  Utility Scoring
@@ -7951,6 +8101,27 @@ class FoodOptimizer:
             var['unit'] = unit
         return var
 
+    def _sync_premix_limits(self):
+        """Keep a weighed group's own limit naming exactly the parts it has
+        now.
+
+        A limit tagged premix_limit_source(group) is written over the
+        group's PARTS — they are the rows the search moves — and named for
+        the pre-mix by limit_label. The name follows the pre-mix without any
+        help (limit_label reads the tag, not the ingredient list); the SUM
+        the limit actually enforces has to be told the same thing, or a part
+        added after the limit was written would sit outside it. A portioned
+        group's limit is an ordinary limit on its own one row and needs no
+        such thing — the row's name never changes."""
+        for group, premix in self.premixes.items():
+            if premix['mode'] != PREMIX_WEIGHED:
+                continue
+            source = premix_limit_source(group)
+            names = [p['name'] for p in premix['parts']]
+            for qc in self.quantity_constraints:
+                if qc.get('source') == source:
+                    qc['ingredients'] = list(names)
+
     def _sync_premix(self, name):
         """Write the pre-mixes onto the flat list of amounts — the ONE
         place that mapping happens.
@@ -7994,6 +8165,14 @@ class FoodOptimizer:
         # meant a vendor typed against an existing part never reached the
         # row it is printed from.
         self._sync_premix_facts(seen, facts)
+        # A weighed group's own limit is named for the pre-mix, not for the
+        # rows it happened to hold the day it was written — the reader
+        # limited the GROUP. So its membership is reconciled here too, on
+        # every sync, the same reason the facts are: a part added or taken
+        # away moves the limit with it, before the early return below could
+        # skip a swap that changed no ROW count at all (a reorder of the
+        # same names).
+        self._sync_premix_limits()
         if not gone and not added:
             return []
         removed = self._forget_ingredient_rows(gone) if gone else []
@@ -10119,10 +10298,13 @@ class FoodOptimizer:
     def property_grid_frame(self):
         """What the properties grid opens holding.
 
-        No hidden `_id`: a row of this grid is an ingredient the grid cannot
+        No hidden `_id`: a row of this grid is a name the grid cannot
         rename, add or take away, so its name IS its identity. An empty cell
-        is an ingredient with no figure, which is not the same as a 0 — the
-        caption above the grid says what the app does with one.
+        is a name with no figure, which is not the same as a 0 — the
+        caption above the grid says what the app does with one. A portioned
+        pre-mix's own row holds no figure of its own, so its PARTS are the
+        rows here instead (property_grid_names) — the pre-mix's own figure
+        is the roll-up property_value already answers for it.
         """
         key = wording.PROPERTIES_ROW_COLUMN
         # A property that arrived as a CSV column may be called anything at
@@ -10131,11 +10313,11 @@ class FoodOptimizer:
         # the name (it is reserved), so this only ever catches a file.
         properties = self.grid_properties()
         data = []
-        for var in self._ingredients():
-            row = {key: var['name']}
+        for name in self.property_grid_names():
+            row = {key: name}
             for prop in properties:
-                row[prop] = (float(self.property_value(var['name'], prop))
-                             if self.has_property_value(var['name'], prop)
+                row[prop] = (float(self.property_value(name, prop))
+                             if self.has_property_value(name, prop)
                              else None)
             data.append(row)
         return _grid_frame(data, [key] + properties)
@@ -10153,7 +10335,7 @@ class FoodOptimizer:
         """
         key = wording.PROPERTIES_ROW_COLUMN
         properties = self.grid_properties()
-        known = {v['name'] for v in self._ingredients()}
+        known = set(self.property_grid_names())
         errors, writes = [], []
         for row_no, row in _grid_rows(frame):
             name = _text_cell(row, key)

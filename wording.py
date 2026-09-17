@@ -2139,6 +2139,23 @@ def limit_percent_row(who, percent_text, grams_text, size_text=""):
     return (f"{who}: {percent_text} of {FORMULATION_TOTAL_NOUN} ({tail})")
 
 
+def premix_limit_row(name, low_pct, high_pct, grams_text, size_text=""):
+    """'Dry blend is 30 to 40 % of the default batch size (30 to 40 g at
+    the default 100 g)' — a weighed pre-mix's own percent limit: it reads
+    'is', not the colon a plain ingredient limit uses, and 'to' rather than
+    'at least … and at most …' — the group IS a share of the batch, not an
+    ingredient with a floor and a ceiling of its own."""
+    if low_pct is not None and high_pct is not None:
+        percent_text = f"{range_text(low_pct, high_pct)} %"
+    elif low_pct is not None:
+        percent_text = f"{at_least(low_pct)} %"
+    else:
+        percent_text = f"{at_most(high_pct)} %"
+    tail = (f"{grams_text} at the default {size_text}" if size_text
+            else grams_text)
+    return f"{name} is {percent_text} of the {FORMULATION_TOTAL_NOUN} ({tail})"
+
+
 def percent_limits_rebased(size_text):
     """'Limits written as a % of the default batch size are now worked out
     from 120 g.' — the one line a new default batch size says once,
