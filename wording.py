@@ -2859,3 +2859,58 @@ WORKED_OUT_BOXES_CAPTION = ("These are worked out from the amounts above, "
 
 CORRECTIONS_ON_RESULTS_CAPTION = (
     "Correct what you made in Results, after you record it.")
+
+
+# ------------------------------------------------------------------ #
+# 0.7.0 wave 3, "pre-mixes": an ingredient made from its own parts.
+#
+# Three words, one concept each. A PRE-MIX is the ingredient; its PARTS
+# are what goes into it; its MAKE-UP is what per cent of it each part is.
+# The word this block never uses is the one a food scientist means by
+# something else entirely, and it is banned on screen for that reason.
+#
+# A pre-mix is made one of two ways, and the two are named for what the
+# bench does rather than for what the app does with them: one pre-mix,
+# made and then portioned into every formulation, or weighed into each
+# formulation part by part.
+# ------------------------------------------------------------------ #
+PREMIX_LABEL = "Pre-mix"
+MADE_AS_LABEL = "Made as"
+PREMIX_SHARE_LABEL = "% of pre-mix"
+PREMIX_MADE_AS_PORTIONED = "one pre-mix, portioned"
+PREMIX_MADE_AS_WEIGHED = "weighed into each formulation"
+# How a pre-mix is named when something else found the clash, alongside
+# AN_INGREDIENT and A_PROCESS_SETTING above.
+A_PREMIX = "a pre-mix"
+A_PART = "a part of this pre-mix"
+
+MADE_AS_REQUIRED_ERROR = (
+    f"Say how this pre-mix is made: {PREMIX_MADE_AS_PORTIONED}, or "
+    f"{PREMIX_MADE_AS_WEIGHED}.")
+PART_SHARE_ERROR = f"Enter the {PREMIX_SHARE_LABEL} as a number, or leave it empty."
+PART_IS_ITS_OWN_PREMIX = "A pre-mix cannot be one of its own parts."
+PREMIX_INSIDE_PREMIX = "A pre-mix cannot go inside another pre-mix yet."
+# The same caption the measurements grid shows, in the pre-mix's own
+# noun: what the reader typed did not add up to 100, and the app moved
+# the rest of the column rather than refusing the save.
+SHARES_ADJUSTED_PREMIX = "Parts adjusted to add up to 100 %."
+
+
+def premix_unknown(name):
+    """'Dry blend is not a pre-mix of this project.' — the one refusal a
+    caller naming a pre-mix that has been deleted, or never added, gets."""
+    return f"{name} is not a pre-mix of this project."
+
+
+def file_row_made_as_unknown(row_no, text):
+    """Row 4 of an ingredients file says a pre-mix is made a third way.
+    The sentence names the two, because they are the answer."""
+    return (f"Row {row_no} says {MADE_AS_LABEL} {text}. Write "
+            f"{PREMIX_MADE_AS_PORTIONED}, or {PREMIX_MADE_AS_WEIGHED}.")
+
+
+def file_row_unknown_premix(row_no, name):
+    """A part filed under a pre-mix no row of the file declares. The file
+    is read whole, so the order of its rows is not the fault."""
+    return (f"Row {row_no} puts it in {name}, and no row of this file says "
+            f"how {name} is made.")
