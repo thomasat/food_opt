@@ -10730,6 +10730,248 @@ class TestPreMixes:
         assert self._row(back, "Dry blend")['bounds'] == (5.0, 15.0)
         assert self._row(back, "Water")['bounds'] == (20.0, 40.0)
 
+    # ---- Made as: the choice, its sentence, and switching ---------------- #
+
+    def test_the_portioned_sentence_is_said_once_when_the_choice_is_made(
+            self, tmp_path, monkeypatch):
+        """One sentence at the choice, saying both halves of what it means:
+        what the suggestions will move, and what the bench will do. It
+        names the pre-mix and never its parts — portioned, the parts are
+        not what varies — and it is said when the choice is MADE, so
+        re-choosing the way a pre-mix is already made says nothing and
+        changes nothing."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        said = opt.premix_consequence("Dry blend")
+        assert said == ("The suggestions vary how much Dry blend goes in. "
+                        "Its make-up stays the same for the whole round, so "
+                        "you make it once.")
+        assert said == wording.premix_portioned_consequence("Dry blend")
+        assert "Flour" not in said and "Salt" not in said
+        assert opt.set_premix_mode("Dry blend", "portioned") == []
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+
+    def test_the_weighed_sentence_names_every_part(self, tmp_path,
+                                                   monkeypatch):
+        """The other half of the same choice. Weighed, it is the parts the
+        suggestions move, so the sentence lists them — in the order they
+        are typed, joined the way every other list of names in the app is."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(
+            ("pea protein", 50), ("fibre", 30), ("salt", 20)))
+        said = opt.premix_consequence("Dry blend")
+        assert said == ("The suggestions vary pea protein, fibre and salt "
+                        "separately. Each formulation gets its own blend.")
+        assert said == wording.premix_weighed_consequence(
+            "pea protein, fibre and salt")
+        opt.set_premix_parts("Dry blend", self._parts(("pea protein", 100)))
+        assert opt.premix_consequence("Dry blend") == \
+            wording.premix_weighed_consequence("pea protein")
+        # Nothing to name is nothing to say: a pre-mix with no parts yet
+        # does not get a sentence with a hole in it.
+        opt.add_premix("Wet blend", "weighed")
+        assert opt.premix_consequence("Wet blend") == ""
+
+    def test_switching_discards_the_open_round_with_the_usual_notice(
+            self, tmp_path, monkeypatch):
+        """How a pre-mix is made decides which rows the suggestions move,
+        so a round generated before the switch is not a round this project
+        would generate now. It goes through the same door every other
+        set-up change sends it through — and the screen can ask first,
+        because the model answers what the question needs (the round, how
+        many formulations, and how many of them the reader added) without
+        writing anything."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.ask(2)
+        opt.add_to_pending_batch({"Sugar": 2.0, "Dry blend": 10.0},
+                                 note="my own")
+        no = opt.pending_batch_no
+        at_risk = opt.premix_mode_retires_round("Dry blend", "weighed")
+        assert at_risk == {'round': no, 'formulations': 3, 'own': 1}
+        assert opt.pending_batch_no == no
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        # The way it is already made is no change, so no round is at risk.
+        assert opt.premix_mode_retires_round("Dry blend", "portioned") is None
+
+        opt.set_premix_mode("Dry blend", "weighed")
+        assert opt.pending_batch is None
+        assert opt.pending_batch_no is None
+        assert wording.batch_discarded_notice(no) == (
+            f"Round {no} was discarded: your set-up changed after it was "
+            "made. Generate a new one.")
+        # And what the screen's question is built from, in wave 1's words.
+        assert wording.saving_discards_round(no, "3 formulations", 1) == (
+            f"Saving will discard Round {no}: 3 formulations, 1 of them "
+            "added by you. A formulation you added goes with the round — a "
+            "set-up change can make it invalid.")
+
+    def test_portioned_to_weighed_back_fills_the_parts_from_the_round_version(
+            self, tmp_path, monkeypatch):
+        """The recorded formulations are not zeroed: 10 g of a blend that
+        was 70/30 the day it was made IS 7 g of flour and 3 g of salt. The
+        make-up on file for that round is what it is read with, not the
+        make-up the pre-mix carries today; a row that belongs to no round
+        reads today's."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 7.0},
+                 formulation_no=1, batch_no=1)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 6.0},
+                 formulation_no=2)
+        assert opt.batch_history == [1, None]
+
+        opt.set_premix_mode("Dry blend", "weighed")
+        assert self._names(opt) == ["Sugar", "Flour", "Salt"]
+        first, second = opt.recipe_history
+        assert first["Flour"] == pytest.approx(7.0)
+        assert first["Salt"] == pytest.approx(3.0)
+        assert second["Flour"] == pytest.approx(5.0)
+        assert second["Salt"] == pytest.approx(5.0)
+        assert "Dry blend" not in first and "Dry blend" not in second
+        # The searched history is rebuilt from the amounts, not left short.
+        assert opt.X_history == [opt._encode(r) for r in opt.recipe_history]
+
+    def test_weighed_to_portioned_sums_the_parts(self, tmp_path, monkeypatch):
+        """The other direction. 6 g of flour and 2 g of salt were 8 g of
+        blend, and what that round's blend WAS is the shares those amounts
+        imply — which is what the round's make-up on file becomes, so the
+        row can be read back either way afterwards."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        opt.add_ingredient("Flour", 0, 20)
+        opt.add_ingredient("Salt", 0, 5)
+        opt.tell({"Sugar": 2.0, "Flour": 6.0, "Salt": 2.0}, {"Taste": 7.0},
+                 formulation_no=1, batch_no=1)
+
+        opt.set_premix_mode("Dry blend", "portioned")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+        assert opt.recipe_history[0]["Dry blend"] == pytest.approx(8.0)
+        assert "Flour" not in opt.recipe_history[0]
+        assert opt.X_history == [opt._encode(r) for r in opt.recipe_history]
+        # The shares that round was really made to, filed under that round;
+        # the make-up the pre-mix carries today is untouched.
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend", 1)] == \
+            [("Flour", 75.0), ("Salt", 25.0)]
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend")] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+
+    def test_a_round_records_the_version_it_was_made_from(self, tmp_path,
+                                                          monkeypatch):
+        """A round is generated from one make-up, and what that make-up was
+        is a fact about the round. It is written at generation, because the
+        make-up can move the same afternoon."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        assert opt.premixes["Dry blend"]['versions'] == {}
+        opt.ask(2)
+        no = opt.pending_batch_no
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend", no)] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+        # Copies: editing the make-up cannot reach back into the round.
+        opt.premixes["Dry blend"]['versions'][no][0]['share'] = 1.0
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [70.0, 30.0]
+
+    def test_a_recorded_formulation_remembers_its_version_after_the_parts_change(
+            self, tmp_path, monkeypatch):
+        """The point of filing it by round: a formulation recorded weeks
+        ago still says what it was made of after the make-up moves."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        batch = opt.ask(1)
+        no = opt.pending_batch_no
+        opt.tell(batch[0], {"Taste": 7.0}, batch_no=no)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        assert [(p['name'], p['share'])
+                for p in opt.premix_version_of("Dry blend", 0)] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        # A row that belongs to no round has no version of its own to
+        # remember, so it reads the make-up as it stands.
+        opt.set_pending_batch(None)
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 5.0})
+        assert opt.batch_history[1] is None
+        assert [p['share'] for p in opt.premix_version_of("Dry blend", 1)] == \
+            [50.0, 50.0]
+
+    def test_a_switch_with_no_amounts_on_file_is_refused(self, tmp_path,
+                                                         monkeypatch):
+        """Changing which rows are searched rebuilds the history out of the
+        recorded amounts, and a project that has lost them cannot have it
+        rebuilt. The same refusal deleting an ingredient gives, and it is
+        asked before anything is written."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 7.0})
+        opt.recipe_history = []
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_mode("Dry blend", "weighed")
+        assert str(caught.value) == wording.AMOUNTS_MISSING_DELETE_ERROR
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+
+    def test_a_switch_that_would_leave_nothing_to_vary_is_refused(
+            self, tmp_path, monkeypatch):
+        """A pre-mix's own row arrives pinned at one amount, so making the
+        only weighed pre-mix in a project portioned can leave a project
+        with nothing for the suggestions to move. The same question
+        deleting a pre-mix asks, and the same sentence."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_last_row", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.ask(1)
+        # A switch that is going to be refused puts no round at risk: the
+        # question a screen asks first is about a change that will happen.
+        assert opt.premix_mode_retires_round("Wet blend", "portioned") is None
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_mode("Wet blend", "portioned")
+        assert str(caught.value) == wording.LAST_VARYING_ROW_ERROR
+        assert opt.pending_batch_no is not None
+        assert self._names(opt) == ["Water", "Oil"]
+        assert opt.premixes["Wet blend"]['mode'] == "weighed"
+        # With one row of its own that can still move, it goes through.
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.set_premix_mode("Wet blend", "portioned")
+        assert self._names(opt) == ["Sugar", "Wet blend"]
+
+    def test_a_limit_the_switch_empties_is_said_in_a_sentence(
+            self, tmp_path, monkeypatch):
+        """A switch changes which rows are in the list and what they can
+        add up to, so a limit written against the old list can stop meaning
+        anything. What it emptied comes back from the switch itself, in the
+        shape every other door onto the list hands it back, and the screen
+        says the same line."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_quantity_constraint(["Sugar", "Dry blend"], max_val=18)
+        assert opt.total_reach() == (6.0, 20.0)
+        opt.set_formulation_total(18)
+        removed = opt.set_premix_mode("Dry blend", "weighed")
+        assert [qc.get('reason') for qc in removed] == ["unreachable"]
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.formulation_total_gone_unreachable("18 g"))]
+        assert opt.formulation_total is None
+        # A limit that merely lost one of its rows is left naming the rows
+        # it still has, exactly as it is everywhere else in the app.
+        assert opt.quantity_constraints[0]['ingredients'] == ["Sugar"]
+
     # ---- the carried defect from wave 2's fix wave ----------------------- #
 
     def test_the_snap_never_leaves_a_rule_row_below_zero(self, tmp_path,

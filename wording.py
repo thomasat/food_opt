@@ -2914,3 +2914,38 @@ def file_row_unknown_premix(row_no, name):
     is read whole, so the order of its rows is not the fault."""
     return (f"Row {row_no} puts it in {name}, and no row of this file says "
             f"how {name} is made.")
+
+
+# The word for what per cent of a pre-mix each part is, as a sentence says
+# it. The column header is PREMIX_SHARE_LABEL above; this is the noun, and
+# it is the only one — a pre-mix has parts and a make-up, and the word a
+# food scientist reaches for instead means something else entirely.
+PREMIX_MAKE_UP = "make-up"
+
+
+def premix_portioned_consequence(name):
+    """'The suggestions vary how much Dry blend goes in. Its make-up stays
+    the same for the whole round, so you make it once.'
+
+    The one sentence the reader gets when they say a pre-mix is made this
+    way, said once, at the choice. Both halves are consequences they can
+    check: what the suggestions will move, and what the bench will do with
+    the answer. Portioned, the parts are not named — they are not what
+    varies, and naming them here is what made the two ways sound alike.
+    """
+    return (f"The suggestions vary how much {name} goes in. Its "
+            f"{PREMIX_MAKE_UP} stays the same for the whole {ROUND}, so you "
+            "make it once.")
+
+
+def premix_weighed_consequence(names_text):
+    """'The suggestions vary pea protein, fibre and salt separately. Each
+    formulation gets its own blend.'
+
+    The other half of the same choice, in the same two halves. Weighed, it
+    IS the parts that vary, so they are named: the reader is agreeing to a
+    search over three amounts instead of one, and the list is the only
+    thing on screen that says so.
+    """
+    return (f"The suggestions vary {names_text} separately. Each "
+            f"{FORMULATION} gets its own blend.")

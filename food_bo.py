@@ -152,6 +152,17 @@ def premix_named_by(source):
     return text[len(PREMIX_LIMIT_SOURCE):]
 
 
+def _amount_of(recipe, name):
+    """How much of one row a recorded formulation holds: what is on file,
+    or nothing at all for a row that formulation never had. A recorded
+    amount written by an older file can be a string or a blank, and a
+    rewritten history must not turn either into a traceback."""
+    try:
+        return float(recipe.get(name, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ------------------------------------------------------------------ #
 # Formula cells (0.5.0 wave 2, "rules"): the Set up grid's Formula column
 # lets an ingredient's amount be read off the batch size and the other rows
@@ -6070,6 +6081,10 @@ class FoodOptimizer:
 
         # Numbers are issued here, at generation, and never reissued.
         self.set_pending_batch(recipes, batch_no=batch_no, discarded=discarded)
+        # And so is the make-up each pre-mix was generated from: the round
+        # is made from what the pre-mixes say today, and what they said
+        # today is a fact about the round.
+        self._snapshot_premixes(self.pending_batch_no)
         return recipes
 
     def _snapped_if_it_still_fits(self, recipe):
@@ -7783,12 +7798,17 @@ class FoodOptimizer:
                 return stored
         raise ValueError(wording.MADE_AS_REQUIRED_ERROR)
 
-    def _premix_row_names(self):
+    def _premix_row_names(self, made_as=None):
         """The names the pre-mixes put INTO the flat list: a portioned
-        pre-mix's own row, and every part of a weighed one."""
+        pre-mix's own row, and every part of a weighed one.
+
+        `made_as` is {pre-mix: the way it would be made}, which is how the
+        list a change WOULD produce is read without making the change: the
+        questions set_premix_mode asks are all asked before it writes."""
         names = []
         for group, premix in self.premixes.items():
-            if premix['mode'] == PREMIX_PORTIONED:
+            mode = (made_as or {}).get(group, premix['mode'])
+            if mode == PREMIX_PORTIONED:
                 names.append(group)
             else:
                 names += [p['name'] for p in premix['parts']]
@@ -7918,15 +7938,175 @@ class FoodOptimizer:
         """Change how one pre-mix is made. The parts do not move; which of
         them the model searches does.
 
+        Every question is asked BEFORE anything is written, over the list
+        this change would leave behind: a project whose recorded amounts
+        have gone cannot have its history rebuilt, and a switch that would
+        leave nothing for the suggestions to move is the same refusal
+        deleting the last varying row gives. A pre-mix half switched is not
+        a state this project ever sits in.
+
+        What is already recorded is REWRITTEN rather than zeroed — 10 g of
+        a blend that was 70/30 is 7 g of flour and 3 g of salt — which is
+        what the make-up filed under each round is for.
+
         Hands back the amount limits the change emptied of meaning."""
         premix = self._premix_by_name(name)
         mode = self._premix_mode(mode)
         if mode == premix['mode']:
             return []
+        trouble = self._premix_mode_refusal(name, mode)
+        if trouble:
+            raise ValueError(trouble)
+        rewritten = self._rewrite_history_for_mode(name, mode)
         premix['mode'] = mode
         removed = self._sync_premix(name)
+        # After the sync, not before: the rows this switch took away took
+        # their columns with them, and a column written first would have
+        # been popped by the same move that made room for it.
+        rows = self._by_name()
+        for recipe, amounts in zip(self.recipe_history, rewritten):
+            recipe.update({row: amount for row, amount in amounts.items()
+                           if row in rows})
+        if rewritten:
+            self._reencode_history()
         self.save()
         return removed
+
+    def _premix_mode_rows_lost(self, name, mode):
+        """The ingredient rows the flat list would lose if `name` were made
+        `mode`. Read off the same two questions _sync_premix answers, and
+        nothing is written to find out."""
+        wanted = {row.lower() for row in self._premix_row_names({name: mode})}
+        controlled = {n.lower() for n in self._premix_controlled()}
+        return [v['name'] for v in self.variables
+                if v.get('category', 'ingredient') == 'ingredient'
+                and v['name'].lower() in controlled - wanted]
+
+    def _premix_mode_refusal(self, name, mode):
+        """Why this pre-mix cannot be made that way, or None.
+
+        The two questions set_premix_mode asks, asked without writing —
+        the same pair remove_ingredient and remove_premix ask, for the same
+        two reasons. Changing which rows are searched rebuilds the history
+        out of the recorded amounts, so a project that has lost them cannot
+        have it rebuilt; and a row this switch ADDS arrives pinned at one
+        amount, so a switch can strip a project of everything the
+        suggestions could still move. Refusing is the answer to both:
+        leaving a project that cannot generate is not."""
+        if self.X_history and len(self.recipe_history) != len(self.X_history):
+            return AMOUNTS_MISSING_DELETE_ERROR
+        lost = set(self._premix_mode_rows_lost(name, mode))
+        if not any(not self.is_fixed(v) and not self.has_formula(v)
+                   for v in self.variables if v['name'] not in lost):
+            return LAST_VARYING_ROW_ERROR
+        return None
+
+    def premix_mode_retires_round(self, name, mode):
+        """What the open round would lose if this pre-mix were made another
+        way, or None when there is no round to lose or the way it is made
+        is not changing.
+
+        {'round', 'formulations', 'own'} — the three things the question a
+        screen owes an open round is written from. A round holds
+        formulations the bench may already have made, and some of them the
+        reader typed in themselves, which nothing can generate back; a
+        toast AFTER it was gone was the first they heard of it. Nothing is
+        written to answer this."""
+        premix = self._premix_by_name(name)
+        mode = self._premix_mode(mode)
+        if self.pending_batch_no is None or mode == premix['mode']:
+            return None
+        if self._premix_mode_refusal(name, mode):
+            return None          # nothing is going to be written
+        rows = self.pending_batch or []
+        return {'round': int(self.pending_batch_no),
+                'formulations': len(rows),
+                'own': sum(1 for row in rows
+                           if isinstance(row, dict) and row.get('note'))}
+
+    def premix_consequence(self, name):
+        """The one sentence the reader gets when they say how a pre-mix is
+        made: what the suggestions will vary, and what that means at the
+        bench. One sentence, once, at the choice.
+
+        A weighed pre-mix with no parts yet gets nothing: the sentence is a
+        list of what will vary, and there is nothing in the list."""
+        premix = self._premix_by_name(name)
+        if premix['mode'] == PREMIX_PORTIONED:
+            return wording.premix_portioned_consequence(name)
+        parts = [p['name'] for p in premix['parts']]
+        if not parts:
+            return ""
+        return wording.premix_weighed_consequence(number_list(parts))
+
+    def _rewrite_history_for_mode(self, name, mode):
+        """What each recorded formulation should say about this pre-mix
+        once it is made `mode` — one {row: amount} per row of the history,
+        in order, for the caller to write after the rows have moved.
+
+        Portioned becomes weighed: the amount of the pre-mix is shared out
+        over its parts, by the make-up on file for the round that row
+        belongs to (a row that belongs to no round reads the make-up as it
+        stands). A recorded formulation is a fact about a bowl somebody
+        made, and zeroing it would delete that fact.
+
+        Weighed becomes portioned: the pre-mix's amount is the sum of that
+        row's parts, and the shares those amounts imply become the make-up
+        on file for that round — so the row can be read back the other way
+        afterwards. The first recorded formulation of a round is the one
+        that writes it: weighed, every formulation of a round has its own
+        blend, and the round's make-up can only be one of them.
+        """
+        premix = self.premixes[name]
+        versions = premix.setdefault('versions', {})
+        stamped, rewritten = set(), []
+        for i, recipe in enumerate(self.recipe_history):
+            round_no = (self.batch_history[i]
+                        if i < len(self.batch_history) else None)
+            parts = self.premix_parts(name, round_no)
+            if mode == PREMIX_WEIGHED:
+                whole = _amount_of(recipe, name)
+                rewritten.append(
+                    {p['name']: _amount_of(recipe, p['name'])
+                     + whole * float(p['share']) / 100.0
+                     for p in parts})
+                continue
+            weighed = {p['name']: _amount_of(recipe, p['name']) for p in parts}
+            whole = sum(weighed.values())
+            rewritten.append({name: whole})
+            if round_no is None or whole <= 0 or int(round_no) in stamped:
+                continue
+            stamped.add(int(round_no))
+            versions[int(round_no)] = [
+                dict(self._stored_part(p),
+                     share=weighed[p['name']] * 100.0 / whole)
+                for p in parts]
+        return rewritten
+
+    def premix_version_of(self, name, index):
+        """The make-up one recorded formulation was made from: the one on
+        file for the round that row belongs to, or the make-up as it stands
+        when the row belongs to no round, or that round left none.
+
+        `index` is the row's place in the recorded history, which is what
+        batch_history is keyed by."""
+        history = self.batch_history
+        round_no = history[index] if 0 <= index < len(history) else None
+        return self.premix_parts(name, round_no)
+
+    def _snapshot_premixes(self, round_no):
+        """File every pre-mix's make-up under the round just generated.
+
+        Written at generation, because a make-up can move the same
+        afternoon and a round is made from the one it was generated with.
+        Copies, so that editing the parts tomorrow cannot reach back into
+        a round that is already on the bench."""
+        if round_no is None or not self.premixes:
+            return
+        for premix in self.premixes.values():
+            premix.setdefault('versions', {})[int(round_no)] = [
+                dict(part) for part in premix['parts']]
+        self.save()
 
     def set_premix_parts(self, name, parts):
         """The make-up of one pre-mix: its parts, each with what per cent
