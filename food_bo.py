@@ -7228,6 +7228,17 @@ class FoodOptimizer:
         deleted = [v['name'] for v in self.grid_variables()
                    if v['name'] not in ids_used]
         errors += self._check_grid_deletions(deleted, rows, force)
+        # A row that ARRIVES is one more column in the search vector, so
+        # the history has to be rebuilt to hold it — and a project whose
+        # recorded amounts have gone cannot be rebuilt. The same gate a
+        # deletion and a formula cell are asked, asked here too: without
+        # it add_ingredient raised out of the middle of the save, past the
+        # grid's promise that nothing is written until every row passes,
+        # and reached the browser as a traceback.
+        if (self.X_history and len(self.recipe_history) != len(self.X_history)
+                and any(spec['var'] is None for _, spec in rows)):
+            errors += [(row_no, wording.CANNOT_ADD_WITHOUT_AMOUNTS)
+                       for row_no, spec in rows if spec['var'] is None]
         if errors:
             return errors, None
 

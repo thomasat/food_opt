@@ -9638,19 +9638,43 @@ class TestTheFormulaColumnFixes:
         assert opt.has_formula(opt._var_by_name("Water")) is True
         assert len(opt.X_history[0]) == len(opt.varying_variables())
 
-    def test_adding_a_plain_row_does_not_ask_for_the_amounts(self, tmp_path,
-                                                             monkeypatch):
-        """A row that arrives with no formula changes nothing about which
-        rows are searched, so it owes the formula gate nothing. It was
-        counted as a change because it had no `var` to compare with."""
+    def test_adding_a_plain_row_without_the_amounts_is_refused_not_raised(
+            self, tmp_path, monkeypatch):
+        """A row that ARRIVES is one more column in the search vector, so
+        the history has to be rebuilt to hold it — and a project whose
+        recorded amounts have gone cannot be rebuilt. The plan passed the
+        row and add_ingredient then raised out of the middle of the save,
+        past the grid's promise that nothing is written until every row
+        passes, and reached the browser as a traceback.
+
+        Both calls, deliberately: the plan is where the refusal belongs and
+        apply_ingredient_grid is the call that reached the bug."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_formula("Water", "= rest")
         opt.tell({"Pea protein": 20.0, "Salt": 2.0, "Water": 28.0},
                  {"Taste": 6.0})
         opt.recipe_history = []
-        errors, _ = opt._plan_ingredient_grid(
+        frame = _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0))
+        assert opt._plan_ingredient_grid(frame)[0] == [
+            (4, wording.CANNOT_ADD_WITHOUT_AMOUNTS)]
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == [(4, wording.CANNOT_ADD_WITHOUT_AMOUNTS)]
+        assert messages == []
+        assert [v['name'] for v in opt.variables] == [
+            "Water", "Pea protein", "Salt"]
+
+    def test_adding_a_plain_row_is_free_while_the_amounts_are_all_there(
+            self, tmp_path, monkeypatch):
+        """The gate is about the amounts, not about the formula: a project
+        that kept them adds a row with a rest row standing."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formula("Water", "= rest")
+        opt.tell({"Pea protein": 20.0, "Salt": 2.0, "Water": 28.0},
+                 {"Taste": 6.0})
+        errors, _ = opt.apply_ingredient_grid(
             _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0)))
         assert errors == []
+        assert opt._var_by_name("Oil")['bounds'] == (0.0, 5.0)
 
     def test_a_worked_out_rows_range_cells_are_ignored_whatever_they_hold(
             self, tmp_path, monkeypatch):
