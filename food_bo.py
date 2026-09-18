@@ -3882,6 +3882,7 @@ class FoodOptimizer:
         if not print_pack:
             book = workbook_flow.compact(book, self, rows)
         custom_records.append_workbook(book, self, rows, print_pack)
+        workbook_flow.hide_metadata(book)
         book.active = 0
         buffer = io.BytesIO()
         book.save(buffer)

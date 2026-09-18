@@ -192,6 +192,8 @@ def read_workbook(source, opt, round_no):
     if not fields(opt, enabled=False):
         return []
     book = load_workbook(source, data_only=False)
+    from workbook_flow import restore_metadata
+    restore_metadata(book)
     known = {f['id']: f for f in fields(opt, enabled=False)}
     allowed = {'formulation': {str(row['formulation']) for row in opt.pending_batch or []},
                'ingredient': set(ingredient_names(opt, round_no))}

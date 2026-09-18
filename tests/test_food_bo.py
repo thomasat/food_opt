@@ -6060,7 +6060,7 @@ class TestTheWorkbook:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
-        assert book.sheetnames == ["Round 2", "Formulation 1",
+        assert [s.title for s in book if s.sheet_state == "visible"] == ["Round 2", "Formulation 1",
                                    "Formulation 2", "Formulation 3"], \
             book.sheetnames
 

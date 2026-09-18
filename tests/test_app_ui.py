@@ -1960,7 +1960,7 @@ def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     book = _workbook(at)
-    assert book.sheetnames == ["Round 1", "Formulation 1", "Formulation 2"], \
+    assert [s.title for s in book if s.sheet_state == "visible"] == ["Round 1", "Formulation 1", "Formulation 2"], \
         book.sheetnames
     texts = _sheet_text(at)
     assert f"{wording.FORMULATION_CAP} 1 · {wording.ROUND_CAP} 1 · burger" \
@@ -7562,7 +7562,7 @@ def _workbook(at):
 def _formulation_sheets(at):
     """Every per-formulation sheet, in order. Sheet one is the summary."""
     book = _workbook(at)
-    return [book[name] for name in book.sheetnames[1:]]
+    return [s for s in book.worksheets[1:] if s.sheet_state == "visible"]
 
 
 def _sheet_amounts(at):
@@ -7983,7 +7983,7 @@ def test_the_workbook_is_named_for_the_project_and_the_batch(open_batch):
     # The summary sheet is named for the batch, which is how an uploaded
     # workbook is matched back to the one on the bench.
     assert book.sheetnames[0] == wording.batch_sheet_name(1)
-    assert book.sheetnames[1:] == ["Formulation 1", "Formulation 2"]
+    assert [s.title for s in book.worksheets[1:] if s.sheet_state == "visible"] == ["Formulation 1", "Formulation 2"]
 
 
 # ------------------------------------------------------------------ #
@@ -8179,7 +8179,7 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     # for the Limits caption: a property never touches closeness.
     joined = " ".join(wording.HOW_CLOSENESS)
     assert "Prefer higher values" in joined and "Prefer lower values" in joined
-    assert "Aim for a target value" in joined
+    assert "Target value" in joined
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in joined
     assert "less than its share suggests" in joined
@@ -8507,7 +8507,7 @@ def test_every_sheet_ends_with_the_caution(open_batch):
                "in Set up.")
     book = openpyxl.load_workbook(io.BytesIO(
         open_batch.workbook_bytes(open_batch.pending_batch, 200.0)))
-    sheets = [book[name] for name in book.sheetnames[1:]]
+    sheets = [s for s in book.worksheets[1:] if s.sheet_state == "visible"]
     assert len(sheets) == 2, book.sheetnames
     for sheet in sheets:
         text = [value for row in sheet.iter_rows(values_only=True)
@@ -8786,14 +8786,14 @@ def test_the_correction_form_says_it_once_above_the_boxes(scored):
 
 
 def test_the_goal_column_offers_its_three_options_and_no_more(burger):
-    """Prefer higher values, Prefer lower values, Aim for a target value — said once, as the
+    """Prefer higher values, Prefer lower values, Target value — said once, as the
     cell's own choices. The tooltip that used to repeat them is gone with
     the box it hung on."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
     assert list(wording.GOAL_LABELS.values()) == [
-        "Prefer higher values", "Prefer lower values", "Aim for a target value"]
+        "Prefer higher values", "Prefer lower values", "Target value"]
     assert set(_grid_frame(at, 1)["Goal"]) <= set(wording.GOAL_LABELS.values())
 
 
@@ -9681,7 +9681,7 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
     assert cleared_at > heavy[-1], (cleared_at, heavy[-1])
     # And the sentence itself is the one the window shows while it waits.
     assert wording.STARTING_APP == (
-        "Starting Food Optimizer… Please wait while the app loads.")
+        "Starting Food Optimizer. Please wait while the app loads.")
 
 
 def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch):

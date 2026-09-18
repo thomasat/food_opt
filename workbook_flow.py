@@ -1,8 +1,8 @@
 """Compact bench workbook and compatibility bridge to the original workbook reader.
 
-Cell comments mark preparation sections and record the issued plan. They are
-metadata, never executable spreadsheet formulae. Existing workbook layouts remain
-readable without these markers.
+Import metadata is stored on a very hidden worksheet, outside the working tabs.
+Legacy cell comments are used only as an in-memory compatibility bridge for
+existing readers and older workbooks; new downloads contain no machine comments.
 """
 import io
 import json
@@ -22,6 +22,71 @@ PREP = 'food-opt-preparation:'
 OVERVIEW = 'Round overview'
 RESULTS = 'Results'
 PREPARATION = 'Preparation'
+
+
+METADATA_SHEET = '_FoodOptimizer'
+METADATA_VERSION = 'food-opt-metadata-v1'
+_METADATA_PREFIXES = (MARKER, PREP, 'food-opt-custom-record:')
+_METADATA_ERROR = 'This workbook is missing or has damaged round information. Download a new workbook and transfer your entries.'
+
+
+def hide_metadata(book):
+    """Move internal comments into chunked text, keeping all working tabs clean.
+
+    Chunks stay below Excel's cell text limit, even for large rounds. This sheet
+    is not available through Excel's normal Unhide command. User comments stay.
+    """
+    if METADATA_SHEET in book.sheetnames:
+        raise ValueError(_METADATA_ERROR)
+    records = []
+    for sheet in book:
+        for row in sheet:
+            for cell in row:
+                if cell.comment and cell.comment.text.startswith(_METADATA_PREFIXES):
+                    records.append([sheet.title, cell.coordinate, cell.comment.text])
+                    cell.comment = None
+    if not records:
+        return
+    payload = json.dumps(records, ensure_ascii=True)
+    metadata = book.create_sheet(METADATA_SHEET)
+    metadata['A1'] = METADATA_VERSION
+    for index, offset in enumerate(range(0, len(payload), 20000), 2):
+        cell = metadata.cell(index, 1, payload[offset:offset + 20000])
+        cell.data_type = 's'
+    metadata.sheet_state = 'veryHidden'
+    metadata.protection.sheet = True
+
+
+def restore_metadata(book):
+    """Restore markers in memory for import; accept legacy comment-only files."""
+    if METADATA_SHEET not in book.sheetnames:
+        return
+    metadata = book[METADATA_SHEET]
+    try:
+        if metadata['A1'].value != METADATA_VERSION:
+            raise ValueError
+        records = json.loads(''.join(metadata.cell(r, 1).value
+                                    for r in range(2, metadata.max_row + 1)))
+        if not isinstance(records, list) or not records:
+            raise ValueError
+        seen = set()
+        for record in records:
+            if (not isinstance(record, list) or len(record) != 3
+                    or not all(isinstance(v, str) for v in record)):
+                raise ValueError
+            title, address, text = record
+            if (title == METADATA_SHEET or title not in book.sheetnames
+                    or (title, address) in seen
+                    or not text.startswith(_METADATA_PREFIXES)):
+                raise ValueError
+            cell = book[title][address]
+            if cell.coordinate != address:
+                raise ValueError
+            cell.comment = Comment(text, 'Food Opt')
+            seen.add((title, address))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise ValueError(_METADATA_ERROR) from None
+    book.remove(metadata)
 
 
 def sheet_link(cell, title):
@@ -216,6 +281,7 @@ def prepare_import(source, opt, batch_no):
     if hasattr(source, 'seek'):
         source.seek(0)
     book = load_workbook(source, data_only=False)
+    restore_metadata(book)
     formula_cells = [(sheet.title, cell.coordinate) for sheet in book for row in sheet
                      for cell in row if cell.data_type == 'f']
     if formula_cells:

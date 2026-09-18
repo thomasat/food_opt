@@ -26,11 +26,16 @@ def project(tmp_path, monkeypatch):
 
 
 def data(book):
+    from workbook_flow import hide_metadata, restore_metadata
+    restore_metadata(book)
+    hide_metadata(book)
     out = io.BytesIO(); book.save(out); out.seek(0)
     return out
 
 
 def marked(book):
+    from workbook_flow import restore_metadata
+    restore_metadata(book)
     return [c for s in book for row in s for c in row if c.comment and c.comment.text.startswith(cr.MARKER)]
 
 
@@ -73,7 +78,7 @@ def test_workbook_both_scopes_custom_only_and_hidden(project, print_pack):
     a = cr.add_field(project, 'Operator', 'formulation')
     b = cr.add_field(project, 'Expiry date', 'ingredient')
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=print_pack)))
-    if not print_pack: assert book.sheetnames == ['Round overview', 'Preparation', 'Results']
+    if not print_pack: assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
     cells = marked(book)
     assert len(cells) == 4
     for i, c in enumerate(cells):

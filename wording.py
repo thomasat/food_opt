@@ -57,7 +57,7 @@ APP_TITLE = "Food Optimizer"
 # app.py has finished importing what it runs on, so app.py draws this line
 # before those imports and clears it after them. Without it the window is
 # blank for those seconds.
-STARTING_APP = f"Starting {APP_TITLE}… Please wait while the app loads."
+STARTING_APP = f"Starting {APP_TITLE}. Please wait while the app loads."
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
@@ -954,7 +954,7 @@ KIND_SETTING = "Process setting"
 GOAL_LABELS = {
     "max": "Prefer higher values",
     "min": "Prefer lower values",
-    "target": "Aim for a target value",
+    "target": "Target value",
 }
 
 
@@ -1011,7 +1011,7 @@ HOW_CLOSENESS = [
     "so the top of your range scores 1 and the bottom scores 0.",
     "Prefer lower values: the reverse — the bottom of your range scores 1 and the "
     "top scores 0.",
-    "Aim for a target value: closeness is 1 at the target and falls evenly with "
+    "Target value: closeness is 1 at the target and falls evenly with "
     "distance, by one point per full range; the lowest score depends on how "
     "far the target sits from the ends of your range. Because of that "
     "floor, a target measurement can affect the score less than its "
@@ -3467,7 +3467,7 @@ FORMULATION_CORRECTIONS_CAPTION = 'Use Edit formulations before preparation; rec
 COMPOSITION_AMOUNTS = 'Amounts'
 SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then generate your first formulations.'
 COMPOSITION_AMOUNTS_HELP = 'Enter ingredient amounts. Their proportions are saved as percentages; the preview calculates amounts for the quantity below.'
-COMPOSITION_ENTRY_LABEL = 'Enter a weighed recipe instead'
+COMPOSITION_ENTRY_LABEL = 'Enter ingredient amounts instead'
 COMPOSITION_PERCENTAGES = 'Percentages'
 TEACHING_EXAMPLE_CAPTION = 'Teaching example with illustrative values. See Preparation and records for the method and assumptions.'
 def composition_basis_caption(basis):

@@ -20,7 +20,7 @@ with sync_playwright() as pw:
     assert 'Composition (%)' in grid_head(page, parts)
     page.screenshot(path='/tmp/foodopt-ux-composition.png', full_page=True)
     group = fold(page, 'Dry blend · parts')
-    group.get_by_text('Enter a weighed recipe instead', exact=True).click()
+    group.get_by_text('Enter ingredient amounts instead', exact=True).click()
     settle(page)
     parts = grid_named(page, 'Part')
     print('Amount entry headers:', grid_head(page, parts), flush=True)
@@ -29,7 +29,7 @@ with sync_playwright() as pw:
     fold_click(page, 'Dry blend · parts', 'Save changes')
     assert not alerts(page, 'Error'), alerts(page, 'Error')
     open_fold(page, 'Dry blend · parts')
-    group.get_by_text('Enter a weighed recipe instead', exact=True).click(); settle(page)
+    group.get_by_text('Enter ingredient amounts instead', exact=True).click(); settle(page)
     parts = grid_named(page, 'Part')
     assert abs(float(grid_rows(page, parts)[0][1]) - 60/94*100) < 0.02
     print('PASS percentages / amounts conversion and save', flush=True)
@@ -49,6 +49,6 @@ with sync_playwright() as pw:
     path = '/tmp/foodopt-ux-round.xlsx'
     event.value.save_as(path)
     book = load_workbook(path)
-    assert book.sheetnames == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
     print('PASS edit and three-tab workbook download', flush=True)
     browser.close()

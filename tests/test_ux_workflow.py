@@ -54,7 +54,7 @@ def test_invalid_edits_are_atomic(project, changes):
 def test_compact_workbook_results_and_actual_import(project):
     project.set_records('actual', True)
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
-    assert book.sheetnames == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
     assert book.active.title == 'Round overview'
     results = book['Results']
     results.cell(result_row(results), 2, 8)
@@ -87,6 +87,8 @@ def test_legacy_results_on_both_surfaces_merge_and_conflicts_fail(project):
 
 def test_legacy_without_metadata_still_imports(project):
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100)))
+    from workbook_flow import METADATA_SHEET
+    book.remove(book[METADATA_SHEET])
     book['Round 1']['A1'].comment = None
     book['Round 1'].cell(result_row(book['Round 1']), 2, 8)
     assert project.results_from_workbook(data(book)).frame['Taste'].tolist() == [8]
@@ -127,7 +129,7 @@ def test_guided_example_generates_feasible_rounds(tmp_path, monkeypatch):
         assert sum(v for k, v in recipe.items() if k != 'Mixing time after fat') == pytest.approx(100)
     opt.set_pending_batch(suggestions)
     book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, opt.open_round_size(), print_pack=False)))
-    assert book.sheetnames == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
 
 
 def test_recorded_row_in_partial_round_cannot_be_edited(project):
@@ -353,3 +355,70 @@ def test_record_selector_keeps_existing_values_when_hidden(project):
     saved = FoodOptimizer('editable')
     assert saved.records('vendor') and saved.records('lot')
     assert saved._var_by_name('Protein')['vendor'] == 'Example supplier'
+
+
+@pytest.mark.parametrize('print_pack', [False, True])
+def test_metadata_is_hidden_without_machine_comments_and_legacy_still_imports(project, print_pack):
+    import custom_records
+    import workbook_flow
+    custom_records.add_field(project, 'Operator', 'formulation')
+    book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=print_pack)))
+    assert book[workbook_flow.METADATA_SHEET].sheet_state == 'veryHidden'
+    assert all(c.comment is None for s in book for row in s for c in row)
+    # An ordinary save keeps metadata and both measurements and custom records.
+    workbook_flow.restore_metadata(book)
+    custom = next(c for s in book for row in s for c in row
+                  if c.comment and c.comment.text.startswith(custom_records.MARKER))
+    custom.value = '0012'
+    sheet = book['Round 1' if print_pack else 'Results']
+    sheet.cell(result_row(sheet), 2, 8)
+    legacy_bytes = data(book)
+    legacy = project.results_from_workbook(legacy_bytes)
+    assert legacy.frame['Taste'].tolist() == [8]
+    assert legacy.custom_records[0][-1] == '0012'
+    workbook_flow.hide_metadata(book)
+    saved = load_workbook(data(book))
+    assert all(c.comment is None for s in saved for row in s for c in row)
+    modern = project.results_from_workbook(data(saved))
+    assert modern.frame.equals(legacy.frame)
+    assert modern.custom_records == legacy.custom_records
+
+
+@pytest.mark.parametrize('damage', ['missing', 'version', 'json', 'shape', 'sheet', 'address'])
+def test_missing_or_damaged_hidden_metadata_refused(project, damage):
+    import json
+    import workbook_flow as wf
+    book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
+    metadata = book[wf.METADATA_SHEET]
+    if damage == 'missing':
+        book.remove(metadata)
+    elif damage == 'version':
+        metadata['A1'] = 'unknown-version'
+    elif damage == 'json':
+        metadata['A2'] = '{'
+    elif damage == 'shape':
+        metadata['A2'] = '{}'
+    else:
+        records = json.loads(metadata['A2'].value)
+        records[0][0 if damage == 'sheet' else 1] = 'missing' if damage == 'sheet' else 'A1:A2'
+        metadata['A2'] = json.dumps(records)
+    with pytest.raises(ValueError, match='round information'):
+        project.results_from_workbook(data(book))
+
+
+def test_large_metadata_survives_excel_cell_limit():
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+    import workbook_flow as wf
+    book = Workbook()
+    text = wf.MARKER + 'Protein & water — ' * 10000
+    book.active['A1'].comment = Comment(text, 'Food Opt')
+    book.active['A2'].comment = Comment('Keep this user note.', 'Scientist')
+    wf.hide_metadata(book)
+    assert book[wf.METADATA_SHEET].max_row > 2
+    assert all(len(c.value) <= 20000 for row in book[wf.METADATA_SHEET] for c in row)
+    saved = load_workbook(data(book))
+    assert saved.active['A1'].comment is None
+    assert saved.active['A2'].comment.text == 'Keep this user note.'
+    wf.restore_metadata(saved)
+    assert saved.active['A1'].comment.text == text
