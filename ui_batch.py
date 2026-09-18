@@ -253,7 +253,7 @@ def _generate(opt, n, batch_no=None, discarded=None):
             return
         except Exception:
             # A raw traceback is a dead end for a nontechnical user.
-            st.error(wording.GENERATE_FAILED)
+            st.error(wording.for_project(opt, wording.GENERATE_FAILED))
             return
     st.session_state.pop("_results_upload", None)
     clear_scale_total()
@@ -270,20 +270,20 @@ def _no_batch(opt):
     # "how_many", not "batch_size": Batch size is the weight of one
     # formulation, and this box asks how many of them to make.
     st.session_state.setdefault("how_many", 3)
-    how_many = st.number_input(wording.FORMULATIONS_TO_GENERATE, min_value=1,
+    how_many = st.number_input(wording.for_project(opt, wording.FORMULATIONS_TO_GENERATE), min_value=1,
                                max_value=10, step=1, key="how_many")
     n = int(how_many)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
-    if st.button(wording.generate_button_label(n),
+    if st.button(wording.for_project(opt, wording.generate_button_label(n)),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
     # One line for both sides of the fifth formulation, word for word the
     # How it works bullet. Two captions for the two halves of one rule left
     # a reader who had only seen one of them thinking there were two.
-    st.caption(wording.HOW_CHOSEN)
+    st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
 
 
 def _own_key(name):
@@ -393,7 +393,7 @@ def _own_formulation(opt):
     Both buttons are secondary. One button per tab is the coloured one:
     Generate before a batch is open, Save results once it is.
     """
-    with st.expander(wording.ADD_OWN_EXPANDER):
+    with st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER)):
         if not opt.pending_batch:
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
@@ -559,18 +559,22 @@ def _batch_table(opt, scale_to):
     editing = st.session_state.get(edit_key, False)
     if not editing:
         st.dataframe(frame.style.format(_amount_format(opt, frame)),
+                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
+                         wording.for_project(opt, wording.FORMULATION_CAP))},
                      hide_index=True, key="batch_table", height=table_height(len(frame)))
-        if st.button(wording.EDIT_FORMULATIONS, key=edit_key + "_start"):
+        if st.button(wording.for_project(opt, wording.EDIT_FORMULATIONS), key=edit_key + "_start"):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
     else:
-        st.caption(wording.EDIT_FORMULATIONS_CAPTION)
+        st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_CAPTION))
         editable_numbers = {row["formulation"] for row in open_rows(opt)}
         frame = frame[frame["Formulation"].isin(editable_numbers)].reset_index(drop=True)
         independent = {opt._amount_column(v['name'], mark=True): v['name']
                        for v in opt.variables if not opt.has_formula(v)}
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
+                               column_config={wording.FORMULATION_CAP: st.column_config.Column(
+                         wording.for_project(opt, wording.FORMULATION_CAP))},
                                disabled=[c for c in frame if c not in independent],
                                key=edit_key + "_grid", use_container_width=True)
         save, cancel = st.columns(2)
@@ -607,12 +611,12 @@ def _batch_table(opt, scale_to):
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
     # Planned edits and actual bench corrections are distinct actions.
-    st.caption(wording.FORMULATION_CORRECTIONS_CAPTION)
+    st.caption(wording.for_project(opt, wording.FORMULATION_CORRECTIONS_CAPTION))
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
-        st.caption(wording.HOW_CHOSEN)
+        st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
 
 
     return editing
@@ -649,11 +653,11 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     if not opt.has_ingredients():
         return
     if unit is None:
-        st.caption(wording.NEEDS_ONE_UNIT)
+        st.caption(wording.for_project(opt, wording.NEEDS_ONE_UNIT))
         return
     st.session_state.setdefault(_BATCH_SIZE_KEY, None)
     st.number_input(
-        wording.batch_size_label(unit),
+        wording.for_project(opt, wording.batch_size_label(unit)),
         min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
         key=_BATCH_SIZE_KEY,
         disabled=bool(st.session_state.get(f"edit_round_{opt.project_name}_{opt.pending_batch_no}")),
@@ -692,7 +696,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
-    print_pack = st.checkbox(wording.PRINT_PACK_CHECKBOX, key="workbook_print_pack")
+    print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
     st.caption(wording.WORKBOOK_WORKFLOW_CAPTION)
     if not print_pack:
         st.caption(wording.COMPACT_WORKBOOK_CAPTION)
@@ -791,7 +795,7 @@ def _record_results(opt):
 
     for row in rows:
         number = row['formulation']
-        st.markdown(wording.formulation_heading(number))
+        st.markdown(wording.for_project(opt, wording.formulation_heading(number)))
         if number not in open_numbers:
             _recorded_row(opt, number, ordered)
             st.divider()
@@ -865,7 +869,7 @@ def _record_results(opt):
             and drafts.get(r['formulation'], {}).get('results')]
     ready = bool(kept)
     if to_record and len(left_out) == len(to_record):
-        st.info(wording.NOTHING_TO_SAVE)
+        st.info(wording.for_project(opt, wording.NOTHING_TO_SAVE))
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Round 2 · 2 to record"). One word could not mean both.
@@ -1054,8 +1058,8 @@ def _upload(opt):
     # and the door they need was collapsed under a heading beginning "Or".
     came_back = bool(st.session_state.get(_SHEETS_DOWNLOADED))
     with st.expander(wording.UPLOAD_EXPANDER, expanded=came_back):
-        st.caption(wording.UPLOAD_SHEETS_ARE_BACK_CAPTION if came_back
-                   else wording.UPLOAD_HELP_CAPTION)
+        st.caption(wording.for_project(opt, wording.UPLOAD_SHEETS_ARE_BACK_CAPTION if came_back
+                   else wording.UPLOAD_HELP_CAPTION))
         sheet_file = st.file_uploader(
             wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,
@@ -1093,15 +1097,15 @@ def _upload(opt):
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
             return
-        st.info(wording.upload_found_caption(
+        st.info(wording.for_project(opt, wording.upload_found_caption(
             len(parsed), len(opt.pending_batch),
             ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
             + (wording.not_scored_counter_suffix(len(left_out)) if left_out
-               else ""))
+               else "")))
         _upload_preview(opt, parsed, left_out, weighed, lots)
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
         if records:
-            st.caption(wording.BENCH_RECORDS_CAPTION)
+            st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
                              hide_index=True, use_container_width=True)
@@ -1221,13 +1225,13 @@ def render(opt, storage):
     sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
-    st.markdown(wording.STEP_MAKE_HEADING)
+    st.markdown(wording.for_project(opt, wording.STEP_MAKE_HEADING))
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
     if _batch_table(opt, scale_to):
         preserve_tab_forms()
-        st.caption(wording.FINISH_FORMULATION_EDITS)
+        st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
         return
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()
@@ -1241,7 +1245,7 @@ def render(opt, storage):
     # no Generate control anywhere on this screen, and this is the button
     # that gets one back — so the line sits directly above it.
     if rows and all(r.get('note') for r in rows):
-        st.caption(wording.ONLY_OWN_FORMULATIONS_CAPTION)
+        st.caption(wording.for_project(opt, wording.ONLY_OWN_FORMULATIONS_CAPTION))
     numbers = [r['formulation'] for r in rows]
     regenerate = confirm_action(
         "regenerate", wording.GENERATE_DIFFERENT_BATCH,

@@ -273,7 +273,7 @@ def _formulation_total(opt):
     if not opt.has_ingredients():
         return
     if opt.one_amount_unit() is None:
-        st.caption(wording.NEEDS_ONE_UNIT)
+        st.caption(wording.for_project(opt, wording.NEEDS_ONE_UNIT))
         return
     _seed_formulation_total(opt)
     st.session_state.setdefault("formulation_total", None)
@@ -564,12 +564,8 @@ def _variables(opt, storage):
     typed 250 into that box, and only came right after they left the tab
     and came back.
     """
-    st.subheader(wording.VARIABLES_HEADER)
+    st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
     st.caption(wording.INGREDIENT_GRID_CAPTION)
-    st.caption(wording.RULE_GRID_CAPTION)
-    with st.expander(wording.RULE_GUIDE_LABEL):
-        st.markdown(wording.MADE_AS_HELP)
-        st.markdown(wording.RULE_GUIDE)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(
@@ -692,8 +688,8 @@ def _save_ingredients(opt, storage, edited):
     # deletion is armed: deleting an ingredient that was used above 0 would
     # rewrite formulations nobody made.
     if armed:
-        st.caption(wording.DELETE_VS_FIXING_CAPTION)
-        st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX,
+        st.caption(wording.for_project(opt, wording.DELETE_VS_FIXING_CAPTION))
+        st.checkbox(wording.for_project(opt, wording.DELETE_EVEN_IF_USED_CHECKBOX),
                     key="delete_ing_force")
     else:
         # Never carried into the next deletion, or the next project: a tick
@@ -938,9 +934,8 @@ def _premix_grid(opt, storage, name):
         if portioned:
             basis = "by mass" if unit.lower() in ("g", "kg", "mg", "oz", "lb") else f"on a shared {unit} basis"
             st.caption(wording.composition_basis_caption(basis))
-            mode = st.radio(wording.COMPOSITION_ENTRY_LABEL, [wording.COMPOSITION_PERCENTAGES, wording.COMPOSITION_AMOUNTS],
-                            horizontal=True, key=grid + "_entry_mode")
-            amount_entry = mode == wording.COMPOSITION_AMOUNTS
+            amount_entry = st.checkbox(wording.COMPOSITION_ENTRY_LABEL, key=grid + "_amount_entry")
+            mode = wording.COMPOSITION_AMOUNTS if amount_entry else wording.COMPOSITION_PERCENTAGES
             if amount_entry:
                 st.caption(wording.COMPOSITION_AMOUNTS_HELP)
             quantity = st.number_input(wording.premix_quantity_label(unit), min_value=0.01,
@@ -1026,8 +1021,8 @@ def _save_premix(opt, storage, name, edited):
     armed = (armed_confirmation() == key
              and st.session_state.get(f"{key}__pending"))
     if armed:
-        st.caption(wording.DELETE_VS_FIXING_CAPTION)
-        st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX, key=force_key)
+        st.caption(wording.for_project(opt, wording.DELETE_VS_FIXING_CAPTION))
+        st.checkbox(wording.for_project(opt, wording.DELETE_EVEN_IF_USED_CHECKBOX), key=force_key)
     else:
         st.session_state.pop(force_key, None)
     if not confirmed:
@@ -1210,7 +1205,10 @@ def _targets_source_editor(opt):
     closes it without saving, same word and same act as the measurement
     editor's own Cancel."""
     if opt.targets_source:
-        st.caption(wording.targets_from_caption(opt.targets_source))
+        label = (wording.EXAMPLE_REFERENCES_LABEL if opt.project_name == wording.SAMPLE_PROJECT_NAME
+                 else wording.TARGET_REFERENCES_LABEL)
+        with st.popover(label):
+            st.markdown(wording.targets_from_caption(opt.targets_source))
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
         st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
@@ -1329,6 +1327,15 @@ def _measurements(opt, storage):
                       wording.HIGHEST_MEASURABLE_LABEL],
         column_config=_measurement_columns(), use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    preview = opt.preview_measurement_shares(edited)
+    if preview:
+        typed = dict(zip(edited[wording.MEASUREMENT_COLUMN], edited[wording.SHARE_COLUMN]))
+        adjusted = any(abs(float(typed.get(name, value)) - value) > 0.001 for name, value in preview.items())
+        st.caption(wording.SHARE_SAVED_TOTAL if adjusted else wording.SHARE_TOTAL)
+        if adjusted:
+            st.caption(wording.SHARE_PREVIEW_HELP)
+            st.dataframe(pd.DataFrame({wording.MEASUREMENT_COLUMN: list(preview),
+                                       wording.SHARE_COLUMN: list(preview.values())}), hide_index=True)
     slot = st.empty()
     _grid_errors(slot, _MEAS_ERRORS)
     pending = _pending(saved, edited)
@@ -1667,7 +1674,7 @@ def _limits(opt, storage):
     # "of your ingredients", not "from your ingredient file": a property
     # is named in the app as often as it arrives in a file, and the grid
     # that names one is further down this expander.
-    st.caption(wording.LIMITS_CAPTION)
+    st.caption(wording.for_project(opt, wording.LIMITS_CAPTION))
 
     _property_limits(opt)
 
@@ -1794,13 +1801,15 @@ def _advanced(opt):
     open before the first sentence is the state this tier exists to end.
     """
     with st.expander(wording.ADVANCED_EXPANDER):
-        st.markdown(wording.HOW_FORMULATIONS_CHOSEN_HEADING)
+        st.markdown(wording.HOW_IT_WORKS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
+        st.markdown(wording.for_project(opt, wording.HOW_FORMULATIONS_CHOSEN_HEADING))
         st.caption(wording.STANDARD_VS_EXPERT_CAPTION)
         current = getattr(opt, "bo_config", None)
         # The radio's label is collapsed: the section it is the only control
         # in already names it, and a heading repeated as a label reads as two
         # things.
-        mode = st.radio(wording.HOW_FORMULATIONS_CHOSEN_LABEL,
+        mode = st.radio(wording.for_project(opt, wording.HOW_FORMULATIONS_CHOSEN_LABEL),
                         [wording.STANDARD_DEFAULT_OPTION, wording.EXPERT_SELECTED_OPTION],
                         index=1 if current else 0, key="bo_cfg_mode",
                         horizontal=True, label_visibility="collapsed")
@@ -1852,17 +1861,12 @@ def _advanced(opt):
         # Only under Standard: with the boxes on screen this line repeats
         # what they already show, four values at a time.
         if current and mode == wording.STANDARD_DEFAULT_OPTION:
-            st.caption(wording.IN_USE_PREFIX
-                       + ", ".join(f"{k}: {v}" for k, v in current.items()))
+            st.caption(wording.for_project(opt, wording.IN_USE_PREFIX
+                       + ", ".join(f"{k}: {v}" for k, v in current.items())))
 
-        # Four flat bullets, then the arithmetic behind the second one
-        # directly beneath: the pair used to be two folds under the
-        # measurements grid, where they were the last thing on the tab a
-        # formulator needed and the first thing they saw.
-        st.markdown(wording.HOW_IT_WORKS_HEADING)
-        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
-        st.markdown(wording.HOW_CLOSENESS_HEADING)
-        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
+        if st.checkbox(wording.SCORING_DETAILS_CHECKBOX, key="show_scoring_calculation"):
+            st.markdown(wording.HOW_CLOSENESS_HEADING)
+            st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 
 
 # What counts as a limit still being written: anything typed into the
@@ -1915,7 +1919,7 @@ def _foot(opt, pending=False):
     # unsaved grid is the same case: its `Save changes` is the lit one, and
     # Continue would leave the tab and throw the edit away.
     lit = ready and not confirmation_open() and not pending
-    if st.button(wording.NEXT_MAKE_BATCH_BUTTON,
+    if st.button(wording.for_project(opt, wording.NEXT_MAKE_BATCH_BUTTON),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
         go_to_tab(TAB_BATCH)
@@ -1925,14 +1929,15 @@ def _foot(opt, pending=False):
 
 def render(opt, storage):
     if not opt.X_history and not opt.pending_batch:
-        st.caption(wording.SETUP_INTRO)
+        st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
+                   else wording.SETUP_INTRO))
     # The sample's own welcome, directly under the tab's title: gone the
     # moment any formulation exists, scored or not — a batch whose one row
     # was ticked Not scored has still been made, and "Next: make a round"
     # would be wrong about it.
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
-        st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
+        st.caption(wording.for_project(opt, wording.SAMPLE_TAB1_DESCRIPTION))
     if opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
         st.caption(wording.TEACHING_EXAMPLE_CAPTION)
     pending, captions = _variables(opt, storage)
@@ -1947,10 +1952,15 @@ def render(opt, storage):
     # More settings, and a caption drawn before it read the old number on
     # the very run the reader changed it.
     with captions:
-        lines = opt.worked_out_captions()
-        for line in lines:
-            st.caption(line)
-        st.caption(wording.RULE_HINT)
+        for var in opt._formula_rows():
+            st.caption(wording.calculated_summary(var['name'], opt.batch_total_text(opt.formulation_total)
+                       if opt.formulation_total else "", rest=bool(var.get('balance'))))
+        if opt.has_ingredients():
+            with st.expander(wording.RULE_GUIDE_LABEL):
+                st.caption(wording.RULE_HINT)
+                st.markdown(wording.for_project(opt, wording.RULE_GUIDE))
+                for line in opt.worked_out_captions():
+                    st.caption(line)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

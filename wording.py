@@ -1111,12 +1111,10 @@ def shares_rebalanced(named):
     moved, in a toast that fades."""
     return f"{named} so the shares add up to 100 %."
 
-INGREDIENT_GRID_CAPTION = (f"One row per {INGREDIENT} or process setting; "
-                           f"Type says which ({KIND_INGREDIENT} or "
-                           f"{KIND_SETTING}). Type a new one on the empty "
-                           "row at the bottom. Type the same number in "
-                           f"{LOWEST_LABEL} and {HIGHEST_LABEL} to fix an "
-                           "amount.")
+INGREDIENT_GRID_CAPTION = (
+    "Enter the lowest and highest amounts or settings to explore. "
+    "Use the same number in both cells to keep a value fixed.")
+
 MEASUREMENT_GRID_CAPTION = (
     "Set a goal for each measurement. Share of score (%) controls how much it contributes to the overall score. "
     "Scale minimum and Scale maximum define the scoring range—for example, 0 and 10 for a sensory rating. "
@@ -1629,14 +1627,12 @@ def formulation_total_gone_unreachable(total_text):
 
 
 HOW_FORMULATIONS_CHOSEN_HEADING = "**How formulations are chosen**"
-STANDARD_VS_EXPERT_CAPTION = ("Standard uses tested defaults and fits most "
-                              "projects. Expert-selected lets a specialist "
-                              "choose the model's kernel, prior, noise "
-                              "handling and acquisition. These cannot be "
-                              "changed for the life of the project.")
+STANDARD_VS_EXPERT_CAPTION = (
+    "Recommended settings suit most projects. Custom controls are for statistical modeling.")
+
 HOW_FORMULATIONS_CHOSEN_LABEL = "How formulations are chosen"
-STANDARD_DEFAULT_OPTION = "Standard (default)"
-EXPERT_SELECTED_OPTION = "Expert-selected"
+STANDARD_DEFAULT_OPTION = "Recommended settings"
+EXPERT_SELECTED_OPTION = "Custom model settings"
 REVERT_TO_STANDARD_BUTTON = "Revert to standard settings"
 USING_DEFAULT_MODEL_SETTINGS = "Using default model settings."
 KERNEL_LABEL = "Kernel"
@@ -2196,7 +2192,7 @@ FORMULA_IN_RANGE = "rule"
 # on one screen meaning two things.
 WORKED_OUT = "calculated"
 CALCULATED_RANGE = "Calculated"
-RULE_GUIDE_LABEL = "How blends and calculated amounts work"
+RULE_GUIDE_LABEL = "See calculation examples"
 RULE_GRID_CAPTION = "Calculated amounts use the Rule column; their Lowest and Highest cells are not used."
 INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a rule-based ingredient, its rule determines the amount."
 INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a rule. Calculated amounts follow their rule."
@@ -2924,35 +2920,26 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 # than at one cell.
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
-    "Optional calculation for this ingredient's amount. Leave blank to vary it between Lowest and Highest. "
-    "For water that brings a recipe to its batch size, enter = rest. "
-    "For hydration water based on two proteins, enter = 2.2 * (Textured pea protein + Textured soy protein), "
-    "using the exact ingredient names. Lowest and Highest do not apply to a calculated amount.")
+    "Optional. Calculate this ingredient's amount from other ingredients or the batch size. "
+    "Leave blank to let the app choose between Lowest and Highest.")
+
 RULE_GUIDE = (
-    "**Amounts calculated from a rule**\n\n"
-    "Leave Rule blank to choose an ingredient amount between Lowest and Highest. "
-    "**Calculated** rows use a formula instead of an editable minimum and maximum. "
-    "The resulting amount range appears below the table.\n\n"
-    "**Top up to the batch size:** enter `= rest` on one ingredient, usually water. "
-    "For a 100 g batch with 72 g of all other ingredients combined, the app adds 28 g of this ingredient. "
-    "It subtracts every other ingredient, including calculated ingredients, and counts blend components only once. "
-    "Process settings such as mixing time are not part of the weight.\n\n"
-    "**Calculate from other ingredients:** on Hydration water, `= 2.2 * (Textured pea protein + Textured soy protein)` "
-    "gives 22 g of water when the two proteins are 4 g and 6 g. "
-    "Use your own protocol's ratio and the exact ingredient names.\n\n"
-    "**Subtracting a named ingredient:** if your ingredient is named Water, "
-    "`= batch size - Water` subtracts only its amount from the batch size. "
-    "At 100 g with 60 g Water, this gives 40 g. It does not subtract any other ingredients; "
-    "use `= rest` when you mean the remainder after all ingredients. "
-    "Enter a default batch size before using either batch size or rest."
-)
+    "**Top up to the batch size**\n\n"
+    "Enter `= rest` on one ingredient, usually water. For a 100 g formulation, "
+    "72 g of all other ingredients leaves 28 g of this ingredient.\n\n"
+    "**Calculate from two ingredients**\n\n"
+    "On Hydration water, `= 2.2 * (Textured pea protein + Textured soy protein)` "
+    "gives 22 g when the proteins are 4 g and 6 g. Use exact ingredient names and your own protocol's ratio.\n\n"
+    "**Subtract a named ingredient**\n\n"
+    "If an ingredient is named Water, `= batch size - Water` subtracts only Water. "
+    "Use `= rest` to subtract all other ingredients instead. Set a default batch size before using either.")
 
 # The one line under the grid while no row has a rule: the column arrived
 # with no header tooltip anybody reads, no placeholder and no mention in
 # the caption, and everything a cold reader learned about it they learned
 # from refusals. It stands down the moment a rule exists — the worked-out
 # captions take its place.
-RULE_HINT = "Leave Rule blank to vary an amount. Open the guide above for calculation examples."
+RULE_HINT = "Leave Rule blank to let the app choose an amount between Lowest and Highest."
 
 
 
@@ -3339,11 +3326,10 @@ def premix_fold_caption(weighed):
     a pre-mix too.
     """
     if weighed:
-        return (f"Parts weighed into each {FORMULATION}, each with its own "
-                f"{LOWEST_LABEL} and {HIGHEST_LABEL}. An ingredient already "
-                "on the grid can be a part too.")
-    return (f"Parts and their {PREMIX_SHARE_LABEL}, adding up to 100 %. An "
-            "ingredient already on the grid can be a part too.")
+        return ("Component amounts per formulation. The app varies each component between its "
+                "Lowest and Highest values; their proportions can change.")
+    return ("Composition of this pre-mix. These percentages stay fixed. "
+            "The app varies how much pre-mix each formulation uses.")
 
 
 def premix_grid_title(name):
@@ -3487,7 +3473,7 @@ FORMULATION_CORRECTIONS_CAPTION = 'Use Edit formulations before preparation; rec
 COMPOSITION_AMOUNTS = 'Amounts'
 SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then generate your first formulations.'
 COMPOSITION_AMOUNTS_HELP = 'Enter ingredient amounts. Their proportions are saved as percentages; the preview calculates amounts for the quantity below.'
-COMPOSITION_ENTRY_LABEL = 'Enter composition as'
+COMPOSITION_ENTRY_LABEL = 'Enter a weighed recipe instead'
 COMPOSITION_PERCENTAGES = 'Percentages'
 TEACHING_EXAMPLE_CAPTION = 'Teaching example: illustrative values. Read the method and sources in More settings.'
 def composition_basis_caption(basis):
@@ -3518,3 +3504,34 @@ def edit_negative_error(number):
 
 def workbook_result_conflict(number, key):
     return f"Formulation {number}: conflicting {key} entries on the round and formulation sheets. Keep one value or make them agree, then upload again."
+
+
+SHARE_TOTAL = "Total: 100%"
+SHARE_PREVIEW_HELP = "Changing one share adjusts the others to keep the total at 100%. Preview the saved shares below."
+SCORING_DETAILS_CHECKBOX = "Show scoring calculation"
+EXAMPLE_REFERENCES_LABEL = "Example assumptions and references"
+TARGET_REFERENCES_LABEL = "Targets and references"
+PROCESS_STUDY_INTRO = "Each trial is one set of process settings. Run each trial, then record its measurements."
+PROCESS_SETTINGS_HEADER = "Process settings"
+TRIAL_CAP = "Trial"
+
+
+def for_project(opt, text):
+    """Use trial terminology for a study containing only process settings."""
+    if opt.has_ingredients() or not opt._process_settings():
+        return text
+    return (str(text).replace("Ingredients and process settings", PROCESS_SETTINGS_HEADER)
+            .replace("Ingredient or process setting", "Process setting")
+            .replace("Amounts to make it", PROCESS_SETTINGS_HEADER)
+            .replace("weigh out the formulations", "run the trials")
+            .replace("Formulations", "Trials").replace("formulations", "trials")
+            .replace("Formulation", TRIAL_CAP).replace("formulation", "trial"))
+
+
+def calculated_summary(name, size_text, rest=False):
+    if rest:
+        return (f"{name}: automatically adds enough to bring each formulation to {size_text}."
+                if size_text else f"{name}: set a default batch size to calculate the remaining amount.")
+    return f"{name}: calculated automatically from the Rule column."
+
+SHARE_SAVED_TOTAL = "After saving: 100% total"

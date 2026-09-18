@@ -195,6 +195,18 @@ def compact(book, opt, rows):
         sheet.page_setup.fitToHeight = 0
         for c in range(2, sheet.max_column + 1):
             sheet.column_dimensions[get_column_letter(c)].width = max(18, sheet.column_dimensions[get_column_letter(c)].width or 0)
+    if not opt.has_ingredients() and opt._process_settings():
+        for sheet in result:
+            for address in ('A2',):
+                sheet[address] = wording.for_project(opt, sheet[address].value)
+            for row in sheet:
+                for cell in row:
+                    number = opt._formulation_column_number(cell.value)
+                    if (number is not None and cell.column in formulation_columns
+                            and cell.fill.fgColor.rgb in ('00DDEBF7', '00E2EFDA')):
+                        cell.value = f"{wording.TRIAL_CAP} {number}"
+                    elif cell.value == wording.INGREDIENT_OR_SETTING_LABEL:
+                        cell.value = wording.PROCESS_SETTINGS_HEADER
     result.active = 0
     return result
 

@@ -267,3 +267,63 @@ def test_previous_workbook_calculated_labels_keep_actual_amounts(project):
     uploaded = project.results_from_workbook(data(book))
     assert uploaded.actual == {1: {'Water': 89}}
     assert uploaded.frame['Taste'].tolist() == [8]
+
+
+@pytest.mark.parametrize('edit', ['one', 'all', 'rename', 'delete', 'add', 'invalid'])
+def test_share_preview_matches_save_without_mutation(project, monkeypatch, edit):
+    project.add_objective('Texture', 1, goal='max', min_val=0, max_val=10)
+    project.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40)
+    frame = project.measurement_grid_frame().reset_index(drop=True)
+    if edit == 'one':
+        frame.loc[0, wording.SHARE_COLUMN] = 60
+    elif edit == 'all':
+        frame[wording.SHARE_COLUMN] = [17, 21, 29]
+    elif edit == 'rename':
+        frame.loc[0, wording.MEASUREMENT_COLUMN] = 'Overall liking'
+        frame.loc[0, wording.SHARE_COLUMN] = 52
+    elif edit == 'delete':
+        frame = frame.iloc[1:].copy()
+    elif edit == 'add':
+        row = frame.iloc[0].copy()
+        from food_bo import GRID_ID
+        row[GRID_ID] = ''
+        row[wording.MEASUREMENT_COLUMN] = 'Appearance'
+        row[wording.SHARE_COLUMN] = 25
+        frame.loc[len(frame)] = row
+    else:
+        frame.loc[0, wording.SHARE_COLUMN] = -1
+    before = project.export_json()
+    with monkeypatch.context() as guard:
+        guard.setattr(project, 'save', lambda: pytest.fail('Preview wrote to storage'))
+        preview = project.preview_measurement_shares(frame)
+    assert project.export_json() == before
+    if edit == 'invalid':
+        assert preview is None
+        return
+    errors, _ = project.apply_measurement_grid(frame)
+    assert not errors
+    assert preview == project.share_percents()
+    assert sum(preview.values()) == 100
+
+
+def test_process_only_workbook_uses_trial_headers_and_imports(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer('fermentation', robust=False)
+    opt.add_process_parameter('Temperature', 25, 40, unit='°C')
+    opt.add_process_parameter('Time', 4, 24, unit='h')
+    opt.add_objective('Acidity', 1, goal='target', target=4.5, min_val=3, max_val=7, unit='pH')
+    opt.set_records('actual', True)
+    opt.set_pending_batch([{'Temperature': 30, 'Time': 12}, {'Temperature': 35, 'Time': 18}])
+    book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, None, print_pack=False)))
+    for title in ('Round overview', 'Results'):
+        cells = [c.value for row in book[title] for c in row]
+        assert 'Trial 1' in cells
+        assert 'Trial 2' in cells
+        assert 'Formulation 1' not in cells
+    sheet = book['Results']
+    sheet.cell(result_row(sheet, 'Acidity'), 2, 4.6)
+    actual = result_row(sheet, 'Actual amounts and settings — optional')
+    sheet.cell(actual + 3, 2, 31)
+    uploaded = opt.results_from_workbook(data(book))
+    assert uploaded.frame['Acidity'].tolist() == [4.6]
+    assert uploaded.actual == {1: {'Temperature': 31}}

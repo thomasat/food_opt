@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import hashlib
 import io
 import json
@@ -5055,7 +5056,7 @@ class FoodOptimizer:
         """The number out of a `Formulation 4` column header, or None for
         any other column (the `%` columns pandas names %, %.1, %.2 included)."""
         match = re.fullmatch(
-            re.escape(wording.FORMULATION_CAP) + r"\s+(\d+)(\.\d+)?",
+            "(?:" + re.escape(wording.FORMULATION_CAP) + "|" + re.escape(wording.TRIAL_CAP) + r")\s+(\d+)(\.\d+)?",
             str(column).strip())
         return int(match.group(1)) if match else None
 
@@ -11235,6 +11236,27 @@ class FoodOptimizer:
         self._recompute_utilities()
         self.save()
         return rebalanced
+
+    def preview_measurement_shares(self, frame):
+        """Return the saved whole-percent shares without changing or saving the project."""
+        errors, plan = self._plan_measurement_grid(frame)
+        if errors:
+            return None
+        rows = plan['rows']
+        stored = self.share_percents()
+        typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
+        was_called = {spec['name']: spec['id'] or spec['name'] for _, spec in rows}
+        moved = {name for name, share in typed.items()
+                 if was_called[name] not in stored or abs(stored[was_called[name]] - share) > 1e-9}
+        was_showing = {name: float(stored.get(old, 0)) for name, old in was_called.items()}
+        weights = self._rebalanced_shares(typed, moved, was_showing)
+        # Preserve saved row order for rounding ties, including renamed rows.
+        by_id = {spec['id']: spec for _, spec in rows if spec['obj'] is not None}
+        ordered = [by_id[obj['name']] for obj in self.objectives if obj['name'] in by_id]
+        ordered += [spec for _, spec in rows if spec['obj'] is None]
+        preview = copy.copy(self)
+        preview.objectives = [{'name': spec['name'], 'weight': weights[spec['name']]} for spec in ordered]
+        return preview.share_percents()
 
     def apply_measurement_grid(self, frame, archive=None):
         """Write the measurements grid to the project. The same contract as

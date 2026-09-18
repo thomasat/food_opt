@@ -110,7 +110,7 @@ def _best(opt):
         return False
     number = int(opt.formulation_ids[index])
     batch = opt.batch_history[index]
-    st.subheader(wording.best_so_far_heading(number, batch))
+    st.subheader(wording.for_project(opt, wording.best_so_far_heading(number, batch)))
     line = _progress_line(opt)
     if line:
         st.caption(line)
@@ -143,7 +143,7 @@ def _best(opt):
     note = opt.notes_history[index] if index < len(opt.notes_history) else ""
     row = {'formulation': number, 'recipe': recipe, 'note': note}
     shown, _ = opt.shown_recipe(row, total)
-    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
@@ -190,7 +190,7 @@ def _best(opt):
             float(opt.Y_history[index]), ceiling,
             number_list(unmeasured) if unmeasured else ""))
     if partial:
-        st.caption(wording.PARTIAL_SCORES_CAPTION)
+        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
     return partial
 
 
@@ -238,7 +238,7 @@ def _amount_format(opt, frame):
 
 
 def _all_formulations(opt, said_partial=False):
-    st.markdown(wording.ALL_FORMULATIONS_HEADING)
+    st.markdown(wording.for_project(opt, wording.ALL_FORMULATIONS_HEADING))
     o1, o2 = st.columns([2, 1])
     with o1:
         # The three options are a protocol with food_bo.history_frame, which
@@ -249,18 +249,20 @@ def _all_formulations(opt, said_partial=False):
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
     st.dataframe(frame.style.format(_amount_format(opt, frame)),
+                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
+                         wording.for_project(opt, wording.FORMULATION_CAP))},
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
     # The overall-score column of food_bo's history_frame, named once in
     # wording so the frame and the screen cannot drift apart.
     if not said_partial and any(wording.NOT_MEASURED in str(v)
                                 for v in frame[wording.OVERALL_SCORE_COLUMN]):
-        st.caption(wording.PARTIAL_SCORES_CAPTION)
+        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it
     # against is a file nobody can use six months later.
-    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON,
+    st.download_button(wording.for_project(opt, wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON),
                        data=opt.all_formulations_workbook(),
                        file_name=wording.all_formulations_file_name(
                            opt.project_name),
@@ -422,7 +424,7 @@ def _score_row(opt, choice):
     # that the user wrote the formulation out themselves.
     shown_row = {'formulation': int(choice), 'recipe': recipe}
     shown, _ = opt.shown_recipe(shown_row, total)
-    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
@@ -472,14 +474,14 @@ def _correct(opt):
     if not numbers:
         # Not "No results yet.": that sentence is already the whole screen
         # above this section on a project holding nothing.
-        st.caption(wording.no_formulation_to_correct_caption())
+        st.caption(wording.for_project(opt, wording.no_formulation_to_correct_caption()))
         return None
     take_clear("correct_formulation")
     # The label says what picking one DOES; the placeholder says what the box
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
     choice = st.selectbox(
-        wording.CORRECT_WHICH_LABEL, numbers, index=None,
+        wording.for_project(opt, wording.CORRECT_WHICH_LABEL), numbers, index=None,
         placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
         format_func=lambda n: (wording.not_scored_option(n)
                                if n in not_scored else str(n)),
@@ -487,7 +489,7 @@ def _correct(opt):
     if not_scored:
         # A not-scored number in the list is not a correction, and nothing
         # about the box says what picking one does.
-        st.caption(wording.NOT_SCORED_CAN_BE_SCORED_CAPTION)
+        st.caption(wording.for_project(opt, wording.NOT_SCORED_CAN_BE_SCORED_CAPTION))
     if choice is None:
         return None
     if int(choice) in not_scored:
@@ -783,7 +785,7 @@ def _delete_formulations(opt, storage):
     numbers = _deletable_numbers(opt)
     if not numbers:
         _disarm_delete()
-        st.caption(wording.no_formulation_to_delete_caption())
+        st.caption(wording.for_project(opt, wording.no_formulation_to_delete_caption()))
         return
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -889,7 +891,7 @@ def _type_in_past(opt):
     st.text_input(wording.NOTE, key="past_note")
     # Secondary: the foot's Start the next round is this tab's coloured
     # button, and answering an armed confirmation outranks both.
-    if st.button(wording.ADD_THIS_FORMULATION, key="add_past_formulation",
+    if st.button(wording.for_project(opt, wording.ADD_THIS_FORMULATION), key="add_past_formulation",
                  disabled=confirmation_open()):
         _add_typed_past(opt, ordered)
 
@@ -1098,18 +1100,18 @@ def _edit_past(opt, storage):
     enter work done before the project existed hid inside the third."""
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
-    with st.expander(wording.EDIT_PAST_FORMULATIONS_EXPANDER):
+    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FORMULATIONS_EXPANDER)):
         # The heading follows the pick: with a not-scored row picked, the
         # section is writing that row's FIRST result, and "Correct" named
         # something there was nothing of yet.
         picked = st.session_state.get("correct_formulation")
         scoring = picked is not None and any(
             int(row['formulation']) == int(picked) for row in opt.skipped)
-        st.markdown(wording.SCORE_A_FORMULATION_HEADING if scoring
-                    else wording.CORRECT_A_FORMULATION_HEADING)
+        st.markdown(wording.for_project(opt, wording.SCORE_A_FORMULATION_HEADING if scoring
+                    else wording.CORRECT_A_FORMULATION_HEADING))
         pending = _correct(opt)
         st.divider()
-        st.markdown(wording.DELETE_FORMULATIONS_HEADING)
+        st.markdown(wording.for_project(opt, wording.DELETE_FORMULATIONS_HEADING))
         # Two things in the delete part rerun without touching the disk — the
         # `Add a whole batch to the list` pick and taking a stale confirmation
         # down — and Streamlit discards the session-state entry of every
@@ -1147,7 +1149,7 @@ def render(opt, storage):
         _edit_past(opt, storage)
         return
     if not opt.objectives:
-        st.info(wording.ADD_MEASUREMENT_RESCORE_INFO)
+        st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
     said_partial = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the

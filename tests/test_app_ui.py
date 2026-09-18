@@ -488,7 +488,7 @@ def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, mon
     captions = [c.value for c in at.tabs[0].caption]
     assert wording.SAMPLE_TAB1_DESCRIPTION in captions
     assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
-            in captions)
+            in [m.value for m in at.tabs[0].markdown])
 
 
 def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monkeypatch):
@@ -507,7 +507,7 @@ def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monke
     assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
     # The targets_source caption is unrelated to X_history and stays.
     assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
-            in captions)
+            in [m.value for m in at.tabs[0].markdown])
 
 
 def test_the_sample_welcome_is_gone_once_a_formulation_is_not_scored(
@@ -560,7 +560,7 @@ def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
     assert not at.exception
     assert FoodOptimizer("burger").targets_source == "Benchmark burger, panel of 8."
     captions = [c.value for c in at.tabs[0].caption]
-    assert "Where the targets come from: Benchmark burger, panel of 8." in captions
+    assert "Where the targets come from: Benchmark burger, panel of 8." in [m.value for m in at.tabs[0].markdown]
     # The box reopens prefilled with what is stored, next time it is opened,
     # and the button is now an Edit.
     _submit_button(at, wording.TARGETS_SOURCE_BUTTON).click()
@@ -4589,7 +4589,7 @@ def test_a_project_of_settings_alone_is_complete_and_lights_continue(ferment):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == ["Generate trials"]
     assert not any(c.value.startswith("Add at least one") for c in at.caption), \
         [c.value for c in at.caption]
 
@@ -4637,11 +4637,11 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     """Generate, record two formulations, save, and read the best back."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).click()
+    _submit_button(at, "Generate trials").click()
     at.run()
     at.number_input(key="how_many").set_value(2)
     at.run()
-    _submit_button(at, "Generate 2 formulations").click()
+    _submit_button(at, "Generate 2 trials").click()
     at.run()
     assert not at.exception
     made = FoodOptimizer("ferment")
@@ -4654,7 +4654,7 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     at.run()
     assert not at.exception
     assert at.session_state["main_tab"] == wording.TAB_RESULTS
-    assert any(h.value == wording.best_so_far_heading(1, 1)
+    assert any(h.value == wording.for_project(ferment, wording.best_so_far_heading(1, 1))
                for h in at.subheader), [h.value for h in at.subheader]
     table = next(t.value for t in at.table
                  if "Ingredient or process setting" in t.value.columns)
@@ -6257,6 +6257,7 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     from food_bo import FoodOptimizer as _FO
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    at.checkbox(key="show_scoring_calculation").check().run()
     text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     assert "a full range away scores 0" not in text, text
     assert ("by one point per full range; the lowest score depends on how "
@@ -6375,7 +6376,7 @@ def test_nothing_else_is_on_the_tab(burger):
     # fold, the two tiers, the dividers and the foot's own button — and no
     # second section, no add form, no control row.
     assert kinds.count("Subheader") == 2
-    assert kinds.count("Expander") == 4
+    assert kinds.count("Expander") == 3  # calculation help sits inside its grid caption block
     assert "Markdown" not in kinds, kinds
 
 
@@ -6746,10 +6747,10 @@ def test_the_model_settings_in_use_line_shows_only_under_standard(burger):
     at.run()
     assert any(e.label == wording.ADVANCED_EXPANDER
                for e in at.expander), [e.label for e in at.expander]
-    assert at.radio(key="bo_cfg_mode").value == "Expert-selected"
+    assert at.radio(key="bo_cfg_mode").value == wording.EXPERT_SELECTED_OPTION
     assert not any(c.value.startswith("In use:") for c in at.caption), \
         [c.value for c in at.caption]
-    at.radio(key="bo_cfg_mode").set_value("Standard (default)")
+    at.radio(key="bo_cfg_mode").set_value(wording.STANDARD_DEFAULT_OPTION)
     at.run()
     assert any(c.value.startswith("In use: kernel: matern52")
                for c in at.caption), [c.value for c in at.caption]
@@ -7219,16 +7220,18 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     the grid, and it stands down the moment a rule exists."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert wording.RULE_HINT in _tab1_captions(at), _tab1_captions(at)
-    assert any(e.label == "How blends and calculated amounts work" for e in at.expander)
+    help_fold = next(e for e in at.expander if e.label == wording.RULE_GUIDE_LABEL)
+    assert not help_fold.proto.expanded
+    assert wording.RULE_HINT in [c.value for c in help_fold.caption]
+    assert any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
     assert wording.RULE_GUIDE in [m.value for m in at.markdown]
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     said = _tab1_captions(at)
-    assert wording.RULE_HINT in said, said
-    assert any(c.startswith("Methylcellulose is calculated to bring the total to")
+    assert wording.RULE_HINT in [c.value for c in at.caption]
+    assert any(c.startswith("Methylcellulose: automatically adds enough to bring each formulation to")
                for c in said), said
 
 
@@ -8172,10 +8175,11 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     at.run()
     headings = [m.value for m in _advanced(at).markdown
                 if m.value.startswith("**")]
-    assert headings == [wording.HOW_FORMULATIONS_CHOSEN_HEADING,
-                        wording.HOW_IT_WORKS_HEADING,
-                        wording.HOW_CLOSENESS_HEADING], headings
+    assert headings == [wording.HOW_IT_WORKS_HEADING,
+                        wording.HOW_FORMULATIONS_CHOSEN_HEADING], headings
+    assert not at.checkbox(key="show_scoring_calculation").value
     assert wording.HOW_CLOSENESS_HEADING == "**How closeness is calculated**"
+    at.checkbox(key="show_scoring_calculation").check().run()
     text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     for line in wording.HOW_CLOSENESS:
         assert line in text, line

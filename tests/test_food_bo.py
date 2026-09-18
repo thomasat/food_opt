@@ -4368,6 +4368,8 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # Process-only studies use trial; weighed recipe describes the optional input method.
+    wording.PROCESS_STUDY_INTRO, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
     # Scientific teaching copy requested by the owner uses measurement scale,
     # ingredient weight and experimental results in their ordinary meanings.
     wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
@@ -4430,6 +4432,7 @@ _ALLOWED_SINGLE_WORDS = {
 # prose pattern above cannot see a one-word literal — so the allowance is
 # the exact lower-cased key, scoped to the one file that writes it.
 _ALLOWED_SINGLE_WORDS_BY_FILE = {
+    "wording.py": {"trial", "trials", "Trials"},  # process-only studies
     "food_bo.py": {"Batch", "batch", "share"},
 }
 
@@ -4565,7 +4568,7 @@ _FOOD_BO_NOT_PROSE = {
     # and the log line _damaged writes.
     "frame actual lots",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".pkl", r"^total(\s*\(.*\))?$", r"\s+(\d+)(\.\d+)?",
+    ".pkl", r"^total(\s*\(.*\))?$", r"\s+(\d+)(\.\d+)?", r")\s+(\d+)(\.\d+)?",
     "saved copy refused: %s",
     # outside_message's own glue. It is the one sentence builder left in
     # this file: it needs join_unit and unit_after_number, and wording.py

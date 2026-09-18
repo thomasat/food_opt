@@ -805,13 +805,10 @@ def test_each_parts_fold_says_what_its_numbers_are():
     import wording
     portioned = wording.premix_fold_caption(False)
     weighed = wording.premix_fold_caption(True)
-    assert wording.PREMIX_SHARE_LABEL in portioned
-    assert "100 %" in portioned
+    assert "percentages stay fixed" in portioned
+    assert "varies how much pre-mix" in portioned
     assert wording.LOWEST_LABEL in weighed and wording.HIGHEST_LABEL in weighed
-    # And both say the thing nothing else on the tab said: a row already on
-    # the grid can be a part.
-    for line in (portioned, weighed):
-        assert "already on the grid can be a part too" in line
+    assert "proportions can change" in weighed
 
 
 def test_the_made_as_help_says_what_each_of_the_three_answers_means():
