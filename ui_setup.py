@@ -25,6 +25,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+import custom_records
 from food_bo import (
     GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
     ingredients_template_workbook,
@@ -1249,20 +1250,27 @@ def _record_key(field):
 def _also_record(opt):
     """One optional selector; hiding a field preserves existing records."""
     key = "record_fields"
-    st.session_state.setdefault(key, [f for f in RECORD_FIELDS if opt.records(f)])
+    definitions = custom_records.fields(opt, enabled=False)
+    by_id = {f['id']: f for f in definitions}
+    options = list(RECORD_FIELDS) + list(by_id)
+    st.session_state.setdefault(key, [f for f in RECORD_FIELDS if opt.records(f)]
+                                + [f['id'] for f in definitions if f['enabled']])
 
     def _save():
         selected = set(st.session_state.get(key, []))
         changed = False
         for field in RECORD_FIELDS:
             changed = opt.set_records(field, field in selected) or changed
-        if changed and saved_ok(opt):
+        custom_records.set_enabled(opt, selected)
+        if saved_ok(opt):
             flash("success", wording.RECORDS_UPDATED)
 
-    st.multiselect(wording.ALSO_RECORD_LABEL, RECORD_FIELDS, key=key,
-                   format_func=lambda field: wording.RECORD_FIELD_LABELS[field],
+    st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
+                   format_func=lambda field: (wording.RECORD_FIELD_LABELS[field] if field in RECORD_FIELDS
+                       else wording.custom_record_option(by_id[field]['name'], by_id[field]['scope'])),
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
     st.caption(wording.RECORDING_GUIDANCE)
+    custom_records.setup(opt)
 
 
 _METHOD_BOX = "method_box"

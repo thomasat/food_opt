@@ -49,7 +49,11 @@ an amount or setting fixed. Use different values to let the app vary it.
 
 “Preparation and records” holds the batch size, steps shared by all
 formulations, references, and optional records such as Lot and Actual
-amounts. Use Notes for other observations. Use Measurements and targets
+amounts. Choose “Add your own recording field” for other records, such as
+Operator or Expiry date. Choose whether to record a value for each
+formulation/trial or each ingredient in the round. Enter values in the
+app or on the workbook’s Results tab. These records do not affect scores.
+Use Measurements and targets
 for outcomes you want scored. Ingredient limits are optional restrictions
 such as a maximum fat content; the example already includes one.
 

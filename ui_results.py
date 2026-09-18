@@ -12,6 +12,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
@@ -1160,6 +1161,7 @@ def render(opt, storage):
     change_setup = st.container()
     st.divider()
     _all_formulations(opt, said_partial)
+    custom_records.history(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
     # confirmation armed by a click in one of the collapsed sections below it

@@ -4368,6 +4368,9 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # Custom records apply to formulations and process-only trials.
+    wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
+    wording.CUSTOM_SECTION_NAMES["formulation"],
     # Process-only studies use trial; weighed recipe describes the optional input method.
     wording.PROCESS_STUDY_INTRO, wording.METHOD_HELP, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
     # Scientific teaching copy requested by the owner uses measurement scale,
@@ -4683,6 +4686,12 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     offenders = []
     for name in _USER_FACING_TEXT:
         for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+            # Both record scopes also apply to process-only trials.
+            if (name, line) in {
+                ("desktop/start_here.txt", "formulation/trial or each ingredient in the round. Enter values in the"),
+                ("README.md", "record, then choose each formulation/trial or each ingredient in the round."),
+            }:
+                continue
             # Process-only studies deliberately use trials in the user guide.
             if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
                 continue
@@ -7620,7 +7629,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 14
+        assert state['CLASS_VERSION'] == 15
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)
@@ -9112,7 +9121,7 @@ class TestFormulaRows:
         opt.set_formula("Water", "= rest")
         opt.set_formula("Sugar", "= 0.1 × batch size")
         state = opt.export_json()
-        assert FoodOptimizer.validate_state(state)['version'] == 14
+        assert FoodOptimizer.validate_state(state)['version'] == 15
 
         other = FoodOptimizer("copy_of_formulas")
         other.import_json(state)
@@ -9199,9 +9208,9 @@ class TestFormulaRows:
 
         other = FoodOptimizer("wave_one_project")
         other.import_json(state)
-        assert FoodOptimizer.CLASS_VERSION == 14
+        assert FoodOptimizer.CLASS_VERSION == 15
         assert not any(other.has_formula(v) for v in other.variables)
-        assert other.export_json()['CLASS_VERSION'] == 14
+        assert other.export_json()['CLASS_VERSION'] == 15
         assert len(other._search_bounds()) == 3
         assert len(other.ask(1)) == 1
 
@@ -10684,7 +10693,7 @@ class TestPreMixes:
         # A JSON object's keys are strings, so the round numbers go out as
         # text and come back whole.
         assert list(state['premixes']['Dry blend']['versions']) == ["1"]
-        assert FoodOptimizer.validate_state(state)['version'] == 14
+        assert FoodOptimizer.validate_state(state)['version'] == 15
 
         monkeypatch.chdir(tmp_path)
         other = FoodOptimizer("premix_copy", robust=False)
@@ -10719,11 +10728,11 @@ class TestPreMixes:
             "Protein", {'mode': "portioned", 'parts': [], 'versions': {}})
             or s.__setitem__('property_names', ["Protein"]))
         # And the copy the app itself writes is accepted.
-        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 14
+        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 15
 
     def test_a_version_12_project_loads_with_no_premixes_at_version_14(
             self, tmp_path, monkeypatch):
-        assert FoodOptimizer.CLASS_VERSION == 14
+        assert FoodOptimizer.CLASS_VERSION == 15
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         del state['premixes']
@@ -10733,7 +10742,7 @@ class TestPreMixes:
         other = FoodOptimizer("held_project", robust=False)
         other.import_json(state)
         assert other.premixes == {}
-        assert other.export_json()['CLASS_VERSION'] == 14
+        assert other.export_json()['CLASS_VERSION'] == 15
 
     # ---- a file ---------------------------------------------------------- #
 

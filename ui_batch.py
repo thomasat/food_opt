@@ -16,6 +16,7 @@ import pandas as pd
 import streamlit as st
 
 import wording
+import custom_records
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
@@ -1090,19 +1091,30 @@ def _upload(opt):
             st.session_state.get("_results_upload"))
         if sheet is None:
             return
+        extra_records = getattr(st.session_state.get('_results_upload'), 'custom_records', None) or []
         try:
-            parsed, left_out = opt.parse_batch_results(
-                sheet, opt.pending_batch, with_skipped=True, weighed=weighed)
+            if sheet.empty and extra_records:
+                parsed, left_out = [], []
+            else:
+                parsed, left_out = opt.parse_batch_results(
+                    sheet, opt.pending_batch, with_skipped=True, weighed=weighed)
         except ValueError as e:
             st.error(str(e))
             st.session_state.pop("_results_upload", None)
             return
-        st.info(wording.for_project(opt, wording.upload_found_caption(
-            len(parsed), len(opt.pending_batch),
-            ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
-            + (wording.not_scored_counter_suffix(len(left_out)) if left_out
-               else "")))
-        _upload_preview(opt, parsed, left_out, weighed, lots)
+        if parsed or left_out:
+            st.info(wording.for_project(opt, wording.upload_found_caption(
+                len(parsed), len(opt.pending_batch),
+                ", ".join(f"{wording.FORMULATION_CAP} {no}" for no, _, _ in parsed))
+                + (wording.not_scored_counter_suffix(len(left_out)) if left_out
+                   else "")))
+            _upload_preview(opt, parsed, left_out, weighed, lots)
+        if extra_records:
+            definitions = {f['id']: f for f in custom_records.fields(opt, enabled=False)}
+            st.caption(wording.CUSTOM_IMPORT_FOUND)
+            st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.CUSTOM_SCOPE_NAMES[scope],
+                wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: definitions[key]['name'],
+                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True)
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
         if records:
             st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
@@ -1139,6 +1151,9 @@ def _upload(opt):
                         return
                 # The lots the sheet came back with belong to the round, not
                 # to any one formulation, so they are kept once at the end.
+                custom_records.save_values(opt, batch_no, extra_records)
+                if not saved_ok(opt):
+                    return
                 opt.store_bench_records(batch_no, records)
                 if not saved_ok(opt):
                     return
@@ -1149,6 +1164,9 @@ def _upload(opt):
                 st.error(wording.could_not_save(e))
                 return
             st.session_state.pop("_results_upload", None)
+            if extra_records and not parsed and not left_out:
+                flash("success", wording.CUSTOM_SAVED)
+                st.rerun()
             # A row ticked Not scored has been dealt with, and open_rows
             # counts only the scored ones — without this the file that
             # finished a batch left it open on a row it had just recorded.
@@ -1233,6 +1251,7 @@ def render(opt, storage):
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
         return
+    custom_records.editor(opt, opt.pending_batch_no, [r['formulation'] for r in rows])
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()
     st.markdown(wording.STEP_RECORD_HEADING)

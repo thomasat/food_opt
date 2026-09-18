@@ -77,6 +77,7 @@ _FORM_KEY_PREFIXES = (
                                    # the box that names a new property and
                                    # the picker the Delete beside the
                                    # properties grid is armed from
+    "custom_",
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the

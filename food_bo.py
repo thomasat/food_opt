@@ -43,6 +43,7 @@ from gpytorch.priors import GammaPrior
 
 from storage import LocalStorage, StorageError
 import wording
+import custom_records
 
 
 # The stored name of the round a recorded formulation belongs to. It is
@@ -1173,8 +1174,8 @@ def measurement_range_text(obj):
 # not smuggled on the frame either: something that has to survive a trip
 # through session state should be visible in the signature that hands it
 # over.
-UploadedWorkbook = namedtuple("UploadedWorkbook", ["frame", "actual", "lots", "bench_records"],
-                              defaults=(None,))
+UploadedWorkbook = namedtuple("UploadedWorkbook", ["frame", "actual", "lots", "bench_records", "custom_records"],
+                              defaults=(None, None))
 
 
 def uploaded_parts(upload):
@@ -1492,7 +1493,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 14  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 15  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -1573,6 +1574,7 @@ class FoodOptimizer:
         # project: see set_records.
         self.recorded_fields = dict(RECORD_FIELDS_OFF)
         self.bench_records = {}
+        self.custom_records = custom_records.empty()
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.result_drafts = {}       # formulation -> unfinished measurements/note
         self.pending_batch_no = None  # its batch number
@@ -3879,6 +3881,7 @@ class FoodOptimizer:
         workbook_flow.stamp(book, self, rows, total)
         if not print_pack:
             book = workbook_flow.compact(book, self, rows)
+        custom_records.append_workbook(book, self, rows, print_pack)
         book.active = 0
         buffer = io.BytesIO()
         book.save(buffer)
@@ -4583,6 +4586,8 @@ class FoodOptimizer:
             self.pending_batch_no if batch_no is None else batch_no)
         import workbook_flow
         try:
+            extra_records = custom_records.read_workbook(source, self,
+                self.pending_batch_no if batch_no is None else batch_no)
             source = workbook_flow.prepare_import(source, self,
                 self.pending_batch_no if batch_no is None else batch_no)
         except ValueError:
@@ -4651,7 +4656,7 @@ class FoodOptimizer:
                 for record in bench_records:
                     if record['sheet'] == title and record['label'] == wording.PREMIX_LOT_LABEL:
                         lots[group] = record['value']
-        if not rows:
+        if not rows and not extra_records:
             raise ValueError(wording.workbook_nothing_filled_in(wanted))
         columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
                        + [wording.NOT_SCORED, wording.NOTE])
@@ -4659,7 +4664,7 @@ class FoodOptimizer:
         # not results. See UploadedWorkbook: they travel in the open, named
         # in the signature, rather than smuggled on the frame.
         return UploadedWorkbook(pd.DataFrame(rows, columns=columns_out),
-                                actual, lots, bench_records)
+                                actual, lots, bench_records, extra_records)
 
     @staticmethod
     def _read_bench_records(book):
@@ -5149,6 +5154,15 @@ class FoodOptimizer:
             frame = pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS)
             _write_frame(book.create_sheet(wording.BENCH_RECORDS_SHEET), frame,
                          title=wording.BENCH_RECORDS_SHEET, note=wording.SHEET_IS_A_RECORD)
+        extra_frame = custom_records.export_frame(self)
+        if not extra_frame.empty:
+            extra_sheet = book.create_sheet(wording.CUSTOM_RECORDS_HEADING)
+            _write_frame(extra_sheet, extra_frame, title=wording.CUSTOM_RECORDS_HEADING,
+                         note=wording.SHEET_IS_A_RECORD)
+            for cells in extra_sheet:
+                for cell in cells:
+                    if isinstance(cell.value, str):
+                        cell.data_type = 's'
         self._write_setup_sheet(book.create_sheet(wording.SET_UP_SHEET))
         buffer = io.BytesIO()
         book.save(buffer)
@@ -8745,6 +8759,7 @@ class FoodOptimizer:
                 row['formula'] = _renamed_in_formula(
                     row['formula'], {name: new_name}, spelled)
         var['name'] = new_name
+        custom_records.rename_ingredient(self, name, new_name)
         for recipe in self.recipe_history:
             if name in recipe:
                 recipe[new_name] = recipe.pop(name)
@@ -9236,6 +9251,7 @@ class FoodOptimizer:
         if is_reserved_name(new_name):
             raise ValueError(_reserved_name_message(new_name))
         self._name_is_free(new_name)
+        custom_records.rename_ingredient(self, name, new_name)
         self._rename_in_premixes(name, new_name)
         self.save()
 
@@ -11798,6 +11814,7 @@ class FoodOptimizer:
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
             'bench_records': getattr(self, 'bench_records', {}),
+            'custom_records': custom_records.state(self),
             'recorded_fields': {name: self.records(name)
                                 for name in RECORD_FIELDS},
             'method': getattr(self, 'method', "") or "",
@@ -12018,6 +12035,8 @@ class FoodOptimizer:
             raise _damaged("'method' section has the wrong shape")
         # What the project records beside what it asks for: optional, and a
         # present value must be a dict of flags.
+        if not custom_records.valid(state.get('custom_records', custom_records.empty())):
+            raise _damaged("'custom_records' section has the wrong shape")
         fields = state.get('recorded_fields')
         if fields is not None and (not isinstance(fields, dict)
                                    or any(k not in RECORD_FIELDS or type(v) is not bool
@@ -12195,6 +12214,7 @@ class FoodOptimizer:
         self.method = str(state.get('method') or "").strip()
         self._backfill_recorded_fields(state)
         self.bench_records = state.get('bench_records', {})
+        self.custom_records = state.get('custom_records', custom_records.empty())
         self.pending_batch = state.get('pending_batch', None)
         self.result_drafts = {int(n): dict(d) for n, d in
                               state.get('result_drafts', {}).items()}

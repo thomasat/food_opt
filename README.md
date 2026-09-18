@@ -22,9 +22,12 @@ streamlit run app.py
 
 Optional recording and returning the sheets
 
-In Set up → More settings, “Also record” turns Vendor, SKU, Lot and Actual
+In Set up → Preparation and records, “Additional records (optional)” turns Vendor, SKU, Lot and Actual
 amounts on or off. New projects start with them off; the sample records Lot
-and Actual amounts. Turning a field off keeps values already saved.
+and Actual amounts. Choose “Add your own recording field” to name another
+record, then choose each formulation/trial or each ingredient in the round.
+Enter text or numbers in the app or the Results tab of the round workbook.
+These records do not affect scores. Turning a field off keeps values already saved.
 After filling in the workbook, upload it in 2 · Make a round → Save results
 → Or upload results from a file, check the preview, then save. Editing Excel
 alone does not update the app. Preparation amounts and other filled-in boxes
