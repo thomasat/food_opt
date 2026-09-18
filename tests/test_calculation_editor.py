@@ -86,8 +86,8 @@ def test_dialog_stages_fill_without_writing(project):
         open_editor(opt, opt.ingredient_grid_frame())
     at = AppTest.from_function(render, default_timeout=120).run()
     at.selectbox(key='calculation_row_calculations').select(3).run()
-    next(r for r in at.radio if r.label=='How is this amount determined?').set_value('Fill to batch size').run()
-    next(b for b in at.button if b.label=='Use fill to batch size').click().run()
+    next(r for r in at.radio if r.label=='How is this amount determined?').set_value('Fill to total').run()
+    next(b for b in at.button if b.label=='Use fill to total').click().run()
     assert not at.exception
     assert not FoodOptimizer('calculations')._var_by_name('Water').get('formula')
     staged = at.session_state[parked_grid_key(ING_GRID_KEY)][1]

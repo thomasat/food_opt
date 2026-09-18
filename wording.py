@@ -2916,14 +2916,27 @@ FORMULA_HELP = (
     "Optional. Calculate this ingredient's amount from other ingredients or the batch size. "
     "Leave blank to let the app choose between Lowest and Highest.")
 
+CALCULATION_TERMS_TABLE = """| Use | Example |
+|---|---|
+| Ingredient names | `Flour` |
+| Total for one formulation | `batch size` |
+| Numbers | `2`, `0.5` |
+| Add / subtract | `Flour + Starch`, `Flour - Starch` |
+| Multiply / divide by a number | `2 * Flour`, `Flour / 2` |
+| Percentages | `5% of batch size` |
+| Parentheses | `2 * (Flour + Starch)` |"""
+
+CALCULATION_SYNTAX_LABEL = "Syntax details"
+CALCULATION_SYNTAX_DETAILS = (
+    "- Select ingredient names in **Edit calculation** to avoid typing errors. Spelling and spaces must match; capitalization does not.\n"
+    "- The editor supplies `=`. Both `* /` and `× ÷` work.\n"
+    "- `10% of Flour` also works. `batch size - Water` subtracts only Water; **Fill to total** accounts for all other ingredients. Existing `= rest` means **Fill to total**.\n"
+    "- Not supported: process settings, cell addresses, Excel functions, powers, multiplying two amounts, dividing by an amount, or circular references."
+)
 RULE_GUIDE = (
-    "Choose **Edit calculation** to vary between limits, fill to the batch size, or calculate an amount. "
-    "Batch size is the total ingredient amount for one formulation.\n\n"
-    "**Fill to batch size** supplies the amount remaining after all other ingredients. "
-    "The table shows **Fill to total**.\n\n"
-    "**Calculate an amount** offers ingredient insertion, percentages and arithmetic. "
-    "For example, `2 * (Ingredient A + Ingredient B)` adds two amounts and doubles the sum. "
-    "Examples explain the arithmetic; choose relationships and values appropriate to your own protocol."
+    "**Fill to total** adds enough of one ingredient to reach the batch size after all other ingredients.\n\n"
+    + CALCULATION_TERMS_TABLE
+    + "\n\nUse **Edit calculation** to insert ingredients and operations. Examples illustrate arithmetic, not recommended ratios."
 )
 
 # The one line under the grid while no row has a rule: the column arrived

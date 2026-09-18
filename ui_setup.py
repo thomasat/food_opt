@@ -1993,8 +1993,8 @@ def render(opt, storage):
                 with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
                     st.caption(wording.RULE_HINT)
                     st.markdown(wording.RULE_GUIDE)
-                    for line in opt.worked_out_captions():
-                        st.caption(line)
+                    with st.expander(wording.CALCULATION_SYNTAX_LABEL):
+                        st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         with import_col:
             with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
                 _upload_ingredients(opt)

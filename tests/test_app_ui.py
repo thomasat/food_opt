@@ -10065,9 +10065,11 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
         "", "")
     assert row[wording.FORMULA_LABEL] == "Fill to total"
-    assert any(c.value.startswith("Water is calculated to bring the total to 50 g: between 25.00 "
-                                  "and 40.00 g in a 50 g formulation")
+    assert any(c.value == "Water: automatically adds enough to bring each formulation to 50 g."
                for c in at.caption), [c.value for c in at.caption]
+    details = next(e for e in at.expander if e.label == wording.CALCULATION_SYNTAX_LABEL)
+    assert not details.proto.expanded
+    assert wording.CALCULATION_SYNTAX_DETAILS in [m.value for m in details.markdown]
 
 
 def test_the_results_boxes_never_offer_a_worked_out_rows_stale_range(

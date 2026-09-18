@@ -103,7 +103,7 @@ results in the app; Show amounts adds ingredient amounts to that table.
 EDITING CALCULATIONS
 Calculation sits beside the ingredient name. Type directly in the cell,
 or select Edit calculation for a larger editor with ingredient suggestions.
-Choose Vary between limits, Fill to batch size, or Calculate an amount.
-Batch size is the total ingredient amount for one formulation. Fill to
-batch size appears as Fill to total in the table. Use the chosen calculation,
+Choose Vary between limits, Fill to total, or Calculate an amount.
+Batch size is the total ingredient amount for one formulation. Fill to total
+adds the remaining amount. Use the chosen calculation,
 then select Save changes. Examples explain arithmetic, not recommended ratios.

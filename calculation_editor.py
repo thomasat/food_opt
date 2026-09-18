@@ -12,7 +12,7 @@ import wording
 from food_bo import GRID_ID, formula_is_rest
 
 FILL = "Fill to total"
-MODES = ["Vary between limits", "Fill to batch size", "Calculate an amount"]
+MODES = ["Vary between limits", "Fill to total", "Calculate an amount"]
 
 
 def display_calculation(value):
@@ -172,7 +172,7 @@ def open_editor(opt, frame):
         st.caption('Batch size is the total ingredient amount for one formulation. Only one ingredient can fill the remaining amount.')
         st.caption('Example: batch size 100 g − other ingredients 72 g = 28 g.')
         candidate.at[index, wording.FORMULA_LABEL] = '= rest'
-        apply = st.button('Use fill to batch size', key=key+'_use_fill')
+        apply = st.button('Use fill to total', key=key+'_use_fill')
     else:
         names = [str(r[wording.NAME_LABEL]) for i,r in frame.iterrows()
                  if i!=index and r.get(wording.TYPE_LABEL)!=wording.KIND_SETTING
@@ -193,18 +193,9 @@ def open_editor(opt, frame):
         st.caption('Batch size means the total ingredient amount for one formulation, including this ingredient.')
         st.caption('Examples explain the arithmetic, not recommended ingredient ratios. Choose values for your own protocol.')
         with st.expander('Supported calculations'):
-            st.markdown('''| Purpose | Example |
-|---|---|
-| Add or subtract amounts | `Flour + Starch` or `Flour - Starch` |
-| Multiply or divide by a number | `2 * Flour` or `Flour / 2` |
-| Percentage | `5% of batch size` or `10% of Flour` |
-| Group amounts | `2 * (Flour + Starch)` |
-
-Use your project's ingredient names. Capitalization does not matter; spelling and spaces do. The `=` is supplied automatically. Keyboard `*` and `/` also accept `×` and `÷`. Use decimals such as `0.5`.
-
-Use **Fill to batch size** for the remaining amount; existing `= rest` expressions still work. `batch size - Water` subtracts only Water, whereas Fill to batch size subtracts **all other ingredients**.
-
-Calculations cannot use process settings, multiply two ingredient amounts, divide by an ingredient amount, refer back to themselves, or use Excel functions such as SUM or IF, powers or cell addresses.''')
+            st.markdown(wording.CALCULATION_TERMS_TABLE)
+        with st.expander(wording.CALCULATION_SYNTAX_LABEL):
+            st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         if not str(text).strip():
             st.info('Enter a calculation or choose a different method above.')
             return
