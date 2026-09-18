@@ -3145,7 +3145,8 @@ def test_the_best_amounts_table_carries_each_rows_own_unit(burger):
     at.run()
     table = next(t.value for t in at.table
                  if "Ingredient or process setting" in t.value.columns)
-    assert list(table.columns) == ["Ingredient or process setting", "Amount"]
+    assert list(table.columns) == ["Ingredient or process setting", "Amount", wording.RESULT_PERCENT_COLUMN]
+    assert table[wording.RESULT_PERCENT_COLUMN].tolist() == ["90.91", "9.09", ""]
     names = list(table["Ingredient or process setting"])
     assert names == ["Pea protein", "Methylcellulose", "Cook temperature"], names
     amounts = dict(zip(names, table["Amount"]))

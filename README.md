@@ -17,6 +17,10 @@ Choose **Try the sample project**. The 100 g burger example demonstrates pre-mix
 
 The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
 
+## Review results
+
+**Results** opens on **Best so far**, based on your current measurements and targets. Use **View formulation** to inspect any other recorded formulation, including unscored entries. Its measurements, ingredient amounts and **% of formulation** appear together. Percentages exclude process settings and are unavailable for ingredient amounts in different units. The **All formulations** table below compares results in the app; **Show amounts** adds ingredient amounts to that table.
+
 ## Ingredients, rules and limits
 
 Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Rule** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Use `= rest` for the ingredient that fills the remaining batch size. **Calculation help** explains these options.

@@ -1044,9 +1044,8 @@ BASELINE_LABEL = "Baseline"
 # The column arrives on its own, in the grid the reader sets their rules
 # in, the moment the first round is recorded — so its one tooltip has to
 # say what the number is as well as what it is for.
-BASELINE_HELP = ("The amounts of the first formulation recorded. Later "
-                 "suggestions are read against it, so those results still "
-                 "count.")
+BASELINE_HELP = ("Only for a process setting added after results exist: enter the value "
+                 "used in all earlier formulations. This is not an ingredient amount.")
 def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
@@ -3589,3 +3588,27 @@ def missing_property_values(metric, names):
     return f"Complete {metric} for: {names}. Open Ingredient limits → Properties and enter the missing values (0 only if zero), or delete this property limit."
 
 BACKGROUND_REFERENCE_LABEL = "Background reference"
+
+
+# Results detail browsing and ingredient composition.
+RESULT_VIEW_LABEL = "View formulation"
+RESULT_VIEW_HELP = "Choose a recorded formulation to see its measurements, amounts and percentages below."
+RESULT_BEST_HELP = "Best so far has the highest recorded overall score for your current measurements and targets."
+RESULT_PERCENT_COLUMN = "% of formulation"
+RESULT_PERCENT_PROCESS_HELP = "Percentages use the ingredient amounts shown. Process settings are excluded."
+RESULT_PERCENT_MIXED_HELP = "Percentages are unavailable because the ingredient amounts use different units."
+RESULT_PERCENT_ZERO_HELP = "Percentages are unavailable because the ingredient amounts total zero."
+RESULT_UNSCORED_HELP = "Not scored. No measurements have been saved for this formulation."
+
+
+def result_heading(no, round_no=None):
+    return f"{FORMULATION_CAP} {no}" + (f" ({ROUND_CAP} {round_no})" if round_no is not None else "")
+
+
+def result_view_option(no, round_no=None, best=False, unscored=False):
+    label = result_heading(no, round_no)
+    if best:
+        label = "Best so far · " + label
+    if unscored:
+        label += " · Not scored"
+    return label

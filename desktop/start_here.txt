@@ -92,3 +92,10 @@ Describe what happened and what you expected. This page is public: avoid
 sharing confidential project data. Help → Show Log File opens the startup
 log; review it before attaching it. If the app cannot open, find the log at:
 ~/Library/Application Support/FoodOptimizer/launcher.log
+
+REVIEWING RESULTS
+Results opens on Best so far. Use View formulation to inspect another
+recorded formulation, including one without a score. Amount and % of
+formulation appear together. Percentages exclude process settings and are
+unavailable for ingredients in different units. All formulations compares
+results in the app; Show amounts adds ingredient amounts to that table.

@@ -56,6 +56,8 @@ def _amount_rows(opt, recipe):
     two orders on two screens made the reader check it line by line."""
     category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
     shown = {name for name, _ in opt.recipe_lines(recipe)}
+    shown.update(v['name'] for v in opt.variables
+                 if v.get('category') == 'process' and v['name'] in recipe)
     pairs = [(v['name'], float(recipe[v['name']])) for v in opt.variables
              if v['name'] in shown and v['name'] in recipe]
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
@@ -67,9 +69,81 @@ def _amount_rows(opt, recipe):
             return fmt_setting(value, opt.unit_of(name))
         return fmt_amount(value, opt.unit_of(name))
 
-    return [{wording.INGREDIENT_OR_SETTING_LABEL: name,
-             wording.AMOUNT_COLUMN: amount(name, value)}
-            for name, value in ingredients + settings]
+    # Use the amounts actually displayed, including user-entered formulations
+    # and recorded scaling. Process settings and pre-mix component percentages
+    # must never enter this denominator.
+    total = sum(value for _, value in ingredients)
+    comparable = opt._shows_shares() and total > 0
+    rows = []
+    for name, value in ingredients + settings:
+        row = {wording.INGREDIENT_OR_SETTING_LABEL: name,
+               wording.AMOUNT_COLUMN: amount(name, value)}
+        if opt.has_ingredients():
+            row[wording.RESULT_PERCENT_COLUMN] = (
+                f"{100 * value / total:.2f}" if comparable and category.get(name) != 'process'
+                else "" if category.get(name) == 'process' else "—")
+        rows.append(row)
+    return rows
+
+
+def _amount_table(opt, recipe):
+    rows = _amount_rows(opt, recipe)
+    columns = [wording.INGREDIENT_OR_SETTING_LABEL, wording.AMOUNT_COLUMN]
+    if opt.has_ingredients():
+        columns.append(wording.RESULT_PERCENT_COLUMN)
+    st.table(pd.DataFrame(rows, columns=columns, index=[""] * len(rows)))
+    if opt.has_ingredients():
+        if not opt._shows_shares():
+            st.caption(wording.RESULT_PERCENT_MIXED_HELP)
+        elif not any(row.get(wording.RESULT_PERCENT_COLUMN) not in ("", "—", None) for row in rows):
+            st.caption(wording.RESULT_PERCENT_ZERO_HELP)
+        elif opt._process_settings():
+            st.caption(wording.RESULT_PERCENT_PROCESS_HELP)
+
+
+def _selected_formulation(opt):
+    """A default that follows the best score, plus read-only history choices."""
+    best_index = opt.best_index()
+    best_no = int(opt.formulation_ids[best_index]) if best_index is not None else None
+    numbers = _all_numbers(opt)
+    if len(numbers) < 2:
+        return numbers[0] if numbers else None
+    options = ([None] if best_no is not None else []) + [n for n in numbers if n != best_no]
+    key = f"result_view_{opt.project_name}"
+    if key in st.session_state and st.session_state[key] not in options:
+        st.session_state.pop(key)
+
+    labels = {}
+    for choice in options:
+        number = best_no if choice is None else choice
+        index = opt.index_of_formulation(number)
+        skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
+        batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
+        labels[choice] = wording.for_project(opt, wording.result_view_option(
+            number, batch, best=choice is None, unscored=index is None))
+
+    chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
+                          format_func=labels.__getitem__, key=key,
+                          help=wording.for_project(opt, wording.RESULT_VIEW_HELP))
+    return best_no if chosen is None else chosen
+
+
+def _unscored_details(opt, number):
+    row = next(r for r in opt.skipped if int(r['formulation']) == number)
+    batch = row.get(ROUND_FIELD)
+    st.subheader(wording.for_project(opt, wording.result_heading(number, batch)))
+    st.info(wording.for_project(opt, wording.RESULT_UNSCORED_HELP))
+    reason = wording.note_reason(row.get('note'))
+    if reason:
+        st.caption(reason)
+    total = opt.recorded_total(batch) if opt.one_amount_unit() is not None else None
+    shown_row = {'formulation': number, 'recipe': row.get('recipe') or {}}
+    shown, _ = opt.shown_recipe(shown_row, total)
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
+    _amount_table(opt, shown)
+    for caution in (opt.scaled_cautions([shown_row], total, total is not None)
+                    + opt.total_mismatch_lines([shown_row], total)):
+        st.caption(caution)
 
 
 def _number(cell):
@@ -103,18 +177,27 @@ def _progress_line(opt):
 
 
 def _best(opt):
-    """The best formulation. Returns True when it has already said what a
+    """Details for the selected formulation, defaulting to the best. Returns
+    True when it has already said what a
     partial score cannot be compared with, so the table below does not say the
     same sentence again on the same screen."""
-    index = opt.best_index()
-    if index is None:
+    number = _selected_formulation(opt)
+    if number is None:
         return False
-    number = int(opt.formulation_ids[index])
+    index = opt.index_of_formulation(number)
+    if index is None:
+        _unscored_details(opt, number)
+        return False
     batch = opt.batch_history[index]
-    st.subheader(wording.for_project(opt, wording.best_so_far_heading(number, batch)))
-    line = _progress_line(opt)
-    if line:
-        st.caption(line)
+    is_best = index == opt.best_index()
+    heading = (wording.best_so_far_heading(number, batch) if is_best
+               else wording.result_heading(number, batch))
+    st.subheader(wording.for_project(opt, heading))
+    if is_best:
+        st.caption(wording.RESULT_BEST_HELP)
+        line = _progress_line(opt)
+        if line:
+            st.caption(line)
 
     details = opt.closeness_details(index)
     if details:
@@ -148,11 +231,7 @@ def _best(opt):
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
-    rows = _amount_rows(opt, shown)
-    st.table(pd.DataFrame(rows,
-                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN],
-                          index=[""] * len(rows)))
+    _amount_table(opt, shown)
     # The amounts above are the ones the bench weighed out, so the same lines
     # tab 2 shows under the box belong under the table that shows them: it
     # is the total, not the formulation, that pushed them out — and a row
@@ -429,11 +508,7 @@ def _score_row(opt, choice):
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
-    rows = _amount_rows(opt, shown)
-    st.table(pd.DataFrame(rows,
-                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN],
-                          index=[""] * len(rows)))
+    _amount_table(opt, shown)
     # It is the total, not the formulation, that pushes an amount out of the
     # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
