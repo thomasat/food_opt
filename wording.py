@@ -245,7 +245,7 @@ def no_such_field(name):
     return f"{name} is not one of the things this project can record."
 
 
-ALSO_RECORD_LABEL = "Also record:"
+ALSO_RECORD_LABEL = "Additional records (optional)"
 ALSO_RECORD_HELP = ("Each one adds a column to the grid or a cell to the "
                     "printed pages. Nothing already recorded is lost by "
                     "turning one off.")
@@ -265,10 +265,10 @@ def record_field_off(label):
     return f"{label} is not recorded any more."
 
 
-METHOD_LABEL = "Method"
-METHOD_HELP = "How the formulation is made, in the order the bench does it."
+METHOD_LABEL = "Preparation method"
+METHOD_HELP = "Steps shared by every formulation or trial. Included on Round overview in the workbook. Changes save when you leave this field."
 METHOD_PLACEHOLDER = ("e.g. Mix the dry blend into the water, 60 s. Add the "
-                      "fat phase. Form 100 g patties.")
+                      "oils. Form 100 g patties.")
 METHOD_SAVED = "Method saved."
 METHOD_CLEARED = "Method cleared."
 # The heading it prints under on the Round sheet: every formulation of a
@@ -421,16 +421,16 @@ def restored_flash(count_text, project_name, archived=None):
 
 MANAGE_PROJECT = "Manage project"
 
-START_OVER_LABEL = "Start this project over"
-YES_START_OVER = "Yes, start over"
+START_OVER_LABEL = "Clear project contents"
+YES_START_OVER = "Yes, clear contents"
 
 
 def start_over_warning(project_name, held_text=None):
     """`held_text` is None for an already-empty project."""
-    if held_text is None:
-        return f"Start **{project_name}** over? It becomes empty. " + COPY_KEPT
-    return (f"Start **{project_name}** over? Its {held_text}, ingredients "
-            f"and measurements all go. " + COPY_KEPT)
+    count = f"This includes its {held_text}. " if held_text else ""
+    return (f"Clear all ingredients, process settings, measurements and results from **{project_name}**? "
+            + count + "The project keeps its name. " + COPY_KEPT)
+
 
 
 DELETE_PROJECT_LABEL = "Delete this project"
@@ -1024,7 +1024,7 @@ def made_before_units_caption(unit):
             f"are read as {unit}. Set the right unit below.")
 
 
-UPLOAD_INGREDIENTS_EXPANDER = "Or upload an ingredients file"
+UPLOAD_INGREDIENTS_EXPANDER = "Import ingredients"
 
 NAME_LABEL = "Name"
 TYPE_LABEL = "Type"
@@ -1439,7 +1439,7 @@ def limit_gap_tail(name, many):
 # where the targets came from, the limits and the properties — and Advanced
 # holds what a specialist wants at most once: the model settings and the two
 # explanations. Both are collapsed, so the tab reads as its two grids.
-MORE_SETTINGS_EXPANDER = "More settings"
+MORE_SETTINGS_EXPANDER = "Preparation and records"
 ADVANCED_EXPANDER = "Advanced"
 
 LIMITS_HEADING = "**Limits (optional)**"
@@ -2192,7 +2192,7 @@ FORMULA_IN_RANGE = "rule"
 # on one screen meaning two things.
 WORKED_OUT = "calculated"
 CALCULATED_RANGE = "Calculated"
-RULE_GUIDE_LABEL = "See calculation examples"
+RULE_GUIDE_LABEL = "Calculation help"
 RULE_GRID_CAPTION = "Calculated amounts use the Rule column; their Lowest and Highest cells are not used."
 INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a rule-based ingredient, its rule determines the amount."
 INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a rule. Calculated amounts follow their rule."
@@ -3475,7 +3475,7 @@ SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then gene
 COMPOSITION_AMOUNTS_HELP = 'Enter ingredient amounts. Their proportions are saved as percentages; the preview calculates amounts for the quantity below.'
 COMPOSITION_ENTRY_LABEL = 'Enter a weighed recipe instead'
 COMPOSITION_PERCENTAGES = 'Percentages'
-TEACHING_EXAMPLE_CAPTION = 'Teaching example: illustrative values. Read the method and sources in More settings.'
+TEACHING_EXAMPLE_CAPTION = 'Teaching example with illustrative values. See Preparation and records for the method and assumptions.'
 def composition_basis_caption(basis):
     return f"Composition is expressed as percentages {basis}. Weighing amounts are calculated below."
 
@@ -3532,6 +3532,11 @@ def calculated_summary(name, size_text, rest=False):
     if rest:
         return (f"{name}: automatically adds enough to bring each formulation to {size_text}."
                 if size_text else f"{name}: set a default batch size to calculate the remaining amount.")
-    return f"{name}: calculated automatically from the Rule column."
+    return f"{name}: its rule calculates the amount. Lowest and Highest are left empty."
 
 SHARE_SAVED_TOTAL = "After saving: 100% total"
+
+BLEND_COMPOSITIONS_HEADING = "Blend compositions"
+INGREDIENT_LIMITS_EXPANDER = "Ingredient limits (optional)"
+RECORDING_GUIDANCE = "Use Notes for other observations. Add outcomes you want scored to Measurements and targets."
+RECORDS_UPDATED = "Recording options saved. Existing values are kept."

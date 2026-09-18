@@ -607,9 +607,9 @@ def _variables(opt, storage):
         st.caption(wording.made_before_units_caption(opt.amount_unit))
     # Directly beneath the grid, in the grid's own order: a pre-mix's parts
     # open under the row that says how it is made.
+    if opt.premixes:
+        st.markdown(wording.BLEND_COMPOSITIONS_HEADING)
     pending = _premixes(opt, storage) or pending
-    with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
-        _upload_ingredients(opt)
     return pending, captions
 
 
@@ -1198,6 +1198,13 @@ _TARGETS_SOURCE_BOX = "targets_source_box"
 
 
 def _targets_source_editor(opt):
+    label = (wording.EXAMPLE_REFERENCES_LABEL if opt.project_name == wording.SAMPLE_PROJECT_NAME
+             else wording.TARGET_REFERENCES_LABEL)
+    with st.popover(label):
+        _targets_source_contents(opt)
+
+
+def _targets_source_contents(opt):
     """The optional note on where the measurement targets came from: a
     caption once it is set, and a button that opens a one-line box to set or
     change it. Its Save is always secondary — unlike the measurement editor,
@@ -1205,10 +1212,7 @@ def _targets_source_editor(opt):
     closes it without saving, same word and same act as the measurement
     editor's own Cancel."""
     if opt.targets_source:
-        label = (wording.EXAMPLE_REFERENCES_LABEL if opt.project_name == wording.SAMPLE_PROJECT_NAME
-                 else wording.TARGET_REFERENCES_LABEL)
-        with st.popover(label):
-            st.markdown(wording.targets_from_caption(opt.targets_source))
+        st.markdown(wording.targets_from_caption(opt.targets_source))
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
         st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
@@ -1243,32 +1247,22 @@ def _record_key(field):
 
 
 def _also_record(opt):
-    """One line and four boxes: what this project records beside what it
-    asks for.
+    """One optional selector; hiding a field preserves existing records."""
+    key = "record_fields"
+    st.session_state.setdefault(key, [f for f in RECORD_FIELDS if opt.records(f)])
 
-    All four are off for a new project. Vendor and SKU are specification
-    data, typed once at set-up and never read again, and they pushed `Rule`
-    off the right edge of the ingredients grid at the size the app opens at;
-    Lot and Actual are two more columns down every printed page of a project
-    that never wanted them. Each saves the moment it is ticked, with the one
-    line it owes.
-    """
-    st.caption(wording.ALSO_RECORD_LABEL)
-    boxes = st.columns(len(RECORD_FIELDS))
-    for field, box in zip(RECORD_FIELDS, boxes):
-        key = _record_key(field)
-        label = wording.RECORD_FIELD_LABELS[field]
-        st.session_state.setdefault(key, opt.records(field))
+    def _save():
+        selected = set(st.session_state.get(key, []))
+        changed = False
+        for field in RECORD_FIELDS:
+            changed = opt.set_records(field, field in selected) or changed
+        if changed and saved_ok(opt):
+            flash("success", wording.RECORDS_UPDATED)
 
-        def _save(field=field, key=key, label=label):
-            on = bool(st.session_state.get(key))
-            if opt.set_records(field, on) and saved_ok(opt):
-                flash("success", wording.record_field_on(label) if on
-                      else wording.record_field_off(label))
-
-        with box:
-            st.checkbox(label, key=key, help=wording.ALSO_RECORD_HELP,
-                        on_change=_save)
+    st.multiselect(wording.ALSO_RECORD_LABEL, RECORD_FIELDS, key=key,
+                   format_func=lambda field: wording.RECORD_FIELD_LABELS[field],
+                   help=wording.ALSO_RECORD_HELP, on_change=_save)
+    st.caption(wording.RECORDING_GUIDANCE)
 
 
 _METHOD_BOX = "method_box"
@@ -1888,28 +1882,20 @@ def _limit_half_written():
 
 
 def _more_settings(opt, storage):
-    """The middle tier (spec 1.5): everything tab 1 asks at most once, in one
-    collapsed expander, in the order a project needs it — how big a
-    formulation is, where the targets came from, the hard rules, and the
-    figures those rules read.
+    """Shared preparation and records, separated from optional ingredient limits.
 
-    Nothing in here is a fold of its own. Streamlit cannot nest one expander
-    in another, and the point of the tier is that the tab has ONE thing to
-    open rather than six.
-
-    It stays OPEN while a limit is half-written. Every picker and select in
-    here causes a rerun, and a rerun closed the whole tier under the
-    reader's hand: writing one limit takes four fields, and each of them
-    shut the fold and sent them scrolling back.
+    Keep the limits section open while a limit is being entered.
     """
-    with st.expander(wording.MORE_SETTINGS_EXPANDER,
-                     expanded=_limit_half_written()):
+    with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
-        _also_record(opt)
         _method_editor(opt)
+        _also_record(opt)
         _targets_source_editor(opt)
-        _limits(opt, storage)
-        _properties(opt, storage)
+    if opt.has_ingredients():
+        with st.expander(wording.INGREDIENT_LIMITS_EXPANDER,
+                         expanded=_limit_half_written()):
+            _limits(opt, storage)
+            _properties(opt, storage)
 
 
 def _foot(opt, pending=False):
@@ -1928,7 +1914,7 @@ def _foot(opt, pending=False):
 
 
 def render(opt, storage):
-    if not opt.X_history and not opt.pending_batch:
+    if not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
         st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
                    else wording.SETUP_INTRO))
     # The sample's own welcome, directly under the tab's title: gone the
@@ -1955,12 +1941,17 @@ def render(opt, storage):
         for var in opt._formula_rows():
             st.caption(wording.calculated_summary(var['name'], opt.batch_total_text(opt.formulation_total)
                        if opt.formulation_total else "", rest=bool(var.get('balance'))))
-        if opt.has_ingredients():
-            with st.expander(wording.RULE_GUIDE_LABEL):
-                st.caption(wording.RULE_HINT)
-                st.markdown(wording.for_project(opt, wording.RULE_GUIDE))
-                for line in opt.worked_out_captions():
-                    st.caption(line)
+        help_col, import_col = st.columns(2)
+        with help_col:
+            if opt.has_ingredients():
+                with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
+                    st.caption(wording.RULE_HINT)
+                    st.markdown(wording.RULE_GUIDE)
+                    for line in opt.worked_out_captions():
+                        st.caption(line)
+        with import_col:
+            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
+                _upload_ingredients(opt)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

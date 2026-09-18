@@ -174,9 +174,9 @@ def test_hard_reset_targets_active_project_not_typed_name(project_with_history, 
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.sidebar.text_input[0].set_value("other")   # the sidebar "Project Name" box (only text input in sidebar)
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
-    _submit_button(at, "Yes, start over").click()
+    _submit_button(at, "Yes, clear contents").click()
     at.run()
     assert not at.exception
     assert (tmp_path / "my_project_archived.pkl").exists()
@@ -316,9 +316,9 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     # disk with a later mtime, which would otherwise become the auto-loaded "most
     # recent" project (Task 8) before this test ever switches to it on purpose.
     at.run()
-    _submit_button(at, "Start this project over").click()   # arm the confirmation
+    _submit_button(at, "Clear project contents").click()   # arm the confirmation
     at.run()
-    assert any(b.label == "Yes, start over" for b in at.button)
+    assert any(b.label == "Yes, clear contents" for b in at.button)
     # Choosing a project reruns the script and enables Open; only then can a
     # user click it (Open is greyed out while the box shows the open project).
     at.selectbox(key="project_select").set_value("second")
@@ -330,7 +330,7 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     # what the browser would show.
     at.run()
     assert not at.exception
-    assert not any(b.label == "Yes, start over" for b in at.button), [b.label for b in at.button]
+    assert not any(b.label == "Yes, clear contents" for b in at.button), [b.label for b in at.button]
     assert "second" in [h.value for h in at.sidebar.subheader]
 
 
@@ -868,10 +868,10 @@ def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history
     assert not open_button.disabled and open_button.proto.type == "primary"
     # ...and it steps aside the moment a confirmation is armed: the Yes is the
     # one lit thing in the sidebar, even with a switch waiting to be made.
-    _submit_button(at.sidebar, "Start this project over").click()
+    _submit_button(at.sidebar, "Clear project contents").click()
     at.run()
     lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
-    assert lit == ["Yes, start over"], lit
+    assert lit == ["Yes, clear contents"], lit
     open_button = _submit_button(at.sidebar, "Open")
     assert not open_button.disabled and open_button.proto.type == "secondary"
 
@@ -884,7 +884,7 @@ def test_arming_one_manage_project_confirmation_greys_the_other(project_with_his
     at.run()
     assert not at.button(key="hard_reset__btn").disabled
     assert not at.button(key="delete_project__btn").disabled
-    _submit_button(at.sidebar, "Start this project over").click()
+    _submit_button(at.sidebar, "Clear project contents").click()
     at.run()
     assert at.button(key="delete_project__btn").disabled
     assert not at.button(key="hard_reset__btn").disabled
@@ -907,10 +907,10 @@ def test_an_armed_confirmation_is_the_one_lit_sidebar_button(project_with_histor
     at.session_state["_loaded_project"] = "my_project"
     at.run()
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
-    _submit_button(at.sidebar, "Start this project over").click()
+    _submit_button(at.sidebar, "Clear project contents").click()
     at.run()
     lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
-    assert lit == ["Yes, start over"], lit
+    assert lit == ["Yes, clear contents"], lit
     _submit_button(at.sidebar, "Cancel").click()
     at.run()
     assert at.session_state["hard_reset__pending"] is False
@@ -988,7 +988,7 @@ def test_manage_project_holds_empty_and_delete(project_with_history):
     assert any(e.label == "Manage project" for e in at.sidebar.expander), \
         [e.label for e in at.sidebar.expander]
     labels = [b.label for b in at.sidebar.button]
-    assert "Start this project over" in labels and "Delete this project" in labels, \
+    assert "Clear project contents" in labels and "Delete this project" in labels, \
         labels
 
 
@@ -1056,9 +1056,9 @@ def test_an_uploaded_import_sheet_does_not_survive_a_hard_reset(project_with_his
     at.session_state["_import_rows"] = pd.DataFrame({"Water": [1.0], "Taste": [5.0]})
     at.run()
     assert "_import_rows" in at.session_state
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
-    _submit_button(at, "Yes, start over").click()
+    _submit_button(at, "Yes, clear contents").click()
     at.run()
     assert not at.exception
     assert "_import_rows" not in at.session_state
@@ -2250,9 +2250,9 @@ def test_a_stale_upload_is_cleared_by_hard_reset(open_batch, tmp_path):
         {"Formulation": [1], "Firmness": [6.0], "Juiciness": [7.0]})
     at.run()
     assert "_results_upload" in at.session_state
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
-    _submit_button(at, "Yes, start over").click()
+    _submit_button(at, "Yes, clear contents").click()
     at.run()
     assert not at.exception
     assert "_results_upload" not in at.session_state
@@ -2886,7 +2886,7 @@ def test_the_empty_state_button_steps_aside_for_a_confirmation(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
     button = _submit_button(at, wording.MAKE_YOUR_FIRST_BATCH_BUTTON)
     assert button.proto.type == "secondary" and button.disabled
@@ -3263,8 +3263,7 @@ def test_the_desktop_bundle_ships_every_module():
         assert module in e2e, module
 
 
-_FIRST_RUN_SENTENCE = ("This usually takes under a minute; "
-                       "on a slow network, a few minutes.")
+_FIRST_RUN_SENTENCE = "Setup time depends on your connection and computer."
 
 
 def _flowed(text):
@@ -3769,9 +3768,9 @@ def test_a_hard_reset_leaves_the_project_open_and_in_the_list(project_with_histo
     from Open project while the sidebar still named it."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
-    _submit_button(at, "Yes, start over").click()
+    _submit_button(at, "Yes, clear contents").click()
     at.run()
     assert not at.exception
     assert (tmp_path / "my_project_archived.pkl").exists()
@@ -3791,9 +3790,9 @@ def test_every_confirmation_counts_the_left_out_formulations(scored):
     """Two scored and one left out is three formulations to archive."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Start this project over").click()
+    _submit_button(at, "Clear project contents").click()
     at.run()
-    assert any("Its 3 formulations, ingredients and measurements all go"
+    assert any("This includes its 3 formulations."
                in w.value
                for w in at.warning), [w.value for w in at.warning]
     _submit_button(at, "Cancel").click()
@@ -5312,6 +5311,11 @@ def _more_settings(at):
                 if e.label == wording.MORE_SETTINGS_EXPANDER)
 
 
+def _limits_settings(at):
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.INGREDIENT_LIMITS_EXPANDER)
+
+
 def _advanced(at):
     """Tab 1's bottom tier, by name."""
     return next(e for e in _tab1(at).expander
@@ -5355,6 +5359,8 @@ def _tab_outline(at, index):
             children = children.values()
         for element in children:
             kind = element.__class__.__name__
+            if getattr(element, "type", None) == "popover":
+                continue
             if kind == "Subheader":
                 out.append(element.value)
             elif kind == "Expander":
@@ -5373,7 +5379,7 @@ def _tab1_captions(at):
     contents of a collapsed expander are explanations, and they are allowed
     to be longer."""
     tab = at.tabs[0]
-    folded = {id(c) for e in tab.expander for c in e.caption}
+    folded = {id(c) for e in list(tab.expander) + list(tab.get("popover")) for c in e.caption}
     return [c.value for c in tab.caption if id(c) not in folded]
 
 
@@ -5396,8 +5402,8 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # another, and a tab that folded the optional half away twice made the
     # reader open two things to reach one.
     labels = [e.label for e in _tab1(at).expander]
-    assert labels == [wording.RULE_GUIDE_LABEL, "Or upload an ingredients file",
-                      "More settings", "Advanced"], labels
+    assert labels == [wording.MORE_SETTINGS_EXPANDER,
+                      wording.INGREDIENT_LIMITS_EXPANDER, "Advanced"], labels
 
 
 def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
@@ -6233,7 +6239,7 @@ def test_putting_the_row_back_disarms_the_deletion(burger):
 def test_the_upload_is_folded_away_beneath(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
+    fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.UPLOAD_INGREDIENTS_EXPANDER)
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
                            "and, optionally, Unit, Rule, Part of, Preparation and Composition (%). Extra numeric columns "
                            "become properties you can set limits on.")
@@ -6327,10 +6333,9 @@ def test_the_tab_reads_in_one_order(burger):
     at.run()
     assert _tab_outline(at, 0) == [
         wording.VARIABLES_HEADER,
-        wording.RULE_GUIDE_LABEL,
-        wording.UPLOAD_INGREDIENTS_EXPANDER,
         wording.MEASUREMENTS_HEADER,
         wording.MORE_SETTINGS_EXPANDER,
+        wording.INGREDIENT_LIMITS_EXPANDER,
         wording.ADVANCED_EXPANDER,
     ], _tab_outline(at, 0)
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
@@ -6347,7 +6352,9 @@ def test_more_settings_holds_the_four_optional_things_in_order(burger):
     assert not fold.proto.expanded
     # The box the default batch size is typed into is the first thing in it.
     assert fold.number_input[0].label == "Default batch size (g)"
-    headings = [m.value for m in fold.markdown if m.value.startswith("**")]
+    limits = _limits_settings(at)
+    assert not limits.proto.expanded
+    headings = [m.value for m in limits.markdown if m.value.startswith("**")]
     assert headings == [wording.LIMITS_HEADING,
                         wording.FINISHED_PRODUCT_LIMIT_HEADING,
                         wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING,
@@ -6512,7 +6519,7 @@ def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
     # ...and the line that says nothing is written while typing is still
     # there, so an edit in hand is not a silent one.
     assert wording.unsaved_grid_caption(wording.PROPERTIES_NAME) in [
-        c.value for c in _more_settings(at).caption]
+        c.value for c in _limits_settings(at).caption]
 
 
 def test_a_property_is_deleted_from_a_picker_and_one_question(burger):
@@ -7220,10 +7227,9 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     the grid, and it stands down the moment a rule exists."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    help_fold = next(e for e in at.expander if e.label == wording.RULE_GUIDE_LABEL)
-    assert not help_fold.proto.expanded
+    help_fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.RULE_GUIDE_LABEL)
     assert wording.RULE_HINT in [c.value for c in help_fold.caption]
-    assert any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
+    assert not any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
     assert wording.RULE_GUIDE in [m.value for m in at.markdown]
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
@@ -7241,19 +7247,19 @@ def test_more_settings_stays_open_while_a_limit_is_being_written(burger):
     fields, and each of them sent them scrolling back."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    fold = _more_settings(at)
+    fold = _limits_settings(at)
     assert fold.proto.expanded is False
     at.multiselect(key="qty_pick").select("Pea protein")
     at.run()
-    assert _more_settings(at).proto.expanded is True
+    assert _limits_settings(at).proto.expanded is True
     at.number_input(key="qc_one").set_value(5.0)
     at.run()
-    assert _more_settings(at).proto.expanded is True
+    assert _limits_settings(at).proto.expanded is True
     # ...and the limit lands without the fold shutting on the way.
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
-    assert _more_settings(at).proto.expanded is True
+    assert _limits_settings(at).proto.expanded is True
     assert FoodOptimizer("burger").quantity_constraints
 
 
@@ -8742,7 +8748,7 @@ def test_the_damaged_file_banner_says_the_two_ways_out(tmp_path, monkeypatch):
     assert wording.project_load_error_info() == (
         "This project file is damaged, so editing is off. Two ways out, both "
         "in the sidebar: Open a saved copy, if you saved one. Or "
-        "Manage project › Start this project over — the damaged file is "
+        "Manage project › Clear project contents — the damaged file is "
         "copied first.")
     assert any(i.value == wording.project_load_error_info() for i in at.info), \
         [i.value for i in at.info]
@@ -9303,7 +9309,7 @@ def _sidebar_button(at, label):
 
 @pytest.mark.parametrize("arm,cancel", [
     ("Delete this project", "Cancel"),
-    ("Start this project over", "Cancel"),
+    ("Clear project contents", "Cancel"),
 ])
 def test_a_sidebar_cancel_never_writes_the_total_away(burger, arm, cancel):
     """Back out, change nothing. Cancel reruns from ABOVE the tabs, so
@@ -10073,7 +10079,7 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     grid = _grid_frame(at, 0)
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
-        "", wording.CALCULATED_RANGE)
+        "", "")
     assert row[wording.FORMULA_LABEL] == "= rest"
     assert any(c.value.startswith("Water is calculated to bring the total to 50 g: between 25.00 "
                                   "and 40.00 g in a 50 g formulation")

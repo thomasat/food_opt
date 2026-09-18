@@ -148,7 +148,7 @@ def _reset_project_session():
               ui_batch._SHEETS_DOWNLOADED,
               # The four Also record boxes: a tick left behind would be
               # written onto the next project on its first render.
-              *(ui_setup._record_key(f) for f in RECORD_FIELDS),
+              *(ui_setup._record_key(f) for f in RECORD_FIELDS), "record_fields",
               ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,
               # What the Default batch size box is up to date with. Parked
               # empty three lines below like every other box, so a mark left

@@ -232,9 +232,15 @@ def test_workbook_separates_formulations_and_has_internal_navigation(project):
 def test_calculated_range_marker_can_be_saved_without_changing_rule(project):
     frame = project.ingredient_grid_frame()
     row = frame.loc[frame[wording.NAME_LABEL].eq('Water')].iloc[0]
-    assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
+    assert row[wording.HIGHEST_LABEL] == ""
     from food_bo import _range_from_cells
-    assert _range_from_cells(row) == _range_from_cells(row.replace(wording.CALCULATED_RANGE, wording.WORKED_OUT))
+    for marker in (wording.CALCULATED_RANGE, wording.WORKED_OUT, wording.OLD_CALCULATED_RANGE):
+        legacy = row.copy()
+        legacy[wording.HIGHEST_LABEL] = marker
+        assert _range_from_cells(row) == _range_from_cells(legacy)
+    errors, _ = project.apply_ingredient_grid(frame)
+    assert not errors
+    assert project._var_by_name('Water')['balance']
 
 
 def test_previous_variable_blend_label_still_imports(tmp_path, monkeypatch):
@@ -327,3 +333,23 @@ def test_process_only_workbook_uses_trial_headers_and_imports(tmp_path, monkeypa
     uploaded = opt.results_from_workbook(data(book))
     assert uploaded.frame['Acidity'].tolist() == [4.6]
     assert uploaded.actual == {1: {'Temperature': 31}}
+
+
+def test_record_selector_keeps_existing_values_when_hidden(project):
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    project.set_records('vendor', True)
+    project._var_by_name('Protein')['vendor'] = 'Example supplier'
+    project.save()
+    app = str(Path(__file__).resolve().parents[1] / 'app.py')
+    at = AppTest.from_file(app, default_timeout=120).run()
+    at.multiselect(key='record_fields').set_value([]).run()
+    assert not at.exception
+    saved = FoodOptimizer('editable')
+    assert not saved.records('vendor')
+    assert saved._var_by_name('Protein')['vendor'] == 'Example supplier'
+    at.multiselect(key='record_fields').set_value(['vendor', 'lot']).run()
+    assert not at.exception
+    saved = FoodOptimizer('editable')
+    assert saved.records('vendor') and saved.records('lot')
+    assert saved._var_by_name('Protein')['vendor'] == 'Example supplier'

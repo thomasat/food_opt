@@ -101,11 +101,10 @@ Notes:
 
 ## System requirements (copy-paste for emails / download page)
 
-> Food Optimizer runs on Macs with an Apple chip (M1 or later — any Mac
-> from late 2020 onward) on macOS 13 Ventura or newer, and needs about
+> Food Optimizer runs on Macs with Apple silicon (M1 or newer)
+> on macOS 13 Ventura or newer, and needs about
 > 6 GB of free disk space. The first launch needs an internet connection
-> for a one-time setup that downloads about 1 GB. This usually takes under a
-> minute; on a slow network, a few minutes. After that it works fully offline.
+> for a one-time setup that downloads about 1 GB. Setup time depends on your connection and computer. After that it works fully offline.
 > Your data never leaves your computer.
 
 ## Testing an unsigned build on another Mac

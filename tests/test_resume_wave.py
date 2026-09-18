@@ -98,7 +98,7 @@ def test_preparation_records_survive_upload_reopen_and_export(project):
 
 def test_optional_checkbox_saves_and_upload_opens_after_download(project):
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.checkbox(key='record_vendor').check().run()
+    at.multiselect(key='record_fields').set_value(['vendor']).run()
     assert not at.exception
     assert FoodOptimizer('recording').records('vendor')
     at.session_state['main_tab'] = wording.TAB_BATCH

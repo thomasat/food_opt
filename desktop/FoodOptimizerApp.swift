@@ -57,8 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // that shows "Loading…" from its first frame still starts counting when
     // the launcher says the import has begun.
     var activeStepConfirmed = false
-    // Past the range we promised. Latched for the whole launch: a warm-up
-    // that took 45 s must not let the next step promise 15 to 30 seconds.
+    // A slow step stays acknowledged for the rest of this launch.
     var activeStepStalled = false
     var stepDetail = ""             // the launcher's own line, under the active step
     // The six-minute "Still setting up…" page, which is not a steps page: it
@@ -80,14 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // The three steps, as the user reads them, and the lines under them. The
     // load step's label doubles as the prefix of the launcher's own line for
-    // it, so the two can never drift apart. The wait is given as a range on
-    // purpose: the honest thing to say about an import that depends on the
-    // machine is that it is usually quick and sometimes not.
+    // it, so the two stay consistent. Avoid duration promises: startup time
+    // depends on the computer and whether components need downloading.
     let downloadStepLabel = "Downloading the app's components"
     let loadStepLabel = "Loading the app's components"
     let openStepLabel = "Opening your projects"
-    let usualWaitLine = "Usually 15 to 30 seconds."
-    let stillLoadingLine = "Still loading. The first start can take up to a minute."
+    let usualWaitLine = "Preparing the app. Please keep this window open."
+    let stillLoadingLine = "Still loading. Please keep this window open."
     // The one line that says what the app is for, so the wait has something
     // to read that is not about waiting.
     let nextUpLine = "Define your ingredients, process settings, and measurements. Then generate your first set of formulations."
@@ -340,11 +338,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var setupBody: String {
         setupIsUpgrade
             ? "Food Optimizer is downloading an update. "
-              + "This usually takes under a minute; on a slow network, a few "
-              + "minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
             : "The first time it opens, Food Optimizer downloads about 1 GB. "
-              + "This usually takes under a minute; on a slow network, a few "
-              + "minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
     }
 
     var stepsPageTitle: String {

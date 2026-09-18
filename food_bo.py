@@ -9881,7 +9881,7 @@ class FoodOptimizer:
                     wording.TYPE_LABEL: wording.KIND_INGREDIENT,
                     wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED,
                     wording.LOWEST_LABEL: "",
-                    wording.HIGHEST_LABEL: wording.SUM_OF_ITS_PARTS,
+                    wording.HIGHEST_LABEL: "",
                     wording.UNIT_LABEL: "",
                     wording.VENDOR_LABEL: "",
                     wording.SKU_LABEL: "",
@@ -9917,21 +9917,13 @@ class FoodOptimizer:
         return _grid_frame(data, columns)
 
     def _range_cell(self, var):
-        """(Lowest, Highest) as the grid holds them: the word for a row that
-        is worked out, and two-decimal text for every other.
+        """Rules determine amounts, so their numeric bounds are left empty.
 
-        Text, not numbers, and this is the one reason why. A row with a
-        rule has no range of its own to show — showing the numbers it
-        happens to still carry would invite the reader to type into them —
-        and `st.data_editor` will not put a word in a number column. A fixed
-        row keeps showing the same number twice, as wave 1 left it.
-
-        The word goes in ONE of the two cells. Both of them said it, which
-        is one word doing one job twice on two cells side by side; Lowest
-        is left blank and Highest carries the mark, so the pair reads as
-        one fact about the row rather than two."""
+        Stored bounds are retained: clearing the rule restores them. Legacy
+        text markers remain readable by the grid parser.
+        """
         if self.has_formula(var):
-            return "", wording.CALCULATED_RANGE
+            return "", ""
         return (f"{float(var['bounds'][0]):.2f}",
                 f"{float(var['bounds'][1]):.2f}")
 

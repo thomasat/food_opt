@@ -4369,7 +4369,7 @@ class TestRoundTwoFixes:
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
     # Process-only studies use trial; weighed recipe describes the optional input method.
-    wording.PROCESS_STUDY_INTRO, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
+    wording.PROCESS_STUDY_INTRO, wording.METHOD_HELP, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
     # Scientific teaching copy requested by the owner uses measurement scale,
     # ingredient weight and experimental results in their ordinary meanings.
     wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
@@ -4683,6 +4683,9 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     offenders = []
     for name in _USER_FACING_TEXT:
         for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+            # Process-only studies deliberately use trials in the user guide.
+            if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
+                continue
             if any(pattern.search(line) for pattern in _BANNED):
                 offenders.append((name, i, line))
     swift = (root / _USER_FACING_SWIFT).read_text()
@@ -9425,7 +9428,7 @@ class TestTheFormulaColumn:
         row = frame.loc[1]
         assert row[wording.FORMULA_LABEL] == "= rest"
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
+        assert row[wording.HIGHEST_LABEL] == ""
         # Every other row carries the two-decimal text a number column used
         # to format for it.
         assert frame.loc[2][wording.LOWEST_LABEL] == "30.00"
@@ -9440,7 +9443,7 @@ class TestTheFormulaColumn:
         assert opt._var_by_name("Water")['bounds'] == (20.0, 60.0)
         back = opt.ingredient_grid_frame().loc[1]
         assert (back[wording.LOWEST_LABEL],
-                back[wording.HIGHEST_LABEL]) == ("", wording.CALCULATED_RANGE)
+                back[wording.HIGHEST_LABEL]) == ("", "")
 
     def test_clearing_a_formula_gives_the_row_its_range_back(self, tmp_path,
                                                              monkeypatch):
@@ -10217,7 +10220,7 @@ class TestTheFormulaColumnFixes:
         frame = opt.ingredient_grid_frame()
         row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
+        assert row[wording.HIGHEST_LABEL] == ""
         at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
             frame, at, **{wording.FORMULA_LABEL: ""}))
@@ -11578,7 +11581,7 @@ class TestThePreMixGrid:
         line = frame.loc[2]
         assert line[wording.MADE_AS_LABEL] == wording.PREMIX_MADE_AS_WEIGHED
         assert line[wording.LOWEST_LABEL] == ""
-        assert line[wording.HIGHEST_LABEL] == wording.SUM_OF_ITS_PARTS
+        assert line[wording.HIGHEST_LABEL] == ""
         # And the word in those cells is not a refusal: a save that touches
         # nothing else leaves the pre-mix exactly as it was.
         errors, _ = opt.apply_ingredient_grid(frame)
