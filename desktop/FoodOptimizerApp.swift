@@ -231,10 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func getHelp() {
         let alert = NSAlert()
-        alert.messageText = "Need help? Reach out to the Food Intelligence Lab"
+        alert.messageText = "Food Optimizer support"
         alert.informativeText =
             "Write to us at https://github.com/thomasat/food_opt/issues. "
-            + "Describe the problem in words, and do not attach project "
+            + "Describe the problem and what you expected. Do not attach project "
             + "files, saved copies or formulations, because that page is public. "
             + "Attaching the app's log file helps — Help › Show Log File "
             + "finds it for you."
@@ -525,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // different about this particular give-up, said before the shared advice.
     func showCouldNotStartStatus(detail: String? = nil) {
         let body = (detail.map { $0 + " " } ?? "")
-            + "Please click Try again. If this keeps happening, reach out to "
+            + "Click Try again. If the problem persists, contact "
             + "the Food Intelligence Lab and attach the file from Help › Show "
             + "Log File."
         showStatus("The app could not start", body, retry: true)

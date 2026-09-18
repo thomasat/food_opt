@@ -4743,7 +4743,7 @@ class FoodOptimizer:
                 # A portioned pre-mix's Lot cell is a pointer at the page
                 # that makes it, printed by the app and locked; it is not a
                 # lot somebody wrote down.
-                if str(value).strip() == wording.PREMIX_LOT_ON_ITS_PAGE:
+                if str(value).strip() in (wording.PREMIX_LOT_ON_ITS_PAGE, "see its page"):
                     continue
                 lots[name] = str(value).strip()
         return lots

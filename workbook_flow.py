@@ -113,7 +113,7 @@ def compact(book, opt, rows):
                 cell.value = 'See Preparation'
                 sheet_link(cell, PREPARATION)
     preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = 'Preparation — fixed-ratio pre-mixes for this round'
+    preparation['A1'] = 'Preparation — Fixed-ratio pre-mixes for this round'
     preparation['A2'] = navigation + 'Prepare fixed-ratio pre-mixes here. Variable-ratio blend components are weighed separately for each formulation on Round overview.'
     start = 4
     for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
@@ -124,7 +124,7 @@ def compact(book, opt, rows):
     if start == 4:
         preparation['A4'] = 'No pre-mixes are required. Follow the method on Round overview.'
     measured = result.create_sheet(RESULTS)
-    measured['A1'] = 'Results — enter measurements here'
+    measured['A1'] = 'Results — Enter measurements here'
     measured['A2'] = navigation + 'Each formulation has its own column. Blank means not recorded yet. Enter results, then upload this workbook, review the import and save in the app.'
     copy_cells(source, measured, first=split, start=4)
     # A blank measurement cell cannot display a unit after its value. Put

@@ -48,8 +48,7 @@ an amount or setting fixed. Use different values to let the app vary it.
 “Import ingredients” provides a spreadsheet template and an upload option.
 
 “Preparation and records” holds the batch size, steps shared by all
-formulations, references, and optional records such as Lot and Actual
-amounts. Lot is entered per ingredient in Make a round → Additional records
+formulations, references, and recording options. Lot is entered per ingredient in Make a round → Additional records
 or in the workbook. Vendor and SKU are entered in the Ingredients table.
 “Record changes from the planned amounts or settings” adds workbook cells
 for what you actually used in each formulation; leave unchanged values blank.
@@ -57,8 +56,7 @@ Choose “Add your own recording field” for other records, such as
 Operator or Expiry date. Choose whether to record a value for each
 formulation/trial or each ingredient in the round. Enter values in the
 app or on the workbook’s Results tab. These records do not affect scores.
-Use Measurements and targets
-for outcomes you want scored. Ingredient limits are optional restrictions
+Use Measurements and targets for outcomes you want scored. Ingredient limits are optional restrictions
 such as a maximum fat content; the example already includes one. An empty
 minimum or maximum adds no restriction on that side. Missing ingredient
 property values must be filled in before generating with a property limit.
@@ -71,8 +69,8 @@ pH at 6 h and pH at 24 h.
 
 You can edit an unrecorded formulation in the round table before making it.
 Use actual amounts/settings to record what you made if it differs from the
-plan. The example enables Lot and Actual amounts; your own projects start
-with optional records turned off.
+plan. The example enables Lot and recording changes from planned amounts.
+Your own projects start with optional records turned off.
 
 YOUR FILES AND HELP
 Projects are saved on your Mac in ~/FoodOptimizer. File → Open Projects

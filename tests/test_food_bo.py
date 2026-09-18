@@ -1147,7 +1147,7 @@ class TestRemoveIngredient:
         opt_configured.add_ingredient("Flour", 0, 0)
         opt_configured.add_ingredient("Sugar", 0, 0)
         with pytest.raises(ValueError,
-                           match="last ingredient or setting that can still move"):
+                           match="last ingredient or setting that can still vary"):
             opt_configured.remove_ingredient("Water")
 
 
@@ -4564,6 +4564,7 @@ def test_even_food_bo_may_not_say_batches():
 # user never reads, and each is here by name rather than by shape so that a
 # sentence can never hide behind the allowance.
 _FOOD_BO_NOT_PROSE = {
+    "see its page",  # legacy workbook pointer, accepted only when reading old files
     # Reserved column names and the frame keys that ARE those columns. The
     # words are wording.py's; these are the lookups into a dataframe.
     "Overall Score", "Overall score",
@@ -6870,7 +6871,7 @@ class TestTheWorkbookFinalWave:
         opt = self._opt(tmp_path, monkeypatch)
         title = _rows(_book(opt.workbook_bytes(opt.pending_batch,
                                                100.0))["Round 2"])[0][0]
-        assert title.endswith(" · made to 100 g"), title
+        assert title.endswith(" · Batch size 100 g"), title
         plain = _rows(_book(opt.workbook_bytes(
             opt.pending_batch))["Round 2"])[0][0]
         assert "made to" not in plain
@@ -7613,7 +7614,7 @@ class TestFixedIsLowestEqualsHighest:
         said = {sheet.cell(row=r, column=1).value:
                 sheet.cell(row=r, column=7).value for r in (3, 4, 5)}
         assert said == {"Pea protein": None, "Water": None,
-                        "Salt": "fixed at 20.00 g"}
+                        "Salt": "Fixed at 20.00 g"}
 
     def test_the_sheet_has_no_status_column_when_nothing_is_fixed(
             self, tmp_path, monkeypatch):

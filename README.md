@@ -1,46 +1,53 @@
-Food Optimizer helps food product developers find better formulations in fewer rounds of lab work. You type your ingredients and your measurements into two tables; it suggests the next round of formulations to make, prints the sheets for the bench, and learns from what you measured. No knowledge of statistics or machine learning is needed.
+# Food Optimizer
 
-Not every ingredient has to be searched for. Give a row a **Rule** — `= batch size − Water − Salt`, `= 1.5 % of batch size`, or `= rest` for the one row that takes whatever is left of the batch size — and the app works that amount out from the other rows every time. A limit over several ingredients can say **Exactly** as well as At least, At most and Between, in grams or as a **% of default batch size**.
+[**Download Food Optimizer for Mac**](https://github.com/thomasat/food_opt/releases)
 
-An ingredient can also be a **pre-mix**. Choose **Made as** on its row: `bought in` for an ordinary ingredient, `portioned from one pre-mix` to make one lot for the round and portion it into each formulation, or `weighed into each formulation` to weigh its parts separately every time. Open the parts underneath the grid to edit them. An ingredient the project already has can be a part too. The Excel workbook puts preparation pages first for portioned pre-mixes, groups a pre-mix's separately weighed parts on each formulation page, says what to **make for this round** and what to **have on hand**, and prints the project's **Method** under the round's title. Lot numbers and actual amounts entered in the boxed cells come back with the results.
+Food Optimizer helps food scientists explore ingredient compositions and process settings. Define what can vary, choose measurements and targets, then generate formulations to prepare and evaluate. The app uses recorded results to suggest what to try next.
 
-The sample burger shows both ways: Dry blend made once, two oils weighed separately in Fat phase, Seasoning blend fixed at 2.2 g, and Water taking the rest of each 100 g formulation. Six rows open into ten parts, with one process setting (Mixing time after fat), one finished-product limit (Fat per 100 g, at most 16) and three measurements: Firmness, Juiciness and Cook loss.
+For Macs with Apple silicon (M1 or newer), running macOS 13 Ventura or newer. Open the DMG and drag Food Optimizer into Applications. First-time setup downloads about 1 GB and needs internet and about 6 GB of free space. Setup time depends on your connection and computer. The app works offline after setup.
 
-A **formulation** is one thing you make and measure: something you weigh out, a process run, a fermentation. A project whose rows are all process settings weighs nothing out, and the app asks it for no batch size and prints its settings in their own units.
+## Start with the example
 
-**Desktop app (macOS):** download the latest `.dmg` from the
-[releases page](https://github.com/thomasat/food_opt/releases), drag the app to
-your Applications folder, and open it. The first time it opens it downloads
-about 1 GB. Setup time depends on your connection and computer. After that it works fully offline.
+Choose **Try the sample project**. The 100 g burger example demonstrates fixed-ratio pre-mixes, a variable-ratio blend, water calculated from two protein ingredients, remaining water, mixing time, measurements and a finished-product limit. Its ingredient amounts, targets and property values are illustrative.
 
-**Run it from source:**
+1. Review the tables in **Set up**. Open **Blend compositions** to review component ingredients, and **Preparation and records** for the shared preparation method.
+2. Generate formulations in **Make a round** and download the workbook.
+3. Use **Round overview** for the plan, **Preparation** for fixed-ratio pre-mixes, and **Results** for measurements.
+4. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
+The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
+
+## Ingredients, rules and limits
+
+Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Rule** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Use `= rest` for the ingredient that fills the remaining batch size. **Calculation help** explains these options.
+
+The **Preparation** column offers **Single ingredient**, **Fixed-ratio pre-mix**, and **Variable-ratio blend**. Fixed-ratio pre-mixes keep their component percentages; variable-ratio blends allow component amounts to vary separately.
+
+Ingredient limits can restrict combined amounts or finished-product properties. An empty minimum or maximum imposes no restriction on that side. Missing property values are unknown, rather than zero; complete the values before generating formulations with a limit on that property.
+
+## Optional records
+
+In **Preparation and records**, choose the records you need:
+
+- **Vendor and SKU:** Enter values for each ingredient in the Ingredients table.
+- **Lot:** Enter a lot number for each ingredient in **Make a round → Additional records** or in the workbook.
+- **Custom fields:** Choose **Add your own recording field**, name the field, and choose each formulation or each ingredient in the round. Enter values in the app or workbook.
+
+These records do not affect scores, and hiding a field preserves its values. The separate **Record changes from the planned amounts or settings** option adds workbook cells for what you actually used in each formulation. Imported corrections are used when the app learns from the results.
+
+## Process studies
+
+For a fermentation study, use numeric process settings such as temperature and time. A project containing only process settings does not need a batch size. Use separate measurements for time points, such as pH at 6 h and pH at 24 h. Named categories such as strain are not varied by this version.
+
+## Saved projects and help
+
+Projects are saved locally. Use **Save a copy of this project** before major changes. **Saved copies** shows recent copies and keeps older ones available separately.
+
+[Report a problem](https://github.com/thomasat/food_opt/issues), describing what happened and what you expected. Do not include confidential project data in a public issue.
+
+## Run from source
+
+```sh
 pip install -r requirements.txt
-
 streamlit run app.py
-
-
-Optional recording and returning the sheets
-
-In Set up → Preparation and records, “Additional records (optional)” offers Vendor, SKU and Lot. Enter Vendor
-and SKU in the Ingredients table, and Lot per ingredient in Make a round
-→ Additional records or in the workbook. The separate option “Record changes
-from the planned amounts or settings” adds workbook cells for what you
-actually used in each formulation. New projects start with these options
-off; the sample enables Lot and changes from planned amounts. Choose “Add your own recording field” to name another
-record, then choose each formulation/trial or each ingredient in the round.
-Enter text or numbers in the app or the Results tab of the round workbook.
-These records do not affect scores. Turning a field off keeps values already saved.
-After filling in the workbook, upload it in 2 · Make a round → Save results
-→ Or upload results from a file, check the preview, then save. Editing Excel
-alone does not update the app. Preparation amounts and other filled-in boxes
-are preserved as Bench records in the All formulations export; preparation
-records do not change a pre-mix's percentages for future rounds. Formulation
-Actual amounts are used as the amounts made. The Set-up and All formulations
-sheets are records, rather than forms to fill in and send back.
-Saved copies shows the three newest copies and puts the rest under Older
-copies. Its confirmed cleanup keeps the newest three and the last seven days.
-For a process or fermentation study, use numeric process settings. Record
-separate measurements for different time points, such as pH at 6 h and pH at
-24 h. Named categories such as strain or vessel type are not varied by this
-version. The sample targets and method are illustrative, not measured results.
+```

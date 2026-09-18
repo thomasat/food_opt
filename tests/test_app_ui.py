@@ -1418,14 +1418,14 @@ def test_limit_fields_start_blank_and_there_is_no_maximum_tick_box(burger):
     at.run()
     assert at.selectbox(key="qc_kind").options == wording.LIMIT_KINDS
     assert at.number_input(key="qc_one").value is None
-    assert at.number_input(key="qc_one").placeholder == "no limit"
+    assert at.number_input(key="qc_one").placeholder == "No limit"
     assert [n.key for n in at.number_input
             if n.key in ("qc_min", "qc_max")] == []
     at.selectbox(key="qc_kind").set_value(wording.LIMIT_KIND_BETWEEN)
     at.run()
     for key in ("qc_max", "qc_min"):
         assert at.number_input(key=key).value is None, key
-        assert at.number_input(key=key).placeholder == "no limit", key
+        assert at.number_input(key=key).placeholder == "No limit", key
     keys = [c.key for c in at.checkbox]
     assert "qc_use_max" not in keys and "qc_use_min" not in keys, keys
 
@@ -1631,7 +1631,7 @@ def test_batch_tab_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     generate = _submit_button(at, "Generate formulations")
-    back = _submit_button(at, "Back to set up")
+    back = _submit_button(at, "Back to Set up")
     assert generate.disabled and generate.proto.type == "secondary"
     assert back.proto.type == "secondary"
     assert any(c.value == "Add at least one measurement." for c in at.caption)
@@ -3749,7 +3749,7 @@ def test_an_uploaded_sheet_stops_at_the_first_row_that_did_not_save(open_batch,
 
 def test_the_line_under_the_title_is_on_tab_one_only(open_batch):
     """Tab 2 carries the batch's own heading. The caption sat directly above
-    `Batch 1 · make these 2 formulations`, saying the same thing twice."""
+    `Batch 1 · Prepare these 2 formulations`, saying the same thing twice."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
@@ -4169,7 +4169,7 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     assert any(c.value == wording.LIMITS_CAPTION
                for c in at.caption), [c.value for c in at.caption]
     assert wording.LIMITS_CAPTION.startswith(
-        "Every formulation the app suggests keeps every limit here.")
+        "Generated formulations satisfy the limits listed here.")
     said = [c.value for c in at.caption if wording.PROPERTY_BLANK_RULE in c.value]
     assert said == [wording.properties_grid_caption(True)], said
 
@@ -4204,7 +4204,7 @@ def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
     at.run()
     _submit_button(at.sidebar, "Try the sample project").click()
     at.run()
-    assert any(s.value == "Sample project put back the way it started."
+    assert any(s.value == "Sample project restored to its original settings."
                for s in at.success), [s.value for s in at.success]
 
 
@@ -4285,7 +4285,7 @@ def test_get_help_gives_an_address_to_write_to():
     root = pathlib.Path(APP_PATH).resolve().parent
     swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text())
     assert "https://github.com/thomasat/food_opt/issues" in swift
-    assert ("Describe the problem in words, and do not attach project files, "
+    assert ("Describe the problem and what you expected. Do not attach project files, "
             "saved copies or formulations, because that page is public.") in swift
 
 
@@ -4721,12 +4721,7 @@ def test_the_formulations_download_says_what_is_in_it(burger):
     at.run()
     download = _unknown(at.main, "download_button",
                         "Download all formulations (Excel)")
-    assert download.proto.help == ("One row per formulation, with the same "
-                                   "units the screen shows, and a second "
-                                   "sheet holding the set-up they were made "
-                                   "under. Formulations marked not scored "
-                                   "are included, with their measurements "
-                                   "blank.")
+    assert download.proto.help == wording.DOWNLOAD_ALL_FORMULATIONS_HELP
 
 
 # A reloaded ingredient file is the third edit that can empty a limit of
@@ -4836,8 +4831,7 @@ def test_leaving_a_formulation_out_keeps_the_note_box_open(open_batch):
     assert not note.disabled
     tick = next(c for c in at.checkbox if c.key == "f1_leave_out")
     assert tick.label == "Not scored"
-    assert tick.help == ("Ticked wins over any number typed in this row. Say "
-                         "why in Note; it stays with the formulation.")
+    assert tick.help == wording.NOT_SCORED_HELP
     # The measurement boxes still grey out: a left-out formulation has no
     # results, and only the note it leaves behind.
     assert next(n for n in at.number_input if n.key == "f1_Firmness").disabled
@@ -6184,7 +6178,7 @@ def test_delete_still_offers_the_used_ingredient_path(burger):
     _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     assert at.checkbox(key="delete_ing_force").label == (
-        "Delete even though formulations used it — those amounts go too")
+        "Delete even though formulations used it — recorded amounts will also be deleted")
     _submit_button(at, "Yes, delete").click()
     _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
@@ -6292,7 +6286,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
         assert line in text, line
     assert len(HOW_IT_WORKS) == 5
     assert "the app varies" in text and "aims for" in text
-    assert "Limits are never crossed" in text
+    assert "Generated formulations satisfy the limits you set" in text
     assert "close to the best or tries something different" in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
     # the reader types into now, so the fold that explains the screen has to
@@ -6611,7 +6605,7 @@ def test_deleting_a_property_asks_first_keeps_a_copy_and_takes_its_limit(
     assert saved.constraints == []
     assert saved.ingredient_properties["Pea protein"] == {}
     assert (tmp_path / "burger_pre_delete.pkl").exists()
-    assert any("Sodium per 100 g deleted. Its 1 limit went with it." in s.value
+    assert any("Sodium per 100 g deleted. Deleted with it: 1 limit." in s.value
                for s in at.success), [s.value for s in at.success]
 
 
@@ -6792,9 +6786,8 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     sentence = wording.PARTIAL_SCORES_CAPTION
-    assert sentence == ("A formulation missing a measurement scores it as "
-                        "zero, so its overall score is low. Record the "
-                        "missing number to fix it."), sentence
+    assert sentence == ("Missing measurements contribute zero to the overall score. "
+                        "Add them when available to update the score."), sentence
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.
@@ -6815,7 +6808,7 @@ def test_the_correct_picker_offers_not_scored_formulations(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.selectbox(key="correct_formulation").options == [
-        "1", "2", "3 · not scored"]
+        "1", "2", "3 · Not scored"]
     assert any(c.value == wording.NOT_SCORED_CAN_BE_SCORED_CAPTION
                for c in at.caption), \
         [c.value for c in at.caption]
@@ -7027,8 +7020,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     assert FoodOptimizer("burger").constraints == []
     assert (tmp_path / "burger_pre_delete.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
-    assert any(s.value == "Limit on Fat per 100 g deleted. The next round no "
-                          "longer has to obey it." for s in at.success), \
+    assert any(s.value == "Limit on Fat per 100 g deleted. This limit will not apply to future suggestions." for s in at.success), \
         [s.value for s in at.success]
 
 
@@ -7112,9 +7104,7 @@ def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(c.value == ("The top line only rises. A few flat rounds are "
-                           "normal; a long flat stretch suggests this "
-                           "ingredient list is close to the best it can do.")
+    assert any(c.value == wording.PROGRESS_CHART_CAPTION
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -8088,8 +8078,7 @@ def test_the_ready_flash_says_what_to_do_next(burger):
     _submit_button(at, wording.generate_button_label(3)).click()
     at.run()
     assert not at.exception
-    assert any(s.value == ("Round 1 is ready to make. Print the sheets, then "
-                           "record the results below when you have them.")
+    assert any(s.value == wording.batch_ready(1)
                for s in at.success), [s.value for s in at.success]
 
 
@@ -8156,7 +8145,7 @@ def test_how_it_works_is_five_lines(burger):
         "Until five formulations have results, new ones are spread out "
         "to cover the allowed amounts. After that, each round aims closer "
             "to your targets.",
-        "Limits are never crossed. "
+        "Generated formulations satisfy the limits you set. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
         "something different, and what it changes.",
@@ -8193,11 +8182,11 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     assert "Aim for a target value" in joined
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in joined
-    assert "a little less than its share suggests" in joined
+    assert "less than its share suggests" in joined
     assert ("The app learns the one overall score, so changing a share, "
             "a goal or a range re-scores every past formulation.") in joined
     assert "property" not in joined, joined
-    assert "how noisy your measurements are" in joined
+    assert "how much your measurements vary" in joined
 
 
 def test_the_getting_started_caption_is_the_bullet_word_for_word(burger):
@@ -8738,11 +8727,9 @@ def test_the_damaged_file_banner_says_the_two_ways_out(tmp_path, monkeypatch):
     at.session_state["_loaded_project"] = "broken"
     at.run()
     assert not at.exception
-    assert wording.project_load_error_info() == (
-        "This project file is damaged, so editing is off. Two ways out, both "
-        "in the sidebar: Open a saved copy, if you saved one. Or "
-        "Manage project › Clear project contents — the damaged file is "
-        "copied first.")
+    assert wording.OPEN_A_SAVED_COPY in wording.project_load_error_info()
+    assert wording.START_OVER_LABEL in wording.project_load_error_info()
+    assert "The damaged file is copied first." in wording.project_load_error_info()
     assert any(i.value == wording.project_load_error_info() for i in at.info), \
         [i.value for i in at.info]
 
