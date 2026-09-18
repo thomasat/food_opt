@@ -1510,7 +1510,7 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_names = [v["name"] for v in sample_opt.variables]
     assert len(sample_names) == 7
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Textured pea protein", "Dry blend", "Wheat gluten", "Fat phase",
+        "Textured pea protein", "Dry blend", "Wheat gluten", "Fats and oils",
         "Seasoning blend", "Water"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
@@ -6287,7 +6287,7 @@ class TestTheWorkbook:
         opt.set_pending_batch([{"Pea protein": 20.0, "Water": 70.0,
                                 "Salt": 10.0, "Cook temperature": 180.0}],
                               batch_no=3)
-        with pytest.raises(ValueError, match="no sheet called Round 3"):
+        with pytest.raises(ValueError, match="different round"):
             opt.results_from_workbook(io.BytesIO(stale))
 
     def test_a_sheet_with_no_formulation_columns_is_refused(self, tmp_path,
@@ -6474,7 +6474,7 @@ class TestTheWorkbook:
         with pytest.raises(ValueError, match="Nothing is filled in"):
             opt.results_from_workbook(out)
 
-    def test_the_summary_is_read_first_when_both_are_filled_in(
+    def test_conflicting_results_across_sheets_are_refused(
             self, tmp_path, monkeypatch):
         """One sheet has to win, and it is the one the whole batch is
         written on."""
@@ -6487,8 +6487,8 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out).frame
-        assert frame["Firmness"].iloc[0] == 5.5, frame.to_dict()
+        with pytest.raises(ValueError, match="conflicting Firmness"):
+            opt.results_from_workbook(out)
 
     # ------------------------- the whole project ------------------------ #
 
@@ -9501,8 +9501,8 @@ class TestTheFormulaColumn:
         opt.apply_ingredient_grid(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"))
         assert opt.worked_out_captions() == [
-            "Water is worked out as = rest, whatever is left of the batch "
-            "size: between 40.00 and 62.00 g in a 100 g formulation. "
+            "Water is calculated to bring the total to 100 g: "
+            "between 40.00 and 62.00 g in a 100 g formulation. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
             "while the rule does."]
 
@@ -10562,7 +10562,7 @@ class TestPreMixes:
         # The sentence names the column it moved and the numbers it wrote:
         # the reader typed 30 and 30 and the app wrote 50 and 50.
         assert wording.shares_adjusted_premix("Flour 50.00, Salt 50.00") == (
-            "% of pre-mix adjusted to add up to 100 %: Flour 50.00, "
+            "Composition (%) adjusted to add up to 100 %: Flour 50.00, "
             "Salt 50.00.")
         # Already adding up to 100: nothing moved, and nothing to say.
         assert opt.set_premix_parts(
@@ -11593,11 +11593,12 @@ class TestThePreMixGrid:
                       **{wording.PART_LABEL: "Dry blend"})
         errors, _ = opt.apply_premix_grid("Dry blend", frame)
         assert errors == [(2, wording.PART_IS_ITS_OWN_PREMIX)]
-        # A part with no unit is refused at its row too, and a blank name.
+        # A portioned part inherits the preparation unit; percentages have no unit cell.
         errors, _ = opt.apply_premix_grid("Dry blend", _edit(
             opt.premix_grid_frame("Dry blend"), 1,
             **{wording.UNIT_LABEL: ""}))
-        assert errors == [(1, wording.UNIT_REQUIRED_ERROR)]
+        assert errors == []
+        assert opt.premix_parts("Dry blend")[0]["unit"] == "g"
         assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
             "Flour", "Water"]
 

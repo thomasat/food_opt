@@ -119,7 +119,7 @@ def test_saved_copy_cleanup_keeps_newest_three_and_recent_ones(project, tmp_path
         os.utime(tmp_path / f'{name}.pkl', (when, when))
     at = AppTest.from_file(APP, default_timeout=120).run()
     assert not at.exception
-    assert 'Older copies (28)' in [e.label for e in at.expander]
+    assert 'Older copies (30)' in [e.label for e in at.expander]
     at.button(key='delete_old_copies__btn').click().run()
     assert len(backend.list_archives()) == 31
     next(b for b in at.button if b.label == wording.YES_DELETE).click().run()

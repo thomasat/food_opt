@@ -826,4 +826,4 @@ def test_the_made_as_help_says_what_each_of_the_three_answers_means():
         # Neither pre-mix answer carries a comma any more: two sentences
         # list both, and a three-item list of two options is unreadable.
         assert "," not in option
-    assert wording.PREMIX_MADE_AS_PORTIONED == "portioned from one pre-mix"
+    assert wording.PREMIX_MADE_AS_PORTIONED == "Fixed-ratio pre-mix"

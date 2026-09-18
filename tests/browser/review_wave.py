@@ -14,7 +14,7 @@ settle(page, 5)
 click(page, 'Try the sample project', wait=5)
 assert not page.locator('[data-testid="stException"]').count()
 assert grid_head(page, 0) == ['Name', 'Type', 'Made as', 'Lowest', 'Highest', 'Unit', 'Rule']
-assert [r[0] for r in grid_rows(page, 0)] == ['Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fat phase', 'Seasoning blend', 'Water', 'Mixing time after fat']
+assert [r[0] for r in grid_rows(page, 0)] == ['Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fats and oils', 'Seasoning blend', 'Water', 'Mixing time after fat']
 print('PASS sample structure and optional defaults', flush=True)
 # Read the actual canvas header bounds, not just its accessibility text.
 widths = _measure_columns(page, 0) if '_measure_columns' in globals() else None
@@ -57,20 +57,21 @@ elif mode == 'premix':
     assert fold(page, 'Dry blend · parts').get_by_role('button', name='Save changes', exact=True).is_visible()
     fold_click(page, 'Dry blend · parts', 'Discard changes')
     print('PASS parts edit keeps its fold and Save visible', flush=True)
-    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'weighed into each formulation')
+    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'Ingredients varied separately')
     click(page, 'Save changes')
     assert grid_rows(page, 0)[1][0] == 'Dry blend'
     open_fold(page, 'Dry blend · parts')
     parts = grid_named(page, 'Part')
     assert all(float(r[1]) > 0 and float(r[2]) > float(r[1]) for r in grid_rows(page, parts))
-    set_select(page, 0, 1, 2, 'portioned from one pre-mix')
+    set_select(page, 0, 1, 2, 'Fixed-ratio pre-mix')
     click(page, 'Save changes')
     assert grid_rows(page, 0)[1][3:5] == ['16.00', '22.00']
     print('PASS mode round trip preserves nonzero bands and row order', flush=True)
-    click(page, 'Next: make a round')
+    click(page, 'Generate formulations')
     # The exact button text comes from the rendered generate action.
     generate = next(x for x in labels(page) if x.startswith('Generate') and 'different' not in x)
     click(page, generate, wait=8)
+    page.get_by_label("Include individual formulation pages for printing").check(); settle(page)
     with page.expect_download() as event:
         page.get_by_role('button', name='Download the round sheets (Excel)', exact=True).click()
     downloaded = event.value

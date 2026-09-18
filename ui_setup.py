@@ -870,8 +870,8 @@ def _premix_columns(opt, name):
     else:
         columns[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
             wording.PREMIX_SHARE_LABEL, min_value=0.0, format="%.2f")
-    columns[wording.UNIT_LABEL] = st.column_config.TextColumn(
-        wording.UNIT_LABEL, default=opt.amount_unit or "g")
+    columns[wording.UNIT_LABEL] = (st.column_config.TextColumn(
+        wording.UNIT_LABEL, default=opt.amount_unit or "g") if weighed else None)
     if opt.records("vendor"):
         columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
             wording.VENDOR_LABEL, help=wording.VENDOR_HELP)
@@ -927,12 +927,48 @@ def _premix_grid(opt, storage, name):
         # the tab with no tooltip, no caption and no line under the grid.
         st.caption(wording.premix_fold_caption(
             opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED))
+        portioned = opt.premix_mode(name) == wording.PREMIX_MADE_AS_PORTIONED
+        amount_entry = False
+        quantity = 100.0
+        unit = opt.unit_of(name) or opt.amount_unit or "g"
+        if portioned:
+            basis = "by mass" if unit.lower() in ("g", "kg", "mg", "oz", "lb") else f"on a shared {unit} basis"
+            st.caption(wording.composition_basis_caption(basis))
+            mode = st.radio(wording.COMPOSITION_ENTRY_LABEL, [wording.COMPOSITION_PERCENTAGES, wording.COMPOSITION_AMOUNTS],
+                            horizontal=True, key=grid + "_entry_mode")
+            amount_entry = mode == wording.COMPOSITION_AMOUNTS
+            if amount_entry:
+                st.caption(wording.COMPOSITION_AMOUNTS_HELP)
+            quantity = st.number_input(wording.premix_quantity_label(unit), min_value=0.01,
+                                       value=100.0, key=grid + "_preview_quantity")
+            marker = (mode, quantity)
+            if st.session_state.get(grid + "_mode_mark") != marker:
+                rekey_grid(grid)
+                st.session_state[grid + "_mode_mark"] = marker
         opening, from_park = _opening_frame(grid, saved)
+        display = opening.copy()
+        config = _premix_columns(opt, name)
+        if amount_entry:
+            shares = pd.to_numeric(display[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            display[wording.PREMIX_SHARE_LABEL] = shares * quantity / (shares.sum() or 100)
+            config[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
+                f"Amount ({unit})", min_value=0.0, format="%.2f")
         edited = st.data_editor(
-            opening, key=grid_key(grid), num_rows="dynamic",
-            column_config=_premix_columns(opt, name),
-            use_container_width=True,
+            display, key=grid_key(grid), num_rows="dynamic",
+            column_config=config, use_container_width=True,
             height=table_height(max(len(saved) + 1, 2), max_rows=20))
+        if amount_entry:
+            shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            if shares.sum() > 0:
+                edited[wording.PREMIX_SHARE_LABEL] = shares / shares.sum() * 100
+        if portioned:
+            shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            if shares.sum() > 0:
+                preview = pd.DataFrame({"Ingredient": edited[wording.PART_LABEL],
+                                        "Composition (%)": shares / shares.sum() * 100,
+                                        f"Amount ({unit})": shares / shares.sum() * quantity})
+                st.dataframe(preview.style.format({"Composition (%)": "{:.2f}",
+                                                  f"Amount ({unit})": "{:.2f}"}), hide_index=True)
         slot = st.empty()
         names = ({int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
                   for no in edited.index}
@@ -1884,6 +1920,8 @@ def _foot(opt, pending=False):
 
 
 def render(opt, storage):
+    if not opt.X_history and not opt.pending_batch:
+        st.caption(wording.SETUP_INTRO)
     # The sample's own welcome, directly under the tab's title: gone the
     # moment any formulation exists, scored or not — a batch whose one row
     # was ticked Not scored has still been made, and "Next: make a round"
@@ -1891,6 +1929,8 @@ def render(opt, storage):
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
         st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
+    if opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
+        st.caption(wording.TEACHING_EXAMPLE_CAPTION)
     pending, captions = _variables(opt, storage)
     st.divider()
     pending = _measurements(opt, storage) or pending

@@ -105,7 +105,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py workbook_flow.py sample_projects.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
@@ -589,8 +589,7 @@ assert water.iloc[0][wording.LOWEST_LABEL] == "", \
 assert water.iloc[0][wording.HIGHEST_LABEL] == wording.WORKED_OUT, \
     water.iloc[0][wording.HIGHEST_LABEL]
 captions = [c.value for c in at.caption]
-assert any(c.startswith("Water is " + wording.WORKED_OUT + " as = "
-                        + wording.REST_TOKEN) for c in captions), captions
+assert any(c.startswith("Water is calculated to bring the total to") for c in captions), captions
 
 # More settings - Limits: one Kind picker choosing the shape of the limit,
 # and because the sample has a default batch size the "Write it as" choice
@@ -609,9 +608,9 @@ print("RULES_OK")
 import io
 from openpyxl import load_workbook
 opt = at.session_state["optimizer"]
-assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Dry blend", "Wheat gluten", "Fat phase", "Seasoning blend", "Water", "Mixing time after fat"]
+assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Dry blend", "Wheat gluten", "Fats and oils", "Seasoning blend", "Water", "Mixing time after fat"]
 assert wording.MADE_AS_LABEL in columns
-assert opt.premixes["Fat phase"]["mode"] == "weighed"
+assert opt.premixes["Fats and oils"]["mode"] == "weighed"
 assert len(opt.premixes["Dry blend"]["parts"]) == 3
 assert opt._by_name()["Seasoning blend"]["bounds"] == (2.2, 2.2)
 opt.ask(3)
@@ -624,6 +623,10 @@ summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
 assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
 page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
 assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
+compact = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100, print_pack=False)))
+assert compact.sheetnames == ["Round overview", "Preparation", "Results"]
+assert compact.active.title == "Round overview"
+assert any(str(c.value).startswith("Cook loss (%)") for row in compact["Results"] for c in row)
 print("PREMIX_OK")
 # Committed manual fields survive a fresh application session.
 at.run()

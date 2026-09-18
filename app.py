@@ -137,7 +137,7 @@ def _reset_project_session():
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
-              "_results_upload", "_import_rows", "_result_draft_seed",
+              "_results_upload", "_results_file_mark", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
               # The Method box: a project's own text, and one left behind
@@ -163,7 +163,9 @@ def _reset_project_session():
     # the project being opened.
     reset_grids()
     for k in [k for k in st.session_state if isinstance(k, str)]:
-        if k in _FORM_FRESH:
+        if k.startswith("edit_round_"):
+            st.session_state.pop(k, None)
+        elif k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
         elif k.startswith(_PER_NAME_BOX_PREFIXES):
             # One box per property, and one per variable: the names are the
@@ -224,10 +226,13 @@ class _FreshStart:
         return False
 
 
-def _build_sample_project(name):
+def _build_sample_project(name, kind="Burger formulation"):
     """The current sample, built from nothing onto `name`. Every setter below
     saves, and a save writes the whole project, so the first one replaces an
     older sample outright rather than editing it."""
+    import sample_projects
+    if kind != sample_projects.OPTIONS[0]:
+        return sample_projects.build(kind, name, _FreshStart(), STORAGE)
     _sample = FoodOptimizer(name, storage=_FreshStart())
     _sample.storage = STORAGE
     _sample.set_amount_unit("g")
@@ -283,7 +288,7 @@ def _build_sample_project(name):
     return _sample
 
 
-def _open_sample_project():
+def _open_sample_project(kind="Burger formulation"):
     """Open the sample, building it first unless there is one worth keeping.
 
     A Mac that met an earlier version has that version's sample on disk, and
@@ -293,7 +298,8 @@ def _open_sample_project():
     holds any work of the user's it is their project, and it is opened
     exactly as it stands.
     """
-    _name = wording.SAMPLE_PROJECT_NAME
+    import sample_projects
+    _name = sample_projects.NAMES[kind]
     _existing = None
     if STORAGE.exists(_name):
         _existing = FoodOptimizer(_name, storage=STORAGE)
@@ -307,7 +313,7 @@ def _open_sample_project():
             _open_project(_name)
             return
     try:
-        _sample = _build_sample_project(_name)
+        _sample = _build_sample_project(_name, kind)
     except ValueError as e:
         st.error(wording.sample_project_failed(e))
     else:
@@ -353,7 +359,7 @@ def _safety_copies(opt):
     # one the app took.
     ordered = sorted(mine, key=lambda row: row[0] or datetime.min.astimezone(),
                      reverse=True)
-    # Three on the sidebar, the rest in a fold. The app makes a copy before
+    # The latest copy on the sidebar, the rest in a fold. The app makes a copy before
     # every edit, so a month of ordinary work left thirty of them down a
     # sidebar that also holds the project list.
     for when, name, reason in ordered[:_COPIES_SHOWN]:
@@ -369,11 +375,12 @@ def _safety_copies(opt):
                 day = this_day
                 st.caption(wording.copies_by_day(day))
             _safety_copy_row(when, name, reason)
-        _delete_old_copies(older)
+        _delete_old_copies(ordered[_COPIES_RETAIN_NEWEST:])
 
 
 # How many of the app's own copies stand on the sidebar itself.
-_COPIES_SHOWN = 3
+_COPIES_SHOWN = 1
+_COPIES_RETAIN_NEWEST = 3
 # ...and how old a copy has to be before the tidy-up will take it.
 _COPIES_KEEP_DAYS = 7
 
@@ -536,12 +543,14 @@ with st.sidebar:
 
     # On a first run the welcome panel already offers the sample, so the
     # sidebar shows it only once at least one project exists.
+    import sample_projects
+    example = st.selectbox(wording.EXAMPLE_PROJECT_LABEL, sample_projects.OPTIONS, key="example_sidebar")
     if existing_projects and os.path.exists(_SAMPLE_CSV):
         if st.button(
             wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
             help=wording.TRY_SAMPLE_HELP,
         ):
-            _open_sample_project()
+            _open_sample_project(example)
 
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
@@ -778,8 +787,10 @@ if opt is None:
     st.markdown(wording.welcome_steps())
     wc1, wc2 = st.columns(2)
     with wc1:
+        import sample_projects
+        example = st.session_state.get("example_sidebar", sample_projects.OPTIONS[0])
         if os.path.exists(_SAMPLE_CSV) and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
-            _open_sample_project()
+            _open_sample_project(example)
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             st.download_button(

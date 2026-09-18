@@ -6236,7 +6236,7 @@ def test_the_upload_is_folded_away_beneath(burger):
     at.run()
     fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit, Rule, Part of, Made as and % of pre-mix. Extra numeric columns "
+                           "and, optionally, Unit, Rule, Part of, Made as and Composition (%). Extra numeric columns "
                            "become properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
@@ -7206,7 +7206,7 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
     # ...and the consequence under the grid is read at the new size on the
     # very run the number moved, not on the next visit to the tab.
     assert any("in a 250 g formulation" in line
-               and line.startswith("Water is worked out as = rest")
+               and line.startswith("Water is calculated to bring the total to")
                for line in said), said
     assert not any("in a 100 g formulation" in line for line in said), said
 
@@ -7228,7 +7228,7 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     at.run()
     said = _tab1_captions(at)
     assert wording.RULE_HINT in said, said
-    assert any(c.startswith("Methylcellulose is worked out as = rest")
+    assert any(c.startswith("Methylcellulose is calculated to bring the total to")
                for c in said), said
 
 
@@ -8071,7 +8071,7 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
     assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
     # Step 1 carries no count of its own: the title above it already has one.
     assert wording.STEP_MAKE_HEADING == "##### Make the formulations"
-    assert wording.STEP_PRINT_HEADING == "##### Print the sheets"
+    assert wording.STEP_PRINT_HEADING == "##### Download the workbook"
     assert wording.STEP_RECORD_HEADING == "##### Record the results"
 
 
@@ -10072,8 +10072,7 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
         "", wording.WORKED_OUT)
     assert row[wording.FORMULA_LABEL] == "= rest"
-    assert any(c.value.startswith("Water is worked out as = rest, whatever "
-                                  "is left of the batch size: between 25.00 "
+    assert any(c.value.startswith("Water is calculated to bring the total to 50 g: between 25.00 "
                                   "and 40.00 g in a 50 g formulation")
                for c in at.caption), [c.value for c in at.caption]
 
@@ -10164,7 +10163,7 @@ def test_opening_the_sample_again_keeps_its_default_batch_size(tmp_path,
         'formulation_total']
 
 
-def test_the_round_table_is_not_an_editor(worked_out):
+def test_round_table_is_read_only_until_edit_is_requested(worked_out):
     """The round table on tab 2 gains no editing of its own — a worked-out
     row's amount is drawn like any other, never typed over — and the
     caption under it says where a correction actually happens."""
@@ -10177,7 +10176,7 @@ def test_the_round_table_is_not_an_editor(worked_out):
     assert not at.exception
     tab = at.tabs[1]
     assert list(tab.get("data_editor")) == []
-    assert any(c.value == wording.CORRECTIONS_ON_RESULTS_CAPTION
+    assert any(c.value == wording.FORMULATION_CORRECTIONS_CAPTION
               for c in tab.caption), [c.value for c in tab.caption]
 
 
@@ -10300,10 +10299,10 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
     assert not at.exception
     opt = at.session_state['optimizer']
     assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        'Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fat phase',
+        'Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fats and oils',
         'Seasoning blend', 'Water', 'Mixing time after fat']
     assert {name: p['mode'] for name, p in opt.premixes.items()} == {
-        'Dry blend': 'portioned', 'Fat phase': 'weighed', 'Seasoning blend': 'portioned'}
+        'Dry blend': 'portioned', 'Fats and oils': 'weighed', 'Seasoning blend': 'portioned'}
     assert sum(len(p['parts']) for p in opt.premixes.values()) == 10
     for name in ('Dry blend', 'Seasoning blend'):
         assert sum(p['share'] for p in opt.premix_parts(name)) == 100

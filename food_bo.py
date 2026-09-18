@@ -139,6 +139,7 @@ PREMIX_MADE_AS = {
 # in wording with the new ones; nothing here writes a word of its own.
 PREMIX_MADE_AS_WAS = {text.lower(): PREMIX_PORTIONED
                       for text in wording.PREMIX_MADE_AS_PORTIONED_WAS}
+PREMIX_MADE_AS_WAS[wording.OLD_WEIGHED_MODE] = PREMIX_WEIGHED
 
 # The four optional fields, and what a new project answers for each. They
 # are OFF: Vendor and SKU are specification data, typed once at set-up and
@@ -850,7 +851,7 @@ def _made_as_cell(row):
     was written. `bought in` is the word the select shows for a row that is
     not a pre-mix, and a file may leave the cell empty for the same thing."""
     text = _text_cell(row, wording.MADE_AS_LABEL)
-    if text.strip().lower() == wording.PREMIX_MADE_AS_BOUGHT_IN.lower():
+    if text.strip().lower() in {wording.PREMIX_MADE_AS_BOUGHT_IN.lower(), wording.OLD_SINGLE_MODE}:
         return ""
     return text
 
@@ -1395,7 +1396,7 @@ def ingredients_template_workbook(path):
     One row, not eight. A file arriving with a full ingredient list already
     in it is an export, and the reader who downloaded a "template" then has
     to work out which lines are theirs and which the app's."""
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(path).rename(columns={wording.OLD_COMPOSITION_LABEL: wording.PREMIX_SHARE_LABEL})
     # A file written before the column was renamed still reads (the loader
     # accepts both spellings; so does the template it hands out).
     if wording.PREMIX_LABEL in frame and wording.PART_OF_LABEL not in frame:
@@ -1846,6 +1847,8 @@ class FoodOptimizer:
             canonical[label.lower().replace("-", "")] = label
         # The column was headed `Pre-mix` before this wave; a file written
         # then still reads.
+        canonical[wording.OLD_COMPOSITION_LABEL] = wording.PREMIX_SHARE_LABEL
+        canonical[wording.OLD_COMPOSITION_LABEL_UNHYPHENATED] = wording.PREMIX_SHARE_LABEL
         canonical[wording.PREMIX_LABEL.lower()] = wording.PART_OF_LABEL
         canonical[wording.PREMIX_LABEL.lower().replace("-", "")] = (
             wording.PART_OF_LABEL)
@@ -1946,7 +1949,7 @@ class FoodOptimizer:
             made_as = _file_text(row, wording.MADE_AS_LABEL,
                                  present[wording.MADE_AS_LABEL])
             if (made_as.strip().lower()
-                    == wording.PREMIX_MADE_AS_BOUGHT_IN.lower()):
+                    in {wording.PREMIX_MADE_AS_BOUGHT_IN.lower(), wording.OLD_SINGLE_MODE}):
                 made_as = ""
             if made_as and group:
                 raise ValueError(wording.PREMIX_INSIDE_PREMIX)
@@ -3839,7 +3842,7 @@ class FoodOptimizer:
         return wording.sheet_measurement_label(
             label_with_unit(obj['name'], obj.get('unit')), goal_line(obj))
 
-    def workbook_bytes(self, batch, total=None, sized=False):
+    def workbook_bytes(self, batch, total=None, sized=False, print_pack=True):
         """The open round as one Excel file: a summary sheet the whole round
         is weighed out from, and one sheet per formulation to carry, tick and
         write on.
@@ -3868,6 +3871,10 @@ class FoodOptimizer:
         for index, (name, title) in enumerate(self._premix_sheet_names(
                 [row['formulation'] for row in rows]).items()):
             self._write_premix_sheet(book.create_sheet(title, index), name, rows, total)
+        import workbook_flow
+        workbook_flow.stamp(book, self, rows, total)
+        if not print_pack:
+            book = workbook_flow.compact(book, self, rows)
         book.active = 0
         buffer = io.BytesIO()
         book.save(buffer)
@@ -4570,6 +4577,14 @@ class FoodOptimizer:
         """
         wanted = wording.batch_sheet_name(
             self.pending_batch_no if batch_no is None else batch_no)
+        import workbook_flow
+        try:
+            source = workbook_flow.prepare_import(source, self,
+                self.pending_batch_no if batch_no is None else batch_no)
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError(wording.WORKBOOK_UNREADABLE)
         try:
             book = pd.ExcelFile(source)
         except Exception:
@@ -4582,8 +4597,28 @@ class FoodOptimizer:
             rows, numbers = self._transpose_batch_sheet(summary, wanted)
             if not numbers:
                 raise ValueError(wording.workbook_no_formulations(wanted))
-            if not rows:
-                rows = self._read_formulation_sheets(book, numbers)
+            page_rows = self._read_formulation_sheets(book, numbers)
+            merged = {row['Formulation']: dict(row) for row in rows}
+            for item in page_rows:
+                number = item['Formulation']
+                if number not in merged:
+                    merged[number] = item
+                    continue
+                for key, value in item.items():
+                    previous = merged[number].get(key)
+                    blank = value is None or str(value).strip() in ('', wording.TICK_BOX)
+                    was_blank = previous is None or str(previous).strip() in ('', wording.TICK_BOX)
+                    if blank:
+                        continue
+                    if not was_blank and str(previous).strip() != str(value).strip():
+                        try:
+                            same = float(previous) == float(value)
+                        except (TypeError, ValueError):
+                            same = False
+                        if not same:
+                            raise ValueError(wording.workbook_result_conflict(number, key))
+                    merged[number][key] = value
+            rows = list(merged.values())
             lots = self._lots_from_summary(summary)
             for group, title in self._premix_sheet_names(numbers, wanted).items():
                 if title not in book.sheet_names:
@@ -4753,6 +4788,8 @@ class FoodOptimizer:
                 except (TypeError, ValueError):
                     raise ValueError(wording.workbook_actual_not_a_number(
                         number, variable))
+                if not math.isfinite(amount):
+                    raise ValueError(wording.workbook_actual_not_a_number(number, variable))
                 if amount < 0:
                     raise ValueError(wording.workbook_actual_below_zero(
                         number, variable))
@@ -4889,6 +4926,8 @@ class FoodOptimizer:
                 first_measurement += 1
         for position, obj in enumerate(self.measurements_by_importance()):
             names = {self._measurement_sheet_label(obj).lower(),
+                     self._measurement_sheet_label(obj).replace(obj['name'],
+                         f"{obj['name']} ({obj.get('unit')})", 1).lower(),
                      label_with_unit(obj['name'], obj.get('unit')).lower(),
                      str(obj['name']).strip().lower()}
             index = next((i for i in range(len(lowered) - 1, -1, -1)
@@ -7339,8 +7378,10 @@ class FoodOptimizer:
         rows = []
         for k, item in enumerate(batch or []):
             if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
-                rows.append(self._batch_row(int(item['formulation']),
-                                            item['recipe'], item.get('note')))
+                row = self._batch_row(int(item['formulation']), item['recipe'], item.get('note'))
+                if isinstance(item.get('original_recipe'), dict):
+                    row['original_recipe'] = dict(item['original_recipe'])
+                rows.append(row)
             else:
                 rows.append(self._batch_row(k + 1, item, None))
         return rows
@@ -7362,8 +7403,10 @@ class FoodOptimizer:
         rows = []
         for item in batch:
             if isinstance(item, dict) and 'recipe' in item and 'formulation' in item:
-                rows.append(self._batch_row(int(item['formulation']),
-                                            item['recipe'], item.get('note')))
+                row = self._batch_row(int(item['formulation']), item['recipe'], item.get('note'))
+                if isinstance(item.get('original_recipe'), dict):
+                    row['original_recipe'] = dict(item['original_recipe'])
+                rows.append(row)
             else:
                 rows.append(self._batch_row(self._issue_formulation_no(),
                                             item, None))
@@ -7640,6 +7683,64 @@ class FoodOptimizer:
             return
         self.pending_batch_total = value
         self.save()
+
+    def edit_pending_formulations(self, changes):
+        """Validate every edit before changing any row; calculated amounts are derived.
+
+        Original suggestions stay with the pending row and a safety copy holds
+        the full pre-edit project. Recorded formulations are never edited here.
+        """
+        rows = [dict(row, recipe=dict(row['recipe'])) for row in self.pending_batch or []]
+        recorded = set(self.formulation_ids) | {row['formulation'] for row in self.skipped}
+        known = {row['formulation'] for row in rows} - recorded
+        if not set(changes).issubset(known):
+            raise ValueError(wording.EDIT_ONLY_PENDING)
+        size = self.open_round_size()
+        base = self.formulation_total
+        factor = size / base if size and base else 1.0
+        variables = self._by_name()
+        changed = False
+        for row in rows:
+            updates = changes.get(row['formulation'], {})
+            if not updates:
+                continue
+            recipe = dict(row['recipe'])
+            for name, value in updates.items():
+                var = variables.get(name)
+                if var is None or self.has_formula(var):
+                    raise ValueError(wording.edit_calculated_error(name))
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    raise ValueError(wording.edit_number_error(name))
+                if not math.isfinite(value):
+                    raise ValueError(wording.edit_number_error(name, finite=True))
+                caution = self.bounds_caution(name, value, factor)
+                if caution:
+                    raise ValueError(wording.edit_formulation_error(row['formulation'], caution))
+                recipe[name] = value
+            recipe = self.fill_formulas(recipe, size)
+            if any(not math.isfinite(float(v)) or (float(v) < -1e-8 and
+                   variables[n].get('category', 'ingredient') == 'ingredient')
+                   for n, v in recipe.items()):
+                raise ValueError(wording.edit_negative_error(row['formulation']))
+            if size and self.total_mismatch(row['formulation'], recipe, size):
+                raise ValueError(self.total_mismatch(row['formulation'], recipe, size)
+                                 + wording.EDIT_BALANCE_HELP)
+            candidate = dict(row, recipe=recipe)
+            caution = self.scaled_limit_caution([candidate], size, sized=True)
+            if caution:
+                raise ValueError(caution)
+            if recipe != row['recipe']:
+                row.setdefault('original_recipe', dict(row['recipe']))
+                row['recipe'] = recipe
+                row['note'] = row.get('note') or wording.EDITED_FORMULATION
+                changed = True
+        if changed:
+            self.storage.archive(self.project_name, "pre_edit", copy=True)
+            self.pending_batch = rows
+            self.save()
+        return changed
 
     def scale_round(self, batch_size):
         """Make every formulation in the open round to `batch_size`.
@@ -9792,7 +9893,7 @@ class FoodOptimizer:
                                      else wording.KIND_SETTING),
                 wording.MADE_AS_LABEL: (
                     wording.PREMIX_MADE_AS_PORTIONED if group
-                    else wording.PREMIX_MADE_AS_BOUGHT_IN),
+                    else wording.PREMIX_MADE_AS_BOUGHT_IN if ingredient else ''),
                 wording.LOWEST_LABEL: low,
                 wording.HIGHEST_LABEL: high,
                 wording.UNIT_LABEL: self.unit_of(var['name']) or "",
@@ -9973,6 +10074,8 @@ class FoodOptimizer:
                                  ('sku', wording.SKU_LABEL)):
                 if label not in row:
                     entry[field] = previous.get(field, '')
+            if not weighed and not entry['unit']:
+                entry['unit'] = previous.get('unit') or self.unit_of(name) or self.amount_unit or 'g'
             if weighed:
                 # Weighed, the share column is not on the grid at all and
                 # the part keeps whatever it had: switching back the other

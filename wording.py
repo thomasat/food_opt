@@ -183,9 +183,8 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "A ready-made plant-based burger: six rows, three pre-mixes, a mixing "
-    "time, a fat limit, and firmness, juiciness and cook loss. Try it "
-    "before setting up your own."
+    "Open the selected teaching example with ingredients or process settings, "
+    "measurements, a method and scientific background."
 )
 
 # The sample project's own name, so app.py and ui_setup.py agree on how it is
@@ -195,11 +194,14 @@ SAMPLE_PROJECT_NAME = "Sample project"
 
 # The sample's own targets_source, set once when it is built.
 SAMPLE_TARGETS_SOURCE = (
-    "Illustrative targets, not recorded panel results: scores are against "
-    "an 80/20 beef control cooked to 74 °C core, which "
-    "the example panel rates firmness 6 and juiciness 7 out of 10, against written "
-    "anchors (12 panellists, two sessions, February 2026). Above firmness 7 "
-    "the patty eats rubbery; below juiciness 5 it eats dry and chalky."
+    "Illustrative training example; not a validated formulation or recorded panel study. "
+    "Firmness 6/10, juiciness 7/10 and their shares of the score are example choices. "
+    "Scientific background: Peñaranda et al. (2025), Plant-Based Burgers with Reduced "
+    "Texture Additives, https://doi.org/10.3390/foods14081373. That study compares "
+    "binders in soybean burgers; this pea-protein formulation, allowed values and targets are "
+    "adaptations, not values validated by that paper. Establish sensory anchors "
+    "and suitable allowed values with your own pilot work. Ingredient property figures "
+    "are illustrative; replace them with supplier data."
 )
 
 # The sample's Method: how the bench makes one formulation, in the order it
@@ -207,9 +209,11 @@ SAMPLE_TARGETS_SOURCE = (
 # formulations that must be made identically except for the amounts had
 # nothing on paper saying how.
 SAMPLE_METHOD = (
-    "Hydrate the textured pea protein in 2.2 x as much of the water, "
-    "10 min at 45 °C. Add the dry blend and gluten to the rest of the water "
-    "and mix 60 s. Add the fat phase and mix for the mixing time. Form "
+    "Hydrate the textured pea protein with 2.2 times its mass of water taken "
+    "from the total Water amount, 10 min at 45 °C. In a separate bowl, combine "
+    "the dry blend, seasoning blend and gluten with the remaining water. "
+    "Combine with the hydrated protein and mix 60 s. Add the fats and oils "
+    "and mix for the specified mixing time. Form "
     "100 g patties, 100 mm x 12 mm. Chill 20 min at 4 °C. Griddle at "
     "180 °C, 3 min per side, to 74 °C core; serve within 3 min."
 )
@@ -219,7 +223,7 @@ SAMPLE_METHOD = (
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
     "A plant-based burger study with ingredients, pre-mixes and mixing time. "
-    "Next: make a round."
+    "Review the example allowed values and measurements, then generate formulations."
 )
 
 # The project-level Method: one text area in More settings, printed on the
@@ -286,7 +290,7 @@ CHECK_THIS_COPY = "Open this copy"
 # promising a list — so each is named here for what it was taken before.
 SAFETY_COPIES_CAPTION = "Copies this app made before a change:"
 SAFETY_COPY_REASONS = {
-    'pre_edit': "Before an edit to a recorded result",
+    'pre_edit': "Before an edit",
     'pre_delete': "Before a deletion",
     'pre_restore': "Before opening a saved copy",
     'archived': "Before starting this project over",
@@ -644,7 +648,7 @@ HOW_CHOSEN = ("Until five formulations have results, new ones are spread out "
 # had the cold reader clicking the tab when they meant the section. The
 # order is the order they are drawn in.
 STEP_MAKE_HEADING = f"##### Make the {FORMULATION}s"
-STEP_PRINT_HEADING = "##### Print the sheets"
+STEP_PRINT_HEADING = "##### Download the workbook"
 STEP_RECORD_HEADING = "##### Record the results"
 
 
@@ -1244,7 +1248,7 @@ LOAD_INGREDIENTS_BUTTON = "Load ingredients"
 # one does not (the name is reserved) — with nothing on screen to say what
 # it is for.
 INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
-                            "and, optionally, Unit, Rule, Part of, Made as and % of pre-mix. Extra numeric columns "
+                            "and, optionally, Unit, Rule, Part of, Made as and Composition (%). Extra numeric columns "
                             "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
@@ -1591,7 +1595,7 @@ def fixed_amounts_do_not_add_up(made_text, total_text):
 def fixing_breaks_the_total(total_text):
     """A row whose Lowest is its Highest is one amount, and one amount can
     put the batch size out of reach of the rows still moving. The two ways
-    back are the size and the ranges — not the eight ingredients the size's
+    back are the size and the allowed values — not the eight ingredients the size's
     own limit happens to name."""
     return (f"Fixing these would leave no formulation adding up to "
             f"{total_text}. Change the {BATCH_SIZE_NOUN}, or let enough "
@@ -1654,7 +1658,7 @@ def invalid_json(e):
 
 IN_USE_PREFIX = "In use: "
 
-NEXT_MAKE_BATCH_BUTTON = f"Next: make a {ROUND}"
+NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 
 
 # ------------------------------------------------------------------ #
@@ -1973,7 +1977,7 @@ def rows_with_nothing_measured(rows_text, many):
 
 
 SET_UP_THIS_PROJECT_BUTTON = "Set up this project"
-MAKE_YOUR_FIRST_BATCH_BUTTON = f"Make your first {ROUND}"
+MAKE_YOUR_FIRST_BATCH_BUTTON = "Generate your first formulations"
 ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
                                 "formulations again. Nothing recorded has "
                                 "been lost.")
@@ -2953,8 +2957,8 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     """
     text = str(formula_text).strip()
     if rest:
-        head = (f"{name} is {WORKED_OUT} as = {REST_TOKEN}, whatever is "
-                f"left of the {BATCH_SIZE_NOUN}")
+        head = (f"{name} is calculated to bring the total to {size_text}"
+                if size_text else f"{name} fills the remaining amount of the formulation")
     else:
         head = f"{name} is {WORKED_OUT} as {text}"
     # A rule that comes to one number says that number: "between 1.50 and
@@ -3025,6 +3029,8 @@ def worked_out_row_note(lines_text):
 
 def worked_out_row_rule(name, rule_text):
     """'Water is worked out: = rest.' — one row of the note above."""
+    if str(rule_text).replace(" ", "").lower() == "=rest":
+        return f"{name} is calculated to bring the ingredients to the formulation total."
     return f"{name} is {WORKED_OUT}: {rule_text}."
 
 
@@ -3073,21 +3079,21 @@ PREMIX_LABEL = "Pre-mix"
 # "this row is a pre-mix".
 PART_OF_LABEL = "Part of"
 MADE_AS_LABEL = "Made as"
-PREMIX_SHARE_LABEL = "% of pre-mix"
+PREMIX_SHARE_LABEL = "Composition (%)"
 # The three answers to `Made as`, and the whole of what the column asks.
 # Neither of the two pre-mix answers carries a comma any more: two sentences
 # list both options, and "one pre-mix, portioned, or weighed into each
 # formulation" reads as three things where the select offers two.
 # `bought in` is the ordinary case and the default — the cell was blank, and
 # a blank is not an answer a reader can recognise as the one they want.
-PREMIX_MADE_AS_BOUGHT_IN = "bought in"
+PREMIX_MADE_AS_BOUGHT_IN = "Single ingredient"
 # What the portioned answer was called before the comma came out of it, in
 # both the spellings a hand-typed file uses. An ingredients file written
 # then still loads.
-PREMIX_MADE_AS_PORTIONED_WAS = ("one pre-mix, portioned",
+PREMIX_MADE_AS_PORTIONED_WAS = ("portioned from one pre-mix", "one pre-mix, portioned",
                                 "one premix, portioned")
-PREMIX_MADE_AS_PORTIONED = "portioned from one pre-mix"
-PREMIX_MADE_AS_WEIGHED = "weighed into each formulation"
+PREMIX_MADE_AS_PORTIONED = "Fixed-ratio pre-mix"
+PREMIX_MADE_AS_WEIGHED = "Ingredients varied separately"
 # How a pre-mix is named when something else found the clash, alongside
 # AN_INGREDIENT and A_PROCESS_SETTING above.
 A_PREMIX = "a pre-mix"
@@ -3278,7 +3284,7 @@ PART_LABEL = "Part"
 # and the amount of it in a formulation is whatever they add up to.
 SUM_OF_ITS_PARTS = "sum of its parts"
 PARTS_ADD_TO_NOTHING = ("The parts add up to nothing. Give at least one of "
-                        "them a % of pre-mix above zero.")
+                        "them a composition percentage above zero.")
 PREMIX_NEEDS_A_PART = "Enter at least one name in the Part column before saving."
 
 
@@ -3359,7 +3365,7 @@ def premix_write_in_note(actual_head=None, lot=True):
     if lot:
         columns.append(PREMIX_LOT_LABEL)
     columns += [PREMIX_BLENDED_BY_LABEL, PREMIX_BLENDED_ON_LABEL, PREMIX_BLEND_TIME_LABEL]
-    return ("% of pre-mix is the percentage of this pre-mix, not of the formulation. "
+    return (f"{PREMIX_SHARE_LABEL} describes this pre-mix. Amounts are the quantities to weigh. "
             + write_in_note(columns))
 
 
@@ -3415,7 +3421,7 @@ BENCH_RECORD_COLUMNS = {'sheet': "Sheet", 'cell': "Cell", 'label': "Entry", 'val
 BENCH_RECORDS_CAPTION = (
     "Filled-in boxed cells are saved with this round and included in All formulations. "
     "Preparation amounts and notes are kept as bench records; they do not change "
-    "a pre-mix's % of pre-mix for future rounds."
+    "a pre-mix's composition percentages for future rounds."
 )
 
 
@@ -3427,3 +3433,48 @@ def premix_members_line(name, names):
     return f"{name}: {names}. These parts are weighed into each formulation."
 
 PART_AMOUNTS_REQUIRED = "Enter a number in both Lowest and Highest for this part."
+
+
+# Round editing and compact workbook workflow.
+EXAMPLE_PROJECT_LABEL = 'Example project'
+WORKBOOK_WORKFLOW_CAPTION = 'Download → Enter measurements → Upload → Review → Save results. Excel changes reach this project after upload.'
+EDIT_FORMULATIONS = 'Edit formulations'
+EDIT_FORMULATIONS_CAPTION = 'Edit ingredient amounts and process settings. Calculated amounts update when you save. Recorded formulations stay in Results.'
+PRINT_PACK_CHECKBOX = 'Include individual formulation pages for printing'
+FINISH_FORMULATION_EDITS = 'Save or cancel your formulation edits to continue with preparation and results.'
+COMPACT_WORKBOOK_CAPTION = 'Three tabs: Round overview · Preparation · Results. Enter all measurements on Results.'
+FORMULATION_CORRECTIONS_CAPTION = 'Use Edit formulations before preparation; record actual amounts with results after preparation.'
+COMPOSITION_AMOUNTS = 'Amounts'
+SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then generate your first formulations.'
+COMPOSITION_AMOUNTS_HELP = 'Enter ingredient amounts. Their proportions are saved as percentages; the preview calculates amounts for the quantity below.'
+COMPOSITION_ENTRY_LABEL = 'Enter composition as'
+COMPOSITION_PERCENTAGES = 'Percentages'
+TEACHING_EXAMPLE_CAPTION = 'Teaching example: illustrative values. Read the method and sources in More settings.'
+def composition_basis_caption(basis):
+    return f"Composition is expressed as percentages {basis}. Weighing amounts are calculated below."
+
+def premix_quantity_label(unit):
+    return f"Pre-mix quantity to prepare ({unit})"
+
+OLD_WEIGHED_MODE = "weighed into each formulation"
+OLD_SINGLE_MODE = "bought in"
+OLD_COMPOSITION_LABEL = "% of pre-mix"
+OLD_COMPOSITION_LABEL_UNHYPHENATED = "% of premix"
+EDIT_ONLY_PENDING = "Only unrecorded formulations in this round can be edited."
+EDIT_BALANCE_HELP = " Adjust the amounts or use a balance ingredient."
+EDITED_FORMULATION = "Edited formulation"
+
+def edit_calculated_error(name):
+    return f"{name} is calculated or unavailable; edit its inputs instead."
+
+def edit_number_error(name, finite=False):
+    return f"Enter a finite number for {name}." if finite else f"Enter a number for {name}."
+
+def edit_formulation_error(number, error):
+    return f"Formulation {number}: {error}"
+
+def edit_negative_error(number):
+    return f"Formulation {number}: the calculated ingredient amounts must be zero or greater."
+
+def workbook_result_conflict(number, key):
+    return f"Formulation {number}: conflicting {key} entries on the round and formulation sheets. Keep one value or make them agree, then upload again."

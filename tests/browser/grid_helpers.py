@@ -6,8 +6,8 @@ URL = os.environ.get("APP_URL", "http://127.0.0.1:18717")
 ROW_H = 35
 # Name Type "Made as" Lowest Highest Unit Vendor SKU Rule
 NAME, TYPE, MADE_AS, LOWEST, HIGHEST, UNIT = 0, 1, 2, 3, 4, 5
-PORTIONED = "one pre-mix, portioned"
-WEIGHED = "weighed into each formulation"
+PORTIONED = "Fixed-ratio pre-mix"
+WEIGHED = "Ingredients varied separately"
 rows = []
 
 
@@ -25,7 +25,7 @@ def settle(p, s=1.5):
     time.sleep(s)
     try:
         p.locator('[data-testid="stStatusWidget"]').wait_for(state="hidden",
-                                                             timeout=300000)
+                                                             timeout=30000)
     except Exception:
         pass
     time.sleep(0.6)

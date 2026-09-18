@@ -9,18 +9,22 @@ rather than rewriting a picture of them on the way out.
 Changed batch sizes and committed measurement drafts are persisted; unchanged
 reruns do not write.
 """
+import hashlib
+import json
+
 import pandas as pd
 import streamlit as st
 
 import wording
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
+from storage import StorageError
 from ui_helpers import (
     BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
     best_formulation_no,
     bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, readiness, saved_ok, scale_error,
+    park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, typed_batch_size, unit_after_number,
 )
 
@@ -551,10 +555,48 @@ def _batch_table(opt, scale_to):
     rule had stopped applying.
     """
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
-    st.dataframe(
-        frame.style.format(_amount_format(opt, frame)),
-        hide_index=True, key="batch_table", height=table_height(len(frame)),
-    )
+    edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
+    editing = st.session_state.get(edit_key, False)
+    if not editing:
+        st.dataframe(frame.style.format(_amount_format(opt, frame)),
+                     hide_index=True, key="batch_table", height=table_height(len(frame)))
+        if st.button(wording.EDIT_FORMULATIONS, key=edit_key + "_start"):
+            st.session_state[edit_key] = True
+            preserve_tab_forms()
+            st.rerun()
+    else:
+        st.caption(wording.EDIT_FORMULATIONS_CAPTION)
+        editable_numbers = {row["formulation"] for row in open_rows(opt)}
+        frame = frame[frame["Formulation"].isin(editable_numbers)].reset_index(drop=True)
+        independent = {opt._amount_column(v['name'], mark=True): v['name']
+                       for v in opt.variables if not opt.has_formula(v)}
+        edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
+                               disabled=[c for c in frame if c not in independent],
+                               key=edit_key + "_grid", use_container_width=True)
+        save, cancel = st.columns(2)
+        if save.button("Save changes", key=edit_key + "_save", type="primary"):
+            changes = {}
+            for i, row in edited.iterrows():
+                values = {name: row[col] for col, name in independent.items()
+                          if col in frame and row[col] != frame.loc[i, col]}
+                if values:
+                    changes[int(row["Formulation"])] = values
+            try:
+                opt.edit_pending_formulations(changes)
+            except (ValueError, OSError, StorageError) as exc:
+                st.error(str(exc))
+            else:
+                if saved_ok(opt):
+                    st.session_state[edit_key] = False
+                    st.session_state.pop(edit_key + "_grid", None)
+                    flash("success", "Formulations saved. Download a new workbook before preparing this round.")
+                    preserve_tab_forms()
+                    st.rerun()
+        if cancel.button("Cancel", key=edit_key + "_cancel"):
+            st.session_state[edit_key] = False
+            st.session_state.pop(edit_key + "_grid", None)
+            preserve_tab_forms()
+            st.rerun()
     # The size first, then the corrections line. Three captions under one
     # table, two of them about the size, used to sit with the one that is
     # not in the middle of them.
@@ -564,15 +606,16 @@ def _batch_table(opt, scale_to):
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
-    # The table is read only, whatever it holds — a worked-out row's amount
-    # included. What was actually weighed is corrected where it is
-    # recorded, not by overtyping a cell here.
-    st.caption(wording.CORRECTIONS_ON_RESULTS_CAPTION)
+    # Planned edits and actual bench corrections are distinct actions.
+    st.caption(wording.FORMULATION_CORRECTIONS_CAPTION)
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
         st.caption(wording.HOW_CHOSEN)
+
+
+    return editing
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):
@@ -613,6 +656,7 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
         wording.batch_size_label(unit),
         min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
         key=_BATCH_SIZE_KEY,
+        disabled=bool(st.session_state.get(f"edit_round_{opt.project_name}_{opt.pending_batch_no}")),
         help=wording.batch_size_help(unit),
     )
     line = _previous_size_line(opt)
@@ -648,9 +692,13 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
+    print_pack = st.checkbox(wording.PRINT_PACK_CHECKBOX, key="workbook_print_pack")
+    st.caption(wording.WORKBOOK_WORKFLOW_CAPTION)
+    if not print_pack:
+        st.caption(wording.COMPACT_WORKBOOK_CAPTION)
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
-        data=opt.workbook_bytes(rows, scale_to, sized),
+        data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
         file_name=wording.workbook_file_name(opt.project_name,
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
@@ -1013,8 +1061,13 @@ def _upload(opt):
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
             key=f"results_file_{opt.project_name}")
-        if sheet_file is not None and st.button(wording.CHECK_THIS_FILE,
-                                                key="check_sheet"):
+        check_file = sheet_file is not None and st.button(wording.CHECK_THIS_FILE, key="check_sheet")
+        file_mark = None
+        if sheet_file is not None:
+            file_mark = (opt.project_name, hashlib.sha256(sheet_file.getvalue()).hexdigest(),
+                         json.dumps(opt.pending_batch, sort_keys=True, default=str))
+        if sheet_file is not None and (check_file or file_mark != st.session_state.get("_results_file_mark")):
+            st.session_state["_results_file_mark"] = file_mark
             try:
                 st.session_state["_results_upload"] = _read_results_file(
                     opt, sheet_file)
@@ -1172,7 +1225,10 @@ def render(opt, storage):
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    _batch_table(opt, scale_to)
+    if _batch_table(opt, scale_to):
+        preserve_tab_forms()
+        st.caption(wording.FINISH_FORMULATION_EDITS)
+        return
     st.markdown(wording.STEP_PRINT_HEADING)
     print_slot = st.container()
     st.markdown(wording.STEP_RECORD_HEADING)
