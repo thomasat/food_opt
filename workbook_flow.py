@@ -178,8 +178,8 @@ def compact(book, opt, rows):
                 cell.value = 'See Preparation'
                 sheet_link(cell, PREPARATION)
     preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = 'Preparation — Fixed-ratio pre-mixes for this round'
-    preparation['A2'] = navigation + 'Prepare fixed-ratio pre-mixes here. Variable-ratio blend components are weighed separately for each formulation on Round overview.'
+    preparation['A1'] = 'Preparation — Pre-mixes for this round'
+    preparation['A2'] = navigation + 'Prepare pre-mixes with fixed ingredient percentages here. For blends where ingredient amounts vary separately, follow the individual amounts on Round overview.'
     start = 4
     for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
         page = book[title]

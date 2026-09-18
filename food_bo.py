@@ -143,6 +143,7 @@ PREMIX_MADE_AS_WAS = {text.lower(): PREMIX_PORTIONED
                       for text in wording.PREMIX_MADE_AS_PORTIONED_WAS}
 PREMIX_MADE_AS_WAS[wording.OLD_WEIGHED_MODE] = PREMIX_WEIGHED
 PREMIX_MADE_AS_WAS[wording.OLD_VARIABLE_BLEND_MODE] = PREMIX_WEIGHED
+PREMIX_MADE_AS_WAS[wording.OLD_VARIABLE_RATIO_MODE] = PREMIX_WEIGHED
 
 # The four optional fields, and what a new project answers for each. They
 # are OFF: Vendor and SKU are specification data, typed once at set-up and

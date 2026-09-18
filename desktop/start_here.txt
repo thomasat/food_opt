@@ -29,7 +29,7 @@ YOUR FIRST ROUND
    click “Generate formulations” and choose how many to make.
 5. Download the round sheets (Excel). The workbook has three tabs:
    • Round overview — the plan and shared preparation method.
-   • Preparation — fixed-ratio pre-mixes to prepare for the round.
+   • Preparation — pre-mixes to prepare for the round.
    • Results — measurements and any actual amounts you want to record.
    Tabs are at the bottom in Excel and at the top in Numbers. If a link
    does not open in Numbers, select the named tab directly.
@@ -46,6 +46,11 @@ Create a project in the sidebar. Type into the ingredient and measurement
 tables, then click Save changes. Use the same Lowest and Highest to keep
 an amount or setting fixed. Use different values to let the app vary it.
 “Import ingredients” provides a spreadsheet template and an upload option.
+
+“Pre-mix: keep proportions fixed” keeps the same ingredient percentages.
+“Blend: vary each ingredient” lets the app choose each ingredient amount
+separately. In the sample, Fats and oils groups coconut oil and sunflower
+oil; their proportions and combined amount can change between formulations.
 
 “Preparation and records” holds the batch size, steps shared by all
 formulations, references, and recording options. Lot is entered per ingredient in Make a round → Ingredient lot numbers

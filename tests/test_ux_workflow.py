@@ -247,16 +247,17 @@ def test_calculated_range_marker_can_be_saved_without_changing_rule(project):
     assert project._var_by_name('Water')['balance']
 
 
-def test_previous_variable_blend_label_still_imports(tmp_path, monkeypatch):
+@pytest.mark.parametrize('label', ['Ingredients varied separately', 'Variable-ratio blend', wording.PREMIX_MADE_AS_WEIGHED])
+def test_previous_variable_blend_label_still_imports(tmp_path, monkeypatch, label):
     import pandas as pd
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer('legacy-blend')
     opt.load_ingredients_from_csv(pd.DataFrame([
-        {'Name': 'Oils', 'Made as': 'Ingredients varied separately'},
+        {'Name': 'Oils', 'Made as': label},
         {'Name': 'Coconut oil', 'Part of': 'Oils', 'Lowest': 2, 'Highest': 5, 'Unit': 'g'},
         {'Name': 'Sunflower oil', 'Part of': 'Oils', 'Lowest': 1, 'Highest': 4, 'Unit': 'g'},
     ]))
-    assert opt.premix_mode('Oils') == 'Variable-ratio blend'
+    assert opt.premix_mode('Oils') == wording.PREMIX_MADE_AS_WEIGHED
     assert opt.premixes['Oils']['mode'] == 'weighed'
 
 
@@ -424,3 +425,20 @@ def test_large_metadata_survives_excel_cell_limit():
     assert saved.active['A2'].comment.text == 'Keep this user note.'
     wf.restore_metadata(saved)
     assert saved.active['A1'].comment.text == text
+
+
+@pytest.mark.parametrize('label', ['Fixed-ratio pre-mix', wording.PREMIX_MADE_AS_PORTIONED])
+def test_previous_and_current_fixed_premix_labels_keep_composition(tmp_path, monkeypatch, label):
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer('fixed-blend')
+    opt.load_ingredients_from_csv(pd.DataFrame([
+        {'Name': 'Dry blend', 'Preparation': label, 'Lowest': 2, 'Highest': 10, 'Unit': 'g'},
+        {'Name': 'Flour', 'Part of': 'Dry blend', 'Composition (%)': 60, 'Unit': 'g'},
+        {'Name': 'Starch', 'Part of': 'Dry blend', 'Composition (%)': 40, 'Unit': 'g'},
+    ]))
+    assert opt.premix_mode('Dry blend') == wording.PREMIX_MADE_AS_PORTIONED
+    assert opt.premixes['Dry blend']['mode'] == 'portioned'
+    assert [p['share'] for p in opt.premix_parts('Dry blend')] == [60, 40]
+    loaded = FoodOptimizer('fixed-blend')
+    assert loaded.premixes == opt.premixes

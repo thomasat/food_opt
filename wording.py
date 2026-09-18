@@ -3112,9 +3112,10 @@ PREMIX_MADE_AS_BOUGHT_IN = "Single ingredient"
 # both the spellings a hand-typed file uses. An ingredients file written
 # then still loads.
 PREMIX_MADE_AS_PORTIONED_WAS = ("portioned from one pre-mix", "one pre-mix, portioned",
-                                "one premix, portioned")
-PREMIX_MADE_AS_PORTIONED = "Fixed-ratio pre-mix"
-PREMIX_MADE_AS_WEIGHED = "Variable-ratio blend"
+                                "one premix, portioned", "Fixed-ratio pre-mix")
+PREMIX_MADE_AS_PORTIONED = "Pre-mix: keep proportions fixed"
+PREMIX_MADE_AS_WEIGHED = "Blend: vary each ingredient"
+OLD_VARIABLE_RATIO_MODE = "variable-ratio blend"
 # How a pre-mix is named when something else found the clash, alongside
 # AN_INGREDIENT and A_PROCESS_SETTING above.
 A_PREMIX = "a pre-mix"
@@ -3277,7 +3278,7 @@ def part_in_two_weighed_premixes(name, first, second):
     blend, so it cannot also be part of Fry blend.' — weighed, a part IS
     a row, and one row standing for two lots of mass is counted twice
     everywhere it is read."""
-    return (f"{name} is already {PREMIX_MADE_AS_WEIGHED} as part of "
+    return (f"{name} already has its own amount as part of "
             f"{first}, so it cannot also be part of {second}.")
 
 
@@ -3290,12 +3291,17 @@ def part_in_two_weighed_premixes(name, first, second):
 # the columns the way the pre-mix is made actually needs.
 # ------------------------------------------------------------------ #
 MADE_AS_HELP = (
-    "**Single ingredient:** set the amount of one ingredient, including a purchased blend.\n\n"
-    "**Fixed-ratio pre-mix:** prepare a blend with fixed component percentages. "
-    "The app varies how much of that blend goes into each formulation.\n\n"
-    "**Variable-ratio blend:** set a range for each component, such as coconut oil and sunflower oil. "
-    "The app varies their amounts separately; weigh each component for each formulation.\n\n"
-    "Choose the preparation method here. Enter your own ingredient or blend name in Name.")
+    f"**{PREMIX_MADE_AS_BOUGHT_IN}:** set the amount of one ingredient, including a purchased blend.\n\n"
+    f"**{PREMIX_MADE_AS_PORTIONED}:** keep the same ingredient percentages in every formulation. "
+    "The app can change how much pre-mix is used.\n\n"
+    f"**{PREMIX_MADE_AS_WEIGHED}:** set Lowest and Highest for each ingredient in the blend. "
+    "The app chooses their amounts separately, so their proportions and combined amount can change.\n\n"
+    "Enter your own ingredient or blend name in Name.")
+
+BLEND_OILS_EXAMPLE = (
+    "Example: one formulation could use 8 g coconut oil and 4 g sunflower oil; "
+    "another could use 6 g and 5 g. Fats and oils groups these two ingredients.")
+
 
 # The first column of a pre-mix's own grid. The row IS the part, so the
 # header is the noun and not "Name": the grid above already has a Name.
@@ -3320,10 +3326,10 @@ def premix_fold_caption(weighed):
     a pre-mix too.
     """
     if weighed:
-        return ("Component amounts per formulation. The app varies each component between its "
-                "Lowest and Highest values; their proportions can change.")
-    return ("Composition of this pre-mix. These percentages stay fixed. "
-            "The app varies how much pre-mix each formulation uses.")
+        return ("Set Lowest and Highest for each ingredient. The app chooses an amount for each one "
+                "in every formulation. The blend total is the sum of these amounts.")
+    return ("Keep these ingredient percentages the same in every formulation. "
+            "The app can change how much pre-mix is used.")
 
 
 def premix_grid_title(name):

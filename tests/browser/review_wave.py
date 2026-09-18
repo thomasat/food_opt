@@ -57,13 +57,13 @@ elif mode == 'premix':
     assert fold(page, 'Dry blend · parts').get_by_role('button', name='Save changes', exact=True).is_visible()
     fold_click(page, 'Dry blend · parts', 'Discard changes')
     print('PASS parts edit keeps its fold and Save visible', flush=True)
-    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'Variable-ratio blend')
+    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'Blend: vary each ingredient')
     click(page, 'Save changes')
     assert grid_rows(page, 0)[1][0] == 'Dry blend'
     open_fold(page, 'Dry blend · parts')
     parts = grid_named(page, 'Part')
     assert all(float(r[1]) > 0 and float(r[2]) > float(r[1]) for r in grid_rows(page, parts))
-    set_select(page, 0, 1, 2, 'Fixed-ratio pre-mix')
+    set_select(page, 0, 1, 2, 'Pre-mix: keep proportions fixed')
     click(page, 'Save changes')
     assert grid_rows(page, 0)[1][3:5] == ['16.00', '22.00']
     print('PASS mode round trip preserves nonzero bands and row order', flush=True)

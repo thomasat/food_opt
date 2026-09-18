@@ -388,7 +388,7 @@ def _ingredient_columns(opt, frame):
                      wording.PREMIX_MADE_AS_PORTIONED,
                      wording.PREMIX_MADE_AS_WEIGHED],
             default=wording.PREMIX_MADE_AS_BOUGHT_IN,
-            help=wording.MADE_AS_HELP, width=170),
+            help=wording.MADE_AS_HELP, width=230),
         # Text, not numbers, and only on this grid. A row with a formula
         # has no Lowest and no Highest of its own: both cells read the
         # app's own word for it, and a number column cannot hold a word.
@@ -930,6 +930,10 @@ def _premix_grid(opt, storage, name):
         st.caption(wording.premix_fold_caption(
             opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED))
         portioned = opt.premix_mode(name) == wording.PREMIX_MADE_AS_PORTIONED
+        if (not portioned and name == "Fats and oils"
+                and {p['name'] for p in opt.premix_parts(name)} == {"Coconut oil", "Sunflower oil"}
+                and all(opt.unit_of(p['name']) == "g" for p in opt.premix_parts(name))):
+            st.caption(wording.BLEND_OILS_EXAMPLE)
         amount_entry = False
         quantity = 100.0
         unit = opt.unit_of(name) or opt.amount_unit or "g"

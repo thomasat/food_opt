@@ -10298,6 +10298,8 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
     assert sum(len(p['parts']) for p in opt.premixes.values()) == 10
     for name in ('Dry blend', 'Seasoning blend'):
         assert sum(p['share'] for p in opt.premix_parts(name)) == 100
+    assert any(c.value == wording.BLEND_OILS_EXAMPLE for c in at.caption)
+    assert opt.premix_mode('Fats and oils') == wording.PREMIX_MADE_AS_WEIGHED
     assert opt._by_name()['Seasoning blend']['bounds'] == (2.2, 2.2)
     assert opt.formulation_total == 100
     for recipe in opt.ask(3):

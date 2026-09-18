@@ -8,11 +8,11 @@ For Macs with Apple silicon (M1 or newer), running macOS 13 Ventura or newer. Op
 
 ## Start with the example
 
-Choose **Try the sample project**. The 100 g burger example demonstrates fixed-ratio pre-mixes, a variable-ratio blend, water calculated from two protein ingredients, remaining water, mixing time, measurements and a finished-product limit. Its ingredient amounts, targets and property values are illustrative.
+Choose **Try the sample project**. The 100 g burger example demonstrates pre-mixes with fixed ingredient percentages, oils whose amounts vary separately, water calculated from two protein ingredients, remaining water, mixing time, measurements and a finished-product limit. Its ingredient amounts, targets and property values are illustrative.
 
 1. Review the tables in **Set up**. Open **Blend compositions** to review component ingredients, and **Preparation and records** for the shared preparation method.
 2. Generate formulations in **Make a round** and download the workbook.
-3. Use **Round overview** for the plan, **Preparation** for fixed-ratio pre-mixes, and **Results** for measurements.
+3. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements.
 4. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
 The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
@@ -21,7 +21,7 @@ The included **Start Here.txt** explains installation and the first-round workfl
 
 Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Rule** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Use `= rest` for the ingredient that fills the remaining batch size. **Calculation help** explains these options.
 
-The **Preparation** column offers **Single ingredient**, **Fixed-ratio pre-mix**, and **Variable-ratio blend**. Fixed-ratio pre-mixes keep their component percentages; variable-ratio blends allow component amounts to vary separately.
+The **Preparation** column offers **Single ingredient**, **Pre-mix: keep proportions fixed**, and **Blend: vary each ingredient**. A pre-mix keeps the same ingredient percentages while the amount used can change. For a blend, set Lowest and Highest for each ingredient; the app chooses each amount separately. In the sample, Fats and oils groups coconut oil and sunflower oil. Their proportions and combined amount can change between formulations.
 
 Ingredient limits can restrict combined amounts or finished-product properties. An empty minimum or maximum imposes no restriction on that side. Missing property values are unknown, rather than zero; complete the values before generating formulations with a limit on that property.
 

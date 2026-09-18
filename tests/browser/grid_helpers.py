@@ -6,8 +6,8 @@ URL = os.environ.get("APP_URL", "http://127.0.0.1:18717")
 ROW_H = 35
 # Name Type "Made as" Lowest Highest Unit Vendor SKU Rule
 NAME, TYPE, MADE_AS, LOWEST, HIGHEST, UNIT = 0, 1, 2, 3, 4, 5
-PORTIONED = "Fixed-ratio pre-mix"
-WEIGHED = "Variable-ratio blend"
+PORTIONED = "Pre-mix: keep proportions fixed"
+WEIGHED = "Blend: vary each ingredient"
 rows = []
 
 

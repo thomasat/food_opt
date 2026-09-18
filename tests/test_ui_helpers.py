@@ -802,10 +802,11 @@ def test_each_parts_fold_says_what_its_numbers_are():
     import wording
     portioned = wording.premix_fold_caption(False)
     weighed = wording.premix_fold_caption(True)
-    assert "percentages stay fixed" in portioned
-    assert "varies how much pre-mix" in portioned
+    assert "percentages the same" in portioned
+    assert "change how much pre-mix" in portioned
     assert wording.LOWEST_LABEL in weighed and wording.HIGHEST_LABEL in weighed
-    assert "proportions can change" in weighed
+    assert "chooses an amount for each one" in weighed
+    assert "sum of these amounts" in weighed
 
 
 def test_the_made_as_help_says_what_each_of_the_three_answers_means():
@@ -819,4 +820,4 @@ def test_the_made_as_help_says_what_each_of_the_three_answers_means():
         # Neither pre-mix answer carries a comma any more: two sentences
         # list both, and a three-item list of two options is unreadable.
         assert "," not in option
-    assert wording.PREMIX_MADE_AS_PORTIONED == "Fixed-ratio pre-mix"
+    assert wording.PREMIX_MADE_AS_PORTIONED == "Pre-mix: keep proportions fixed"
