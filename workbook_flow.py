@@ -255,7 +255,7 @@ def prepare_import(source, opt, batch_no):
             for i, var in enumerate(opt.variables, 2):
                 label = opt._amount_column(var['name'], mark=True)
                 source_row = next((r for r in range(actual + 3, measurements.max_row + 1)
-                                   if measurements.cell(r, 1).value == label), None)
+                                   if measurements.cell(r, 1).value in (label, label.replace(f" · {wording.WORKED_OUT}", f" · {wording.OLD_CALCULATED_LABEL}"))), None)
                 if source_row:
                     page.cell(i, 2, label)
                     value = measurements.cell(source_row, cell.column).value

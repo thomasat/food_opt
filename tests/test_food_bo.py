@@ -236,7 +236,7 @@ class TestObjectiveValidation:
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="must be between Lowest measurable"):
+        with pytest.raises(ValueError, match="must be between Scale minimum"):
             opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
 
     def test_blank_name_rejected(self, tmp_path, monkeypatch):
@@ -2274,13 +2274,11 @@ class TestUnitsAndImportance:
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between Lowest "
-                                  "measurable and Highest measurable "
+        assert str(add.value) == ("Target 99 must be between Scale minimum and Scale maximum "
                                   "(0 to 10).")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between Lowest "
-                                   "measurable and Highest measurable "
+        assert str(edit.value) == ("Target 99 must be between Scale minimum and Scale maximum "
                                    "(0 to 10).")
 
     def test_a_backwards_range_is_refused_in_the_tab_s_words(
@@ -2288,8 +2286,8 @@ class TestUnitsAndImportance:
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == ("Lowest measurable must be less than "
-                                "Highest measurable.")
+        assert str(e.value) == ("Scale minimum must be less than "
+                                "Scale maximum.")
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3013,13 +3011,13 @@ class TestParseBatchResultsByFormulation:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
             "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
-            "Raise Highest measurable in Set up, or check the value.")
+            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
             "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
-            "Raise Highest measurable in Set up, or check the value.")
+            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3605,7 +3603,7 @@ class TestTheMeasurementsGrid:
             _edit(opt.measurement_grid_frame(), 1,
                   **{wording.TARGET_LABEL: 50.0}))
         assert errors[0][0] == 1
-        assert "must be between Lowest measurable" in errors[0][1]
+        assert "must be between Scale minimum" in errors[0][1]
 
     def test_an_added_measurement_takes_its_share_from_the_rest(
             self, tmp_path, monkeypatch):
@@ -4374,6 +4372,9 @@ _ALLOWED_EXACT = {
     # ingredient weight and experimental results in their ordinary meanings.
     wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
     wording.MEASUREMENT_MAX_HELP, wording.RULE_GUIDE, wording.FORMULA_HELP,
+    wording.MADE_AS_HELP, wording.SAMPLE_TAB1_DESCRIPTION,
+    wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
+    wording.WIDEN_RANGE_HINT,
     wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD,
 
     # The one legacy value that must stay spelled the old way: it is the
@@ -5190,7 +5191,7 @@ class TestFormulationTotal:
 
     def _sample(self, tmp_path, monkeypatch, name="sample"):
         """The sample project's own eight ingredients, with the Water typed
-        by hand rather than worked out: they then add up to at least 20 g
+        by hand rather than calculated: they then add up to at least 20 g
         and at most 131 g, which is what makes 100 g reachable and 150 g
         not.
 
@@ -8799,7 +8800,7 @@ class TestFormulaGrammar:
 
 class TestFormulaRows:
     """Task 2 of the rules wave (2026-09-16): a formula row leaves the search
-    vector. Its amount is worked out from the rows it names, and its
+    vector. Its amount is calculated from the rows it names, and its
     coefficients are folded into every limit — substitution, never an
     equality band, so the formula holds exactly at every point the app
     produces and the eliminated column carries no information the GP loses.
@@ -8831,7 +8832,7 @@ class TestFormulaRows:
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= batch size - Flour - Sugar")
         assert opt.has_formula(opt._var_by_name("Water")) is True
-        # Two columns, not three: Water is worked out, not searched.
+        # Two columns, not three: Water is calculated, not searched.
         assert opt._encode({"Water": 60, "Flour": 30, "Sugar": 10}) == [
             30.0, 10.0]
         assert len(opt._search_bounds()) == 2
@@ -8914,7 +8915,7 @@ class TestFormulaRows:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_formula("Water", "= 0.5 × Flour")
-        # A limit every one of whose rows is worked out has nothing to act
+        # A limit every one of whose rows is calculated has nothing to act
         # on and is refused; one that also names a row the search moves is
         # substituted, which is what this is about.
         with pytest.raises(ValueError) as refused:
@@ -9246,7 +9247,7 @@ class TestFormulaRows:
                                                          monkeypatch):
         """Scaling every amount by one factor is right for a formula that is
         a multiple and wrong for one with a number in it: the rows the
-        search moves are scaled, and the rows that are worked out are worked
+        search moves are scaled, and the rows that are calculated are worked
         out again at the new size.
 
         Which is why the factor is solved rather than taken as the ratio of
@@ -9266,7 +9267,7 @@ class TestFormulaRows:
                                    "Sugar": 10.0}, 74)
         assert sum(sized.values()) == pytest.approx(74.0)
         # Flour and Sugar keep the proportion they came in, and Water is
-        # worked out again rather than scaled.
+        # calculated again rather than scaled.
         assert sized["Flour"] / sized["Sugar"] == pytest.approx(2.0)
         assert sized["Water"] == pytest.approx(5 + 0.1 * sized["Flour"])
         opt.set_pending_batch([{"Water": 7.0, "Flour": 20.0, "Sugar": 10.0}])
@@ -9312,10 +9313,10 @@ class TestFormulaRows:
 
     def test_a_rule_may_not_name_a_process_setting(self, tmp_path,
                                                    monkeypatch):
-        """Grams of salt worked out from minutes of cooking is arithmetic
+        """Grams of salt calculated from minutes of cooking is arithmetic
         across two units that cannot be mixed. The app refused a setting a
         rule of its own and then allowed the reverse, and said "Salt is
-        worked out as Cook time × 0.1: between 0.20 and 1.00 g" about it."""
+        calculated as Cook time × 0.1: between 0.20 and 1.00 g" about it."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_process_parameter("Oven", 100, 200)
         with pytest.raises(FormulaError) as caught:
@@ -9368,8 +9369,8 @@ class TestTheFormulaColumn:
     ingredients grid.
 
     One column for one idea: `= rest` is typed in the Formula cell, so there
-    is no Balance column beside it. A row that carries one is worked out —
-    its range cells read `worked out`, the numbers typed there are ignored,
+    is no Balance column beside it. A row that carries one is calculated —
+    its range cells read `calculated`, the numbers typed there are ignored,
     and the consequence is said under the grid in the amounts the other rows
     leave it.
     """
@@ -9402,7 +9403,7 @@ class TestTheFormulaColumn:
         assert var['formula'] == "= batch size − Pea protein − Salt"
         assert var['balance'] is False
         assert opt.has_formula(var) is True
-        # ...and it is worked out from the rows it names, not searched.
+        # ...and it is calculated from the rows it names, not searched.
         assert [v['name'] for v in opt.varying_variables()] == ["Pea protein",
                                                                "Salt"]
         assert opt.fill_formulas({"Pea protein": 40.0, "Salt": 9.0}) == {
@@ -9608,7 +9609,7 @@ class TestTheFormulaColumn:
                 if text.startswith("Formulations already made keep")]
         assert said == [
             "Formulations already made keep their amounts. Water and Salt "
-            "are worked out from their rules from the next round on."]
+            "are calculated from their rules from the next round on."]
 
     # ---- a formula is data a file can bring in ---------------------- #
 
@@ -9651,7 +9652,7 @@ class TestTheFormulaColumn:
         assert opt._formula_text(opt._var_by_name("Remaining water")) == "= rest"
         # Textured pea protein, Dry blend, Wheat gluten and the two oils
         # the Fat phase is weighed out as; Seasoning blend is fixed at
-        # 2.20 g and Water is worked out.
+        # 2.20 g and Water is calculated.
         assert len(opt.varying_variables()) == 6
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
@@ -9664,7 +9665,7 @@ class TestTheFormulaColumn:
 # ------------------------------------------------------------------ #
 class TestFormulasOnTheSheets:
     """A formula row prints the amount it computed to, marked so a bench
-    reading the printed page knows it was not chosen, only worked out."""
+    reading the printed page knows it was not chosen, only calculated."""
 
     def _opt(self, tmp_path, monkeypatch, name="sheet_formulas"):
         monkeypatch.chdir(tmp_path)
@@ -9745,7 +9746,7 @@ class TestFormulasOnTheSheets:
         # sheet of THIS workbook, so "filled in from its rule" sent a bench
         # looking for something that is not in the file.
         note = opt.worked_out_note()
-        assert note.startswith("Water is worked out: ")
+        assert note.startswith("Water is calculated: ")
         assert note.endswith("Weigh the amount printed.")
         assert any(row[0] == note for row in _rows(summary))
         assert any(row[1] == note for row in _rows(page))
@@ -10301,7 +10302,7 @@ class TestExactlyAndPercentLimits:
                                     percent=True)
         messages = opt.set_formulation_total(120)
         assert ("info", "Limits written as a % of the default batch size "
-                        "are now worked out from 120 g.") in messages
+                        "are now calculated from 120 g.") in messages
         qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
         # The percent itself is unchanged; the grams it comes to follow the
         # new default.

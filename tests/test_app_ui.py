@@ -1120,8 +1120,8 @@ def test_measurements_table_is_sorted_by_importance(burger):
     # by what each measurement is worth, which is the same fact twice. And
     # no Importance column: the share IS the number that is typed now.
     assert [c for c in grid.columns if c != "_id"] == [
-        "Measurement", "Goal", "Target", "Lowest measurable",
-        "Highest measurable", "Unit", wording.SHARE_COLUMN]
+        "Measurement", "Goal", "Target", "Scale minimum",
+        "Scale maximum", "Unit", wording.SHARE_COLUMN]
     assert list(grid["Measurement"]) == ["Firmness", "Juiciness"]
     assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2
     assert list(grid["Target"]) == [6.0, 7.0]
@@ -1586,7 +1586,7 @@ def test_the_range_labels_are_sentence_case(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     columns = list(_grid_frame(at, 1).columns)
-    assert "Lowest measurable" in columns and "Highest measurable" in columns
+    assert "Scale minimum" in columns and "Scale maximum" in columns
 
 
 def test_the_ingredient_grid_has_no_status_column_at_all(burger):
@@ -2003,7 +2003,7 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Raise Highest measurable in Set up, or check the value.")
+                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2615,7 +2615,7 @@ def test_a_typed_past_measurement_outside_its_range_is_refused(burger):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 99 N is outside your range of 0 to 10 N. "
-                           "Raise Highest measurable in Set up, or check the value.")
+                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2761,7 +2761,7 @@ def test_a_correction_outside_the_range_is_refused(scored):
     at.run()
     assert not at.exception
     assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Raise Highest measurable in Set up, or check the value.")
+                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").results_history[0]["Firmness"] == 1.0
 
@@ -3190,8 +3190,7 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
     at.run()
     assert not at.exception
     assert any(e.value == ("Row 2: Firmness 99 N is outside your range of 0 to "
-                           "10 N. Raise Highest measurable in Set up, or check the "
-                           "value.") for e in at.error), [e.value for e in at.error]
+                           "10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up.") for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []   # the whole file is refused
 
 
@@ -6236,7 +6235,7 @@ def test_the_upload_is_folded_away_beneath(burger):
     at.run()
     fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit, Rule, Part of, Made as and Composition (%). Extra numeric columns "
+                           "and, optionally, Unit, Rule, Part of, Preparation and Composition (%). Extra numeric columns "
                            "become properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
@@ -7281,8 +7280,7 @@ def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
     # R13: the refusal names the two controls the reader can reach on this
     # grid, not "the range", which is a column on a printed sheet.
     assert [e.value for e in at.error] == [wording.row_error(
-        1, "Target 50 must be between Lowest measurable and Highest "
-           "measurable (0 to 10).")]
+        1, "Target 50 must be between Scale minimum and Scale maximum (0 to 10).")]
     assert FoodOptimizer("burger").objectives[1]["target"] == 6.0
 
 
@@ -8574,7 +8572,7 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert not at.exception
     said = [c.value for c in at.caption if "outside your range" in c.value]
     assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
-                    " Raise Highest measurable in Set up, or check the value."], said
+                    " Check the value, or adjust Scale minimum or Scale maximum in Set up."], said
     order = _tab_flow(at)
     assert (order.index(said[0])
             < _first(order, wording.formulation_heading(2))), order
@@ -10052,7 +10050,7 @@ def worked_out(tmp_path, monkeypatch):
 
 def _worked_out_box(at, label):
     """The greyed box `Add a formulation of your own` draws for a row that
-    is worked out. It carries no key — a keyed box would keep the first
+    is calculated. It carries no key — a keyed box would keep the first
     value it was handed — so it is found by the header it is labelled
     with."""
     return next(b for b in at.number_input
@@ -10130,7 +10128,7 @@ def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
     table = next(d.value for d in at.dataframe
                  if "Formulation" in d.value.columns)
     # The round table wears the mark the printed sheets do.
-    assert list(table["Water · worked out (g)"]) == [38.0]
+    assert list(table["Water · calculated (g)"]) == [38.0]
 
 
 

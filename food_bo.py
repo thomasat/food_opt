@@ -808,7 +808,7 @@ def _range_from_cells(row):
     high, high_ok = _number_cell(row, wording.HIGHEST_LABEL)
     for column, ok in ((wording.LOWEST_LABEL, low_ok),
                        (wording.HIGHEST_LABEL, high_ok)):
-        if not ok and _text_cell(row, column) in (wording.WORKED_OUT, wording.CALCULATED_RANGE):
+        if not ok and _text_cell(row, column) in (wording.WORKED_OUT, wording.CALCULATED_RANGE, wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE):
             if column == wording.LOWEST_LABEL:
                 low, low_ok = None, True
             else:
@@ -1397,7 +1397,8 @@ def ingredients_template_workbook(path):
     One row, not eight. A file arriving with a full ingredient list already
     in it is an export, and the reader who downloaded a "template" then has
     to work out which lines are theirs and which the app's."""
-    frame = pd.read_csv(path).rename(columns={wording.OLD_COMPOSITION_LABEL: wording.PREMIX_SHARE_LABEL})
+    frame = pd.read_csv(path).rename(columns={wording.OLD_COMPOSITION_LABEL: wording.PREMIX_SHARE_LABEL,
+                                            wording.OLD_MADE_AS_LABEL: wording.MADE_AS_LABEL})
     # A file written before the column was renamed still reads (the loader
     # accepts both spellings; so does the template it hands out).
     if wording.PREMIX_LABEL in frame and wording.PART_OF_LABEL not in frame:
@@ -1848,6 +1849,7 @@ class FoodOptimizer:
             canonical[label.lower().replace("-", "")] = label
         # The column was headed `Pre-mix` before this wave; a file written
         # then still reads.
+        canonical[wording.OLD_MADE_AS_LABEL.lower()] = wording.MADE_AS_LABEL
         canonical[wording.OLD_COMPOSITION_LABEL] = wording.PREMIX_SHARE_LABEL
         canonical[wording.OLD_COMPOSITION_LABEL_UNHYPHENATED] = wording.PREMIX_SHARE_LABEL
         canonical[wording.PREMIX_LABEL.lower()] = wording.PART_OF_LABEL
@@ -4722,6 +4724,7 @@ class FoodOptimizer:
                 # reads back.
                 labels.append(wording.worked_out_label(
                     self._amount_column(var['name'])))
+            labels += [label.replace(f" · {wording.WORKED_OUT}", f" · {wording.OLD_CALCULATED_LABEL}") for label in labels]
             for label in labels:
                 wanted[str(label).strip().lower()] = var['name']
         lots = {}
@@ -4760,8 +4763,10 @@ class FoodOptimizer:
                 # dropped with no error.
                 name_labels.append(self._sheet_ingredient_label(
                     var['name'], mark=True))
+                name_labels.append(self._amount_column(var['name'], mark=True))
                 name_labels.append(wording.worked_out_label(
                     self._sheet_ingredient_label(var['name'])))
+            name_labels += [label.replace(f" · {wording.WORKED_OUT}", f" · {wording.OLD_CALCULATED_LABEL}") for label in name_labels]
             for label in name_labels:
                 labels[str(label).strip().lower()] = var['name']
         headers = {self._actual_column_head().strip().lower(),
@@ -10704,10 +10709,10 @@ class FoodOptimizer:
                 # a number: it is the row coming back to the amounts it had
                 # before it was worked out.
                 if low is None and _text_cell(
-                        row, wording.LOWEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE):
+                        row, wording.LOWEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE, wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE):
                     low = kept[0]
                 if high is None and _text_cell(
-                        row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE):
+                        row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE, wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE):
                     high = kept[1]
             if low is None or high is None:
                 return None, wording.NUMBER_REQUIRED_ERROR

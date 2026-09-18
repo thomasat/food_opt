@@ -248,3 +248,22 @@ def test_previous_variable_blend_label_still_imports(tmp_path, monkeypatch):
     ]))
     assert opt.premix_mode('Oils') == 'Variable-ratio blend'
     assert opt.premixes['Oils']['mode'] == 'weighed'
+
+
+def test_previous_workbook_calculated_labels_keep_actual_amounts(project):
+    project.set_records('actual', True)
+    book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
+    sheet = book['Results']
+    sheet.cell(result_row(sheet), 2, 8)
+    actual = result_row(sheet, 'Actual amounts and settings — optional')
+    water_row = next(r for r in range(actual + 3, sheet.max_row + 1)
+                     if str(sheet.cell(r, 1).value).startswith('Water'))
+    sheet.cell(water_row, 2, 89)
+    for page in book:
+        for row in page:
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.value = cell.value.replace('· calculated', '· worked out')
+    uploaded = project.results_from_workbook(data(book))
+    assert uploaded.actual == {1: {'Water': 89}}
+    assert uploaded.frame['Taste'].tolist() == [8]

@@ -86,11 +86,11 @@ ALLOWED_AMOUNTS = "its allowed amounts"
 AMOUNTS_YOU_ALLOWED = "the amounts you allowed"
 # The value is outside the measurement's own span, so the hint names the
 # control that sets it. "Widen the range in Set up" named nothing on that
-# screen: the grid's columns are Lowest measurable and Highest measurable.
+# screen: the grid's columns are Scale minimum and Scale maximum.
 # HIGHEST_MEASURABLE_LABEL is the same words, defined with the grid's other
 # column headers further down; this one cannot read it because it is needed
 # above them. The guard below the grid pins the two together.
-WIDEN_RANGE_HINT = " Raise Highest measurable in Set up, or check the value."
+WIDEN_RANGE_HINT = " Check the value, or adjust Scale minimum or Scale maximum in Set up."
 
 
 SMALLER_TOTAL_HINT = (f"Print at a smaller {BATCH_SIZE_NOUN}, or widen them "
@@ -209,15 +209,15 @@ SAMPLE_TARGETS_SOURCE = (
 # formulations that must be made identically except for the amounts had
 # nothing on paper saying how.
 SAMPLE_METHOD = (
-    "1. Review this teaching example: each formulation totals 100 g. Ingredient ranges, "
-    "the hydration ratio and targets are illustrative, not a validated production protocol.\n"
+    "1. Each formulation totals 100 g. These amounts and targets demonstrate the app; "
+    "confirm a suitable preparation and measurement protocol before using them for real trials.\n"
     "2. Prepare the Dry blend and Seasoning blend at their fixed component percentages; "
     "weigh the listed amount of each into each formulation.\n"
     "3. Hydrate the textured pea and soy proteins using only the listed Hydration water. "
     "This is calculated as 2.2 times their combined mass. Use a fixed hydration protocol.\n"
     "4. Combine Remaining water, Dry blend, Seasoning blend and Wheat gluten, then add the "
-    "hydrated proteins. Remaining water tops up all ingredients to 100 g; it excludes the "
-    "Hydration water already weighed. Do not add either water amount twice.\n"
+    "hydrated proteins. Hydration water and Remaining water are separate weighed amounts. "
+    "Together with the other ingredients, they total 100 g. Add each water amount once.\n"
     "5. Weigh Coconut oil and Sunflower oil separately for each formulation. Their ratio can "
     "change. Add them and use that formulation's Mixing time after fat.\n"
     "6. Keep forming, chilling, cooking and measurement protocols constant. Record ingredient "
@@ -229,10 +229,9 @@ SAMPLE_METHOD = (
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "Start here: a 100 g burger example with fixed-ratio pre-mixes, variable oils, "
-    "calculated hydration water and a mixing-time setting. Review the ingredients and "
-    "measurement targets, generate a round, then use its three-sheet workbook. "
-    "The method walks through preparation and recording results."
+    "Learn the workflow with a 100 g burger formulation. Review the ingredients and targets, "
+    "generate formulations, then download the workbook to prepare them and record results. "
+    "The example includes blends, calculated water amounts and mixing time."
 )
 
 # The project-level Method: one text area in More settings, printed on the
@@ -470,9 +469,8 @@ WELCOME_HEADER = "## Create your first project"
 def welcome_steps():
     return (
         "1. **Name a project** in the sidebar on the left.\n"
-        "2. **Add ingredients** and the measurements you will record.\n"
-        f"3. **Make a {ROUND}**, weigh out the formulations, and record "
-        "what you measured."
+        "2. **Set up ingredients and process settings**, then choose measurements and targets.\n"
+        "3. **Generate formulations**, prepare each one, and record your measurements."
     )
 
 
@@ -1119,12 +1117,12 @@ INGREDIENT_GRID_CAPTION = (f"One row per {INGREDIENT} or process setting; "
                            "row at the bottom. Type the same number in "
                            f"{LOWEST_LABEL} and {HIGHEST_LABEL} to fix an "
                            "amount.")
-MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
-                            "what each one is worth out of 100. Lowest measurable and Highest measurable "
-                            "define the scale used for scoring and checking entries, not the desired result. "
-                            "Use 0–10 for a 0–10 sensory scale, for example. Experiments can produce values "
-                            "outside your chosen range; check the value and widen the range in Set up if it is valid. "
-                            "Changing the range recalculates scores. Use Goal and Target to say what you want.")
+MEASUREMENT_GRID_CAPTION = (
+    "Set a goal for each measurement. Share of score (%) controls how much it contributes to the overall score. "
+    "Scale minimum and Scale maximum define the scoring range—for example, 0 and 10 for a sensory rating. "
+    "They do not predict your results. If a valid result falls outside this range, update the range here; "
+    "existing scores will be recalculated.")
+
 
 DISCARD_CHANGES_BUTTON = "Discard changes"
 PROPERTY_FIGURES_SET_ASIDE = (
@@ -1261,7 +1259,7 @@ LOAD_INGREDIENTS_BUTTON = "Load ingredients"
 # one does not (the name is reserved) — with nothing on screen to say what
 # it is for.
 INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
-                            "and, optionally, Unit, Rule, Part of, Made as and Composition (%). Extra numeric columns "
+                            "and, optionally, Unit, Rule, Part of, Preparation and Composition (%). Extra numeric columns "
                             "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
@@ -1307,8 +1305,8 @@ ALL_INGREDIENTS_LOWER = "all ingredients"
 
 GOAL_LABEL = "Goal"
 TARGET_LABEL = "Target"
-LOWEST_MEASURABLE_LABEL = "Lowest measurable"
-HIGHEST_MEASURABLE_LABEL = "Highest measurable"
+LOWEST_MEASURABLE_LABEL = "Scale minimum"
+HIGHEST_MEASURABLE_LABEL = "Scale maximum"
 MEASUREMENT_EXISTS_ERROR = ("That measurement already exists. Use Edit on "
                             "its row to change it.")
 
@@ -2196,12 +2194,12 @@ FORMULA_IN_RANGE = "rule"
 # that has to say the same thing about the same row. It is NOT the app's
 # verb for "recomputed" — that is "recalculated" — so the two never meet
 # on one screen meaning two things.
-WORKED_OUT = "worked out"
-CALCULATED_RANGE = "From rule"
+WORKED_OUT = "calculated"
+CALCULATED_RANGE = "Calculated"
 RULE_GUIDE_LABEL = "How blends and calculated amounts work"
-RULE_GRID_CAPTION = "From rule means a calculated amount; Lowest and Highest do not apply to that row."
+RULE_GRID_CAPTION = "Calculated amounts use the Rule column; their Lowest and Highest cells are not used."
 INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a rule-based ingredient, its rule determines the amount."
-INGREDIENT_MAX_HELP = "Maximum amount the app may suggest. From rule means this amount is calculated, not capped here."
+INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a rule. Calculated amounts follow their rule."
 MEASUREMENT_MIN_HELP = "Lower end of the measurement scale used to score and check results. This is not a target."
 MEASUREMENT_MAX_HELP = "Upper end of the measurement scale used to score and check results. Widen the scale if a genuine result falls outside it; scores will be recalculated."
 OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
@@ -2249,7 +2247,7 @@ EXACTLY_ONE_INGREDIENT = (
 
 
 def limit_on_worked_out_rows(names_text, many=False):
-    """'Water and Salt are worked out from their rules, so this limit
+    """'Water and Salt are calculated from their rules, so this limit
     cannot change them.' — every row of a limit filled in by a rule leaves
     the limit nothing to act on, and the app accepted it and then let the
     rules contradict it."""
@@ -2304,7 +2302,7 @@ def premix_limit_row(name, low_pct, high_pct, grams_text, size_text=""):
 
 
 def percent_limits_rebased(size_text):
-    """'Limits written as a % of the default batch size are now worked out
+    """'Limits written as a % of the default batch size are now calculated
     from 120 g.' — the one line a new default batch size says once,
     however many percent limits it just rewrote."""
     return (f"Limits written as a % of the {FORMULATION_TOTAL_NOUN} are "
@@ -2844,7 +2842,7 @@ RULE_INGREDIENTS_ONLY_PREFIX = "A rule can use ingredients and batch size, not"
 
 def rule_ingredients_only(name):
     """'A rule can use ingredients and batch size, not Cook temperature.' —
-    a rule naming a process setting. Grams of salt worked out from minutes
+    a rule naming a process setting. Grams of salt calculated from minutes
     of cooking is arithmetic across two units that cannot be mixed, and the
     app refused a setting a rule of its own while allowing the reverse."""
     return f"{RULE_INGREDIENTS_ONLY_PREFIX} {name}."
@@ -2872,7 +2870,7 @@ PERCENT_NEEDS_BATCH_SIZE = (
 
 # ------------------------------------------------------------------ #
 # Rule rows (0.5.0 wave 2, "rules", task 2): what the model owes the
-# reader once a rule row is worked out from the others instead of being
+# reader once a rule row is calculated from the others instead of being
 # searched. Nothing here mentions the model: a row that cannot be worked
 # out is refused in the amounts and the rule the reader typed.
 # ------------------------------------------------------------------ #
@@ -2908,7 +2906,7 @@ def balance_would_go_negative(name, size_text, least_text, unit="",
 
 
 def formula_reads_this_row(name, row):
-    """'Water is worked out from Flour. Change Water's rule first.' —
+    """'Water is calculated from Flour. Change Water's rule first.' —
     deleting a row another row's rule reads would leave that rule naming
     nothing."""
     return (f"{row} is {WORKED_OUT} from {name}. Change {row}'s "
@@ -2928,21 +2926,22 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 FORMULA_HELP = (
     "Optional calculation for this ingredient's amount. Leave blank to vary it between Lowest and Highest. "
     "For water that brings a recipe to its batch size, enter = rest. "
-    "For hydration water based on two proteins, enter = 2.2 * (Pea protein + Soy protein), "
+    "For hydration water based on two proteins, enter = 2.2 * (Textured pea protein + Textured soy protein), "
     "using the exact ingredient names. Lowest and Highest do not apply to a calculated amount.")
 RULE_GUIDE = (
     "**Amounts calculated from a rule**\n\n"
     "Leave Rule blank to choose an ingredient amount between Lowest and Highest. "
-    "**From rule** means the app calculates the amount instead; it is not a maximum. "
-    "The calculated range is explained below the table.\n\n"
+    "**Calculated** rows use a formula instead of an editable minimum and maximum. "
+    "The resulting amount range appears below the table.\n\n"
     "**Top up to the batch size:** enter `= rest` on one ingredient, usually water. "
     "For a 100 g batch with 72 g of all other ingredients combined, the app adds 28 g of this ingredient. "
     "It subtracts every other ingredient, including calculated ingredients, and counts blend components only once. "
     "Process settings such as mixing time are not part of the weight.\n\n"
-    "**Calculate from other ingredients:** on Hydration water, `= 2.2 * (Pea protein + Soy protein)` "
+    "**Calculate from other ingredients:** on Hydration water, `= 2.2 * (Textured pea protein + Textured soy protein)` "
     "gives 22 g of water when the two proteins are 4 g and 6 g. "
     "Use your own protocol's ratio and the exact ingredient names.\n\n"
-    "**Explicit subtraction:** `= batch size - Water` means the batch weight minus only Water. "
+    "**Subtracting a named ingredient:** if your ingredient is named Water, "
+    "`= batch size - Water` subtracts only its amount from the batch size. "
     "At 100 g with 60 g Water, this gives 40 g. It does not subtract any other ingredients; "
     "use `= rest` when you mean the remainder after all ingredients. "
     "Enter a default batch size before using either batch size or rest."
@@ -2971,18 +2970,18 @@ def one_balance_only(names_text, many=False):
 
 def worked_out_caption(name, formula_text, low_text, high_text, size_text,
                        rest=False, outside_text=""):
-    """'Water is worked out as batch size − Pea protein − Salt: between
+    """'Water is calculated as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
-    row that is worked out rather than typed, so the rule shows its
+    row that is calculated rather than typed, so the rule shows its
     consequence in numbers.
 
     A row that takes the remainder says so in the words it was written in:
-    'Water is worked out as = rest, whatever is left of the batch size:
+    'Water is calculated as = rest, whatever is left of the batch size:
     ...'. The amounts are what the other rows' allowed amounts leave it,
     and `size_text` is the default batch size they are read against — blank
     while the project has none, and the sentence then stops at the amounts.
 
-    Both branches say `worked out`, the word in the two cells beside them,
+    Both branches say `calculated`, the word in the two cells beside them,
     and both quote the cell WITH its '=', so the reader can match the line
     to what they typed. `rest` is the parser's own answer to "is this the
     rest row" — passed in rather than read off the text, so '=rest' and
@@ -3026,7 +3025,7 @@ def rest_row_takes_the_difference(name, low_text, high_text, size_text):
 
 
 def formulations_keep_their_amounts(names_text, many=False):
-    """'Formulations already made keep their amounts. Water is worked out
+    """'Formulations already made keep their amounts. Water is calculated
     from its formula from the next round on.' — a formula landing on a
     project that has results. What was weighed is what was weighed; the
     formula starts answering for the row from the next round."""
@@ -3047,7 +3046,7 @@ def formulations_keep_their_amounts(names_text, many=False):
 # ------------------------------------------------------------------ #
 
 def worked_out_label(name):
-    """'Water · worked out' — the mark a worked-out row's own name wears on
+    """'Water · calculated' — the mark a worked-out row's own name wears on
     the summary sheet and on its own formulation page, so a bench reading
     the printed page knows this amount was not chosen, only computed."""
     return f"{name} · {WORKED_OUT}"
@@ -3058,7 +3057,7 @@ FORMULA_ROW_NOTE = (f"A row marked {WORKED_OUT} is filled in from its "
 
 
 def worked_out_row_note(lines_text):
-    """'Water is worked out: = rest. Weigh the amount printed.' — the
+    """'Water is calculated: = rest. Weigh the amount printed.' — the
     summary sheet's note, naming each worked-out row's own rule. The rule
     is on no sheet of the round workbook, so a bench holding the page was
     told the amount came from one and had nowhere to see it."""
@@ -3066,7 +3065,7 @@ def worked_out_row_note(lines_text):
 
 
 def worked_out_row_rule(name, rule_text):
-    """'Water is worked out: = rest.' — one row of the note above."""
+    """'Water is calculated: = rest.' — one row of the note above."""
     if str(rule_text).replace(" ", "").lower() == "=rest":
         return f"{name} is calculated to bring the ingredients to the formulation total."
     return f"{name} is {WORKED_OUT}: {rule_text}."
@@ -3089,7 +3088,7 @@ def setup_sheet_formula_text(text, rest=False):
 # the one line that says why they are last: they fill in from the boxes
 # above, so they cannot be anywhere else, and the form was the only table
 # in the app listing the rows in a different order with nothing said.
-WORKED_OUT_BOXES_CAPTION = ("These are worked out from the amounts above, "
+WORKED_OUT_BOXES_CAPTION = ("These are calculated from the amounts above, "
                             "so they come last.")
 
 CORRECTIONS_ON_RESULTS_CAPTION = (
@@ -3116,7 +3115,10 @@ PREMIX_LABEL = "Pre-mix"
 # `Part of` is the word the parts fold already uses, and it cannot be read as
 # "this row is a pre-mix".
 PART_OF_LABEL = "Part of"
-MADE_AS_LABEL = "Made as"
+MADE_AS_LABEL = "Preparation"
+OLD_MADE_AS_LABEL = "Made as"
+OLD_CALCULATED_LABEL = "worked out"
+OLD_CALCULATED_RANGE = "From rule"
 PREMIX_SHARE_LABEL = "Composition (%)"
 # The three answers to `Made as`, and the whole of what the column asks.
 # Neither of the two pre-mix answers carries a comma any more: two sentences
@@ -3284,7 +3286,7 @@ def delete_the_premix_instead(name, premix):
     way: 'Dry blend is part of Dry blend' would not, so that case says
     what it is instead."""
     if name == premix:
-        return (f"{name} is a pre-mix. Choose bought in in its Made as cell "
+        return (f"{name} is a pre-mix. Choose bought in in its Preparation cell "
                 "to take it apart.")
     return f"{name} is part of {premix}. Take it out of the pre-mix instead."
 
@@ -3307,10 +3309,12 @@ def part_in_two_weighed_premixes(name, first, second):
 # the columns the way the pre-mix is made actually needs.
 # ------------------------------------------------------------------ #
 MADE_AS_HELP = (
-    "Single ingredient: vary its amount directly. Fixed-ratio pre-mix: keep component percentages "
-    "constant and vary how much pre-mix is added. Variable-ratio blend: vary each component's "
-    "amount separately, for example coconut oil and sunflower oil. The blend total is their sum. "
-    "These options control calculations and preparation tables; use Name to give a blend your own label.")
+    "**Single ingredient:** set the amount of one ingredient, including a purchased blend.\n\n"
+    "**Fixed-ratio pre-mix:** prepare a blend with fixed component percentages. "
+    "The app varies how much of that blend goes into each formulation.\n\n"
+    "**Variable-ratio blend:** set a range for each component, such as coconut oil and sunflower oil. "
+    "The app varies their amounts separately; weigh each component for each formulation.\n\n"
+    "Choose the preparation method here. Enter your own ingredient or blend name in Name.")
 
 # The first column of a pre-mix's own grid. The row IS the part, so the
 # header is the noun and not "Name": the grid above already has a Name.

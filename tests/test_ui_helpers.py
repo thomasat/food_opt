@@ -233,8 +233,7 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Raise Highest "
-        "measurable in Set up, or check the value."
+        "Firmness 12 N is outside your range of 0 to 10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up."
     )
 
 
@@ -712,13 +711,13 @@ def test_the_three_grid_keys_the_app_owns_are_named_once():
 
 def test_the_out_of_range_hint_names_a_control_on_the_screen():
     """R13: "Widen the range in Set up" named nothing there — the
-    measurements grid's columns are Lowest measurable and Highest
+    measurements grid's columns are Scale minimum and Highest
     measurable. The two spellings are pinned together because the hint is
     written above the column headers and cannot read them."""
     import wording
     assert wording.HIGHEST_MEASURABLE_LABEL in wording.WIDEN_RANGE_HINT
     assert wording.WIDEN_RANGE_HINT == (
-        " Raise Highest measurable in Set up, or check the value.")
+        " Check the value, or adjust Scale minimum or Scale maximum in Set up.")
 
 
 def test_every_ingredient_column_carries_a_width():
