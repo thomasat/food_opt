@@ -137,6 +137,30 @@ class LocalStorage:
                 os.remove(tmp)
         seen[name] = self._stamp(name)
 
+    def delete_archive(self, name):
+        """Take one saved copy off the disk for good.
+
+        Only a copy: a name that is not an archive name is refused rather
+        than deleted, because the one caller is the sidebar's tidy-up and a
+        project file is not its to take.
+        """
+        if not is_archive_name(name):
+            raise StorageError(
+                "That is a project, not a saved copy. Only copies can be "
+                "deleted here."
+            )
+        try:
+            os.remove(self._path(name))
+        except FileNotFoundError:
+            return False
+        except OSError:
+            raise StorageError(
+                "This copy could not be deleted. It may be open in another "
+                "program."
+            )
+        self.__dict__.setdefault("_seen", {}).pop(name, None)
+        return True
+
     def is_stale(self, name):
         """True when the file changed on disk since this instance last read or wrote it."""
         seen = self.__dict__.setdefault("_seen", {})

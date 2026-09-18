@@ -12,6 +12,7 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
@@ -55,6 +56,8 @@ def _amount_rows(opt, recipe):
     two orders on two screens made the reader check it line by line."""
     category = {v['name']: v.get('category', 'ingredient') for v in opt.variables}
     shown = {name for name, _ in opt.recipe_lines(recipe)}
+    shown.update(v['name'] for v in opt.variables
+                 if v.get('category') == 'process' and v['name'] in recipe)
     pairs = [(v['name'], float(recipe[v['name']])) for v in opt.variables
              if v['name'] in shown and v['name'] in recipe]
     ingredients = [p for p in pairs if category.get(p[0]) != 'process']
@@ -66,9 +69,81 @@ def _amount_rows(opt, recipe):
             return fmt_setting(value, opt.unit_of(name))
         return fmt_amount(value, opt.unit_of(name))
 
-    return [{wording.INGREDIENT_OR_SETTING_LABEL: name,
-             wording.AMOUNT_COLUMN: amount(name, value)}
-            for name, value in ingredients + settings]
+    # Use the amounts actually displayed, including user-entered formulations
+    # and recorded scaling. Process settings and pre-mix component percentages
+    # must never enter this denominator.
+    total = sum(value for _, value in ingredients)
+    comparable = opt._shows_shares() and total > 0
+    rows = []
+    for name, value in ingredients + settings:
+        row = {wording.INGREDIENT_OR_SETTING_LABEL: name,
+               wording.AMOUNT_COLUMN: amount(name, value)}
+        if opt.has_ingredients():
+            row[wording.RESULT_PERCENT_COLUMN] = (
+                f"{100 * value / total:.2f}" if comparable and category.get(name) != 'process'
+                else "" if category.get(name) == 'process' else "—")
+        rows.append(row)
+    return rows
+
+
+def _amount_table(opt, recipe):
+    rows = _amount_rows(opt, recipe)
+    columns = [wording.INGREDIENT_OR_SETTING_LABEL, wording.AMOUNT_COLUMN]
+    if opt.has_ingredients():
+        columns.append(wording.RESULT_PERCENT_COLUMN)
+    st.table(pd.DataFrame(rows, columns=columns, index=[""] * len(rows)))
+    if opt.has_ingredients():
+        if not opt._shows_shares():
+            st.caption(wording.RESULT_PERCENT_MIXED_HELP)
+        elif not any(row.get(wording.RESULT_PERCENT_COLUMN) not in ("", "—", None) for row in rows):
+            st.caption(wording.RESULT_PERCENT_ZERO_HELP)
+        elif opt._process_settings():
+            st.caption(wording.RESULT_PERCENT_PROCESS_HELP)
+
+
+def _selected_formulation(opt):
+    """A default that follows the best score, plus read-only history choices."""
+    best_index = opt.best_index()
+    best_no = int(opt.formulation_ids[best_index]) if best_index is not None else None
+    numbers = _all_numbers(opt)
+    if len(numbers) < 2:
+        return numbers[0] if numbers else None
+    options = ([None] if best_no is not None else []) + [n for n in numbers if n != best_no]
+    key = f"result_view_{opt.project_name}"
+    if key in st.session_state and st.session_state[key] not in options:
+        st.session_state.pop(key)
+
+    labels = {}
+    for choice in options:
+        number = best_no if choice is None else choice
+        index = opt.index_of_formulation(number)
+        skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
+        batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
+        labels[choice] = wording.for_project(opt, wording.result_view_option(
+            number, batch, best=choice is None, unscored=index is None))
+
+    chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
+                          format_func=labels.__getitem__, key=key,
+                          help=wording.for_project(opt, wording.RESULT_VIEW_HELP))
+    return best_no if chosen is None else chosen
+
+
+def _unscored_details(opt, number):
+    row = next(r for r in opt.skipped if int(r['formulation']) == number)
+    batch = row.get(ROUND_FIELD)
+    st.subheader(wording.for_project(opt, wording.result_heading(number, batch)))
+    st.info(wording.for_project(opt, wording.RESULT_UNSCORED_HELP))
+    reason = wording.note_reason(row.get('note'))
+    if reason:
+        st.caption(reason)
+    total = opt.recorded_total(batch) if opt.one_amount_unit() is not None else None
+    shown_row = {'formulation': number, 'recipe': row.get('recipe') or {}}
+    shown, _ = opt.shown_recipe(shown_row, total)
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
+    _amount_table(opt, shown)
+    for caution in (opt.scaled_cautions([shown_row], total, total is not None)
+                    + opt.total_mismatch_lines([shown_row], total)):
+        st.caption(caution)
 
 
 def _number(cell):
@@ -102,18 +177,27 @@ def _progress_line(opt):
 
 
 def _best(opt):
-    """The best formulation. Returns True when it has already said what a
+    """Details for the selected formulation, defaulting to the best. Returns
+    True when it has already said what a
     partial score cannot be compared with, so the table below does not say the
     same sentence again on the same screen."""
-    index = opt.best_index()
-    if index is None:
+    number = _selected_formulation(opt)
+    if number is None:
         return False
-    number = int(opt.formulation_ids[index])
+    index = opt.index_of_formulation(number)
+    if index is None:
+        _unscored_details(opt, number)
+        return False
     batch = opt.batch_history[index]
-    st.subheader(wording.best_so_far_heading(number, batch))
-    line = _progress_line(opt)
-    if line:
-        st.caption(line)
+    is_best = index == opt.best_index()
+    heading = (wording.best_so_far_heading(number, batch) if is_best
+               else wording.result_heading(number, batch))
+    st.subheader(wording.for_project(opt, heading))
+    if is_best:
+        st.caption(wording.RESULT_BEST_HELP)
+        line = _progress_line(opt)
+        if line:
+            st.caption(line)
 
     details = opt.closeness_details(index)
     if details:
@@ -143,15 +227,11 @@ def _best(opt):
     note = opt.notes_history[index] if index < len(opt.notes_history) else ""
     row = {'formulation': number, 'recipe': recipe, 'note': note}
     shown, _ = opt.shown_recipe(row, total)
-    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
-    rows = _amount_rows(opt, shown)
-    st.table(pd.DataFrame(rows,
-                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN],
-                          index=[""] * len(rows)))
+    _amount_table(opt, shown)
     # The amounts above are the ones the bench weighed out, so the same lines
     # tab 2 shows under the box belong under the table that shows them: it
     # is the total, not the formulation, that pushed them out — and a row
@@ -190,7 +270,7 @@ def _best(opt):
             float(opt.Y_history[index]), ceiling,
             number_list(unmeasured) if unmeasured else ""))
     if partial:
-        st.caption(wording.PARTIAL_SCORES_CAPTION)
+        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
     return partial
 
 
@@ -207,9 +287,16 @@ def _amount_format(opt, frame):
     def weighed(value):
         # A not-scored row may hold no amount for a variable added later,
         # and a measurement left blank stays blank rather than reading "nan".
-        if value is None or pd.isna(value):
+        # A cell that is not a number at all — a note, a date, a score with
+        # a sentence behind it — is handed back as it came.
+        if value is None:
             return ""
-        return fmt_amount(value)
+        if not isinstance(value, str) and pd.isna(value):
+            return ""
+        try:
+            return fmt_amount(float(value))
+        except (TypeError, ValueError):
+            return value
 
     # Every number in the table reads to two decimals: the amounts, the
     # measurements and the score alike. Left to pandas, a panel score typed
@@ -217,8 +304,12 @@ def _amount_format(opt, frame):
     # setting keeps fmt_setting (180, not 180.00), and a text column — the
     # score with "· Juiciness not measured" behind it, Note, Best — is left
     # alone.
+    # Every column but the two counts and the settings. Read off the dtype,
+    # a column that holds one blank went to `object` and slipped the net
+    # entirely: the amounts of a row recorded before a pre-mix moved printed
+    # as 31.13258332014084 beside their neighbours' 31.13.
     numeric = {c for c in frame.columns
-               if c not in amounts and frame[c].dtype != object
+               if c not in amounts
                and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP)}
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
@@ -227,7 +318,7 @@ def _amount_format(opt, frame):
 
 
 def _all_formulations(opt, said_partial=False):
-    st.markdown(wording.ALL_FORMULATIONS_HEADING)
+    st.markdown(wording.for_project(opt, wording.ALL_FORMULATIONS_HEADING))
     o1, o2 = st.columns([2, 1])
     with o1:
         # The three options are a protocol with food_bo.history_frame, which
@@ -238,18 +329,20 @@ def _all_formulations(opt, said_partial=False):
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
     st.dataframe(frame.style.format(_amount_format(opt, frame)),
+                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
+                         wording.for_project(opt, wording.FORMULATION_CAP))},
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
     # The overall-score column of food_bo's history_frame, named once in
     # wording so the frame and the screen cannot drift apart.
     if not said_partial and any(wording.NOT_MEASURED in str(v)
                                 for v in frame[wording.OVERALL_SCORE_COLUMN]):
-        st.caption(wording.PARTIAL_SCORES_CAPTION)
+        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it
     # against is a file nobody can use six months later.
-    st.download_button(wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON,
+    st.download_button(wording.for_project(opt, wording.DOWNLOAD_ALL_FORMULATIONS_BUTTON),
                        data=opt.all_formulations_workbook(),
                        file_name=wording.all_formulations_file_name(
                            opt.project_name),
@@ -327,11 +420,21 @@ def _amount_boxes(opt, key_of, recipe=None, lock_worked_out=False):
     is the whole point of correcting, and the printed sheet leaves that
     row's Actual (g) cell open for exactly that.
     """
+    for name, group in opt.premixes.items():
+        if group['mode'] == 'weighed':
+            st.caption(wording.premix_members_line(
+                name, ", ".join(p['name'] for p in group['parts'])))
     typed = {}
     for var, col in _in_fours(opt.variables):
         with col:
             name = var['name']
-            low, high = (float(b) for b in var['bounds'])
+            # The placeholder is the allowed amounts at the size this row
+            # was made to: the boxes were prefilled with 250 g grams under
+            # a hint reading "0–15", which is the band per 100 g.
+            scale = (opt.recipe_scale(recipe)
+                     if recipe and var.get("category", "ingredient") == "ingredient"
+                     else 1.0)
+            low, high = (float(b) * scale for b in var['bounds'])
             worked_out = opt.has_formula(var)
             # No min_value/max_value: an amount outside what the project
             # allows is a fact about work already done, and clamping it would
@@ -401,15 +504,11 @@ def _score_row(opt, choice):
     # that the user wrote the formulation out themselves.
     shown_row = {'formulation': int(choice), 'recipe': recipe}
     shown, _ = opt.shown_recipe(shown_row, total)
-    st.markdown(wording.amounts_to_make_it_heading(opt.batch_total_text(total)))
+    st.markdown(wording.for_project(opt, wording.amounts_to_make_it_heading(opt.batch_total_text(total))))
     # A blank index: st.table always draws one, and a list of ingredients
     # numbered from 0 beside a properties grid numbered from 1 had the cold
     # reader reading two different tables of the same ingredients.
-    rows = _amount_rows(opt, shown)
-    st.table(pd.DataFrame(rows,
-                          columns=[wording.INGREDIENT_OR_SETTING_LABEL,
-                                   wording.AMOUNT_COLUMN],
-                          index=[""] * len(rows)))
+    _amount_table(opt, shown)
     # It is the total, not the formulation, that pushes an amount out of the
     # allowed ones — the same lines tab 2 shows under its box, and the best
     # block under the same table.
@@ -451,14 +550,14 @@ def _correct(opt):
     if not numbers:
         # Not "No results yet.": that sentence is already the whole screen
         # above this section on a project holding nothing.
-        st.caption(wording.no_formulation_to_correct_caption())
+        st.caption(wording.for_project(opt, wording.no_formulation_to_correct_caption()))
         return None
     take_clear("correct_formulation")
     # The label says what picking one DOES; the placeholder says what the box
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
     choice = st.selectbox(
-        wording.CORRECT_WHICH_LABEL, numbers, index=None,
+        wording.for_project(opt, wording.CORRECT_WHICH_LABEL), numbers, index=None,
         placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
         format_func=lambda n: (wording.not_scored_option(n)
                                if n in not_scored else str(n)),
@@ -466,7 +565,7 @@ def _correct(opt):
     if not_scored:
         # A not-scored number in the list is not a correction, and nothing
         # about the box says what picking one does.
-        st.caption(wording.NOT_SCORED_CAN_BE_SCORED_CAPTION)
+        st.caption(wording.for_project(opt, wording.NOT_SCORED_CAN_BE_SCORED_CAPTION))
     if choice is None:
         return None
     if int(choice) in not_scored:
@@ -610,7 +709,8 @@ def _save_correction(opt, storage, pending):
     if move:
         sentences.append(move)
     sentences.append(COPY_KEPT)
-    cautions = [c for c in (bounds_caution(opt, name, recipe[name])
+    scale = opt.recipe_scale(recipe)
+    cautions = [c for c in (bounds_caution(opt, name, recipe[name], scale)
                             for name in amount_changes) if c]
     flash("success", " ".join(sentences))
     for caution in cautions:
@@ -761,7 +861,7 @@ def _delete_formulations(opt, storage):
     numbers = _deletable_numbers(opt)
     if not numbers:
         _disarm_delete()
-        st.caption(wording.no_formulation_to_delete_caption())
+        st.caption(wording.for_project(opt, wording.no_formulation_to_delete_caption()))
         return
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -867,7 +967,7 @@ def _type_in_past(opt):
     st.text_input(wording.NOTE, key="past_note")
     # Secondary: the foot's Start the next round is this tab's coloured
     # button, and answering an armed confirmation outranks both.
-    if st.button(wording.ADD_THIS_FORMULATION, key="add_past_formulation",
+    if st.button(wording.for_project(opt, wording.ADD_THIS_FORMULATION), key="add_past_formulation",
                  disabled=confirmation_open()):
         _add_typed_past(opt, ordered)
 
@@ -901,7 +1001,8 @@ def _add_typed_past(opt, ordered):
         return
     # A caution, never a refusal: an amount outside what the project allows is
     # a fact about work already done, and the model learns from it.
-    cautions = [c for c in (bounds_caution(opt, name, value)
+    scale = opt.recipe_scale(recipe)
+    cautions = [c for c in (bounds_caution(opt, name, value, scale)
                             for name, value in recipe.items()) if c]
     number = int(opt.formulation_ids[-1])
     for var in opt.variables:
@@ -946,7 +1047,8 @@ def _read_past_formulations(uploaded):
         # column. A plain sheet whose first row is the header still works.
         header_row = 0
         for i in range(min(len(raw), 5)):
-            if raw.iloc[i].notna().sum() > 1:
+            if (raw.iloc[i].notna().sum() > 1
+                    and raw.iloc[i, 0] != wording.RECORDED_AMOUNTS):
                 header_row = i
                 break
         frame = raw.iloc[header_row + 1:].reset_index(drop=True)
@@ -1007,8 +1109,11 @@ def _import(opt):
             # Left out below (nothing measured): no caution for a row that
             # is never recorded.
             continue
+        scale = opt.recipe_scale({name: _number(row[col_for[name]])
+                                  for name in variables})
         for name in variables:
-            caution = bounds_caution(opt, name, _number(row[col_for[name]]))
+            caution = bounds_caution(opt, name, _number(row[col_for[name]]),
+                                     scale)
             if caution:
                 cautions.append(wording.row_error(position, caution))
     imported, nothing_measured, failure, reached = 0, 0, None, 0
@@ -1071,18 +1176,18 @@ def _edit_past(opt, storage):
     enter work done before the project existed hid inside the third."""
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
-    with st.expander(wording.EDIT_PAST_FORMULATIONS_EXPANDER):
+    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FORMULATIONS_EXPANDER)):
         # The heading follows the pick: with a not-scored row picked, the
         # section is writing that row's FIRST result, and "Correct" named
         # something there was nothing of yet.
         picked = st.session_state.get("correct_formulation")
         scoring = picked is not None and any(
             int(row['formulation']) == int(picked) for row in opt.skipped)
-        st.markdown(wording.SCORE_A_FORMULATION_HEADING if scoring
-                    else wording.CORRECT_A_FORMULATION_HEADING)
+        st.markdown(wording.for_project(opt, wording.SCORE_A_FORMULATION_HEADING if scoring
+                    else wording.CORRECT_A_FORMULATION_HEADING))
         pending = _correct(opt)
         st.divider()
-        st.markdown(wording.DELETE_FORMULATIONS_HEADING)
+        st.markdown(wording.for_project(opt, wording.DELETE_FORMULATIONS_HEADING))
         # Two things in the delete part rerun without touching the disk — the
         # `Add a whole batch to the list` pick and taking a stale confirmation
         # down — and Streamlit discards the session-state entry of every
@@ -1120,7 +1225,7 @@ def render(opt, storage):
         _edit_past(opt, storage)
         return
     if not opt.objectives:
-        st.info(wording.ADD_MEASUREMENT_RESCORE_INFO)
+        st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
     said_partial = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the
@@ -1131,6 +1236,7 @@ def render(opt, storage):
     change_setup = st.container()
     st.divider()
     _all_formulations(opt, said_partial)
+    custom_records.history(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
     # confirmation armed by a click in one of the collapsed sections below it

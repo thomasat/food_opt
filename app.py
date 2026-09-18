@@ -24,7 +24,7 @@ if "_imports_warmed" not in st.session_state:
 import json                                   # noqa: E402
 import os                                     # noqa: E402
 import re as _re                              # noqa: E402
-from datetime import datetime                 # noqa: E402
+from datetime import datetime, timedelta                 # noqa: E402
 
 import pandas as pd                           # noqa: E402
 
@@ -33,7 +33,8 @@ import ui_batch                               # noqa: E402
 import ui_results                             # noqa: E402
 import ui_setup                               # noqa: E402
 from food_bo import (                         # noqa: E402
-    WORKBOOK_MIME, FoodOptimizer, ingredients_template_workbook,
+    RECORD_FIELDS, WORKBOOK_MIME, FoodOptimizer,
+    ingredients_template_workbook,
 )
 from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
@@ -76,6 +77,7 @@ _FORM_KEY_PREFIXES = (
                                    # the box that names a new property and
                                    # the picker the Delete beside the
                                    # properties grid is armed from
+    "custom_",
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
@@ -136,9 +138,18 @@ def _reset_project_session():
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
-              "_results_upload", "_import_rows",
+              "_results_upload", "_results_file_mark", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
+              # The Method box: a project's own text, and one left behind
+              # would be written over the next project's on its first save.
+              ui_setup._METHOD_BOX,
+              # Whether THIS project's sheets have been downloaded: the
+              # upload door opens for the project the workbook came from.
+              ui_batch._SHEETS_DOWNLOADED,
+              # The four Also record boxes: a tick left behind would be
+              # written onto the next project on its first render.
+              *(ui_setup._record_key(f) for f in RECORD_FIELDS), "record_fields",
               ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,
               # What the Default batch size box is up to date with. Parked
               # empty three lines below like every other box, so a mark left
@@ -153,7 +164,9 @@ def _reset_project_session():
     # the project being opened.
     reset_grids()
     for k in [k for k in st.session_state if isinstance(k, str)]:
-        if k in _FORM_FRESH:
+        if k.startswith("edit_round_"):
+            st.session_state.pop(k, None)
+        elif k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
         elif k.startswith(_PER_NAME_BOX_PREFIXES):
             # One box per property, and one per variable: the names are the
@@ -214,36 +227,13 @@ class _FreshStart:
         return False
 
 
-def _build_sample_project(name):
-    """The current sample, built from nothing onto `name`. Every setter below
-    saves, and a save writes the whole project, so the first one replaces an
-    older sample outright rather than editing it."""
-    _sample = FoodOptimizer(name, storage=_FreshStart())
-    _sample.storage = STORAGE
-    _sample.set_amount_unit("g")
-    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-    # A plant-based burger rated by a trained panel for intensity, 0 to
-    # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
-    # is a puck), so both are targets; firmness matters a little more.
-    _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
-                          min_val=0, max_val=10, unit="/10")
-    _sample.add_objective("Firmness", 1.5, goal="target", target=6,
-                          min_val=0, max_val=10, unit="/10")
-    # add_objective does not normalise (the weights are a scale of their
-    # own until something says otherwise), so the file it writes would say
-    # 1.0 / 1.5 under CLASS_VERSION 11 while every screen read 40 / 60. The
-    # shares are stated outright, in the scale the version claims.
-    _sample.set_shares({"Firmness": 60.0, "Juiciness": 40.0})
-    _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
-    # A burger patty is made to a weight, and the panel is served
-    # one size. 100 g is what the sample's allowed amounts are
-    # written around, so every batch it suggests comes off the bench
-    # ready to grill.
-    _sample.set_formulation_total(100.0)
-    return _sample
+def _build_sample_project(name, kind="Burger formulation"):
+    """Build the guided example; existing projects with work are preserved by the caller."""
+    import sample_projects
+    return sample_projects.build(kind, name, _FreshStart(), STORAGE)
 
 
-def _open_sample_project():
+def _open_sample_project(kind="Burger formulation"):
     """Open the sample, building it first unless there is one worth keeping.
 
     A Mac that met an earlier version has that version's sample on disk, and
@@ -253,7 +243,8 @@ def _open_sample_project():
     holds any work of the user's it is their project, and it is opened
     exactly as it stands.
     """
-    _name = wording.SAMPLE_PROJECT_NAME
+    import sample_projects
+    _name = sample_projects.NAMES[kind]
     _existing = None
     if STORAGE.exists(_name):
         _existing = FoodOptimizer(_name, storage=STORAGE)
@@ -267,7 +258,7 @@ def _open_sample_project():
             _open_project(_name)
             return
     try:
-        _sample = _build_sample_project(_name)
+        _sample = _build_sample_project(_name, kind)
     except ValueError as e:
         st.error(wording.sample_project_failed(e))
     else:
@@ -296,10 +287,9 @@ def _safety_copies(opt):
         archives = STORAGE.list_archives()
     except storage_backend.StorageError:
         return
-    prefix = f"{opt.project_name}_"
     mine = []
     for name in archives:
-        if not name.startswith(prefix):
+        if storage_backend.ARCHIVE_SUFFIX_RE.sub("", name) != opt.project_name:
             continue
         match = storage_backend.ARCHIVE_SUFFIX_RE.search(name)
         reason = wording.SAFETY_COPY_REASONS.get(match.group(1)) if match else None
@@ -312,24 +302,103 @@ def _safety_copies(opt):
     st.caption(wording.SAFETY_COPIES_CAPTION)
     # Newest first: the copy somebody wants back is nearly always the last
     # one the app took.
-    for when, name, reason in sorted(
-            mine, key=lambda row: row[0] or datetime.min.astimezone(),
-            reverse=True):
-        line, button = st.columns([3, 1])
-        line.caption(wording.safety_copy_line(
-            reason, copy_when(when) if when is not None else ""))
-        if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
-            try:
-                state = STORAGE.load(name)
-            except storage_backend.StorageError as e:
-                st.error(str(e))
+    ordered = sorted(mine, key=lambda row: row[0] or datetime.min.astimezone(),
+                     reverse=True)
+    # The latest copy on the sidebar, the rest in a fold. The app makes a copy before
+    # every edit, so a month of ordinary work left thirty of them down a
+    # sidebar that also holds the project list.
+    for when, name, reason in ordered[:_COPIES_SHOWN]:
+        _safety_copy_row(when, name, reason)
+    older = ordered[_COPIES_SHOWN:]
+    if not older:
+        return
+    with st.expander(wording.older_copies_fold(len(older))):
+        day = None
+        for when, name, reason in older:
+            this_day = _copy_day(when)
+            if this_day != day:
+                day = this_day
+                st.caption(wording.copies_by_day(day))
+            _safety_copy_row(when, name, reason)
+        _delete_old_copies(ordered[_COPIES_RETAIN_NEWEST:])
+
+
+# How many of the app's own copies stand on the sidebar itself.
+_COPIES_SHOWN = 1
+_COPIES_RETAIN_NEWEST = 3
+# ...and how old a copy has to be before the tidy-up will take it.
+_COPIES_KEEP_DAYS = 7
+
+
+def _copy_day(when):
+    """Which day's heading one copy sits under, inside the fold."""
+    if when is None:
+        return ""
+    today = datetime.now().astimezone().date()
+    made = when.date()
+    if made == today:
+        return wording.COPIES_TODAY
+    if (today - made).days == 1:
+        return wording.COPIES_YESTERDAY
+    return f"{when:%d %b}".lstrip("0")
+
+
+def _safety_copy_row(when, name, reason):
+    """One copy: what it was taken before, when, and the door back to it."""
+    line, button = st.columns([3, 1])
+    line.caption(wording.safety_copy_line(
+        reason, copy_when(when) if when is not None else ""))
+    if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
+        try:
+            state = STORAGE.load(name)
+        except storage_backend.StorageError as e:
+            st.error(str(e))
+        else:
+            if state is None:
+                st.error(wording.COPY_UNREADABLE)
             else:
-                if state is None:
-                    st.error(wording.COPY_UNREADABLE)
-                else:
-                    st.session_state["_restore_candidate"] = state
-                    preserve_tab_forms()
-                    st.rerun()
+                st.session_state["_restore_candidate"] = state
+                preserve_tab_forms()
+                st.rerun()
+
+
+def old_safety_copies(older, now=None):
+    """The copies inside the fold that the tidy-up would take: older than a
+    week, and never one of the three newest — those are not in `older` at
+    all. A copy whose age cannot be read is kept.
+
+    The user's own downloaded copies are not in this folder, so nothing
+    here can reach them."""
+    now = now or datetime.now().astimezone()
+    return [row for row in older
+            if row[0] is not None
+            and now - row[0] > timedelta(days=_COPIES_KEEP_DAYS)]
+
+
+def _delete_old_copies(older):
+    """One secondary button inside the fold, behind the app's own two-step
+    question, which names how many go and what it cannot reach."""
+    stale = old_safety_copies(older)
+    if not stale:
+        st.caption(wording.NO_OLD_COPIES)
+        return
+    key = "delete_old_copies"
+    if not confirm_action(
+            key, wording.DELETE_OLD_COPIES,
+            wording.delete_old_copies_question(len(stale), len(stale) > 1),
+            confirm_label=wording.YES_DELETE, preserve=True,
+            disabled=other_confirmation(key)):
+        return
+    gone = 0
+    for _, name, _reason in stale:
+        try:
+            if STORAGE.delete_archive(name):
+                gone += 1
+        except storage_backend.StorageError as e:
+            st.error(str(e))
+            return
+    flash("success", wording.old_copies_deleted(gone, gone != 1))
+    st.rerun()
 
 
 def _held(opt):

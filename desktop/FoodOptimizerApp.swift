@@ -54,14 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var activeStepStarted = Date()  // when it became active, for the counter
     // True once a launcher line — not merely the window opening — put the
     // active step on screen. The counter times the work, so a warm launch
-    // that shows "Loading…" from its first frame still starts counting when
+    // that shows "Loading" from its first frame still starts counting when
     // the launcher says the import has begun.
     var activeStepConfirmed = false
-    // Past the range we promised. Latched for the whole launch: a warm-up
-    // that took 45 s must not let the next step promise 15 to 30 seconds.
+    // A slow step stays acknowledged for the rest of this launch.
     var activeStepStalled = false
     var stepDetail = ""             // the launcher's own line, under the active step
-    // The six-minute "Still setting up…" page, which is not a steps page: it
+    // The six-minute "Still setting up" page, which is not a steps page: it
     // must not be rebuilt over by the next status line.
     var stalledPageShowing = false
     var retryToken = 0            // cancels a pending retry when Try again is clicked again
@@ -71,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var launchGeneration = 0
 
     // Lines the launcher publishes while it is doing setup work. "Starting the
-    // app…" is deliberately absent: it arrives on EVERY launch, warm ones
+    // app" is deliberately absent: it arrives on EVERY launch, warm ones
     // included, and must never turn an ordinary opening page into a setup page
     // (it may only update that page's step line).
     let setupStepPrefixes = ["Downloading Python", "Creating environment",
@@ -80,17 +79,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // The three steps, as the user reads them, and the lines under them. The
     // load step's label doubles as the prefix of the launcher's own line for
-    // it, so the two can never drift apart. The wait is given as a range on
-    // purpose: the honest thing to say about an import that depends on the
-    // machine is that it is usually quick and sometimes not.
+    // it, so the two stay consistent. Avoid duration promises: startup time
+    // depends on the computer and whether components need downloading.
     let downloadStepLabel = "Downloading the app's components"
     let loadStepLabel = "Loading the app's components"
     let openStepLabel = "Opening your projects"
-    let usualWaitLine = "Usually 15 to 30 seconds."
-    let stillLoadingLine = "Still loading. The first start can take up to a minute."
+    let usualWaitLine = "Preparing the app. Please keep this window open."
+    let stillLoadingLine = "Still loading. Please keep this window open."
     // The one line that says what the app is for, so the wait has something
     // to read that is not about waiting.
-    let nextUpLine = "Next: set up your ingredients and measurements, then make a round."
+    let nextUpLine = "Define your ingredients, process settings, and measurements. Then generate your first set of formulations."
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"]
         as? String ?? ""
@@ -233,10 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func getHelp() {
         let alert = NSAlert()
-        alert.messageText = "Need help? Reach out to the Food Intelligence Lab"
+        alert.messageText = "Food Optimizer support"
         alert.informativeText =
             "Write to us at https://github.com/thomasat/food_opt/issues. "
-            + "Describe the problem in words, and do not attach project "
+            + "Describe the problem and what you expected. Do not attach project "
             + "files, saved copies or formulations, because that page is public. "
             + "Attaching the app's log file helps — Help › Show Log File "
             + "finds it for you."
@@ -340,15 +338,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var setupBody: String {
         setupIsUpgrade
             ? "Food Optimizer is downloading an update. "
-              + "This usually takes under a minute; on a slow network, a few "
-              + "minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
             : "The first time it opens, Food Optimizer downloads about 1 GB. "
-              + "This usually takes under a minute; on a slow network, a few "
-              + "minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
     }
 
     var stepsPageTitle: String {
-        guard activeStep == .download else { return "Starting Food Optimizer…" }
+        guard activeStep == .download else { return "Starting Food Optimizer" }
         return setupIsUpgrade ? "Updating Food Optimizer" : "Setting up Food Optimizer"
     }
 
@@ -529,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // different about this particular give-up, said before the shared advice.
     func showCouldNotStartStatus(detail: String? = nil) {
         let body = (detail.map { $0 + " " } ?? "")
-            + "Please click Try again. If this keeps happening, reach out to "
+            + "Click Try again. If the problem persists, contact "
             + "the Food Intelligence Lab and attach the file from Help › Show "
             + "Log File."
         showStatus("The app could not start", body, retry: true)
@@ -774,7 +770,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // The previous launch's last line survives until the NEXT launch owns the
     // lock and clears it — up to ~10 s in. Read as this launch's, it would
-    // drive the steps backwards ("Finishing setup" after "Loading…") and
+    // drive the steps backwards ("Finishing setup" after "Loading") and
     // could add a download row to a launch with nothing to download. Same 2 s
     // tolerance as portFileIsFromThisLaunch(), and for the same reasons.
     func statusFileIsFromThisLaunch() -> Bool {
@@ -820,7 +816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Which of the three steps this line is about. A percent or one of
         // the known setup prefixes is the download (an ordinary launch
         // publishes neither); the load step's line starts with its own label;
-        // anything else — "Starting the app…" — is the server coming up,
+        // anything else — "Starting the app" — is the server coming up,
         // which is where "Opening your projects" begins.
         let step: LaunchStep
         if pct != nil || setupStepPrefixes.contains(where: { text.hasPrefix($0) }) {
@@ -857,11 +853,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // or, worse, the give-up page — which, unlike this one, has a Try
         // again link — stranding the user with no way forward.
         if pollTicks == 720, awaitingHealthSince == nil, !timedOutWaitingForHealth {
-            showStatus("Still setting up…",
+            showStatus("Still setting up",
                        "The downloads are taking a while — slow connections "
                        + "can take longer than usual. Leave this window open; "
                        + "the app will appear as soon as it's ready.",
-                       spinner: true, step: lastStepText ?? "Still working…",
+                       spinner: true, step: lastStepText ?? "Still working",
                        progress: lastProgress, indeterminate: lastProgress == nil)
             stalledPageShowing = true
         }
@@ -891,7 +887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             timedOutWaitingForHealth = false
             // The server is up; what is left is Streamlit answering, which is
             // the last step. (It is usually already active: the launcher
-            // publishes "Starting the app…" as it spawns the server.)
+            // publishes "Starting the app" as it spawns the server.)
             if !stalledPageShowing { setActiveStep(.open) }
         } else if let since = awaitingHealthSince, !timedOutWaitingForHealth,
                   pollTicks - since >= 360 {   // matches launcher.sh's own 180s patience

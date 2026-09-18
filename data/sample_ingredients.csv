@@ -1,9 +1,19 @@
-Name,Lowest,Highest,Unit,Rule,Fat per 100 g,Sodium per 100 g
-Pea protein isolate,0,25,g,,2.0,800
-Wheat gluten,0,15,g,,1.8,30
-Coconut oil,0,15,g,,99.0,0
-Potato starch,0,8,g,,0.1,10
-Methylcellulose,0,3,g,,0.0,50
-Beet juice powder,0,2,g,,0.0,150
-Salt,0,3,g,,0.0,39000
-Water,30,70,g,= rest,0.0,0
+Name,Part of,Made as,Lowest,Highest,% of pre-mix,Calculation,Unit,Fat per 100 g,Sodium per 100 g,Cost per 100 g
+Textured pea protein,,,4,6.5,,,g,6.0,600,0.32
+Textured soy protein,,,4,6.5,,,g,6.0,600,0.32
+Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0,0,0.00
+Dry blend,,portioned from one pre-mix,16,22,,,g,,,
+Pea protein isolate,Dry blend,,,,66,,g,8.0,900,0.48
+Potato starch,Dry blend,,,,26,,g,0.1,10,0.11
+Methylcellulose,Dry blend,,,,8,,g,0.0,5,1.35
+Wheat gluten,,,4,8,,,g,1.9,30,0.19
+Fats and oils,,weighed into each formulation,,,,,g,,,
+Coconut oil,Fats and oils,,6,12,,,g,99.0,0,0.24
+Sunflower oil,Fats and oils,,2,6,,,g,100.0,0,0.15
+Seasoning blend,,portioned from one pre-mix,2.2,2.2,,,g,,,
+Salt,Seasoning blend,,,,45,,g,0.0,39300,0.02
+Onion powder,Seasoning blend,,,,20,,g,1.0,73,0.58
+Yeast extract,Seasoning blend,,,,15,,g,0.5,3500,0.90
+Natural beef-type flavour,Seasoning blend,,,,12,,g,2.0,2000,2.40
+Beet juice powder,Seasoning blend,,,,8,,g,0.5,250,1.10
+Remaining water,,,0,100,,= rest,g,0.0,0,0.00

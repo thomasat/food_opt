@@ -233,8 +233,7 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Raise Highest "
-        "measurable in Set up, or check the value."
+        "Firmness 12 N is outside your range of 0 to 10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up."
     )
 
 
@@ -258,6 +257,9 @@ def test_saved_line_shows_the_time_today_and_the_date_before_that():
 
 
 class _FakeOpt:
+    def premix_readiness_error(self, here=False):
+        return None
+
     def __init__(self, variables, objectives, pending_batch=None,
                  X_history=None, skipped=None):
         self.variables = variables
@@ -572,16 +574,13 @@ def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
     two things the head cannot: what one figure is per, and what the app does
     with a cell nobody filled in."""
     assert wording.PROPERTIES_HEADING == "**Properties**"
-    assert wording.properties_grid_caption() == (
-        "Each ingredient's figure, per 100 g. An empty cell counts as 0 in "
-        "any limit.")
+    assert wording.properties_grid_caption() == ("Each ingredient’s property value, per 100 g. " + wording.PROPERTY_BLANK_RULE)
     # Names that carry the basis themselves do not have it added twice.
     said = wording.properties_grid_caption(True)
-    assert said == ("Each ingredient's figure. An empty cell counts as 0 in "
-                    "any limit.")
+    assert said == ("Each ingredient’s property value. " + wording.PROPERTY_BLANK_RULE)
     assert ", per 100 g." not in said, said
     # It keeps the caption inside the tab's one-line budget.
-    assert len(wording.properties_grid_caption()) < 100
+    assert len(wording.properties_grid_caption()) < 160
     assert wording.PROPERTIES_SAVED == "Properties saved."
     assert wording.SAVE_PROPERTIES_BUTTON == "Save changes"
     assert wording.SAVE_BUTTON == "Save"
@@ -610,7 +609,7 @@ def test_the_property_rule_is_read_where_properties_are_used():
     somewhere else on the tab. They are a grid a few lines under that
     caption now, so the caption above the grid says it and the Limits
     caption does not say it a second time."""
-    assert "counts as 0" in wording.properties_grid_caption()
+    assert "Blank means unknown" in wording.properties_grid_caption()
     assert "counts as 0" not in wording.LIMITS_CAPTION, wording.LIMITS_CAPTION
     joined = " ".join(wording.HOW_CLOSENESS)
     assert "property" not in joined, joined
@@ -709,10 +708,116 @@ def test_the_three_grid_keys_the_app_owns_are_named_once():
 
 def test_the_out_of_range_hint_names_a_control_on_the_screen():
     """R13: "Widen the range in Set up" named nothing there — the
-    measurements grid's columns are Lowest measurable and Highest
+    measurements grid's columns are Scale minimum and Highest
     measurable. The two spellings are pinned together because the hint is
     written above the column headers and cannot read them."""
     import wording
     assert wording.HIGHEST_MEASURABLE_LABEL in wording.WIDEN_RANGE_HINT
     assert wording.WIDEN_RANGE_HINT == (
-        " Raise Highest measurable in Set up, or check the value.")
+        " Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+
+
+def test_every_ingredient_column_carries_a_width():
+    """I1: the desktop bundle opens at 1280 px, which leaves the grid about
+    820 px. With no widths the browser shared the space out evenly and
+    pushed `Rule` — the column wave 2 made this grid's headline — off the
+    right edge. AppTest cannot measure pixels, so what is pinned here is
+    that every column declares a width and that they add up to something
+    that fits; the browser script checks the fit itself."""
+    import pandas as pd
+    import ui_setup
+    import wording
+
+    class _Opt:
+        amount_unit = "g"
+
+    frame = pd.DataFrame(columns=[
+        wording.NAME_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL,
+        wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+        wording.FORMULA_LABEL])
+    columns = ui_setup._ingredient_columns(_Opt(), frame)
+    widths = {}
+    for label, config in columns.items():
+        if config is None:            # the hidden row identity
+            continue
+        width = config["width"]
+        assert width, f"{label} has no width"
+        widths[label] = width
+    assert set(widths) == {
+        wording.NAME_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL,
+        wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+        wording.FORMULA_LABEL}
+    assert sum(widths.values()) <= 820
+
+
+def test_the_measurement_range_columns_keep_their_own_two_words():
+    """I2: the headers were shortened to `Lowest` / `Highest` to make the
+    columns fit, which is what an ingredient's allowed amounts are called on
+    the grid directly above. One word says one thing: the width does the
+    fitting, the header keeps the meaning."""
+    import ui_setup
+    import wording
+    columns = ui_setup._measurement_columns()
+    assert (columns[wording.LOWEST_MEASURABLE_LABEL]["label"]
+            == wording.LOWEST_MEASURABLE_LABEL)
+    assert (columns[wording.HIGHEST_MEASURABLE_LABEL]["label"]
+            == wording.HIGHEST_MEASURABLE_LABEL)
+    for label, config in columns.items():
+        if config is not None:
+            assert config["width"], f"{label} has no width"
+
+
+def test_a_parts_fold_stays_open_while_it_holds_an_edit():
+    """B3: a data_editor reruns the script on every keystroke, and the fold
+    came back shut each time — with Save changes, Discard changes and the
+    "not saved yet" caption all inside it. The screen went back to looking
+    finished over an unsaved edit."""
+    import streamlit as st
+    import ui_setup
+    from ui_helpers import grid_key, premix_errors_key, premix_grid_key
+    st.session_state.clear()
+    grid = premix_grid_key("Dry blend")
+    assert ui_setup._premix_fold_open("Dry blend", grid) is False
+    # The editor's own record of what was typed, which Streamlit writes
+    # before the run that processes it — the park below is written at the
+    # end of that same run, so on the first keystroke there is nothing
+    # parked yet.
+    st.session_state[grid_key(grid)] = {
+        "edited_rows": {0: {"% of pre-mix": 20}},
+        "added_rows": [], "deleted_rows": []}
+    assert ui_setup._premix_fold_open("Dry blend", grid) is True
+    st.session_state[grid_key(grid)] = {
+        "edited_rows": {}, "added_rows": [], "deleted_rows": []}
+    assert ui_setup._premix_fold_open("Dry blend", grid) is False
+    # A refusal to read keeps it open too.
+    st.session_state[premix_errors_key("Dry blend")] = [(1, "no")]
+    assert ui_setup._premix_fold_open("Dry blend", grid) is True
+    st.session_state.clear()
+
+
+def test_each_parts_fold_says_what_its_numbers_are():
+    """S10: `% of pre-mix` had no tooltip, no caption and no line under the
+    grid — the one term on the tab that was never said — and it is the
+    central number of a portioned pre-mix's fold."""
+    import wording
+    portioned = wording.premix_fold_caption(False)
+    weighed = wording.premix_fold_caption(True)
+    assert "percentages the same" in portioned
+    assert "change how much pre-mix" in portioned
+    assert wording.LOWEST_LABEL in weighed and wording.HIGHEST_LABEL in weighed
+    assert "chooses an amount for each one" in weighed
+    assert "sum of these amounts" in weighed
+
+
+def test_the_made_as_help_says_what_each_of_the_three_answers_means():
+    """S11 and S12: the tooltip defined the column and not the choices, and
+    the ordinary case was a blank with no words at all."""
+    import wording
+    for option in (wording.PREMIX_MADE_AS_BOUGHT_IN,
+                   wording.PREMIX_MADE_AS_PORTIONED,
+                   wording.PREMIX_MADE_AS_WEIGHED):
+        assert option in wording.MADE_AS_HELP
+        # Neither pre-mix answer carries a comma any more: two sentences
+        # list both, and a three-item list of two options is unreadable.
+        assert "," not in option
+    assert wording.PREMIX_MADE_AS_PORTIONED == "Pre-mix: keep proportions fixed"

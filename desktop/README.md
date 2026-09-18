@@ -101,11 +101,10 @@ Notes:
 
 ## System requirements (copy-paste for emails / download page)
 
-> Food Optimizer runs on Macs with an Apple chip (M1 or later — any Mac
-> from late 2020 onward) on macOS 13 Ventura or newer, and needs about
+> Food Optimizer runs on Macs with Apple silicon (M1 or newer)
+> on macOS 13 Ventura or newer, and needs about
 > 6 GB of free disk space. The first launch needs an internet connection
-> for a one-time setup that downloads about 1 GB. This usually takes under a
-> minute; on a slow network, a few minutes. After that it works fully offline.
+> for a one-time setup that downloads about 1 GB. Setup time depends on your connection and computer. After that it works fully offline.
 > Your data never leaves your computer.
 
 ## Testing an unsigned build on another Mac
@@ -148,9 +147,11 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload an ingredients file (file picker opens), save a
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. UI walkthrough: click "Try the sample project" (eight ingredients,
-   Juiciness and Firmness, formulations of 100 g). Seven ingredients get
-   an amount chosen for them; Water's Rule cell says "= rest", so its
+6. UI walkthrough: click "Try the sample project" (six rows and ten
+   parts, Firmness, Juiciness and Cook loss, formulations of 100 g, one
+   process setting and one fat limit). Dry blend is portioned; Fat phase
+   holds two oils weighed into each formulation; Seasoning blend stays at
+   2.2 g. Water's Rule cell says "= rest", so its
    Highest reads "worked out" and one line under the grid gives
    what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
@@ -169,10 +170,13 @@ warnings entirely, and the checklist below gates distribution on that.
    open it: the sheets
    are protected, only the cells the instruction line names take a value,
    and a printed greyscale copy makes clear which they are — every one of
-   them is boxed and nothing else is shaded. Each formulation page has an
+   them is boxed, and boxed and shaded are the one treatment: there is no
+   second, shaded-but-locked kind of cell. Each formulation page has an
    "Actual (g)" column beside its amounts, with a "Lot" cell per
    ingredient on the "Round 1" page. Water is printed as "Water · worked
-   out" on both pages, with the line "Water is worked out: = rest
+   out" on the formulation pages and "Water · worked out (g)" on the
+   round sheet — the mark on the name, the unit behind it, one shape
+   everywhere, with the line "Water is worked out: = rest
    (batch size − every other ingredient). Weigh the amount printed."
    under the amounts. Record a result (or mark one Not
    scored and score it later from Results), and confirm the `.pkl` appears
@@ -191,3 +195,37 @@ warnings entirely, and the checklist below gates distribution on that.
 11. Upgrade path: with an older version already in /Applications,
     install the new dmg over it and open - no "damaged app" warning,
     and the new version runs.
+
+Pre-mix workbook check: preparation pages for Dry blend and Seasoning blend
+come before the round summary, each headed "make N g (this round needs M g)"
+and each ending in a "Pre-mix lot" line; every formulation page indents the
+Fat phase parts under the pre-mix they belong to. Enter a part lot number on
+a preparation page and an actual oil amount on a formulation page, then
+upload the completed workbook and verify both are retained. The summary
+carries "Make for this round" and "Have on hand", and the project's Method
+under the round's amounts.
+
+For notarization credentials stored outside the login keychain, set
+`NOTARY_KEYCHAIN` to that keychain's path alongside `NOTARY_PROFILE`.
+
+
+Optional recording and returning the sheets
+
+In Set up → Preparation and records, choose optional recording fields.
+Vendor and SKU appear in the Ingredients table. Lot numbers are entered in
+Make a round → Ingredient lot numbers or in the workbook. A separate option
+records changes from planned amounts or settings. New projects start with
+recording options off; the sample enables lot numbers and actual amounts. Turning a field off keeps values already saved.
+After filling in the workbook, upload it in 2 · Make a round → Save results
+→ Or upload results from a file, check the preview, then save. Editing Excel
+alone does not update the app. Preparation amounts and other filled-in boxes
+are preserved as Bench records in the All formulations export; preparation
+records do not change a pre-mix's percentages for future rounds. Formulation
+Actual amounts are used as the amounts made. The Set-up and All formulations
+sheets are records, rather than forms to fill in and send back.
+Saved copies shows the three newest copies and puts the rest under Older
+copies. Its confirmed cleanup keeps the newest three and the last seven days.
+For a process or fermentation study, use numeric process settings. Record
+separate measurements for different time points, such as pH at 6 h and pH at
+24 h. Named categories such as strain or vessel type are not varied by this
+version. The sample targets and method are illustrative, not measured results.

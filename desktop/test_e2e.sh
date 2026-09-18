@@ -41,7 +41,7 @@ assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
-assert "starting line carries no percent" grep -qF -- 'status "Starting the app…|"' "$DESKTOP_DIR/launcher.sh"
+assert "starting line carries no percent" grep -qF -- 'status "Starting the app|"' "$DESKTOP_DIR/launcher.sh"
 # The window shows the app on Streamlit's first healthy answer, which lands
 # before app.py has imported torch and friends. The launcher imports them
 # first, behind its own progress page, so that window is never blank.
@@ -105,7 +105,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
@@ -491,7 +491,7 @@ assert not at.exception, at.exception
 # and SKU beside the range and Rule last (0.6.0). Baseline joins it only
 # once results exist.
 assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
-    "Name", "Type", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+    "Name", "Type", "Made as", "Lowest", "Highest", "Unit",
     "Rule"], list(at.dataframe[0].value.columns)
 
 # Three tiers on the tab: the grids, then More settings, then Advanced.
@@ -531,6 +531,8 @@ assert wording.make_these(1, 1) in [m.value for m in at.main.markdown], \
 
 # The workbook is protected, with a Lot cell per ingredient on the round's
 # summary page and an Actual (g) column on each formulation page.
+opt.set_records("lot", True)
+opt.set_records("actual", True)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100.0)))
 summary, page = book[book.sheetnames[0]], book[book.sheetnames[1]]
 
@@ -587,8 +589,7 @@ assert water.iloc[0][wording.LOWEST_LABEL] == "", \
 assert water.iloc[0][wording.HIGHEST_LABEL] == wording.WORKED_OUT, \
     water.iloc[0][wording.HIGHEST_LABEL]
 captions = [c.value for c in at.caption]
-assert any(c.startswith("Water is " + wording.WORKED_OUT + " as = "
-                        + wording.REST_TOKEN) for c in captions), captions
+assert any(c.startswith("Water is calculated to bring the total to") for c in captions), captions
 
 # More settings - Limits: one Kind picker choosing the shape of the limit,
 # and because the sample has a default batch size the "Write it as" choice
@@ -602,9 +603,50 @@ assert unit_select.label == wording.LIMIT_WRITTEN_AS_LABEL, unit_select.label
 assert wording.PERCENT_OF_BATCH_SIZE_UNIT in unit_select.options, \
     unit_select.options
 print("RULES_OK")
+
+# Both pre-mix modes and the preparation pages are in the shipped app.
+import io
+from openpyxl import load_workbook
+opt = at.session_state["optimizer"]
+assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Dry blend", "Wheat gluten", "Fats and oils", "Seasoning blend", "Water", "Mixing time after fat"]
+assert wording.MADE_AS_LABEL in columns
+assert opt.premixes["Fats and oils"]["mode"] == "weighed"
+assert len(opt.premixes["Dry blend"]["parts"]) == 3
+assert opt._by_name()["Seasoning blend"]["bounds"] == (2.2, 2.2)
+opt.ask(3)
+book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
+assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
+assert book.active["A1"].value.startswith("Dry blend · make ")
+assert "this round needs" in book.active["A1"].value
+assert book.active.protection.sheet and not book.active["D4"].protection.locked
+summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
+assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
+page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
+assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
+compact = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100, print_pack=False)))
+assert compact.sheetnames == ["Round overview", "Preparation", "Results"]
+assert compact.active.title == "Round overview"
+assert any(str(c.value).startswith("Cook loss (%)") for row in compact["Results"] for c in row)
+print("PREMIX_OK")
+# Committed manual fields survive a fresh application session.
+at.run()
+number = opt.pending_batch[0]["formulation"]
+at.number_input(key=f"f{number}_Firmness").set_value(6).run()
+fresh = AppTest.from_file(
+    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
+fresh.session_state["_loaded_project"] = opt.project_name
+fresh.run()
+assert not fresh.exception, fresh.exception
+assert fresh.number_input(key=f"f{number}_Firmness").value == 6
+assert not next(b for b in fresh.button if b.label == wording.SAVE_RESULTS).disabled
+print("DRAFT_OK")
 PY
 )"
 if echo "$RULES_OUT" | grep -q RULES_OK; then ok "rules controls in packaged app"; else fail "rules controls in packaged app ($RULES_OUT)"; fi
+
+if echo "$RULES_OUT" | grep -q PREMIX_OK; then ok "pre-mix sample and workbook in packaged app"; else fail "pre-mix sample and workbook in packaged app ($RULES_OUT)"; fi
+
+if echo "$RULES_OUT" | grep -q DRAFT_OK; then ok "manual results persist in packaged app"; else fail "manual results persist in packaged app ($RULES_OUT)"; fi
 
 echo "-- test 6: upgrade path (stale marker hash) --"
 sed -i '' '1s/.*/stale-hash-forces-resync/' "$MARKER"
