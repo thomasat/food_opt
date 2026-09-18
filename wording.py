@@ -51,8 +51,7 @@ APP_TITLE = "Food Optimizer"
 # app.py has finished importing what it runs on, so app.py draws this line
 # before those imports and clears it after them. Without it the window is
 # blank for those seconds.
-STARTING_APP = (f"Starting {APP_TITLE}… loading its components. "
-                "This takes a few seconds.")
+STARTING_APP = f"Starting {APP_TITLE}… Please wait while the app loads."
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
@@ -183,8 +182,8 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "Open the selected teaching example with ingredients or process settings, "
-    "measurements, a method and scientific background."
+    "Explore one guided burger example with ingredients, blends, calculated water, "
+    "a process setting and measurements."
 )
 
 # The sample project's own name, so app.py and ui_setup.py agree on how it is
@@ -198,10 +197,11 @@ SAMPLE_TARGETS_SOURCE = (
     "Firmness 6/10, juiciness 7/10 and their shares of the score are example choices. "
     "Scientific background: Peñaranda et al. (2025), Plant-Based Burgers with Reduced "
     "Texture Additives, https://doi.org/10.3390/foods14081373. That study compares "
-    "binders in soybean burgers; this pea-protein formulation, allowed values and targets are "
+    "binders in soybean burgers; this pea-and-soy formulation, allowed values and targets are "
     "adaptations, not values validated by that paper. Establish sensory anchors "
     "and suitable allowed values with your own pilot work. Ingredient property figures "
-    "are illustrative; replace them with supplier data."
+    "are illustrative; replace them with supplier data. The hydration ratio of 2.2 is an "
+    "illustrative assumption; establish a suitable ratio for the selected protein grades in pilot trials."
 )
 
 # The sample's Method: how the bench makes one formulation, in the order it
@@ -209,21 +209,30 @@ SAMPLE_TARGETS_SOURCE = (
 # formulations that must be made identically except for the amounts had
 # nothing on paper saying how.
 SAMPLE_METHOD = (
-    "Hydrate the textured pea protein with 2.2 times its mass of water taken "
-    "from the total Water amount, 10 min at 45 °C. In a separate bowl, combine "
-    "the dry blend, seasoning blend and gluten with the remaining water. "
-    "Combine with the hydrated protein and mix 60 s. Add the fats and oils "
-    "and mix for the specified mixing time. Form "
-    "100 g patties, 100 mm x 12 mm. Chill 20 min at 4 °C. Griddle at "
-    "180 °C, 3 min per side, to 74 °C core; serve within 3 min."
+    "1. Review this teaching example: each formulation totals 100 g. Ingredient ranges, "
+    "the hydration ratio and targets are illustrative, not a validated production protocol.\n"
+    "2. Prepare the Dry blend and Seasoning blend at their fixed component percentages; "
+    "weigh the listed amount of each into each formulation.\n"
+    "3. Hydrate the textured pea and soy proteins using only the listed Hydration water. "
+    "This is calculated as 2.2 times their combined mass. Use a fixed hydration protocol.\n"
+    "4. Combine Remaining water, Dry blend, Seasoning blend and Wheat gluten, then add the "
+    "hydrated proteins. Remaining water tops up all ingredients to 100 g; it excludes the "
+    "Hydration water already weighed. Do not add either water amount twice.\n"
+    "5. Weigh Coconut oil and Sunflower oil separately for each formulation. Their ratio can "
+    "change. Add them and use that formulation's Mixing time after fat.\n"
+    "6. Keep forming, chilling, cooking and measurement protocols constant. Record ingredient "
+    "lots and any actual amounts that differ from the plan. Enter firmness, juiciness and cook "
+    "loss on Results, then upload the workbook and save the reviewed results in the app."
 )
 
 # Tab 1's two-line welcome for the sample project, shown only before its
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "A plant-based burger study with ingredients, pre-mixes and mixing time. "
-    "Review the example allowed values and measurements, then generate formulations."
+    "Start here: a 100 g burger example with fixed-ratio pre-mixes, variable oils, "
+    "calculated hydration water and a mixing-time setting. Review the ingredients and "
+    "measurement targets, generate a round, then use its three-sheet workbook. "
+    "The method walks through preparation and recording results."
 )
 
 # The project-level Method: one text area in More settings, printed on the
@@ -1111,7 +1120,11 @@ INGREDIENT_GRID_CAPTION = (f"One row per {INGREDIENT} or process setting; "
                            f"{LOWEST_LABEL} and {HIGHEST_LABEL} to fix an "
                            "amount.")
 MEASUREMENT_GRID_CAPTION = ("One row per measurement. Share of score says "
-                            "what each one is worth out of 100.")
+                            "what each one is worth out of 100. Lowest measurable and Highest measurable "
+                            "define the scale used for scoring and checking entries, not the desired result. "
+                            "Use 0–10 for a 0–10 sensory scale, for example. Experiments can produce values "
+                            "outside your chosen range; check the value and widen the range in Set up if it is valid. "
+                            "Changing the range recalculates scores. Use Goal and Target to say what you want.")
 
 DISCARD_CHANGES_BUTTON = "Discard changes"
 PROPERTY_FIGURES_SET_ASIDE = (
@@ -2184,6 +2197,14 @@ FORMULA_IN_RANGE = "rule"
 # verb for "recomputed" — that is "recalculated" — so the two never meet
 # on one screen meaning two things.
 WORKED_OUT = "worked out"
+CALCULATED_RANGE = "From rule"
+RULE_GUIDE_LABEL = "How blends and calculated amounts work"
+RULE_GRID_CAPTION = "From rule means a calculated amount; Lowest and Highest do not apply to that row."
+INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a rule-based ingredient, its rule determines the amount."
+INGREDIENT_MAX_HELP = "Maximum amount the app may suggest. From rule means this amount is calculated, not capped here."
+MEASUREMENT_MIN_HELP = "Lower end of the measurement scale used to score and check results. This is not a target."
+MEASUREMENT_MAX_HELP = "Upper end of the measurement scale used to score and check results. Widen the scale if a genuine result falls outside it; scores will be recalculated."
+OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
 
 # '= rest' on its own is the balance of the batch size once every other row
 # is filled in. The word is spelled once here so the parser and its own
@@ -2905,18 +2926,35 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 # than at one cell.
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
-    "Write what this ingredient is, in terms of the others: = batch size − "
-    "Water − Salt makes this row whatever those two leave. Write = rest for the row that takes whatever is left. "
-    "Leave it blank to give the row its own Lowest and Highest.")
+    "Optional calculation for this ingredient's amount. Leave blank to vary it between Lowest and Highest. "
+    "For water that brings a recipe to its batch size, enter = rest. "
+    "For hydration water based on two proteins, enter = 2.2 * (Pea protein + Soy protein), "
+    "using the exact ingredient names. Lowest and Highest do not apply to a calculated amount.")
+RULE_GUIDE = (
+    "**Amounts calculated from a rule**\n\n"
+    "Leave Rule blank to choose an ingredient amount between Lowest and Highest. "
+    "**From rule** means the app calculates the amount instead; it is not a maximum. "
+    "The calculated range is explained below the table.\n\n"
+    "**Top up to the batch size:** enter `= rest` on one ingredient, usually water. "
+    "For a 100 g batch with 72 g of all other ingredients combined, the app adds 28 g of this ingredient. "
+    "It subtracts every other ingredient, including calculated ingredients, and counts blend components only once. "
+    "Process settings such as mixing time are not part of the weight.\n\n"
+    "**Calculate from other ingredients:** on Hydration water, `= 2.2 * (Pea protein + Soy protein)` "
+    "gives 22 g of water when the two proteins are 4 g and 6 g. "
+    "Use your own protocol's ratio and the exact ingredient names.\n\n"
+    "**Explicit subtraction:** `= batch size - Water` means the batch weight minus only Water. "
+    "At 100 g with 60 g Water, this gives 40 g. It does not subtract any other ingredients; "
+    "use `= rest` when you mean the remainder after all ingredients. "
+    "Enter a default batch size before using either batch size or rest."
+)
 
 # The one line under the grid while no row has a rule: the column arrived
 # with no header tooltip anybody reads, no placeholder and no mention in
 # the caption, and everything a cold reader learned about it they learned
 # from refusals. It stands down the moment a rule exists — the worked-out
 # captions take its place.
-RULE_HINT = (f"To write a {FORMULA_IN_RANGE} for a row, type it in its "
-             f"{FORMULA_LABEL} cell: = {BATCH_SIZE_NOUN} − Water, or "
-             f"= {REST_TOKEN}.")
+RULE_HINT = "Leave Rule blank to vary an amount. Open the guide above for calculation examples."
+
 
 
 def one_balance_only(names_text, many=False):
@@ -2960,7 +2998,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
         head = (f"{name} is calculated to bring the total to {size_text}"
                 if size_text else f"{name} fills the remaining amount of the formulation")
     else:
-        head = f"{name} is {WORKED_OUT} as {text}"
+        head = f"{name} is calculated from {text}"
     # A rule that comes to one number says that number: "between 1.50 and
     # 1.50 g" asked the reader to read a range where nothing can vary.
     span = (f"{head}: {high_text}" if low_text == high_text.split(" ")[0]
@@ -3093,7 +3131,7 @@ PREMIX_MADE_AS_BOUGHT_IN = "Single ingredient"
 PREMIX_MADE_AS_PORTIONED_WAS = ("portioned from one pre-mix", "one pre-mix, portioned",
                                 "one premix, portioned")
 PREMIX_MADE_AS_PORTIONED = "Fixed-ratio pre-mix"
-PREMIX_MADE_AS_WEIGHED = "Ingredients varied separately"
+PREMIX_MADE_AS_WEIGHED = "Variable-ratio blend"
 # How a pre-mix is named when something else found the clash, alongside
 # AN_INGREDIENT and A_PROCESS_SETTING above.
 A_PREMIX = "a pre-mix"
@@ -3269,13 +3307,11 @@ def part_in_two_weighed_premixes(name, first, second):
 # the columns the way the pre-mix is made actually needs.
 # ------------------------------------------------------------------ #
 MADE_AS_HELP = (
-    f"{PREMIX_MADE_AS_BOUGHT_IN} — you weigh it straight in, and the "
-    f"suggestions move that one amount. "
-    f"{PREMIX_MADE_AS_PORTIONED} — one lot made for the whole {ROUND}, and "
-    f"the suggestions move how much of it goes in. "
-    f"{PREMIX_MADE_AS_WEIGHED} — the parts go in one by one, and the "
-    "suggestions move each of them. The parts of either open in a fold "
-    "under the grid.")
+    "Single ingredient: vary its amount directly. Fixed-ratio pre-mix: keep component percentages "
+    "constant and vary how much pre-mix is added. Variable-ratio blend: vary each component's "
+    "amount separately, for example coconut oil and sunflower oil. The blend total is their sum. "
+    "These options control calculations and preparation tables; use Name to give a blend your own label.")
+
 # The first column of a pre-mix's own grid. The row IS the part, so the
 # header is the noun and not "Name": the grid above already has a Name.
 PART_LABEL = "Part"

@@ -1,5 +1,7 @@
 Name,Part of,Made as,Lowest,Highest,% of pre-mix,Rule,Unit,Fat per 100 g,Sodium per 100 g,Cost per 100 g
-Textured pea protein,,,8,13,,,g,6.0,600,0.32
+Textured pea protein,,,4,6.5,,,g,6.0,600,0.32
+Textured soy protein,,,4,6.5,,,g,6.0,600,0.32
+Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0,0,0.00
 Dry blend,,portioned from one pre-mix,16,22,,,g,,,
 Pea protein isolate,Dry blend,,,,66,,g,8.0,900,0.48
 Potato starch,Dry blend,,,,26,,g,0.1,10,0.11
@@ -14,4 +16,4 @@ Onion powder,Seasoning blend,,,,20,,g,1.0,73,0.58
 Yeast extract,Seasoning blend,,,,15,,g,0.5,3500,0.90
 Natural beef-type flavour,Seasoning blend,,,,12,,g,2.0,2000,2.40
 Beet juice powder,Seasoning blend,,,,8,,g,0.5,250,1.10
-Water,,,35,65,,= rest,g,0.0,0,0.00
+Remaining water,,,0,100,,= rest,g,0.0,0,0.00

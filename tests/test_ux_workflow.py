@@ -109,11 +109,12 @@ def test_compact_preparation_lots_and_records(project):
     assert any(r['value'] == 'Alex' for r in upload.bench_records)
 
 
-@pytest.mark.parametrize('kind', ['Advanced burger: calculated ingredients', 'Okara fermentation'])
-def test_examples_generate_feasible_rounds(tmp_path, monkeypatch, kind):
+def test_guided_example_generates_feasible_rounds(tmp_path, monkeypatch):
+    kind = 'Burger formulation'
     import sample_projects
     from storage import LocalStorage
     monkeypatch.chdir(tmp_path)
+    assert sample_projects.OPTIONS == [kind]
     opt = sample_projects.build(kind, sample_projects.NAMES[kind], LocalStorage(), LocalStorage())
     assert not opt.X_history
     assert 'Illustrative' in opt.targets_source
@@ -121,9 +122,9 @@ def test_examples_generate_feasible_rounds(tmp_path, monkeypatch, kind):
     assert len(suggestions) == 3
     for recipe in suggestions:
         assert opt._check_constraints(recipe)
-        if kind.startswith('Advanced'):
-            assert recipe['Hydration water'] == pytest.approx(2.2 * (recipe['Textured pea protein'] + recipe['Textured soy protein']))
-            assert sum(v for k, v in recipe.items() if k != 'Mixing time after oils') == pytest.approx(100)
+        assert recipe['Hydration water'] == pytest.approx(2.2 * (recipe['Textured pea protein'] + recipe['Textured soy protein']))
+        assert recipe['Remaining water'] >= 0
+        assert sum(v for k, v in recipe.items() if k != 'Mixing time after fat') == pytest.approx(100)
     opt.set_pending_batch(suggestions)
     book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, opt.open_round_size(), print_pack=False)))
     assert book.sheetnames == ['Round overview', 'Preparation', 'Results']
@@ -206,3 +207,44 @@ def test_excel_cached_measurement_formula_is_preserved(project):
             rewritten.writestr(name, payload)
     out.seek(0)
     assert project.results_from_workbook(out).frame['Taste'].tolist() == [8]
+
+
+def test_workbook_separates_formulations_and_has_internal_navigation(project):
+    project.set_records('actual', True)
+    book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
+    for title in ('Round overview', 'Results'):
+        sheet = book[title]
+        assert 'top in Numbers' in sheet['A2'].value
+        headers = [c for row in sheet for c in row if str(c.value or '').startswith('Formulation ')]
+        assert len(headers) >= 2
+        for header in headers:
+            assert header.border.left.style == 'medium'
+            assert header.fill.fgColor.rgb in ('00DDEBF7', '00E2EFDA')
+        links = [c for row in sheet for c in row if c.hyperlink]
+        assert {c.hyperlink.location for c in links} >= {"'Results'!A1", "'Preparation'!A1", "'Round overview'!A1"}
+        assert all(c.hyperlink.target is None for c in links)
+        assert all(not sheet.column_dimensions[c.column_letter].hidden for c in links)
+    sheet = book['Results']
+    sheet.cell(result_row(sheet), 2, 8)
+    assert project.results_from_workbook(data(book)).frame['Taste'].tolist() == [8]
+
+
+def test_calculated_range_marker_can_be_saved_without_changing_rule(project):
+    frame = project.ingredient_grid_frame()
+    row = frame.loc[frame[wording.NAME_LABEL].eq('Water')].iloc[0]
+    assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
+    from food_bo import _range_from_cells
+    assert _range_from_cells(row) == _range_from_cells(row.replace(wording.CALCULATED_RANGE, wording.WORKED_OUT))
+
+
+def test_previous_variable_blend_label_still_imports(tmp_path, monkeypatch):
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer('legacy-blend')
+    opt.load_ingredients_from_csv(pd.DataFrame([
+        {'Name': 'Oils', 'Made as': 'Ingredients varied separately'},
+        {'Name': 'Coconut oil', 'Part of': 'Oils', 'Lowest': 2, 'Highest': 5, 'Unit': 'g'},
+        {'Name': 'Sunflower oil', 'Part of': 'Oils', 'Lowest': 1, 'Highest': 4, 'Unit': 'g'},
+    ]))
+    assert opt.premix_mode('Oils') == 'Variable-ratio blend'
+    assert opt.premixes['Oils']['mode'] == 'weighed'

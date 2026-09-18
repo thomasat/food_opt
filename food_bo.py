@@ -140,6 +140,7 @@ PREMIX_MADE_AS = {
 PREMIX_MADE_AS_WAS = {text.lower(): PREMIX_PORTIONED
                       for text in wording.PREMIX_MADE_AS_PORTIONED_WAS}
 PREMIX_MADE_AS_WAS[wording.OLD_WEIGHED_MODE] = PREMIX_WEIGHED
+PREMIX_MADE_AS_WAS[wording.OLD_VARIABLE_BLEND_MODE] = PREMIX_WEIGHED
 
 # The four optional fields, and what a new project answers for each. They
 # are OFF: Vendor and SKU are specification data, typed once at set-up and
@@ -807,7 +808,7 @@ def _range_from_cells(row):
     high, high_ok = _number_cell(row, wording.HIGHEST_LABEL)
     for column, ok in ((wording.LOWEST_LABEL, low_ok),
                        (wording.HIGHEST_LABEL, high_ok)):
-        if not ok and _text_cell(row, column) == wording.WORKED_OUT:
+        if not ok and _text_cell(row, column) in (wording.WORKED_OUT, wording.CALCULATED_RANGE):
             if column == wording.LOWEST_LABEL:
                 low, low_ok = None, True
             else:
@@ -9924,7 +9925,7 @@ class FoodOptimizer:
         is left blank and Highest carries the mark, so the pair reads as
         one fact about the row rather than two."""
         if self.has_formula(var):
-            return "", wording.WORKED_OUT
+            return "", wording.CALCULATED_RANGE
         return (f"{float(var['bounds'][0]):.2f}",
                 f"{float(var['bounds'][1]):.2f}")
 
@@ -10703,10 +10704,10 @@ class FoodOptimizer:
                 # a number: it is the row coming back to the amounts it had
                 # before it was worked out.
                 if low is None and _text_cell(
-                        row, wording.LOWEST_LABEL) in ("", wording.WORKED_OUT):
+                        row, wording.LOWEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE):
                     low = kept[0]
                 if high is None and _text_cell(
-                        row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT):
+                        row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE):
                     high = kept[1]
             if low is None or high is None:
                 return None, wording.NUMBER_REQUIRED_ERROR

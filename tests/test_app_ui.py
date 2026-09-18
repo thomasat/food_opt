@@ -431,7 +431,7 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     # from one lot, gluten as its own row so the firmness lever can move, a
     # fat phase weighed in two oils, a fixed seasoning, and water worked
     # out. Eight rows in the searched list, and one process setting.
-    assert len(opt.variables) == 8
+    assert len(opt.variables) == 10
     assert opt.amount_unit == "g"
     assert [v["name"] for v in opt.variables if v.get("category") == "process"] \
         == ["Mixing time after fat"]
@@ -5397,7 +5397,7 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # another, and a tab that folded the optional half away twice made the
     # reader open two things to reach one.
     labels = [e.label for e in _tab1(at).expander]
-    assert labels == ["Or upload an ingredients file",
+    assert labels == [wording.RULE_GUIDE_LABEL, "Or upload an ingredients file",
                       "More settings", "Advanced"], labels
 
 
@@ -6307,7 +6307,8 @@ def _assert_captions_read_once(at):
     # The two grid captions are each one sentence longer than the rest: a
     # grid has to say where a new row is typed and what makes a row fixed,
     # and neither has a control of its own to say it any more.
-    long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION}
+    long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION,
+                 wording.MEASUREMENT_GRID_CAPTION}
     assert all(len(c) <= 100 for c in captions if c not in long_ones), \
         [c for c in captions if len(c) > 100 and c not in long_ones]
 
@@ -6326,6 +6327,7 @@ def test_the_tab_reads_in_one_order(burger):
     at.run()
     assert _tab_outline(at, 0) == [
         wording.VARIABLES_HEADER,
+        wording.RULE_GUIDE_LABEL,
         wording.UPLOAD_INGREDIENTS_EXPANDER,
         wording.MEASUREMENTS_HEADER,
         wording.MORE_SETTINGS_EXPANDER,
@@ -6374,7 +6376,7 @@ def test_nothing_else_is_on_the_tab(burger):
     # fold, the two tiers, the dividers and the foot's own button — and no
     # second section, no add form, no control row.
     assert kinds.count("Subheader") == 2
-    assert kinds.count("Expander") == 3
+    assert kinds.count("Expander") == 4
     assert "Markdown" not in kinds, kinds
 
 
@@ -7219,9 +7221,8 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert wording.RULE_HINT in _tab1_captions(at), _tab1_captions(at)
-    assert wording.RULE_HINT == (
-        "To write a rule for a row, type it in its Rule cell: "
-        "= batch size − Water, or = rest.")
+    assert any(e.label == "How blends and calculated amounts work" for e in at.expander)
+    assert wording.RULE_GUIDE in [m.value for m in at.markdown]
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -9691,8 +9692,8 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
         config_at, placeholder_at, heavy[0])
     assert cleared_at > heavy[-1], (cleared_at, heavy[-1])
     # And the sentence itself is the one the window shows while it waits.
-    assert wording.STARTING_APP == ("Starting Food Optimizer… loading its "
-                                    "components. This takes a few seconds.")
+    assert wording.STARTING_APP == (
+        "Starting Food Optimizer… Please wait while the app loads.")
 
 
 def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch):
@@ -9734,7 +9735,7 @@ def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
     assert rebuilt.method == wording.SAMPLE_METHOD
     # The old project's own set-up is gone, not added to.
     assert "Oat flour" not in [v["name"] for v in rebuilt.variables]
-    assert len(rebuilt.variables) == 8
+    assert len(rebuilt.variables) == 10
     assert len(rebuilt.premixes) == 3
     # It opens as the sample it now is, welcome line and all, and it is an
     # opening: the project was already there.
@@ -10070,7 +10071,7 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     grid = _grid_frame(at, 0)
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
-        "", wording.WORKED_OUT)
+        "", wording.CALCULATED_RANGE)
     assert row[wording.FORMULA_LABEL] == "= rest"
     assert any(c.value.startswith("Water is calculated to bring the total to 50 g: between 25.00 "
                                   "and 40.00 g in a 50 g formulation")
@@ -10299,8 +10300,8 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
     assert not at.exception
     opt = at.session_state['optimizer']
     assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        'Textured pea protein', 'Dry blend', 'Wheat gluten', 'Fats and oils',
-        'Seasoning blend', 'Water', 'Mixing time after fat']
+        'Textured pea protein', 'Textured soy protein', 'Hydration water', 'Dry blend', 'Wheat gluten', 'Fats and oils',
+        'Seasoning blend', 'Remaining water', 'Mixing time after fat']
     assert {name: p['mode'] for name, p in opt.premixes.items()} == {
         'Dry blend': 'portioned', 'Fats and oils': 'weighed', 'Seasoning blend': 'portioned'}
     assert sum(len(p['parts']) for p in opt.premixes.values()) == 10
@@ -10313,9 +10314,8 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
                        if k != 'Mixing time after fat'}
         assert sum(ingredients.values()) == pytest.approx(100)
         assert recipe['Seasoning blend'] == 2.2
-        # Every corner of this space is a makeable patty: the stored 35-65 g
-        # and what `= rest` leaves agree.
-        assert 35.0 <= recipe['Water'] <= 65.0
+        assert recipe['Remaining water'] >= 0
+        assert recipe['Hydration water'] == pytest.approx(2.2 * (recipe['Textured pea protein'] + recipe['Textured soy protein']))
         assert 45 <= recipe['Mixing time after fat'] <= 150
 
 

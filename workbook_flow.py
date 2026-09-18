@@ -10,7 +10,8 @@ from copy import copy
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
-from openpyxl.styles import Font, PatternFill, Protection, Alignment
+from openpyxl.styles import Font, PatternFill, Protection, Alignment, Side
+from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.cell_range import CellRange
 
@@ -21,6 +22,40 @@ PREP = 'food-opt-preparation:'
 OVERVIEW = 'Round overview'
 RESULTS = 'Results'
 PREPARATION = 'Preparation'
+
+
+def sheet_link(cell, title):
+    """A workbook-internal destination, not an external file URL."""
+    cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'{title}'!A1")
+    cell.font = Font(color='0563C1', underline='single')
+
+
+def separate_formulations(sheet, columns, last_row, paired=False):
+    """Keep amounts and percentages together, with a strong boundary per formulation.
+
+    Borders survive monochrome printing; shaded headers provide a second cue.
+    Do not touch merged method banners or overwrite input-cell shading.
+    """
+    divider = Side(style='medium', color='596C80')
+    for index, column in enumerate(columns):
+        for row in range(3, last_row + 1):
+            cell = sheet.cell(row, column)
+            if cell.__class__.__name__ == 'MergedCell':
+                continue
+            if any(region.min_row <= row <= region.max_row and
+                   region.min_col <= column <= region.max_col
+                   for region in sheet.merged_cells.ranges):
+                continue
+            border = copy(cell.border)
+            border.left = divider
+            cell.border = border
+            if str(cell.value or '').startswith('Formulation '):
+                cell.fill = PatternFill('solid', fgColor=('DDEBF7' if index % 2 == 0 else 'E2EFDA'))
+                cell.font = Font(bold=True, color='17365D')
+                cell.alignment = Alignment(horizontal='center', wrap_text=True)
+                sheet.row_dimensions[row].height = max(28, sheet.row_dimensions[row].height or 0)
+                if paired:
+                    sheet.cell(row, column + 1).fill = copy(cell.fill)
 
 
 def copy_cells(source, target, first=1, last=None, start=1):
@@ -67,17 +102,19 @@ def compact(book, opt, rows):
     overview = result.active
     overview.title = OVERVIEW
     copy_cells(source, overview, last=split - 1)
-    overview['A2'] = '1. Review this plan.  2. Prepare the mixes.  3. Enter measurements on Results, then upload this file in the app.'
+    navigation = ('Use the sheet tabs: Round overview → Preparation → Results. '
+                  'Tabs are at the bottom in Excel and at the top in Numbers. ')
+    overview['A2'] = navigation + 'Review the plan, prepare each formulation separately, then enter measurements on Results and upload this file in the app.'
     overview['A2'].alignment = Alignment(wrap_text=True)
     overview.row_dimensions[2].height = 45
     for row in overview:
         for cell in row:
             if cell.value == wording.PREMIX_LOT_ON_ITS_PAGE:
                 cell.value = 'See Preparation'
-                cell.hyperlink = "#'Preparation'!A1"
+                sheet_link(cell, PREPARATION)
     preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = 'Preparation — make each pre-mix once for this round'
-    preparation['A2'] = 'Enter preparation records in the shaded cells. These records do not change the formulation amounts used for learning.'
+    preparation['A1'] = 'Preparation — fixed-ratio pre-mixes for this round'
+    preparation['A2'] = navigation + 'Prepare fixed-ratio pre-mixes here. Variable-ratio blend components are weighed separately for each formulation on Round overview.'
     start = 4
     for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
         page = book[title]
@@ -88,7 +125,7 @@ def compact(book, opt, rows):
         preparation['A4'] = 'No pre-mixes are required. Follow the method on Round overview.'
     measured = result.create_sheet(RESULTS)
     measured['A1'] = 'Results — enter measurements here'
-    measured['A2'] = 'Blank means not recorded yet. After entering results, upload this workbook, review the import, and save results in the app.'
+    measured['A2'] = navigation + 'Each formulation has its own column. Blank means not recorded yet. Enter results, then upload this workbook, review the import and save in the app.'
     copy_cells(source, measured, first=split, start=4)
     # A blank measurement cell cannot display a unit after its value. Put
     # units on Results row labels, including % and N, before any entry exists.
@@ -125,15 +162,24 @@ def compact(book, opt, rows):
                 cell.protection = Protection(locked=False)
                 cell.fill = PatternFill('solid', fgColor='FFF2CC')
                 cell.number_format = '0.00'
+    # The overview groups an amount and a percentage under each formulation.
+    # Results has one visible column per formulation, including actual amounts.
+    # End at the process settings, before method and round-total sections.
+    plan_end = (3 + len(list(opt._formulation_ingredient_lines()))
+                + int(opt.has_ingredients()) + len(opt._process_settings()))
+    separate_formulations(overview, formulation_columns, plan_end, paired=opt._shows_shares())
+    separate_formulations(measured, formulation_columns, measured.max_row)
     for sheet in result:
         linkrow = sheet.max_row + 3
         for c, title in enumerate((OVERVIEW, PREPARATION, RESULTS), 1):
-            cell = sheet.cell(linkrow, c, 'Go to ' + title)
-            cell.hyperlink = f"#'{title}'!A1"
-            cell.font = Font(color='0563C1', underline='single')
+            # Results hides percentage columns: never put navigation in one.
+            column = 1 if c == 1 else (2 * c - 2 if sheet == measured else c)
+            cell = sheet.cell(linkrow, column, title)
+            sheet_link(cell, title)
+        sheet.cell(linkrow + 1, 1, 'If a link does not open, select the sheet tab with the same name.')
         sheet['A1'].font = Font(size=15, bold=True)
         sheet.column_dimensions['A'].width = 58
-        sheet.row_dimensions[2].height = 45
+        sheet.row_dimensions[2].height = 65
         if sheet.title != OVERVIEW:
             sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max(3, sheet.max_column))
         sheet['A2'].alignment = Alignment(wrap_text=True)

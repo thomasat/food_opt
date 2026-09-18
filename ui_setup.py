@@ -396,9 +396,9 @@ def _ingredient_columns(opt, frame):
         # back, so a cell holding something that is not a number is still
         # answered by Enter a number.
         wording.LOWEST_LABEL: st.column_config.TextColumn(
-            wording.LOWEST_LABEL, width=80),
+            wording.LOWEST_LABEL, width=80, help=wording.INGREDIENT_MIN_HELP),
         wording.HIGHEST_LABEL: st.column_config.TextColumn(
-            wording.HIGHEST_LABEL, width=80),
+            wording.HIGHEST_LABEL, width=80, help=wording.INGREDIENT_MAX_HELP),
         wording.UNIT_LABEL: st.column_config.TextColumn(
             wording.UNIT_LABEL, default=opt.amount_unit or "g", width=50),
     }
@@ -436,9 +436,9 @@ def _measurement_columns():
         # word says one thing. The width is what makes the column fit; the
         # header does not have to be shortened to pay for it.
         wording.LOWEST_MEASURABLE_LABEL: _number_column(
-            wording.LOWEST_MEASURABLE_LABEL, width=105),
+            wording.LOWEST_MEASURABLE_LABEL, width=105, help=wording.MEASUREMENT_MIN_HELP),
         wording.HIGHEST_MEASURABLE_LABEL: _number_column(
-            wording.HIGHEST_MEASURABLE_LABEL, width=105),
+            wording.HIGHEST_MEASURABLE_LABEL, width=105, help=wording.MEASUREMENT_MAX_HELP),
         wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL, width=55),
         wording.SHARE_COLUMN: st.column_config.NumberColumn(
             wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
@@ -566,6 +566,10 @@ def _variables(opt, storage):
     """
     st.subheader(wording.VARIABLES_HEADER)
     st.caption(wording.INGREDIENT_GRID_CAPTION)
+    st.caption(wording.RULE_GRID_CAPTION)
+    with st.expander(wording.RULE_GUIDE_LABEL):
+        st.markdown(wording.MADE_AS_HELP)
+        st.markdown(wording.RULE_GUIDE)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(

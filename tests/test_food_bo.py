@@ -1508,10 +1508,10 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 7
+    assert len(sample_names) == 9
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Textured pea protein", "Dry blend", "Wheat gluten", "Fats and oils",
-        "Seasoning blend", "Water"]
+        "Textured pea protein", "Textured soy protein", "Hydration water", "Dry blend", "Wheat gluten", "Fats and oils",
+        "Seasoning blend", "Remaining water"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
@@ -4370,6 +4370,12 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # Scientific teaching copy requested by the owner uses measurement scale,
+    # ingredient weight and experimental results in their ordinary meanings.
+    wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
+    wording.MEASUREMENT_MAX_HELP, wording.RULE_GUIDE, wording.FORMULA_HELP,
+    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD,
+
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
@@ -9415,7 +9421,7 @@ class TestTheFormulaColumn:
         row = frame.loc[1]
         assert row[wording.FORMULA_LABEL] == "= rest"
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
+        assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
         # Every other row carries the two-decimal text a number column used
         # to format for it.
         assert frame.loc[2][wording.LOWEST_LABEL] == "30.00"
@@ -9430,7 +9436,7 @@ class TestTheFormulaColumn:
         assert opt._var_by_name("Water")['bounds'] == (20.0, 60.0)
         back = opt.ingredient_grid_frame().loc[1]
         assert (back[wording.LOWEST_LABEL],
-                back[wording.HIGHEST_LABEL]) == ("", wording.WORKED_OUT)
+                back[wording.HIGHEST_LABEL]) == ("", wording.CALCULATED_RANGE)
 
     def test_clearing_a_formula_gives_the_row_its_range_back(self, tmp_path,
                                                              monkeypatch):
@@ -9493,7 +9499,7 @@ class TestTheFormulaColumn:
         # against what was typed; and the row's own dormant Lowest and
         # Highest are named where the rule takes it past them.
         assert opt.worked_out_captions() == [
-            "Water is worked out as = batch size − Pea protein − Salt: "
+            "Water is calculated from = batch size − Pea protein − Salt: "
             "between 40.00 and 62.00 g in a 100 g formulation. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
             "while the rule does."]
@@ -9524,7 +9530,7 @@ class TestTheFormulaColumn:
         assert errors == []
         # The arithmetic reaches −30.00 g; the app never will.
         assert opt.worked_out_captions() == [
-            "Water is worked out as = 20 − Flour: between 0.00 and 20.00 g "
+            "Water is calculated from = 20 − Flour: between 0.00 and 20.00 g "
             "in a 50 g formulation."]
 
     def test_no_allowed_amounts_caution_lands_on_a_worked_out_row(
@@ -9558,7 +9564,7 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 3, "= 1.5 % of batch size"))
         assert errors == []
         assert opt.worked_out_captions() == [
-            "Salt is worked out as = 1.5 % of batch size: 1.50 g in a "
+            "Salt is calculated from = 1.5 % of batch size: 1.50 g in a "
             "100 g formulation. Its own Lowest and Highest (8.00 to "
             "10.00 g) do not apply while the rule does."]
 
@@ -9641,15 +9647,15 @@ class TestTheFormulaColumn:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
-        assert opt._var_by_name("Water")['balance'] is True
-        assert opt._formula_text(opt._var_by_name("Water")) == "= rest"
+        assert opt._var_by_name("Remaining water")['balance'] is True
+        assert opt._formula_text(opt._var_by_name("Remaining water")) == "= rest"
         # Textured pea protein, Dry blend, Wheat gluten and the two oils
         # the Fat phase is weighed out as; Seasoning blend is fixed at
         # 2.20 g and Water is worked out.
-        assert len(opt.varying_variables()) == 5
+        assert len(opt.varying_variables()) == 6
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
-            assert row["Water"] >= -1e-9
+            assert row["Remaining water"] >= -1e-9
 
 
 # ------------------------------------------------------------------ #
@@ -10201,21 +10207,21 @@ class TestTheFormulaColumnFixes:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
-        water = opt._var_by_name("Water")
+        water = opt._var_by_name("Remaining water")
         assert water['balance'] is True
-        assert water['bounds'] == (35.0, 65.0)
+        assert water['bounds'] == (0.0, 100.0)
         frame = opt.ingredient_grid_frame()
-        row = frame[frame[wording.NAME_LABEL] == "Water"].iloc[0]
+        row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
-        at = int(frame.index[frame[wording.NAME_LABEL] == "Water"][0])
+        assert row[wording.HIGHEST_LABEL] == wording.CALCULATED_RANGE
+        at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
             frame, at, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
         back = opt.ingredient_grid_frame()
-        row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
+        row = back[back[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \
-            ("35.00", "65.00")
+            ("0.00", "100.00")
 
 
 # ------------------------------------------------------------------ #

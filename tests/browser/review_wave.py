@@ -57,7 +57,7 @@ elif mode == 'premix':
     assert fold(page, 'Dry blend · parts').get_by_role('button', name='Save changes', exact=True).is_visible()
     fold_click(page, 'Dry blend · parts', 'Discard changes')
     print('PASS parts edit keeps its fold and Save visible', flush=True)
-    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'Ingredients varied separately')
+    set_select(page, 0, row_of(page, 0, 'Dry blend'), 2, 'Variable-ratio blend')
     click(page, 'Save changes')
     assert grid_rows(page, 0)[1][0] == 'Dry blend'
     open_fold(page, 'Dry blend · parts')

@@ -227,65 +227,9 @@ class _FreshStart:
 
 
 def _build_sample_project(name, kind="Burger formulation"):
-    """The current sample, built from nothing onto `name`. Every setter below
-    saves, and a save writes the whole project, so the first one replaces an
-    older sample outright rather than editing it."""
+    """Build the guided example; existing projects with work are preserved by the caller."""
     import sample_projects
-    if kind != sample_projects.OPTIONS[0]:
-        return sample_projects.build(kind, name, _FreshStart(), STORAGE)
-    _sample = FoodOptimizer(name, storage=_FreshStart())
-    _sample.storage = STORAGE
-    _sample.set_amount_unit("g")
-    _sample.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
-    # One process setting, and the right one: under-mix and the fat sits in
-    # visible lumps and the patty crumbles; over-mix and the fat emulsifies
-    # into the protein, the patty goes dense and the fat pop disappears.
-    # The cook is NOT a setting — the panel must receive identically cooked
-    # patties or the cook confounds every sensory number — so it is in the
-    # method, fixed.
-    _sample.add_process_parameter("Mixing time after fat", 45, 150, unit="s")
-    # A plant-based burger rated by a trained panel for intensity, 0 to
-    # 10. Intensity has an optimum (10 juiciness is soggy, 10 firmness
-    # is a puck), so both are targets. Cook loss is the instrumental
-    # measurement beside them: a balance and a griddle, no panel to book,
-    # and the direct mechanistic counterpart to juiciness.
-    _sample.add_objective("Juiciness", 1.0, goal="target", target=7,
-                          min_val=0, max_val=10, unit="/10")
-    _sample.add_objective("Firmness", 1.5, goal="target", target=6,
-                          min_val=0, max_val=10, unit="/10")
-    _sample.add_objective("Cook loss", 1.0, goal="min",
-                          min_val=0, max_val=40, unit="%")
-    # add_objective does not normalise (the weights are a scale of their
-    # own until something says otherwise), so the file it writes would say
-    # 1.0 / 1.5 under CLASS_VERSION 11 while every screen read 40 / 60. The
-    # shares are stated outright, in the scale the version claims.
-    _sample.set_shares({"Firmness": 45.0, "Juiciness": 35.0,
-                        "Cook loss": 20.0})
-    _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
-    _sample.set_method(wording.SAMPLE_METHOD)
-    # A burger patty is made to a weight, and the panel is served
-    # one size. 100 g is what the sample's allowed amounts are
-    # written around, so every batch it suggests comes off the bench
-    # ready to grill. It goes in BEFORE the fat limit: a limit per 100 g of
-    # what you make is asked of a space with a size, and the `= rest` water
-    # has no amount at all until the total says what it is the rest of.
-    # Lot per ingredient per round and the Actual weight: the two the bench
-    # actually writes down. Lot-to-lot variation in pea protein isolate and
-    # in methylcellulose is the largest hidden source of variance in
-    # plant-based work, and the model must learn from what was really made.
-    # Vendor and SKU stay off — specification data, typed once and never
-    # read again.
-    _sample.set_records('lot', True)
-    _sample.set_records('actual', True)
-    _sample.set_formulation_total(100.0)
-    # One finished-product limit, and one that binds: fat runs 9.36 to
-    # 19.99 g per 100 g across this space, so 16 shapes roughly the top
-    # third of it and never empties it. Sodium is recorded and not limited —
-    # a limit tighter than the fixed seasoning already delivers would make
-    # every formulation impossible — and cost is recorded because cost per
-    # kg is the constraint every real project runs under.
-    _sample.add_constraint("Fat per 100 g", max_val=16.0)
-    return _sample
+    return sample_projects.build(kind, name, _FreshStart(), STORAGE)
 
 
 def _open_sample_project(kind="Burger formulation"):
@@ -543,14 +487,12 @@ with st.sidebar:
 
     # On a first run the welcome panel already offers the sample, so the
     # sidebar shows it only once at least one project exists.
-    import sample_projects
-    example = st.selectbox(wording.EXAMPLE_PROJECT_LABEL, sample_projects.OPTIONS, key="example_sidebar")
     if existing_projects and os.path.exists(_SAMPLE_CSV):
         if st.button(
             wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
             help=wording.TRY_SAMPLE_HELP,
         ):
-            _open_sample_project(example)
+            _open_sample_project()
 
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
@@ -787,10 +729,8 @@ if opt is None:
     st.markdown(wording.welcome_steps())
     wc1, wc2 = st.columns(2)
     with wc1:
-        import sample_projects
-        example = st.session_state.get("example_sidebar", sample_projects.OPTIONS[0])
         if os.path.exists(_SAMPLE_CSV) and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
-            _open_sample_project(example)
+            _open_sample_project()
     with wc2:
         if os.path.exists(_SAMPLE_CSV):
             st.download_button(
