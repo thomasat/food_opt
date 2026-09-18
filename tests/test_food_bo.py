@@ -2151,7 +2151,7 @@ class TestUnitsAndImportance:
         assert join_unit("7", "") == "7"
 
     def test_the_goal_reads_the_same_way_everywhere(self):
-        """C3: one rendering of one cell. It was 'Hit a target' beside a
+        """C3: one rendering of one cell. It was 'Aim for a target value' beside a
         Target of 6 on the grid, 'Target 6' in the Results table and
         'target 6' in lower case on the sheets the bench reads. A '/10' is
         shown once, on the measurement's own label, so it never follows a
@@ -2160,8 +2160,8 @@ class TestUnitsAndImportance:
         assert goal_line is goal_text
         assert goal_text({"goal": "target", "target": 6, "unit": "N"}) == "Target 6 N"
         assert goal_text({"goal": "target", "target": 7, "unit": "/10"}) == "Target 7"
-        assert goal_text({"goal": "min", "unit": "N"}) == "Lower is better"
-        assert goal_text({"goal": "max", "unit": ""}) == "Higher is better"
+        assert goal_text({"goal": "min", "unit": "N"}) == "Prefer lower values"
+        assert goal_text({"goal": "max", "unit": ""}) == "Prefer higher values"
 
     def test_a_slash_unit_is_written_once_on_the_label(self):
         from food_bo import label_with_unit, unit_after_number
@@ -2432,9 +2432,9 @@ class TestUnitsAndImportance:
         opt.tell({"Water": 10.0}, {"Juiciness": 8.0, "Grittiness": 2.0})
         rows = opt.closeness_details(0)
         # The /10 is on the name, once, and never after the number.
-        assert rows[0] == {"name": "Juiciness (/10)", "goal": "Higher is better",
+        assert rows[0] == {"name": "Juiciness (/10)", "goal": "Prefer higher values",
                            "measured": "8", "off_by": "—"}
-        assert rows[1] == {"name": "Grittiness (/10)", "goal": "Lower is better",
+        assert rows[1] == {"name": "Grittiness (/10)", "goal": "Prefer lower values",
                            "measured": "2", "off_by": "—"}
 
     def test_closeness_details_says_on_target(self, tmp_path, monkeypatch):
@@ -4380,7 +4380,7 @@ _ALLOWED_EXACT = {
     wording.MADE_AS_HELP, wording.SAMPLE_TAB1_DESCRIPTION,
     wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
     wording.WIDEN_RANGE_HINT,
-    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD,
+    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD, wording.LEGACY_SAMPLE_TARGETS_SOURCE, wording.SAMPLE_REFERENCE,
 
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
@@ -6125,7 +6125,7 @@ class TestTheWorkbook:
         assert labels[-9:] == ["Measurements", wording.SHEET_WRITE_IN_NOTE,
                                "Measurement",
                                "Firmness · Target 6 N",
-                               "Juiciness (/10) · Higher is better",
+                               "Juiciness (/10) · Prefer higher values",
                                "Not scored", "Note",
                                wording.SUMMARY_TICK_NOTE,
                                wording.MADE_BY_FOOTER], labels
@@ -6135,7 +6135,7 @@ class TestTheWorkbook:
         # the box the instruction asks the reader to tick, in the cell the
         # pen can reach.
         for label in ("Firmness · Target 6 N",
-                      "Juiciness (/10) · Higher is better"):
+                      "Juiciness (/10) · Prefer higher values"):
             assert _labelled(sheet)[label] == [None] * 7, label
         assert _labelled(sheet)["Not scored"] == [
             wording.TICK_BOX, None, wording.TICK_BOX, None,
@@ -6256,7 +6256,7 @@ class TestTheWorkbook:
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
         firm = labels.index("Firmness · Target 6 N") + 1
-        juice = labels.index("Juiciness (/10) · Higher is better") + 1
+        juice = labels.index("Juiciness (/10) · Prefer higher values") + 1
         not_scored = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
         note = labels.index(wording.NOTE) + 1
         sheet.cell(row=firm, column=2, value=5.5)
@@ -7078,7 +7078,7 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
 
         def edit(sheet):
             firm = self._row_of(sheet, "Firmness · Target 6 N")
-            juice = self._row_of(sheet, "Juiciness (/10) · Higher is better")
+            juice = self._row_of(sheet, "Juiciness (/10) · Prefer higher values")
             sheet.cell(row=juice, column=1).value = "Mouth juiciness"
             sheet.cell(row=firm, column=2).value = 5.5
             sheet.cell(row=juice, column=2).value = 8.0
@@ -8298,7 +8298,7 @@ class TestTheLockedWorkbook:
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
         at = self._rows_of(sheet)
         write_in = ("Firmness · Target 6 N",
-                    "Juiciness (/10) · Higher is better",
+                    "Juiciness (/10) · Prefer higher values",
                     wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)
         expected = {f"{letter}{at[label]}" for label in write_in
                     for letter in ("B", "D")}          # one per formulation
@@ -8397,7 +8397,7 @@ class TestTheLockedWorkbook:
         for column in (2, 4):
             summary.cell(row=at["Firmness · Target 6 N"], column=column,
                          value=6.0)
-            summary.cell(row=at["Juiciness (/10) · Higher is better"],
+            summary.cell(row=at["Juiciness (/10) · Prefer higher values"],
                          column=column, value=7.0)
         if lot is not None:
             summary.cell(row=at["Water (g)"], column=6, value=lot)
@@ -8572,7 +8572,7 @@ class TestTheLockedWorkbook:
         summary.cell(row=3, column=1, value=wording.MEASURED_COLUMN)
         summary.cell(row=4, column=1, value="Firmness · Target 6 N")
         summary.cell(row=4, column=2, value=6.0)
-        summary.cell(row=5, column=1, value="Juiciness (/10) · Higher is better")
+        summary.cell(row=5, column=1, value="Juiciness (/10) · Prefer higher values")
         summary.cell(row=5, column=2, value=7.0)
         out = io.BytesIO()
         book.save(out)
@@ -9876,7 +9876,7 @@ class TestFormulasOnTheSheetsFixes:
         summary.cell(row=at["Salt (g)"], column=lot_col, value=salt_lot)
         # A row with nothing measured is a row nothing came back for at
         # all — the one thing this fixture needs beside the amounts.
-        summary.cell(row=at["Taste · Higher is better"], column=2, value=6.0)
+        summary.cell(row=at["Taste · Prefer higher values"], column=2, value=6.0)
         page = book["Formulation 1"]
         rows = {page.cell(row=r, column=2).value: r
                for r in range(1, page.max_row + 1)}

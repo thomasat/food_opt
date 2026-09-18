@@ -3965,7 +3965,7 @@ class FoodOptimizer:
             if actual_at:
                 _write_in_cell(sheet, r, actual_at)
             if lot_at:
-                _write_in_cell(sheet, r, lot_at, lots.get(part['name']))
+                _write_in_cell(sheet, r, lot_at, lots.get(part['name'])).data_type = 's'
             if vendor_at:
                 _write_cell(sheet, r, vendor_at, part.get('vendor') or None)
             if sku_at:
@@ -3983,7 +3983,7 @@ class FoodOptimizer:
                       + [wording.PREMIX_BLENDED_BY_LABEL, wording.PREMIX_BLENDED_ON_LABEL,
                          wording.PREMIX_BLEND_TIME_LABEL]):
             _write_cell(sheet, r, 1, label, bold=True)
-            _write_in_cell(sheet, r, 2)
+            _write_in_cell(sheet, r, 2, lots.get(name) if label == wording.PREMIX_LOT_LABEL else None).data_type = 's'
             r += 1
         _set_widths(sheet, [34, 20, 18] + [18, 18, 24, 20][:len(headers) - 3])
         sheet.freeze_panes = "B4"
@@ -4166,7 +4166,7 @@ class FoodOptimizer:
                     _write_cell(sheet, r, lot_column,
                                 wording.PREMIX_LOT_ON_ITS_PAGE)
                 else:
-                    _write_in_cell(sheet, r, lot_column)
+                    _write_in_cell(sheet, r, lot_column, self.lots.get(self.pending_batch_no, {}).get(var['name'])).data_type = 's'
             if vendor_column:
                 _write_cell(sheet, r, vendor_column,
                             str(var.get('vendor') or "").strip() or None)
@@ -5695,6 +5695,8 @@ class FoodOptimizer:
     def _property_limit_holds(self, recipe, constraint):
         """One property limit, read the way _check_constraints reads it."""
         metric = constraint['metric']
+        if (constraint['min'] is not None or constraint['max'] is not None) and self.ingredients_without_property(metric):
+            return False
         if (constraint['min'] is not None
                 and self._property_residual(recipe, metric,
                                             constraint['min']) < -1e-9):
@@ -7016,6 +7018,8 @@ class FoodOptimizer:
         scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe_dict.values())
         for constr in self.constraints:
             metric = constr['metric']
+            if (constr['min'] is not None or constr['max'] is not None) and self.ingredients_without_property(metric):
+                return False
             if constr['min'] is not None:
                 slack = 1e-9 * scale * (1.0 + abs(float(constr['min'])))
                 if self._property_residual(recipe_dict, metric,
@@ -7079,6 +7083,12 @@ class FoodOptimizer:
         Passing the number HERE rather than re-stamping the batch afterwards
         is what stops a regenerate spending a batch number nobody ever saw.
         """
+        for constraint in self.constraints:
+            if constraint['min'] is None and constraint['max'] is None:
+                continue
+            gaps = self.ingredients_without_property(constraint['metric'])
+            if gaps:
+                raise ValueError(wording.missing_property_values(constraint['metric'], number_list(gaps)))
         missing = self.premix_readiness_error()
         if missing:
             raise ValueError(missing)
@@ -8561,6 +8571,8 @@ class FoodOptimizer:
         """Why this property limit cannot be met by any formulation the
         allowed amounts describe, or None while one can."""
         metric = constr['metric']
+        if self.ingredients_without_property(metric):
+            return None  # Incomplete limits are blocked at generation, not guessed as zero.
         per = self.per_amount_text()
         lo, hi = self._achievable_property(metric)
         if constr['min'] is not None and hi < constr['min']:
@@ -12211,6 +12223,8 @@ class FoodOptimizer:
         # A file written before this was stored has no key at all; blank is
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
+        if self.targets_source == wording.LEGACY_SAMPLE_TARGETS_SOURCE:
+            self.targets_source = wording.SAMPLE_TARGETS_SOURCE
         self.method = str(state.get('method') or "").strip()
         self._backfill_recorded_fields(state)
         self.bench_records = state.get('bench_records', {})

@@ -1214,6 +1214,9 @@ def _targets_source_contents(opt):
     editor's own Cancel."""
     if opt.targets_source:
         st.markdown(wording.targets_from_caption(opt.targets_source))
+        if opt.targets_source == wording.SAMPLE_TARGETS_SOURCE:
+            with st.expander(wording.BACKGROUND_REFERENCE_LABEL):
+                st.markdown(wording.SAMPLE_REFERENCE)
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
         st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
@@ -1252,25 +1255,37 @@ def _also_record(opt):
     key = "record_fields"
     definitions = custom_records.fields(opt, enabled=False)
     by_id = {f['id']: f for f in definitions}
-    options = list(RECORD_FIELDS) + list(by_id)
-    st.session_state.setdefault(key, [f for f in RECORD_FIELDS if opt.records(f)]
+    standard = [f for f in RECORD_FIELDS if f != 'actual']
+    options = standard + list(by_id)
+    st.session_state.setdefault(key, [f for f in standard if opt.records(f)]
                                 + [f['id'] for f in definitions if f['enabled']])
+
+    if any(f not in options for f in st.session_state[key]):
+        st.session_state[key] = [f for f in st.session_state[key] if f in options]
 
     def _save():
         selected = set(st.session_state.get(key, []))
         changed = False
-        for field in RECORD_FIELDS:
+        for field in standard:
             changed = opt.set_records(field, field in selected) or changed
         custom_records.set_enabled(opt, selected)
         if saved_ok(opt):
             flash("success", wording.RECORDS_UPDATED)
 
     st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
-                   format_func=lambda field: (wording.RECORD_FIELD_LABELS[field] if field in RECORD_FIELDS
+                   format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
                        else wording.custom_record_option(by_id[field]['name'], by_id[field]['scope'])),
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
     st.caption(wording.RECORDING_GUIDANCE)
     custom_records.setup(opt)
+    def _save_actual():
+        opt.set_records('actual', st.session_state['record_actual'])
+        saved_ok(opt)
+    st.session_state.setdefault('record_actual', opt.records('actual'))
+    st.checkbox(wording.ACTUAL_RECORD_OPTION, key='record_actual',
+                help=wording.ACTUAL_RECORD_HELP, on_change=_save_actual)
+    if opt.records('actual'):
+        st.caption(wording.ACTUAL_RECORD_HELP)
 
 
 _METHOD_BOX = "method_box"
@@ -1619,6 +1634,7 @@ def _property_limits(opt):
         return
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
                           key="prop_metric")
+    st.caption(wording.LIMIT_BOUND_HELP)
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
@@ -1866,7 +1882,7 @@ def _advanced(opt):
             st.caption(wording.for_project(opt, wording.IN_USE_PREFIX
                        + ", ".join(f"{k}: {v}" for k, v in current.items())))
 
-        if st.checkbox(wording.SCORING_DETAILS_CHECKBOX, key="show_scoring_calculation"):
+        with st.popover(wording.SCORING_DETAILS_CHECKBOX):
             st.markdown(wording.HOW_CLOSENESS_HEADING)
             st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 

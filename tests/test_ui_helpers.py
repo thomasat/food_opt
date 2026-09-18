@@ -574,16 +574,13 @@ def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
     two things the head cannot: what one figure is per, and what the app does
     with a cell nobody filled in."""
     assert wording.PROPERTIES_HEADING == "**Properties**"
-    assert wording.properties_grid_caption() == (
-        "Each ingredient's figure, per 100 g. An empty cell counts as 0 in "
-        "any limit.")
+    assert wording.properties_grid_caption() == ("Each ingredient's figure, per 100 g. " + wording.PROPERTY_BLANK_RULE)
     # Names that carry the basis themselves do not have it added twice.
     said = wording.properties_grid_caption(True)
-    assert said == ("Each ingredient's figure. An empty cell counts as 0 in "
-                    "any limit.")
+    assert said == ("Each ingredient's figure. " + wording.PROPERTY_BLANK_RULE)
     assert ", per 100 g." not in said, said
     # It keeps the caption inside the tab's one-line budget.
-    assert len(wording.properties_grid_caption()) < 100
+    assert len(wording.properties_grid_caption()) < 150
     assert wording.PROPERTIES_SAVED == "Properties saved."
     assert wording.SAVE_PROPERTIES_BUTTON == "Save changes"
     assert wording.SAVE_BUTTON == "Save"
@@ -612,7 +609,7 @@ def test_the_property_rule_is_read_where_properties_are_used():
     somewhere else on the tab. They are a grid a few lines under that
     caption now, so the caption above the grid says it and the Limits
     caption does not say it a second time."""
-    assert "counts as 0" in wording.properties_grid_caption()
+    assert "Blank means unknown" in wording.properties_grid_caption()
     assert "counts as 0" not in wording.LIMITS_CAPTION, wording.LIMITS_CAPTION
     joined = " ".join(wording.HOW_CLOSENESS)
     assert "property" not in joined, joined

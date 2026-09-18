@@ -4170,7 +4170,7 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
                for c in at.caption), [c.value for c in at.caption]
     assert wording.LIMITS_CAPTION.startswith(
         "Every formulation the app suggests keeps every limit here.")
-    said = [c.value for c in at.caption if "counts as 0 in any limit" in c.value]
+    said = [c.value for c in at.caption if wording.PROPERTY_BLANK_RULE in c.value]
     assert said == [wording.properties_grid_caption(True)], said
 
 
@@ -6263,7 +6263,6 @@ def test_the_target_bullet_does_not_claim_a_floor_of_zero(burger):
     from food_bo import FoodOptimizer as _FO
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.checkbox(key="show_scoring_calculation").check().run()
     text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     assert "a full range away scores 0" not in text, text
     assert ("by one point per full range; the lowest score depends on how "
@@ -6580,8 +6579,7 @@ def test_a_limit_names_the_ingredients_that_have_no_value(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     line = next(t.value for t in at.text if t.value.startswith("Sodium per 100 g:"))
-    assert line == ("Sodium per 100 g: at most 450 · Methylcellulose has no "
-                    "figure for it and counts as 0.")
+    assert line == ("Sodium per 100 g: at most 450" + wording.limit_gap_tail("Methylcellulose", False))
     at.session_state["optimizer"].set_property_value(
         "Methylcellulose", "Sodium per 100 g", 0)
     at.run()
@@ -6765,7 +6763,7 @@ def test_the_model_settings_in_use_line_shows_only_under_standard(burger):
 
 def test_off_by_appears_only_when_a_measurement_has_a_target(tmp_path,
                                                              monkeypatch):
-    """Off by is a distance from a target; over Higher is better rows it was
+    """Off by is a distance from a target; over Prefer higher values rows it was
     a column of dashes."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("no_target")
@@ -7269,8 +7267,7 @@ def test_the_properties_grid_says_what_an_empty_cell_holds(burger):
     at.run()
     # The rule is in the caption above the grid, said once. The grid's own
     # head names the property, so nothing inside it has to.
-    assert wording.PROPERTY_BLANK_RULE == ("An empty cell counts as 0 in "
-                                           "any limit.")
+    assert wording.PROPERTY_BLANK_RULE.startswith("Blank means unknown.")
     said = [c.value for c in at.caption
             if wording.PROPERTY_BLANK_RULE in c.value]
     assert said == [wording.properties_grid_caption(True)], said
@@ -7294,7 +7291,7 @@ def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
 
 
 def test_a_goal_with_no_target_ignores_the_target_cell(burger):
-    """Higher is better has no target, so whatever is in the cell is not
+    """Prefer higher values has no target, so whatever is in the cell is not
     read: the column is there for the rows that do have one."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -8182,10 +8179,9 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     headings = [m.value for m in _advanced(at).markdown
                 if m.value.startswith("**")]
     assert headings == [wording.HOW_IT_WORKS_HEADING,
-                        wording.HOW_FORMULATIONS_CHOSEN_HEADING], headings
-    assert not at.checkbox(key="show_scoring_calculation").value
+                        wording.HOW_FORMULATIONS_CHOSEN_HEADING, wording.HOW_CLOSENESS_HEADING], headings
+    assert any(b.proto.popover.label == wording.SCORING_DETAILS_CHECKBOX for b in at.get("popover"))
     assert wording.HOW_CLOSENESS_HEADING == "**How closeness is calculated**"
-    at.checkbox(key="show_scoring_calculation").check().run()
     text = _advanced_block(at, wording.HOW_CLOSENESS_HEADING)
     for line in wording.HOW_CLOSENESS:
         assert line in text, line
@@ -8193,8 +8189,8 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     # and what a repeat teaches the model. The property rule left this fold
     # for the Limits caption: a property never touches closeness.
     joined = " ".join(wording.HOW_CLOSENESS)
-    assert "Higher is better" in joined and "Lower is better" in joined
-    assert "Hit a target" in joined
+    assert "Prefer higher values" in joined and "Prefer lower values" in joined
+    assert "Aim for a target value" in joined
     assert ("by one point per full range; the lowest score depends on how "
             "far the target sits from the ends of your range") in joined
     assert "a little less than its share suggests" in joined
@@ -8707,8 +8703,7 @@ def test_the_properties_grid_names_the_properties_across_its_head(burger):
     at.run()
     assert not at.exception
     assert list(_grid_frame(at, 2).columns) == ["Ingredient", "Cost"]
-    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
-                           "cell counts as 0 in any limit.")
+    assert any(c.value == wording.properties_grid_caption()
                for c in at.caption), [c.value for c in at.caption]
     _save_properties(at, edited={0: {"Cost": 42.0}})
     assert any(s.value == wording.PROPERTIES_SAVED for s in at.success), \
@@ -8724,15 +8719,13 @@ def test_the_caption_does_not_say_per_100_g_twice_over(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == ("Each ingredient's figure. An empty cell counts "
-                           "as 0 in any limit.")
+    assert any(c.value == wording.properties_grid_caption(True)
                for c in at.caption), [c.value for c in at.caption]
     # ...and one column whose name does NOT carry it puts the basis back.
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("Each ingredient's figure, per 100 g. An empty "
-                           "cell counts as 0 in any limit.")
+    assert any(c.value == wording.properties_grid_caption()
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -8806,14 +8799,14 @@ def test_the_correction_form_says_it_once_above_the_boxes(scored):
 
 
 def test_the_goal_column_offers_its_three_options_and_no_more(burger):
-    """Higher is better, Lower is better, Hit a target — said once, as the
+    """Prefer higher values, Prefer lower values, Aim for a target value — said once, as the
     cell's own choices. The tooltip that used to repeat them is gone with
     the box it hung on."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
     assert list(wording.GOAL_LABELS.values()) == [
-        "Higher is better", "Lower is better", "Hit a target"]
+        "Prefer higher values", "Prefer lower values", "Aim for a target value"]
     assert set(_grid_frame(at, 1)["Goal"]) <= set(wording.GOAL_LABELS.values())
 
 
@@ -9861,6 +9854,7 @@ def test_the_round_tab_reads_in_one_order(open_batch):
     assert _tab_outline(at, 1) == [
         wording.make_these(1, 2),
         wording.STEP_MAKE_HEADING,
+        wording.CUSTOM_RECORDS_HEADING,
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
         # One heading per row of the round, inside step 3.
@@ -9887,7 +9881,7 @@ def test_the_round_tab_records_then_offers_the_two_folded_doors(open_batch):
     at.run()
     tab = at.tabs[1]
     folds = [e for e in tab.expander]
-    assert [e.label for e in folds] == [wording.ADD_OWN_EXPANDER,
+    assert [e.label for e in folds] == [wording.CUSTOM_RECORDS_HEADING, wording.ADD_OWN_EXPANDER,
                                         wording.UPLOAD_EXPANDER]
     assert not any(e.proto.expanded for e in folds)
     labels = [b.label for b in tab.button]

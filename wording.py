@@ -192,7 +192,7 @@ TRY_SAMPLE_HELP = (
 SAMPLE_PROJECT_NAME = "Sample project"
 
 # The sample's own targets_source, set once when it is built.
-SAMPLE_TARGETS_SOURCE = (
+LEGACY_SAMPLE_TARGETS_SOURCE = (
     "Illustrative training example; not a validated formulation or recorded panel study. "
     "Firmness 6/10, juiciness 7/10 and their shares of the score are example choices. "
     "Scientific background: Peñaranda et al. (2025), Plant-Based Burgers with Reduced "
@@ -203,6 +203,16 @@ SAMPLE_TARGETS_SOURCE = (
     "are illustrative; replace them with supplier data. The hydration ratio of 2.2 is an "
     "illustrative assumption; establish a suitable ratio for the selected protein grades in pilot trials."
 )
+SAMPLE_TARGETS_SOURCE = (
+    "This example demonstrates the app. Its ingredient amounts, targets and property values "
+    "are illustrative; replace them with values appropriate for your project."
+)
+SAMPLE_REFERENCE = (
+    "Background reading: Peñaranda et al. (2025), Plant-Based Burgers with Reduced Texture "
+    "Additives, https://doi.org/10.3390/foods14081373. This paper provides background; "
+    "it does not validate this example."
+)
+
 
 # The sample's Method: how the bench makes one formulation, in the order it
 # is done. Printed on the Round sheet under the title, because three
@@ -946,9 +956,9 @@ KIND_INGREDIENT = "Ingredient"
 KIND_SETTING = "Process setting"
 
 GOAL_LABELS = {
-    "max": "Higher is better",
-    "min": "Lower is better",
-    "target": "Hit a target",
+    "max": "Prefer higher values",
+    "min": "Prefer lower values",
+    "target": "Aim for a target value",
 }
 
 
@@ -1001,11 +1011,11 @@ HOW_IT_WORKS = [
 # answers it; nine bullets in one fold answered it before anyone asked.
 HOW_CLOSENESS_HEADING = "**How closeness is calculated**"
 HOW_CLOSENESS = [
-    "Higher is better: closeness = (measured − lowest) ÷ (highest − lowest), "
+    "Prefer higher values: closeness = (measured − lowest) ÷ (highest − lowest), "
     "so the top of your range scores 1 and the bottom scores 0.",
-    "Lower is better: the reverse — the bottom of your range scores 1 and the "
+    "Prefer lower values: the reverse — the bottom of your range scores 1 and the "
     "top scores 0.",
-    "Hit a target: closeness is 1 at the target and falls evenly with "
+    "Aim for a target value: closeness is 1 at the target and falls evenly with "
     "distance, by one point per full range; the lowest score depends on how "
     "far the target sits from the ends of your range. Because of that "
     "floor, a target measurement sways the score a little less than its "
@@ -1048,7 +1058,7 @@ def saved(name):
 # "0 if blank" and "leave a cell empty for no value" sat on one screen
 # contradicting each other, and the app never knows an ingredient is
 # fat-free — only that a cell was left empty.
-PROPERTY_BLANK_RULE = "An empty cell counts as 0 in any limit."
+PROPERTY_BLANK_RULE = "Blank means unknown. For a property used in a limit, fill every ingredient’s value; enter 0 only if zero."
 ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
                       "formulation already made.")
 
@@ -1430,8 +1440,8 @@ def limit_added_on(who):
 def limit_gap_tail(name, many):
     """' · Water has no figure for it and counts as 0.' — the ingredients a
     limit is silently reading as zeroes."""
-    return (f" · {name} have no figure for it and count as 0." if many
-            else f" · {name} has no figure for it and counts as 0.")
+    return (f" · Missing values: {name}. Complete these before generating formulations." if many
+            else f" · Missing value: {name}. Complete it before generating formulations.")
 
 
 # The two tiers tab 1 folds everything optional into (spec 1.5). More
@@ -3508,7 +3518,7 @@ def workbook_result_conflict(number, key):
 
 SHARE_TOTAL = "Total: 100%"
 SHARE_PREVIEW_HELP = "Changing one share adjusts the others to keep the total at 100%. Preview the saved shares below."
-SCORING_DETAILS_CHECKBOX = "Show scoring calculation"
+SCORING_DETAILS_CHECKBOX = "How the score is calculated"
 EXAMPLE_REFERENCES_LABEL = "Example assumptions and references"
 TARGET_REFERENCES_LABEL = "Targets and references"
 PROCESS_STUDY_INTRO = "Each trial is one set of process settings. Run each trial, then record its measurements."
@@ -3567,3 +3577,18 @@ CUSTOM_SAVED = "Additional records saved."
 
 def custom_record_option(name, scope):
     return f"{name} · {CUSTOM_SCOPE_NAMES[scope].lower()}"
+
+RECORD_SCOPE_LABELS = {
+    'vendor': "Vendor · each ingredient · Ingredients table",
+    'sku': "SKU · each ingredient · Ingredients table",
+    'lot': "Lot · each ingredient, per round · App or workbook",
+}
+ACTUAL_RECORD_OPTION = "Record changes from the planned amounts or settings"
+ACTUAL_RECORD_HELP = "For each formulation, record what you actually weighed or the settings you used in the workbook. Leave unchanged values blank. Imported corrections are used when learning from your results."
+LOT_ENTRY_HELP = "One lot number per ingredient for this round. Entries save when you finish editing a cell and are included in the workbook."
+LIMIT_BOUND_HELP = "Leave a minimum or maximum empty for no restriction on that side. Ingredient amounts and other limits still apply."
+
+def missing_property_values(metric, names):
+    return f"Complete {metric} for: {names}. Open Ingredient limits → Properties and enter the missing values (0 only if zero), or delete this property limit."
+
+BACKGROUND_REFERENCE_LABEL = "Background reference"

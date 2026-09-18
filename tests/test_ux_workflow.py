@@ -117,7 +117,7 @@ def test_guided_example_generates_feasible_rounds(tmp_path, monkeypatch):
     assert sample_projects.OPTIONS == [kind]
     opt = sample_projects.build(kind, sample_projects.NAMES[kind], LocalStorage(), LocalStorage())
     assert not opt.X_history
-    assert 'Illustrative' in opt.targets_source
+    assert 'illustrative' in opt.targets_source
     suggestions = opt.ask(3)
     assert len(suggestions) == 3
     for recipe in suggestions:
