@@ -48,7 +48,7 @@ an amount or setting fixed. Use different values to let the app vary it.
 “Import ingredients” provides a spreadsheet template and an upload option.
 
 “Preparation and records” holds the batch size, steps shared by all
-formulations, references, and recording options. Lot is entered per ingredient in Make a round → Additional records
+formulations, references, and recording options. Lot is entered per ingredient in Make a round → Ingredient lot numbers
 or in the workbook. Vendor and SKU are entered in the Ingredients table.
 “Record changes from the planned amounts or settings” adds workbook cells
 for what you actually used in each formulation; leave unchanged values blank.

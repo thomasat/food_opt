@@ -211,9 +211,11 @@ For notarization credentials stored outside the login keychain, set
 
 Optional recording and returning the sheets
 
-In Set up → More settings, “Also record” turns Vendor, SKU, Lot and Actual
-amounts on or off. New projects start with them off; the sample records Lot
-and Actual amounts. Turning a field off keeps values already saved.
+In Set up → Preparation and records, choose optional recording fields.
+Vendor and SKU appear in the Ingredients table. Lot numbers are entered in
+Make a round → Ingredient lot numbers or in the workbook. A separate option
+records changes from planned amounts or settings. New projects start with
+recording options off; the sample enables lot numbers and actual amounts. Turning a field off keeps values already saved.
 After filling in the workbook, upload it in 2 · Make a round → Save results
 → Or upload results from a file, check the preview, then save. Editing Excel
 alone does not update the app. Preparation amounts and other filled-in boxes

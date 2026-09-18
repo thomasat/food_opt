@@ -255,25 +255,28 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
     from ui_helpers import saved_ok
     if (not fields(opt) and not opt.records('lot')) or round_no is None:
         return
+    if opt.records('lot'):
+        st.markdown(f"**{wording.LOT_ENTRY_HEADING}**")
+        st.caption(wording.LOT_ENTRY_HELP)
+        stored_lots = opt.lots.get(int(round_no), {})
+        lot_frame = pd.DataFrame([{wording.CUSTOM_INGREDIENT_LABEL: n, wording.LOT_COLUMN: stored_lots.get(n, '')}
+                                 for n in ingredient_names(opt, round_no)])
+        if not lot_frame.empty:
+            mark = hashlib.sha256(lot_frame.to_json().encode()).hexdigest()[:12]
+            edited_lots = st.data_editor(lot_frame, hide_index=True, disabled=[wording.CUSTOM_INGREDIENT_LABEL],
+                key=f'custom_lots_{opt.project_name}_{round_no}_{prefix}_{mark}',
+                column_config={wording.LOT_COLUMN: st.column_config.TextColumn(wording.LOT_COLUMN, max_chars=2000)},
+                use_container_width=True)
+            updates = {row[wording.CUSTOM_INGREDIENT_LABEL]: ('' if pd.isna(row[wording.LOT_COLUMN]) else str(row[wording.LOT_COLUMN]).strip())
+                       for _, row in edited_lots.iterrows()}
+            if any(stored_lots.get(n, '') != v for n, v in updates.items()):
+                opt.store_lots(round_no, updates)
+                if saved_ok(opt):
+                    st.rerun()
+    if not fields(opt):
+        return
     with st.expander(wording.CUSTOM_RECORDS_HEADING):
         st.caption(wording.CUSTOM_AUTOSAVE_HELP)
-        if opt.records('lot'):
-            st.caption(wording.LOT_ENTRY_HELP)
-            stored_lots = opt.lots.get(int(round_no), {})
-            lot_frame = pd.DataFrame([{wording.CUSTOM_INGREDIENT_LABEL: n, wording.LOT_COLUMN: stored_lots.get(n, '')}
-                                     for n in ingredient_names(opt, round_no)])
-            if not lot_frame.empty:
-                mark = hashlib.sha256(lot_frame.to_json().encode()).hexdigest()[:12]
-                edited_lots = st.data_editor(lot_frame, hide_index=True, disabled=[wording.CUSTOM_INGREDIENT_LABEL],
-                    key=f'custom_lots_{opt.project_name}_{round_no}_{prefix}_{mark}',
-                    column_config={wording.LOT_COLUMN: st.column_config.TextColumn(wording.LOT_COLUMN, max_chars=2000)},
-                    use_container_width=True)
-                updates = {row[wording.CUSTOM_INGREDIENT_LABEL]: ('' if pd.isna(row[wording.LOT_COLUMN]) else str(row[wording.LOT_COLUMN]).strip())
-                           for _, row in edited_lots.iterrows()}
-                if any(stored_lots.get(n, '') != v for n, v in updates.items()):
-                    opt.store_lots(round_no, updates)
-                    if saved_ok(opt):
-                        st.rerun()
         for scope, subjects in [('formulation', list(map(str, formulation_numbers))),
                                 ('ingredient', ingredient_names(opt, round_no))]:
             definitions = fields(opt, scope)

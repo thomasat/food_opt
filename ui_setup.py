@@ -567,6 +567,7 @@ def _variables(opt, storage):
     """
     st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
     st.caption(wording.INGREDIENT_GRID_CAPTION)
+    st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(
@@ -953,6 +954,7 @@ def _premix_grid(opt, storage, name):
             display[wording.PREMIX_SHARE_LABEL] = shares * quantity / (shares.sum() or 100)
             config[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
                 f"Amount ({unit})", min_value=0.0, format="%.2f")
+        st.caption(wording.EDITABLE_TABLE_HELP)
         edited = st.data_editor(
             display, key=grid_key(grid), num_rows="dynamic",
             column_config=config, use_container_width=True,
@@ -1276,6 +1278,8 @@ def _also_record(opt):
                    format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
                        else wording.custom_record_option(by_id[field]['name'], by_id[field]['scope'])),
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
+    if opt.records("lot"):
+        st.caption(wording.LOT_LOCATION_HELP)
     st.caption(wording.RECORDING_GUIDANCE)
     custom_records.setup(opt)
     def _save_actual():
@@ -1333,6 +1337,7 @@ def _measurements(opt, storage):
     """
     st.subheader(wording.MEASUREMENTS_HEADER)
     st.caption(wording.MEASUREMENT_GRID_CAPTION)
+    st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.measurement_grid_frame()
     opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
     edited = st.data_editor(
@@ -1591,6 +1596,7 @@ def _properties(opt, storage):
         # is drawn, and Streamlit throws away the entry of a widget the run
         # never created. It carries a banner of its own, so it has to be
         # able to keep what the banner promises.
+        st.caption(wording.EDITABLE_TABLE_HELP)
         opening, from_park = _opening_frame(PROP_GRID_KEY, saved)
         edited = st.data_editor(
             opening, key=grid_key(PROP_GRID_KEY), num_rows="fixed",

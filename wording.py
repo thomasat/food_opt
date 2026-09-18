@@ -3459,7 +3459,12 @@ PART_AMOUNTS_REQUIRED = "Enter a number in both Lowest and Highest for this part
 EXAMPLE_PROJECT_LABEL = 'Example project'
 WORKBOOK_WORKFLOW_CAPTION = 'Download → Enter measurements → Upload → Review → Save results. Upload the edited workbook and save the reviewed results to update this project.'
 EDIT_FORMULATIONS = 'Edit formulations'
-EDIT_FORMULATIONS_CAPTION = 'Edit ingredient amounts and process settings. Calculated amounts update when you save. Recorded formulations stay in Results.'
+EDIT_FORMULATIONS_CAPTION = 'Formula results and totals are read-only. They update when you save.'
+EDIT_FORMULATIONS_HINT = 'To change amounts or process settings in this table, select Edit formulations.'
+EDIT_FORMULATIONS_ACTIVE = '**Editing formulations** · Double-click a number to change it, then select Save changes.'
+EDITABLE_TABLE_HELP = '**Editable table** · Double-click a cell to change it, then save below.'
+EDITABLE_AMOUNT_HELP = 'Double-click this value to edit it. Select Save changes to apply your edits.'
+READ_ONLY_AMOUNT_HELP = 'Read-only. Formula results and totals update when you save.'
 PRINT_PACK_CHECKBOX = 'Include individual formulation pages for printing'
 FINISH_FORMULATION_EDITS = 'Save or cancel your formulation edits to continue with preparation and results.'
 COMPACT_WORKBOOK_CAPTION = 'Three tabs: Round overview · Preparation · Results. Enter all measurements on Results.'
@@ -3551,7 +3556,7 @@ CUSTOM_WORKBOOK_CONFLICT = "This workbook contains conflicting entries for the s
 CUSTOM_TEXT_ONLY = "Enter recording values as text or numbers, rather than spreadsheet formulas."
 CUSTOM_RECORDS_HEADING = "Additional records"
 CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the round and do not affect scores."
-CUSTOM_AUTOSAVE_HELP = "Optional. Entries save when you finish editing a cell and do not affect scores."
+CUSTOM_AUTOSAVE_HELP = "Double-click a cell to enter a value. Entries save automatically when you leave the cell and do not affect scores."
 CUSTOM_SUBJECT = "Recorded for"
 CUSTOM_VALUE = "Value"
 CUSTOM_INGREDIENT_LABEL = "Ingredient"
@@ -3565,11 +3570,13 @@ def custom_record_option(name, scope):
 RECORD_SCOPE_LABELS = {
     'vendor': "Vendor · Each ingredient · Ingredients table",
     'sku': "SKU · Each ingredient · Ingredients table",
-    'lot': "Lot · Each ingredient, per round · App or workbook",
+    'lot': "Lot numbers · Enter in Make a round",
 }
 ACTUAL_RECORD_OPTION = "Record changes from the planned amounts or settings"
 ACTUAL_RECORD_HELP = "For each formulation, record what you actually weighed or the settings you used in the workbook. Leave unchanged values blank. Imported corrections are used when learning from your results."
-LOT_ENTRY_HELP = "One lot number per ingredient for this round. Included in the workbook."
+LOT_ENTRY_HEADING = "Ingredient lot numbers"
+LOT_LOCATION_HELP = "Enter lot numbers below the formulations in Make a round, or in the workbook."
+LOT_ENTRY_HELP = "For this round only. Double-click a Lot cell to enter a number; it saves automatically and is included in the workbook."
 LIMIT_BOUND_HELP = "Leave a minimum or maximum empty for no restriction on that side. Ingredient amounts and other limits still apply."
 
 def missing_property_values(metric, names):

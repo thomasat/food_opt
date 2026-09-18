@@ -30,7 +30,7 @@ Ingredient limits can restrict combined amounts or finished-product properties. 
 In **Preparation and records**, choose the records you need:
 
 - **Vendor and SKU:** Enter values for each ingredient in the Ingredients table.
-- **Lot:** Enter a lot number for each ingredient in **Make a round → Additional records** or in the workbook.
+- **Lot:** Enter a lot number for each ingredient in **Make a round → Ingredient lot numbers** or in the workbook.
 - **Custom fields:** Choose **Add your own recording field**, name the field, and choose each formulation or each ingredient in the round. Enter values in the app or workbook.
 
 These records do not affect scores, and hiding a field preserves its values. The separate **Record changes from the planned amounts or settings** option adds workbook cells for what you actually used in each formulation. Imported corrections are used when the app learns from the results.

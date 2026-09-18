@@ -51,6 +51,8 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
     assert not at.exception
     assert 'actual' not in at.multiselect(key='record_fields').value
     assert at.checkbox(key='record_actual').value
+    assert any(m.value == f'**{wording.LOT_ENTRY_HEADING}**' for m in at.tabs[1].markdown)
+    assert not any(e.label == wording.CUSTOM_RECORDS_HEADING for e in at.tabs[1].expander)
     for value in ['00123','00124','']:
         key=next(k for k in at.session_state.filtered_state if k.startswith('custom_lots_'))
         at.session_state[key]={'edited_rows':{0:{'Lot':value}},'added_rows':[],'deleted_rows':[]}
@@ -63,6 +65,7 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
             assert any(c.value==value for sheet in book for row in sheet for c in row)
     at.multiselect(key='record_fields').set_value([]).run()
     assert FoodOptimizer('my_project').records('actual')
+    assert not any(m.value == f'**{wording.LOT_ENTRY_HEADING}**' for m in at.tabs[1].markdown)
     at.checkbox(key='record_actual').uncheck().run()
     assert not FoodOptimizer('my_project').records('actual')
     assert any(b.proto.popover.label=='How the score is calculated' for b in at.get('popover'))

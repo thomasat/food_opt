@@ -149,6 +149,8 @@ def test_editor_save_and_cancel_preserve_result_drafts(project):
     at.number_input(key='f1_Taste').set_value(8).run()
     next(b for b in at.button if b.label == wording.EDIT_FORMULATIONS).click().run()
     assert not at.exception
+    assert any(i.value == wording.EDIT_FORMULATIONS_ACTIVE for i in at.info)
+    assert any(c.value == wording.EDIT_FORMULATIONS_CAPTION for c in at.caption)
     key = 'edit_round_editable_1'
     at.session_state[key + '_grid'] = {'edited_rows': {0: {'Protein (g)': 12}}, 'added_rows': [], 'deleted_rows': []}
     at.run()

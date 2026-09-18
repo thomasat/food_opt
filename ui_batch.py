@@ -559,23 +559,30 @@ def _batch_table(opt, scale_to):
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
     if not editing:
+        if st.button(wording.for_project(opt, wording.EDIT_FORMULATIONS), key=edit_key + "_start", icon=":material/edit:"):
+            st.session_state[edit_key] = True
+            preserve_tab_forms()
+            st.rerun()
+        st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
         st.dataframe(frame.style.format(_amount_format(opt, frame)),
                      column_config={wording.FORMULATION_CAP: st.column_config.Column(
                          wording.for_project(opt, wording.FORMULATION_CAP))},
                      hide_index=True, key="batch_table", height=table_height(len(frame)))
-        if st.button(wording.for_project(opt, wording.EDIT_FORMULATIONS), key=edit_key + "_start"):
-            st.session_state[edit_key] = True
-            preserve_tab_forms()
-            st.rerun()
     else:
-        st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_CAPTION))
+        st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
+        st.caption(wording.EDIT_FORMULATIONS_CAPTION)
         editable_numbers = {row["formulation"] for row in open_rows(opt)}
         frame = frame[frame["Formulation"].isin(editable_numbers)].reset_index(drop=True)
         independent = {opt._amount_column(v['name'], mark=True): v['name']
                        for v in opt.variables if not opt.has_formula(v)}
+        columns = {c: st.column_config.NumberColumn(c, help=wording.EDITABLE_AMOUNT_HELP)
+                   for c in frame if c in independent}
+        columns.update({c: st.column_config.Column(c, help=wording.READ_ONLY_AMOUNT_HELP)
+                        for c in frame if c not in independent})
+        columns[wording.FORMULATION_CAP] = st.column_config.Column(
+            wording.for_project(opt, wording.FORMULATION_CAP))
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
-                               column_config={wording.FORMULATION_CAP: st.column_config.Column(
-                         wording.for_project(opt, wording.FORMULATION_CAP))},
+                               column_config=columns,
                                disabled=[c for c in frame if c not in independent],
                                key=edit_key + "_grid", use_container_width=True)
         save, cancel = st.columns(2)
@@ -612,7 +619,8 @@ def _batch_table(opt, scale_to):
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
     # Planned edits and actual bench corrections are distinct actions.
-    st.caption(wording.for_project(opt, wording.FORMULATION_CORRECTIONS_CAPTION))
+    if not editing and opt.records("actual"):
+        st.caption(wording.for_project(opt, wording.FORMULATION_CORRECTIONS_CAPTION))
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.

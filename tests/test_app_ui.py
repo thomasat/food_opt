@@ -6300,8 +6300,9 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
 def _assert_captions_read_once(at):
     """Sparse: one line each, and never the same line twice. The score
     function is generated from the measurements, not written here."""
+    # The shared edit cue belongs beside each editable table; explanatory copy stays unique.
     captions = [c for c in _tab1_captions(at)
-                if not c.startswith("Overall score = ")]
+                if not c.startswith("Overall score = ") and c != wording.EDITABLE_TABLE_HELP]
     assert len(captions) == len(set(captions)), captions
     # The two grid captions are each one sentence longer than the rest: a
     # grid has to say where a new row is typed and what makes a row fixed,
@@ -9841,7 +9842,7 @@ def test_the_round_tab_reads_in_one_order(open_batch):
     assert _tab_outline(at, 1) == [
         wording.make_these(1, 2),
         wording.STEP_MAKE_HEADING,
-        wording.CUSTOM_RECORDS_HEADING,
+        f"**{wording.LOT_ENTRY_HEADING}**",
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
         # One heading per row of the round, inside step 3.
@@ -9868,7 +9869,7 @@ def test_the_round_tab_records_then_offers_the_two_folded_doors(open_batch):
     at.run()
     tab = at.tabs[1]
     folds = [e for e in tab.expander]
-    assert [e.label for e in folds] == [wording.CUSTOM_RECORDS_HEADING, wording.ADD_OWN_EXPANDER,
+    assert [e.label for e in folds] == [wording.ADD_OWN_EXPANDER,
                                         wording.UPLOAD_EXPANDER]
     assert not any(e.proto.expanded for e in folds)
     labels = [b.label for b in tab.button]
@@ -9951,7 +9952,8 @@ def test_the_tab_says_nothing_twice_with_every_tier_open(burger):
     at.run()
     assert not at.exception
     captions = [c.value for c in _tab1(at).caption
-                if not c.value.startswith("Overall score = ")]
+                if not c.value.startswith("Overall score = ")
+                and c.value != wording.EDITABLE_TABLE_HELP]
     assert len(captions) == len(set(captions)), \
         [c for c in captions if captions.count(c) > 1]
 
@@ -10166,7 +10168,7 @@ def test_round_table_is_read_only_until_edit_is_requested(worked_out):
     assert not at.exception
     tab = at.tabs[1]
     assert list(tab.get("data_editor")) == []
-    assert any(c.value == wording.FORMULATION_CORRECTIONS_CAPTION
+    assert any(c.value == wording.EDIT_FORMULATIONS_HINT
               for c in tab.caption), [c.value for c in tab.caption]
 
 
