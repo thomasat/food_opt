@@ -338,6 +338,10 @@ def _amount_boxes(opt, key_of, recipe=None, lock_worked_out=False):
     is the whole point of correcting, and the printed sheet leaves that
     row's Actual (g) cell open for exactly that.
     """
+    for name, group in opt.premixes.items():
+        if group['mode'] == 'weighed':
+            st.caption(wording.premix_members_line(
+                name, ", ".join(p['name'] for p in group['parts'])))
     typed = {}
     for var, col in _in_fours(opt.variables):
         with col:
@@ -345,7 +349,9 @@ def _amount_boxes(opt, key_of, recipe=None, lock_worked_out=False):
             # The placeholder is the allowed amounts at the size this row
             # was made to: the boxes were prefilled with 250 g grams under
             # a hint reading "0–15", which is the band per 100 g.
-            scale = opt.recipe_scale(recipe) if recipe else 1.0
+            scale = (opt.recipe_scale(recipe)
+                     if recipe and var.get("category", "ingredient") == "ingredient"
+                     else 1.0)
             low, high = (float(b) * scale for b in var['bounds'])
             worked_out = opt.has_formula(var)
             # No min_value/max_value: an amount outside what the project
@@ -963,7 +969,8 @@ def _read_past_formulations(uploaded):
         # column. A plain sheet whose first row is the header still works.
         header_row = 0
         for i in range(min(len(raw), 5)):
-            if raw.iloc[i].notna().sum() > 1:
+            if (raw.iloc[i].notna().sum() > 1
+                    and raw.iloc[i, 0] != wording.RECORDED_AMOUNTS):
                 header_row = i
                 break
         frame = raw.iloc[header_row + 1:].reset_index(drop=True)

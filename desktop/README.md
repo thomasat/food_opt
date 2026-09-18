@@ -208,3 +208,23 @@ under the round's amounts.
 
 For notarization credentials stored outside the login keychain, set
 `NOTARY_KEYCHAIN` to that keychain's path alongside `NOTARY_PROFILE`.
+
+
+Optional recording and returning the sheets
+
+In Set up → More settings, “Also record” turns Vendor, SKU, Lot and Actual
+amounts on or off. New projects start with them off; the sample records Lot
+and Actual amounts. Turning a field off keeps values already saved.
+After filling in the workbook, upload it in 2 · Make a round → Save results
+→ Or upload results from a file, check the preview, then save. Editing Excel
+alone does not update the app. Preparation amounts and other filled-in boxes
+are preserved as Bench records in the All formulations export; preparation
+records do not change a pre-mix's percentages for future rounds. Formulation
+Actual amounts are used as the amounts made. The Set-up and All formulations
+sheets are records, rather than forms to fill in and send back.
+Saved copies shows the three newest copies and puts the rest under Older
+copies. Its confirmed cleanup keeps the newest three and the last seven days.
+For a process or fermentation study, use numeric process settings. Record
+separate measurements for different time points, such as pH at 6 h and pH at
+24 h. Named categories such as strain or vessel type are not varied by this
+version. The sample targets and method are illustrative, not measured results.

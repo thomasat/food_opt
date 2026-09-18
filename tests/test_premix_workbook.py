@@ -12,6 +12,8 @@ import wording
 def premix_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer('pre-mix pages', robust=False)
+    for field in ('vendor', 'sku', 'lot', 'actual'):
+        opt.set_records(field, True)
     opt.set_amount_unit('g')
     opt.add_ingredient('Water', 0, 100)
     opt.add_objective('Taste', 1, goal='max', min_val=0, max_val=10)
@@ -58,7 +60,7 @@ def test_portioned_page_is_first_and_names_its_round_quantity(premix_project):
     assert sheet['B5'].value == 72
     assert sheet['B6'].value == 180
     assert sheet['A6'].value == wording.TOTAL_LABEL
-    assert sheet['E4'].value == 'Mill'
+    assert sheet['F4'].value == 'Mill'
     # The pre-mix's own lot, which nothing anywhere used to give it.
     labels = [sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1)]
     assert wording.PREMIX_LOT_LABEL in labels
@@ -83,13 +85,13 @@ def test_portioned_blend_is_one_line_and_weighed_parts_are_indented(premix_proje
     labels = [sheet.cell(r, 2).value for r in range(1, sheet.max_row + 1)]
     assert labels.count('Dry blend') == 1
     assert 'Flour' not in labels
-    group = row_for(sheet, 'Fat phase', 2)
+    group = row_for(sheet, wording.premix_group_line('Fat phase'), 2)
     assert sheet.cell(group, 2).font.bold
     for name in ('Coconut oil', 'Sunflower oil'):
         r = row_for(sheet, name, 2)
         assert sheet.cell(r, 2).alignment.indent == 1
         assert not sheet.cell(r, 4).protection.locked
-    total = row_for(sheet, 'Fat phase · total', 2)
+    total = row_for(sheet, wording.premix_group_total_line('Fat phase'), 2)
     assert sheet.cell(total, 3).value == 10
     assert sheet.cell(total, 4).protection.locked
 
@@ -123,7 +125,7 @@ def test_prep_page_only_unlocks_lot_cells(premix_project):
     # The parts' Lot cells, and the pre-mix's own four write-in lines.
     assert {c.coordinate for row in sheet for c in row
             if not c.protection.locked} == {
-        'D4', 'D5', 'B8', 'B9', 'B10', 'B11'}
+        'D4', 'D5', 'E4', 'E5', 'B8', 'B9', 'B10', 'B11'}
     assert sheet['D4'].fill.fgColor.rgb == '00FFF2CC'
 
 
@@ -152,7 +154,7 @@ def test_setup_sheet_names_groups_parts_and_modes(premix_project):
 
 def test_lots_and_actual_part_amounts_survive_workbook_upload(premix_project):
     book = workbook(premix_project)
-    book.active['D4'] = 'F-123'
+    book.active['E4'] = 'F-123'
     page = book['Formulation 1']
     page.cell(row_for(page, 'Coconut oil', 2), 4, 4.5)
     page.cell(row_for(page, 'Taste', 2), 4, 8)

@@ -195,8 +195,9 @@ SAMPLE_PROJECT_NAME = "Sample project"
 
 # The sample's own targets_source, set once when it is built.
 SAMPLE_TARGETS_SOURCE = (
-    "Scores are against an 80/20 beef control cooked to 71 °C core, which "
-    "our panel rates firmness 6 and juiciness 7 out of 10, against written "
+    "Illustrative targets, not recorded panel results: scores are against "
+    "an 80/20 beef control cooked to 74 °C core, which "
+    "the example panel rates firmness 6 and juiciness 7 out of 10, against written "
     "anchors (12 panellists, two sessions, February 2026). Above firmness 7 "
     "the patty eats rubbery; below juiciness 5 it eats dry and chalky."
 )
@@ -217,13 +218,41 @@ SAMPLE_METHOD = (
 # first formulation is scored; the second sentence names the lit button so a
 # first-time visitor knows what to do next.
 SAMPLE_TAB1_DESCRIPTION = (
-    "A plant-based burger: six rows, three of them pre-mixes with ten parts "
-    "inside them, one mixing time, and a fat limit. "
+    "A plant-based burger study with ingredients, pre-mixes and mixing time. "
     "Next: make a round."
 )
 
 # The project-level Method: one text area in More settings, printed on the
 # Round sheet under the title.
+# The four things a project can record beside what it is asked to. All four
+# are off for a new project: Vendor and SKU are specification data typed
+# once and never looked at again, and Lot and Actual are two more columns
+# down every printed page of a project that does not want them.
+def no_such_field(name):
+    """A caller asking the project to record something it has no box for."""
+    return f"{name} is not one of the things this project can record."
+
+
+ALSO_RECORD_LABEL = "Also record:"
+ALSO_RECORD_HELP = ("Each one adds a column to the grid or a cell to the "
+                    "printed pages. Nothing already recorded is lost by "
+                    "turning one off.")
+RECORD_FIELD_LABELS = {
+    'vendor': "Vendor",
+    'sku': "SKU",
+    'lot': "Lot",
+    'actual': "Actual amounts",
+}
+
+
+def record_field_on(label):
+    return f"{label} is recorded now."
+
+
+def record_field_off(label):
+    return f"{label} is not recorded any more."
+
+
 METHOD_LABEL = "Method"
 METHOD_HELP = "How the formulation is made, in the order the bench does it."
 METHOD_PLACEHOLDER = ("e.g. Mix the dry blend into the water, 60 s. Add the "
@@ -269,6 +298,42 @@ SAFETY_COPY_REASONS = {
     'pre_undo': "Before a change to what was recorded",
 }
 OPEN_SAFETY_COPY = "Open"
+
+
+def older_copies_fold(n):
+    """'Older copies (28)' — the fold the copies past the three newest sit
+    in. The app makes one before every edit, so a month of ordinary work
+    left thirty of them down the sidebar under a heading promising a list;
+    the three that are ever wanted are the three newest."""
+    return f"Older copies ({n})"
+
+
+def copies_by_day(day_text):
+    """'Yesterday' / '12 Sep' — the one line each day's copies sit under
+    inside the fold, newest day first."""
+    return day_text
+
+
+COPIES_TODAY = "Today"
+COPIES_YESTERDAY = "Yesterday"
+DELETE_OLD_COPIES = "Delete copies older than a week"
+
+
+def delete_old_copies_question(n, many=True):
+    """'Delete 22 saved copies older than a week? The three newest are
+    kept, and so is anything from the last seven days. Copies you
+    downloaded yourself are not in this folder.'"""
+    what = f"{n} saved copies" if many else "1 saved copy"
+    return (f"Delete {what} older than a week? The three newest are kept, "
+            "and so is anything from the last seven days. Copies you "
+            "downloaded yourself are not in this folder.")
+
+
+def old_copies_deleted(n, many=True):
+    return f"{n} saved copies deleted." if many else "1 saved copy deleted."
+
+
+NO_OLD_COPIES = "No copy here is older than a week."
 
 
 def copy_when(clock, today=True):
@@ -829,6 +894,14 @@ UPLOAD_HELP_CAPTION = (
     "Fill in the Measured cells on the round sheet you downloaded above and "
     "upload the file here. Formulations are matched on their number."
 )
+# The same door, said the other way round, once the workbook has actually
+# been downloaded in this session: the fold is open and this is the line
+# inside it, so the reader coming back with a filled-in file finds the door
+# already ajar rather than collapsed under a heading beginning "Or".
+UPLOAD_SHEETS_ARE_BACK_CAPTION = (
+    "When the sheets come back, upload the file here. The app reads what "
+    "you wrote in the boxed cells."
+)
 UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
 CHECK_THIS_FILE = "Check this file"
 FILE_UNREADABLE = (
@@ -906,7 +979,7 @@ HOW_IT_WORKS = [
     "Share of score says how much each measurement counts, out of 100. "
     "Closeness says how near a result is to its goal, from 0 to 1.",
     HOW_CHOSEN,
-    "Limits are hard rules for every formulation the app suggests. A "
+    "Limits are never crossed. A "
     "formulation of your own is recorded as you typed it.",
     "Each suggestion says whether it stays close to the best or tries "
     "something different, and what it changes.",
@@ -1171,7 +1244,7 @@ LOAD_INGREDIENTS_BUTTON = "Load ingredients"
 # one does not (the name is reserved) — with nothing on screen to say what
 # it is for.
 INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
-                            "and, optionally, Unit and Rule. Extra columns "
+                            "and, optionally, Unit, Rule, Part of, Made as and % of pre-mix. Extra numeric columns "
                             "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
@@ -1437,7 +1510,7 @@ def total_still_holds(total_text):
 
     The total's limit is over every ingredient, so it is rewritten on every
     such edit; this is the screen saying so. It was rewritten silently, and
-    a reader who had just been told "Limits are hard rules" had no way to
+    a reader who had just been told "Limits are never crossed" had no way to
     know whether the rule they typed had survived their own step 2."""
     return f"Each {FORMULATION} still adds up to {total_text}."
 
@@ -2270,9 +2343,26 @@ def upload_amounts_total(number, planned, actual):
 # Lot cells are on the summary and the Actual and Tick cells are on the
 # pages, and a line naming a column that is not on the page in the
 # reader's hand sends them hunting for it.
+# Where the sheets go when they come back. The bench fills the boxed cells
+# in and then has a file and no idea what to do with it: the sheet itself
+# names the door, in the words the screen puts on it.
+SHEET_RETURN_PATH = (f"Then upload this file in the app: {TAB_BATCH} \u2192 "
+                     f"Save results \u2192 Or upload results from a file.")
+# ...and the sheets the app never reads back say so, so nobody fills one in
+# and waits for it to arrive.
+SHEET_IS_A_RECORD = "This sheet is a record. The app does not read it back."
+
+
 def write_in_note(columns):
-    """'Write in the boxed cells only: Measured, Not scored, Note, Lot.'"""
-    return f"Write in the boxed cells only: {', '.join(columns)}."
+    """'Write in the boxed cells only: Measured, Not scored, Note, Lot. Then
+    upload this file in the app: 2 · Make a round -> Save results -> Or
+    upload results from a file.'
+
+    The second half is the one thing the pack never said. A bench filled the
+    boxed cells in, had a file, and nothing on the page said where it goes.
+    """
+    return (f"Write in the boxed cells only: {', '.join(columns)}. "
+            + SHEET_RETURN_PATH)
 
 
 # The summary sheet has no column headed `Measured`: the block's own header
@@ -2285,17 +2375,38 @@ def write_in_note(columns):
 # LOCKED cell, so the blanks could not be filled in the file they were
 # printed in — and the sheets now come back as a file.
 MADE_BY_COLUMN = "Made by"
-SUMMARY_SHADED_NOTE = write_in_note(
-    [MEASUREMENT_COLUMN, NOT_SCORED, NOTE, LOT_COLUMN, MADE_BY_COLUMN])
 
 
-def sheet_write_in_note(actual_head=ACTUAL_COLUMN):
+def summary_write_in_note(lot=True):
+    """The round sheet's own line. A project that weighs nothing out has no
+    Lot cells on the page, and a line naming a column that is not there
+    sends the reader hunting for it."""
+    columns = [MEASUREMENT_COLUMN, NOT_SCORED, NOTE]
+    if lot:
+        columns.append(LOT_COLUMN)
+    columns.append(MADE_BY_COLUMN)
+    return write_in_note(columns)
+
+
+SUMMARY_SHADED_NOTE = summary_write_in_note()
+
+
+def sheet_write_in_note(actual_head=ACTUAL_COLUMN, weighs=True):
     """The formulation page's own line. `actual_head` is that page's own
     column header — 'Actual (g)' — so the line names a column the reader
-    can point at rather than a shorter word beside it."""
-    return write_in_note(
-        [TICK_COLUMN, actual_head, MEASURED_COLUMN, NOT_SCORED, NOTE,
-         MADE_BY_COLUMN])
+    can point at rather than a shorter word beside it.
+
+    `weighs` is False for a project of process settings alone: there is no
+    amounts table on the page, so no Tick column and no Actual beside one,
+    and naming either sent the reader looking for a table that is not
+    there. `actual_head` of None drops the Actual cells too (they are off
+    until the project asks to record them).
+    """
+    columns = [TICK_COLUMN] if weighs else []
+    if actual_head:
+        columns.append(actual_head)
+    columns += [MEASURED_COLUMN, NOT_SCORED, NOTE, MADE_BY_COLUMN]
+    return write_in_note(columns)
 
 
 SHEET_SHADED_NOTE = sheet_write_in_note()
@@ -2791,7 +2902,7 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
     "Write what this ingredient is, in terms of the others: = batch size − "
-    "Water − Salt. Write = rest for the row that takes whatever is left. "
+    "Water − Salt makes this row whatever those two leave. Write = rest for the row that takes whatever is left. "
     "Leave it blank to give the row its own Lowest and Highest.")
 
 # The one line under the grid while no row has a rule: the column arrived
@@ -2980,14 +3091,14 @@ PREMIX_MADE_AS_WEIGHED = "weighed into each formulation"
 # How a pre-mix is named when something else found the clash, alongside
 # AN_INGREDIENT and A_PROCESS_SETTING above.
 A_PREMIX = "a pre-mix"
-A_PART = "a part of this pre-mix"
 
 MADE_AS_REQUIRED_ERROR = (
     f"Say how this row is made: {PREMIX_MADE_AS_BOUGHT_IN}, "
     f"{PREMIX_MADE_AS_PORTIONED} or {PREMIX_MADE_AS_WEIGHED}.")
 PART_SHARE_ERROR = f"Enter the {PREMIX_SHARE_LABEL} as a number, or leave it empty."
-PART_IS_ITS_OWN_PREMIX = "A pre-mix cannot be one of its own parts."
-PREMIX_INSIDE_PREMIX = "A pre-mix cannot go inside another pre-mix yet."
+PREMIX_INSIDE_PREMIX = ("A pre-mix cannot be a part of another pre-mix. "
+                       "Type an ingredient's name in the Part cell.")
+PART_IS_ITS_OWN_PREMIX = PREMIX_INSIDE_PREMIX
 # The same caption the measurements grid shows, in the pre-mix's own
 # noun: what the reader typed did not add up to 100, and the app moved
 # the rest of the column rather than refusing the save.
@@ -3129,8 +3240,8 @@ def delete_the_premix_instead(name, premix):
     way: 'Dry blend is part of Dry blend' would not, so that case says
     what it is instead."""
     if name == premix:
-        return (f"{name} is a pre-mix. Delete the pre-mix itself to take "
-                f"it out.")
+        return (f"{name} is a pre-mix. Choose bought in in its Made as cell "
+                "to take it apart.")
     return f"{name} is part of {premix}. Take it out of the pre-mix instead."
 
 
@@ -3167,8 +3278,8 @@ PART_LABEL = "Part"
 # and the amount of it in a formulation is whatever they add up to.
 SUM_OF_ITS_PARTS = "sum of its parts"
 PARTS_ADD_TO_NOTHING = ("The parts add up to nothing. Give at least one of "
-                        "them a share.")
-PREMIX_NEEDS_A_PART = "A pre-mix needs at least one part."
+                        "them a % of pre-mix above zero.")
+PREMIX_NEEDS_A_PART = "Enter at least one name in the Part column before saving."
 
 
 def premix_fold_caption(weighed):
@@ -3215,7 +3326,7 @@ def premix_no_longer_a_premix(name, parts_text="", many=False):
     return f"{line} {COPY_KEPT}"
 
 
-PREMIX_LIMIT_ON_ITS_OWN = "Choose a pre-mix on its own to limit its total. To limit particular ingredients together, choose their names instead."
+PREMIX_LIMIT_ON_ITS_OWN = "Choose a pre-mix weighed into each formulation on its own to limit its total. To limit particular ingredients together, choose their names instead."
 
 
 PREMIXES_HEADING = "Pre-mixes"
@@ -3229,7 +3340,6 @@ HAVE_ON_HAND_HEADING = "Have on hand"
 HAVE_ON_HAND_CAPTION = ("Across every formulation; a worked-out row's total "
                         "is what the round comes to, not one weighing.")
 ROUND_TOTAL_COLUMN = "Total for this round"
-PREMIX_SHADED_NOTE = write_in_note([LOT_COLUMN])
 # The write-in line at the foot of a pre-mix page. The Round sheet has a Lot
 # box against `Dry blend (g)` — a thing the bench made itself, which has no
 # lot until somebody gives it one, and nothing anywhere assigned it one.
@@ -3239,6 +3349,21 @@ PREMIX_BLENDED_ON_LABEL = "On"
 PREMIX_BLEND_TIME_LABEL = "Blend time (min)"
 # What the Round sheet's Lot cell says against a portioned pre-mix's row.
 PREMIX_LOT_ON_ITS_PAGE = "see its page"
+
+
+def premix_write_in_note(actual_head=None, lot=True):
+    """The pre-mix page's own line, naming that page's own write-in cells
+    and no others."""
+    columns = ([actual_head] if actual_head else []) + ([LOT_COLUMN] if lot
+                                                        else [])
+    if lot:
+        columns.append(PREMIX_LOT_LABEL)
+    columns += [PREMIX_BLENDED_BY_LABEL, PREMIX_BLENDED_ON_LABEL, PREMIX_BLEND_TIME_LABEL]
+    return ("% of pre-mix is the percentage of this pre-mix, not of the formulation. "
+            + write_in_note(columns))
+
+
+PREMIX_SHADED_NOTE = premix_write_in_note()
 
 
 def premix_sheet_title(name, total_text, need_text=""):
@@ -3260,11 +3385,11 @@ def premix_sheet_name(name):
 
 
 def premix_group_line(name):
-    return name
+    return f"{name} · weighed into this formulation"
 
 
 def premix_group_total_line(name):
-    return f"{name} · total"
+    return f"{name} · total (not weighed)"
 
 
 def workbook_lot_conflict(name):
@@ -3279,6 +3404,26 @@ def premix_needs_parts(name, here=False):
     return f"Add at least one {PART_LABEL.lower()} to {name} {where} before making a {ROUND}."
 
 
-RESULT_DRAFT_SAVED = "Measurements and notes are saved as you type. Save results to record the formulations you have entered; blank formulations stay to record."
+RESULT_DRAFT_SAVED = "Measurements and notes are saved as you type."
+SAVE_RESULTS_HELP = "Records the formulations you have filled in; the rest stay to record."
 UPLOAD_AMOUNTS_HEADING = "Amounts from the file"
 UPLOAD_LOTS_HEADING = "Lot numbers from the file"
+
+
+BENCH_RECORDS_SHEET = "Bench records"
+BENCH_RECORD_COLUMNS = {'sheet': "Sheet", 'cell': "Cell", 'label': "Entry", 'value': "Written"}
+BENCH_RECORDS_CAPTION = (
+    "Filled-in boxed cells are saved with this round and included in All formulations. "
+    "Preparation amounts and notes are kept as bench records; they do not change "
+    "a pre-mix's % of pre-mix for future rounds."
+)
+
+
+def premix_page_pointer(name):
+    return f"{name} is a pre-mix: see its sheet."
+
+
+def premix_members_line(name, names):
+    return f"{name}: {names}. These parts are weighed into each formulation."
+
+PART_AMOUNTS_REQUIRED = "Enter a number in both Lowest and Highest for this part."

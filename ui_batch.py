@@ -656,6 +656,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
         mime=WORKBOOK_MIME, key="download_batch_sheets",
         type="primary" if lit else "secondary",
         use_container_width=True,
+        on_click=_sheets_are_out,
     )
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
@@ -665,6 +666,13 @@ def _downloads(opt, scale_to, sized, said_size=False):
         # line apart.
         st.caption(wording.sheets_show_total_caption(
             opt.batch_total_text(scale_to)))
+
+
+def _sheets_are_out():
+    """The workbook has left the app in this session, so the upload door
+    opens. A download button has no return value to read: the click is
+    recorded here, which is the one place Streamlit gives it."""
+    st.session_state[_SHEETS_DOWNLOADED] = True
 
 
 def _regenerate(opt, rows, numbers):
@@ -825,7 +833,7 @@ def _record_results(opt):
     st.caption(counter)
     lit = ready and not confirmation_open()
     if st.button(wording.SAVE_RESULTS, type="primary" if lit else "secondary",
-                 disabled=not lit, key="save_results") and lit:
+                 disabled=not lit, key="save_results", help=wording.SAVE_RESULTS_HELP) and lit:
         _save_results(opt, kept, left_out, to_record)
 
 
@@ -989,9 +997,17 @@ def _blank_or_number(value):
     return f"{float(value):g}"
 
 
+_SHEETS_DOWNLOADED = "_sheets_downloaded"
+
+
 def _upload(opt):
-    with st.expander(wording.UPLOAD_EXPANDER):
-        st.caption(wording.UPLOAD_HELP_CAPTION)
+    # Open, once the workbook has left the app in this session. The reader
+    # who downloaded the sheets is coming back with a file in their hand,
+    # and the door they need was collapsed under a heading beginning "Or".
+    came_back = bool(st.session_state.get(_SHEETS_DOWNLOADED))
+    with st.expander(wording.UPLOAD_EXPANDER, expanded=came_back):
+        st.caption(wording.UPLOAD_SHEETS_ARE_BACK_CAPTION if came_back
+                   else wording.UPLOAD_HELP_CAPTION)
         sheet_file = st.file_uploader(
             wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,
@@ -1030,6 +1046,12 @@ def _upload(opt):
             + (wording.not_scored_counter_suffix(len(left_out)) if left_out
                else ""))
         _upload_preview(opt, parsed, left_out, weighed, lots)
+        records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
+        if records:
+            st.caption(wording.BENCH_RECORDS_CAPTION)
+            with st.expander(wording.BENCH_RECORDS_SHEET):
+                st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
+                             hide_index=True, use_container_width=True)
         if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
@@ -1060,6 +1082,9 @@ def _upload(opt):
                         return
                 # The lots the sheet came back with belong to the round, not
                 # to any one formulation, so they are kept once at the end.
+                opt.store_bench_records(batch_no, records)
+                if not saved_ok(opt):
+                    return
                 opt.store_lots(batch_no, lots)
                 if not saved_ok(opt):
                     return

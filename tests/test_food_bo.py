@@ -3121,7 +3121,7 @@ class TestTheIngredientsGrid:
             "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
             wording.MADE_AS_LABEL,
             wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
-            wording.VENDOR_LABEL, wording.SKU_LABEL, wording.FORMULA_LABEL]
+            wording.FORMULA_LABEL]
         # The ordinary case has a word of its own: a blank cell is not an
         # answer a reader can recognise as the one they want.
         assert list(frame[wording.MADE_AS_LABEL]) == \
@@ -6012,6 +6012,8 @@ class TestTheWorkbook:
     def _opt(self, tmp_path, monkeypatch, name="sheets"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 0, 100)
         opt.add_ingredient("Water", 0, 100)
@@ -8234,6 +8236,8 @@ class TestTheLockedWorkbook:
     def _opt(self, tmp_path, monkeypatch, name="locked"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 0, 100)
         opt.add_ingredient("Water", 0, 100)
@@ -9659,6 +9663,8 @@ class TestFormulasOnTheSheets:
     def _opt(self, tmp_path, monkeypatch, name="sheet_formulas"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9674,6 +9680,8 @@ class TestFormulasOnTheSheets:
     def _no_formula_opt(self, tmp_path, monkeypatch, name="sheet_plain"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9687,6 +9695,8 @@ class TestFormulasOnTheSheets:
     def _balance_opt(self, tmp_path, monkeypatch, name="sheet_balance"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9807,6 +9817,8 @@ class TestFormulasOnTheSheetsFixes:
     def _opt(self, tmp_path, monkeypatch, name="sheet_upload_formulas"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -10585,13 +10597,13 @@ class TestPreMixes:
             opt.set_premix_parts("Dry blend", self._parts(("Dry blend", 100)))
         assert str(caught.value) == wording.PART_IS_ITS_OWN_PREMIX
         assert wording.PART_IS_ITS_OWN_PREMIX == \
-            "A pre-mix cannot be one of its own parts."
+            "A pre-mix cannot be a part of another pre-mix. Type an ingredient's name in the Part cell."
         opt.add_premix("Wet blend", "weighed")
         with pytest.raises(ValueError) as caught:
             opt.set_premix_parts("Dry blend", self._parts(("Wet blend", 100)))
         assert str(caught.value) == wording.PREMIX_INSIDE_PREMIX
         assert wording.PREMIX_INSIDE_PREMIX == \
-            "A pre-mix cannot go inside another pre-mix yet."
+            "A pre-mix cannot be a part of another pre-mix. Type an ingredient's name in the Part cell."
         # Nothing was written by either refusal.
         assert opt.premix_parts("Dry blend") == []
 
@@ -11491,7 +11503,7 @@ class TestThePreMixGrid:
         frame = opt.premix_grid_frame("Dry blend")
         assert list(frame.columns) == [
             "_id", wording.PART_LABEL, wording.PREMIX_SHARE_LABEL,
-            wording.UNIT_LABEL, wording.VENDOR_LABEL, wording.SKU_LABEL]
+            wording.UNIT_LABEL]
         assert list(frame[wording.PART_LABEL]) == ["Flour", "Salt"]
         assert list(frame[wording.PREMIX_SHARE_LABEL]) == [70.0, 30.0]
         errors, messages = opt.apply_premix_grid("Dry blend", _edit(
@@ -11511,8 +11523,7 @@ class TestThePreMixGrid:
         frame = opt.premix_grid_frame("Dry blend")
         assert list(frame.columns) == [
             "_id", wording.PART_LABEL, wording.LOWEST_LABEL,
-            wording.HIGHEST_LABEL, wording.UNIT_LABEL, wording.VENDOR_LABEL,
-            wording.SKU_LABEL]
+            wording.HIGHEST_LABEL, wording.UNIT_LABEL]
         assert wording.PREMIX_SHARE_LABEL not in frame.columns
         errors, messages = opt.apply_premix_grid("Dry blend", _edit(
             frame, 1, **{wording.LOWEST_LABEL: "5",
@@ -11556,7 +11567,7 @@ class TestThePreMixGrid:
         assert list(frame[wording.NAME_LABEL]) == ["Water", "Dry blend"]
         line = frame.loc[2]
         assert line[wording.MADE_AS_LABEL] == wording.PREMIX_MADE_AS_WEIGHED
-        assert line[wording.LOWEST_LABEL] == wording.SUM_OF_ITS_PARTS
+        assert line[wording.LOWEST_LABEL] == ""
         assert line[wording.HIGHEST_LABEL] == wording.SUM_OF_ITS_PARTS
         # And the word in those cells is not a refusal: a save that touches
         # nothing else leaves the pre-mix exactly as it was.
@@ -11633,7 +11644,8 @@ class TestThePreMixGrid:
         # fixed at nothing.
         assert opt._by_name()["Dry blend"]['bounds'] == (10.0, 30.0)
         # The consequence is said once, at the choice.
-        assert opt.premix_consequence("Dry blend") in _said(messages)
+        assert opt.premix_consequence("Dry blend") == ""
+        assert not any("make-up stays" in line for line in _said(messages))
         # Both cells are still asked for, exactly as a new ingredient's are.
         opt2 = self._opt(tmp_path, monkeypatch, name="premix_grid_2")
         blank = _add(opt2.ingredient_grid_frame(), **{
@@ -11907,7 +11919,7 @@ class TestPreMixReviewFixes:
         opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 30), ("Pepper", 20)))
         assert opt.quantity_constraints[-1]['ingredients'] == ["Flour", "Salt", "Pepper"]
         assert opt.limit_label(opt.quantity_constraints[-1]) == "Dry blend"
-        with pytest.raises(ValueError, match="Choose a pre-mix on its own"):
+        with pytest.raises(ValueError, match="Choose a pre-mix weighed into each formulation on its own"):
             opt.add_chosen_quantity_constraint(["Dry blend", "Flour"], max_val=45)
 
 

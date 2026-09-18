@@ -1085,6 +1085,8 @@ def burger(tmp_path, monkeypatch):
     firmness the more important of the two."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("burger")
+    for field in ("vendor", "sku", "lot", "actual"):
+        opt.set_records(field, True)
     opt.set_amount_unit("g")
     opt.add_ingredient("Pea protein", 0, 25)
     opt.add_ingredient("Methylcellulose", 0, 3)
@@ -4367,6 +4369,8 @@ def mixed_units(tmp_path, monkeypatch):
     weighed in grams, the water is measured in millilitres."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("mixed")
+    for field in ("vendor", "sku", "lot", "actual"):
+        opt.set_records(field, True)
     opt.add_ingredient("Pea protein", 0, 25)
     opt.add_ingredient("Water", 0, 60, unit="ml")
     opt.add_objective("Firmness", 1.0, goal="target", target=6,
@@ -6232,7 +6236,7 @@ def test_the_upload_is_folded_away_beneath(burger):
     at.run()
     fold = next(e for e in _tab1(at).expander if e.label == "Or upload an ingredients file")
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit and Rule. Extra columns "
+                           "and, optionally, Unit, Rule, Part of, Made as and % of pre-mix. Extra numeric columns "
                            "become properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
@@ -6283,7 +6287,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
         assert line in text, line
     assert len(HOW_IT_WORKS) == 5
     assert "the app varies" in text and "aims for" in text
-    assert "hard rules for every formulation the app suggests" in text
+    assert "Limits are never crossed" in text
     assert "close to the best or tries something different" in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
     # the reader types into now, so the fold that explains the screen has to
@@ -7223,7 +7227,7 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     said = _tab1_captions(at)
-    assert wording.RULE_HINT not in said, said
+    assert wording.RULE_HINT in said, said
     assert any(c.startswith("Methylcellulose is worked out as = rest")
                for c in said), said
 
@@ -8147,7 +8151,7 @@ def test_how_it_works_is_five_lines(burger):
         "Until five formulations have results, new ones are spread out "
         "to cover the allowed amounts. After that, each round aims closer "
             "to your targets.",
-        "Limits are hard rules for every formulation the app suggests. "
+        "Limits are never crossed. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
         "something different, and what it changes.",

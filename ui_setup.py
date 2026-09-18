@@ -26,7 +26,8 @@ import streamlit as st
 import storage as storage_backend
 import wording
 from food_bo import (
-    GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
+    GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
+    ingredients_template_workbook,
 )
 from ui_helpers import (
     COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
@@ -871,10 +872,12 @@ def _premix_columns(opt, name):
             wording.PREMIX_SHARE_LABEL, min_value=0.0, format="%.2f")
     columns[wording.UNIT_LABEL] = st.column_config.TextColumn(
         wording.UNIT_LABEL, default=opt.amount_unit or "g")
-    columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
-        wording.VENDOR_LABEL, help=wording.VENDOR_HELP)
-    columns[wording.SKU_LABEL] = st.column_config.TextColumn(
-        wording.SKU_LABEL, help=wording.SKU_HELP)
+    if opt.records("vendor"):
+        columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
+            wording.VENDOR_LABEL, help=wording.VENDOR_HELP)
+    if opt.records("sku"):
+        columns[wording.SKU_LABEL] = st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP)
     return columns
 
 
@@ -1195,6 +1198,39 @@ def _targets_source_editor(opt):
         if st.button(label, key="edit_targets_source"):
             st.session_state[_TARGETS_SOURCE_OPEN] = True
             st.rerun()
+
+
+def _record_key(field):
+    return f"record_{field}"
+
+
+def _also_record(opt):
+    """One line and four boxes: what this project records beside what it
+    asks for.
+
+    All four are off for a new project. Vendor and SKU are specification
+    data, typed once at set-up and never read again, and they pushed `Rule`
+    off the right edge of the ingredients grid at the size the app opens at;
+    Lot and Actual are two more columns down every printed page of a project
+    that never wanted them. Each saves the moment it is ticked, with the one
+    line it owes.
+    """
+    st.caption(wording.ALSO_RECORD_LABEL)
+    boxes = st.columns(len(RECORD_FIELDS))
+    for field, box in zip(RECORD_FIELDS, boxes):
+        key = _record_key(field)
+        label = wording.RECORD_FIELD_LABELS[field]
+        st.session_state.setdefault(key, opt.records(field))
+
+        def _save(field=field, key=key, label=label):
+            on = bool(st.session_state.get(key))
+            if opt.set_records(field, on) and saved_ok(opt):
+                flash("success", wording.record_field_on(label) if on
+                      else wording.record_field_off(label))
+
+        with box:
+            st.checkbox(label, key=key, help=wording.ALSO_RECORD_HELP,
+                        on_change=_save)
 
 
 _METHOD_BOX = "method_box"
@@ -1825,6 +1861,7 @@ def _more_settings(opt, storage):
     with st.expander(wording.MORE_SETTINGS_EXPANDER,
                      expanded=_limit_half_written()):
         _formulation_total(opt)
+        _also_record(opt)
         _method_editor(opt)
         _targets_source_editor(opt)
         _limits(opt, storage)
@@ -1869,13 +1906,7 @@ def render(opt, storage):
         lines = opt.worked_out_captions()
         for line in lines:
             st.caption(line)
-        if not lines:
-            # The column arrived with no header tooltip anybody reads, no
-            # placeholder and no mention in the caption above the grid, so
-            # everything a cold reader learned about it they learned from
-            # refusals. One line, and only while there is nothing better to
-            # say: the worked-out captions take its place.
-            st.caption(wording.RULE_HINT)
+        st.caption(wording.RULE_HINT)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

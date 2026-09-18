@@ -491,7 +491,7 @@ assert not at.exception, at.exception
 # and SKU beside the range and Rule last (0.6.0). Baseline joins it only
 # once results exist.
 assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
-    "Name", "Type", "Made as", "Lowest", "Highest", "Unit", "Vendor", "SKU",
+    "Name", "Type", "Made as", "Lowest", "Highest", "Unit",
     "Rule"], list(at.dataframe[0].value.columns)
 
 # Three tiers on the tab: the grids, then More settings, then Advanced.
@@ -531,6 +531,8 @@ assert wording.make_these(1, 1) in [m.value for m in at.main.markdown], \
 
 # The workbook is protected, with a Lot cell per ingredient on the round's
 # summary page and an Actual (g) column on each formulation page.
+opt.set_records("lot", True)
+opt.set_records("actual", True)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100.0)))
 summary, page = book[book.sheetnames[0]], book[book.sheetnames[1]]
 
@@ -607,19 +609,19 @@ print("RULES_OK")
 import io
 from openpyxl import load_workbook
 opt = at.session_state["optimizer"]
-assert list(grid[wording.NAME_LABEL]) == ["Dry blend", "Fat phase", "Seasoning blend", "Water"]
+assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Dry blend", "Wheat gluten", "Fat phase", "Seasoning blend", "Water", "Mixing time after fat"]
 assert wording.MADE_AS_LABEL in columns
 assert opt.premixes["Fat phase"]["mode"] == "weighed"
-assert len(opt.premixes["Dry blend"]["parts"]) == 4
-assert opt._by_name()["Seasoning blend"]["bounds"] == (2.5, 2.5)
+assert len(opt.premixes["Dry blend"]["parts"]) == 3
+assert opt._by_name()["Seasoning blend"]["bounds"] == (2.2, 2.2)
 opt.ask(3)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
 assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
 assert book.active["A1"].value.startswith("Dry blend · make ")
-assert book.active["A1"].value.endswith(" g for this round")
+assert "this round needs" in book.active["A1"].value
 assert book.active.protection.sheet and not book.active["D4"].protection.locked
 summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
-assert wording.SHOPPING_TOTAL_HEADING in [c.value for row in summary for c in row]
+assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
 page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
 assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
 print("PREMIX_OK")

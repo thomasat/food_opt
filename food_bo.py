@@ -140,6 +140,13 @@ PREMIX_MADE_AS = {
 PREMIX_MADE_AS_WAS = {text.lower(): PREMIX_PORTIONED
                       for text in wording.PREMIX_MADE_AS_PORTIONED_WAS}
 
+# The four optional fields, and what a new project answers for each. They
+# are OFF: Vendor and SKU are specification data, typed once at set-up and
+# never read again, and Lot and Actual are two more columns down every
+# printed page of a project that never wanted them.
+RECORD_FIELDS = ('vendor', 'sku', 'lot', 'actual')
+RECORD_FIELDS_OFF = {name: False for name in RECORD_FIELDS}
+
 # The tag a limit over a weighed pre-mix's parts carries, so limit_label
 # answers with the pre-mix's own name rather than with Water + Oil. The
 # same mechanism the total of each formulation's limit uses.
@@ -1163,7 +1170,8 @@ def measurement_range_text(obj):
 # not smuggled on the frame either: something that has to survive a trip
 # through session state should be visible in the signature that hands it
 # over.
-UploadedWorkbook = namedtuple("UploadedWorkbook", "frame actual lots")
+UploadedWorkbook = namedtuple("UploadedWorkbook", ["frame", "actual", "lots", "bench_records"],
+                              defaults=(None,))
 
 
 def uploaded_parts(upload):
@@ -1289,7 +1297,7 @@ def _write_banner(sheet, row, column, text, last_column):
     if last_column > column:
         sheet.merge_cells(start_row=row, start_column=column,
                           end_row=row, end_column=last_column)
-    sheet.row_dimensions[row].height = 30
+    sheet.row_dimensions[row].height = max(30, 15 * (math.ceil(len(text) / 60) + 1))
     return cell
 
 
@@ -1318,18 +1326,26 @@ def _fit_to_page(sheet, last_row, last_column, landscape=False):
     sheet.print_area = f"A1:{get_column_letter(max(1, last_column))}{max(1, last_row)}"
 
 
-def _write_frame(sheet, frame, two_decimals=(), freeze=True, title=None):
+def _write_frame(sheet, frame, two_decimals=(), freeze=True, title=None,
+                 note=None):
     """A DataFrame onto a sheet: bold headers, the values below, columns as
     wide as their longest cell, and two decimals on the columns that hold
     amounts — a downloaded 11.875 beside a screen that says 11.88 reads as a
     third number.
 
-    `title` puts one line above the header, saying what the table is."""
+    `title` puts one line above the header, saying what the table is, and
+    `note` a second under it — which on these sheets is the line saying the
+    app does not read this one back."""
     columns = list(frame.columns)
     widest = [len(str(name)) for name in columns]
     top = 1 if title is None else 2
     if title is not None:
         _write_cell(sheet, 1, 1, title).font = _TITLE_FONT
+    if note is not None:
+        # Beside the title, not above the header: the header row is where
+        # every reader of this sheet — the eye and the parser alike — looks
+        # for the column names.
+        _write_cell(sheet, 1, 2, note)
     for c, name in enumerate(columns, start=1):
         _write_cell(sheet, top, c, str(name), bold=True)
     for r, (_, row) in enumerate(frame.iterrows(), start=top + 1):
@@ -1549,6 +1565,10 @@ class FoodOptimizer:
         # says nothing was recorded; shown as a caption once it is set.
         self.targets_source = ""
         self.method = ""
+        # What this project records beside what it asks for. Off for a new
+        # project: see set_records.
+        self.recorded_fields = dict(RECORD_FIELDS_OFF)
+        self.bench_records = {}
         self.pending_batch = None     # the open batch: [{'formulation', 'recipe'}]
         self.result_drafts = {}       # formulation -> unfinished measurements/note
         self.pending_batch_no = None  # its batch number
@@ -2951,6 +2971,54 @@ class FoodOptimizer:
         self.targets_source = value
         self.save()
 
+    def records(self, field):
+        """Whether this project records `field` — one of vendor, sku, lot,
+        actual."""
+        return bool((getattr(self, 'recorded_fields', None) or {}).get(field))
+
+    def set_records(self, field, on):
+        """Turn one optional field on or off. Written only on a change, as
+        every other box in More settings is.
+
+        Nothing already recorded is thrown away: a vendor typed before the
+        box was turned off is still on the row, and turning it back on shows
+        it again."""
+        if field not in RECORD_FIELDS:
+            raise ValueError(wording.no_such_field(field))
+        fields = dict(getattr(self, 'recorded_fields', None)
+                      or RECORD_FIELDS_OFF)
+        if bool(fields.get(field)) == bool(on):
+            return False
+        fields[field] = bool(on)
+        self.recorded_fields = fields
+        self.save()
+        return True
+
+    def _backfill_recorded_fields(self, state=None):
+        """What a project written before the boxes existed records.
+
+        The rule is the reader's own work: a field that HAS something in it
+        goes on, so nothing they typed disappears. Lot and Actual leave no
+        mark on a project that simply never used them, so a project that has
+        recorded a formulation keeps both — its sheets carried them, and a
+        round already on a bench must come back the shape it went out.
+        """
+        if isinstance((state or {}).get('recorded_fields'), dict):
+            stored = state['recorded_fields']
+            self.recorded_fields = {name: bool(stored.get(name))
+                                    for name in RECORD_FIELDS}
+            return
+        used = (getattr(self, 'recipe_history', None)
+                or (state or {}).get('lots') or getattr(self, 'lots', None))
+        self.recorded_fields = {
+            'vendor': any(str(v.get('vendor') or "").strip()
+                          for v in self.variables + [p for g in self.premixes.values() for p in g['parts']]),
+            'sku': any(str(v.get('sku') or "").strip()
+                       for v in self.variables + [p for g in self.premixes.values() for p in g['parts']]),
+            'lot': bool(used),
+            'actual': bool(used),
+        }
+
     def set_method(self, text):
         """Remember how the formulation is made, in the order the bench does
         it. Written only on a change, exactly as the targets note is: the box
@@ -3388,9 +3456,17 @@ class FoodOptimizer:
                 recipe[var['name']] = recorded[var['name']]
         return recipe
 
+    def _premix_totals(self, recipe):
+        return {wording.premix_group_total_line(name):
+                round(sum(float(recipe.get(p['name'], 0) or 0) for p in group['parts']), 2)
+                for name, group in self.premixes.items() if group['mode'] == PREMIX_WEIGHED}
+
     def _amount_columns(self, recipe):
-        return {self._amount_column(v['name']): recipe.get(v['name'])
-                for v in self.variables}
+        amounts = {self._amount_column(v['name']):
+                   (None if recipe.get(v['name']) is None else round(float(recipe[v['name']]), 2))
+                   for v in self.variables}
+        amounts.update(self._premix_totals(recipe))
+        return amounts
 
     def history_frame(self, order=wording.SORT_BEST_FIRST,
                       include_amounts=False):
@@ -3458,6 +3534,7 @@ class FoodOptimizer:
                       "Note"])
         if include_amounts:
             columns += [self._amount_column(v['name']) for v in self.variables]
+            columns += list(self._premix_totals({}))
         if not rows:
             return pd.DataFrame(columns=columns)
         df = pd.DataFrame(rows)
@@ -3509,6 +3586,7 @@ class FoodOptimizer:
             for var in ingredients:
                 item[self._amount_column(var['name'], mark=True)] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
+            item.update(self._premix_totals(recipe))
             if total_col is not None:
                 item[total_col] = self._total_cell(recipe)
             for var in process:
@@ -3826,10 +3904,32 @@ class FoodOptimizer:
             name, join_unit(f"{amount:g}", unit),
             join_unit(f"{need:.2f}", unit)))
         title.font = _TITLE_FONT
-        _write_banner(sheet, 2, 1, wording.PREMIX_SHADED_NOTE, 6)
+        # Part, Amount, % of pre-mix, and then only the columns this
+        # project asks for. Vendor and SKU printed empty on every page of
+        # every round wasted 44 characters of width on a sheet that already
+        # runs to six columns.
         headers = [wording.PART_LABEL, f"{wording.AMOUNT_COLUMN} ({unit})",
-                   wording.PREMIX_SHARE_LABEL, wording.LOT_COLUMN,
-                   wording.VENDOR_LABEL, wording.SKU_LABEL]
+                   wording.PREMIX_SHARE_LABEL]
+        # What was really weighed into the bowl. The bench could record that
+        # it scooped 70.2 g of Dry blend and not that it weighed 140.0 g of
+        # pea protein into it.
+        actual_at = len(headers) + 1 if self.records('actual') else None
+        if actual_at:
+            headers.append(self._actual_column_head())
+        lot_at = len(headers) + 1 if self.records('lot') else None
+        if lot_at:
+            headers.append(wording.LOT_COLUMN)
+        vendor_at = len(headers) + 1 if self.records('vendor') else None
+        if vendor_at:
+            headers.append(wording.VENDOR_LABEL)
+        sku_at = len(headers) + 1 if self.records('sku') else None
+        if sku_at:
+            headers.append(wording.SKU_LABEL)
+        # Written after the headers, because it names them: a line about
+        # cells the page does not carry sends the reader hunting.
+        _write_banner(sheet, 2, 1, wording.premix_write_in_note(
+            self._actual_column_head() if actual_at else None,
+            lot=bool(lot_at)), len(headers))
         for c, header in enumerate(headers, 1):
             _write_cell(sheet, 3, c, header, bold=True)
         parts = self.premix_parts(name, self.pending_batch_no)
@@ -3848,9 +3948,14 @@ class FoodOptimizer:
             _write_cell(sheet, r, 2, weighed, number_format=_TWO_DP)
             _write_cell(sheet, r, 3, round(part['share'] * 100 / shares, 2),
                         number_format=_TWO_DP)
-            _write_in_cell(sheet, r, 4, lots.get(part['name']))
-            _write_cell(sheet, r, 5, part.get('vendor') or None)
-            _write_cell(sheet, r, 6, part.get('sku') or None)
+            if actual_at:
+                _write_in_cell(sheet, r, actual_at)
+            if lot_at:
+                _write_in_cell(sheet, r, lot_at, lots.get(part['name']))
+            if vendor_at:
+                _write_cell(sheet, r, vendor_at, part.get('vendor') or None)
+            if sku_at:
+                _write_cell(sheet, r, sku_at, part.get('sku') or None)
             r += 1
         _write_cell(sheet, r, 1, wording.TOTAL_LABEL, bold=True)
         _write_cell(sheet, r, 2, round(printed, 2), bold=True,
@@ -3860,16 +3965,16 @@ class FoodOptimizer:
         # The pre-mix's own lot. The Round sheet has a Lot box against this
         # pre-mix's row — a thing the bench made itself, which has no lot
         # until somebody writes one here.
-        for label in (wording.PREMIX_LOT_LABEL, wording.PREMIX_BLENDED_BY_LABEL,
-                      wording.PREMIX_BLENDED_ON_LABEL,
-                      wording.PREMIX_BLEND_TIME_LABEL):
+        for label in (([wording.PREMIX_LOT_LABEL] if self.records("lot") else [])
+                      + [wording.PREMIX_BLENDED_BY_LABEL, wording.PREMIX_BLENDED_ON_LABEL,
+                         wording.PREMIX_BLEND_TIME_LABEL]):
             _write_cell(sheet, r, 1, label, bold=True)
             _write_in_cell(sheet, r, 2)
             r += 1
-        _set_widths(sheet, [34, 20, 18, 18, 24, 20])
+        _set_widths(sheet, [34, 20, 18] + [18, 18, 24, 20][:len(headers) - 3])
         sheet.freeze_panes = "B4"
         sheet.print_title_rows = "$1:$3"
-        _fit_to_page(sheet, r, 6)
+        _fit_to_page(sheet, r, len(headers))
         _protect(sheet)
 
     def _sheet_date(self):
@@ -3892,7 +3997,7 @@ class FoodOptimizer:
         one unit has no one total to be a share of — its Total cell reads
         '50.00 ml · 25.00 g', and a column of percentages beside it would be
         arithmetic nobody can check."""
-        return self.one_amount_unit() is not None
+        return self.has_ingredients() and self.one_amount_unit() is not None
 
     def _variable_column_head(self):
         """What heads the column of names on the summary sheet: a project
@@ -3926,13 +4031,12 @@ class FoodOptimizer:
         return (f"{wording.ACTUAL_COLUMN} ({unit})" if unit
                 else wording.ACTUAL_COLUMN)
 
-    @staticmethod
-    def _vendor_line(var):
+    def _vendor_line(self, var):
         """'Acme · PP-80' — where an ingredient was bought, printed under
         its name on the page the bench carries. Blank when the project
         never said."""
-        return " · ".join(part for part in (str(var.get('vendor') or "").strip(),
-                                            str(var.get('sku') or "").strip())
+        return " · ".join(part for part in (str(var.get('vendor') or "").strip() if self.records('vendor') else "",
+                                            str(var.get('sku') or "").strip() if self.records('sku') else "")
                           if part)
 
     def _write_summary_sheet(self, sheet, rows, total, sized=False):
@@ -3968,13 +4072,17 @@ class FoodOptimizer:
         # project holds them. A column of blanks on every sheet is a column
         # nobody reads, and a project of process settings alone weighs
         # nothing out of any sack.
-        lot_column = 2 + stride * len(rows) if ingredients else None
-        vendor_column = (lot_column + 1
-                         if lot_column and any(str(v.get('vendor') or "").strip()
-                                               for v in ingredients) else None)
-        sku_column = ((vendor_column or lot_column) + 1
-                      if lot_column and any(str(v.get('sku') or "").strip()
-                                            for v in ingredients) else None)
+        lot_column = (2 + stride * len(rows)
+                      if ingredients and self.records('lot') else None)
+        after_lot = lot_column or (2 + stride * len(rows) - 1)
+        vendor_column = (after_lot + 1
+                         if ingredients and self.records('vendor')
+                         and any(str(v.get('vendor') or "").strip()
+                                 for v in ingredients) else None)
+        sku_column = ((vendor_column or after_lot) + 1
+                      if ingredients and self.records('sku')
+                      and any(str(v.get('sku') or "").strip()
+                              for v in ingredients) else None)
         last_column = (sku_column or vendor_column or lot_column
                        or 1 + stride * len(rows))
 
@@ -3986,7 +4094,9 @@ class FoodOptimizer:
         # and the Measured cells are pages below: one line about the whole
         # sheet belongs where the sheet starts. It names this sheet's own
         # cells; the Actual cells are named on the pages that carry them.
-        _write_banner(sheet, 2, 1, wording.SUMMARY_SHADED_NOTE, last_column)
+        _write_banner(sheet, 2, 1,
+                      wording.summary_write_in_note(lot=bool(lot_column)),
+                      last_column)
 
         # The first column carries the settings too when the project has
         # any: they were filed silently under "Ingredient".
@@ -4007,7 +4117,19 @@ class FoodOptimizer:
             _write_cell(sheet, 3, sku_column, wording.SKU_LABEL, bold=True)
 
         r = 4
-        for var in ingredients:
+        for group, var in self._formulation_ingredient_lines():
+            if var is None:
+                _write_cell(sheet, r, 1, wording.premix_group_line(group), bold=True)
+                r += 1
+                continue
+            if var == 'total':
+                label = wording.premix_group_total_line(group)
+                _write_cell(sheet, r, 1, label, bold=True)
+                for j, recipe in enumerate(recipes):
+                    _write_cell(sheet, r, column(j), self._premix_totals(recipe)[label],
+                                bold=True, number_format=_TWO_DP)
+                r += 1
+                continue
             label = self._amount_column(var['name'],
                                         mark=self.has_formula(var))
             _write_cell(sheet, r, 1, label, bold=True)
@@ -4222,10 +4344,18 @@ class FoodOptimizer:
         ingredients, process = self._ingredients(), self._process_settings()
         unit = self.one_amount_unit()
         shares = self._shows_shares()
+        # What was really weighed, beside what was asked for — off until the
+        # project asks to record it.
+        actual = self.records('actual')
         # Tick, name, amount and Actual, with the share behind them where
         # the project has one: what the page is printed to, and what an
         # instruction line is merged across.
-        page_width = 5 if shares else 4
+        page_width = max(4, 3 + int(actual) + int(shares))
+        # Which column each of the last two is in. With Actual off the share
+        # moves up into its place rather than leaving a blank column down
+        # the middle of the page.
+        actual_at = 4 if actual else None
+        percent_at = (5 if actual else 4) if shares else None
 
         title = _write_cell(sheet, 1, 1,
                             wording.sheet_title(row['formulation'],
@@ -4249,7 +4379,10 @@ class FoodOptimizer:
         # from the Measured ones. Across the page, because a sentence left
         # in the first column is cut off where the printed page ends.
         _write_banner(sheet, 3, 1,
-                      wording.sheet_write_in_note(self._actual_column_head()),
+                      wording.sheet_write_in_note(
+                          self._actual_column_head()
+                          if ingredients and actual else None,
+                          weighs=bool(ingredients)),
                       page_width)
 
         r = 5
@@ -4261,7 +4394,9 @@ class FoodOptimizer:
             # what the pan said. The share is arithmetic about the printed
             # number and follows behind them both.
             headers = [wording.TICK_COLUMN, wording.KIND_INGREDIENT,
-                       amount_header, self._actual_column_head()]
+                       amount_header]
+            if actual:
+                headers.append(self._actual_column_head())
             if shares:
                 headers.append(wording.PERCENT_COLUMN)
             for c, name in enumerate(headers, start=1):
@@ -4290,17 +4425,21 @@ class FoodOptimizer:
                 _write_cell(sheet, r, 3,
                             round(float(recipe.get(var['name'], 0.0)), 2),
                             number_format=_TWO_DP)
-                _write_in_cell(sheet, r, 4)
-                if shares:
-                    _write_cell(sheet, r, 5,
+                if actual_at:
+                    _write_in_cell(sheet, r, actual_at)
+                if percent_at:
+                    _write_cell(sheet, r, percent_at,
                                 self._percent_of(recipe, var, basis),
                                 number_format=_ONE_DP)
                 r += 1
                 # Where it was bought, under the name and in grey: a column
                 # for it would push a page that already gained Actual into
                 # landscape, and the vendor is read once, at the shelf.
+                if var['name'] in self.premixes and self.premixes[var['name']]['mode'] == PREMIX_PORTIONED:
+                    _write_cell(sheet, r, 2, wording.premix_page_pointer(var['name']))
+                    r += 1
                 bought = self._vendor_line(var)
-                if bought:
+                if bought and (self.records('vendor') or self.records('sku')):
                     _write_cell(sheet, r, 2, bought).font = _QUIET_FONT
                     r += 1
             _write_cell(sheet, r, 2, wording.TOTAL_LABEL, bold=True)
@@ -4310,10 +4449,11 @@ class FoodOptimizer:
             # had an Actual cell while the line they add up to had none.
             # The GROUP total keeps none: its two parts each have one, and
             # a third box over the same mass is a second answer.
-            _write_in_cell(sheet, r, 4)
-            if shares:
+            if actual_at:
+                _write_in_cell(sheet, r, actual_at)
+            if percent_at:
                 cell.number_format = _TWO_DP
-                _write_cell(sheet, r, 5, 100.0, bold=True,
+                _write_cell(sheet, r, percent_at, 100.0, bold=True,
                             number_format=_ONE_DP)
             r += 1
             # Directly under the amounts it is about: the bench reads down
@@ -4331,7 +4471,8 @@ class FoodOptimizer:
 
         if process:
             _write_cell(sheet, r, 2, wording.SETTINGS_SHEET_HEADING, bold=True)
-            _write_cell(sheet, r, 4, wording.ACTUAL_COLUMN, bold=True)
+            if actual:
+                _write_cell(sheet, r, 4, wording.ACTUAL_COLUMN, bold=True)
             r += 1
             for var in process:
                 _write_cell(sheet, r, 2, self._amount_column(var['name']))
@@ -4340,7 +4481,8 @@ class FoodOptimizer:
                 # A setting is dialled in, and the dial lands where it
                 # lands: 188 °C for the 188.49 the sheet asked for is the
                 # same correction as a gram weighed heavy.
-                _write_in_cell(sheet, r, 4)
+                if actual:
+                    _write_in_cell(sheet, r, 4)
                 r += 1
             r += 1
 
@@ -4400,7 +4542,7 @@ class FoodOptimizer:
         # One lot per ingredient for the whole round, so it is recorded
         # once, on the round's own sheet. The page says where rather than
         # leaving the bench to discover that this one has no such column.
-        if ingredients:
+        if ingredients and self.records('lot'):
             _write_cell(sheet, r, 2, wording.lots_are_on_the_round_sheet(
                 self.pending_batch_no))
             r += 1
@@ -4465,6 +4607,11 @@ class FoodOptimizer:
                             raise ValueError(wording.workbook_lot_conflict(name))
                         lots[name] = lot
             actual = self._actual_from_sheets(book, numbers)
+            bench_records = self._read_bench_records(book)
+            for group, title in self._premix_sheet_names(numbers, wanted).items():
+                for record in bench_records:
+                    if record['sheet'] == title and record['label'] == wording.PREMIX_LOT_LABEL:
+                        lots[group] = record['value']
         if not rows:
             raise ValueError(wording.workbook_nothing_filled_in(wanted))
         columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
@@ -4473,7 +4620,40 @@ class FoodOptimizer:
         # not results. See UploadedWorkbook: they travel in the open, named
         # in the signature, rather than smuggled on the frame.
         return UploadedWorkbook(pd.DataFrame(rows, columns=columns_out),
-                                actual, lots)
+                                actual, lots, bench_records)
+
+    @staticmethod
+    def _read_bench_records(book):
+        """Keep the filled write-in cells, including preparation-page notes.
+
+        Amounts used by the search are parsed separately. These records keep
+        preparation weights and provenance without rewriting future make-up.
+        """
+        records = []
+        for sheet in book.book.worksheets:
+            for cells in sheet.iter_rows():
+                for cell in cells:
+                    if cell.value is None or cell.protection.locked:
+                        continue
+                    value = str(cell.value).strip()
+                    if not value or value in (wording.TICK_BOX, wording.MADE_BY_FOOTER):
+                        continue
+                    label = next((str(c.value).strip() for c in cells[:cell.column - 1]
+                                  if c.value is not None), cell.coordinate)
+                    records.append({'sheet': sheet.title, 'cell': cell.coordinate,
+                                    'label': label, 'value': value})
+        return records
+
+    def store_bench_records(self, batch_no, records):
+        if not records:
+            return
+        stored = getattr(self, 'bench_records', {})
+        previous = {(r['sheet'], r['cell']): dict(r)
+                    for r in stored.get(str(batch_no), [])}
+        previous.update({(r['sheet'], r['cell']): dict(r) for r in records})
+        stored[str(batch_no)] = list(previous.values())
+        self.bench_records = stored
+        self.save()
 
     def _lots_from_summary(self, frame):
         """{ingredient: lot} off the summary sheet's Lot column.
@@ -4887,6 +5067,7 @@ class FoodOptimizer:
                     wording.DATE_RECORDED_COLUMN,
                     wording.OVERALL_SCORE_COLUMN]
                    + [self._amount_column(v['name']) for v in self.variables]
+                   + list(self._premix_totals({}))
                    + ([total_col] if total_col is not None else [])
                    + [self._measurement_column(o) for o in objs]
                    + [wording.NOT_SCORED, "Note"])
@@ -4905,7 +5086,8 @@ class FoodOptimizer:
         if self.total_column() is not None:
             two_dp.add(self.total_column())
         _write_frame(sheet, self.history_export_frame(), two_decimals=two_dp,
-                     title=wording.RECORDED_AMOUNTS)
+                     title=wording.RECORDED_AMOUNTS,
+                     note=wording.SHEET_IS_A_RECORD)
         # One row per ingredient per round, on a sheet of its own. A lot
         # belongs to a round, not to a formulation, so a column per
         # ingredient on the table above would say the same thing six times
@@ -4914,6 +5096,13 @@ class FoodOptimizer:
         lots = self._lots_frame()
         if lots is not None:
             _write_frame(book.create_sheet(wording.LOTS_SHEET), lots)
+        records = [dict({wording.ROUND_CAP: int(number)}, **record)
+                   for number, rows in getattr(self, 'bench_records', {}).items()
+                   for record in rows]
+        if records:
+            frame = pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS)
+            _write_frame(book.create_sheet(wording.BENCH_RECORDS_SHEET), frame,
+                         title=wording.BENCH_RECORDS_SHEET, note=wording.SHEET_IS_A_RECORD)
         self._write_setup_sheet(book.create_sheet(wording.SET_UP_SHEET))
         buffer = io.BytesIO()
         book.save(buffer)
@@ -5006,6 +5195,11 @@ class FoodOptimizer:
         total, and where the targets came from."""
         r = 1
         _write_cell(sheet, r, 1, wording.VARIABLES_HEADER, bold=True)
+        # The sheets the app reads back say where to send them; this one is
+        # the other kind, and says so rather than leaving a bench to fill it
+        # in and wait. Beside the heading, so the header row below it stays
+        # the header row.
+        _write_cell(sheet, r, 2, wording.SHEET_IS_A_RECORD)
         r += 1
         # The Status column arrives with the first fixed row and not before:
         # a column that says nothing on every row of a project where nothing
@@ -5015,7 +5209,7 @@ class FoodOptimizer:
         # A worked-out row counts too now: Status is where the sheet says
         # what a row the search does not move is doing, and it says it of
         # both kinds in the one column.
-        any_fixed = any(self.has_formula(v) or self.is_fixed(v)
+        any_fixed = bool(self.premixes) or any(self.has_formula(v) or self.is_fixed(v)
                         for v in self.variables)
         # Vendor and SKU are printed so the bench knows what to reach for;
         # like Status, they arrive with the first row that has one.
@@ -5097,7 +5291,7 @@ class FoodOptimizer:
                             wording.WORKED_OUT if worked_out
                             else (wording.fixed_status(self.fixed_at_text(var))
                                   if var is not None and self.is_fixed(var)
-                                  else None))
+                                  else (wording.SUM_OF_ITS_PARTS if var is None and part is None else None)))
             r += 1
         r += 1
 
@@ -5333,6 +5527,8 @@ class FoodOptimizer:
         try:
             scale = float(scale) or 1.0
         except (TypeError, ValueError):
+            scale = 1.0
+        if var.get('category', 'ingredient') == 'process':
             scale = 1.0
         low, high = (float(b) * scale for b in var['bounds'])
         if low <= float(value) <= high:
@@ -7404,6 +7600,8 @@ class FoodOptimizer:
         # And how it is made: a file written before the box existed says
         # nothing about the method, which is exactly blank.
         self.method = getattr(self, 'method', "") or ""
+        if not isinstance(getattr(self, 'recorded_fields', None), dict):
+            self._backfill_recorded_fields()
         # The same for the total every suggested formulation is built to: a
         # file from before it existed asked nothing of the sum, and the limit
         # it would have written is not there either.
@@ -9109,6 +9307,8 @@ class FoodOptimizer:
         A weighed pre-mix with no parts yet gets nothing: the sentence is a
         list of what will vary, and there is nothing in the list."""
         premix = self._premix_by_name(name)
+        if not premix['parts']:
+            return ""
         if premix['mode'] == PREMIX_PORTIONED:
             return " ".join(
                 [wording.premix_portioned_consequence(name)]
@@ -9290,7 +9490,7 @@ class FoodOptimizer:
                if other.lower() != group.lower()):
             raise ValueError(wording.PREMIX_INSIDE_PREMIX)
         if name.lower() in seen:
-            raise ValueError(wording.name_taken_by(name, wording.A_PART))
+            raise ValueError(wording.name_taken_by_part(name, group))
         # Weighed, a part IS a row of the list. In two weighed pre-mixes it
         # is ONE row standing for two lots of mass, and every reader of it
         # — the total, a limit, a roll-up — counts it twice. Portioned, the
@@ -9548,8 +9748,13 @@ class FoodOptimizer:
         columns = [GRID_ID, wording.NAME_LABEL, wording.TYPE_LABEL,
                    wording.MADE_AS_LABEL,
                    wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
-                   wording.UNIT_LABEL, wording.VENDOR_LABEL,
-                   wording.SKU_LABEL]
+                   wording.UNIT_LABEL]
+        # Off until the project asks for them: two columns of specification
+        # data, typed once and never read again, pushed `Rule` off the right
+        # edge of the grid at the size the app opens at.
+        columns += [label for field, label in
+                    (('vendor', wording.VENDOR_LABEL),
+                     ('sku', wording.SKU_LABEL)) if self.records(field)]
         if self.X_history:
             columns.append(wording.BASELINE_LABEL)
         columns.append(wording.FORMULA_LABEL)
@@ -9567,7 +9772,7 @@ class FoodOptimizer:
                     wording.NAME_LABEL: group,
                     wording.TYPE_LABEL: wording.KIND_INGREDIENT,
                     wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED,
-                    wording.LOWEST_LABEL: wording.SUM_OF_ITS_PARTS,
+                    wording.LOWEST_LABEL: "",
                     wording.HIGHEST_LABEL: wording.SUM_OF_ITS_PARTS,
                     wording.UNIT_LABEL: "",
                     wording.VENDOR_LABEL: "",
@@ -9685,8 +9890,10 @@ class FoodOptimizer:
             columns += [wording.LOWEST_LABEL, wording.HIGHEST_LABEL]
         else:
             columns.append(wording.PREMIX_SHARE_LABEL)
-        columns += [wording.UNIT_LABEL, wording.VENDOR_LABEL,
-                    wording.SKU_LABEL]
+        columns.append(wording.UNIT_LABEL)
+        columns += [label for field, label in
+                    (('vendor', wording.VENDOR_LABEL), ('sku', wording.SKU_LABEL))
+                    if self.records(field)]
         rows = self._by_name()
         data = []
         for part in premix['parts']:
@@ -9760,6 +9967,12 @@ class FoodOptimizer:
                 'vendor': _text_cell(row, wording.VENDOR_LABEL),
                 'sku': _text_cell(row, wording.SKU_LABEL),
             }
+            previous = next((p for p in premix['parts']
+                             if p['name'] == _text_cell(row, GRID_ID)), {})
+            for field, label in (('vendor', wording.VENDOR_LABEL),
+                                 ('sku', wording.SKU_LABEL)):
+                if label not in row:
+                    entry[field] = previous.get(field, '')
             if weighed:
                 # Weighed, the share column is not on the grid at all and
                 # the part keeps whatever it had: switching back the other
@@ -9784,7 +9997,7 @@ class FoodOptimizer:
             if weighed:
                 low, high, ok = _range_from_cells(row)
                 if not ok or low is None or high is None:
-                    errors.append((row_no, wording.NUMBER_REQUIRED_ERROR))
+                    errors.append((row_no, wording.PART_AMOUNTS_REQUIRED))
                     continue
                 if low > high:
                     errors.append((row_no, LOWEST_ABOVE_HIGHEST_ERROR))
@@ -10364,7 +10577,7 @@ class FoodOptimizer:
             parts = self.premixes[premix_was]['parts']
             for column, end in ((wording.LOWEST_LABEL, 0),
                                 (wording.HIGHEST_LABEL, 1)):
-                if _text_cell(row, column) == wording.SUM_OF_ITS_PARTS:
+                if _text_cell(row, column) in ("", wording.SUM_OF_ITS_PARTS):
                     row[column] = sum(by_id[p['name']]['bounds'][end]
                                       for p in parts if p['name'] in by_id)
             if not _text_cell(row, wording.UNIT_LABEL):
@@ -10404,8 +10617,10 @@ class FoodOptimizer:
             # blank cell there is not "no unit", it is a sum of nothing. A
             # process setting may have none: a mixer speed of 3 is a 3.
             return None, wording.UNIT_REQUIRED_ERROR
-        vendor = _text_cell(row, wording.VENDOR_LABEL)
-        sku = _text_cell(row, wording.SKU_LABEL)
+        vendor = (_text_cell(row, wording.VENDOR_LABEL)
+                  if wording.VENDOR_LABEL in row else (var or {}).get('vendor', ''))
+        sku = (_text_cell(row, wording.SKU_LABEL)
+               if wording.SKU_LABEL in row else (var or {}).get('sku', ''))
         if category == 'process' and (vendor or sku):
             return None, wording.only_an_ingredient_has(
                 wording.VENDOR_LABEL if vendor else wording.SKU_LABEL)
@@ -11459,6 +11674,9 @@ class FoodOptimizer:
                              for k, v in self._batch_totals().items()},
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
+            'bench_records': getattr(self, 'bench_records', {}),
+            'recorded_fields': {name: self.records(name)
+                                for name in RECORD_FIELDS},
             'method': getattr(self, 'method', "") or "",
             'pending_batch': self.pending_batch,
             'result_drafts': self.result_drafts,
@@ -11675,6 +11893,20 @@ class FoodOptimizer:
         method = state.get('method')
         if method is not None and not isinstance(method, str):
             raise _damaged("'method' section has the wrong shape")
+        # What the project records beside what it asks for: optional, and a
+        # present value must be a dict of flags.
+        fields = state.get('recorded_fields')
+        if fields is not None and (not isinstance(fields, dict)
+                                   or any(k not in RECORD_FIELDS or type(v) is not bool
+                                          for k, v in fields.items())):
+            raise _damaged("'recorded_fields' section has the wrong shape")
+        records = state.get('bench_records', {})
+        if (not isinstance(records, dict) or any(
+                not str(k).isdigit() or not isinstance(rows, list) or any(
+                    not isinstance(row, dict) or set(row) != {'sheet', 'cell', 'label', 'value'}
+                    or any(not isinstance(value, str) for value in row.values())
+                    for row in rows) for k, rows in records.items())):
+            raise _damaged("'bench_records' section has the wrong shape")
         # The total a batch was made to. A bad one would silently rewrite
         # every amount tab 3 shows for the best formulation.
         def _total(x):
@@ -11838,6 +12070,8 @@ class FoodOptimizer:
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
         self.method = str(state.get('method') or "").strip()
+        self._backfill_recorded_fields(state)
+        self.bench_records = state.get('bench_records', {})
         self.pending_batch = state.get('pending_batch', None)
         self.result_drafts = {int(n): dict(d) for n, d in
                               state.get('result_drafts', {}).items()}
