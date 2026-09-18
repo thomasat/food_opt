@@ -1400,7 +1400,9 @@ def ingredients_template_workbook(path):
     One row, not eight. A file arriving with a full ingredient list already
     in it is an export, and the reader who downloaded a "template" then has
     to work out which lines are theirs and which the app's."""
-    frame = pd.read_csv(path).rename(columns={wording.OLD_COMPOSITION_LABEL: wording.PREMIX_SHARE_LABEL,
+    frame = pd.read_csv(path).rename(columns={"Rule": wording.FORMULA_LABEL,
+                                            "Formula": wording.FORMULA_LABEL,
+                                            wording.OLD_COMPOSITION_LABEL: wording.PREMIX_SHARE_LABEL,
                                             wording.OLD_MADE_AS_LABEL: wording.MADE_AS_LABEL})
     # A file written before the column was renamed still reads (the loader
     # accepts both spellings; so does the template it hands out).
@@ -1840,6 +1842,7 @@ class FoodOptimizer:
                      'unit': 'Unit', 'lowest': 'Min', 'highest': 'Max',
                      # Both spellings: the column is Rule now, and a file
                      # written by 0.5.0 before the rename carries Formula.
+                     'calculation': wording.FORMULA_LABEL,
                      'rule': wording.FORMULA_LABEL,
                      'formula': wording.FORMULA_LABEL}
         # The pre-mix columns, each read under its own heading and under

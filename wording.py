@@ -3,7 +3,7 @@ the tests read this module too.
 
 Use sentence case for headings, buttons and standalone statuses. Start a
 separate heading or command after a middle dot with a capital letter. Keep
-user-entered names, units, rule tokens and legacy import labels unchanged.
+user-entered names, units, calculation tokens and legacy import labels unchanged.
 Prefer direct instructions and current control names over idioms.
 """
 
@@ -112,7 +112,7 @@ def scaled_limit_caution(total_text, limit_text):
     smaller total, or change the limit in Set up.'
 
     An amount scaled to a total can carry a limit over with it, and a limit
-    is a hard rule: the sheet that breaks one has to say which, in the same
+    is a hard calculation: the sheet that breaks one has to say which, in the same
     words the Limits list writes it in.
     """
     return (f"At {total_text}, the {LIMIT} {limit_text} is not met. "
@@ -568,7 +568,7 @@ def sample_project_rebuilt(name):
     """'Sample project put back the way it started.' — clicking Try the
     sample project again on a sample nobody has made a round from rebuilds
     it, which throws away every edit made to it. It said only "Opened
-    Sample project.", so the reader\'s own rules and amounts were gone with
+    Sample project.", so the reader\'s own calculations and amounts were gone with
     nothing on screen about it."""
     return f"{name} restored to its original settings."
 
@@ -1259,7 +1259,7 @@ LOAD_INGREDIENTS_BUTTON = "Load ingredients"
 # one does not (the name is reserved) — with nothing on screen to say what
 # it is for.
 INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
-                            "and, optionally, Unit, Rule, Part of, Preparation and Composition (%). Extra numeric columns "
+                            "and, optionally, Unit, Calculation, Part of, Preparation and Composition (%). Extra numeric columns "
                             "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 
@@ -1525,7 +1525,7 @@ def total_still_holds(total_text):
     The total's limit is over every ingredient, so it is rewritten on every
     such edit; this is the screen saying so. It was rewritten silently, and
     a reader who had just been told "Limits are never crossed" had no way to
-    know whether the rule they typed had survived their own step 2."""
+    know whether the calculation they typed had survived their own step 2."""
     return f"Each {FORMULATION} still adds up to {total_text}."
 
 
@@ -1938,7 +1938,7 @@ def row_error(position, problem):
 
 
 def named_row_error(name, problem):
-    """'Salt: this rule could not be read.' — the ingredients grid has no
+    """'Salt: this calculation could not be read.' — the ingredients grid has no
     row numbers down its left edge (Name is its first column), so a refusal
     about one of its rows names the row the way every success line already
     does. `name` is NEW_GRID_ROW for a row typed on the empty line at the
@@ -2176,8 +2176,8 @@ def fixed_rows_tail(names_text):
 # say the same thing; everything else about a rule is further down, under
 # "Rule cells".
 # ------------------------------------------------------------------ #
-FORMULA_LABEL = "Rule"
-FORMULA_IN_RANGE = "rule"
+FORMULA_LABEL = "Calculation"
+FORMULA_IN_RANGE = "calculation"
 # The word for a row filled in from its rule rather than typed by hand.
 # One word, spelled once, for the range cell's own marker and every sheet
 # that has to say the same thing about the same row. It is NOT the app's
@@ -2186,9 +2186,9 @@ FORMULA_IN_RANGE = "rule"
 WORKED_OUT = "calculated"
 CALCULATED_RANGE = "Calculated"
 RULE_GUIDE_LABEL = "Calculation help"
-RULE_GRID_CAPTION = "Calculated amounts use the Rule column; their Lowest and Highest cells are not used."
-INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a rule-based ingredient, its rule determines the amount."
-INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a rule. Calculated amounts follow their rule."
+RULE_GRID_CAPTION = "Calculated amounts use the Calculation column; their Lowest and Highest cells are not used."
+INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a calculation-based ingredient, its calculation determines the amount."
+INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a calculation. Calculated amounts follow their calculation."
 MEASUREMENT_MIN_HELP = "Lower end of the measurement scale used to score and check results. This is not a target."
 MEASUREMENT_MAX_HELP = "Upper end of the measurement scale used to score and check results. Widen the scale if a genuine result falls outside it; scores will be recalculated."
 OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
@@ -2236,12 +2236,12 @@ EXACTLY_ONE_INGREDIENT = (
 
 
 def limit_on_worked_out_rows(names_text, many=False):
-    """'Water and Salt are calculated from their rules, so this limit
-    cannot change them.' — every row of a limit filled in by a rule leaves
+    """'Water and Salt are calculated from their calculations, so this limit
+    cannot change them.' — every row of a limit filled in by a calculation leaves
     the limit nothing to act on, and the app accepted it and then let the
-    rules contradict it."""
-    verb, tail, them = (("are", "their rules", "them") if many
-                        else ("is", "its rule", "it"))
+    calculations contradict it."""
+    verb, tail, them = (("are", "their calculations", "them") if many
+                        else ("is", "its calculation", "it"))
     return (f"{names_text} {verb} {WORKED_OUT} from {tail}, so this limit "
             f"cannot change {them}.")
 
@@ -2811,47 +2811,47 @@ PROJECT_FILE_DAMAGED = (
 # ------------------------------------------------------------------ #
 FORMULA_REST_ALONE = ("Write = rest on its own: it is whatever is left of "
                       "the batch size.")
-FORMULA_TWO_AMOUNTS = ("A rule can add or subtract amounts and multiply "
+FORMULA_TWO_AMOUNTS = ("A calculation can add or subtract amounts and multiply "
                        "by a number. It cannot multiply two amounts.")
-FORMULA_DIVIDE_BY_AMOUNT = ("A rule can divide by a number, not by an "
+FORMULA_DIVIDE_BY_AMOUNT = ("A calculation can divide by a number, not by an "
                            "amount.")
-FORMULA_DIVIDE_BY_ZERO = "A rule cannot divide by zero."
+FORMULA_DIVIDE_BY_ZERO = "A calculation cannot divide by zero."
 # Every word the grammar really takes, in both the alphabet the spec
 # prints and the one on the keyboard. The old sentence listed four
 # characters, three of them untypable, and omitted the leading '=', the
 # percentage, 'batch size' and 'rest' — the four things a reader who is
 # stuck most plausibly got wrong.
-FORMULA_UNREADABLE = ("This rule could not be read. Use =, + − × ÷ (or "
+FORMULA_UNREADABLE = ("This calculation could not be read. Use =, + − × ÷ (or "
                       "- * /), %, numbers, brackets, batch size, rest and "
                       "ingredient names.")
-RULE_NEEDS_EQUALS = "Start a rule with =."
-RULE_USES_ITS_OWN_ROW = "A rule cannot use its own row."
-RULE_INGREDIENTS_ONLY_PREFIX = "A rule can use ingredients and batch size, not"
+RULE_NEEDS_EQUALS = "Start a calculation with =."
+RULE_USES_ITS_OWN_ROW = "A calculation cannot use its own row."
+RULE_INGREDIENTS_ONLY_PREFIX = "A calculation can use ingredients and batch size, not"
 
 
 def rule_ingredients_only(name):
-    """'A rule can use ingredients and batch size, not Cook temperature.' —
-    a rule naming a process setting. Grams of salt calculated from minutes
+    """'A calculation can use ingredients and batch size, not Cook temperature.' —
+    a calculation naming a process setting. Grams of salt calculated from minutes
     of cooking is arithmetic across two units that cannot be mixed, and the
-    app refused a setting a rule of its own while allowing the reverse."""
+    app refused a setting a calculation of its own while allowing the reverse."""
     return f"{RULE_INGREDIENTS_ONLY_PREFIX} {name}."
 
 
 def formula_unknown_name(name):
-    """'There is no ingredient called Sodium citrate.' — a rule naming a
+    """'There is no ingredient called Sodium citrate.' — a calculation naming a
     row the project does not have."""
     return f"There is no ingredient called {name}."
 
 
 def formula_loop(chain):
-    """'A rule cannot lead back to itself: Fat → Water → Fat.' — `chain`
+    """'A calculation cannot lead back to itself: Fat → Water → Fat.' — `chain`
     is the arrow-joined names that already spell the loop out."""
-    return f"A rule cannot lead back to itself: {chain}."
+    return f"A calculation cannot lead back to itself: {chain}."
 
 
 FORMULA_NEEDS_BATCH_SIZE = (
     f"Set a {FORMULATION_TOTAL_NOUN} to calculate this amount. Set one "
-    "in Preparation and records, or enter amounts without a rule.")
+    "in Preparation and records, or enter amounts without a calculation.")
 PERCENT_NEEDS_BATCH_SIZE = (
     f"There is no {FORMULATION_TOTAL_NOUN} to take a percent of. Set one "
     "in Preparation and records.")
@@ -2866,7 +2866,7 @@ PERCENT_NEEDS_BATCH_SIZE = (
 
 def formula_below_zero(name, unit):
     """'Water is below 0 g in every formulation the allowed amounts reach.
-    Widen an amount, or change its rule.' — a rule no allowed amounts can
+    Widen an amount, or change its calculation.' — a calculation no allowed amounts can
     ever make a real amount of.
 
     The ROW, not the expression it was typed as: on a grid of eight rows
@@ -2895,8 +2895,8 @@ def balance_would_go_negative(name, size_text, least_text, unit="",
 
 
 def formula_reads_this_row(name, row):
-    """'Water is calculated from Flour. Change Water's rule first.' —
-    deleting a row another row's rule reads would leave that rule naming
+    """'Water is calculated from Flour. Change Water's calculation first.' —
+    deleting a row another row's calculation reads would leave that calculation naming
     nothing."""
     return (f"{row} is {WORKED_OUT} from {name}. Change {row}'s "
             f"{FORMULA_IN_RANGE} first.")
@@ -2917,22 +2917,21 @@ FORMULA_HELP = (
     "Leave blank to let the app choose between Lowest and Highest.")
 
 RULE_GUIDE = (
-    "**Top up to the batch size**\n\n"
-    "Enter `= rest` on one ingredient, usually water. For a 100 g formulation, "
-    "72 g of all other ingredients leaves 28 g of this ingredient.\n\n"
-    "**Calculate from two ingredients**\n\n"
-    "On Hydration water, `= 2.2 * (Textured pea protein + Textured soy protein)` "
-    "gives 22 g when the proteins are 4 g and 6 g. Use exact ingredient names and your own protocol's ratio.\n\n"
-    "**Subtract a named ingredient**\n\n"
-    "If an ingredient is named Water, `= batch size - Water` subtracts only Water. "
-    "Use `= rest` to subtract all other ingredients instead. Set a default batch size before using either.")
+    "Choose **Edit calculation** to vary between limits, fill to the batch size, or calculate an amount. "
+    "Batch size is the total ingredient amount for one formulation.\n\n"
+    "**Fill to batch size** supplies the amount remaining after all other ingredients. "
+    "The table shows **Fill to total**.\n\n"
+    "**Calculate an amount** offers ingredient insertion, percentages and arithmetic. "
+    "For example, `2 * (Ingredient A + Ingredient B)` adds two amounts and doubles the sum. "
+    "Examples explain the arithmetic; choose relationships and values appropriate to your own protocol."
+)
 
 # The one line under the grid while no row has a rule: the column arrived
 # with no header tooltip anybody reads, no placeholder and no mention in
 # the caption, and everything a cold reader learned about it they learned
 # from refusals. It stands down the moment a rule exists — the worked-out
 # captions take its place.
-RULE_HINT = "Leave Rule blank to let the app choose an amount between Lowest and Highest."
+RULE_HINT = "Leave Calculation blank to let the app choose an amount between Lowest and Highest."
 
 
 
@@ -2952,7 +2951,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
                        rest=False, outside_text=""):
     """'Water is calculated as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
-    row that is calculated rather than typed, so the rule shows its
+    row that is calculated rather than typed, so the calculation shows its
     consequence in numbers.
 
     A row that takes the remainder says so in the words it was written in:
@@ -2967,9 +2966,9 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     rest row" — passed in rather than read off the text, so '=rest' and
     '= REST' say the same thing here as they do everywhere else.
 
-    `outside_text` is the row's own Lowest and Highest when the rule takes
-    it past them. They are dormant on a worked-out row — the rule decides
-    the amount, not the range — but a rule that puts Salt at 16 g over a
+    `outside_text` is the row's own Lowest and Highest when the calculation takes
+    it past them. They are dormant on a worked-out row — the calculation decides
+    the amount, not the range — but a calculation that puts Salt at 16 g over a
     cap of 3 g was landing with nothing said at all.
     """
     text = str(formula_text).strip()
@@ -2986,7 +2985,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
         span = f"{span} in a {size_text} {FORMULATION}"
     if outside_text:
         return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
-                f"({outside_text}) do not apply while the rule does.")
+                f"({outside_text}) do not apply while the calculation does.")
     return f"{span}."
 
 
@@ -3038,7 +3037,7 @@ FORMULA_ROW_NOTE = (f"A row marked {WORKED_OUT} is filled in from its "
 
 def worked_out_row_note(lines_text):
     """'Water is calculated: = rest. Weigh the amount printed.' — the
-    summary sheet's note, naming each worked-out row's own rule. The rule
+    summary sheet's note, naming each worked-out row's own calculation. The calculation
     is on no sheet of the round workbook, so a bench holding the page was
     told the amount came from one and had nowhere to see it."""
     return f"{lines_text} Weigh the amount printed."
@@ -3098,7 +3097,7 @@ PART_OF_LABEL = "Part of"
 MADE_AS_LABEL = "Preparation"
 OLD_MADE_AS_LABEL = "Made as"
 OLD_CALCULATED_LABEL = "worked out"
-OLD_CALCULATED_RANGE = "From rule"
+OLD_CALCULATED_RANGE = "From calculation"
 PREMIX_SHARE_LABEL = "Composition (%)"
 # The three answers to `Made as`, and the whole of what the column asks.
 # Neither of the two pre-mix answers carries a comma any more: two sentences
@@ -3536,7 +3535,7 @@ def calculated_summary(name, size_text, rest=False):
     if rest:
         return (f"{name}: automatically adds enough to bring each formulation to {size_text}."
                 if size_text else f"{name}: set a default batch size to calculate the remaining amount.")
-    return f"{name}: its rule calculates the amount. Lowest and Highest are left empty."
+    return f"{name}: its calculation calculates the amount. Lowest and Highest are left empty."
 
 SHARE_SAVED_TOTAL = "After saving: 100% total"
 
@@ -3612,3 +3611,6 @@ def result_view_option(no, round_no=None, best=False, unscored=False):
     if unscored:
         label += " · Not scored"
     return label
+
+CALCULATION_EDIT_BUTTON = "Edit calculation"
+CALCULATION_EDIT_HINT = "Type in Calculation, or use Edit calculation for suggestions and examples."

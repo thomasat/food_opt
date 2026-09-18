@@ -1,4 +1,4 @@
-Name,Part of,Made as,Lowest,Highest,% of pre-mix,Rule,Unit,Fat per 100 g,Sodium per 100 g,Cost per 100 g
+Name,Part of,Made as,Lowest,Highest,% of pre-mix,Calculation,Unit,Fat per 100 g,Sodium per 100 g,Cost per 100 g
 Textured pea protein,,,4,6.5,,,g,6.0,600,0.32
 Textured soy protein,,,4,6.5,,,g,6.0,600,0.32
 Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0,0,0.00

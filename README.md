@@ -21,9 +21,9 @@ The included **Start Here.txt** explains installation and the first-round workfl
 
 **Results** opens on **Best so far**, based on your current measurements and targets. Use **View formulation** to inspect any other recorded formulation, including unscored entries. Its measurements, ingredient amounts and **% of formulation** appear together. Percentages exclude process settings and are unavailable for ingredient amounts in different units. The **All formulations** table below compares results in the app; **Show amounts** adds ingredient amounts to that table.
 
-## Ingredients, rules and limits
+## Ingredients, calculations and limits
 
-Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Rule** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Use `= rest` for the ingredient that fills the remaining batch size. **Calculation help** explains these options.
+Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Calculation** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Choose **Edit calculation → Fill to batch size** for the ingredient that supplies the remaining amount. The table shows **Fill to total**; existing `= rest` calculations remain supported. **Edit calculation** provides ingredient suggestions, insertion buttons and validation in a larger panel. Choose **Use calculation**, then **Save changes** in the table. **Supported calculations** lists the accepted syntax. Examples explain the arithmetic; select relationships and values for your own protocol.
 
 The **Preparation** column offers **Single ingredient**, **Pre-mix: keep proportions fixed**, and **Blend: vary each ingredient**. A pre-mix keeps the same ingredient percentages while the amount used can change. For a blend, set Lowest and Highest for each ingredient; the app chooses each amount separately. In the sample, Fats and oils groups coconut oil and sunflower oil. Their proportions and combined amount can change between formulations.
 

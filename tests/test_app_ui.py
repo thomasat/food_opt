@@ -1598,7 +1598,7 @@ def test_the_ingredient_grid_has_no_status_column_at_all(burger):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
-        "Vendor", "SKU", "Rule"], \
+        "Vendor", "SKU", wording.FORMULA_LABEL], \
         list(grid.columns)
     row = grid[grid["Name"] == "Methylcellulose"].iloc[0]
     assert (row["Lowest"], row["Highest"]) == ("1.00", "1.00")
@@ -4383,7 +4383,7 @@ def test_the_ingredient_grid_has_plain_headers_and_a_unit_column(mixed_units):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
-        "Vendor", "SKU", "Rule"]
+        "Vendor", "SKU", wording.FORMULA_LABEL]
     assert dict(zip(grid["Name"], grid["Unit"])) == {"Pea protein": "g",
                                                       "Water": "ml"}
 
@@ -5409,7 +5409,7 @@ def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
     grid = _grid_frame(at, 0)
     assert [c for c in grid.columns if c != "_id"] == [
         "Name", "Type", wording.MADE_AS_LABEL, "Lowest", "Highest", "Unit",
-        "Vendor", "SKU", "Rule"]
+        "Vendor", "SKU", wording.FORMULA_LABEL]
     assert list(grid["Name"]) == ["Pea protein", "Methylcellulose"]
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
     folded = {id(d) for e in _tab1(at).expander for d in e.dataframe}
@@ -5856,7 +5856,7 @@ def test_the_grid_has_no_hold_or_vary_button(burger):
     at.run()
     labels = _labels(at)
     assert not [b for b in labels
-                if b.startswith(("Hold ", "Vary ", "Edit ", "Delete Pea",
+                if b.startswith(("Hold ", "Vary ", "Delete Pea",
                                  "Set unit", "Save Pea"))
                 or " again" in b], labels
     assert not [t for t in at.text_input if t.label in ("New unit", "Unit")]
@@ -6236,7 +6236,7 @@ def test_the_upload_is_folded_away_beneath(burger):
     at.run()
     fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.UPLOAD_INGREDIENTS_EXPANDER)
     assert any(c.value == ("A file with the columns Name, Lowest, Highest "
-                           "and, optionally, Unit, Rule, Part of, Preparation and Composition (%). Extra numeric columns "
+                           "and, optionally, Unit, Calculation, Part of, Preparation and Composition (%). Extra numeric columns "
                            "become properties you can set limits on.")
                for c in fold.caption), \
         [c.value for c in fold.caption]
@@ -10064,7 +10064,7 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
         "", "")
-    assert row[wording.FORMULA_LABEL] == "= rest"
+    assert row[wording.FORMULA_LABEL] == "Fill to total"
     assert any(c.value.startswith("Water is calculated to bring the total to 50 g: between 25.00 "
                                   "and 40.00 g in a 50 g formulation")
                for c in at.caption), [c.value for c in at.caption]

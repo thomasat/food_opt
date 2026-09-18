@@ -26,6 +26,7 @@ import streamlit as st
 import storage as storage_backend
 import wording
 import custom_records
+import calculation_editor
 from food_bo import (
     GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
     ingredients_template_workbook,
@@ -388,7 +389,7 @@ def _ingredient_columns(opt, frame):
                      wording.PREMIX_MADE_AS_PORTIONED,
                      wording.PREMIX_MADE_AS_WEIGHED],
             default=wording.PREMIX_MADE_AS_BOUGHT_IN,
-            help=wording.MADE_AS_HELP, width=230),
+            help=wording.MADE_AS_HELP, width=175),
         # Text, not numbers, and only on this grid. A row with a formula
         # has no Lowest and no Highest of its own: both cells read the
         # app's own word for it, and a number column cannot hold a word.
@@ -419,7 +420,7 @@ def _ingredient_columns(opt, frame):
     # to the two columns it replaces. `= rest` is typed here too, so there
     # is no Balance column beside it.
     columns[wording.FORMULA_LABEL] = st.column_config.TextColumn(
-        wording.FORMULA_LABEL, width=115, help=wording.FORMULA_HELP)
+        wording.FORMULA_LABEL, width=190, help=wording.FORMULA_HELP)
     return columns
 
 
@@ -571,11 +572,18 @@ def _variables(opt, storage):
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(
-        opening, key=grid_key(ING_GRID_KEY),
+        calculation_editor.display_frame(opening), key=grid_key(ING_GRID_KEY),
         num_rows="dynamic",
         column_config=_ingredient_columns(opt, saved),
+        column_order=[wording.NAME_LABEL, wording.FORMULA_LABEL,
+                      wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+                      wording.TYPE_LABEL, wording.MADE_AS_LABEL] +
+                     [c for c in saved.columns if c not in (GRID_ID, wording.NAME_LABEL,
+                      wording.FORMULA_LABEL, wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
+                      wording.UNIT_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL)],
         use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    edited = calculation_editor.canonical_frame(edited, opening)
     slot = st.empty()            # where a refused Save writes its rows
     _grid_errors(slot, _ING_ERRORS, names={
         int(no): str(edited.loc[no, wording.NAME_LABEL] or "").strip()
@@ -601,6 +609,10 @@ def _variables(opt, storage):
         # with no Yes to reach, and every coloured button in the app stays
         # grey behind it.
         _disarm_grid_deletion(ING_SAVE_KEY)
+    if st.button(wording.CALCULATION_EDIT_BUTTON, icon=":material/edit:", key="edit_calculation",
+                 disabled=confirmation_open() or edited.empty):
+        calculation_editor.open_editor(opt, edited.copy())
+    st.caption(wording.CALCULATION_EDIT_HINT)
     _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts

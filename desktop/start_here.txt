@@ -21,9 +21,9 @@ YOUR FIRST ROUND
 2. On Set up, review the ingredients and measurements. Open a blend under
    Blend compositions to see its parts. Dry blend has fixed percentages;
    Fats and oils lets the component amounts vary separately.
-3. Hydration water follows a rule based on the two proteins. Remaining
+3. Hydration water follows a calculation based on the two proteins. Remaining
    water brings each formulation to 100 g. Their Lowest and Highest cells
-   are empty because the rules determine the amounts. “Calculation help”
+   are empty because the calculations determine the amounts. “Calculation help”
    explains this with examples.
 4. Open “Preparation and records” to read the preparation method. Then
    click “Generate formulations” and choose how many to make.
@@ -99,3 +99,11 @@ recorded formulation, including one without a score. Amount and % of
 formulation appear together. Percentages exclude process settings and are
 unavailable for ingredients in different units. All formulations compares
 results in the app; Show amounts adds ingredient amounts to that table.
+
+EDITING CALCULATIONS
+Calculation sits beside the ingredient name. Type directly in the cell,
+or select Edit calculation for a larger editor with ingredient suggestions.
+Choose Vary between limits, Fill to batch size, or Calculate an amount.
+Batch size is the total ingredient amount for one formulation. Fill to
+batch size appears as Fill to total in the table. Use the chosen calculation,
+then select Save changes. Examples explain arithmetic, not recommended ratios.

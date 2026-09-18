@@ -8761,7 +8761,7 @@ class TestFormulaGrammar:
         with pytest.raises(FormulaError) as excinfo:
             parse_formula("Water × 2", self.NAMES, has_batch_size=False)
         assert str(excinfo.value) == wording.RULE_NEEDS_EQUALS
-        assert wording.RULE_NEEDS_EQUALS == "Start a rule with =."
+        assert wording.RULE_NEEDS_EQUALS == "Start a calculation with =."
 
     def test_a_multiplication_dot_is_a_times_sign(self):
         form = parse_formula("= Water · 2", self.NAMES, has_batch_size=False)
@@ -9519,7 +9519,7 @@ class TestTheFormulaColumn:
             "Water is calculated from = batch size − Pea protein − Salt: "
             "between 40.00 and 62.00 g in a 100 g formulation. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
-            "while the rule does."]
+            "while the calculation does."]
         # The balance says the same thing in the words it was written in.
         opt.apply_ingredient_grid(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"))
@@ -9527,7 +9527,7 @@ class TestTheFormulaColumn:
             "Water is calculated to bring the total to 100 g: "
             "between 40.00 and 62.00 g in a 100 g formulation. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
-            "while the rule does."]
+            "while the calculation does."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
@@ -9583,7 +9583,7 @@ class TestTheFormulaColumn:
         assert opt.worked_out_captions() == [
             "Salt is calculated from = 1.5 % of batch size: 1.50 g in a "
             "100 g formulation. Its own Lowest and Highest (8.00 to "
-            "10.00 g) do not apply while the rule does."]
+            "10.00 g) do not apply while the calculation does."]
 
     def test_the_caption_is_absent_without_a_formula(self, tmp_path,
                                                      monkeypatch):
@@ -9625,7 +9625,7 @@ class TestTheFormulaColumn:
                 if text.startswith("Formulations already made keep")]
         assert said == [
             "Formulations already made keep their amounts. Water and Salt "
-            "are calculated from their rules from the next round on."]
+            "are calculated from their calculations from the next round on."]
 
     # ---- a formula is data a file can bring in ---------------------- #
 
