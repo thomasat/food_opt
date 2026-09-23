@@ -5,7 +5,7 @@ INSTALL
 2. Open Food Optimizer from Applications.
 3. Keep the window open while the first-time setup downloads the required
    software (about 1 GB). Progress appears in the window.
-   Setup time depends on your connection and computer.
+   This usually takes under a minute; on a slow network, a few minutes.
 
 You need a Mac with Apple silicon (M1 or newer), macOS 13 Ventura or newer,
 about 6 GB of free space, and internet for first-time setup. Check your chip

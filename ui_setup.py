@@ -1984,17 +1984,18 @@ def render(opt, storage):
     # More settings, and a caption drawn before it read the old number on
     # the very run the reader changed it.
     with captions:
-        for var in opt._formula_rows():
-            st.caption(wording.calculated_summary(var['name'], opt.batch_total_text(opt.formulation_total)
-                       if opt.formulation_total else "", rest=bool(var.get('balance'))))
+        # Every calculated row says what its calculation comes to, in
+        # numbers, at the size those numbers are read against; then the one
+        # line that says how to write one, whether or not any row has.
+        for line in opt.worked_out_captions():
+            st.caption(line)
+        if opt.has_ingredients():
+            st.caption(wording.RULE_HINT)
         help_col, import_col = st.columns(2)
         with help_col:
             if opt.has_ingredients():
                 with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
-                    st.caption(wording.RULE_HINT)
                     st.markdown(wording.RULE_GUIDE)
-                    with st.expander(wording.CALCULATION_SYNTAX_LABEL):
-                        st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         with import_col:
             with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
                 _upload_ingredients(opt)

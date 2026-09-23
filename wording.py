@@ -2914,7 +2914,10 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
     "Optional. Calculate this ingredient's amount from other ingredients or the batch size. "
-    "Leave blank to let the app choose between Lowest and Highest.")
+    "Leave blank to let the app choose between Lowest and Highest. "
+    "Three forms: an amount from other ingredients (= 2.2 * Water), a percentage "
+    "(= 5% of batch size), or Fill to total, which adds enough to reach the batch size; "
+    "both * / and × ÷ work, and an existing = rest means Fill to total.")
 
 CALCULATION_TERMS_TABLE = """| Use | Example |
 |---|---|
@@ -2939,12 +2942,14 @@ RULE_GUIDE = (
     + "\n\nUse **Edit calculation** to insert ingredients and operations. Examples illustrate arithmetic, not recommended ratios."
 )
 
-# The one line under the grid while no row has a rule: the column arrived
-# with no header tooltip anybody reads, no placeholder and no mention in
-# the caption, and everything a cold reader learned about it they learned
-# from refusals. It stands down the moment a rule exists — the worked-out
-# captions take its place.
-RULE_HINT = "Leave Calculation blank to let the app choose an amount between Lowest and Highest."
+# The one line under the grid, always, as the last of the caption block:
+# the column arrived with no header tooltip anybody reads, no placeholder
+# and no mention in the caption, and everything a cold reader learned about
+# it they learned from refusals. It says how to WRITE a calculation — the
+# sentence it replaced told the reader how not to — and it stands whether
+# or not a row has one, because the reader who needs it has no row yet.
+RULE_HINT = ("To calculate a row from the others, type in its Calculation cell: "
+             "= batch size − Water, or Fill to total.")
 
 
 
@@ -2986,7 +2991,8 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     """
     text = str(formula_text).strip()
     if rest:
-        head = (f"{name} is calculated to bring the total to {size_text}"
+        head = (f"{name} is calculated to bring the total to the {size_text} "
+                f"{FORMULATION_TOTAL_NOUN}"
                 if size_text else f"{name} fills the remaining amount of the formulation")
     else:
         head = f"{name} is calculated from {text}"
@@ -2994,7 +3000,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     # 1.50 g" asked the reader to read a range where nothing can vary.
     span = (f"{head}: {high_text}" if low_text == high_text.split(" ")[0]
             else f"{head}: between {low_text} and {high_text}")
-    if size_text:
+    if size_text and not rest:
         span = f"{span} in a {size_text} {FORMULATION}"
     if outside_text:
         return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
@@ -3543,12 +3549,6 @@ def for_project(opt, text):
             .replace("Formulations", "Trials").replace("formulations", "trials")
             .replace("Formulation", TRIAL_CAP).replace("formulation", "trial"))
 
-
-def calculated_summary(name, size_text, rest=False):
-    if rest:
-        return (f"{name}: automatically adds enough to bring each formulation to {size_text}."
-                if size_text else f"{name}: set a default batch size to calculate the remaining amount.")
-    return f"{name}: its calculation calculates the amount. Lowest and Highest are left empty."
 
 SHARE_SAVED_TOTAL = "After saving: 100% total"
 

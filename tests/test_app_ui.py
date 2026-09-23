@@ -3264,7 +3264,7 @@ def test_the_desktop_bundle_ships_every_module():
         assert module in e2e, module
 
 
-_FIRST_RUN_SENTENCE = "Setup time depends on your connection and computer."
+_FIRST_RUN_SENTENCE = "This usually takes under a minute; on a slow network, a few minutes."
 
 
 def _flowed(text):
@@ -6308,8 +6308,11 @@ def _assert_captions_read_once(at):
     # The two grid captions are each one sentence longer than the rest: a
     # grid has to say where a new row is typed and what makes a row fixed,
     # and neither has a control of its own to say it any more.
+    # RULE_HINT is the fourth: it has to name the column, show a
+    # calculation and name Fill to total, and it is the only line under the
+    # grid a reader with no calculation yet has to learn from.
     long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION,
-                 wording.MEASUREMENT_GRID_CAPTION}
+                 wording.MEASUREMENT_GRID_CAPTION, wording.RULE_HINT}
     assert all(len(c) <= 100 for c in captions if c not in long_ones), \
         [c for c in captions if len(c) > 100 and c not in long_ones]
 
@@ -7204,10 +7207,13 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
                for line in said), said
     # ...and the consequence under the grid is read at the new size on the
     # very run the number moved, not on the next visit to the tab.
-    assert any("in a 250 g formulation" in line
-               and line.startswith("Water is calculated to bring the total to")
+    assert any(line.startswith("Water is calculated to bring the total to "
+                               "the 250 g default batch size: between ")
                for line in said), said
-    assert not any("in a 100 g formulation" in line for line in said), said
+    assert not any("100 g default batch size" in line for line in said), said
+    # ...and the one line that says how to write a calculation is under the
+    # grid whether or not a row has one.
+    assert said[-1] == wording.RULE_HINT or wording.RULE_HINT in said, said
 
 
 def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
@@ -7218,16 +7224,22 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     help_fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.RULE_GUIDE_LABEL)
-    assert wording.RULE_HINT in [c.value for c in help_fold.caption]
     assert not any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
     assert wording.RULE_GUIDE in [m.value for m in at.markdown]
+    # The hint is under the grid, not folded behind the help button, and
+    # the help button no longer folds anything away of its own.
+    assert wording.RULE_HINT not in [c.value for c in help_fold.caption]
+    assert wording.RULE_HINT in [c.value for c in at.caption]
+    assert not any(e.label == wording.CALCULATION_SYNTAX_LABEL
+                   for e in _tab1(at).expander)
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     said = _tab1_captions(at)
     assert wording.RULE_HINT in [c.value for c in at.caption]
-    assert any(c.startswith("Methylcellulose: automatically adds enough to bring each formulation to")
+    assert any(c.startswith("Methylcellulose is calculated to bring the total "
+                            "to the 20 g default batch size: ")
                for c in said), said
 
 
@@ -10065,11 +10077,15 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
         "", "")
     assert row[wording.FORMULA_LABEL] == "Fill to total"
-    assert any(c.value == "Water: automatically adds enough to bring each formulation to 50 g."
+    assert any(c.value.startswith("Water is calculated to bring the total to "
+                                  "the 50 g default batch size: ")
                for c in at.caption), [c.value for c in at.caption]
-    details = next(e for e in at.expander if e.label == wording.CALCULATION_SYNTAX_LABEL)
-    assert not details.proto.expanded
-    assert wording.CALCULATION_SYNTAX_DETAILS in [m.value for m in details.markdown]
+    # Three folds on tab 1 and no fourth: what the fold said is one
+    # sentence in the Calculation column's own help.
+    assert not any(e.label == wording.CALCULATION_SYNTAX_LABEL
+                   for e in at.expander)
+    assert "Fill to total" in wording.FORMULA_HELP
+    assert "= 5% of batch size" in wording.FORMULA_HELP
 
 
 def test_the_results_boxes_never_offer_a_worked_out_rows_stale_range(

@@ -1519,7 +1519,7 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     # list, not a template, and keeps the lowercase headers those scripts
     # read by name; the columns are the same columns either way.
     assert list(sample.columns) == ["Name", "Part of", "Made as", "Lowest",
-                                    "Highest", "% of pre-mix", "Rule", "Unit",
+                                    "Highest", "% of pre-mix", "Calculation", "Unit",
                                     "Fat per 100 g", "Sodium per 100 g",
                                     "Cost per 100 g"]
     assert [c.lower() for c in df.columns] == [
@@ -9523,9 +9523,11 @@ class TestTheFormulaColumn:
         # The balance says the same thing in the words it was written in.
         opt.apply_ingredient_grid(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"))
+        # The head names the number it fills to AND where that number is
+        # set, so the line is read the same on a round made to another size.
         assert opt.worked_out_captions() == [
-            "Water is calculated to bring the total to 100 g: "
-            "between 40.00 and 62.00 g in a 100 g formulation. "
+            "Water is calculated to bring the total to the 100 g default "
+            "batch size: between 40.00 and 62.00 g. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
             "while the calculation does."]
 
