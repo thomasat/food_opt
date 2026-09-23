@@ -5290,7 +5290,7 @@ class TestFormulationTotal:
     opening and the model already obey."""
 
     def _sample(self, tmp_path, monkeypatch, name="sample"):
-        """The sample project's own eight ingredients, with the Water typed
+        """The sample project's own nine grid rows, with the Water typed
         by hand rather than calculated: they then add up to at least 20 g
         and at most 131 g, which is what makes 100 g reachable and 150 g
         not.
@@ -5990,7 +5990,7 @@ class TestTheTotalIsAlwaysReachable:
 
     def test_fixing_that_puts_the_total_out_of_reach_names_the_total(
             self, tmp_path, monkeypatch):
-        """Not eight ingredients and a limit the user never wrote."""
+        """Not nine grid rows and a limit the user never wrote."""
         opt = self._sample(tmp_path, monkeypatch)
         opt.set_formulation_total(120)
         # Water is 20 to 60 g; fixed at 20, the rest reach 91 g at most.
@@ -8248,7 +8248,7 @@ class TestThePropertiesGrid:
     def test_only_the_cells_that_moved_are_written(self, tmp_path,
                                                    monkeypatch):
         """Every figure goes through set_property_value, and that door saves
-        the project; a grid of eight ingredients by six properties would
+        the project; a grid of nine grid rows by six properties would
         save it forty-eight times to change one number."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_property_value("Pea protein", "Cost", 3.5)

@@ -3369,11 +3369,11 @@ def premix_fold_caption(weighed):
     """The one line at the top of a pre-mix's parts fold: what the numbers
     in it are, and what may be a part.
 
-    `% of pre-mix` had no tooltip, no caption and no line under the grid —
-    the one term on the tab that was never said — and it is the central
-    number of a portioned pre-mix. The second sentence answers the other
-    thing nothing said: an ingredient already on the grid can be a part of
-    a pre-mix too.
+    `Composition (%)` had no tooltip, no caption and no line under the grid
+    — the one term on the tab that was never said — and it is the central
+    number of a portioned pre-mix. One sentence each way: neither branch
+    promises anything about what may be a part, which is said where a part
+    is typed.
     """
     if weighed:
         return ("Set Lowest and Highest for each ingredient. The app chooses an amount for each one "

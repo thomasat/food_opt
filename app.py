@@ -87,6 +87,11 @@ _FORM_KEY_PREFIXES = (
     "ingredients_file", "results_file", "import_file",
 )
 _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_out
+# A pre-mix parts grid keys its own controls off the grid it belongs to
+# (premix_grid_Dry blend_amount_entry), so there is no prefix to catch them
+# by — how a composition was being typed, and the quantity its preview was
+# read at, followed the reader into the next project.
+_FORM_KEY_SUFFIXES = ("_amount_entry", "_preview_quantity", "_mode_mark")
 
 # What each box on the set-up and batch forms holds in a project nobody has
 # typed in yet. Popping a widget's key does NOT empty it: the widget is still
@@ -177,7 +182,8 @@ def _reset_project_session():
             clear_selection(k)
         elif _GRID_KEY_RE.match(k):
             park_clear(k, _grid_fresh(k))
-        elif k.endswith("__pending") or k.startswith(_FORM_KEY_PREFIXES):
+        elif (k.endswith("__pending") or k.endswith(_FORM_KEY_SUFFIXES)
+              or k.startswith(_FORM_KEY_PREFIXES)):
             st.session_state.pop(k, None)
 
 

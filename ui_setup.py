@@ -416,9 +416,9 @@ def _ingredient_columns(opt, frame):
     if wording.BASELINE_LABEL in frame.columns:
         columns[wording.BASELINE_LABEL] = _number_column(
             wording.BASELINE_LABEL, help=wording.BASELINE_HELP, width=90)
-    # Last and narrow: one column for one idea, and the idea is the answer
-    # to the two columns it replaces. `= rest` is typed here too, so there
-    # is no Balance column beside it.
+    # Second and wide enough to read a calculation in: one column for one
+    # idea, and the idea is the answer to the two columns it replaces. Fill
+    # to total is typed here too, so there is no Balance column beside it.
     columns[wording.FORMULA_LABEL] = st.column_config.TextColumn(
         wording.FORMULA_LABEL, width=190, help=wording.FORMULA_HELP)
     return columns
