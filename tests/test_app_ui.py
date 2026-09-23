@@ -1968,19 +1968,20 @@ def test_each_sheet_names_its_formulation_and_its_batch(open_batch):
     assert wording.NOT_SCORED_CHECKBOX_SHEET in texts, texts
     # The measurement is named, what a good number looks like is beside it,
     # and the cell to write the reading in is empty.
-    assert "Firmness" in texts and "Target 6 N" in texts, texts
+    # The unit is in the label, because the cell beside it is empty.
+    assert "Firmness (N)" in texts and "Target 6 N" in texts, texts
     assert wording.MEASURED_COLUMN in texts, texts
 
 
 def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert at.number_input(key="f1_Firmness").label == "Firmness · Target 6 N"
+    assert at.number_input(key="f1_Firmness").label == "Firmness (N) · Target 6 N"
     # The panel unit is on the label, once, and never after the number.
     assert (at.number_input(key="f1_Juiciness").label
             == "Juiciness (/10) · Target 7")
     labels = [n.label for n in at.number_input]
-    assert (labels.index("Firmness · Target 6 N")
+    assert (labels.index("Firmness (N) · Target 6 N")
             < labels.index("Juiciness (/10) · Target 7"))
     assert any(c.value == ("One number per measurement; the panel mean where "
                            "a panel rated it. Leave blank if it was not "
@@ -3264,7 +3265,7 @@ def test_the_desktop_bundle_ships_every_module():
         assert module in e2e, module
 
 
-_FIRST_RUN_SENTENCE = "This usually takes under a minute; on a slow network, a few minutes."
+_FIRST_RUN_SENTENCE = "Setup time depends on your connection and computer."
 
 
 def _flowed(text):
@@ -4486,7 +4487,7 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
                               wording.MEASUREMENTS_SHEET_HEADING,
                               wording.SHEET_WRITE_IN_NOTE,
                               wording.MEASUREMENT_COLUMN,
-                              "Firmness · Target 6 N",
+                              "Firmness (N) · Target 6 N",
                               wording.NOT_SCORED_CHECKBOX_SHEET, "Note",
                               wording.SUMMARY_TICK_NOTE,
                               wording.MADE_BY_FOOTER], list(rows)
@@ -5396,8 +5397,11 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # inside them, as headings — Streamlit cannot nest one expander in
     # another, and a tab that folded the optional half away twice made the
     # reader open two things to reach one.
+    # The Calculation help popover folds its syntax details away inside
+    # itself; the tab's own tiers are the three after it.
     labels = [e.label for e in _tab1(at).expander]
-    assert labels == [wording.MORE_SETTINGS_EXPANDER,
+    assert labels == [wording.CALCULATION_SYNTAX_LABEL,
+                      wording.MORE_SETTINGS_EXPANDER,
                       wording.INGREDIENT_LIMITS_EXPANDER, "Advanced"], labels
 
 
@@ -7226,12 +7230,9 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     help_fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.RULE_GUIDE_LABEL)
     assert not any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
     assert wording.RULE_GUIDE in [m.value for m in at.markdown]
-    # The hint is under the grid, not folded behind the help button, and
-    # the help button no longer folds anything away of its own.
+    # The hint is under the grid, not folded behind the help button.
     assert wording.RULE_HINT not in [c.value for c in help_fold.caption]
     assert wording.RULE_HINT in [c.value for c in at.caption]
-    assert not any(e.label == wording.CALCULATION_SYNTAX_LABEL
-                   for e in _tab1(at).expander)
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -9207,7 +9208,7 @@ def test_the_filled_in_workbook_records_the_results_and_the_ticked_row(
     sheet = book[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    firm = labels.index("Firmness · Target 6 N") + 1
+    firm = labels.index("Firmness (N) · Target 6 N") + 1
     juice = labels.index("Juiciness (/10) · Target 7") + 1
     sheet.cell(row=firm, column=2, value=6.0)
     sheet.cell(row=juice, column=2, value=7.0)
@@ -9256,7 +9257,7 @@ def test_the_upload_takes_a_workbook_or_a_comma_separated_file(open_batch):
     sheet = filled[wording.batch_sheet_name(1)]
     labels = [sheet.cell(row=r, column=1).value
               for r in range(1, sheet.max_row + 1)]
-    sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+    sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                value=6.0)
     out = io.BytesIO()
     filled.save(out)
@@ -10003,7 +10004,7 @@ def test_an_uploaded_workbook_records_what_was_weighed_and_keeps_the_lot(
     summary = book[wording.batch_sheet_name(1)]
     at_row = {summary.cell(row=r, column=1).value: r
               for r in range(1, summary.max_row + 1)}
-    summary.cell(row=at_row["Firmness · Target 6 N"], column=2, value=6.0)
+    summary.cell(row=at_row["Firmness (N) · Target 6 N"], column=2, value=6.0)
     summary.cell(row=at_row["Juiciness (/10) · Target 7"], column=2, value=7.0)
     # The Lot column sits after the two formulations and their shares.
     lot_column = 2 + 2 * len(opt.pending_batch)
@@ -10080,12 +10081,9 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     assert any(c.value.startswith("Water is calculated to bring the total to "
                                   "the 50 g default batch size: ")
                for c in at.caption), [c.value for c in at.caption]
-    # Three folds on tab 1 and no fourth: what the fold said is one
-    # sentence in the Calculation column's own help.
-    assert not any(e.label == wording.CALCULATION_SYNTAX_LABEL
-                   for e in at.expander)
-    assert "Fill to total" in wording.FORMULA_HELP
-    assert "= 5% of batch size" in wording.FORMULA_HELP
+    details = next(e for e in at.expander if e.label == wording.CALCULATION_SYNTAX_LABEL)
+    assert not details.proto.expanded
+    assert wording.CALCULATION_SYNTAX_DETAILS in [m.value for m in details.markdown]
 
 
 def test_the_results_boxes_never_offer_a_worked_out_rows_stale_range(
@@ -10170,8 +10168,10 @@ def test_opening_the_sample_again_keeps_its_default_batch_size(tmp_path,
     assert not at.exception
     opened = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
     assert opened.formulation_total == 100.0
-    assert [qc['source'] for qc in opened.quantity_constraints] == [
-        'formulation_total']
+    # The batch size's own limit, and the one the sample writes over the
+    # six rows that carry the solids.
+    assert [qc.get('source') for qc in opened.quantity_constraints] == [
+        'formulation_total', None]
 
 
 def test_round_table_is_read_only_until_edit_is_requested(worked_out):
@@ -10309,9 +10309,11 @@ def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, m
     at.run()
     assert not at.exception
     opt = at.session_state['optimizer']
+    # The rows read in the order the method adds them: the texturates and
+    # their water, the bowl's own water, then what goes into it.
     assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        'Textured pea protein', 'Textured soy protein', 'Hydration water', 'Dry blend', 'Wheat gluten', 'Fats and oils',
-        'Seasoning blend', 'Remaining water', 'Mixing time after fat']
+        'Textured pea protein', 'Textured soy protein', 'Hydration water', 'Remaining water',
+        'Dry blend', 'Wheat gluten', 'Seasoning blend', 'Fats and oils', 'Mixing time after fat']
     assert {name: p['mode'] for name, p in opt.premixes.items()} == {
         'Dry blend': 'portioned', 'Fats and oils': 'weighed', 'Seasoning blend': 'portioned'}
     assert sum(len(p['parts']) for p in opt.premixes.values()) == 10

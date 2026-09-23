@@ -19,15 +19,15 @@ import wording
 
 MARKER = 'food-opt-workbook-v1:'
 PREP = 'food-opt-preparation:'
-OVERVIEW = 'Round overview'
-RESULTS = 'Results'
-PREPARATION = 'Preparation'
+OVERVIEW = wording.OVERVIEW_SHEET
+RESULTS = wording.RESULTS_SHEET
+PREPARATION = wording.PREPARATION_SHEET
 
 
 METADATA_SHEET = '_FoodOptimizer'
 METADATA_VERSION = 'food-opt-metadata-v1'
 _METADATA_PREFIXES = (MARKER, PREP, 'food-opt-custom-record:')
-_METADATA_ERROR = 'This workbook is missing or has damaged round information. Download a new workbook and transfer your entries.'
+_METADATA_ERROR = wording.WORKBOOK_METADATA_ERROR
 
 
 def hide_metadata(book):
@@ -114,7 +114,7 @@ def separate_formulations(sheet, columns, last_row, paired=False):
             border = copy(cell.border)
             border.left = divider
             cell.border = border
-            if str(cell.value or '').startswith('Formulation '):
+            if str(cell.value or '').startswith(wording.FORMULATION_CAP + ' '):
                 cell.fill = PatternFill('solid', fgColor=('DDEBF7' if index % 2 == 0 else 'E2EFDA'))
                 cell.font = Font(bold=True, color='17365D')
                 cell.alignment = Alignment(horizontal='center', wrap_text=True)
@@ -159,7 +159,7 @@ def stamp(book, opt, rows, total):
     sheet['A1'].comment = Comment(MARKER + json.dumps(data), 'Food Opt')
 
 
-def compact(book, opt, rows):
+def compact(book, opt, rows, note=""):
     source = book[wording.batch_sheet_name(opt.pending_batch_no)]
     split = next(c.row for row in source for c in row
                  if c.column == 1 and c.value == wording.MEASUREMENTS_SHEET_HEADING)
@@ -167,19 +167,21 @@ def compact(book, opt, rows):
     overview = result.active
     overview.title = OVERVIEW
     copy_cells(source, overview, last=split - 1)
-    navigation = ('Use the sheet tabs: Round overview → Preparation → Results. '
-                  'Tabs are at the bottom in Excel and at the top in Numbers. ')
-    overview['A2'] = navigation + 'Review the plan, prepare each formulation separately, then enter measurements on Results and upload this file in the app.'
+    navigation = wording.SHEET_NAVIGATION
+    # The line that says these amounts were re-sized survives the fold: it
+    # is the first thing the bench needs and the navigation replaces the
+    # banner it was written into.
+    overview['A2'] = ((note + ' ') if note else '') + navigation + wording.OVERVIEW_SHEET_INTRO
     overview['A2'].alignment = Alignment(wrap_text=True)
     overview.row_dimensions[2].height = 45
     for row in overview:
         for cell in row:
             if cell.value == wording.PREMIX_LOT_ON_ITS_PAGE:
-                cell.value = 'See Preparation'
+                cell.value = wording.PREMIX_LOT_ON_PREPARATION
                 sheet_link(cell, PREPARATION)
     preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = 'Preparation — Pre-mixes for this round'
-    preparation['A2'] = navigation + 'Prepare pre-mixes with fixed ingredient percentages here. For blends where ingredient amounts vary separately, follow the individual amounts on Round overview.'
+    preparation['A1'] = wording.PREPARATION_SHEET_TITLE
+    preparation['A2'] = navigation + wording.PREPARATION_SHEET_INTRO
     start = 4
     for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
         page = book[title]
@@ -187,20 +189,13 @@ def compact(book, opt, rows):
         preparation.cell(start, 1).comment = Comment(PREP + title, 'Food Opt')
         start += page.max_row + 3
     if start == 4:
-        preparation['A4'] = 'No pre-mixes are required. Follow the method on Round overview.'
+        preparation['A4'] = wording.PREPARATION_SHEET_EMPTY
     measured = result.create_sheet(RESULTS)
-    measured['A1'] = 'Results — Enter measurements here'
-    measured['A2'] = navigation + 'Each formulation has its own column. Blank means not recorded yet. Enter results, then upload this workbook, review the import and save in the app.'
+    measured['A1'] = wording.RESULTS_SHEET_TITLE
+    measured['A2'] = navigation + wording.RESULTS_SHEET_INTRO
     copy_cells(source, measured, first=split, start=4)
-    # A blank measurement cell cannot display a unit after its value. Put
-    # units on Results row labels, including % and N, before any entry exists.
-    for obj in opt.measurements_by_importance():
-        unit = str(obj.get('unit') or '')
-        if unit and not unit.startswith('/'):
-            old = opt._measurement_sheet_label(obj)
-            for cells in measured:
-                if cells[0].value == old:
-                    cells[0].value = old.replace(obj['name'], f"{obj['name']} ({unit})", 1)
+    # The unit is in the label the print pack already writes
+    # (food_bo.entry_label), so the compact sheet has nothing to patch.
     formulation_columns = [c.column for c in source[3]
                            if opt._formulation_column_number(c.value) is not None]
     # Keep measurement and actual columns aligned; hide percentage spacer
@@ -212,12 +207,12 @@ def compact(book, opt, rows):
     # use one additional matrix on this same sheet, rather than N extra tabs.
     if opt.records('actual'):
         start = measured.max_row + 3
-        measured.cell(start, 1, 'Actual amounts and settings — optional')
-        measured.cell(start + 1, 1, 'Blank means the planned value. Enter what was actually prepared; these values are used for learning.')
+        measured.cell(start, 1, wording.ACTUAL_SHEET_HEADING)
+        measured.cell(start + 1, 1, wording.ACTUAL_SHEET_HELP)
         measured.merge_cells(start_row=start + 1, start_column=1, end_row=start + 1, end_column=max(formulation_columns or [2]))
         measured.cell(start + 1, 1).alignment = Alignment(wrap_text=True)
         measured.row_dimensions[start + 1].height = 30
-        measured.cell(start + 2, 1, 'Ingredient or setting')
+        measured.cell(start + 2, 1, wording.INGREDIENT_OR_SETTING_COLUMN)
         for j, row in zip(formulation_columns, rows):
             measured.cell(start + 2, j, wording.formulation_sheet_name(row['formulation']))
         for i, var in enumerate(opt.variables, start + 3):
@@ -241,7 +236,7 @@ def compact(book, opt, rows):
             column = 1 if c == 1 else (2 * c - 2 if sheet == measured else c)
             cell = sheet.cell(linkrow, column, title)
             sheet_link(cell, title)
-        sheet.cell(linkrow + 1, 1, 'If a link does not open, select the sheet tab with the same name.')
+        sheet.cell(linkrow + 1, 1, wording.SHEET_LINK_FALLBACK)
         sheet['A1'].font = Font(size=15, bold=True)
         sheet.column_dimensions['A'].width = 58
         sheet.row_dimensions[2].height = 65
@@ -292,35 +287,35 @@ def prepare_import(source, opt, batch_no):
             cell = book[title][address]
             value = cached[title][address].value
             if value is None and not cell.protection.locked:
-                raise ValueError('A formula has no saved result. Open the workbook in Excel, recalculate and save it, then upload again; or enter the measured number directly.')
+                raise ValueError(wording.WORKBOOK_FORMULA_ERROR)
             cell.value = value
     marker = next((cell.comment.text[len(MARKER):] for sheet in book
                    for cell in [sheet['A1']] if cell.comment and cell.comment.text.startswith(MARKER)), None)
     if marker:
         issued = json.loads(marker)
         if issued['round'] != batch_no:
-            raise ValueError('This workbook belongs to a different round. Download the workbook for the open round.')
+            raise ValueError(wording.WORKBOOK_WRONG_ROUND)
         for row in opt.pending_batch or []:
             old = issued['recipes'].get(str(row['formulation']))
             if old is not None:
                 current = {n: round(float(v), 8) for n, v in opt.shown_recipe(row, opt.open_round_size())[0].items()}
                 if old != current:
-                    raise ValueError('The formulations changed after this workbook was downloaded. Download a new workbook and transfer your measurements before uploading.')
+                    raise ValueError(wording.WORKBOOK_ROUND_CHANGED)
     if OVERVIEW not in book.sheetnames:
         out = io.BytesIO(); book.save(out); out.seek(0)
         return out
     if not marker or RESULTS not in book.sheetnames or PREPARATION not in book.sheetnames:
-        raise ValueError('This workbook is missing a required sheet or its round information. Download a new workbook.')
+        raise ValueError(wording.WORKBOOK_MISSING_SHEET)
     original = Workbook()
     summary = original.active
     summary.title = wording.batch_sheet_name(batch_no)
     copy_cells(book[OVERVIEW], summary)
     measurements = book[RESULTS]
     if any(c.data_type == 'f' for row in measurements for c in row if not c.protection.locked):
-        raise ValueError('Enter results as numbers, not Excel formulas, then upload again.')
+        raise ValueError(wording.WORKBOOK_RESULTS_ARE_NUMBERS)
     # Copy only the measurement block, leaving the optional Actual matrix out.
     actual = next((c.row for row in measurements for c in row
-                   if c.column == 1 and c.value == 'Actual amounts and settings — optional'), None)
+                   if c.column == 1 and c.value == wording.ACTUAL_SHEET_HEADING), None)
     end = actual - 1 if actual else measurements.max_row
     copy_cells(measurements, summary, first=4, last=end, start=summary.max_row + 2)
     if actual:
@@ -339,7 +334,7 @@ def prepare_import(source, opt, batch_no):
                     value = measurements.cell(source_row, cell.column).value
                     if value is not None:
                         if measurements.cell(source_row, cell.column).data_type == 'f':
-                            raise ValueError('Enter actual amounts as numbers, not Excel formulas.')
+                            raise ValueError(wording.WORKBOOK_ACTUALS_ARE_NUMBERS)
                         page.cell(i, 3, value)
     prep = book[PREPARATION]
     starts = [(c.row, c.comment.text[len(PREP):]) for row in prep for c in row

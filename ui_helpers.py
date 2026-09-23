@@ -16,8 +16,8 @@ import wording
 # what-is-it-trying column all need them there); the tab modules import them
 # from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
-    amount_range_placeholder, fmt_amount, fmt_setting, goal_line, join_unit,
-    label_with_unit, number_list, outside_message, unit_after_number,
+    amount_range_placeholder, entry_label, fmt_amount, fmt_setting, goal_line,
+    join_unit, label_with_unit, number_list, outside_message, unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do

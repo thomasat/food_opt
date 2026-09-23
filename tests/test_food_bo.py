@@ -1510,18 +1510,18 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_names = [v["name"] for v in sample_opt.variables]
     assert len(sample_names) == 9
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Textured pea protein", "Textured soy protein", "Hydration water", "Dry blend", "Wheat gluten", "Fats and oils",
-        "Seasoning blend", "Remaining water"]
+        "Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water",
+        "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
     # questions the screen asks. data/ingredients.csv is the experiments'
     # list, not a template, and keeps the lowercase headers those scripts
     # read by name; the columns are the same columns either way.
-    assert list(sample.columns) == ["Name", "Part of", "Made as", "Lowest",
-                                    "Highest", "% of pre-mix", "Calculation", "Unit",
+    assert list(sample.columns) == ["Name", "Part of", "Preparation", "Lowest",
+                                    "Highest", "Composition (%)", "Calculation", "Unit",
                                     "Fat per 100 g", "Sodium per 100 g",
-                                    "Cost per 100 g"]
+                                    "Water per 100 g", "Cost per 100 g"]
     assert [c.lower() for c in df.columns] == [
         "name", "min", "max", "unit", "fat per 100 g", "sodium per 100 g"]
 
@@ -2168,6 +2168,14 @@ class TestUnitsAndImportance:
         assert label_with_unit("Firmness", "/10") == "Firmness (/10)"
         assert label_with_unit("Firmness", "N") == "Firmness"
         assert label_with_unit("Firmness", "") == "Firmness"
+        # ...and where the cell beside the label is EMPTY, the unit has
+        # nowhere else to go: a bench handed a bare "Cook loss" writes 18,
+        # 0.18 or 18.4 g.
+        from food_bo import entry_label
+        assert entry_label("Cook loss", "%") == "Cook loss (%)"
+        assert entry_label("Firmness", "N") == "Firmness (N)"
+        assert entry_label("Firmness", "/10") == "Firmness (/10)"
+        assert entry_label("Firmness", "") == "Firmness"
         assert unit_after_number("/10") == ""
         assert unit_after_number("N") == "N"
         assert unit_after_number(None) == ""
@@ -4118,7 +4126,13 @@ import pathlib
 import re
 
 _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
-                        "ui_results.py", "food_bo.py", "storage.py", "wording.py"]
+                        "ui_results.py", "food_bo.py", "storage.py", "wording.py",
+                        # The three modules wave 3 added. Every one of them
+                        # drew its own screen text where this sweep could
+                        # not see it, which is how sixty sentences reached
+                        # the user unread.
+                        "calculation_editor.py", "workbook_flow.py",
+                        "custom_records.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
@@ -4434,9 +4448,23 @@ _ALLOWED_SINGLE_WORDS = {
 # "Share" column header is the mistake the guard exists to catch, and the
 # prose pattern above cannot see a one-word literal — so the allowance is
 # the exact lower-cased key, scoped to the one file that writes it.
+# Wave 3's three modules keep the same shape of allowance, each for a
+# stored key the user never reads: the round a metadata block issues its
+# amounts under, and the round number a skipped row carries.
 _ALLOWED_SINGLE_WORDS_BY_FILE = {
     "wording.py": {"trial", "trials", "Trials"},  # process-only studies
     "food_bo.py": {"Batch", "batch", "share"},
+    "workbook_flow.py": {"recipes"},   # the issued-plan key in the metadata
+    "custom_records.py": {"batch"},    # the round number a skipped row keeps
+}
+
+# Fragments removed from a file before it is scanned, by name and by file:
+# CSS property names and DOM ids inside the calculation editor's own web
+# component, which is machinery the reader never meets as words. The same
+# shape as _SWIFT_NOT_PROSE, for the same reason.
+_NOT_PROSE_BY_FILE = {
+    "calculation_editor.py": ("font-weight", 'id="batch"', "#batch",
+                              "'batch size'"),
 }
 
 
@@ -4532,7 +4560,10 @@ def test_no_old_vocabulary_reaches_the_user():
         for text in _prose_constants(root / name):
             if text in allowed or text.startswith(_ALLOWED_PREFIXES):
                 continue
-            if any(pattern.search(text) for pattern in _BANNED):
+            scanned = text
+            for fragment in _NOT_PROSE_BY_FILE.get(name, ()):
+                scanned = scanned.replace(fragment, "")
+            if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, text))
         offenders += _single_word_offenders(
             name, _single_word_constants(root / name))
@@ -4547,10 +4578,40 @@ def test_a_bare_batch_is_refused_everywhere_but_food_bo(word):
     exists for food_bo's reserved names."""
     for name in _USER_FACING_SOURCES:
         refused = _single_word_offenders(name, [word])
-        if name == "food_bo.py" and word in {"Batch", "batch"}:
+        # food_bo keeps the reserved column name and the row key; custom
+        # records keeps the round number a skipped row is filed under.
+        if ((name == "food_bo.py" and word in {"Batch", "batch"})
+                or (name == "custom_records.py" and word == "batch")):
             assert refused == [], (name, word)
         else:
             assert refused == [(name, word)], (name, word)
+
+
+@pytest.mark.parametrize("word", ["trial", "trials", "Trials"])
+def test_a_bare_trial_is_refused_everywhere_but_wording(word):
+    """The allowance is scoped, and this is the proof. A process-only study
+    is a run of trials and wording.py is where those sentences are built;
+    the same bare word typed into any other module is the mistake the guard
+    exists to catch."""
+    for name in _USER_FACING_SOURCES:
+        refused = _single_word_offenders(name, [word])
+        if name == "wording.py":
+            assert refused == [], (name, word)
+        else:
+            assert refused == [(name, word)], (name, word)
+
+
+def test_the_measurement_range_headers_are_exempt_by_name_only():
+    """The two column headers are the owner's choice and are allowed as
+    exact sentences named in _ALLOWED_EXACT — not as a licence for the word
+    itself. A bare "Scale" is still refused in every file, this one
+    included."""
+    for label in (wording.LOWEST_MEASURABLE_LABEL,
+                  wording.HIGHEST_MEASURABLE_LABEL):
+        assert label in _ALLOWED_EXACT, label
+        assert any(pattern.search(label) for pattern in _BANNED), label
+    for name in _USER_FACING_SOURCES:
+        assert _single_word_offenders(name, ["Scale"]) == [(name, "Scale")]
 
 
 def test_even_food_bo_may_not_say_batches():
@@ -6125,7 +6186,7 @@ class TestTheWorkbook:
         # who made it.
         assert labels[-9:] == ["Measurements", wording.SHEET_WRITE_IN_NOTE,
                                "Measurement",
-                               "Firmness · Target 6 N",
+                               "Firmness (N) · Target 6 N",
                                "Juiciness (/10) · Prefer higher values",
                                "Not scored", "Note",
                                wording.SUMMARY_TICK_NOTE,
@@ -6135,7 +6196,7 @@ class TestTheWorkbook:
         # The measurement rows open empty; the Not scored row opens holding
         # the box the instruction asks the reader to tick, in the cell the
         # pen can reach.
-        for label in ("Firmness · Target 6 N",
+        for label in ("Firmness (N) · Target 6 N",
                       "Juiciness (/10) · Prefer higher values"):
             assert _labelled(sheet)[label] == [None] * 7, label
         assert _labelled(sheet)["Not scored"] == [
@@ -6165,10 +6226,10 @@ class TestTheWorkbook:
                                          100.0))["Formulation 1"]
         rows = _rows(sheet)
         assert rows[0][0] == "Formulation 1 · Round 2 · sheets"
-        # What this formulation is trying. Nothing to compare it with yet,
-        # so the line is the cell alone: "Compared with the allowed amounts:
-        # Spread across the allowed amounts" is that sentence twice.
-        assert rows[1][0] == wording.SUGGESTION_SPREAD.capitalize()
+        # The round's own search strategy is stated once, on the Round
+        # sheet. On the page a bench carries it was a line to read and then
+        # discard, above the amounts it has to weigh.
+        assert rows[1][0] is None
         # Then the one line that says which cells the sheet will take,
         # naming the Actual column as this page's own header writes it.
         assert rows[2][0] == wording.sheet_write_in_note("Actual (g)")
@@ -6256,7 +6317,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(opt.pending_batch_no)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        firm = labels.index("Firmness · Target 6 N") + 1
+        firm = labels.index("Firmness (N) · Target 6 N") + 1
         juice = labels.index("Juiciness (/10) · Prefer higher values") + 1
         not_scored = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
         note = labels.index(wording.NOTE) + 1
@@ -6295,7 +6356,7 @@ class TestTheWorkbook:
         sheet = book["Round 2"]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6383,7 +6444,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6413,7 +6474,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6433,7 +6494,7 @@ class TestTheWorkbook:
         sheet = book[wording.formulation_sheet_name(2)]
         for r in range(1, sheet.max_row + 1):
             label = sheet.cell(row=r, column=2).value
-            if label == "Firmness":
+            if label == "Firmness (N)":
                 sheet.cell(row=r, column=4, value=6.5)
             elif label == "Juiciness (/10)":
                 sheet.cell(row=r, column=4, value=7.0)
@@ -6505,7 +6566,7 @@ class TestTheWorkbook:
         book = openpyxl.load_workbook(self._filled_in(opt))
         sheet = book[wording.formulation_sheet_name(1)]
         for r in range(1, sheet.max_row + 1):
-            if sheet.cell(row=r, column=2).value == "Firmness":
+            if sheet.cell(row=r, column=2).value == "Firmness (N)":
                 sheet.cell(row=r, column=4, value=9.9)
         out = io.BytesIO()
         book.save(out)
@@ -6851,7 +6912,7 @@ class TestTheWorkbookFinalWave:
         with a comma. One separator, and the upload matches on it."""
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch))["Round 2"]
-        assert "Firmness · Target 6 N" in _labelled(sheet)
+        assert "Firmness (N) · Target 6 N" in _labelled(sheet)
 
     # ---- G-b2 / G-d5 / C24 / C25: what the paper says ------------------
 
@@ -6946,7 +7007,7 @@ class TestTheWorkbookFinalWave:
         assert flat[limits + 1] == "Water: at most 80 g", flat
         # The basis is said once, under the heading, as the screen says it.
         assert flat[props + 1] == opt.per_amount_text() == "per 100 g"
-        assert flat[props + 2] == "Fat per 100 g: at most 15", flat
+        assert flat[props + 2] == "Fat per 100 g: at most 15 g", flat
 
     def test_the_set_up_sheet_carries_the_share_of_score(self, tmp_path,
                                                          monkeypatch):
@@ -7006,7 +7067,7 @@ class TestTheWorkbookFinalWave:
 
         def edit(book):
             sheet = book["Round 2"]
-            row = self._row_of(sheet, "Firmness · Target 6 N")
+            row = self._row_of(sheet, "Firmness (N) · Target 6 N")
             sheet.cell(row=row, column=1).value = "Bite force"
             sheet.cell(row=row + 1, column=2).value = 7.0    # Juiciness
 
@@ -7029,7 +7090,7 @@ class TestTheWorkbookFinalWave:
         def edit(book):
             sheet = book[wording.formulation_sheet_name(number)]
             for r, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-                if row and len(row) > 1 and str(row[1]).strip() == "Firmness":
+                if row and len(row) > 1 and str(row[1]).strip() == "Firmness (N)":
                     sheet.cell(row=r, column=4).value = 6.0
                 if row and len(row) > 1 and str(row[1]).strip() == wording.NOTE:
                     sheet.cell(row=r, column=4).value = "second try"
@@ -7078,7 +7139,7 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
         opt = self._opt(tmp_path, monkeypatch)
 
         def edit(sheet):
-            firm = self._row_of(sheet, "Firmness · Target 6 N")
+            firm = self._row_of(sheet, "Firmness (N) · Target 6 N")
             juice = self._row_of(sheet, "Juiciness (/10) · Prefer higher values")
             sheet.cell(row=juice, column=1).value = "Mouth juiciness"
             sheet.cell(row=firm, column=2).value = 5.5
@@ -8298,7 +8359,7 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
         at = self._rows_of(sheet)
-        write_in = ("Firmness · Target 6 N",
+        write_in = ("Firmness (N) · Target 6 N",
                     "Juiciness (/10) · Prefer higher values",
                     wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)
         expected = {f"{letter}{at[label]}" for label in write_in
@@ -8323,7 +8384,7 @@ class TestTheLockedWorkbook:
         expected = {f"D{at[label]}" for label in
                     ("Pea protein", "Water",            # what to weigh
                      "Cook temperature (°C)",           # what to dial in
-                     "Firmness", "Juiciness (/10)",     # what to measure
+                     "Firmness (N)", "Juiciness (/10)",  # what to measure
                      wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)}
         # Both note cells: the app reads the printed one back as its own, and
         # a technician who corrects it there is not writing to no effect.
@@ -8396,7 +8457,7 @@ class TestTheLockedWorkbook:
         at = {summary.cell(row=r, column=1).value: r
               for r in range(1, summary.max_row + 1)}
         for column in (2, 4):
-            summary.cell(row=at["Firmness · Target 6 N"], column=column,
+            summary.cell(row=at["Firmness (N) · Target 6 N"], column=column,
                          value=6.0)
             summary.cell(row=at["Juiciness (/10) · Prefer higher values"],
                          column=column, value=7.0)
@@ -8571,7 +8632,7 @@ class TestTheLockedWorkbook:
             summary.cell(row=1, column=c, value=f"Formulation {number}")
         summary.cell(row=2, column=1, value="Pea protein (g)")
         summary.cell(row=3, column=1, value=wording.MEASURED_COLUMN)
-        summary.cell(row=4, column=1, value="Firmness · Target 6 N")
+        summary.cell(row=4, column=1, value="Firmness (N) · Target 6 N")
         summary.cell(row=4, column=2, value=6.0)
         summary.cell(row=5, column=1, value="Juiciness (/10) · Prefer higher values")
         summary.cell(row=5, column=2, value=7.0)
@@ -9809,7 +9870,7 @@ class TestFormulasOnTheSheets:
         at = {sheet.cell(row=r, column=1).value: r
              for r in range(1, sheet.max_row + 1)}
         assert sheet.cell(row=at["Water"], column=7).value == (
-            "= rest (batch size − every other ingredient)")
+            "Fill to total (batch size − every other ingredient)")
 
     # ---- the Actual cell is unaffected --------------------------------- #
 
@@ -10196,7 +10257,7 @@ class TestTheFormulaColumnFixes:
         assert wording.setup_sheet_formula_text(
             opt._formula_text(opt._var_by_name("Water")),
             rest=bool(opt._var_by_name("Water").get('balance'))) == (
-                "= rest (batch size − every other ingredient)")
+                "Fill to total (batch size − every other ingredient)")
 
     def test_a_refused_file_leaves_the_ingredients_alone(self, tmp_path,
                                                          monkeypatch):

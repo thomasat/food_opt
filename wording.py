@@ -209,9 +209,18 @@ LEGACY_SAMPLE_TARGETS_SOURCE = (
     "are illustrative; replace them with supplier data. The hydration ratio of 2.2 is an "
     "illustrative assumption; establish a suitable ratio for the selected protein grades in pilot trials."
 )
+# Where firmness 6 and juiciness 7 came from. A trained panel handed a
+# 0-10 scale with no anchor and no reference product produces data that does
+# not replicate between sessions, which is the failure this field exists to
+# prevent — and what shipped in 0.7.1 was a disclaimer that answered "is
+# this real?" and never answered "where did the numbers come from?". The
+# disclaimer is kept, at the foot of the method, where a method's
+# reservations belong.
 SAMPLE_TARGETS_SOURCE = (
-    "This example demonstrates the app. Its ingredient amounts, targets and property values "
-    "are illustrative; replace them with values appropriate for your project."
+    "Scores are against an 80/20 beef control cooked to 71 °C core, which our panel rates "
+    "firmness 6 and juiciness 7 on the anchored 0–10 scale (12 panellists, two sessions, "
+    "February 2026). Above firmness 7 the patty eats rubbery; below juiciness 5 it eats dry "
+    "and chalky. Contains soy and wheat (gluten)."
 )
 SAMPLE_REFERENCE = (
     "Background reading: Peñaranda et al. (2025), Plant-Based Burgers with Reduced Texture "
@@ -225,20 +234,23 @@ SAMPLE_REFERENCE = (
 # formulations that must be made identically except for the amounts had
 # nothing on paper saying how.
 SAMPLE_METHOD = (
-    "1. Each formulation totals 100 g. These amounts and targets demonstrate the app; "
-    "confirm a suitable preparation and measurement protocol before using them for real trials.\n"
-    "2. Prepare the Dry blend and Seasoning blend at their fixed component percentages; "
-    "weigh the listed amount of each into each formulation.\n"
-    "3. Hydrate the textured pea and soy proteins using only the listed Hydration water. "
-    "This is calculated as 2.2 times their combined mass. Use a fixed hydration protocol.\n"
-    "4. Combine Remaining water, Dry blend, Seasoning blend and Wheat gluten, then add the "
-    "hydrated proteins. Hydration water and Remaining water are separate weighed amounts. "
-    "Together with the other ingredients, they total 100 g. Add each water amount once.\n"
-    "5. Weigh Coconut oil and Sunflower oil separately for each formulation. Their ratio can "
-    "change. Add them and use that formulation's Mixing time after fat.\n"
-    "6. Keep forming, chilling, cooking and measurement protocols constant. Record ingredient "
-    "lots and any actual amounts that differ from the plan. Enter firmness, juiciness and cook "
-    "loss on Results, then upload the workbook and save the reviewed results in the app."
+    "1. Hydrate the textured pea and soy proteins in the Hydration water only "
+    "(2.2 × their combined mass), 10 min at 45 °C, covered. Do not drain.\n"
+    "2. Put the Remaining water in the bowl at ≤ 5 °C. Add the Dry blend, Wheat gluten "
+    "and Seasoning blend and mix 60 s on low. (The dry blend carries the "
+    "methylcellulose: it hydrates only cold.)\n"
+    "3. Add the hydrated proteins. Mix 30 s on low.\n"
+    "4. Add the fats and oils, coconut oil chopped to ~5 mm, and mix for this "
+    "formulation's Mixing time after fat.\n"
+    "5. Form 100 g patties, 100 mm across, 12 mm thick. Chill 20 min at 4 °C, covered.\n"
+    "6. Griddle at 180 °C, 3 min per side, to 74 °C core. Serve within 3 min.\n"
+    "Water temp at addition ____ °C (≤ 5)     Mass temp out of the bowl ____ °C (≤ 12)\n"
+    "Raw weight ____ g     Cooked and blotted weight ____ g     "
+    "Cook loss = (raw − cooked)/raw × 100\n"
+    "Contains soy and wheat (gluten).\n"
+    "Every formulation is made to the batch size printed above. These amounts and "
+    "targets demonstrate the app; confirm a suitable preparation and measurement "
+    "protocol before using them for real trials."
 )
 
 # Tab 1's two-line welcome for the sample project, shown only before its
@@ -1461,12 +1473,12 @@ def old_limit_basis_caption(unit):
     return f"An older limit is now read per 100 {unit} of formulation."
 
 
-def at_least(value):
-    return f"at least {value:g}"
+def at_least(value, unit=""):
+    return f"at least {value:g} {unit}".rstrip() if unit else f"at least {value:g}"
 
 
-def at_most(value):
-    return f"at most {value:g}"
+def at_most(value, unit=""):
+    return f"at most {value:g} {unit}".rstrip() if unit else f"at most {value:g}"
 
 
 def delete_limit_button(who):
@@ -1998,6 +2010,15 @@ TICK_COLUMN = "Tick"
 PERCENT_COLUMN = f"% of {BATCH_SIZE_NOUN}"
 
 SETTINGS_SHEET_HEADING = "Settings"
+
+
+def settings_step_note(steps_text):
+    """'Settings are set to the nearest 5 s.' — what the dial can actually
+    be set to, said under the block that asks for it.
+
+    A mixing time printed as 109.04 s asks the bench to round it, and three
+    benches round three ways."""
+    return f"Settings are set to the nearest {steps_text}."
 MEASUREMENTS_SHEET_HEADING = "Measurements"
 LIMITS_SHEET_HEADING = "Limits"
 # The finished-product limits, on the printed Set-up sheet. On screen they
@@ -2198,6 +2219,10 @@ OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
 # refusal can never drift apart. On screen it is always "= rest": "the
 # balance" is the instrument the bench weighs on.
 REST_TOKEN = "rest"
+# What the same idea is called wherever a reader meets it — the grid cell,
+# the calculation editor, the printed sheet. `= rest` is the stored spelling
+# and what an older file carries; this is the only word said out loud.
+FILL_TO_TOTAL = "Fill to total"
 
 
 # ------------------------------------------------------------------ #
@@ -2914,10 +2939,7 @@ COPY_TWO_BALANCE_ROWS = (f"This copy gives two rows = {REST_TOKEN}, and "
 # ------------------------------------------------------------------ #
 FORMULA_HELP = (
     "Optional. Calculate this ingredient's amount from other ingredients or the batch size. "
-    "Leave blank to let the app choose between Lowest and Highest. "
-    "Three forms: an amount from other ingredients (= 2.2 * Water), a percentage "
-    "(= 5% of batch size), or Fill to total, which adds enough to reach the batch size; "
-    "both * / and × ÷ work, and an existing = rest means Fill to total.")
+    "Leave blank to let the app choose between Lowest and Highest.")
 
 CALCULATION_TERMS_TABLE = """| Use | Example |
 |---|---|
@@ -3075,7 +3097,7 @@ def setup_sheet_formula_text(text, rest=False):
     other row prints exactly what it was typed as. `rest` comes from the
     parser, not from the spelling of the cell."""
     if rest:
-        return f"= {REST_TOKEN} ({BATCH_SIZE_NOUN} − every other {INGREDIENT})"
+        return f"{FILL_TO_TOTAL} ({BATCH_SIZE_NOUN} − every other {INGREDIENT})"
     return text
 
 
@@ -3330,6 +3352,7 @@ SUM_OF_ITS_PARTS = "sum of its parts"
 PARTS_ADD_TO_NOTHING = ("The composition percentages total zero. Give at least one of "
                         "them a composition percentage above zero.")
 PREMIX_NEEDS_A_PART = "Enter at least one name in the Part column before saving."
+PREMIX_QUANTITY_POSITIVE = "The smallest quantity that blends evenly must be more than nothing."
 
 
 def premix_fold_caption(weighed):
@@ -3386,7 +3409,7 @@ PREMIXES_HEADING = "Pre-mixes"
 # weighed out 167.52 g of water.
 MAKE_FOR_ROUND_HEADING = "Make for this round"
 HAVE_ON_HAND_HEADING = "Have on hand"
-HAVE_ON_HAND_CAPTION = ("Across every formulation; a worked-out row's total "
+HAVE_ON_HAND_CAPTION = (f"Across every {FORMULATION}; a {WORKED_OUT} row's total "
                         "is what the round comes to, not one weighing.")
 ROUND_TOTAL_COLUMN = "Total for this round"
 # The write-in line at the foot of a pre-mix page. The Round sheet has a Lot
@@ -3449,7 +3472,7 @@ def premix_needs_parts(name, here=False):
     """'Add at least one part to Wet blend in Set up before making a round.'
     — and, on Set up itself, 'under Blend compositions', because the tab it sent
     the reader to is the tab they are standing on."""
-    where = "under Blend compositions" if here else f"in {SET_UP_SHEET}"
+    where = f"under {BLEND_COMPOSITIONS_HEADING}" if here else f"in {SET_UP_SHEET}"
     return f"Add at least one {PART_LABEL.lower()} to {name} {where} before making a {ROUND}."
 
 
@@ -3627,3 +3650,130 @@ def result_view_option(no, round_no=None, best=False, unscored=False):
 
 CALCULATION_EDIT_BUTTON = "Edit calculation"
 CALCULATION_EDIT_HINT = "Type in Calculation, or use Edit calculation for suggestions and examples."
+
+
+# ------------------------------------------------------------------ #
+# The calculation editor (calculation_editor.py) and the compact
+# workbook (workbook_flow.py). Both modules arrived in wave 3 carrying
+# their own screen text, where the vocabulary guard could not see it.
+# Every sentence either module says out loud is here.
+# ------------------------------------------------------------------ #
+CALCULATION_EDITOR_TITLE = "Edit calculation"
+CALCULATION_MODE_RANGE = "Vary between limits"
+CALCULATION_MODE_AMOUNT = "Calculate an amount"
+CALCULATION_MODE_QUESTION = "How is this amount determined?"
+CALCULATION_NEEDS_AN_INGREDIENT = (
+    "Add an ingredient and save it before creating a calculation.")
+CALCULATION_RANGE_CAPTION = (
+    f"The app chooses an amount between {LOWEST_LABEL} and {HIGHEST_LABEL}. "
+    "Use the same value in both to keep it fixed.")
+CALCULATION_USE_RANGE_BUTTON = "Use limits"
+CALCULATION_FILL_BODY = (
+    f"This {INGREDIENT} fills what remains after all other {INGREDIENT}s "
+    "are added.")
+CALCULATION_FILL_CAPTION = (
+    f"{BATCH_SIZE_NOUN.capitalize()} is the total {INGREDIENT} amount "
+    f"for one {FORMULATION}. Only one {INGREDIENT} can fill the remaining "
+    "amount.")
+CALCULATION_FILL_EXAMPLE = (
+    f"Example: {BATCH_SIZE_NOUN} 100 g − other {INGREDIENT}s 72 g = 28 g.")
+CALCULATION_USE_FILL_BUTTON = f"Use {FILL_TO_TOTAL.lower()}"
+CALCULATION_BATCH_SIZE_CAPTION = (
+    f"{BATCH_SIZE_NOUN.capitalize()} means the total {INGREDIENT} amount for "
+    f"one {FORMULATION}, including this {INGREDIENT}.")
+CALCULATION_EXAMPLES_CAPTION = (
+    f"Examples explain the arithmetic, not recommended {INGREDIENT} ratios. "
+    "Choose values for your own protocol.")
+CALCULATION_TERMS_LABEL = "Supported calculations"
+CALCULATION_EMPTY_INFO = (
+    "Enter a calculation or choose a different method above.")
+CALCULATION_APPLY_CAPTION = (
+    f"Use this choice to update the table, then select {SAVE_CHANGES_BUTTON}. "
+    "Closing this panel leaves the table unchanged.")
+
+# The expression editor's own component: every label, placeholder and
+# message it draws.
+CALCULATION_EXPRESSION_PLACEHOLDER = (
+    f"Enter a calculation or insert an {INGREDIENT} below")
+CALCULATION_EXPRESSION_HINT = (
+    f"Use {INGREDIENT} amounts, {BATCH_SIZE_NOUN}, numbers and + − × ÷. "
+    f"Start typing an {INGREDIENT} name for suggestions.")
+CALCULATION_SUGGESTIONS_LABEL = "Ingredient suggestions"
+CALCULATION_INSERT_INGREDIENT = "Insert ingredient"
+CALCULATION_SEARCH_INGREDIENTS = "Search ingredients"
+CALCULATION_BATCH_SIZE_BUTTON = "Batch size"
+CALCULATION_BATCH_SIZE_TITLE = (
+    f"Total {INGREDIENT} amount for one {FORMULATION}")
+CALCULATION_OPERATORS_LABEL = "Insert an operator"
+CALCULATION_PERCENT_LABEL = "Percentage"
+CALCULATION_PERCENT_PLACEHOLDER = "e.g. 5"
+CALCULATION_PERCENT_OF_LABEL = "Percentage of"
+CALCULATION_INSERT_PERCENT = "Insert percentage"
+CALCULATION_USE_BUTTON = "Use calculation"
+CALCULATION_PICK_AN_INGREDIENT = "Choose an ingredient from the list."
+CALCULATION_NEEDS_A_PERCENT = "Enter a percentage."
+
+
+def calculated_range_caption(low_text, high_text, unit):
+    """'Calculated range: 12.00–28.00 g, based on the current ingredient
+    limits. This is not a measured result.' — two decimals, like every
+    other amount the app prints."""
+    span = f"{low_text}–{high_text} {unit}".rstrip()
+    return (f"Calculated range: {span}, based on the current {INGREDIENT} "
+            "limits. This is not a measured result.")
+
+
+# The three sheets of the compact workbook, and the lines that head them.
+OVERVIEW_SHEET = "Round overview"
+PREPARATION_SHEET = "Preparation"
+RESULTS_SHEET = "Results"
+SHEET_NAVIGATION = (
+    f"Use the sheet tabs: {OVERVIEW_SHEET} → {PREPARATION_SHEET} → "
+    f"{RESULTS_SHEET}. Tabs are at the bottom in Excel and at the top in "
+    "Numbers. ")
+OVERVIEW_SHEET_INTRO = (
+    f"Review the plan, prepare each {FORMULATION} separately, then enter "
+    f"measurements on {RESULTS_SHEET} and upload this file in the app.")
+PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
+PREPARATION_SHEET_INTRO = (
+    f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
+    f"where {INGREDIENT} amounts vary separately, follow the individual "
+    f"amounts on {OVERVIEW_SHEET}.")
+PREPARATION_SHEET_EMPTY = (
+    f"No pre-mixes are required. Follow the method on {OVERVIEW_SHEET}.")
+RESULTS_SHEET_TITLE = f"{RESULTS_SHEET} — Enter measurements here"
+RESULTS_SHEET_INTRO = (
+    f"Each {FORMULATION} has its own column. Blank means not recorded yet. "
+    "Enter results, then upload this workbook, review the import and save "
+    "in the app.")
+ACTUAL_SHEET_HEADING = "Actual amounts and settings — optional"
+ACTUAL_SHEET_HELP = ("Blank means the planned value. Enter what was actually "
+                     "prepared; these values are used for learning.")
+INGREDIENT_OR_SETTING_COLUMN = "Ingredient or setting"
+SHEET_LINK_FALLBACK = (
+    "If a link does not open, select the sheet tab with the same name.")
+# The compact sheet's own spelling of PREMIX_LOT_ON_ITS_PAGE: the pointer
+# is a live link to the Preparation sheet, which is where every pre-mix
+# page lives once the six sheets are folded into three. The reader skips
+# BOTH spellings — printed as a lot, it came back as one.
+PREMIX_LOT_ON_PREPARATION = f"See {PREPARATION_SHEET}"
+WORKBOOK_METADATA_ERROR = (
+    "This workbook is missing or has damaged round information. Download a "
+    "new workbook and transfer your entries.")
+WORKBOOK_FORMULA_ERROR = (
+    "A formula has no saved result. Open the workbook in Excel, recalculate "
+    "and save it, then upload again; or enter the measured number directly.")
+WORKBOOK_WRONG_ROUND = (
+    "This workbook belongs to a different round. Download the workbook for "
+    "the open round.")
+WORKBOOK_ROUND_CHANGED = (
+    f"The {FORMULATION}s changed after this workbook was downloaded. "
+    "Download a new workbook and transfer your measurements before "
+    "uploading.")
+WORKBOOK_MISSING_SHEET = (
+    "This workbook is missing a required sheet or its round information. "
+    "Download a new workbook.")
+WORKBOOK_RESULTS_ARE_NUMBERS = (
+    "Enter results as numbers, not Excel formulas, then upload again.")
+WORKBOOK_ACTUALS_ARE_NUMBERS = (
+    "Enter actual amounts as numbers, not Excel formulas.")

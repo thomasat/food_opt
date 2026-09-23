@@ -1996,6 +1996,8 @@ def render(opt, storage):
             if opt.has_ingredients():
                 with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
                     st.markdown(wording.RULE_GUIDE)
+                    with st.expander(wording.CALCULATION_SYNTAX_LABEL):
+                        st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         with import_col:
             with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
                 _upload_ingredients(opt)

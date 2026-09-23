@@ -24,7 +24,7 @@ from ui_helpers import (
     best_formulation_no,
     bounds_caution, confirm_action,
     confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
-    clear_scale_total, join_unit, label_with_unit, number_list, open_rows,
+    clear_scale_total, entry_label, join_unit, label_with_unit, number_list, open_rows,
     park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, typed_batch_size, unit_after_number,
 )
@@ -827,7 +827,7 @@ def _record_results(opt):
                 st.session_state.setdefault(_result_key(number, obj['name']),
                                             None)
                 value = st.number_input(
-                    f"{label_with_unit(obj['name'], obj.get('unit'))} · "
+                    f"{entry_label(obj['name'], obj.get('unit'))} · "
                     f"{goal_line(obj)}",
                     placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                     key=_result_key(number, obj['name']), disabled=skip,

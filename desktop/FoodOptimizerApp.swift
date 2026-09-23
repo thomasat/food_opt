@@ -338,9 +338,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var setupBody: String {
         setupIsUpgrade
             ? "Food Optimizer is downloading an update. "
-              + "This usually takes under a minute; on a slow network, a few minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
             : "The first time it opens, Food Optimizer downloads about 1 GB. "
-              + "This usually takes under a minute; on a slow network, a few minutes. Leave this window open."
+              + "Setup time depends on your connection and computer. Leave this window open."
     }
 
     var stepsPageTitle: String {

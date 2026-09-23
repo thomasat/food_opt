@@ -124,6 +124,11 @@ def is_reserved_name(name):
 # values, and nothing here is screen text.
 # ------------------------------------------------------------------ #
 
+# What a pre-mix is not made less than, whatever the round needs: a blend
+# of fine powders and coarse salt cannot be made at 7.5 g to any
+# homogeneity. One pre-mix can be told it needs more (see
+# set_premix_smallest_quantity).
+PREMIX_SMALLEST_QUANTITY = 100.0
 PREMIX_PORTIONED = 'portioned'
 PREMIX_WEIGHED = 'weighed'
 PREMIX_MODES = (PREMIX_PORTIONED, PREMIX_WEIGHED)
@@ -619,6 +624,20 @@ def label_with_unit(name, unit):
     measured '6 N')."""
     unit = str(unit or "")
     return f"{name} ({unit})" if unit.startswith("/") else str(name)
+
+
+def entry_label(name, unit):
+    """'Cook loss (%)' — how a measurement is labelled where the cell beside
+    it is EMPTY.
+
+    A blank cell cannot display a unit after its value, so the label is the
+    only place the unit can be said, and a bench handed "Cook loss" with
+    nothing else on the page writes 18, 0.18 or 18.4 g. Everywhere a number
+    is already printed the unit rides after it and label_with_unit above is
+    the right one.
+    """
+    unit = str(unit or "")
+    return f"{name} ({unit})" if unit else str(name)
 
 
 def fmt_amount(value, unit="", decimals=2):
@@ -2007,7 +2026,8 @@ class FoodOptimizer:
             except ValueError:
                 raise ValueError(wording.file_row_made_as_unknown(
                     record['row'], record['made_as']))
-            self.premixes[record['name']] = {'mode': mode, 'parts': [],
+            self.premixes[record['name']] = {'mode': mode, 'smallest': None,
+                                             'parts': [],
                                              'versions': {}}
         for record in rows:
             group = record['group']
@@ -2128,7 +2148,7 @@ class FoodOptimizer:
         self._formula_order()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
-                              unit=""):
+                              unit="", step=None):
         """Add a process parameter (e.g. baking temperature, mixing time).
 
         Added mid-run it requires `baseline` — the value used in ALL prior
@@ -2139,6 +2159,11 @@ class FoodOptimizer:
         `unit` is the setting's own unit (°C, min, rpm). A setting is not an
         amount, so it never wears the project's amount unit; without one of
         its own a sheet printed a bare "Cook temperature: 175".
+
+        `step` is what the dial can be set to. Nobody sets a planetary mixer
+        to 109.04 s, and a sheet that asks for it is a sheet the bench has
+        to round for itself, three different ways on three formulations. A
+        setting with a step is suggested on that step.
         """
         name = self._check_new_variable(name, min_val, max_val, 'process')
         min_val, max_val = float(min_val), float(max_val)
@@ -2175,6 +2200,7 @@ class FoodOptimizer:
                 self._check_fixed_feasible(name, min_val, max_val, 'process')
                 var['bounds'] = (min_val, max_val)
                 var['unit'] = unit
+                var['step'] = None if step is None else float(step)
                 if carried is not None and float(carried) != float(stored):
                     var['_absent_value'] = float(carried)
                     self._reencode_history()
@@ -2188,6 +2214,7 @@ class FoodOptimizer:
             'bounds': (min_val, max_val),
             'category': 'process',
             'unit': unit,
+            'step': None if step is None else float(step),
         }
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
@@ -3850,7 +3877,7 @@ class FoodOptimizer:
         summary sheet and its line on a formulation's own sheet. An uploaded
         workbook is matched back on this exact text."""
         return wording.sheet_measurement_label(
-            label_with_unit(obj['name'], obj.get('unit')), goal_line(obj))
+            entry_label(obj['name'], obj.get('unit')), goal_line(obj))
 
     def workbook_bytes(self, batch, total=None, sized=False, print_pack=True):
         """The open round as one Excel file: a summary sheet the whole round
@@ -3884,7 +3911,9 @@ class FoodOptimizer:
         import workbook_flow
         workbook_flow.stamp(book, self, rows, total)
         if not print_pack:
-            book = workbook_flow.compact(book, self, rows)
+            book = workbook_flow.compact(
+                book, self, rows,
+                note=self.scaled_amounts_note(rows, total, sized))
         custom_records.append_workbook(book, self, rows, print_pack)
         workbook_flow.hide_metadata(book)
         book.active = 0
@@ -3914,7 +3943,7 @@ class FoodOptimizer:
     def _write_premix_sheet(self, sheet, name, rows, total):
         need = sum(round(float(self.shown_recipe(row, total)[0].get(name, 0)
                                or 0.0), 2) for row in rows)
-        amount = self.premix_make_quantity(need)
+        amount = self.premix_make_quantity(need, name)
         unit = self.unit_of(name) or self.amount_unit
         # The make quantity is a round number by construction (the next 5 g
         # up), so it is written as one: `make 100 g`, not `make 100.00 g`.
@@ -4113,9 +4142,15 @@ class FoodOptimizer:
         # and the Measured cells are pages below: one line about the whole
         # sheet belongs where the sheet starts. It names this sheet's own
         # cells; the Actual cells are named on the pages that carry them.
-        _write_banner(sheet, 2, 1,
-                      wording.summary_write_in_note(lot=bool(lot_column)),
-                      last_column)
+        # ...and, first, the line that says these numbers are not the ones
+        # on the grid. The screen says it the moment the Batch size box
+        # moves; the sheets printed from those numbers said it nowhere, so a
+        # bench read a method and a set of unfamiliar amounts with nothing
+        # reconciling them.
+        _write_banner(sheet, 2, 1, " ".join(
+            line for line in (self.scaled_amounts_note(rows, total, sized),
+                              wording.summary_write_in_note(lot=bool(lot_column)))
+            if line), last_column)
 
         # The first column carries the settings too when the project has
         # any: they were filed silently under "Ingredient".
@@ -4193,22 +4228,12 @@ class FoodOptimizer:
                     _write_cell(sheet, r, column(j, 1), 100.0, bold=True,
                                 number_format=_ONE_DP)
             r += 1
-        # The settings are on the sheet too: they are dialled in, not weighed
-        # out, so they carry no share of the total and no colour.
-        for var in process:
-            _write_cell(sheet, r, 1, self._amount_column(var['name']), bold=True)
-            for j, recipe in enumerate(recipes):
-                # A setting is dialled in, not weighed: two decimals at most,
-                # as fmt_setting writes it on every screen.
-                _write_cell(sheet, r, column(j),
-                            round(float(recipe.get(var['name'], 0.0)), 2))
-            r += 1
         # The caution belongs with the amounts it is about, directly under
         # them — not at the foot of the sheet, under the signature line. A
         # row that does not add up to the total says so on its own line: the
         # bench weighs out what is printed above, and nothing else on the
         # page would say the column is not the total in the title.
-        for line in (self.scaled_cautions(rows, total, sized)
+        for line in (self.scaled_caution_lines(rows, total, sized)
                      + self.total_mismatch_lines(rows, total)):
             _write_cell(sheet, r, 1, line)
             r += 1
@@ -4226,6 +4251,32 @@ class FoodOptimizer:
             r += 1
             for line in method:
                 _write_banner(sheet, r, 1, line, last_column)
+                r += 1
+            r += 1
+        # The settings are on the sheet too: they are dialled in, not weighed
+        # out, so they carry no share of the total and no colour — and they
+        # are under a heading of their own, the way each formulation's page
+        # already puts them. Directly under `Total (g) 100.00`, with no
+        # number format of its own, `109.04` read for a moment as another
+        # mass.
+        if process:
+            _write_cell(sheet, r, 1, wording.SETTINGS_SHEET_HEADING, bold=True)
+            for j, row in enumerate(rows):
+                _write_cell(sheet, r, column(j),
+                            wording.formulation_sheet_name(row['formulation']),
+                            bold=True)
+            r += 1
+            for var in process:
+                _write_cell(sheet, r, 1, self._amount_column(var['name']), bold=True)
+                for j, recipe in enumerate(recipes):
+                    # A setting is dialled in, not weighed: two decimals at
+                    # most, as fmt_setting writes it on every screen.
+                    _write_cell(sheet, r, column(j),
+                                round(float(recipe.get(var['name'], 0.0)), 2))
+                r += 1
+            step = self.settings_step_note()
+            if step:
+                _write_banner(sheet, r, 1, step, last_column)
                 r += 1
             r += 1
 
@@ -4393,10 +4444,16 @@ class FoodOptimizer:
         column_head = self.compared_with_column()
         cell_text = self.compared_with_text(row['recipe'], scale_to=total,
                                             own=own)
-        _write_cell(sheet, 2, 1,
-                    cell_text if (own
-                                  or column_head == wording.COMPARED_WITH_ALLOWED)
-                    else wording.compared_with_line(column_head, cell_text))
+        # `Spread across the allowed amounts` is the round's search
+        # strategy, stated once on the Round sheet; on a formulation page it
+        # is a line the operator reads and then has to discard. What belongs
+        # here is the line that says the amounts below were re-sized.
+        _write_cell(sheet, 2, 1, " ".join(line for line in (
+            self.scaled_amounts_note([row], total, sized),
+            cell_text if own
+            else ("" if column_head == wording.COMPARED_WITH_ALLOWED
+                  else wording.compared_with_line(column_head, cell_text)))
+            if line))
         # The page is protected, so it says up front which cells still take
         # a number — the Actual cells are in the table below, a long way
         # from the Measured ones. Across the page, because a sentence left
@@ -4483,7 +4540,7 @@ class FoodOptimizer:
             # the table and stops at the line that says these numbers are
             # outside what the project allows, or that they do not add up to
             # the total the title names.
-            for line in (self.scaled_cautions([row], total, sized)
+            for line in (self.scaled_caution_lines([row], total, sized)
                          + self.total_mismatch_lines([row], total)):
                 _write_cell(sheet, r, 2, line)
                 r += 1
@@ -4524,7 +4581,7 @@ class FoodOptimizer:
         _write_cell(sheet, r, 4, wording.MEASURED_COLUMN, bold=True)
         r += 1
         for obj in self.measurements_by_importance():
-            _write_cell(sheet, r, 2, label_with_unit(obj['name'], obj.get('unit')))
+            _write_cell(sheet, r, 2, entry_label(obj['name'], obj.get('unit')))
             _write_cell(sheet, r, 3, goal_line(obj))
             _write_in_cell(sheet, r, 4)
             r += 1
@@ -4752,7 +4809,9 @@ class FoodOptimizer:
                 # A portioned pre-mix's Lot cell is a pointer at the page
                 # that makes it, printed by the app and locked; it is not a
                 # lot somebody wrote down.
-                if str(value).strip() in (wording.PREMIX_LOT_ON_ITS_PAGE, "see its page"):
+                if str(value).strip() in (wording.PREMIX_LOT_ON_ITS_PAGE,
+                                          wording.PREMIX_LOT_ON_PREPARATION,
+                                          "see its page"):
                     continue
                 lots[name] = str(value).strip()
         return lots
@@ -4950,6 +5009,7 @@ class FoodOptimizer:
                      self._measurement_sheet_label(obj).replace(obj['name'],
                          f"{obj['name']} ({obj.get('unit')})", 1).lower(),
                      label_with_unit(obj['name'], obj.get('unit')).lower(),
+                     entry_label(obj['name'], obj.get('unit')).lower(),
                      str(obj['name']).strip().lower()}
             index = next((i for i in range(len(lowered) - 1, -1, -1)
                           if lowered[i] in names), None)
@@ -5034,7 +5094,10 @@ class FoodOptimizer:
         was written beside it in the fourth."""
         measurement_names = {}
         for obj in self.objectives:
-            for label in (label_with_unit(obj['name'], obj.get('unit')),
+            # Every spelling the label has worn: the page writes it with
+            # its unit now, and a workbook downloaded before it did not.
+            for label in (entry_label(obj['name'], obj.get('unit')),
+                          label_with_unit(obj['name'], obj.get('unit')),
                           str(obj['name'])):
                 measurement_names[label.strip().lower()] = obj['name']
         rows = []
@@ -5550,9 +5613,13 @@ class FoodOptimizer:
 
     def property_limit_text(self, constraint):
         """A property limit, per 100 of the amount unit, as one line."""
-        bounds = ([wording.at_least(constraint['min'])]
+        # With the unit the ingredients are weighed in: a property is a
+        # figure per 100 g of what you make, and "at most 16" named no
+        # quantity at all.
+        unit = self.one_amount_unit()
+        bounds = ([wording.at_least(constraint['min'], unit)]
                   if constraint.get('min') is not None else [])
-        bounds += ([wording.at_most(constraint['max'])]
+        bounds += ([wording.at_most(constraint['max'], unit)]
                    if constraint.get('max') is not None else [])
         return f"{constraint['metric']}: {wording.AND_JOIN.join(bounds)}"
 
@@ -5691,14 +5758,22 @@ class FoodOptimizer:
         20.32 g when the round was printed at 150 g — and a limit is
         documented as a hard rule. One line, naming the first limit that does
         not hold, in the words the Limits list writes it in."""
+        # A limit is written per formulation, exactly as the allowed amounts
+        # are, so a bigger lot of the same formula is read against a bigger
+        # limit: 36-43 g of solids in a 100 g patty is 90-107.5 g in a 250 g
+        # round, and the round the box just made is not a broken limit.
+        scale = self.amount_scale(total)
         for recipe in self._rewritten(recipes, total, sized):
             for qc in getattr(self, 'quantity_constraints', []):
                 if qc.get('source') == 'formulation_total':
                     continue     # the total is the thing being asked about
                 value = sum(float(recipe.get(n, 0.0))
                             for n in qc['ingredients'])
-                if ((qc['min'] is not None and value < qc['min'])
-                        or (qc['max'] is not None and value > qc['max'])):
+                slack = 1e-6 * (1.0 + abs(value))
+                low = None if qc['min'] is None else qc['min'] * scale
+                high = None if qc['max'] is None else qc['max'] * scale
+                if ((low is not None and value < low - slack)
+                        or (high is not None and value > high + slack)):
                     return wording.scaled_limit_caution(
                         self.batch_total_text(total), self.limit_text(qc))
             for constraint in self.constraints:
@@ -5723,16 +5798,34 @@ class FoodOptimizer:
             return False
         return True
 
+    def settings_step_note(self):
+        """'Settings are set to the nearest 5 s.', or "" when no setting has
+        a step. The sheet says what the dial can be set to, once, under the
+        block that asks for it."""
+        steps = [(var, var.get('step')) for var in self._process_settings()
+                 if var.get('step')]
+        if not steps:
+            return ""
+        return wording.settings_step_note(number_list(sorted({
+            join_unit(f"{float(step):g}", var.get('unit') or "")
+            for var, step in steps})))
+
+    def scaled_caution_lines(self, recipes, total, sized=False):
+        """Every caution a re-sized round owes the bench, WITHOUT the note
+        that says it was re-sized: the sheets print that under their own
+        title, where the numbers it is about begin."""
+        return [line
+                for line in (self.scaled_caution(recipes, total, sized),
+                             self.scaled_limit_caution(recipes, total, sized))
+                if line]
+
     def scaled_cautions(self, recipes, total, sized=False):
         """Every line a re-sized round owes the bench: the amounts pushed past
         what the project allows, and the limit the size broke. Callers draw
         them in order — the screen as captions, the sheets as rows — so one
         list is the whole answer. `sized` is passed straight through to
         _rewritten, which says what it means."""
-        lines = [line
-                 for line in (self.scaled_caution(recipes, total, sized),
-                              self.scaled_limit_caution(recipes, total, sized))
-                 if line]
+        lines = self.scaled_caution_lines(recipes, total, sized)
         note = self.scaled_amounts_note(recipes, total, sized)
         return ([note] + lines) if note else lines
 
@@ -6535,10 +6628,30 @@ class FoodOptimizer:
         project_total = getattr(self, 'formulation_total', None)
         return None if project_total is None else float(project_total)
 
-    def premix_make_quantity(self, need):
+    def set_premix_smallest_quantity(self, name, grams):
+        """The smallest quantity of one pre-mix that blends evenly, in the
+        amount unit. 100 g is the floor every pre-mix carries unless it is
+        told otherwise; a blend of five fine powders and coarse salt may
+        need more before it is homogeneous, and a page that prints
+        `Amount (g)` beside `Composition (%)` at exactly 100 g prints one
+        column twice."""
+        premix = self._premix_by_name(name)
+        value = None if grams is None else float(grams)
+        if value is not None and value <= 0:
+            raise ValueError(wording.PREMIX_QUANTITY_POSITIVE)
+        premix['smallest'] = value
+        self.save()
+        return value
+
+    def premix_smallest_quantity(self, name):
+        """What `name` will not be made less than."""
+        premix = (getattr(self, 'premixes', None) or {}).get(name) or {}
+        return float(premix.get('smallest') or PREMIX_SMALLEST_QUANTITY)
+
+    def premix_make_quantity(self, need, name=None):
         """How much of a portioned pre-mix to make for a round that takes
-        `need` out of it: the larger of the need plus a tenth and 100 g,
-        rounded up to the next 5 g.
+        `need` out of it: the larger of the need plus a tenth and the
+        smallest quantity that blends evenly, rounded up to the next 5 g.
 
         `make 85.71 g` asks for a blend dispensed with zero loss — nothing
         in the bowl, nothing on the paddle, nothing on the scoop. And
@@ -6547,7 +6660,9 @@ class FoodOptimizer:
         to the bottom, so the third formulation gets a different seasoning
         from the first. A floor and a tenth over fix both.
         """
-        wanted = max(float(need) * 1.1, 100.0)
+        floor = (self.premix_smallest_quantity(name) if name
+                 else PREMIX_SMALLEST_QUANTITY)
+        wanted = max(float(need) * 1.1, floor)
         return math.ceil(wanted / 5.0) * 5.0
 
     def round_make_quantities(self, batch=None, total=None):
@@ -6565,7 +6680,7 @@ class FoodOptimizer:
                 continue
             need = sum(round(float(self.shown_recipe(row, total)[0]
                                    .get(name, 0) or 0.0), 2) for row in rows)
-            made.append((name, self.premix_make_quantity(need), need))
+            made.append((name, self.premix_make_quantity(need, name), need))
         return made
 
     def round_on_hand_totals(self, batch=None, total=None):
@@ -7124,6 +7239,10 @@ class FoodOptimizer:
                     recipes = [self._snapped_if_it_still_fits(rec)
                                for rec in recipes]
 
+        # A setting is dialled in, not weighed, so it is issued on the
+        # step its dial has. It takes no part in the mass balance, so this
+        # moves nothing else on the row.
+        recipes = [self._settings_on_their_step(rec) for rec in recipes]
         # Numbers are issued here, at generation, and never reissued.
         self.set_pending_batch(recipes, batch_no=batch_no, discarded=discarded)
         # And so is the make-up each pre-mix was generated from: the round
@@ -7131,6 +7250,24 @@ class FoodOptimizer:
         # today is a fact about the round.
         self._snapshot_premixes(self.pending_batch_no, makeups)
         return recipes
+
+    def _settings_on_their_step(self, recipe):
+        """One suggestion with every process setting moved onto the step its
+        dial has, and held inside its own allowed values.
+
+        `110 s / 90 s / 65 s` is the same experiment as `109.04 / 88.44 /
+        65.32` and a sheet the bench can follow. A setting with no step is
+        left exactly as the optimiser chose it."""
+        out = dict(recipe)
+        for var in self._process_settings():
+            step = var.get('step')
+            value = out.get(var['name'])
+            if not step or value is None:
+                continue
+            low, high = (float(b) for b in var['bounds'])
+            snapped = round(float(value) / float(step)) * float(step)
+            out[var['name']] = min(max(snapped, low), high)
+        return out
 
     def _snapped_if_it_still_fits(self, recipe):
         """One suggestion of a warm batch, moved onto the project's total —
@@ -9238,7 +9375,8 @@ class FoodOptimizer:
             raise ValueError(wording.PREMIX_INSIDE_PREMIX)
         self._name_is_free(name,
                            skip=self._by_name().get(name) if over_row else None)
-        self.premixes[name] = {'mode': mode, 'parts': [], 'versions': {}}
+        self.premixes[name] = {'mode': mode, 'smallest': None,
+                               'parts': [], 'versions': {}}
         removed = self._sync_premix(name)
         self.save()
         return removed
@@ -11802,6 +11940,7 @@ class FoodOptimizer:
             'premixes': {
                 str(group): {
                     'mode': str(premix.get('mode', PREMIX_PORTIONED)),
+                    'smallest': premix.get('smallest'),
                     'parts': [dict(part) for part in premix.get('parts', [])],
                     'versions': {
                         str(round_no): [dict(part) for part in parts]
@@ -12199,6 +12338,10 @@ class FoodOptimizer:
         self.premixes = {
             str(group): {
                 'mode': str(premix.get('mode', PREMIX_PORTIONED)),
+                # A file written before one pre-mix could be told it needs
+                # more than 100 g carries no key, and None is the floor.
+                'smallest': (None if premix.get('smallest') is None
+                             else float(premix['smallest'])),
                 'parts': [self._stored_part(part)
                           for part in (premix.get('parts') or [])],
                 'versions': {

@@ -13,7 +13,7 @@ Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Chec
 3. Open **Applications**, then double-click **Food Optimizer**.
 4. Keep the app open and stay connected to the internet while setup completes. The window shows progress.
 
-First-time setup downloads about **1 GB** and needs about **6 GB of free space**. This usually takes under a minute; on a slow network, a few minutes. You can use the app offline afterward; a future update may need another download.
+First-time setup downloads about **1 GB** and needs about **6 GB of free space**. Setup time depends on your connection and computer. You can use the app offline afterward; a future update may need another download.
 
 **Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept.
 

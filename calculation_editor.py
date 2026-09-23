@@ -11,8 +11,12 @@ import streamlit.components.v2 as components
 import wording
 from food_bo import GRID_ID, formula_is_rest
 
-FILL = "Fill to total"
-MODES = ["Vary between limits", "Fill to total", "Calculate an amount"]
+FILL = wording.FILL_TO_TOTAL
+# Handed to the component, which cannot import wording of its own.
+_MESSAGES = {'ingredient': wording.CALCULATION_PICK_AN_INGREDIENT,
+             'percentage': wording.CALCULATION_NEEDS_A_PERCENT,
+             'operator': wording.CALCULATION_OPERATORS_LABEL.split()[0]}
+MODES = [wording.CALCULATION_MODE_RANGE, FILL, wording.CALCULATION_MODE_AMOUNT]
 
 
 def display_calculation(value):
@@ -29,7 +33,7 @@ def canonical_calculation(value):
     if not text:
         return ''
     if text.casefold() in (FILL.casefold(), 'fill to batch size'):
-        return '= rest'
+        return f'= {wording.REST_TOKEN}'
     return text if text.startswith('=') else '= ' + text
 
 
@@ -55,16 +59,16 @@ def canonical_frame(frame, opening):
 
 _EXPRESSION = components.component(
     'calculation_expression',
-    html='''<div class="editor">
-<label for="expression">Calculation</label>
-<div class="entry"><span aria-hidden="true">=</span><textarea id="expression" aria-label="Calculation" rows="3" spellcheck="false" aria-describedby="hint" placeholder="Enter a calculation or insert an ingredient below"></textarea></div>
-<div id="suggestions" role="group" aria-label="Ingredient suggestions"></div>
-<p id="hint">Use ingredient amounts, batch size, numbers and + − × ÷. Start typing an ingredient name for suggestions.</p>
-<div class="insert"><label for="ingredient">Insert ingredient</label><input id="ingredient" aria-label="Insert ingredient" type="search" list="ingredients" placeholder="Search ingredients"><datalist id="ingredients"></datalist><button id="insert">Insert ingredient</button><button id="batch" title="Total ingredient amount for one formulation">Batch size</button></div>
-<div id="operators" role="group" aria-label="Insert an operator"></div>
-<div class="percent"><label for="percent">Percentage</label><input id="percent" aria-label="Percentage" type="number" placeholder="e.g. 5" step="any"><span> % of </span><select id="of" aria-label="Percentage of"></select><button id="percentage">Insert percentage</button></div>
+    html=f'''<div class="editor">
+<label for="expression">{wording.FORMULA_LABEL}</label>
+<div class="entry"><span aria-hidden="true">=</span><textarea id="expression" aria-label="{wording.FORMULA_LABEL}" rows="3" spellcheck="false" aria-describedby="hint" placeholder="{wording.CALCULATION_EXPRESSION_PLACEHOLDER}"></textarea></div>
+<div id="suggestions" role="group" aria-label="{wording.CALCULATION_SUGGESTIONS_LABEL}"></div>
+<p id="hint">{wording.CALCULATION_EXPRESSION_HINT}</p>
+<div class="insert"><label for="ingredient">{wording.CALCULATION_INSERT_INGREDIENT}</label><input id="ingredient" aria-label="{wording.CALCULATION_INSERT_INGREDIENT}" type="search" list="ingredients" placeholder="{wording.CALCULATION_SEARCH_INGREDIENTS}"><datalist id="ingredients"></datalist><button id="insert">{wording.CALCULATION_INSERT_INGREDIENT}</button><button id="batch" title="{wording.CALCULATION_BATCH_SIZE_TITLE}">{wording.CALCULATION_BATCH_SIZE_BUTTON}</button></div>
+<div id="operators" role="group" aria-label="{wording.CALCULATION_OPERATORS_LABEL}"></div>
+<div class="percent"><label for="percent">{wording.CALCULATION_PERCENT_LABEL}</label><input id="percent" aria-label="{wording.CALCULATION_PERCENT_LABEL}" type="number" placeholder="{wording.CALCULATION_PERCENT_PLACEHOLDER}" step="any"><span> % of </span><select id="of" aria-label="{wording.CALCULATION_PERCENT_OF_LABEL}"></select><button id="percentage">{wording.CALCULATION_INSERT_PERCENT}</button></div>
 <p class="notice" role="status" aria-live="polite"></p>
-<button id="use" class="primary">Use calculation</button>
+<button id="use" class="primary">{wording.CALCULATION_USE_BUTTON}</button>
 </div>''',
     css='''
 *{box-sizing:border-box}
@@ -95,12 +99,12 @@ export default function(component) {
  input.onselect=remember; input.onkeyup=()=>{remember();suggest();}; input.onclick=remember;
  input.oninput=()=>{remember();suggest();clearTimeout(timer);timer=setTimeout(publish,650);};
  input.onblur=remember;
- $('#insert').onclick=()=>{const name=$('#ingredient').value;if(data.names.includes(name)){insert(name);$('.notice').textContent='';}else{$('.notice').textContent='Choose an ingredient from the list.';}};
+ $('#insert').onclick=()=>{const name=$('#ingredient').value;if(data.names.includes(name)){insert(name);$('.notice').textContent='';}else{$('.notice').textContent=data.messages.ingredient;}};
  $('#batch').onclick=()=>insert('batch size');
  for(const [label,text] of [['+',' + '],['−',' - '],['×',' * '],['÷',' / '],['(','('],[')',')']]){
-   const b=document.createElement('button');b.textContent=label;b.type='button';b.setAttribute('aria-label','Insert '+label);b.onclick=()=>insert(text);$('#operators').appendChild(b);
+   const b=document.createElement('button');b.textContent=label;b.type='button';b.setAttribute('aria-label',data.messages.operator+' '+label);b.onclick=()=>insert(text);$('#operators').appendChild(b);
  }
- $('#percentage').onclick=()=>{const value=$('#percent').value;if(value!=='' && Number.isFinite(Number(value))){insert(value+'% of '+target.value);}else{$('.notice').textContent='Enter a percentage.';}};
+ $('#percentage').onclick=()=>{const value=$('#percent').value;if(value!=='' && Number.isFinite(Number(value))){insert(value+'% of '+target.value);}else{$('.notice').textContent=data.messages.percentage;}};
  $('#use').onclick=()=>{clearTimeout(timer);setTriggerValue('apply',input.value);};
 }
 ''')
@@ -121,7 +125,7 @@ def _preview(opt, plan, name):
             return
         low, high = opt._form_reach(opt._linear_form(name), opt._batch_size())
         unit = opt.unit_of(name)
-        st.caption(f"Calculated range: {low:g}–{high:g} {unit}, based on the current ingredient limits. This is not a measured result.")
+        st.caption(wording.calculated_range_caption(f"{low:.2f}", f"{high:.2f}", unit))
 
 
 def _stage(frame):
@@ -131,7 +135,7 @@ def _stage(frame):
     st.rerun(scope='app')
 
 
-@st.dialog('Edit calculation', width='large')
+@st.dialog(wording.CALCULATION_EDITOR_TITLE, width='large')
 def open_editor(opt, frame):
     # Aggregate blends and process settings cannot have an amount calculation.
     eligible = [i for i, row in frame.iterrows()
@@ -139,40 +143,40 @@ def open_editor(opt, frame):
                 and row.get(wording.TYPE_LABEL) != wording.KIND_SETTING
                 and row.get(wording.MADE_AS_LABEL) != wording.PREMIX_MADE_AS_WEIGHED]
     if not eligible:
-        st.info('Add an ingredient and save it before creating a calculation.')
+        st.info(wording.CALCULATION_NEEDS_AN_INGREDIENT)
         return
-    index = st.selectbox('Ingredient', eligible,
+    index = st.selectbox(wording.KIND_INGREDIENT, eligible,
                          format_func=lambda i: str(frame.at[i, wording.NAME_LABEL]),
                          key=f'calculation_row_{opt.project_name}')
     row = frame.loc[index]
     name = str(row[wording.NAME_LABEL])
     source = str(row.get(wording.FORMULA_LABEL) or '')
     key = 'calculation-' + hashlib.sha256(f'{opt.project_name}|{index}|{source}'.encode()).hexdigest()[:20]
-    mode = st.radio('How is this amount determined?', MODES,
+    mode = st.radio(wording.CALCULATION_MODE_QUESTION, MODES,
                     index=1 if formula_is_rest(source) else 2 if source else 0,
                     key=key+'_mode', horizontal=True)
     candidate = frame.copy()
     apply = False
     if mode == MODES[0]:
-        st.caption('The app chooses an amount between Lowest and Highest. Use the same value in both to keep it fixed.')
+        st.caption(wording.CALCULATION_RANGE_CAPTION)
         var = next((v for v in opt.variables if v['name']==row.get(GRID_ID)), None)
         bounds = var['bounds'] if var else (0, 100)
         def initial(column, fallback):
             try: return float(row[column])
             except (ValueError, TypeError): return float(fallback)
         left, right = st.columns(2)
-        low = left.number_input('Lowest', value=initial(wording.LOWEST_LABEL,bounds[0]),key=key+'_low')
-        high = right.number_input('Highest', value=initial(wording.HIGHEST_LABEL,bounds[1]),key=key+'_high')
+        low = left.number_input(wording.LOWEST_LABEL, value=initial(wording.LOWEST_LABEL,bounds[0]),key=key+'_low')
+        high = right.number_input(wording.HIGHEST_LABEL, value=initial(wording.HIGHEST_LABEL,bounds[1]),key=key+'_high')
         candidate.at[index, wording.FORMULA_LABEL] = ''
         candidate.at[index, wording.LOWEST_LABEL] = str(low)
         candidate.at[index, wording.HIGHEST_LABEL] = str(high)
-        apply = st.button('Use limits', key=key+'_use_limits')
+        apply = st.button(wording.CALCULATION_USE_RANGE_BUTTON, key=key+'_use_limits')
     elif mode == MODES[1]:
-        st.write('This ingredient fills what remains after all other ingredients are added.')
-        st.caption('Batch size is the total ingredient amount for one formulation. Only one ingredient can fill the remaining amount.')
-        st.caption('Example: batch size 100 g − other ingredients 72 g = 28 g.')
-        candidate.at[index, wording.FORMULA_LABEL] = '= rest'
-        apply = st.button('Use fill to total', key=key+'_use_fill')
+        st.write(wording.CALCULATION_FILL_BODY)
+        st.caption(wording.CALCULATION_FILL_CAPTION)
+        st.caption(wording.CALCULATION_FILL_EXAMPLE)
+        candidate.at[index, wording.FORMULA_LABEL] = f'= {wording.REST_TOKEN}'
+        apply = st.button(wording.CALCULATION_USE_FILL_BUTTON, key=key+'_use_fill')
     else:
         names = [str(r[wording.NAME_LABEL]) for i,r in frame.iterrows()
                  if i!=index and r.get(wording.TYPE_LABEL)!=wording.KIND_SETTING
@@ -183,27 +187,28 @@ def open_editor(opt, frame):
             if group['mode']=='weighed':
                 names.extend(p['name'] for p in group['parts'] if p['name']!=name)
         result = _EXPRESSION(data={'expression': '' if formula_is_rest(source) else display_calculation(source),
-                                   'names': sorted(set(names))},key=key+'_expression',
+                                   'names': sorted(set(names)),
+                                   'messages': _MESSAGES},key=key+'_expression',
                              on_expression_change=lambda: None,on_apply_change=lambda: None)
         text = result.expression if result.expression is not None else ('' if formula_is_rest(source) else display_calculation(source))
         if result.apply is not None:
             text = result.apply
             apply = True
         candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(text)
-        st.caption('Batch size means the total ingredient amount for one formulation, including this ingredient.')
-        st.caption('Examples explain the arithmetic, not recommended ingredient ratios. Choose values for your own protocol.')
-        with st.expander('Supported calculations'):
+        st.caption(wording.CALCULATION_BATCH_SIZE_CAPTION)
+        st.caption(wording.CALCULATION_EXAMPLES_CAPTION)
+        with st.expander(wording.CALCULATION_TERMS_LABEL):
             st.markdown(wording.CALCULATION_TERMS_TABLE)
         with st.expander(wording.CALCULATION_SYNTAX_LABEL):
             st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         if not str(text).strip():
-            st.info('Enter a calculation or choose a different method above.')
+            st.info(wording.CALCULATION_EMPTY_INFO)
             return
     errors, plan = _validate(opt, candidate)
     for row_no, message in errors:
         st.error((str(frame.at[row_no, wording.NAME_LABEL])+': ' if row_no in frame.index else '')+message)
     if not errors:
         _preview(opt, plan, name)
-    st.caption('Use this choice to update the table, then select Save changes. Closing this panel leaves the table unchanged.')
+    st.caption(wording.CALCULATION_APPLY_CAPTION)
     if apply and not errors:
         _stage(candidate)
