@@ -347,8 +347,9 @@ assert not at.exception, at.exception
 # measurement gets. There is no Importance column anywhere (0.5.0).
 grid = at.dataframe[1].value
 assert [c for c in grid.columns if c != "_id"] == [
-    "Measurement", "Goal", "Target", "Lowest measurable",
-    "Highest measurable", "Unit", "Share of score (%)"], list(grid.columns)
+    "Measurement", "Goal", "Target", wording.LOWEST_MEASURABLE_LABEL,
+    wording.HIGHEST_MEASURABLE_LABEL, "Unit",
+    wording.SHARE_COLUMN], list(grid.columns)
 assert list(grid["Share of score (%)"]) == [100.0]
 # The score line is the shares and nothing else now: the weight behind a
 # share left the screen with Importance, and the ceiling is always 100.
@@ -488,11 +489,13 @@ at.run()
 assert not at.exception, at.exception
 
 # Tab 1 - Set up: the ingredients list is one editable grid, with Vendor
-# and SKU beside the range and Rule last (0.6.0). Baseline joins it only
-# once results exist.
+# and SKU beside the range and Calculation last (0.6.0). Baseline joins it
+# only once results exist. The headers come from wording, so this check
+# can never fall behind a rename the way it did in 0.7.1.
 assert [c for c in at.dataframe[0].value.columns if c != "_id"] == [
-    "Name", "Type", "Made as", "Lowest", "Highest", "Unit",
-    "Rule"], list(at.dataframe[0].value.columns)
+    wording.NAME_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL,
+    wording.LOWEST_LABEL, wording.HIGHEST_LABEL, "Unit",
+    wording.FORMULA_LABEL], list(at.dataframe[0].value.columns)
 
 # Three tiers on the tab: the grids, then More settings, then Advanced.
 labels = [e.label for e in at.expander]
@@ -576,20 +579,22 @@ grid = at.dataframe[0].value
 columns = [c for c in grid.columns if c != "_id"]
 assert columns[-1] == wording.FORMULA_LABEL, columns
 
-# The sample gives Water the rest of the batch size, so its amount is not
-# typed: Highest reads the one word the whole app uses for it, Lowest is
-# blank beside it, and one caption under the grid says what the rule comes
-# to in numbers.
-water = grid[grid[wording.NAME_LABEL] == "Water"]
+# The sample gives Remaining water the rest of the batch size, so its
+# amount is not typed: the Calculation cell says Fill to total, the two
+# range cells are blank beside it, and one caption under the grid says what
+# the calculation comes to in numbers.
+water = grid[grid[wording.NAME_LABEL] == "Remaining water"]
 assert len(water) == 1, list(grid[wording.NAME_LABEL])
-assert water.iloc[0][wording.FORMULA_LABEL] == "= " + wording.REST_TOKEN, \
+assert water.iloc[0][wording.FORMULA_LABEL] == wording.FILL_TO_TOTAL, \
     water.iloc[0][wording.FORMULA_LABEL]
 assert water.iloc[0][wording.LOWEST_LABEL] == "", \
     water.iloc[0][wording.LOWEST_LABEL]
-assert water.iloc[0][wording.HIGHEST_LABEL] == wording.WORKED_OUT, \
+assert water.iloc[0][wording.HIGHEST_LABEL] == "", \
     water.iloc[0][wording.HIGHEST_LABEL]
 captions = [c.value for c in at.caption]
-assert any(c.startswith("Water is calculated to bring the total to") for c in captions), captions
+assert any(c.startswith("Remaining water is calculated to bring the total to")
+           for c in captions), captions
+assert wording.RULE_HINT in captions, captions
 
 # More settings - Limits: one Kind picker choosing the shape of the limit,
 # and because the sample has a default batch size the "Write it as" choice
@@ -608,7 +613,7 @@ print("RULES_OK")
 import io
 from openpyxl import load_workbook
 opt = at.session_state["optimizer"]
-assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Dry blend", "Wheat gluten", "Fats and oils", "Seasoning blend", "Water", "Mixing time after fat"]
+assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water", "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils", "Mixing time after fat"]
 assert wording.MADE_AS_LABEL in columns
 assert opt.premixes["Fats and oils"]["mode"] == "weighed"
 assert len(opt.premixes["Dry blend"]["parts"]) == 3
@@ -616,17 +621,33 @@ assert opt._by_name()["Seasoning blend"]["bounds"] == (2.2, 2.2)
 opt.ask(3)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
 assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
-assert book.active["A1"].value.startswith("Dry blend · make ")
+assert book.active["A1"].value.startswith("Dry blend · Prepare 150 g")
 assert "this round needs" in book.active["A1"].value
 assert book.active.protection.sheet and not book.active["D4"].protection.locked
 summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
 assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
+# The method the bench works from, with the cook in it, and the allergens.
+method = "\n".join(str(c.value) for row in summary for c in row if c.value)
+assert "180 °C" in method and "74 °C core" in method, method[:400]
+assert "Contains soy and wheat (gluten)." in method
+assert wording.SETTINGS_SHEET_HEADING in [c.value for row in summary for c in row]
+# The solids limit the sample writes, and the design space it holds.
+limit = next(qc for qc in opt.quantity_constraints if qc.get("source") is None)
+assert (limit["min"], limit["max"]) == (36.0, 43.0), limit
+# A setting is issued on the step its dial has.
+for row in opt.pending_batch:
+    assert row["recipe"]["Mixing time after fat"] % 5 == 0, row["recipe"]
 page = book[wording.formulation_sheet_name(opt.pending_batch[0]["formulation"])]
 assert any(c.value == "Coconut oil" and c.alignment.indent == 1 for row in page for c in row)
 compact = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100, print_pack=False)))
-assert compact.sheetnames == ["Round overview", "Preparation", "Results"]
+# The three the reader sees. The metadata sheet is hidden, and openpyxl
+# lists a hidden sheet like any other.
+assert [s.title for s in compact if s.sheet_state == "visible"] == [
+    "Round overview", "Preparation", "Results"], compact.sheetnames
 assert compact.active.title == "Round overview"
 assert any(str(c.value).startswith("Cook loss (%)") for row in compact["Results"] for c in row)
+# ...and on the print pack too, which is where it was missing.
+assert any(str(c.value).startswith("Cook loss (%)") for row in summary for c in row)
 print("PREMIX_OK")
 # Committed manual fields survive a fresh application session.
 at.run()

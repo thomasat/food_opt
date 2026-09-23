@@ -2,12 +2,56 @@
 import os, time
 from playwright.sync_api import sync_playwright
 
-URL = os.environ.get("APP_URL", "http://127.0.0.1:18717")
+URL = os.environ.get("APP_URL", "http://127.0.0.1:18724")
 ROW_H = 35
-# Name Type "Made as" Lowest Highest Unit Vendor SKU Rule
-NAME, TYPE, MADE_AS, LOWEST, HIGHEST, UNIT = 0, 1, 2, 3, 4, 5
+# The ingredients grid, left to right, as the app draws it:
+# Name Calculation Lowest Highest Unit Type Preparation [Vendor SKU]
+NAME, CALCULATION, LOWEST, HIGHEST, UNIT, TYPE, MADE_AS = 0, 1, 2, 3, 4, 5, 6
 PORTIONED = "Pre-mix: keep proportions fixed"
 WEIGHED = "Blend: vary each ingredient"
+GRID_HEAD = ["Name", "Calculation", "Lowest", "Highest", "Unit", "Type",
+             "Preparation"]
+# The sample, row by row, in the order the method adds them.
+SAMPLE_ROWS = ["Textured pea protein", "Textured soy protein",
+               "Hydration water", "Remaining water", "Dry blend",
+               "Wheat gluten", "Seasoning blend", "Fats and oils",
+               "Mixing time after fat"]
+
+
+SET_UP_TAB = "1 · Set up"
+ROUND_TAB = "2 · Make a round"
+RESULTS_TAB = "3 · Results"
+
+
+def ensure_round(p):
+    """A round on the bench, generated if there is not one already. The
+    walkthroughs share one served project, so each says what it needs
+    rather than assuming what the one before it left."""
+    tab(p, ROUND_TAB)
+    if p.get_by_role("button", name="Download the round sheets (Excel)",
+                     exact=True).count():
+        return
+    tab(p, SET_UP_TAB)
+    click(p, "Generate formulations")
+    generate = next(x for x in labels(p)
+                    if x.startswith("Generate") and "different" not in x)
+    click(p, generate, wait=10)
+    tab(p, ROUND_TAB)
+
+
+def open_sample(pw, viewport=None):
+    """A browser on the served copy with the sample project open. Returns
+    (browser, page); the caller closes the browser."""
+    browser = pw.chromium.launch(channel="chrome", headless=True)
+    page = browser.new_context(
+        viewport=viewport or {"width": 1280, "height": 860},
+        accept_downloads=True).new_page()
+    page.goto(URL, wait_until="domcontentloaded")
+    settle(page, 5)
+    if "Try the sample project" in labels(page):
+        click(page, "Try the sample project", wait=6)
+    assert not page.locator('[data-testid="stException"]').count()
+    return browser, page
 rows = []
 
 
@@ -32,8 +76,23 @@ def settle(p, s=1.5):
 
 
 def click(p, name, wait=2.0):
-    p.get_by_role("button", name=name, exact=True).first.click()
+    """One button by its words. A button with a material icon carries the
+    ligature text in its name, so an exact match on the words alone finds
+    nothing — the words are matched inside the name instead."""
+    button = p.get_by_role("button", name=name, exact=True)
+    if not button.count():
+        button = p.get_by_role("button", name=name, exact=False)
+    button.first.click()
     settle(p, wait)
+
+
+def tick(p, label):
+    """One checkbox by its label. Streamlit hides the input itself behind a
+    styled label, so the label is what a person clicks and what Playwright
+    has to click too."""
+    p.locator('[data-testid="stCheckbox"]').filter(
+        has_text=label).locator("label").first.click()
+    settle(p, 1.5)
 
 
 def tab(p, name, wait=3.0):
