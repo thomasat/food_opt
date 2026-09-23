@@ -191,3 +191,46 @@ def test_history_editor_does_not_revert_current_round_entries(project):
     at.run(); at.run()
     assert not at.exception
     assert cr.values(FoodOptimizer('my_project'), 1, 'formulation', 1)[field] == 'Edited in history'
+
+
+def _portioned(opt):
+    """A project whose Dry blend is a pre-mix kept at fixed proportions, so
+    its parts are NOT rows of the flat list."""
+    opt.add_ingredient('Dry blend', 10, 20)
+    opt.add_premix('Dry blend', 'portioned', over_row=True)
+    opt.set_premix_parts('Dry blend', [{'name': 'Pea protein isolate', 'share': 70},
+                                       {'name': 'Methylcellulose', 'share': 30}])
+    opt.set_records('lot', True)
+    return opt
+
+
+def test_a_lot_against_a_premix_part_never_locks_the_saved_copy(project):
+    """0.7.1 offered the parts of a portioned pre-mix in the Lot table and
+    then refused to open the copy the user saved: the part is not a row, and
+    validate_state took that for damage. Those copies exist, so the loader
+    keeps them."""
+    opt = _portioned(project)
+    opt.store_lots(1, {'Pea protein isolate': 'L-1', 'Protein': 'L-2'})
+    state = json.loads(json.dumps(opt.export_json()))
+    assert FoodOptimizer.validate_state(state)['version'] == 15
+    reopened = FoodOptimizer('reopened', robust=False)
+    reopened.import_json(state)
+    assert reopened.lots[1]['Pea protein isolate'] == 'L-1'
+    # ...and a name that is neither a row nor a part is still damage.
+    state['lots']['1']['Nothing here'] = 'L-3'
+    with pytest.raises(ValueError):
+        FoodOptimizer.validate_state(state)
+
+
+def test_the_lot_table_offers_rows_and_never_a_portioned_premixs_parts(project):
+    """A part of a portioned pre-mix is weighed on the pre-mix's own
+    preparation sheet, and its lot is written there. Offering it twice gave
+    two places to write one fact — and the second one broke the copy."""
+    opt = _portioned(project)
+    offered = cr.lot_names(opt, 1)
+    assert 'Dry blend' not in offered, offered
+    assert 'Pea protein isolate' not in offered and 'Methylcellulose' not in offered
+    # A row whose amount is calculated has no lot either: water has no lot
+    # number at a bench.
+    assert 'Water' not in offered, offered
+    assert offered == ['Protein']

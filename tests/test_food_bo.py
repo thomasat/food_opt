@@ -12158,6 +12158,14 @@ class TestTheColdRead:
         # An amount that is genuinely out of proportion still says so.
         assert opt.bounds_caution("Dry blend", 120.0, 2.5)
         assert opt.bounds_caution("Dry blend", 75.0, 2.5) == ""
+        # ...and the last bit of a float is not one. 60 g and 40 g both
+        # scale to exact floats, so the case that matters is a row fixed
+        # where the arithmetic does not land: 2.2 g per 100 g is 5.5 g at
+        # 250 g, and the way there is not.
+        opt.add_ingredient("Seasoning", 2.2, 2.2)
+        scaled = 5.499999999999999      # what scale_round(250) reaches
+        assert scaled != 2.2 * 2.5
+        assert opt.bounds_caution("Seasoning", scaled, 2.5) == ""
 
     # ---- S3 · the cell that cannot be typed in -------------------------- #
 

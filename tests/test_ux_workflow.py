@@ -132,6 +132,26 @@ def test_guided_example_generates_feasible_rounds(tmp_path, monkeypatch):
     assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
 
 
+def test_a_250_g_round_of_the_sample_raises_no_caution(tmp_path, monkeypatch):
+    """250 g is the first size anybody tries, and the sample's Seasoning
+    blend is fixed at 2.2 g per 100 g. 2.2 * 2.5 is 5.5; the stored amount
+    is 5.499999999999999, and one unit in the last place turned ordinary
+    bench work into "Seasoning blend goes past the amounts you allowed" on
+    screen, on tab 3 and on the printed Round sheet."""
+    import sample_projects
+    from storage import LocalStorage
+    monkeypatch.chdir(tmp_path)
+    opt = sample_projects.build('Burger formulation', 'Sample project',
+                                LocalStorage(), LocalStorage())
+    opt.set_pending_batch(opt.ask(3))
+    opt.scale_round(250.0)
+    assert opt.open_round_size() == 250.0
+    assert opt.scaled_caution(opt.pending_batch, 250.0, sized=True) == ""
+    assert opt.scaled_limit_caution(opt.pending_batch, 250.0, sized=True) == ""
+    assert opt.scaled_cautions(opt.pending_batch, 250.0, sized=True) == [
+        opt.scaled_amounts_note(opt.pending_batch, 250.0, sized=True)]
+
+
 def test_recorded_row_in_partial_round_cannot_be_edited(project):
     project.tell(project.pending_batch[0]['recipe'], {'Taste': 8}, formulation_no=1, batch_no=1)
     assert project.pending_batch

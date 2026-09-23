@@ -4170,6 +4170,10 @@ class FoodOptimizer:
                         == PREMIX_PORTIONED):
                     _write_cell(sheet, r, lot_column,
                                 wording.PREMIX_LOT_ON_ITS_PAGE)
+                elif self.has_formula(var):
+                    # Water has no lot number at a bench, and a calculated
+                    # row is not weighed from a container with one on it.
+                    pass
                 else:
                     _write_in_cell(sheet, r, lot_column, self.lots.get(self.pending_batch_no, {}).get(var['name'])).data_type = 's'
             if vendor_column:
@@ -5596,7 +5600,14 @@ class FoodOptimizer:
         if var.get('category', 'ingredient') == 'process':
             scale = 1.0
         low, high = (float(b) * scale for b in var['bounds'])
-        if low <= float(value) <= high:
+        # The same relative slack _check_constraints allows a sum reached
+        # the long way round. A row fixed at 2.2 g per 100 g is 5.5 g in a
+        # 250 g round, and scale_round reaches it as 5.499999999999999: one
+        # unit in the last place turned ordinary bench work into "Seasoning
+        # blend 5.5 g is outside its allowed amounts of 5.5 g".
+        value = float(value)
+        if (low - 1e-6 * (1.0 + abs(low)) <= value
+                <= high + 1e-6 * (1.0 + abs(high))):
             return ""
         return outside_message(name, value, low, high, self.unit_of(name),
                                wording.ALLOWED_AMOUNTS)
@@ -12094,10 +12105,21 @@ class FoodOptimizer:
         lots = state.get('lots')
         if lots is not None and not isinstance(lots, dict):
             raise _damaged("'lots' section has the wrong shape")
-        # The names the copy's own variable list holds. A lot filed against
-        # an ingredient the copy does not have is a lot nothing can ever
-        # show: the Lots sheet would print a name the project never had.
+        # The names the copy's own variable list holds, and the parts of
+        # every pre-mix beside them. A lot filed against an ingredient the
+        # copy does not have is a lot nothing can ever show: the Lots sheet
+        # would print a name the project never had. A PART is another
+        # matter — 0.7.1 offered the parts of a portioned pre-mix in the Lot
+        # table and then refused to open the copy the user had saved, so
+        # those copies exist and this is the loader that has to keep them.
         named = {v['name'] for v in state['variables']}
+        for premix in (state.get('premixes') or {}).values():
+            if not isinstance(premix, dict):
+                continue
+            for parts in [premix.get('parts') or []] + list(
+                    (premix.get('versions') or {}).values()):
+                named.update(str(part['name']) for part in parts or []
+                             if isinstance(part, dict) and 'name' in part)
         for key, written in (lots or {}).items():
             if not _whole(key if isinstance(key, int) else _as_int(key)) \
                     or not isinstance(written, dict) \

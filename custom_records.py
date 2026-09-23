@@ -97,6 +97,29 @@ def ingredient_names(opt, round_no=None):
     return list(dict.fromkeys(names))
 
 
+def lot_names(opt, round_no=None):
+    """The names a lot can be written against in the app.
+
+    Every ingredient row that is weighed as itself — which is neither the
+    parts of a portioned pre-mix (they are weighed on that pre-mix's own
+    preparation sheet, where its lot is written, and they are not rows of
+    the flat list at all: a lot filed against one made the project's saved
+    copy refuse to open), nor the pre-mix row itself, whose printed Lot
+    cell says the same thing, nor a calculated row, because water has no
+    lot number at a bench.
+    """
+    from food_bo import PREMIX_PORTIONED
+    out = []
+    for var in opt._ingredients():
+        premix = (getattr(opt, 'premixes', None) or {}).get(var['name'])
+        if premix is not None and premix.get('mode') == PREMIX_PORTIONED:
+            continue
+        if opt.has_formula(var):
+            continue
+        out.append(var['name'])
+    return list(dict.fromkeys(out))
+
+
 def values(opt, round_no, scope, subject):
     return state(opt)['values'].get(str(round_no), {}).get(scope, {}).get(str(subject), {})
 
@@ -260,7 +283,7 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
         st.caption(wording.LOT_ENTRY_HELP)
         stored_lots = opt.lots.get(int(round_no), {})
         lot_frame = pd.DataFrame([{wording.CUSTOM_INGREDIENT_LABEL: n, wording.LOT_COLUMN: stored_lots.get(n, '')}
-                                 for n in ingredient_names(opt, round_no)])
+                                 for n in lot_names(opt, round_no)])
         if not lot_frame.empty:
             mark = hashlib.sha256(lot_frame.to_json().encode()).hexdigest()[:12]
             edited_lots = st.data_editor(lot_frame, hide_index=True, disabled=[wording.CUSTOM_INGREDIENT_LABEL],
