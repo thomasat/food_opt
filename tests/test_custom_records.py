@@ -228,9 +228,14 @@ def test_the_lot_table_offers_rows_and_never_a_portioned_premixs_parts(project):
     two places to write one fact — and the second one broke the copy."""
     opt = _portioned(project)
     offered = cr.lot_names(opt, 1)
-    assert 'Dry blend' not in offered, offered
+    # The pre-mix IS a row, bought or made, and the bench writes its lot
+    # against it; only its parts belong on its own preparation sheet.
+    assert 'Dry blend' in offered, offered
     assert 'Pea protein isolate' not in offered and 'Methylcellulose' not in offered
     # A row whose amount is calculated has no lot either: water has no lot
     # number at a bench.
     assert 'Water' not in offered, offered
-    assert offered == ['Protein']
+    assert offered == ['Protein', 'Dry blend']
+    # Every name offered is a row of the flat list, which is the invariant
+    # that keeps the saved copy openable.
+    assert set(offered) <= {v['name'] for v in opt.variables}

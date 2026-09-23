@@ -98,22 +98,20 @@ def ingredient_names(opt, round_no=None):
 
 
 def lot_names(opt, round_no=None):
-    """The names a lot can be written against in the app.
+    """The names a lot can be written against in the app: the rows, and the
+    pre-mixes, which are rows too.
 
-    Every ingredient row that is weighed as itself — which is neither the
-    parts of a portioned pre-mix (they are weighed on that pre-mix's own
-    preparation sheet, where its lot is written, and they are not rows of
-    the flat list at all: a lot filed against one made the project's saved
-    copy refuse to open), nor the pre-mix row itself, whose printed Lot
-    cell says the same thing, nor a calculated row, because water has no
-    lot number at a bench.
+    Not the PARTS of a portioned pre-mix. They are weighed on that
+    pre-mix's own preparation sheet, where its lot is written, and they are
+    deliberately not rows of the flat list at all — a lot filed against one
+    made the project's saved copy refuse to open. They reach this list only
+    through ingredient_names(), which is what the optional per-ingredient
+    records use.
+
+    Not a calculated row either: water has no lot number at a bench.
     """
-    from food_bo import PREMIX_PORTIONED
     out = []
     for var in opt._ingredients():
-        premix = (getattr(opt, 'premixes', None) or {}).get(var['name'])
-        if premix is not None and premix.get('mode') == PREMIX_PORTIONED:
-            continue
         if opt.has_formula(var):
             continue
         out.append(var['name'])

@@ -303,14 +303,18 @@ def _safety_copies(opt):
             continue
         when = STORAGE.saved_at(name)
         mine.append((when, name, reason))
-    # Two copies of one act — the project written twice inside a second —
-    # are one line to a reader, and the list showed both.
+    # A copy is identified by its FILE, never by the words on its row. Two
+    # corrections a minute apart wear the same label and the same clock and
+    # are two copies of two different states: collapsing them by that label
+    # left the newer one with no Open button anywhere on the screen, and the
+    # row that survived restored the older state. archive() gives every copy
+    # a name of its own, so this only guards against a backend listing one
+    # file twice.
     seen, unique = set(), []
     for when, name, reason in mine:
-        mark = (reason, copy_when(when) if when is not None else "")
-        if mark in seen:
+        if name in seen:
             continue
-        seen.add(mark)
+        seen.add(name)
         unique.append((when, name, reason))
     mine = unique
     if not mine:

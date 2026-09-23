@@ -9463,6 +9463,44 @@ def test_the_apps_own_copies_are_listed_and_open_from_the_sidebar(burger,
     assert FoodOptimizer("burger").formulation_ids == [1]
 
 
+def test_two_copies_taken_in_one_minute_are_two_rows_with_two_doors(
+        burger, tmp_path):
+    """Two corrections a few seconds apart are two copies of two different
+    states. Collapsing them by what their labels read left the newer one
+    with no Open button anywhere on the screen, and the row that survived
+    restored the OLDER state — the copy the reader wanted back was the one
+    the list had thrown away."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 5.0}, formulation_no=1,
+                batch_no=1)
+    storage_backend.LocalStorage().archive("burger", "pre_correction",
+                                           copy=True)
+    burger.edit_result(0, {"Juiciness": 7.0, "Firmness": 6.0})
+    storage_backend.LocalStorage().archive("burger", "pre_correction",
+                                           copy=True)
+    assert (tmp_path / "burger_pre_correction.pkl").exists()
+    assert (tmp_path / "burger_pre_correction_1.pkl").exists()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert not at.exception
+    listed = [c.value for c in at.sidebar.caption
+              if c.value.startswith("Before correcting a recorded "
+                                    "formulation · ")]
+    assert len(listed) == 2, [c.value for c in at.sidebar.caption]
+    keys = {b.key for b in at.sidebar.button}
+    assert "open_copy_burger_pre_correction" in keys, sorted(keys)
+    assert "open_copy_burger_pre_correction_1" in keys, sorted(keys)
+    # ...and each door opens its own copy: the second one holds the 6.0.
+    next(b for b in at.sidebar.button
+         if b.key == "open_copy_burger_pre_correction_1").click()
+    at.run()
+    _submit_button(at.sidebar, wording.YES_REPLACE).click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").results_history[0]["Firmness"] == 6.0
+
+
 def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
                                                                   tmp_path):
     """Every destructive confirmation promises a copy. Opening one has to put
