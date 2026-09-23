@@ -3443,11 +3443,29 @@ class FoodOptimizer:
         0.5.0 (see set_shares and _rescale_shares_to_100)."""
         return float(sum(obj['weight'] for obj in self.objectives))
 
+    def fully_measured(self, index):
+        """True when every measurement the project scores has a number on
+        this formulation's row. A missing measurement contributes zero to
+        the overall score, so a formulation nobody finished measuring
+        competes on a shorter scale than the one beside it."""
+        results = (self.results_history[index]
+                   if index < len(self.results_history) else {})
+        return all(results.get(obj['name']) is not None
+                   for obj in self.objectives)
+
     def best_index(self):
-        """0-based index of the highest-scoring experiment, or None."""
+        """0-based index of the highest-scoring experiment, or None.
+
+        Only formulations with every measurement recorded are compared: a
+        6.2/7.1 against targets of 6/7 scored 78.75 and a 5.4/6.2 scored
+        90.10 and took the star, because nobody had measured its cook loss
+        yet. With none of them finished the field is all of them, so the
+        screen still has a best to name."""
         if not self.Y_history:
             return None
-        return int(max(range(len(self.Y_history)), key=lambda i: self.Y_history[i]))
+        pool = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        return int(max(pool or range(len(self.Y_history)),
+                       key=lambda i: self.Y_history[i]))
 
     def best_so_far(self):
         """Running maximum of the Overall Score, one value per experiment."""
@@ -4654,6 +4672,9 @@ class FoodOptimizer:
         try:
             extra_records = custom_records.read_workbook(source, self,
                 self.pending_batch_no if batch_no is None else batch_no)
+            # The file as it arrived, for the provenance: every record says
+            # which of ITS sheets and which of its cells a value was in.
+            as_uploaded = workbook_flow.uploaded_book(source)
             source = workbook_flow.prepare_import(source, self,
                 self.pending_batch_no if batch_no is None else batch_no)
         except ValueError:
@@ -4717,9 +4738,13 @@ class FoodOptimizer:
                             raise ValueError(wording.workbook_lot_conflict(name))
                         lots[name] = lot
             actual = self._actual_from_sheets(book, numbers)
-            bench_records = self._read_bench_records(book)
+            bench_records = self._read_bench_records(as_uploaded)
+            # The pre-mix lots are looked for in the expanded layout, where
+            # each pre-mix has a page of its own however the file was
+            # printed; what is SHOWN to the reader is the line above.
+            expanded = self._read_bench_records(book.book)
             for group, title in self._premix_sheet_names(numbers, wanted).items():
-                for record in bench_records:
+                for record in expanded:
                     if record['sheet'] == title and record['label'] == wording.PREMIX_LOT_LABEL:
                         lots[group] = record['value']
         if not rows and not extra_records:
@@ -4738,9 +4763,14 @@ class FoodOptimizer:
 
         Amounts used by the search are parsed separately. These records keep
         preparation weights and provenance without rewriting future make-up.
+
+        `book` is an openpyxl workbook. Which one matters: a record's whole
+        job is to say where a number came from, so the provenance is read
+        off the file the bench uploaded, not off the layout the app expands
+        it into — `Round 1 | B54` named a sheet that file does not have.
         """
         records = []
-        for sheet in book.book.worksheets:
+        for sheet in book.worksheets:
             for cells in sheet.iter_rows():
                 for cell in cells:
                     if cell.value is None or cell.protection.locked:
@@ -11010,8 +11040,23 @@ class FoodOptimizer:
                  and spec['low'] == spec['high']]
         if not fixed:
             return None
+        # ...and the tail names only what THIS save did. A row pinned at one
+        # amount last week is not the cell the reader just changed, and a
+        # refusal that names it sends them to the wrong row: "let enough
+        # ingredients vary again. Fixed at one amount: Seasoning blend" was
+        # the answer to giving another row a calculation.
+        before_fixed = {var['name'] for var in self.variables
+                        if not self.has_formula(var)
+                        and float(var['bounds'][0]) == float(var['bounds'][1])}
+        before_calculated = {var['name'] for var in self.variables
+                             if self.has_formula(var)}
+        changed = [name for name in fixed if name not in before_fixed]
+        changed += [spec['name'] for _, spec in rows
+                    if spec['is_row'] and spec['formula']
+                    and spec['name'] not in before_calculated]
         return self._broken_by_this_save(
-            self._limit_refusals(), self._refusals_with(rows, deleted), fixed)
+            self._limit_refusals(), self._refusals_with(rows, deleted),
+            list(dict.fromkeys(changed)))
 
     def _refusals_with(self, rows, deleted=()):
         """The same question with the finished grid in place, and the project

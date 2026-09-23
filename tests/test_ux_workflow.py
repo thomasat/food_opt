@@ -626,3 +626,45 @@ def test_a_premix_is_not_made_at_a_quantity_that_prints_one_column_twice(
     opt.set_pending_batch(opt.ask(3))
     made = dict((name, make) for name, make, _ in opt.round_make_quantities())
     assert made['Dry blend'] == 150.0
+
+
+def test_a_bench_record_cites_the_sheet_and_cell_it_was_really_read_from(
+        project):
+    """The provenance table read `Round 1 | B54` off the layout the app
+    expands an uploaded file into. The file the bench uploaded has no sheet
+    called Round 1: the number was written in Results, and that is where a
+    reader has to go to check it."""
+    book = load_workbook(io.BytesIO(project.workbook_bytes(
+        project.pending_batch, 100, print_pack=False)))
+    sheet = book['Results']
+    row = result_row(sheet)
+    sheet.cell(row, 2, 7)
+    upload = project.results_from_workbook(data(book))
+    cited = [r for r in upload.bench_records if str(r['value']) == '7']
+    assert cited, upload.bench_records
+    assert cited[0]['sheet'] == 'Results'
+    assert cited[0]['cell'] == f'B{row}'
+    assert {r['sheet'] for r in upload.bench_records} <= set(book.sheetnames)
+
+
+def test_the_download_caption_describes_the_file_the_box_produces(project):
+    """Ticking `Include individual formulation pages for printing` renames
+    every sheet; the caption above the box went on promising a sheet called
+    Results, which that file does not have."""
+    from streamlit.testing.v1 import AppTest
+    from pathlib import Path
+    app = str(Path(__file__).resolve().parents[1] / 'app.py')
+    at = AppTest.from_file(app, default_timeout=180).run()
+    said = [c.value for c in at.caption]
+    assert wording.COMPACT_WORKBOOK_CAPTION in said
+    assert wording.PRINT_PACK_WORKBOOK_CAPTION not in said
+    at.checkbox(key='workbook_print_pack').set_value(True).run()
+    assert not at.exception
+    said = [c.value for c in at.caption]
+    assert wording.PRINT_PACK_WORKBOOK_CAPTION in said
+    assert wording.COMPACT_WORKBOOK_CAPTION not in said
+    # ...and the sheet the standing caption names is in the file it names it
+    # for.
+    book = load_workbook(io.BytesIO(project.workbook_bytes(
+        project.pending_batch, 100, print_pack=False)))
+    assert 'Results' in book.sheetnames

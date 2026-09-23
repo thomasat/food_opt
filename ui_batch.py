@@ -707,8 +707,10 @@ def _downloads(opt, scale_to, sized, said_size=False):
     lit = not _any_value_typed(opt) and not confirmation_open()
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
     st.caption(wording.WORKBOOK_WORKFLOW_CAPTION)
-    if not print_pack:
-        st.caption(wording.COMPACT_WORKBOOK_CAPTION)
+    # The caption follows the box: the file a tick produces has no sheet
+    # called Results, and the line above it went on naming one.
+    st.caption(wording.PRINT_PACK_WORKBOOK_CAPTION if print_pack
+               else wording.COMPACT_WORKBOOK_CAPTION)
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
         data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),

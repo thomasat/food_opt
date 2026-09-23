@@ -297,6 +297,16 @@ def _safety_copies(opt):
             continue
         when = STORAGE.saved_at(name)
         mine.append((when, name, reason))
+    # Two copies of one act — the project written twice inside a second —
+    # are one line to a reader, and the list showed both.
+    seen, unique = set(), []
+    for when, name, reason in mine:
+        mark = (reason, copy_when(when) if when is not None else "")
+        if mark in seen:
+            continue
+        seen.add(mark)
+        unique.append((when, name, reason))
+    mine = unique
     if not mine:
         return
     st.caption(wording.SAFETY_COPIES_CAPTION)

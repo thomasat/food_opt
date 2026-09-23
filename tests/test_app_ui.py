@@ -2528,7 +2528,7 @@ def test_correcting_amounts_and_a_result_in_one_save(scored, tmp_path):
     _submit_button(at, "Save correction").click()
     at.run()
     assert not at.exception
-    assert (tmp_path / "burger_pre_edit.pkl").exists(), \
+    assert (tmp_path / "burger_pre_correction.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
     reloaded = FoodOptimizer("burger")
     assert reloaded.recipe_history[0]["Pea protein"] == 15.0
@@ -2536,6 +2536,31 @@ def test_correcting_amounts_and_a_result_in_one_save(scored, tmp_path):
     assert reloaded.X_history[0] == reloaded._encode(reloaded.recipe_history[0])
     assert any(s.value.startswith(wording.formulation_corrected(1))
                for s in at.success), [s.value for s in at.success]
+
+
+def test_a_correction_leaves_an_untouched_amount_exactly_as_recorded(
+        burger, tmp_path):
+    """Under its own line — "Change only what is wrong. Anything you leave
+    alone stays as recorded." — Save correction wrote every box back, and
+    the boxes hold two decimals because that is what a balance reads and
+    what the sheet printed. 15.18876389 came back 15.19."""
+    burger.tell({"Pea protein": 15.18876389, "Methylcellulose": 1.0},
+                {"Firmness": 5.5}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    # The box shows the rounded amount, which is a display...
+    assert at.number_input(key="correct_amount_1_Pea protein").value == 15.19
+    at.number_input(key="correct_1_Firmness").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    # ...and what was weighed is still what is recorded.
+    assert reloaded.recipe_history[0]["Pea protein"] == 15.18876389
+    assert reloaded.results_history[0]["Firmness"] == 6.0
 
 
 def test_a_corrected_amount_outside_the_allowed_ones_is_a_caution(scored):
@@ -3392,7 +3417,7 @@ def test_a_correction_keeps_a_copy_first_and_says_so(scored, tmp_path):
     _submit_button(at, "Save correction").click()
     at.run()
     assert not at.exception
-    assert (tmp_path / "burger_pre_edit.pkl").exists(), \
+    assert (tmp_path / "burger_pre_correction.pkl").exists(), \
         [p.name for p in tmp_path.glob("*.pkl")]
     assert any(s.value == (wording.formulation_corrected(1) + " "
                            + wording.best_moved(2, 1) + " " + wording.COPY_KEPT)
@@ -6858,7 +6883,7 @@ def test_scoring_a_not_scored_formulation_from_results(scored, tmp_path):
     assert opt.next_formulation_no == 4
     # The row is done, so it closes itself exactly as a correction does.
     assert at.session_state["correct_formulation"] is None
-    assert (tmp_path / "burger_pre_edit.pkl").exists(), \
+    assert (tmp_path / "burger_pre_correction.pkl").exists(), \
         [f.name for f in tmp_path.glob("*.pkl")]
 
 

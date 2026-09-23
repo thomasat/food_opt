@@ -325,7 +325,11 @@ CHECK_THIS_COPY = "Open this copy"
 # promising a list — so each is named here for what it was taken before.
 SAFETY_COPIES_CAPTION = "Copies this app made before a change:"
 SAFETY_COPY_REASONS = {
-    'pre_edit': "Before an edit",
+    'pre_edit': "Before an edit in Set up",
+    # A correction to a recorded result is the copy a reader actually comes
+    # back for, and five rows all reading "Before an edit" told them
+    # nothing about which.
+    'pre_correction': "Before correcting a recorded formulation",
     'pre_delete': "Before a deletion",
     'pre_restore': "Before opening a saved copy",
     'archived': "Before clearing project contents",
@@ -1769,6 +1773,12 @@ DOWNLOAD_ALL_FORMULATIONS_HELP = (
 # project existed.
 # ---------------------------------------------------------------- #
 EDIT_PAST_FORMULATIONS_EXPANDER = f"Edit past {FORMULATION}s"
+# The visible door to the correction control, beside the table a wrong
+# reading is spotted in. A reader with a wrong result pressed
+# "Change a measurement or an ingredient" — the one button in sight —
+# and landed on Set up, which is where measurements are DEFINED and
+# not where a recorded one is fixed.
+CORRECT_A_RESULT_BUTTON = f"Correct a recorded {FORMULATION}"
 
 CORRECT_A_FORMULATION_HEADING = f"##### Correct a {FORMULATION}"
 # The same control, doing the other of its two jobs. A not-scored row has no
@@ -3514,6 +3524,13 @@ READ_ONLY_AMOUNT_HELP = 'Read-only. Formula results and totals update when you s
 PRINT_PACK_CHECKBOX = 'Include individual formulation pages for printing'
 FINISH_FORMULATION_EDITS = 'Save or cancel your formulation edits to continue with preparation and results.'
 COMPACT_WORKBOOK_CAPTION = 'Three tabs: Round overview · Preparation · Results. Enter all measurements on Results.'
+# The other file. Ticking the box renames every sheet and the file then has
+# no sheet called Results at all, while the caption above the box went on
+# promising one.
+PRINT_PACK_WORKBOOK_CAPTION = (
+    "One sheet per formulation, with the round sheet and a page for each "
+    "pre-mix. Enter measurements on the round sheet or on each "
+    "formulation page.")
 FORMULATION_CORRECTIONS_CAPTION = 'Use Edit formulations before preparation; record actual amounts with results after preparation.'
 COMPOSITION_AMOUNTS = 'Amounts'
 SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then generate your first formulations.'
@@ -3629,6 +3646,11 @@ BACKGROUND_REFERENCE_LABEL = "Background reference"
 RESULT_VIEW_LABEL = "View formulation"
 RESULT_VIEW_HELP = "Choose a recorded formulation to see its measurements, amounts and percentages below."
 RESULT_BEST_HELP = "Best so far has the highest recorded overall score for your current measurements and targets."
+# A missing measurement contributes zero to the overall score, so a
+# half-measured formulation outscored a better one that had been
+# measured all the way through, and nothing on the screen said why.
+RESULT_BEST_COMPLETE_ONLY = ("Only formulations with every measurement "
+                            "recorded are compared.")
 RESULT_PERCENT_COLUMN = "% of formulation"
 RESULT_PERCENT_PROCESS_HELP = "Percentages use the ingredient amounts shown. Process settings are excluded."
 RESULT_PERCENT_MIXED_HELP = "Percentages are unavailable because the ingredient amounts use different units."
@@ -3687,6 +3709,14 @@ CALCULATION_EXAMPLES_CAPTION = (
 CALCULATION_TERMS_LABEL = "Supported calculations"
 CALCULATION_EMPTY_INFO = (
     "Enter a calculation or choose a different method above.")
+def calculation_staged(name):
+    """'Water\'s calculation is in the table. Select Save changes to apply
+    it.' — said on the tab after the panel closes, because what the panel
+    did is a cell two screens up and a button that has just lit."""
+    who = f"{name}'s calculation" if name else "The calculation"
+    return f"{who} is in the table. Select {SAVE_CHANGES_BUTTON} to apply it."
+
+
 CALCULATION_APPLY_CAPTION = (
     f"Use this choice to update the table, then select {SAVE_CHANGES_BUTTON}. "
     "Closing this panel leaves the table unchanged.")

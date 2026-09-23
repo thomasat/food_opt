@@ -611,7 +611,16 @@ def _variables(opt, storage):
         _disarm_grid_deletion(ING_SAVE_KEY)
     if st.button(wording.CALCULATION_EDIT_BUTTON, icon=":material/edit:", key="edit_calculation",
                  disabled=confirmation_open() or edited.empty):
+        st.session_state[calculation_editor.EDITOR_OPEN] = True
+    # Drawn while it is open, not only on the run the button was pressed:
+    # the expression box reruns the app on every keystroke, and a dialog
+    # rendered from the button alone closed under the reader's hand — with
+    # the refusal it had just written in it.
+    if st.session_state.get(calculation_editor.EDITOR_OPEN):
         calculation_editor.open_editor(opt, edited.copy())
+    staged = st.session_state.pop(calculation_editor.EDITOR_STAGED, None)
+    if staged:
+        st.success(staged)
     st.caption(wording.CALCULATION_EDIT_HINT)
     _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):

@@ -271,6 +271,19 @@ def compact(book, opt, rows, note=""):
     return result
 
 
+def uploaded_book(source):
+    """The workbook exactly as it was handed back, with a formula's saved
+    value in place of the formula. Read for provenance only: what a record
+    cites has to be a sheet and a cell of the file the bench uploaded."""
+    if hasattr(source, 'seek'):
+        source.seek(0)
+    book = load_workbook(source, data_only=True)
+    restore_metadata(book)
+    if hasattr(source, 'seek'):
+        source.seek(0)
+    return book
+
+
 def prepare_import(source, opt, batch_no):
     """Verify issued plans, then expand compact sheets for the legacy reader."""
     if hasattr(source, 'seek'):

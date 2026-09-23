@@ -195,6 +195,8 @@ def _best(opt):
     st.subheader(wording.for_project(opt, heading))
     if is_best:
         st.caption(wording.RESULT_BEST_HELP)
+        if any(not opt.fully_measured(i) for i in range(len(opt.Y_history))):
+            st.caption(wording.RESULT_BEST_COMPLETE_ONLY)
         line = _progress_line(opt)
         if line:
             st.caption(line)
@@ -317,6 +319,11 @@ def _amount_format(opt, frame):
     return formats
 
 
+# Set by the button beside All formulations, read once by the fold the
+# correction control lives in.
+OPEN_CORRECTION = "_open_correction"
+
+
 def _all_formulations(opt, said_partial=False):
     st.markdown(wording.for_project(opt, wording.ALL_FORMULATIONS_HEADING))
     o1, o2 = st.columns([2, 1])
@@ -348,6 +355,11 @@ def _all_formulations(opt, said_partial=False):
                            opt.project_name),
                        mime=WORKBOOK_MIME, key="download_formulations",
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
+    # Beside the table the wrong number is read in, because that is where
+    # the reader is standing when they find it.
+    if st.button(wording.for_project(opt, wording.CORRECT_A_RESULT_BUTTON),
+                 key="open_correction", disabled=confirmation_open()):
+        st.session_state[OPEN_CORRECTION] = True
 
 
 def _correct_amount_key(no, name):
@@ -650,9 +662,21 @@ def _save_correction(opt, storage, pending):
         # Against the same value the box was seeded with, so a row older than
         # the ingredient is not reported as corrected for having been looked
         # at — and does not get a copy of the project kept for nothing.
-        if abs(_recorded_amount(var, pending['recipe']) - float(value)) > 1e-9:
+        # At the box's own precision: it was SEEDED with the recorded
+        # amount rounded to two decimals, so an untouched box always looked
+        # changed against the raw number behind it.
+        recorded = _recorded_amount(var, pending['recipe'])
+        if abs(round(recorded, 2) - round(float(value), 2)) > 1e-9:
             amount_changes.append(name)
-        recipe[name] = float(value)
+            recipe[name] = float(value)
+        elif name not in recipe:
+            # A row older than this ingredient has no amount for it at all.
+            recipe[name] = float(value)
+        # Otherwise the recorded amount stands, to the last digit. The box
+        # shows it at two decimals because that is what the balance reads
+        # and what the sheet printed; writing that display back turned
+        # 15.18876389 into 15.19 under a line promising that anything left
+        # alone stays as recorded.
     for obj in ordered:
         problem = scale_error(obj, typed[obj['name']])
         if problem:
@@ -682,7 +706,7 @@ def _save_correction(opt, storage, pending):
     # A correction overwrites a reading nobody can retype from memory, so the
     # project is copied first — as it is before every other destructive act.
     try:
-        storage.archive(opt.project_name, "pre_edit", copy=True)
+        storage.archive(opt.project_name, "pre_correction", copy=True)
     except storage_backend.StorageError as e:
         st.error(str(e))
         return
@@ -745,7 +769,7 @@ def _save_score(opt, storage, pending):
     # The row leaves `skipped` for good, so the project is copied first — as
     # it is before every other write that cannot be retyped from memory.
     try:
-        storage.archive(opt.project_name, "pre_edit", copy=True)
+        storage.archive(opt.project_name, "pre_correction", copy=True)
     except storage_backend.StorageError as e:
         st.error(str(e))
         return
@@ -1176,7 +1200,8 @@ def _edit_past(opt, storage):
     enter work done before the project existed hid inside the third."""
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
-    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FORMULATIONS_EXPANDER)):
+    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FORMULATIONS_EXPANDER),
+                     expanded=bool(st.session_state.pop(OPEN_CORRECTION, False))):
         # The heading follows the pick: with a not-scored row picked, the
         # section is writing that row's FIRST result, and "Correct" named
         # something there was nothing of yet.

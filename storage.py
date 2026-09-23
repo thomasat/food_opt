@@ -20,7 +20,8 @@ from datetime import datetime
 # earlier version still wears them, and a copy that stops reading as a copy
 # would reappear in the project list.
 ARCHIVE_SUFFIX_RE = re.compile(
-    r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit|pre_undo)(_\d+)?$"
+    r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit"
+    r"|pre_correction|pre_undo)(_\d+)?$"
 )
 
 

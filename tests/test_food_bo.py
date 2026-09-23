@@ -3382,6 +3382,29 @@ class TestTheIngredientsGrid:
         assert wording.fixing_breaks_the_total("50 g") in message
         assert wording.fixed_rows_tail("Water and Salt") in message
 
+    def test_the_refusal_names_the_row_this_save_changed_and_no_other(
+            self, tmp_path, monkeypatch):
+        """"…let enough ingredients vary again. Fixed at one amount:
+        Seasoning blend" was the answer to giving ANOTHER row a calculation.
+        A reader sent to a cell they did not touch cannot act on it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(50.0)
+        # Salt was pinned last week, and it is not what changed today.
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.LOWEST_LABEL: 2.0,
+                         wording.HIGHEST_LABEL: 2.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.LOWEST_LABEL: 10.0,
+                         wording.HIGHEST_LABEL: 10.0})
+        errors = self._refused(opt, frame)
+        assert len(errors) == 1
+        message = errors[0][1]
+        assert wording.fixing_breaks_the_total("50 g") in message
+        assert wording.fixed_rows_tail("Water") in message
+        assert "Salt" not in message, message
+
     def test_one_row_fixed_mid_grid_is_never_asked_on_its_own(self, tmp_path,
                                                               monkeypatch):
         """Fixing Water at 48 g and widening Salt to 2 g in one save reaches

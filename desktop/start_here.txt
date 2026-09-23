@@ -32,7 +32,10 @@ YOUR FIRST ROUND
    • Preparation — pre-mixes to prepare for the round.
    • Results — measurements and any actual amounts you want to record.
    Tabs are at the bottom in Excel and at the top in Numbers. If a link
-   does not open in Numbers, select the named tab directly.
+   does not open in Numbers, select the named tab directly. Ticking
+   "Include individual formulation pages for printing" gives a different
+   file instead: one sheet per formulation, with the round sheet and a page
+   for each pre-mix.
 6. Prepare each formulation separately and enter your measurements in
    the workbook's input cells. Return to Make a round, upload the workbook,
    review the imported values, and click Save results. Editing the

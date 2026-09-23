@@ -118,3 +118,60 @@ def test_premix_percentage_counts_blend_once_and_zero_total_has_no_percentage(pr
     assert sum(float(row[wording.RESULT_PERCENT_COLUMN]) for row in rows if row[wording.RESULT_PERCENT_COLUMN]) == 100
     assert _amount_rows(project, {'Protein': 0, 'Water': 0, 'Mixing time': 0}) == [
         {wording.INGREDIENT_OR_SETTING_LABEL: 'Mixing time', wording.AMOUNT_COLUMN: '0 s', wording.RESULT_PERCENT_COLUMN: ''}]
+
+
+def test_best_so_far_compares_only_formulations_measured_all_the_way(
+        tmp_path, monkeypatch):
+    """A missing measurement contributes zero to the overall score, so the
+    half-measured formulation took the star from the better one beside it:
+    6.2/7.1 against targets of 6/7 scored 78.75, and 5.4/6.2 with cook loss
+    blank scored 90.10."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer('measured', robust=False)
+    opt.set_amount_unit('g')
+    opt.add_ingredient('Pea protein', 10, 30)
+    opt.add_ingredient('Water', 70, 90)
+    opt.add_objective('Firmness', 1, goal='target', target=6, min_val=0, max_val=10)
+    opt.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40)
+    opt.tell({'Pea protein': 20.0, 'Water': 80.0},
+             {'Firmness': 6.0, 'Cook loss': 18.0}, formulation_no=1, batch_no=1)
+    opt.tell({'Pea protein': 25.0, 'Water': 75.0},
+             {'Firmness': 6.0}, formulation_no=2, batch_no=1)
+    assert opt.fully_measured(0) and not opt.fully_measured(1)
+    # The half-measured row is scored on a shorter scale, and on the
+    # reader's project it came out ahead. Forced here, because the star it
+    # took is the thing being refused, not the arithmetic that got it there.
+    opt.Y_history[1] = opt.Y_history[0] + 10.0
+    assert opt.best_formulation_no() == 1
+    # With nothing finished there is still a best to name.
+    half = FoodOptimizer('half', robust=False)
+    half.set_amount_unit('g')
+    half.add_ingredient('Pea protein', 10, 30)
+    half.add_ingredient('Water', 70, 90)
+    half.add_objective('Firmness', 1, goal='target', target=6, min_val=0, max_val=10)
+    half.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40)
+    half.tell({'Pea protein': 20.0, 'Water': 80.0}, {'Firmness': 6.0},
+              formulation_no=1, batch_no=1)
+    assert half.best_formulation_no() == 1
+
+
+def test_a_wrong_reading_has_a_door_beside_the_table_it_is_read_in(project):
+    """The only button in sight on Results was "Change a measurement or an
+    ingredient", which opens Set up — where measurements are DEFINED, not
+    where a recorded one is fixed. The correction control was folded away
+    under a heading about editing the past."""
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    button = next(b for b in at.button
+                  if b.label == wording.CORRECT_A_RESULT_BUTTON)
+    assert button.proto.type == "secondary"
+    fold = next(e for e in at.expander
+                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
+    assert not fold.proto.expanded
+    button.click()
+    at.run()
+    assert not at.exception
+    fold = next(e for e in at.expander
+                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
+    assert fold.proto.expanded
+    assert any(s.label == wording.CORRECT_WHICH_LABEL for s in at.selectbox)

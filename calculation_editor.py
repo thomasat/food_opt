@@ -11,6 +11,14 @@ import streamlit.components.v2 as components
 import wording
 from food_bo import GRID_ID, formula_is_rest
 
+# The dialog is drawn while this is set, not only on the run its button
+# was pressed. Every keystroke in the expression box reruns the app, and a
+# dialog rendered inside `if st.button(...)` is gone on the first of them —
+# taking the refusal it had just drawn with it.
+EDITOR_OPEN = '_calculation_editor_open'
+# What the tab says after the panel has staged a calculation: the grid shows
+# it and Save changes has lit, and neither of those is a sentence.
+EDITOR_STAGED = '_calculation_editor_staged'
 FILL = wording.FILL_TO_TOTAL
 # Handed to the component, which cannot import wording of its own.
 _MESSAGES = {'ingredient': wording.CALCULATION_PICK_AN_INGREDIENT,
@@ -128,15 +136,40 @@ def _preview(opt, plan, name):
         st.caption(wording.calculated_range_caption(f"{low:.2f}", f"{high:.2f}", unit))
 
 
-def _stage(frame):
+def apply_calculation(opt, frame, index, text):
+    """One row given a calculation, checked before anything is staged.
+
+    Hands back `(errors, candidate)`: the candidate grid when the project
+    can take it, and None with the refusals when it cannot. A function
+    rather than a branch inside the dialog, because the dialog is redrawn
+    from scratch on every rerun and what it decided has to survive that.
+    """
+    candidate = frame.copy()
+    candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(text)
+    errors, _ = _validate(opt, candidate)
+    return (errors, None) if errors else ([], candidate)
+
+
+def _stage(frame, name=""):
     from ui_helpers import ING_GRID_KEY, park_grid, rekey_grid
     park_grid(ING_GRID_KEY, frame)
     rekey_grid(ING_GRID_KEY)
+    st.session_state.pop(EDITOR_OPEN, None)
+    st.session_state[EDITOR_STAGED] = wording.calculation_staged(name)
     st.rerun(scope='app')
 
 
-@st.dialog(wording.CALCULATION_EDITOR_TITLE, width='large')
+def _close_editor():
+    """The ✕, or a click outside. The panel is drawn while EDITOR_OPEN is
+    set, so dismissing it has to put that down — otherwise the next rerun
+    opens it again."""
+    st.session_state.pop(EDITOR_OPEN, None)
+
+
+@st.dialog(wording.CALCULATION_EDITOR_TITLE, width='large',
+           on_dismiss=_close_editor)
 def open_editor(opt, frame):
+    st.session_state[EDITOR_OPEN] = True
     # Aggregate blends and process settings cannot have an amount calculation.
     eligible = [i for i, row in frame.iterrows()
                 if str(row.get(wording.NAME_LABEL) or '').strip()
@@ -211,4 +244,4 @@ def open_editor(opt, frame):
         _preview(opt, plan, name)
     st.caption(wording.CALCULATION_APPLY_CAPTION)
     if apply and not errors:
-        _stage(candidate)
+        _stage(candidate, name)

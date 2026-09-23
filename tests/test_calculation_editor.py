@@ -95,3 +95,53 @@ def test_dialog_stages_fill_without_writing(project):
     errors, _ = project.apply_ingredient_grid(staged)
     assert not errors
     assert project._var_by_name('Water')['formula'] == '= rest'
+
+
+def test_use_calculation_writes_the_row_and_lights_save_changes(project):
+    """`Use calculation` closed the panel and changed nothing, with nothing
+    said: the component's own trigger reruns the app, and the dialog was
+    drawn only where the button that opens it is pressed, so everything the
+    panel said about the calculation — the refusal included — went with it.
+
+    The apply is a function now, and what it hands back is what the grid is
+    staged with."""
+    from calculation_editor import apply_calculation
+    frame = project.ingredient_grid_frame()
+    index = frame.index[frame[wording.NAME_LABEL] == 'Water'][0]
+    errors, candidate = apply_calculation(project, frame, index,
+                                          '2 * (Flour + Starch)')
+    assert errors == []
+    assert candidate.at[index, wording.FORMULA_LABEL] == '= 2 * (Flour + Starch)'
+    # Nothing is written until the grid's own Save changes is pressed.
+    assert not project._var_by_name('Water').get('formula')
+    # ...and a calculation the project cannot take comes back as the
+    # refusal, with nothing staged.
+    errors, candidate = apply_calculation(project, frame, index,
+                                          'Flour * Starch')
+    assert errors and candidate is None
+
+
+def test_the_editor_stays_open_while_a_calculation_is_being_written(project):
+    """Every keystroke in the expression box reruns the app. The dialog was
+    rendered only inside `if st.button(...)`, so the first rerun closed it
+    under the reader's hand."""
+    from streamlit.testing.v1 import AppTest
+    from calculation_editor import EDITOR_OPEN
+    def render():
+        import streamlit as st
+        import calculation_editor
+        from food_bo import FoodOptimizer
+        key = calculation_editor.EDITOR_OPEN
+        opt = FoodOptimizer('calculations')
+        if st.button('Edit calculation', key='edit_calculation'):
+            st.session_state[key] = True
+        if st.session_state.get(key):
+            calculation_editor.open_editor(opt, opt.ingredient_grid_frame())
+    at = AppTest.from_function(render, default_timeout=120).run()
+    at.button(key='edit_calculation').click().run()
+    assert not at.exception, at.exception
+    assert EDITOR_OPEN in at.session_state.filtered_state
+    assert any(r.label == wording.CALCULATION_MODE_QUESTION for r in at.radio)
+    # A rerun that is not a click on that button still finds the panel open.
+    at.run()
+    assert any(r.label == wording.CALCULATION_MODE_QUESTION for r in at.radio)
