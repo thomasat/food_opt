@@ -308,18 +308,31 @@ def _recorded_amount(var, recipe):
     return float(recipe.get(var['name'], var.get('_absent_value', 0.0)))
 
 
-def _amount_boxes(opt, key_of, recipe=None):
+def _amount_boxes(opt, key_of, recipe=None, lock_worked_out=False):
     """One number box per variable, keyed by `key_of(name)`. With a recipe the
     boxes open on what that row recorded; without one they open blank.
 
     A formulation is corrected as often for what went into the bowl — a
     misread balance, a line transposed off the batch sheet — as for what came
-    off the panel, and until now only the measurements could be fixed."""
+    off the panel, and until now only the measurements could be fixed.
+
+    A row that is worked out from a rule never offers its own Lowest and
+    Highest as the hint: they are dormant, the Set up grid has replaced
+    them with a word, and the box was showing the numbers the row carried
+    BEFORE it was given a rule — a third answer to a question two other
+    screens had already answered. `lock_worked_out` greys it as well, which
+    is what the same row's box on Make a round does: on the form that
+    RECORDS a formulation the app works the row out. On the form that
+    CORRECTS one it stays typeable, because what the balance actually gave
+    is the whole point of correcting, and the printed sheet leaves that
+    row's Actual (g) cell open for exactly that.
+    """
     typed = {}
     for var, col in _in_fours(opt.variables):
         with col:
             name = var['name']
             low, high = (float(b) for b in var['bounds'])
+            worked_out = opt.has_formula(var)
             # No min_value/max_value: an amount outside what the project
             # allows is a fact about work already done, and clamping it would
             # quietly record a formulation nobody made. It is a caution on
@@ -335,7 +348,9 @@ def _amount_boxes(opt, key_of, recipe=None):
             # in the unit that table prints it in.
             typed[name] = st.number_input(
                 opt._amount_column(name),
-                placeholder=amount_range_placeholder(low, high),
+                placeholder=(wording.WORKED_OUT if worked_out
+                             else amount_range_placeholder(low, high)),
+                disabled=worked_out and lock_worked_out,
                 key=key_of(name), format="%.2f")
     return typed
 
@@ -843,7 +858,7 @@ def _type_in_past(opt):
     # held variable to the value generated formulations hold it at, because
     # that one is a new formulation under today's set — this one is a fact
     # about work already done.
-    _amount_boxes(opt, _past_key)
+    _amount_boxes(opt, _past_key, lock_worked_out=True)
     ordered = opt.measurements_by_importance()
     # A blank measurement is a partial result here, exactly as it is in the
     # results grid and in an imported CSV.
