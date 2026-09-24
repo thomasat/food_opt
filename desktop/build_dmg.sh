@@ -37,7 +37,7 @@ chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
 # theory.py is deliberately not bundled: nothing in the app imports it, and
 # it needs matplotlib, which left requirements.txt with the deploy cleanup.
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py wording.py; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 mkdir -p "$APP_DIR/Contents/Resources/data"
@@ -96,7 +96,11 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
   if [ -n "${NOTARY_PROFILE:-}" ]; then
     echo "submitting for notarization (this can take a few minutes)..."
-    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+    NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+    if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
+      NOTARY_ARGS+=(--keychain "$NOTARY_KEYCHAIN")
+    fi
+    xcrun notarytool submit "$DMG_PATH" "${NOTARY_ARGS[@]}" --wait
     xcrun stapler staple "$DMG_PATH"
   else
     echo "WARNING: signed but NOT notarized (NOTARY_PROFILE unset) - Gatekeeper will warn." >&2

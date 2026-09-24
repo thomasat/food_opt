@@ -236,7 +236,7 @@ class TestObjectiveValidation:
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="must be between Lowest measurable"):
+        with pytest.raises(ValueError, match="must be between Scale minimum"):
             opt.add_objective("Taste", 1.0, goal="target", target=50, min_val=0, max_val=10)
 
     def test_blank_name_rejected(self, tmp_path, monkeypatch):
@@ -1147,7 +1147,7 @@ class TestRemoveIngredient:
         opt_configured.add_ingredient("Flour", 0, 0)
         opt_configured.add_ingredient("Sugar", 0, 0)
         with pytest.raises(ValueError,
-                           match="last ingredient or setting that can still move"):
+                           match="last ingredient or setting that can still vary"):
             opt_configured.remove_ingredient("Water")
 
 
@@ -1508,16 +1508,20 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 8
-    assert set(sample_names) <= set(names)
+    assert len(sample_names) == 9
+    assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
+        "Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water",
+        "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils"]
+    assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
     # questions the screen asks. data/ingredients.csv is the experiments'
     # list, not a template, and keeps the lowercase headers those scripts
     # read by name; the columns are the same columns either way.
-    assert list(sample.columns) == ["Name", "Lowest", "Highest", "Unit",
-                                    "Rule", "Fat per 100 g",
-                                    "Sodium per 100 g"]
+    assert list(sample.columns) == ["Name", "Part of", "Preparation", "Lowest",
+                                    "Highest", "Composition (%)", "Calculation", "Unit",
+                                    "Fat per 100 g", "Sodium per 100 g",
+                                    "Water per 100 g", "Cost per 100 g"]
     assert [c.lower() for c in df.columns] == [
         "name", "min", "max", "unit", "fat per 100 g", "sodium per 100 g"]
 
@@ -2147,7 +2151,7 @@ class TestUnitsAndImportance:
         assert join_unit("7", "") == "7"
 
     def test_the_goal_reads_the_same_way_everywhere(self):
-        """C3: one rendering of one cell. It was 'Hit a target' beside a
+        """C3: one rendering of one cell. It was 'Aim for a target value' beside a
         Target of 6 on the grid, 'Target 6' in the Results table and
         'target 6' in lower case on the sheets the bench reads. A '/10' is
         shown once, on the measurement's own label, so it never follows a
@@ -2156,14 +2160,22 @@ class TestUnitsAndImportance:
         assert goal_line is goal_text
         assert goal_text({"goal": "target", "target": 6, "unit": "N"}) == "Target 6 N"
         assert goal_text({"goal": "target", "target": 7, "unit": "/10"}) == "Target 7"
-        assert goal_text({"goal": "min", "unit": "N"}) == "Lower is better"
-        assert goal_text({"goal": "max", "unit": ""}) == "Higher is better"
+        assert goal_text({"goal": "min", "unit": "N"}) == "Prefer lower values"
+        assert goal_text({"goal": "max", "unit": ""}) == "Prefer higher values"
 
     def test_a_slash_unit_is_written_once_on_the_label(self):
         from food_bo import label_with_unit, unit_after_number
         assert label_with_unit("Firmness", "/10") == "Firmness (/10)"
         assert label_with_unit("Firmness", "N") == "Firmness"
         assert label_with_unit("Firmness", "") == "Firmness"
+        # ...and where the cell beside the label is EMPTY, the unit has
+        # nowhere else to go: a bench handed a bare "Cook loss" writes 18,
+        # 0.18 or 18.4 g.
+        from food_bo import entry_label
+        assert entry_label("Cook loss", "%") == "Cook loss (%)"
+        assert entry_label("Firmness", "N") == "Firmness (N)"
+        assert entry_label("Firmness", "/10") == "Firmness (/10)"
+        assert entry_label("Firmness", "") == "Firmness"
         assert unit_after_number("/10") == ""
         assert unit_after_number("N") == "N"
         assert unit_after_number(None) == ""
@@ -2270,13 +2282,11 @@ class TestUnitsAndImportance:
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between Lowest "
-                                  "measurable and Highest measurable "
+        assert str(add.value) == ("Target 99 must be between Scale minimum and Scale maximum "
                                   "(0 to 10).")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between Lowest "
-                                   "measurable and Highest measurable "
+        assert str(edit.value) == ("Target 99 must be between Scale minimum and Scale maximum "
                                    "(0 to 10).")
 
     def test_a_backwards_range_is_refused_in_the_tab_s_words(
@@ -2284,8 +2294,8 @@ class TestUnitsAndImportance:
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == ("Lowest measurable must be less than "
-                                "Highest measurable.")
+        assert str(e.value) == ("Scale minimum must be less than "
+                                "Scale maximum.")
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2430,9 +2440,9 @@ class TestUnitsAndImportance:
         opt.tell({"Water": 10.0}, {"Juiciness": 8.0, "Grittiness": 2.0})
         rows = opt.closeness_details(0)
         # The /10 is on the name, once, and never after the number.
-        assert rows[0] == {"name": "Juiciness (/10)", "goal": "Higher is better",
+        assert rows[0] == {"name": "Juiciness (/10)", "goal": "Prefer higher values",
                            "measured": "8", "off_by": "—"}
-        assert rows[1] == {"name": "Grittiness (/10)", "goal": "Lower is better",
+        assert rows[1] == {"name": "Grittiness (/10)", "goal": "Prefer lower values",
                            "measured": "2", "off_by": "—"}
 
     def test_closeness_details_says_on_target(self, tmp_path, monkeypatch):
@@ -3009,13 +3019,13 @@ class TestParseBatchResultsByFormulation:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
             "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
-            "Raise Highest measurable in Set up, or check the value.")
+            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
             "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
-            "Raise Highest measurable in Set up, or check the value.")
+            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -3110,10 +3120,18 @@ class TestTheIngredientsGrid:
                                                              monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         frame = opt.ingredient_grid_frame()
+        # Made as sits right after Type: it says what the row IS, which is
+        # the question Type half answers, and a pre-mix's parts open in a
+        # fold underneath rather than in a column of their own.
         assert list(frame.columns) == [
             "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
+            wording.MADE_AS_LABEL,
             wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
-            wording.VENDOR_LABEL, wording.SKU_LABEL, wording.FORMULA_LABEL]
+            wording.FORMULA_LABEL]
+        # The ordinary case has a word of its own: a blank cell is not an
+        # answer a reader can recognise as the one they want.
+        assert list(frame[wording.MADE_AS_LABEL]) == \
+            [wording.PREMIX_MADE_AS_BOUGHT_IN] * 2
         # Numbered from 1, so "Row 2" under the grid is the second row the
         # reader can see.
         assert list(frame.index) == [1, 2]
@@ -3364,6 +3382,29 @@ class TestTheIngredientsGrid:
         assert wording.fixing_breaks_the_total("50 g") in message
         assert wording.fixed_rows_tail("Water and Salt") in message
 
+    def test_the_refusal_names_the_row_this_save_changed_and_no_other(
+            self, tmp_path, monkeypatch):
+        """"…let enough ingredients vary again. Fixed at one amount:
+        Seasoning blend" was the answer to giving ANOTHER row a calculation.
+        A reader sent to a cell they did not touch cannot act on it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(50.0)
+        # Salt was pinned last week, and it is not what changed today.
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.LOWEST_LABEL: 2.0,
+                         wording.HIGHEST_LABEL: 2.0})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.LOWEST_LABEL: 10.0,
+                         wording.HIGHEST_LABEL: 10.0})
+        errors = self._refused(opt, frame)
+        assert len(errors) == 1
+        message = errors[0][1]
+        assert wording.fixing_breaks_the_total("50 g") in message
+        assert wording.fixed_rows_tail("Water") in message
+        assert "Salt" not in message, message
+
     def test_one_row_fixed_mid_grid_is_never_asked_on_its_own(self, tmp_path,
                                                               monkeypatch):
         """Fixing Water at 48 g and widening Salt to 2 g in one save reaches
@@ -3593,7 +3634,7 @@ class TestTheMeasurementsGrid:
             _edit(opt.measurement_grid_frame(), 1,
                   **{wording.TARGET_LABEL: 50.0}))
         assert errors[0][0] == 1
-        assert "must be between Lowest measurable" in errors[0][1]
+        assert "must be between Scale minimum" in errors[0][1]
 
     def test_an_added_measurement_takes_its_share_from_the_rest(
             self, tmp_path, monkeypatch):
@@ -4108,7 +4149,13 @@ import pathlib
 import re
 
 _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
-                        "ui_results.py", "food_bo.py", "storage.py", "wording.py"]
+                        "ui_results.py", "food_bo.py", "storage.py", "wording.py",
+                        # The three modules wave 3 added. Every one of them
+                        # drew its own screen text where this sweep could
+                        # not see it, which is how sixty sentences reached
+                        # the user unread.
+                        "calculation_editor.py", "workbook_flow.py",
+                        "custom_records.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
@@ -4358,6 +4405,20 @@ class TestRoundTwoFixes:
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # Custom records apply to formulations and process-only trials.
+    wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
+    wording.CUSTOM_SECTION_NAMES["formulation"],
+    # Process-only studies use trial; weighed recipe describes the optional input method.
+    wording.PROCESS_STUDY_INTRO, wording.METHOD_HELP, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
+    # Scientific teaching copy requested by the owner uses measurement scale,
+    # ingredient weight and experimental results in their ordinary meanings.
+    wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
+    wording.MEASUREMENT_MAX_HELP, wording.RULE_GUIDE, wording.FORMULA_HELP,
+    wording.MADE_AS_HELP, wording.SAMPLE_TAB1_DESCRIPTION,
+    wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
+    wording.WIDEN_RANGE_HINT,
+    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD, wording.LEGACY_SAMPLE_TARGETS_SOURCE, wording.SAMPLE_REFERENCE,
+
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
@@ -4403,8 +4464,30 @@ _ALLOWED_SINGLE_WORDS = {
 # same two literals are machinery — the reserved column name a 0.2.x project
 # could collide with, and the key each row of the record keeps its round
 # number under — and nothing in that file is a label.
+#
+# 0.7.0 adds one more to the same scoped set, for the same reason: what per
+# cent of a pre-mix each part is is stored under the key 'share', and that
+# key is named in food_bo.py alone. The word itself stays banned — a bare
+# "Share" column header is the mistake the guard exists to catch, and the
+# prose pattern above cannot see a one-word literal — so the allowance is
+# the exact lower-cased key, scoped to the one file that writes it.
+# Wave 3's three modules keep the same shape of allowance, each for a
+# stored key the user never reads: the round a metadata block issues its
+# amounts under, and the round number a skipped row carries.
 _ALLOWED_SINGLE_WORDS_BY_FILE = {
-    "food_bo.py": {"Batch", "batch"},
+    "wording.py": {"trial", "trials", "Trials"},  # process-only studies
+    "food_bo.py": {"Batch", "batch", "share"},
+    "workbook_flow.py": {"recipes"},   # the issued-plan key in the metadata
+    "custom_records.py": {"batch"},    # the round number a skipped row keeps
+}
+
+# Fragments removed from a file before it is scanned, by name and by file:
+# CSS property names and DOM ids inside the calculation editor's own web
+# component, which is machinery the reader never meets as words. The same
+# shape as _SWIFT_NOT_PROSE, for the same reason.
+_NOT_PROSE_BY_FILE = {
+    "calculation_editor.py": ("font-weight", 'id="batch"', "#batch",
+                              "'batch size'"),
 }
 
 
@@ -4500,7 +4583,10 @@ def test_no_old_vocabulary_reaches_the_user():
         for text in _prose_constants(root / name):
             if text in allowed or text.startswith(_ALLOWED_PREFIXES):
                 continue
-            if any(pattern.search(text) for pattern in _BANNED):
+            scanned = text
+            for fragment in _NOT_PROSE_BY_FILE.get(name, ()):
+                scanned = scanned.replace(fragment, "")
+            if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, text))
         offenders += _single_word_offenders(
             name, _single_word_constants(root / name))
@@ -4515,10 +4601,40 @@ def test_a_bare_batch_is_refused_everywhere_but_food_bo(word):
     exists for food_bo's reserved names."""
     for name in _USER_FACING_SOURCES:
         refused = _single_word_offenders(name, [word])
-        if name == "food_bo.py" and word in {"Batch", "batch"}:
+        # food_bo keeps the reserved column name and the row key; custom
+        # records keeps the round number a skipped row is filed under.
+        if ((name == "food_bo.py" and word in {"Batch", "batch"})
+                or (name == "custom_records.py" and word == "batch")):
             assert refused == [], (name, word)
         else:
             assert refused == [(name, word)], (name, word)
+
+
+@pytest.mark.parametrize("word", ["trial", "trials", "Trials"])
+def test_a_bare_trial_is_refused_everywhere_but_wording(word):
+    """The allowance is scoped, and this is the proof. A process-only study
+    is a run of trials and wording.py is where those sentences are built;
+    the same bare word typed into any other module is the mistake the guard
+    exists to catch."""
+    for name in _USER_FACING_SOURCES:
+        refused = _single_word_offenders(name, [word])
+        if name == "wording.py":
+            assert refused == [], (name, word)
+        else:
+            assert refused == [(name, word)], (name, word)
+
+
+def test_the_measurement_range_headers_are_exempt_by_name_only():
+    """The two column headers are the owner's choice and are allowed as
+    exact sentences named in _ALLOWED_EXACT — not as a licence for the word
+    itself. A bare "Scale" is still refused in every file, this one
+    included."""
+    for label in (wording.LOWEST_MEASURABLE_LABEL,
+                  wording.HIGHEST_MEASURABLE_LABEL):
+        assert label in _ALLOWED_EXACT, label
+        assert any(pattern.search(label) for pattern in _BANNED), label
+    for name in _USER_FACING_SOURCES:
+        assert _single_word_offenders(name, ["Scale"]) == [(name, "Scale")]
 
 
 def test_even_food_bo_may_not_say_batches():
@@ -4532,6 +4648,7 @@ def test_even_food_bo_may_not_say_batches():
 # user never reads, and each is here by name rather than by shape so that a
 # sentence can never hide behind the allowance.
 _FOOD_BO_NOT_PROSE = {
+    "see its page",  # legacy workbook pointer, accepted only when reading old files
     # Reserved column names and the frame keys that ARE those columns. The
     # words are wording.py's; these are the lookups into a dataframe.
     "Overall Score", "Overall score",
@@ -4539,7 +4656,7 @@ _FOOD_BO_NOT_PROSE = {
     # and the log line _damaged writes.
     "frame actual lots",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".pkl", r"^total(\s*\(.*\))?$", r"\s+(\d+)(\.\d+)?",
+    ".pkl", r"^total(\s*\(.*\))?$", r"\s+(\d+)(\.\d+)?", r")\s+(\d+)(\.\d+)?",
     "saved copy refused: %s",
     # outside_message's own glue. It is the one sentence builder left in
     # this file: it needs join_unit and unit_after_number, and wording.py
@@ -4654,6 +4771,15 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     offenders = []
     for name in _USER_FACING_TEXT:
         for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+            # Both record scopes also apply to process-only trials.
+            if (name, line) in {
+                ("desktop/start_here.txt", "formulation/trial or each ingredient in the round. Enter values in the"),
+                ("README.md", "record, then choose each formulation/trial or each ingredient in the round."),
+            }:
+                continue
+            # Process-only studies deliberately use trials in the user guide.
+            if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
+                continue
             if any(pattern.search(line) for pattern in _BANNED):
                 offenders.append((name, i, line))
     swift = (root / _USER_FACING_SWIFT).read_text()
@@ -5154,6 +5280,9 @@ _SAMPLE_CSV = pathlib.Path(__file__).resolve().parent.parent / "data" / \
     "sample_ingredients.csv"
 
 
+_FLAT_BURGER_CSV = os.path.join(os.path.dirname(__file__), "fixtures", "flat_burger.csv")
+
+
 class TestFormulationTotal:
     """One number on tab 1 says how big a formulation is, and every
     suggestion adds up to it. It is stored as a number AND written as the
@@ -5161,8 +5290,8 @@ class TestFormulationTotal:
     opening and the model already obey."""
 
     def _sample(self, tmp_path, monkeypatch, name="sample"):
-        """The sample project's own eight ingredients, with the Water typed
-        by hand rather than worked out: they then add up to at least 20 g
+        """The sample project's own nine grid rows, with the Water typed
+        by hand rather than calculated: they then add up to at least 20 g
         and at most 131 g, which is what makes 100 g reachable and 150 g
         not.
 
@@ -5173,7 +5302,7 @@ class TestFormulationTotal:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name, robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.clear_formula("Water")
         opt.add_ingredient("Water", 20, 60, unit="g")
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
@@ -5633,7 +5762,7 @@ class TestTheTotalIsAlwaysReachable:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name, robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.clear_formula("Water")
         opt.add_ingredient("Water", 20, 60, unit="g")
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
@@ -5861,7 +5990,7 @@ class TestTheTotalIsAlwaysReachable:
 
     def test_fixing_that_puts_the_total_out_of_reach_names_the_total(
             self, tmp_path, monkeypatch):
-        """Not eight ingredients and a limit the user never wrote."""
+        """Not nine grid rows and a limit the user never wrote."""
         opt = self._sample(tmp_path, monkeypatch)
         opt.set_formulation_total(120)
         # Water is 20 to 60 g; fixed at 20, the rest reach 91 g at most.
@@ -5990,6 +6119,8 @@ class TestTheWorkbook:
     def _opt(self, tmp_path, monkeypatch, name="sheets"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 0, 100)
         opt.add_ingredient("Water", 0, 100)
@@ -6013,7 +6144,7 @@ class TestTheWorkbook:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
-        assert book.sheetnames == ["Round 2", "Formulation 1",
+        assert [s.title for s in book if s.sheet_state == "visible"] == ["Round 2", "Formulation 1",
                                    "Formulation 2", "Formulation 3"], \
             book.sheetnames
 
@@ -6078,8 +6209,8 @@ class TestTheWorkbook:
         # who made it.
         assert labels[-9:] == ["Measurements", wording.SHEET_WRITE_IN_NOTE,
                                "Measurement",
-                               "Firmness · Target 6 N",
-                               "Juiciness (/10) · Higher is better",
+                               "Firmness (N) · Target 6 N",
+                               "Juiciness (/10) · Prefer higher values",
                                "Not scored", "Note",
                                wording.SUMMARY_TICK_NOTE,
                                wording.MADE_BY_FOOTER], labels
@@ -6088,8 +6219,8 @@ class TestTheWorkbook:
         # The measurement rows open empty; the Not scored row opens holding
         # the box the instruction asks the reader to tick, in the cell the
         # pen can reach.
-        for label in ("Firmness · Target 6 N",
-                      "Juiciness (/10) · Higher is better"):
+        for label in ("Firmness (N) · Target 6 N",
+                      "Juiciness (/10) · Prefer higher values"):
             assert _labelled(sheet)[label] == [None] * 7, label
         assert _labelled(sheet)["Not scored"] == [
             wording.TICK_BOX, None, wording.TICK_BOX, None,
@@ -6118,10 +6249,10 @@ class TestTheWorkbook:
                                          100.0))["Formulation 1"]
         rows = _rows(sheet)
         assert rows[0][0] == "Formulation 1 · Round 2 · sheets"
-        # What this formulation is trying. Nothing to compare it with yet,
-        # so the line is the cell alone: "Compared with the allowed amounts:
-        # Spread across the allowed amounts" is that sentence twice.
-        assert rows[1][0] == wording.SUGGESTION_SPREAD.capitalize()
+        # The round's own search strategy is stated once, on the Round
+        # sheet. On the page a bench carries it was a line to read and then
+        # discard, above the amounts it has to weigh.
+        assert rows[1][0] is None
         # Then the one line that says which cells the sheet will take,
         # naming the Actual column as this page's own header writes it.
         assert rows[2][0] == wording.sheet_write_in_note("Actual (g)")
@@ -6154,8 +6285,16 @@ class TestTheWorkbook:
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         for name in book.sheetnames:
             sheet = book[name]
+            # A merged box is ONE cell to the reader and to the pen: Excel
+            # paints the whole of it in the anchor's shade, and openpyxl
+            # keeps no style on the cells the merge swallowed. The anchor is
+            # the cell this rule is about.
+            swallowed = {c for rng in sheet.merged_cells.ranges
+                         for row in sheet[rng.coord] for c in row[1:]}
             for row in sheet.iter_rows():
                 for cell in row:
+                    if cell in swallowed:
+                        continue
                     shaded = cell.fill.fgColor.rgb not in (None, "00000000")
                     writable = cell.protection.locked is False
                     assert shaded == writable, (name, cell.coordinate,
@@ -6201,8 +6340,8 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(opt.pending_batch_no)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        firm = labels.index("Firmness · Target 6 N") + 1
-        juice = labels.index("Juiciness (/10) · Higher is better") + 1
+        firm = labels.index("Firmness (N) · Target 6 N") + 1
+        juice = labels.index("Juiciness (/10) · Prefer higher values") + 1
         not_scored = labels.index(wording.NOT_SCORED_CHECKBOX_SHEET) + 1
         note = labels.index(wording.NOTE) + 1
         sheet.cell(row=firm, column=2, value=5.5)
@@ -6240,7 +6379,7 @@ class TestTheWorkbook:
         sheet = book["Round 2"]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6255,7 +6394,7 @@ class TestTheWorkbook:
         opt.set_pending_batch([{"Pea protein": 20.0, "Water": 70.0,
                                 "Salt": 10.0, "Cook temperature": 180.0}],
                               batch_no=3)
-        with pytest.raises(ValueError, match="no sheet called Round 3"):
+        with pytest.raises(ValueError, match="different round"):
             opt.results_from_workbook(io.BytesIO(stale))
 
     def test_a_sheet_with_no_formulation_columns_is_refused(self, tmp_path,
@@ -6328,7 +6467,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6358,7 +6497,7 @@ class TestTheWorkbook:
         sheet = book[wording.batch_sheet_name(2)]
         labels = [sheet.cell(row=r, column=1).value
                   for r in range(1, sheet.max_row + 1)]
-        sheet.cell(row=labels.index("Firmness · Target 6 N") + 1, column=2,
+        sheet.cell(row=labels.index("Firmness (N) · Target 6 N") + 1, column=2,
                    value=5.5)
         out = io.BytesIO()
         book.save(out)
@@ -6378,7 +6517,7 @@ class TestTheWorkbook:
         sheet = book[wording.formulation_sheet_name(2)]
         for r in range(1, sheet.max_row + 1):
             label = sheet.cell(row=r, column=2).value
-            if label == "Firmness":
+            if label == "Firmness (N)":
                 sheet.cell(row=r, column=4, value=6.5)
             elif label == "Juiciness (/10)":
                 sheet.cell(row=r, column=4, value=7.0)
@@ -6442,7 +6581,7 @@ class TestTheWorkbook:
         with pytest.raises(ValueError, match="Nothing is filled in"):
             opt.results_from_workbook(out)
 
-    def test_the_summary_is_read_first_when_both_are_filled_in(
+    def test_conflicting_results_across_sheets_are_refused(
             self, tmp_path, monkeypatch):
         """One sheet has to win, and it is the one the whole batch is
         written on."""
@@ -6450,13 +6589,13 @@ class TestTheWorkbook:
         book = openpyxl.load_workbook(self._filled_in(opt))
         sheet = book[wording.formulation_sheet_name(1)]
         for r in range(1, sheet.max_row + 1):
-            if sheet.cell(row=r, column=2).value == "Firmness":
+            if sheet.cell(row=r, column=2).value == "Firmness (N)":
                 sheet.cell(row=r, column=4, value=9.9)
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        frame = opt.results_from_workbook(out).frame
-        assert frame["Firmness"].iloc[0] == 5.5, frame.to_dict()
+        with pytest.raises(ValueError, match="conflicting Firmness"):
+            opt.results_from_workbook(out)
 
     # ------------------------- the whole project ------------------------ #
 
@@ -6508,15 +6647,27 @@ class TestTheWorkbook:
                                 "..", "data", "sample_ingredients.csv")
         book = _book(ingredients_template_workbook(template))
         assert book.sheetnames == ["Ingredients"]
-        assert _rows(book["Ingredients"])[0][:4] == ("Name", "Lowest",
-                                                     "Highest", "Unit")
+        header = _rows(book["Ingredients"])[0]
+        assert header[:4] == ("Name", "Lowest", "Highest", "Unit")
+        # Every column the loader reserves is on the template, including the
+        # three a pre-mix is written with: a reader who downloads it can
+        # learn the shape no other way.
+        for column in (wording.PART_OF_LABEL, wording.MADE_AS_LABEL,
+                       wording.PREMIX_SHARE_LABEL, wording.FORMULA_LABEL):
+            assert column in header
         frame = pd.read_excel(io.BytesIO(ingredients_template_workbook(template)))
+        assert len(frame) == 1
+        # The one example row is an ordinary row of the list: the three
+        # pre-mix cells are empty, so nothing on the template says this
+        # ingredient is part of something that is not there.
+        for column in (wording.PART_OF_LABEL, wording.MADE_AS_LABEL,
+                       wording.PREMIX_SHARE_LABEL):
+            assert pd.isna(frame[column][0]) or not str(frame[column][0]).strip()
         opt = FoodOptimizer("from_template")
         opt.set_amount_unit("g")
         opt.load_ingredients_from_csv(frame)
-        assert [v['name'] for v in opt.variables] == \
-            list(pd.read_csv(template)["Name"])[:1]
-        assert opt.unit_of("Pea protein isolate") == "g"
+        assert len(opt.variables) == 1 and opt.premixes == {}
+        assert opt.unit_of(opt.variables[0]['name']) == "g"
 
 
 # ------------------------------------------------------------------ #
@@ -6784,7 +6935,7 @@ class TestTheWorkbookFinalWave:
         with a comma. One separator, and the upload matches on it."""
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch))["Round 2"]
-        assert "Firmness · Target 6 N" in _labelled(sheet)
+        assert "Firmness (N) · Target 6 N" in _labelled(sheet)
 
     # ---- G-b2 / G-d5 / C24 / C25: what the paper says ------------------
 
@@ -6804,7 +6955,7 @@ class TestTheWorkbookFinalWave:
         opt = self._opt(tmp_path, monkeypatch)
         title = _rows(_book(opt.workbook_bytes(opt.pending_batch,
                                                100.0))["Round 2"])[0][0]
-        assert title.endswith(" · made to 100 g"), title
+        assert title.endswith(" · Batch size 100 g"), title
         plain = _rows(_book(opt.workbook_bytes(
             opt.pending_batch))["Round 2"])[0][0]
         assert "made to" not in plain
@@ -6879,7 +7030,7 @@ class TestTheWorkbookFinalWave:
         assert flat[limits + 1] == "Water: at most 80 g", flat
         # The basis is said once, under the heading, as the screen says it.
         assert flat[props + 1] == opt.per_amount_text() == "per 100 g"
-        assert flat[props + 2] == "Fat per 100 g: at most 15", flat
+        assert flat[props + 2] == "Fat per 100 g: at most 15 g", flat
 
     def test_the_set_up_sheet_carries_the_share_of_score(self, tmp_path,
                                                          monkeypatch):
@@ -6939,7 +7090,7 @@ class TestTheWorkbookFinalWave:
 
         def edit(book):
             sheet = book["Round 2"]
-            row = self._row_of(sheet, "Firmness · Target 6 N")
+            row = self._row_of(sheet, "Firmness (N) · Target 6 N")
             sheet.cell(row=row, column=1).value = "Bite force"
             sheet.cell(row=row + 1, column=2).value = 7.0    # Juiciness
 
@@ -6962,7 +7113,7 @@ class TestTheWorkbookFinalWave:
         def edit(book):
             sheet = book[wording.formulation_sheet_name(number)]
             for r, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-                if row and len(row) > 1 and str(row[1]).strip() == "Firmness":
+                if row and len(row) > 1 and str(row[1]).strip() == "Firmness (N)":
                     sheet.cell(row=r, column=4).value = 6.0
                 if row and len(row) > 1 and str(row[1]).strip() == wording.NOTE:
                     sheet.cell(row=r, column=4).value = "second try"
@@ -7011,8 +7162,8 @@ class TestTheWriteInBlockIsFoundPastTheInstruction:
         opt = self._opt(tmp_path, monkeypatch)
 
         def edit(sheet):
-            firm = self._row_of(sheet, "Firmness · Target 6 N")
-            juice = self._row_of(sheet, "Juiciness (/10) · Higher is better")
+            firm = self._row_of(sheet, "Firmness (N) · Target 6 N")
+            juice = self._row_of(sheet, "Juiciness (/10) · Prefer higher values")
             sheet.cell(row=juice, column=1).value = "Mouth juiciness"
             sheet.cell(row=firm, column=2).value = 5.5
             sheet.cell(row=juice, column=2).value = 8.0
@@ -7547,7 +7698,7 @@ class TestFixedIsLowestEqualsHighest:
         said = {sheet.cell(row=r, column=1).value:
                 sheet.cell(row=r, column=7).value for r in (3, 4, 5)}
         assert said == {"Pea protein": None, "Water": None,
-                        "Salt": "fixed at 20.00 g"}
+                        "Salt": "Fixed at 20.00 g"}
 
     def test_the_sheet_has_no_status_column_when_nothing_is_fixed(
             self, tmp_path, monkeypatch):
@@ -7563,7 +7714,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 12
+        assert state['CLASS_VERSION'] == 15
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)
@@ -8097,7 +8248,7 @@ class TestThePropertiesGrid:
     def test_only_the_cells_that_moved_are_written(self, tmp_path,
                                                    monkeypatch):
         """Every figure goes through set_property_value, and that door saves
-        the project; a grid of eight ingredients by six properties would
+        the project; a grid of nine grid rows by six properties would
         save it forty-eight times to change one number."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_property_value("Pea protein", "Cost", 3.5)
@@ -8192,6 +8343,8 @@ class TestTheLockedWorkbook:
     def _opt(self, tmp_path, monkeypatch, name="locked"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 0, 100)
         opt.add_ingredient("Water", 0, 100)
@@ -8229,13 +8382,16 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 2"]
         at = self._rows_of(sheet)
-        write_in = ("Firmness · Target 6 N",
-                    "Juiciness (/10) · Higher is better",
+        write_in = ("Firmness (N) · Target 6 N",
+                    "Juiciness (/10) · Prefer higher values",
                     wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)
         expected = {f"{letter}{at[label]}" for label in write_in
                     for letter in ("B", "D")}          # one per formulation
         expected |= {f"F{at[name]}" for name in ("Pea protein (g)",
                                                  "Water (g)")}   # the Lot
+        # ...and the signature line, which the app does not read but a pen
+        # must reach: it was printed into a locked cell.
+        expected |= {f"A{at[wording.MADE_BY_FOOTER]}"}
         assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
         # And the shading says the same thing, so nobody finds out by being
         # refused.
@@ -8251,7 +8407,7 @@ class TestTheLockedWorkbook:
         expected = {f"D{at[label]}" for label in
                     ("Pea protein", "Water",            # what to weigh
                      "Cook temperature (°C)",           # what to dial in
-                     "Firmness", "Juiciness (/10)",     # what to measure
+                     "Firmness (N)", "Juiciness (/10)",  # what to measure
                      wording.NOT_SCORED_CHECKBOX_SHEET, wording.NOTE)}
         # Both note cells: the app reads the printed one back as its own, and
         # a technician who corrects it there is not writing to no effect.
@@ -8259,6 +8415,15 @@ class TestTheLockedWorkbook:
         # And the tick boxes: a sheet filled in on a screen has to be
         # tickable on the screen.
         expected |= {f"A{at[name]}" for name in ("Pea protein", "Water")}
+        # And the signature line, which the app does not read but a pen
+        # must reach: it was printed into a locked cell.
+        expected.add(f"B{at[wording.MADE_BY_FOOTER]}")
+        # The Total line's own Actual cell: a patty that came off the bench
+        # at 97.4 g is a fact the model needs, and every row above it had
+        # one while the line they add up to had none.
+        expected.add(f"D{at[wording.TOTAL_LABEL]}")
+        # And the tail of the merged Note box.
+        expected.add(f"E{at[wording.NOTE]}")
         assert _unlocked(sheet) == expected, sorted(_unlocked(sheet))
         # The amount beside the Actual cell is locked.
         amount = sheet.cell(row=at["Water"], column=3)
@@ -8315,9 +8480,9 @@ class TestTheLockedWorkbook:
         at = {summary.cell(row=r, column=1).value: r
               for r in range(1, summary.max_row + 1)}
         for column in (2, 4):
-            summary.cell(row=at["Firmness · Target 6 N"], column=column,
+            summary.cell(row=at["Firmness (N) · Target 6 N"], column=column,
                          value=6.0)
-            summary.cell(row=at["Juiciness (/10) · Higher is better"],
+            summary.cell(row=at["Juiciness (/10) · Prefer higher values"],
                          column=column, value=7.0)
         if lot is not None:
             summary.cell(row=at["Water (g)"], column=6, value=lot)
@@ -8490,9 +8655,9 @@ class TestTheLockedWorkbook:
             summary.cell(row=1, column=c, value=f"Formulation {number}")
         summary.cell(row=2, column=1, value="Pea protein (g)")
         summary.cell(row=3, column=1, value=wording.MEASURED_COLUMN)
-        summary.cell(row=4, column=1, value="Firmness · Target 6 N")
+        summary.cell(row=4, column=1, value="Firmness (N) · Target 6 N")
         summary.cell(row=4, column=2, value=6.0)
-        summary.cell(row=5, column=1, value="Juiciness (/10) · Higher is better")
+        summary.cell(row=5, column=1, value="Juiciness (/10) · Prefer higher values")
         summary.cell(row=5, column=2, value=7.0)
         out = io.BytesIO()
         book.save(out)
@@ -8680,7 +8845,7 @@ class TestFormulaGrammar:
         with pytest.raises(FormulaError) as excinfo:
             parse_formula("Water × 2", self.NAMES, has_batch_size=False)
         assert str(excinfo.value) == wording.RULE_NEEDS_EQUALS
-        assert wording.RULE_NEEDS_EQUALS == "Start a rule with =."
+        assert wording.RULE_NEEDS_EQUALS == "Start a calculation with =."
 
     def test_a_multiplication_dot_is_a_times_sign(self):
         form = parse_formula("= Water · 2", self.NAMES, has_batch_size=False)
@@ -8735,7 +8900,7 @@ class TestFormulaGrammar:
 
 class TestFormulaRows:
     """Task 2 of the rules wave (2026-09-16): a formula row leaves the search
-    vector. Its amount is worked out from the rows it names, and its
+    vector. Its amount is calculated from the rows it names, and its
     coefficients are folded into every limit — substitution, never an
     equality band, so the formula holds exactly at every point the app
     produces and the eliminated column carries no information the GP loses.
@@ -8767,7 +8932,7 @@ class TestFormulaRows:
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= batch size - Flour - Sugar")
         assert opt.has_formula(opt._var_by_name("Water")) is True
-        # Two columns, not three: Water is worked out, not searched.
+        # Two columns, not three: Water is calculated, not searched.
         assert opt._encode({"Water": 60, "Flour": 30, "Sugar": 10}) == [
             30.0, 10.0]
         assert len(opt._search_bounds()) == 2
@@ -8850,7 +9015,7 @@ class TestFormulaRows:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.set_formula("Water", "= 0.5 × Flour")
-        # A limit every one of whose rows is worked out has nothing to act
+        # A limit every one of whose rows is calculated has nothing to act
         # on and is refused; one that also names a row the search moves is
         # substituted, which is what this is about.
         with pytest.raises(ValueError) as refused:
@@ -8939,7 +9104,7 @@ class TestFormulaRows:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("rest_reach", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(_FLAT_BURGER_CSV))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
@@ -9041,7 +9206,7 @@ class TestFormulaRows:
         opt.set_formula("Water", "= rest")
         opt.set_formula("Sugar", "= 0.1 × batch size")
         state = opt.export_json()
-        assert FoodOptimizer.validate_state(state)['version'] == 12
+        assert FoodOptimizer.validate_state(state)['version'] == 15
 
         other = FoodOptimizer("copy_of_formulas")
         other.import_json(state)
@@ -9128,9 +9293,9 @@ class TestFormulaRows:
 
         other = FoodOptimizer("wave_one_project")
         other.import_json(state)
-        assert FoodOptimizer.CLASS_VERSION == 12
+        assert FoodOptimizer.CLASS_VERSION == 15
         assert not any(other.has_formula(v) for v in other.variables)
-        assert other.export_json()['CLASS_VERSION'] == 12
+        assert other.export_json()['CLASS_VERSION'] == 15
         assert len(other._search_bounds()) == 3
         assert len(other.ask(1)) == 1
 
@@ -9182,7 +9347,7 @@ class TestFormulaRows:
                                                          monkeypatch):
         """Scaling every amount by one factor is right for a formula that is
         a multiple and wrong for one with a number in it: the rows the
-        search moves are scaled, and the rows that are worked out are worked
+        search moves are scaled, and the rows that are calculated are worked
         out again at the new size.
 
         Which is why the factor is solved rather than taken as the ratio of
@@ -9202,7 +9367,7 @@ class TestFormulaRows:
                                    "Sugar": 10.0}, 74)
         assert sum(sized.values()) == pytest.approx(74.0)
         # Flour and Sugar keep the proportion they came in, and Water is
-        # worked out again rather than scaled.
+        # calculated again rather than scaled.
         assert sized["Flour"] / sized["Sugar"] == pytest.approx(2.0)
         assert sized["Water"] == pytest.approx(5 + 0.1 * sized["Flour"])
         opt.set_pending_batch([{"Water": 7.0, "Flour": 20.0, "Sugar": 10.0}])
@@ -9248,10 +9413,10 @@ class TestFormulaRows:
 
     def test_a_rule_may_not_name_a_process_setting(self, tmp_path,
                                                    monkeypatch):
-        """Grams of salt worked out from minutes of cooking is arithmetic
+        """Grams of salt calculated from minutes of cooking is arithmetic
         across two units that cannot be mixed. The app refused a setting a
         rule of its own and then allowed the reverse, and said "Salt is
-        worked out as Cook time × 0.1: between 0.20 and 1.00 g" about it."""
+        calculated as Cook time × 0.1: between 0.20 and 1.00 g" about it."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_process_parameter("Oven", 100, 200)
         with pytest.raises(FormulaError) as caught:
@@ -9304,8 +9469,8 @@ class TestTheFormulaColumn:
     ingredients grid.
 
     One column for one idea: `= rest` is typed in the Formula cell, so there
-    is no Balance column beside it. A row that carries one is worked out —
-    its range cells read `worked out`, the numbers typed there are ignored,
+    is no Balance column beside it. A row that carries one is calculated —
+    its range cells read `calculated`, the numbers typed there are ignored,
     and the consequence is said under the grid in the amounts the other rows
     leave it.
     """
@@ -9338,7 +9503,7 @@ class TestTheFormulaColumn:
         assert var['formula'] == "= batch size − Pea protein − Salt"
         assert var['balance'] is False
         assert opt.has_formula(var) is True
-        # ...and it is worked out from the rows it names, not searched.
+        # ...and it is calculated from the rows it names, not searched.
         assert [v['name'] for v in opt.varying_variables()] == ["Pea protein",
                                                                "Salt"]
         assert opt.fill_formulas({"Pea protein": 40.0, "Salt": 9.0}) == {
@@ -9357,7 +9522,7 @@ class TestTheFormulaColumn:
         row = frame.loc[1]
         assert row[wording.FORMULA_LABEL] == "= rest"
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
+        assert row[wording.HIGHEST_LABEL] == ""
         # Every other row carries the two-decimal text a number column used
         # to format for it.
         assert frame.loc[2][wording.LOWEST_LABEL] == "30.00"
@@ -9372,7 +9537,7 @@ class TestTheFormulaColumn:
         assert opt._var_by_name("Water")['bounds'] == (20.0, 60.0)
         back = opt.ingredient_grid_frame().loc[1]
         assert (back[wording.LOWEST_LABEL],
-                back[wording.HIGHEST_LABEL]) == ("", wording.WORKED_OUT)
+                back[wording.HIGHEST_LABEL]) == ("", "")
 
     def test_clearing_a_formula_gives_the_row_its_range_back(self, tmp_path,
                                                              monkeypatch):
@@ -9435,16 +9600,20 @@ class TestTheFormulaColumn:
         # against what was typed; and the row's own dormant Lowest and
         # Highest are named where the rule takes it past them.
         assert opt.worked_out_captions() == [
-            "Water is worked out as = batch size − Pea protein − Salt: "
-            "between 40.00 and 62.00 g in a 100 g formulation — outside "
-            "the 20.00 to 60.00 g you gave it."]
+            "Water is calculated from = batch size − Pea protein − Salt: "
+            "between 40.00 and 62.00 g in a 100 g formulation. "
+            "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
+            "while the calculation does."]
         # The balance says the same thing in the words it was written in.
         opt.apply_ingredient_grid(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"))
+        # The head names the number it fills to AND where that number is
+        # set, so the line is read the same on a round made to another size.
         assert opt.worked_out_captions() == [
-            "Water is worked out as = rest, whatever is left of the batch "
-            "size: between 40.00 and 62.00 g in a 100 g formulation — "
-            "outside the 20.00 to 60.00 g you gave it."]
+            "Water is calculated to bring the total to the 100 g default "
+            "batch size: between 40.00 and 62.00 g. "
+            "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
+            "while the calculation does."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
@@ -9464,7 +9633,7 @@ class TestTheFormulaColumn:
         assert errors == []
         # The arithmetic reaches −30.00 g; the app never will.
         assert opt.worked_out_captions() == [
-            "Water is worked out as = 20 − Flour: between 0.00 and 20.00 g "
+            "Water is calculated from = 20 − Flour: between 0.00 and 20.00 g "
             "in a 50 g formulation."]
 
     def test_no_allowed_amounts_caution_lands_on_a_worked_out_row(
@@ -9498,8 +9667,9 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 3, "= 1.5 % of batch size"))
         assert errors == []
         assert opt.worked_out_captions() == [
-            "Salt is worked out as = 1.5 % of batch size: 1.50 g in a "
-            "100 g formulation — outside the 8.00 to 10.00 g you gave it."]
+            "Salt is calculated from = 1.5 % of batch size: 1.50 g in a "
+            "100 g formulation. Its own Lowest and Highest (8.00 to "
+            "10.00 g) do not apply while the calculation does."]
 
     def test_the_caption_is_absent_without_a_formula(self, tmp_path,
                                                      monkeypatch):
@@ -9541,7 +9711,7 @@ class TestTheFormulaColumn:
                 if text.startswith("Formulations already made keep")]
         assert said == [
             "Formulations already made keep their amounts. Water and Salt "
-            "are worked out from their rules from the next round on."]
+            "are calculated from their calculations from the next round on."]
 
     # ---- a formula is data a file can bring in ---------------------- #
 
@@ -9580,12 +9750,15 @@ class TestTheFormulaColumn:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
-        assert opt._var_by_name("Water")['balance'] is True
-        assert opt._formula_text(opt._var_by_name("Water")) == "= rest"
-        assert len(opt.varying_variables()) == 7
+        assert opt._var_by_name("Remaining water")['balance'] is True
+        assert opt._formula_text(opt._var_by_name("Remaining water")) == "= rest"
+        # Textured pea protein, Dry blend, Wheat gluten and the two oils
+        # the Fat phase is weighed out as; Seasoning blend is fixed at
+        # 2.20 g and Water is calculated.
+        assert len(opt.varying_variables()) == 6
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
-            assert row["Water"] >= -1e-9
+            assert row["Remaining water"] >= -1e-9
 
 
 # ------------------------------------------------------------------ #
@@ -9594,11 +9767,13 @@ class TestTheFormulaColumn:
 # ------------------------------------------------------------------ #
 class TestFormulasOnTheSheets:
     """A formula row prints the amount it computed to, marked so a bench
-    reading the printed page knows it was not chosen, only worked out."""
+    reading the printed page knows it was not chosen, only calculated."""
 
     def _opt(self, tmp_path, monkeypatch, name="sheet_formulas"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9614,6 +9789,8 @@ class TestFormulasOnTheSheets:
     def _no_formula_opt(self, tmp_path, monkeypatch, name="sheet_plain"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9627,6 +9804,8 @@ class TestFormulasOnTheSheets:
     def _balance_opt(self, tmp_path, monkeypatch, name="sheet_balance"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9644,7 +9823,7 @@ class TestFormulasOnTheSheets:
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
         names = {row[0] for row in _rows(summary) if isinstance(row[0], str)}
-        assert wording.worked_out_label("Water (g)") in names
+        assert f'{wording.worked_out_label("Water")} (g)' in names
         assert "Water (g)" not in names
         # A row with no formula wears no mark.
         assert "Salt (g)" in names
@@ -9669,7 +9848,7 @@ class TestFormulasOnTheSheets:
         # sheet of THIS workbook, so "filled in from its rule" sent a bench
         # looking for something that is not in the file.
         note = opt.worked_out_note()
-        assert note.startswith("Water is worked out: ")
+        assert note.startswith("Water is calculated: ")
         assert note.endswith("Weigh the amount printed.")
         assert any(row[0] == note for row in _rows(summary))
         assert any(row[1] == note for row in _rows(page))
@@ -9714,7 +9893,7 @@ class TestFormulasOnTheSheets:
         at = {sheet.cell(row=r, column=1).value: r
              for r in range(1, sheet.max_row + 1)}
         assert sheet.cell(row=at["Water"], column=7).value == (
-            "= rest (batch size − every other ingredient)")
+            "Fill to total (batch size − every other ingredient)")
 
     # ---- the Actual cell is unaffected --------------------------------- #
 
@@ -9747,6 +9926,8 @@ class TestFormulasOnTheSheetsFixes:
     def _opt(self, tmp_path, monkeypatch, name="sheet_upload_formulas"):
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(name)
+        for field in ("vendor", "sku", "lot", "actual"):
+            opt.set_records(field, True)
         opt.set_amount_unit("g")
         opt.add_ingredient("Pea protein", 30, 50)
         opt.add_ingredient("Salt", 8, 10)
@@ -9777,12 +9958,12 @@ class TestFormulasOnTheSheetsFixes:
         lot_col = self._lot_column(summary)
         at = {summary.cell(row=r, column=1).value: r
              for r in range(1, summary.max_row + 1)}
-        summary.cell(row=at[wording.worked_out_label("Water (g)")],
+        summary.cell(row=at[f'{wording.worked_out_label("Water")} (g)'],
                      column=lot_col, value=water_lot)
         summary.cell(row=at["Salt (g)"], column=lot_col, value=salt_lot)
         # A row with nothing measured is a row nothing came back for at
         # all — the one thing this fixture needs beside the amounts.
-        summary.cell(row=at["Taste · Higher is better"], column=2, value=6.0)
+        summary.cell(row=at["Taste · Prefer higher values"], column=2, value=6.0)
         page = book["Formulation 1"]
         rows = {page.cell(row=r, column=2).value: r
                for r in range(1, page.max_row + 1)}
@@ -10099,7 +10280,7 @@ class TestTheFormulaColumnFixes:
         assert wording.setup_sheet_formula_text(
             opt._formula_text(opt._var_by_name("Water")),
             rest=bool(opt._var_by_name("Water").get('balance'))) == (
-                "= rest (batch size − every other ingredient)")
+                "Fill to total (batch size − every other ingredient)")
 
     def test_a_refused_file_leaves_the_ingredients_alone(self, tmp_path,
                                                          monkeypatch):
@@ -10129,20 +10310,21 @@ class TestTheFormulaColumnFixes:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
-        water = opt._var_by_name("Water")
+        water = opt._var_by_name("Remaining water")
         assert water['balance'] is True
-        assert water['bounds'] == (30.0, 70.0)
+        assert water['bounds'] == (0.0, 100.0)
         frame = opt.ingredient_grid_frame()
-        row = frame[frame[wording.NAME_LABEL] == "Water"].iloc[0]
+        row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == wording.WORKED_OUT
+        assert row[wording.HIGHEST_LABEL] == ""
+        at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
-            frame, 8, **{wording.FORMULA_LABEL: ""}))
+            frame, at, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
         back = opt.ingredient_grid_frame()
-        row = back[back[wording.NAME_LABEL] == "Water"].iloc[0]
+        row = back[back[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \
-            ("30.00", "70.00")
+            ("0.00", "100.00")
 
 
 # ------------------------------------------------------------------ #
@@ -10222,7 +10404,7 @@ class TestExactlyAndPercentLimits:
                                     percent=True)
         messages = opt.set_formulation_total(120)
         assert ("info", "Limits written as a % of the default batch size "
-                        "are now worked out from 120 g.") in messages
+                        "are now calculated from 120 g.") in messages
         qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
         # The percent itself is unchanged; the grams it comes to follow the
         # new default.
@@ -10380,3 +10562,1801 @@ class TestPercentLimitsFollowTheDefaultsRealFate:
         assert qcs[0]['percent'] == {'min': None, 'max': 30.0, 'exactly': None}
         assert qcs[0]['max'] == pytest.approx(30.0)
         assert not any("% of batch size" in m for m in _said(messages))
+
+
+# ------------------------------------------------------------------ #
+#  0.7.0 wave 3 · pre-mixes: the data, and the two mappings
+# ------------------------------------------------------------------ #
+
+class TestPreMixes:
+    """A pre-mix is an ingredient made from its own parts, and it reaches
+    the flat list of amounts the model searches one of two ways: made once
+    and portioned into every formulation (the pre-mix is one row and its
+    parts are no rows at all), or weighed into each formulation (the parts
+    are the rows and the pre-mix is not one). Never both, and never
+    neither."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premixes"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    @staticmethod
+    def _names(opt):
+        return [v['name'] for v in opt.variables]
+
+    @staticmethod
+    def _row(opt, name):
+        return opt._by_name().get(name)
+
+    @staticmethod
+    def _parts(*pairs):
+        return [{'name': name, 'share': share} for name, share in pairs]
+
+    def _dry_blend(self, opt, mode="portioned"):
+        opt.add_premix("Dry blend", mode)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        return opt
+
+    # ---- the two mappings ---------------------------------------------- #
+
+    def test_portioned_puts_the_premix_in_the_list_and_not_its_parts(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+        # One continuous row with its own Lowest and Highest, like any
+        # other ingredient.
+        opt.add_ingredient("Dry blend", 5, 15)
+        assert self._row(opt, "Dry blend")['bounds'] == (5.0, 15.0)
+        assert self._row(opt, "Flour") is None
+        assert self._row(opt, "Salt") is None
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == \
+            ["Flour", "Salt"]
+        # The parts are still names the project knows facts about.
+        assert "Flour" in opt.ingredient_properties
+        assert opt.premix_of("Flour") == ["Dry blend"]
+        assert opt.premix_of("Dry blend") == []
+
+    def test_weighed_puts_the_parts_in_the_list_and_not_the_premix(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        assert self._names(opt) == ["Sugar", "Water", "Oil"]
+        assert self._row(opt, "Wet blend") is None
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        # A limit on the group is a limit over its parts, tagged with the
+        # group so it is named by the group and not by Water + Oil.
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        qc = opt.quantity_constraints[-1]
+        assert opt.limit_label(qc) == "Wet blend"
+        assert opt.limit_text(qc) == "Wet blend: at most 45 g"
+
+    def test_no_mode_ever_counts_the_mass_twice(self, tmp_path, monkeypatch):
+        """Flipping how a pre-mix is made never leaves the group AND its
+        parts in the list: the total of a formulation would count the same
+        flour twice. Nor may it leave neither."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        for mode in ("weighed", "portioned", "weighed", "portioned"):
+            opt.set_premix_mode("Dry blend", mode)
+            listed = set(self._names(opt))
+            group = "Dry blend" in listed
+            parts = listed & {"Flour", "Salt"}
+            assert group != bool(parts)
+            if mode == "portioned":
+                assert group and not parts
+            else:
+                assert parts == {"Flour", "Salt"}
+        # The parts themselves never change with the way it is made.
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == \
+            ["Flour", "Salt"]
+
+    # ---- the parts ------------------------------------------------------ #
+
+    def test_parts_are_rebalanced_to_a_hundred(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        adjusted = opt.set_premix_parts(
+            "Dry blend", self._parts(("Flour", 30), ("Salt", 30)))
+        assert adjusted is True
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        # The sentence names the column it moved and the numbers it wrote:
+        # the reader typed 30 and 30 and the app wrote 50 and 50.
+        assert wording.shares_adjusted_premix("Flour 50.00, Salt 50.00") == (
+            "Composition (%) adjusted to add up to 100 %: Flour 50.00, "
+            "Salt 50.00.")
+        # Already adding up to 100: nothing moved, and nothing to say.
+        assert opt.set_premix_parts(
+            "Dry blend", self._parts(("Flour", 70), ("Salt", 30))) is False
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [70.0, 30.0]
+
+    def test_a_part_may_belong_to_two_premixes(self, tmp_path, monkeypatch):
+        """Water is in the dry blend and in the wet one. One name, one set
+        of properties, and its own facts on each entry."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [
+            {'name': "Flour", 'share': 70, 'vendor': "Mill Co"},
+            {'name': "Water", 'share': 30, 'unit': "ml"}])
+        opt.add_premix("Wet blend", "portioned")
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Oil", 'share': 60},
+            {'name': "Water", 'share': 40, 'unit': "g"}])
+        assert opt.premix_of("Water") == ["Dry blend", "Wet blend"]
+        assert self._names(opt) == ["Sugar", "Dry blend", "Wet blend"]
+        # The facts ride on the entry, so the same name can be bought two
+        # ways; the properties are keyed by name and shared.
+        assert [p['unit'] for p in opt.premix_parts("Dry blend")] == ["", "ml"]
+        assert [p['unit'] for p in opt.premix_parts("Wet blend")] == ["", "g"]
+        assert list(opt.ingredient_properties).count("Water") == 1
+
+    def test_a_premix_cannot_contain_itself(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_parts("Dry blend", self._parts(("Dry blend", 100)))
+        assert str(caught.value) == wording.PART_IS_ITS_OWN_PREMIX
+        assert wording.PART_IS_ITS_OWN_PREMIX == \
+            "A pre-mix cannot be a part of another pre-mix. Type an ingredient's name in the Part cell."
+        opt.add_premix("Wet blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_parts("Dry blend", self._parts(("Wet blend", 100)))
+        assert str(caught.value) == wording.PREMIX_INSIDE_PREMIX
+        assert wording.PREMIX_INSIDE_PREMIX == \
+            "A pre-mix cannot be a part of another pre-mix. Type an ingredient's name in the Part cell."
+        # Nothing was written by either refusal.
+        assert opt.premix_parts("Dry blend") == []
+
+    def test_removing_a_premix_takes_its_rows_with_it(self, tmp_path,
+                                                      monkeypatch):
+        """The rows go; the name stays where another pre-mix still holds
+        it as a part, with the facts filed under it."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_premix("Fry blend", "portioned")
+        opt.set_premix_parts("Fry blend", self._parts(("Oil", 100)))
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        removed = opt.remove_premix("Wet blend")
+        assert list(opt.premixes) == ["Fry blend"]
+        # Both rows go: Fry blend is made in one bowl, so Oil being one of
+        # its parts is not a row. Fry blend's own row is what is left.
+        assert self._names(opt) == ["Sugar", "Fry blend"]
+        assert opt.quantity_constraints == []
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Water + Oil",
+                wording.no_longer_ingredients("Water and Oil", True)))]
+        # Oil is still a part, and still a name the project knows facts
+        # about; Water went with the pre-mix that was its only home.
+        assert opt.premix_of("Oil") == ["Fry blend"]
+        assert "Oil" in opt.ingredient_properties
+        assert "Water" not in opt.ingredient_properties
+        with pytest.raises(ValueError) as caught:
+            opt.premix_parts("Wet blend")
+        assert str(caught.value) == wording.premix_unknown("Wet blend")
+
+    def test_a_stored_make_up_reads_back_by_round(self, tmp_path,
+                                                  monkeypatch):
+        """What a round was actually made with is fixed for that round: the
+        make-up on file wins over what the pre-mix says today."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        assert [p['share'] for p in opt.premix_parts("Dry blend", 1)] == \
+            [70.0, 30.0]
+        # A round with no make-up on file reads today's.
+        assert [p['share'] for p in opt.premix_parts("Dry blend", 2)] == \
+            [50.0, 50.0]
+
+    # ---- a copy ---------------------------------------------------------- #
+
+    def test_premixes_survive_export_and_import(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        # The make-up one round was made with, filed under that round.
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        state = opt.export_json()
+        assert state['premixes']['Dry blend']['mode'] == "portioned"
+        assert state['premixes']['Wet blend']['mode'] == "weighed"
+        # A JSON object's keys are strings, so the round numbers go out as
+        # text and come back whole.
+        assert list(state['premixes']['Dry blend']['versions']) == ["1"]
+        assert FoodOptimizer.validate_state(state)['version'] == 15
+
+        monkeypatch.chdir(tmp_path)
+        other = FoodOptimizer("premix_copy", robust=False)
+        other.import_json(state)
+        assert list(other.premixes) == ["Dry blend", "Wet blend"]
+        assert other.premixes["Dry blend"]['parts'] == \
+            opt.premixes["Dry blend"]['parts']
+        assert list(other.premixes["Dry blend"]['versions']) == [1]
+        assert self._names(other) == ["Sugar", "Dry blend", "Water", "Oil"]
+
+    def test_validate_state_refuses_a_bad_mode(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+
+        def refused(change):
+            state = opt.export_json()
+            change(state['premixes'], state)
+            with pytest.raises(ValueError) as caught:
+                FoodOptimizer.validate_state(state)
+            assert str(caught.value) == wording.COPY_DAMAGED
+
+        refused(lambda p, s: p["Dry blend"].__setitem__('mode', "stirred"))
+        refused(lambda p, s: p["Dry blend"].__setitem__('mode', None))
+        refused(lambda p, s: p["Dry blend"]['parts'][0]
+                .__setitem__('share', "seventy"))
+        refused(lambda p, s: p["Dry blend"]['parts'][0].__setitem__('name', ""))
+        refused(lambda p, s: p["Dry blend"]['versions'].__setitem__('two', []))
+        # A pre-mix that also names a measurement, or a property.
+        refused(lambda p, s: p.__setitem__(
+            "Firmness", {'mode': "portioned", 'parts': [], 'versions': {}}))
+        refused(lambda p, s: p.__setitem__(
+            "Protein", {'mode': "portioned", 'parts': [], 'versions': {}})
+            or s.__setitem__('property_names', ["Protein"]))
+        # And the copy the app itself writes is accepted.
+        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 15
+
+    def test_a_version_12_project_loads_with_no_premixes_at_version_14(
+            self, tmp_path, monkeypatch):
+        assert FoodOptimizer.CLASS_VERSION == 15
+        opt = self._opt(tmp_path, monkeypatch)
+        state = opt.export_json()
+        del state['premixes']
+        state['CLASS_VERSION'] = 12
+        assert FoodOptimizer.validate_state(state)['version'] == 12
+        monkeypatch.chdir(tmp_path)
+        other = FoodOptimizer("held_project", robust=False)
+        other.import_json(state)
+        assert other.premixes == {}
+        assert other.export_json()['CLASS_VERSION'] == 15
+
+    # ---- a file ---------------------------------------------------------- #
+
+    @staticmethod
+    def _premix_csv():
+        return pd.DataFrame([
+            {'Name': "Dry blend", 'Lowest': 5, 'Highest': 15, 'Unit': "g",
+             wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED},
+            {'Name': "Flour", 'Unit': "g", wording.PREMIX_LABEL: "Dry blend",
+             wording.PREMIX_SHARE_LABEL: 70, 'Protein': 10},
+            {'Name': "Salt", 'Unit': "g", wording.PREMIX_LABEL: "Dry blend",
+             wording.PREMIX_SHARE_LABEL: 30},
+            {'Name': "Wet blend",
+             wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED},
+            {'Name': "Water", 'Lowest': 20, 'Highest': 40, 'Unit': "ml",
+             wording.PREMIX_LABEL: "Wet blend"},
+            {'Name': "Oil", 'Lowest': 2, 'Highest': 8, 'Unit': "g",
+             wording.PREMIX_LABEL: "Wet blend"},
+            {'Name': "Sugar", 'Lowest': 1, 'Highest': 5, 'Unit': "g"},
+        ], columns=['Name', 'Lowest', 'Highest', 'Unit', wording.PREMIX_LABEL,
+                    wording.MADE_AS_LABEL, wording.PREMIX_SHARE_LABEL,
+                    'Protein'])
+
+    def test_a_csv_with_premix_columns_builds_both_kinds(self, tmp_path,
+                                                         monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_file", robust=False)
+        opt.load_ingredients_from_csv(self._premix_csv())
+        assert list(opt.premixes) == ["Dry blend", "Wet blend"]
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        assert opt.premixes["Wet blend"]['mode'] == "weighed"
+        # Portioned: the pre-mix's own row carries the amounts; its parts
+        # are not in the list. Weighed: the other way round.
+        assert self._names(opt) == ["Dry blend", "Water", "Oil", "Sugar"]
+        assert self._row(opt, "Dry blend")['bounds'] == (5.0, 15.0)
+        assert self._row(opt, "Water")['bounds'] == (20.0, 40.0)
+        assert opt.unit_of("Water") == "ml"
+        assert [(p['name'], p['share']) for p in opt.premix_parts("Dry blend")] \
+            == [("Flour", 70.0), ("Salt", 30.0)]
+        assert [p['name'] for p in opt.premix_parts("Wet blend")] == \
+            ["Water", "Oil"]
+        # A part's own facts, and the properties keyed by its name.
+        assert opt.premix_parts("Dry blend")[0]['unit'] == "g"
+        assert opt.ingredient_properties["Flour"] == {"Protein": 10.0}
+        assert "Protein" in opt.properties()
+        assert wording.PREMIX_LABEL not in opt.properties()
+
+    def test_a_csv_without_premix_columns_loads_as_before(self, tmp_path,
+                                                          monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("plain_file", robust=False)
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Water", "Flour"], "Lowest": [10, 20],
+            "Highest": [60, 40], "Unit": ["g", "g"]}))
+        assert opt.premixes == {}
+        assert opt.variables
+        assert all(opt.premix_of(v['name']) == [] for v in opt.variables)
+
+    def test_the_setup_sheet_round_trips_premixes(self, tmp_path,
+                                                  monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_sheet", robust=False)
+        opt.load_ingredients_from_csv(self._premix_csv())
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        sheet = _book(opt.all_formulations_workbook())[wording.SET_UP_SHEET]
+        header = [c.value for c in sheet[2]]
+        # One table about the make-up, not two. The list of rows says which
+        # pre-mix a part belongs to — the one fact the list cannot say
+        # otherwise — and `Made as` and `% of pre-mix` are the Pre-mixes
+        # block's own, six rows down the same page.
+        assert wording.PART_OF_LABEL in header
+        assert wording.PREMIX_LABEL not in header
+        assert wording.MADE_AS_LABEL not in header
+        assert wording.PREMIX_SHARE_LABEL not in header
+        rows = []
+        for r in range(3, sheet.max_row + 1):
+            values = [sheet.cell(row=r, column=c + 1).value
+                      for c in range(len(header))]
+            if not values[0]:
+                break
+            rows.append(dict(zip(header, values)))
+        by_name = {row[wording.NAME_LABEL]: row for row in rows}
+        assert by_name["Flour"][wording.PART_OF_LABEL] == "Dry blend"
+        assert by_name["Dry blend"][wording.PART_OF_LABEL] is None
+
+        # The Pre-mixes block carries the make-up, and every number in it is
+        # a number: a portioned share was a float and a weighed part's range
+        # a string, because the block was lifted off the screen's own frame.
+        cells = [[c.value for c in row] for row in sheet.iter_rows()]
+        start = next(i for i, row in enumerate(cells)
+                     if row[0] == wording.PREMIXES_HEADING)
+        block = cells[start:start + 12]
+        assert [row[0] for row in block if row[0] in opt.premixes] == \
+            opt.premix_grid_order()
+        made_up = {row[0]: row[1:4] for row in block}
+        # A portioned share and a weighed part's two amounts are all
+        # numbers here. The screen's frame holds the range as text, because
+        # a grid column that may read `sum of its parts` cannot be a number
+        # column; the sheet has no such trouble.
+        assert isinstance(made_up["Flour"][0], (int, float))
+        assert isinstance(made_up["Oil"][0], (int, float))
+        assert isinstance(made_up["Oil"][1], (int, float))
+
+    # ---- Made as: the choice, its sentence, and switching ---------------- #
+
+    def test_the_portioned_sentence_is_said_once_when_the_choice_is_made(
+            self, tmp_path, monkeypatch):
+        """One sentence at the choice, saying both halves of what it means:
+        what the suggestions will move, and what the bench will do. It
+        names the pre-mix and never its parts — portioned, the parts are
+        not what varies — and it is said when the choice is MADE, so
+        re-choosing the way a pre-mix is already made says nothing and
+        changes nothing."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        said = opt.premix_consequence("Dry blend")
+        assert said.startswith(
+            "The suggestions vary how much Dry blend goes in. Its make-up "
+            "stays the same for the whole round, so you make it once.")
+        assert said.startswith(wording.premix_portioned_consequence(
+            "Dry blend"))
+        assert "Flour" not in said and "Salt" not in said
+        # The row arrived with no amounts of its own, and the line says so.
+        assert said.endswith(wording.premix_parts_need_amounts("Dry blend"))
+        opt.add_ingredient("Dry blend", 5, 15)
+        assert opt.premix_consequence("Dry blend").endswith(
+            wording.premix_row_band("Dry blend", "5.00", "15.00 g"))
+        assert opt.set_premix_mode("Dry blend", "portioned") == []
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+
+    def test_the_weighed_sentence_names_every_part(self, tmp_path,
+                                                   monkeypatch):
+        """The other half of the same choice. Weighed, it is the parts the
+        suggestions move, so the sentence lists them — in the order they
+        are typed, joined the way every other list of names in the app is."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(
+            ("pea protein", 50), ("fibre", 30), ("salt", 20)))
+        said = opt.premix_consequence("Dry blend")
+        # Two sentences: what the suggestions will vary, and what happened
+        # to the numbers. The parts arrived as rows with no amounts of
+        # their own, and a round generated in that state has none of them
+        # in it — so the line says so rather than leaving it to be found.
+        assert said.startswith(
+            "The suggestions vary pea protein, fibre and salt separately. "
+            "Each formulation gets its own amounts of them.")
+        assert said.endswith(wording.premix_parts_need_amounts(
+            "pea protein, fibre and salt", many=True))
+        opt.set_premix_parts("Dry blend", self._parts(("pea protein", 100)))
+        assert opt.premix_consequence("Dry blend").startswith(
+            wording.premix_weighed_consequence("pea protein"))
+        # Nothing to name is nothing to say: a pre-mix with no parts yet
+        # does not get a sentence with a hole in it.
+        opt.add_premix("Wet blend", "weighed")
+        assert opt.premix_consequence("Wet blend") == ""
+
+    def test_switching_discards_the_open_round_with_the_usual_notice(
+            self, tmp_path, monkeypatch):
+        """How a pre-mix is made decides which rows the suggestions move,
+        so a round generated before the switch is not a round this project
+        would generate now. It goes through the same door every other
+        set-up change sends it through — and the screen can ask first,
+        because the model answers what the question needs (the round, how
+        many formulations, and how many of them the reader added) without
+        writing anything."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.ask(2)
+        opt.add_to_pending_batch({"Sugar": 2.0, "Dry blend": 10.0},
+                                 note="my own")
+        no = opt.pending_batch_no
+        at_risk = opt.premix_mode_retires_round("Dry blend", "weighed")
+        assert at_risk == {'round': no, 'formulations': 3, 'own': 1}
+        assert opt.pending_batch_no == no
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        # The way it is already made is no change, so no round is at risk.
+        assert opt.premix_mode_retires_round("Dry blend", "portioned") is None
+
+        opt.set_premix_mode("Dry blend", "weighed")
+        assert opt.pending_batch is None
+        assert opt.pending_batch_no is None
+        assert wording.batch_discarded_notice(no) == (
+            f"Round {no} was discarded: your set-up changed after it was "
+            "made. Generate a new one.")
+        # And what the screen's question is built from, in wave 1's words.
+        assert wording.saving_discards_round(no, "3 formulations", 1) == (
+            f"Saving will discard Round {no}: 3 formulations, 1 of them "
+            "added by you. A formulation you added goes with the round — a "
+            "set-up change can make it invalid.")
+
+    def test_portioned_to_weighed_back_fills_the_parts_from_the_round_version(
+            self, tmp_path, monkeypatch):
+        """The recorded formulations are not zeroed: 10 g of a blend that
+        was 70/30 the day it was made IS 7 g of flour and 3 g of salt. The
+        make-up on file for that round is what it is read with, not the
+        make-up the pre-mix carries today; a row that belongs to no round
+        reads today's."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 7.0},
+                 formulation_no=1, batch_no=1)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 6.0},
+                 formulation_no=2)
+        assert opt.batch_history == [1, None]
+
+        opt.set_premix_mode("Dry blend", "weighed")
+        assert self._names(opt) == ["Sugar", "Flour", "Salt"]
+        first, second = opt.recipe_history
+        assert first["Flour"] == pytest.approx(7.0)
+        assert first["Salt"] == pytest.approx(3.0)
+        assert second["Flour"] == pytest.approx(5.0)
+        assert second["Salt"] == pytest.approx(5.0)
+        assert "Dry blend" not in first and "Dry blend" not in second
+        # The searched history is rebuilt from the amounts, not left short.
+        assert opt.X_history == [opt._encode(r) for r in opt.recipe_history]
+
+    def test_weighed_to_portioned_sums_the_parts(self, tmp_path, monkeypatch):
+        """The other direction. 6 g of flour and 2 g of salt were 8 g of
+        blend, and what that round's blend WAS is the shares those amounts
+        imply — which is what the round's make-up on file becomes, so the
+        row can be read back either way afterwards."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        opt.add_ingredient("Flour", 0, 20)
+        opt.add_ingredient("Salt", 0, 5)
+        opt.tell({"Sugar": 2.0, "Flour": 6.0, "Salt": 2.0}, {"Taste": 7.0},
+                 formulation_no=1, batch_no=1)
+
+        opt.set_premix_mode("Dry blend", "portioned")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+        assert opt.recipe_history[0]["Dry blend"] == pytest.approx(8.0)
+        assert "Flour" not in opt.recipe_history[0]
+        assert opt.X_history == [opt._encode(r) for r in opt.recipe_history]
+        # The shares that round was really made to, filed under that round;
+        # the make-up the pre-mix carries today is untouched.
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend", 1)] == \
+            [("Flour", 75.0), ("Salt", 25.0)]
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend")] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+
+    def test_a_round_records_the_version_it_was_made_from(self, tmp_path,
+                                                          monkeypatch):
+        """A round is generated from one make-up, and what that make-up was
+        is a fact about the round. It is written at generation, because the
+        make-up can move the same afternoon."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        assert opt.premixes["Dry blend"]['versions'] == {}
+        opt.ask(2)
+        no = opt.pending_batch_no
+        assert [(p['name'], p['share'])
+                for p in opt.premix_parts("Dry blend", no)] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+        # Copies: editing the make-up cannot reach back into the round.
+        opt.premixes["Dry blend"]['versions'][no][0]['share'] = 1.0
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [70.0, 30.0]
+
+    def test_a_recorded_formulation_remembers_its_version_after_the_parts_change(
+            self, tmp_path, monkeypatch):
+        """The point of filing it by round: a formulation recorded weeks
+        ago still says what it was made of after the make-up moves."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        batch = opt.ask(1)
+        no = opt.pending_batch_no
+        opt.tell(batch[0], {"Taste": 7.0}, batch_no=no)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        assert [(p['name'], p['share'])
+                for p in opt.premix_version_of("Dry blend", 0)] == \
+            [("Flour", 70.0), ("Salt", 30.0)]
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        # A row that belongs to no round has no version of its own to
+        # remember, so it reads the make-up as it stands.
+        opt.set_pending_batch(None)
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 5.0})
+        assert opt.batch_history[1] is None
+        assert [p['share'] for p in opt.premix_version_of("Dry blend", 1)] == \
+            [50.0, 50.0]
+
+    def test_a_switch_with_no_amounts_on_file_is_refused(self, tmp_path,
+                                                         monkeypatch):
+        """Changing which rows are searched rebuilds the history out of the
+        recorded amounts, and a project that has lost them cannot have it
+        rebuilt. The same refusal deleting an ingredient gives, and it is
+        asked before anything is written."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.tell({"Sugar": 2.0, "Dry blend": 10.0}, {"Taste": 7.0})
+        opt.recipe_history = []
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_mode("Dry blend", "weighed")
+        assert str(caught.value) == wording.AMOUNTS_MISSING_DELETE_ERROR
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+
+    def test_a_switch_that_would_leave_nothing_to_vary_is_refused(
+            self, tmp_path, monkeypatch):
+        """A pre-mix's own row arrives pinned at one amount, so making the
+        only weighed pre-mix in a project portioned can leave a project
+        with nothing for the suggestions to move. The same question
+        deleting a pre-mix asks, and the same sentence."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_last_row", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.ask(1)
+        # A switch that is going to be refused puts no round at risk: the
+        # question a screen asks first is about a change that will happen.
+        assert opt.premix_mode_retires_round("Wet blend", "portioned") is None
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_mode("Wet blend", "portioned")
+        assert str(caught.value) == wording.LAST_VARYING_ROW_ERROR
+        assert opt.pending_batch_no is not None
+        assert self._names(opt) == ["Water", "Oil"]
+        assert opt.premixes["Wet blend"]['mode'] == "weighed"
+        # With one row of its own that can still move, it goes through.
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.set_premix_mode("Wet blend", "portioned")
+        # The pre-mix keeps the place its parts were reading in — Water and
+        # Oil headed the list, and Sugar was typed underneath them.
+        assert self._names(opt) == ["Wet blend", "Sugar"]
+
+    def test_a_limit_the_switch_empties_is_said_in_a_sentence(
+            self, tmp_path, monkeypatch):
+        """A switch changes which rows are in the list and what they can
+        add up to, so a limit written against the old list can stop meaning
+        anything. What it emptied comes back from the switch itself, in the
+        shape every other door onto the list hands it back, and the screen
+        says the same line."""
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_quantity_constraint(["Sugar", "Dry blend"], max_val=18)
+        assert opt.total_reach() == (6.0, 20.0)
+        opt.set_formulation_total(18)
+        removed = opt.set_premix_mode("Dry blend", "weighed")
+        assert [qc.get('reason') for qc in removed] == ["unreachable"]
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.formulation_total_gone_unreachable("18 g"))]
+        assert opt.formulation_total is None
+        # A limit that merely lost one of its rows is left naming the rows
+        # it still has, exactly as it is everywhere else in the app.
+        assert opt.quantity_constraints[0]['ingredients'] == ["Sugar"]
+
+    # ---- the carried defect from wave 2's fix wave ----------------------- #
+
+    def test_the_snap_never_leaves_a_rule_row_below_zero(self, tmp_path,
+                                                         monkeypatch):
+        """A rule with a negative low end — Salt = 20 − Pea protein, with
+        Pea protein up to 25 — let the projection onto the batch size land
+        Salt below nothing while total_reach called the size reachable. The
+        size is reachable; the projection now reaches it, by pinning the
+        rule at its floor and sharing what is left over the other rows."""
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("snap_floor", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 20, 60)
+        opt.add_ingredient("Pea protein", 10, 25)
+        opt.add_ingredient("Salt", 0, 3)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formula("Salt", "= 20 - Pea protein")
+        assert opt.total_reach() == (40.0, 80.0)
+        opt.set_formulation_total(40)
+
+        snapped = opt._snap_to_total({"Water": 20.0, "Pea protein": 25.0}, 40)
+        assert snapped is not None
+        assert snapped["Salt"] >= 0.0
+        assert snapped["Pea protein"] == pytest.approx(20.0)
+        assert sum(snapped.values()) == pytest.approx(40.0)
+        assert opt._check_constraints(snapped) is True
+
+        for recipe in opt.ask(3):
+            assert recipe["Salt"] >= -1e-9
+            assert sum(recipe.values()) == pytest.approx(40.0, abs=1e-6)
+            assert opt._check_constraints(recipe) is True
+
+
+@pytest.mark.parametrize("word", ["share", "Share", "SHARE"])
+def test_a_bare_share_is_refused_everywhere_but_food_bo(word):
+    """The scoped allowance is the proof, as it was for "Batch". 0.7.0
+    stores what per cent of a pre-mix each part is under the key 'share',
+    and food_bo.py is the only file that names that key; a bare "Share"
+    typed into wording.py is still the column header this guard exists to
+    catch. The allowance is that exact lower-cased key and nothing else:
+    a capitalised "Share" is refused in food_bo.py too."""
+    for name in _USER_FACING_SOURCES:
+        refused = _single_word_offenders(name, [word])
+        if name == "food_bo.py" and word == "share":
+            assert refused == [], (name, word)
+        else:
+            assert refused == [(name, word)], (name, word)
+
+
+class TestPreMixesFixRoundOne:
+    """Fix round 1 on the pre-mixes. Every one of these is the same
+    invariant defended in one direction only: a name a pre-mix owns is a
+    row of the searched list, or the thing a row is made of, and nothing
+    else in the project may wear it or take it away behind the pre-mix's
+    back."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_fixes"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [{'name': "Flour", 'share': 70},
+                                           {'name': "Salt", 'share': 30}])
+        opt.add_ingredient("Dry blend", 5, 15)
+        return opt
+
+    @staticmethod
+    def _names(opt):
+        return [v['name'] for v in opt.variables]
+
+    @staticmethod
+    def _row(opt, name):
+        return opt._by_name().get(name)
+
+    # ---- 1 · a name a pre-mix owns is not free -------------------------- #
+
+    def test_a_weighed_premixs_part_name_is_not_free(
+            self, tmp_path, monkeypatch):
+        """Weighed, a part IS a row of the searched list. A second row of
+        that name is the same oil in the bowl twice and nothing downstream
+        can tell which mass is which."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Fat phase", "weighed")
+        opt.set_premix_parts("Fat phase", [{'name': "Oil", 'share': 0,
+                                            'unit': "g"}])
+        # The row the pre-mix put in the list is the reader's to set
+        # amounts on — that is an EDIT of the part's own row...
+        opt.add_ingredient("Oil", 0, 10)
+        assert self._row(opt, "Oil")['bounds'] == (0.0, 10.0)
+        # ...but nothing else in the project may wear the name.
+        with pytest.raises(ValueError) as caught:
+            opt.add_process_parameter("Oil", 0, 10)
+        assert str(caught.value) == wording.name_taken_by(
+            "Oil", wording.AN_INGREDIENT)
+        with pytest.raises(ValueError):
+            opt.add_property("Oil")
+        assert wording.name_taken_by_part("Oil", "Fat phase") == \
+            "Oil is already a part of Fat phase."
+
+    def test_a_portioned_premixs_part_may_also_be_a_row_of_its_own(
+            self, tmp_path, monkeypatch):
+        """Portioned, a part is no row at all — it is a quantity inside the
+        pre-mix — so the same water may be part of the dry blend and a row
+        beside it. Each mass is weighed once, and the round's totals add
+        the two under the one name."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Flour", 0, 10)
+        assert self._names(opt) == ["Sugar", "Dry blend", "Flour"]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == \
+            ["Flour", "Salt"]
+        # A measurement and a property are still one name, one thing.
+        with pytest.raises(ValueError):
+            opt.add_property("Flour")
+    def test_a_premixs_own_name_is_taken(self, tmp_path, monkeypatch):
+        """Said in the pre-mix's words when it is not also a row, and in the
+        row's when it is."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.add_ingredient("Wet blend", 0, 10)
+        assert str(caught.value) == wording.name_taken_by("Wet blend",
+                                                          wording.A_PREMIX)
+        with pytest.raises(ValueError) as caught:
+            opt.add_process_parameter("Dry blend", 0, 10)
+        assert str(caught.value) == wording.name_taken_by(
+            "Dry blend", wording.AN_INGREDIENT)
+        # ...but the row the pre-mix itself put in the list is still the
+        # reader's to set amounts on.
+        opt.add_ingredient("Dry blend", 4, 16)
+        assert self._row(opt, "Dry blend")['bounds'] == (4.0, 16.0)
+
+    def test_a_rename_cannot_take_a_name_a_premix_owns(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Fat phase", "weighed")
+        opt.set_premix_parts("Fat phase", [{'name': "Oil", 'share': 0,
+                                            'unit': "g"}])
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Oil")
+        assert str(caught.value) == _name_taken_message("Oil", "ingredient")
+        # A pre-mix that is not also a row — one weighed into each
+        # formulation, before anything is in it — is caught by the pre-mix
+        # pass and nothing else; a portioned one is its own row, and the
+        # variables pass gets there first with the same answer.
+        opt.add_premix("Wet blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Wet blend")
+        assert str(caught.value) == wording.name_taken_by("Wet blend",
+                                                          wording.A_PREMIX)
+        with pytest.raises(ValueError) as caught:
+            opt.rename_variable("Sugar", "Dry blend")
+        assert str(caught.value) == _name_taken_message("Dry blend",
+                                                        "ingredient")
+        assert self._names(opt) == ["Sugar", "Dry blend", "Oil"]
+        # And the grid is the same door: it reads every row's name against
+        # what is not on the grid, and a weighed pre-mix's parts are.
+        errors, _ = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 1, **{wording.NAME_LABEL: "Oil"}))
+        assert errors == [(1, wording.name_taken_by_part("Oil",
+                                                         "Fat phase"))]
+        assert self._names(opt) == ["Sugar", "Dry blend", "Oil"]
+
+    # ---- 2 · a pre-mix's row is not deleted as an ingredient ------------ #
+
+    def test_a_premix_row_cannot_be_deleted_as_an_ingredient(
+            self, tmp_path, monkeypatch):
+        """Deleting a weighed pre-mix's part left it in `parts`, so the
+        next save of the make-up resurrected it at 0-0. The pre-mix is
+        where a part is taken out."""
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.remove_ingredient("Dry blend")
+        assert str(caught.value) == wording.delete_the_premix_instead(
+            "Dry blend", "Dry blend")
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        with pytest.raises(ValueError) as caught:
+            opt.remove_ingredient("Water")
+        assert str(caught.value) == wording.delete_the_premix_instead(
+            "Water", "Wet blend")
+        assert self._row(opt, "Water") is not None
+        # The pre-mix's own door still works, and takes the rows with it.
+        opt.remove_premix("Wet blend")
+        assert self._names(opt) == ["Sugar", "Dry blend"]
+
+    # ---- 3 · a rename moves the pre-mix with the row -------------------- #
+
+    def test_renaming_a_premix_row_moves_the_premix_with_it(
+            self, tmp_path, monkeypatch):
+        """A rename left the pre-mix keyed to the old name, so the next
+        sync saw an orphan row plus a name with no row and built a second
+        one."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.premixes["Dry blend"]['versions'][1] = opt.premix_parts("Dry blend")
+        opt.rename_variable("Dry blend", "Blend")
+        assert list(opt.premixes) == ["Blend"]
+        assert self._names(opt) == ["Sugar", "Blend"]
+        assert [p['name'] for p in opt.premix_parts("Blend")] == \
+            ["Flour", "Salt"]
+        assert [p['name'] for p in opt.premix_parts("Blend", 1)] == \
+            ["Flour", "Salt"]
+        # A second sync builds nothing: the key and its row are one again.
+        opt.set_premix_parts("Blend", [{'name': "Flour", 'share': 70},
+                                       {'name': "Salt", 'share': 30}])
+        assert self._names(opt) == ["Sugar", "Blend"]
+
+        # And a weighed part's row carries its part entries with it, in
+        # every pre-mix that names it and in every make-up on file.
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.premixes["Wet blend"]['versions'][2] = opt.premix_parts("Wet blend")
+        opt.rename_variable("Water", "Spring water")
+        assert [p['name'] for p in opt.premix_parts("Wet blend")] == \
+            ["Spring water", "Oil"]
+        assert [p['name'] for p in opt.premix_parts("Wet blend", 2)] == \
+            ["Spring water", "Oil"]
+        assert self._names(opt) == ["Sugar", "Blend", "Spring water", "Oil"]
+
+    # ---- 4 · a pre-mix is not named after a part ------------------------ #
+
+    def test_a_premix_cannot_be_named_after_a_part(self, tmp_path,
+                                                   monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        with pytest.raises(ValueError) as caught:
+            opt.add_premix("Flour", "weighed")
+        assert str(caught.value) == wording.PREMIX_INSIDE_PREMIX
+        assert list(opt.premixes) == ["Dry blend"]
+
+    # ---- 5 · edited part facts reach the row ---------------------------- #
+
+    def test_edited_part_facts_reach_the_row(self, tmp_path, monkeypatch):
+        """A vendor typed against a part of a weighed pre-mix never
+        reached the row: the sync returned early whenever no row arrived
+        or left."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'unit': "ml"},
+            {'name': "Oil", 'share': 40}])
+        assert opt.unit_of("Water") == "ml"
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'unit': "ml",
+             'vendor': "Spring Co", 'sku': "W-1"},
+            {'name': "Oil", 'share': 40, 'vendor': "Press Co"}])
+        assert self._row(opt, "Water")['vendor'] == "Spring Co"
+        assert self._row(opt, "Water")['sku'] == "W-1"
+        assert self._row(opt, "Oil")['vendor'] == "Press Co"
+        # The unit is sticky: it is part of a limit's arithmetic and of the
+        # default batch size, and blanking it from a part entry would move
+        # both behind the reader's back. The unit is set where it is read.
+        opt.set_premix_parts("Wet blend", [
+            {'name': "Water", 'share': 60, 'vendor': "Spring Co"},
+            {'name': "Oil", 'share': 40}])
+        assert opt.unit_of("Water") == "ml"
+        assert self._row(opt, "Oil")['vendor'] == ""
+
+    # ---- 6 · a deleted pre-mix does not name a limit -------------------- #
+
+    def test_a_limit_does_not_name_a_deleted_premix(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        qc = opt.quantity_constraints[-1]
+        assert opt.limit_label(qc) == "Wet blend"
+        del opt.premixes["Wet blend"]
+        assert opt.limit_label(qc) == "Water + Oil"
+
+    # ---- 7 · the rulings from Task 2's concerns ------------------------- #
+
+    def test_a_limit_the_premix_row_took_with_it_is_said(self, tmp_path,
+                                                         monkeypatch):
+        """A limit whose every row went with the pre-mix was dropped in
+        silence, because it never reached prune_amount_limits. It is named
+        the way every other dropped limit is."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 2, 8)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=45,
+                                    source="premix:Wet blend")
+        removed = opt.set_premix_mode("Wet blend", "portioned")
+        # Named for the pre-mix, because the pre-mix is still there — it is
+        # the rows underneath it that went.
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Wet blend",
+                wording.no_longer_ingredients("Water and Oil", True)))]
+        assert opt.quantity_constraints == []
+        # remove_ingredient owes the same line, through the same tail.
+        opt.add_quantity_constraint(["Sugar"], max_val=4)
+        removed = opt.remove_ingredient("Sugar", force=True)
+        assert opt.limit_removed_messages(removed) == [
+            ("warning", wording.quantity_limit_removed_missing(
+                "Sugar", wording.no_longer_ingredients("Sugar", False)))]
+
+    def test_a_part_cannot_be_in_two_weighed_premixes(self, tmp_path,
+                                                      monkeypatch):
+        """Weighed, a part IS a row. In two weighed pre-mixes it is one row
+        standing for two lots of mass, and every roll-up counts it twice.
+        Portioned, the part is no row at all, so sharing it is fine."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", [{'name': "Water", 'share': 60},
+                                           {'name': "Oil", 'share': 40}])
+        opt.add_premix("Fry blend", "weighed")
+        with pytest.raises(ValueError) as caught:
+            opt.set_premix_parts("Fry blend", [{'name': "Oil", 'share': 100}])
+        assert str(caught.value) == wording.part_in_two_weighed_premixes(
+            "Oil", "Wet blend", "Fry blend")
+        assert opt.premix_parts("Fry blend") == []
+        # Shared between two PORTIONED pre-mixes is still allowed, and so is
+        # sharing with a portioned one from a weighed one.
+        opt.set_premix_mode("Fry blend", "portioned")
+        opt.set_premix_parts("Fry blend", [{'name': "Oil", 'share': 100}])
+        assert opt.premix_of("Oil") == ["Wet blend", "Fry blend"]
+
+
+# ------------------------------------------------------------------ #
+#  0.7.0 wave 3, task 3 — the pre-mix on the grid
+# ------------------------------------------------------------------ #
+
+def _part_row(name, share=None, low=None, high=None, unit="g",
+              vendor="", sku=""):
+    row = {wording.PART_LABEL: name, wording.UNIT_LABEL: unit,
+           wording.VENDOR_LABEL: vendor, wording.SKU_LABEL: sku}
+    if share is not None:
+        row[wording.PREMIX_SHARE_LABEL] = share
+    if low is not None:
+        row[wording.LOWEST_LABEL] = low
+    if high is not None:
+        row[wording.HIGHEST_LABEL] = high
+    return row
+
+
+class TestThePreMixGrid:
+    """The choice sits on the ingredients grid — one `Made as` column right
+    after Type — and a pre-mix's parts are typed in a fold of their own
+    underneath it, in the columns the way it is made actually needs."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_grid"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    def _dry(self, opt, mode="portioned"):
+        opt.add_premix("Dry blend", mode)
+        opt.set_premix_parts("Dry blend", [
+            {'name': "Flour", 'share': 70, 'unit': "g"},
+            {'name': "Salt", 'share': 30, 'unit': "g"}])
+        return opt
+
+    @pytest.mark.parametrize("mode", ["", wording.PREMIX_MADE_AS_PORTIONED])
+    def test_weighed_mode_can_be_cleared_or_switched_without_typing_amounts(
+            self, tmp_path, monkeypatch, mode):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 5, 20)
+        opt.add_ingredient("Salt", 1, 3)
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: mode})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt._by_name()["Dry blend"]['bounds'] == (6.0, 23.0)
+        assert set(opt._by_name()) == {"Water", "Dry blend"}
+        assert bool(opt.premixes) == bool(mode)
+        if mode:
+            # Switched to portioned, the pre-mix goes on being the same
+            # line: nothing was added.
+            assert wording.added("Dry blend") not in _said(messages)
+        else:
+            # Blanked, it is a row of the list for the first time — weighed,
+            # the rows were its PARTS — so the line says what happened: one
+            # row arrived and two left. "Dry blend saved." was the one
+            # sentence that could not be true of either.
+            assert wording.added("Dry blend") in " ".join(_said(messages))
+            assert wording.deleted("Flour and Salt") in _said(messages)
+            assert wording.saved("Dry blend") not in _said(messages)
+
+    def test_blanking_a_portioned_row_does_not_report_it_as_added(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        errors, messages = opt.apply_ingredient_grid(_edit(
+            opt.ingredient_grid_frame(), 2, **{wording.MADE_AS_LABEL: ""}))
+        assert errors == []
+        assert wording.added("Dry blend") not in _said(messages)
+
+    def test_unchanged_parts_do_not_claim_to_have_been_saved(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        errors, messages = opt.apply_premix_grid(
+            "Dry blend", opt.premix_grid_frame("Dry blend"))
+        assert errors == []
+        assert messages == []
+
+    def test_weighed_parts_count_when_deleting_the_last_visible_varying_row(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 5, 20)
+        errors, _ = opt.apply_ingredient_grid(_drop(opt.ingredient_grid_frame(), 1))
+        assert errors == []
+        assert "Water" not in opt._by_name()
+
+    # ---- the parts grid, by mode ------------------------------------- #
+
+    def test_a_portioned_grid_takes_shares_and_no_ranges(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = opt.premix_grid_frame("Dry blend")
+        assert list(frame.columns) == [
+            "_id", wording.PART_LABEL, wording.PREMIX_SHARE_LABEL,
+            wording.UNIT_LABEL]
+        assert list(frame[wording.PART_LABEL]) == ["Flour", "Salt"]
+        assert list(frame[wording.PREMIX_SHARE_LABEL]) == [70.0, 30.0]
+        errors, messages = opt.apply_premix_grid("Dry blend", _edit(
+            frame, 1, **{wording.PREMIX_SHARE_LABEL: 50.0,
+                         wording.VENDOR_LABEL: "Acme"}))
+        assert errors == []
+        parts = opt.premix_parts("Dry blend")
+        assert [p['name'] for p in parts] == ["Flour", "Salt"]
+        assert round(parts[0]['share'], 6) == 62.5
+        assert parts[0]['vendor'] == "Acme"
+        # Portioned, the parts are not rows of the list at all.
+        assert [v['name'] for v in opt.variables] == ["Water", "Dry blend"]
+
+    def test_a_weighed_grid_takes_ranges_and_no_shares(self, tmp_path,
+                                                       monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        frame = opt.premix_grid_frame("Dry blend")
+        assert list(frame.columns) == [
+            "_id", wording.PART_LABEL, wording.LOWEST_LABEL,
+            wording.HIGHEST_LABEL, wording.UNIT_LABEL]
+        assert wording.PREMIX_SHARE_LABEL not in frame.columns
+        errors, messages = opt.apply_premix_grid("Dry blend", _edit(
+            frame, 1, **{wording.LOWEST_LABEL: "5",
+                         wording.HIGHEST_LABEL: "15"}))
+        assert errors == []
+        assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
+        # Lowest above Highest is refused at its own row, and nothing moves.
+        errors, _ = opt.apply_premix_grid("Dry blend", _edit(
+            opt.premix_grid_frame("Dry blend"), 2,
+            **{wording.LOWEST_LABEL: "9", wording.HIGHEST_LABEL: "1"}))
+        assert errors == [(2, wording.LOWEST_ABOVE_HIGHEST_ERROR)]
+        assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
+
+    def test_parts_are_rebalanced_and_the_caption_says_so(self, tmp_path,
+                                                          monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = _edit(opt.premix_grid_frame("Dry blend"), 1,
+                      **{wording.PREMIX_SHARE_LABEL: 10.0})
+        errors, messages = opt.apply_premix_grid("Dry blend", frame)
+        assert errors == []
+        assert any(m.startswith(wording.PREMIX_SHARE_LABEL)
+                   for m in _said(messages))
+        assert round(sum(p['share'] for p in opt.premix_parts("Dry blend")),
+                     6) == 100.0
+        # A column of nothing but zeros is one refusal for the grid.
+        zeroed = opt.premix_grid_frame("Dry blend")
+        for row in (1, 2):
+            zeroed.loc[row, wording.PREMIX_SHARE_LABEL] = 0.0
+        errors, _ = opt.apply_premix_grid("Dry blend", zeroed)
+        assert errors == [(None, wording.PARTS_ADD_TO_NOTHING)]
+
+    def test_a_weighed_premix_row_reads_sum_of_its_parts(self, tmp_path,
+                                                         monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        frame = opt.ingredient_grid_frame()
+        assert list(frame.columns)[:4] == [
+            "_id", wording.NAME_LABEL, wording.TYPE_LABEL,
+            wording.MADE_AS_LABEL]
+        # One line per pre-mix, never a line per part: collapsed, the grid
+        # is the project as the bench talks about it.
+        assert list(frame[wording.NAME_LABEL]) == ["Water", "Dry blend"]
+        line = frame.loc[2]
+        assert line[wording.MADE_AS_LABEL] == wording.PREMIX_MADE_AS_WEIGHED
+        assert line[wording.LOWEST_LABEL] == ""
+        assert line[wording.HIGHEST_LABEL] == ""
+        # And the word in those cells is not a refusal: a save that touches
+        # nothing else leaves the pre-mix exactly as it was.
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "weighed"
+        assert [v['name'] for v in opt.variables] == ["Water", "Flour", "Salt"]
+
+    def test_a_taken_part_name_is_refused_at_its_row(self, tmp_path,
+                                                     monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        # Portioned, a part may be an ingredient the project already has:
+        # the loose Water row stays, and the part is a quantity inside the
+        # pre-mix. It is the pre-mix's OWN name that is refused here.
+        frame = _edit(opt.premix_grid_frame("Dry blend"), 2,
+                      **{wording.PART_LABEL: "Water"})
+        errors, _ = opt.apply_premix_grid("Dry blend", frame)
+        assert errors == []
+        assert "Water" in opt._by_name()
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
+            "Flour", "Water"]
+        frame = _edit(opt.premix_grid_frame("Dry blend"), 2,
+                      **{wording.PART_LABEL: "Dry blend"})
+        errors, _ = opt.apply_premix_grid("Dry blend", frame)
+        assert errors == [(2, wording.PART_IS_ITS_OWN_PREMIX)]
+        # A portioned part inherits the preparation unit; percentages have no unit cell.
+        errors, _ = opt.apply_premix_grid("Dry blend", _edit(
+            opt.premix_grid_frame("Dry blend"), 1,
+            **{wording.UNIT_LABEL: ""}))
+        assert errors == []
+        assert opt.premix_parts("Dry blend")[0]["unit"] == "g"
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
+            "Flour", "Water"]
+
+    def test_the_last_part_cannot_be_deleted(self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        one = _drop(opt.premix_grid_frame("Dry blend"), 2)
+        errors, _ = opt.apply_premix_grid("Dry blend", one)
+        assert errors == []
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Flour"]
+        empty = _drop(opt.premix_grid_frame("Dry blend"), 1)
+        assert opt.premix_grid_deletions("Dry blend", empty) == ["Flour"]
+        errors, _ = opt.apply_premix_grid("Dry blend", empty)
+        assert errors == [(None, wording.PREMIX_NEEDS_A_PART)]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Flour"]
+
+    def test_deleting_a_used_part_confirms_first(self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch), mode="weighed")
+        opt.add_ingredient("Flour", 0, 50)
+        opt.add_ingredient("Salt", 0, 5)
+        opt.tell({"Water": 50.0, "Flour": 40.0, "Salt": 2.0}, {"Taste": 7.0})
+        frame = _drop(opt.premix_grid_frame("Dry blend"), 1)
+        assert opt.premix_grid_deletions("Dry blend", frame) == ["Flour"]
+        errors, _ = opt.apply_premix_grid("Dry blend", frame)
+        assert len(errors) == 1 and "Flour" in errors[0][1]
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == [
+            "Flour", "Salt"]
+        errors, _ = opt.apply_premix_grid("Dry blend", frame,
+                                          force={"Flour"})
+        assert errors == []
+        assert [p['name'] for p in opt.premix_parts("Dry blend")] == ["Salt"]
+        assert "Flour" not in opt._by_name()
+
+    # ---- Made as, on the row ----------------------------------------- #
+
+    def test_made_as_on_a_new_row_makes_a_premix(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = _add(opt.ingredient_grid_frame(), **_ing_row(
+            "Dry blend", low="10", high="30",
+            **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED}))
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+        # The row it arrives as is the row the reader typed, not a row
+        # fixed at nothing.
+        assert opt._by_name()["Dry blend"]['bounds'] == (10.0, 30.0)
+        # The consequence is said once, at the choice.
+        assert opt.premix_consequence("Dry blend") == ""
+        assert not any("make-up stays" in line for line in _said(messages))
+        # Both cells are still asked for, exactly as a new ingredient's are.
+        opt2 = self._opt(tmp_path, monkeypatch, name="premix_grid_2")
+        blank = _add(opt2.ingredient_grid_frame(), **{
+            wording.NAME_LABEL: "Fat phase",
+            wording.TYPE_LABEL: wording.KIND_INGREDIENT,
+            wording.UNIT_LABEL: "g",
+            wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED})
+        errors, _ = opt2.apply_ingredient_grid(blank)
+        assert errors == [(2, wording.NUMBER_REQUIRED_ERROR)]
+        assert opt2.premixes == {}
+
+    def test_blanking_made_as_takes_the_premix_away(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: ""})
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes == {}
+        # The row is handed back to the ordinary list, with the amounts the
+        # grid was showing.
+        assert [v['name'] for v in opt.variables] == ["Water", "Dry blend"]
+        assert opt.premix_of("Flour") == []
+
+    def test_switching_made_as_on_the_row_puts_the_round_at_risk(
+            self, tmp_path, monkeypatch):
+        opt = self._dry(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 20)
+        opt.set_pending_batch([{"Water": 50.0, "Dry blend": 10.0}])
+        frame = _edit(opt.ingredient_grid_frame(), 2,
+                      **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED})
+        assert opt.ingredient_grid_retires_round(frame) == opt.pending_batch_no
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == []
+        assert opt.premixes["Dry blend"]['mode'] == "weighed"
+        assert opt.pending_batch_no is None
+
+    def test_a_switch_that_would_leave_nothing_to_vary_is_refused_at_the_row(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("premix_grid_last", robust=False)
+        opt.set_amount_unit("g")
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [{'name': "Flour", 'share': 100,
+                                            'unit': "g"}])
+        opt.add_ingredient("Dry blend", 5, 20)
+        frame = _edit(opt.ingredient_grid_frame(), 1,
+                      **{wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_WEIGHED})
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [(1, wording.LAST_VARYING_ROW_ERROR)]
+        assert opt.premixes["Dry blend"]['mode'] == "portioned"
+
+
+class TestPreMixRollUpsAndLimits:
+    """Task 4: an ingredient property rolls up through a portioned pre-mix's
+    parts by share, the round owes a shopping total across ingredients and
+    parts alike, and a limit on a weighed group reads in the pre-mix's own
+    name, in wave 2's unit words when it is a percent."""
+
+    def _opt(self, tmp_path, monkeypatch, name="premix_rollups"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Sugar", 1, 5)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        return opt
+
+    @staticmethod
+    def _parts(*pairs):
+        return [{'name': name, 'share': share} for name, share in pairs]
+
+    def _dry_blend(self, opt, mode="portioned"):
+        opt.add_premix("Dry blend", mode)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        return opt
+
+    # ---- the roll-up ---------------------------------------------------- #
+
+    def test_a_portioned_premix_rolls_its_parts_properties_up_by_share(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 2.0)
+        # 0.7 * 10 + 0.3 * 2 = 7.6 — the pre-mix's own row holds no figure
+        # of its own; this IS the figure.
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.6)
+        # property_per_100 needs no case of its own: the pre-mix's row is
+        # one ingredient, at whatever amount the recipe gives it.
+        assert opt.property_per_100({"Dry blend": 50.0}, "Fat per 100 g") == \
+            pytest.approx(7.6)
+
+    def test_a_part_with_no_figure_counts_as_zero_and_is_named(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Sugar", "Fat per 100 g", 0.0)
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        # Salt has no figure at all — it counts as 0 in the average, and is
+        # named itself, not the pre-mix row that has no figure to be
+        # missing.
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.0)
+        assert opt.ingredients_without_property("Fat per 100 g") == ["Salt"]
+
+    def test_the_roll_up_uses_the_rounds_version_not_todays_parts(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        opt.set_property_value("Salt", "Fat per 100 g", 0.0)
+        opt.ask(1)
+        assert opt.pending_batch_no is not None
+        # The make-up moves the same afternoon the round is on the bench —
+        # the round keeps what it was generated with (70 / 30 == 7.0), not
+        # today's parts (50 / 50 == 5.0).
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 50)))
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(7.0)
+        assert [p['share'] for p in opt.premix_parts("Dry blend")] == \
+            [50.0, 50.0]
+        # No round open: today's make-up answers.
+        opt.set_pending_batch(None)
+        assert opt.property_value("Dry blend", "Fat per 100 g") == \
+            pytest.approx(5.0)
+
+    # ---- the shopping total ---------------------------------------------- #
+
+    def test_water_in_two_premixes_is_added_once_across_them(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", self._parts(("Water", 50),
+                                                      ("Flour", 50)))
+        opt.add_premix("Wet blend", "portioned")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 100)))
+        opt.add_ingredient("Dry blend", 50, 50)
+        opt.add_ingredient("Wet blend", 20, 20)
+        opt.set_pending_batch([{"Sugar": 2.0, "Dry blend": 50.0,
+                                "Wet blend": 20.0}])
+        totals = dict(opt.round_shopping_totals())
+        # Half of Dry blend's 50 g, plus all of Wet blend's 20 g: one number
+        # for Water, not two.
+        assert totals["Water"] == pytest.approx(45.0)
+        assert list(totals) == ["Sugar", "Water", "Flour"]
+
+    def test_the_shopping_total_covers_ingredients_and_parts(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 70),
+                                                      ("Salt", 30)))
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Dry blend", 40, 40)
+        opt.add_ingredient("Water", 30, 30)
+        opt.add_ingredient("Oil", 20, 20)
+        opt.set_pending_batch([{"Sugar": 2.0, "Dry blend": 40.0,
+                                "Water": 18.0, "Oil": 12.0}])
+        totals = dict(opt.round_shopping_totals())
+        assert totals["Sugar"] == pytest.approx(2.0)
+        # Portioned: shared out by share, under the PARTS' names.
+        assert totals["Flour"] == pytest.approx(28.0)
+        assert totals["Salt"] == pytest.approx(12.0)
+        # Weighed: the parts are already rows, added in as they are.
+        assert totals["Water"] == pytest.approx(18.0)
+        assert totals["Oil"] == pytest.approx(12.0)
+        # Nobody weighs out "Dry blend" at the shop.
+        assert "Dry blend" not in totals
+        assert "Wet blend" not in totals
+
+    # ---- the group limit --------------------------------------------------- #
+
+    def test_a_limit_on_a_weighed_group_reads_in_the_premix_name(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 60),
+                                                      ("Salt", 40)))
+        opt.add_ingredient("Flour", 20, 80)
+        opt.add_ingredient("Salt", 10, 40)
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Flour", "Salt"], min_val=30, max_val=40,
+                                    percent=True, source="premix:Dry blend")
+        qc = opt.quantity_constraints[-1]
+        assert opt.limit_label(qc) == "Dry blend"
+        assert opt.limit_text(qc) == (
+            "Dry blend is 30 to 40 % of the default batch size "
+            "(30 to 40 g at the default 100 g)")
+
+    def test_a_group_limit_follows_a_part_added_later(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Dry blend", "weighed")
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 60),
+                                                      ("Salt", 40)))
+        opt.add_ingredient("Flour", 20, 40)
+        opt.add_ingredient("Salt", 10, 20)
+        opt.add_quantity_constraint(["Flour", "Salt"], max_val=45,
+                                    source="premix:Dry blend")
+        index = len(opt.quantity_constraints) - 1
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50),
+                                                      ("Salt", 30),
+                                                      ("Pepper", 20)))
+        qc = opt.quantity_constraints[index]
+        assert opt.limit_label(qc) == "Dry blend"
+        assert set(qc['ingredients']) == {"Flour", "Salt", "Pepper"}
+
+    # ---- the properties grid --------------------------------------------- #
+
+    def test_the_properties_grid_lists_parts_not_portioned_premix_rows(
+            self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_premix("Wet blend", "weighed")
+        opt.set_premix_parts("Wet blend", self._parts(("Water", 60),
+                                                      ("Oil", 40)))
+        opt.add_ingredient("Water", 20, 40)
+        opt.add_ingredient("Oil", 5, 15)
+        names = opt.property_grid_names()
+        assert names == ["Sugar", "Flour", "Salt", "Water", "Oil"]
+        assert "Dry blend" not in names
+        frame = opt.property_grid_frame()
+        assert list(frame[wording.PROPERTIES_ROW_COLUMN]) == names
+        # A figure is set against the PART, not the pre-mix row.
+        opt.add_property("Fat per 100 g")
+        opt.set_property_value("Flour", "Fat per 100 g", 10.0)
+        with pytest.raises(ValueError, match="No ingredient named Dry blend"):
+            opt.set_property_value("Dry blend", "Fat per 100 g", 1.0)
+
+
+class TestPreMixReviewFixes:
+    _opt = TestPreMixRollUpsAndLimits._opt
+    _dry_blend = TestPreMixRollUpsAndLimits._dry_blend
+    _parts = staticmethod(TestPreMixRollUpsAndLimits._parts)
+
+    def test_regeneration_calculates_and_snapshots_the_same_makeup(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch))
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.add_property("Fat")
+        opt.set_property_value("Flour", "Fat", 10)
+        opt.ask(1)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 50)))
+        during = []
+        def generate(*args):
+            during.append(opt.property_value("Dry blend", "Fat"))
+            return [{"Sugar": 2, "Dry blend": 10}]
+        monkeypatch.setattr(opt, '_ask_cold_start', generate)
+        opt.ask(1)
+        assert during == [5.0]
+        assert opt.property_value("Dry blend", "Fat") == 5.0
+        before = opt.export_json()
+        def fail(*args):
+            raise ValueError("generation failed")
+        monkeypatch.setattr(opt, '_ask_cold_start', fail)
+        with pytest.raises(ValueError, match="generation failed"):
+            opt.ask(1)
+        assert opt.export_json() == before
+        assert not hasattr(opt, '_generation_premixes')
+
+    def test_a_chosen_group_limit_follows_its_new_parts(self, tmp_path, monkeypatch):
+        opt = self._dry_blend(self._opt(tmp_path, monkeypatch), mode="weighed")
+        assert "Dry blend" in opt.quantity_limit_choices()
+        opt.add_chosen_quantity_constraint(["Dry blend"], max_val=45)
+        opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 30), ("Pepper", 20)))
+        assert opt.quantity_constraints[-1]['ingredients'] == ["Flour", "Salt", "Pepper"]
+        assert opt.limit_label(opt.quantity_constraints[-1]) == "Dry blend"
+        with pytest.raises(ValueError, match="Choose a pre-mix weighed into each formulation on its own"):
+            opt.add_chosen_quantity_constraint(["Dry blend", "Flour"], max_val=45)
+
+
+class TestTheCodexFixWave:
+    """The minors the whole-branch review left open, each one a sentence or
+    a list the reader sees."""
+
+    def _opt(self, tmp_path, monkeypatch, name="codexfix"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        return opt
+
+    def _weighed(self, opt):
+        opt.add_ingredient("Water", 0, 50)
+        opt.add_premix("Fat phase", "weighed")
+        opt.set_premix_parts("Fat phase", [
+            {'name': "Coconut oil", 'share': 0, 'unit': "g",
+             'low': 0, 'high': 15},
+            {'name': "Sunflower oil", 'share': 0, 'unit': "g",
+             'low': 0, 'high': 10}])
+        return opt
+
+    def test_a_weighed_premix_sits_above_its_own_parts_in_the_picker(
+            self, tmp_path, monkeypatch):
+        """M9: appended at the end, `Fat phase` sat BELOW Coconut oil and
+        Sunflower oil, so the one list the reader picks from was neither the
+        grid's rows nor anything else they had seen."""
+        opt = self._weighed(self._opt(tmp_path, monkeypatch))
+        assert opt.quantity_limit_choices() == [
+            "Water", "Fat phase", "Coconut oil", "Sunflower oil"]
+
+    def test_one_name_collision_is_refused_once(self, tmp_path, monkeypatch):
+        """M6: a portioned pre-mix IS a row of the list, so a new row typed
+        with its name was refused twice for one keystroke."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Water", 0, 50)
+        opt.add_ingredient("Dry blend", 5, 15)
+        opt.make_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [
+            {'name': "Flour", 'share': 100, 'unit': "g"}])
+        frame = opt.ingredient_grid_frame()
+        row = {c: "" for c in frame.columns}
+        row[wording.NAME_LABEL] = "Dry blend"
+        row[wording.TYPE_LABEL] = wording.KIND_INGREDIENT
+        row[wording.LOWEST_LABEL] = "1"
+        row[wording.HIGHEST_LABEL] = "2"
+        row[wording.UNIT_LABEL] = "g"
+        frame = pd.concat([frame, pd.DataFrame([row])], ignore_index=True)
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert len(errors) == 1
+        assert errors[0][1] == _name_taken_message("Dry blend", "ingredient")
+
+    def test_a_formulation_page_groups_the_rounds_parts_not_todays(
+            self, tmp_path, monkeypatch):
+        """M10: a part added after the round was generated printed under the
+        group on a sheet for a round it was never in."""
+        opt = self._weighed(self._opt(tmp_path, monkeypatch))
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_pending_batch([{'Water': 40, 'Coconut oil': 8,
+                                'Sunflower oil': 4}])
+        # The round was generated with one oil in the group; the make-up
+        # holds two today. Every other sheet writer reads the round's own
+        # version, and this one read `self.premixes[group]['parts']`.
+        opt._snapshot_premixes(opt.pending_batch_no, {"Fat phase": [
+            {'name': "Coconut oil", 'share': 0, 'unit': "g",
+             'low': 0, 'high': 15}]})
+        lines = [(group, var if var in (None, 'total') else var['name'])
+                 for group, var in opt._formulation_ingredient_lines()]
+        assert ("Fat phase", "Sunflower oil") not in lines
+        assert ("Fat phase", "Coconut oil") in lines
+
+    def test_the_round_total_of_a_batch_handed_over_uses_the_rounds_size(
+            self, tmp_path, monkeypatch):
+        """M13: `total` was only defaulted when the BATCH was left out, so a
+        caller handing over the rows and no size got the project's default
+        instead of the round's."""
+        opt = self._weighed(self._opt(tmp_path, monkeypatch))
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_formulation_total(50.0)
+        opt.set_pending_batch([{'Water': 40, 'Coconut oil': 8,
+                                'Sunflower oil': 4}])
+        assert (opt.round_shopping_totals(opt.pending_batch)
+                == opt.round_shopping_totals())
+
+
+class TestTheColdRead:
+    """The blockers and the serious findings a food scientist met on a
+    first read, with no spec in front of them."""
+
+    def _opt(self, tmp_path, monkeypatch, name="coldread"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.add_ingredient("Water", 30, 70)
+        opt.add_ingredient("Dry blend", 20, 40)
+        opt.make_premix("Dry blend", "portioned")
+        opt.set_premix_parts("Dry blend", [
+            {'name': "Pea protein isolate", 'share': 55, 'unit': "g"},
+            {'name': "Wheat gluten", 'share': 25, 'unit': "g"},
+            {'name': "Potato starch", 'share': 12, 'unit': "g"},
+            {'name': "Methylcellulose", 'share': 8, 'unit': "g"}])
+        return opt
+
+    # ---- B1 · a mode switch never leaves a row at 0-0 ------------------- #
+
+    def test_breaking_a_premix_up_gives_every_part_its_own_amounts(
+            self, tmp_path, monkeypatch):
+        """Every part came out at 0.00 to 0.00 and the row's own 20-40 g
+        went with it, so a round generated straight afterwards held no
+        protein, no gluten and no starch at all — a patty of water."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_premix_mode("Dry blend", "weighed")
+        rows = {v['name']: tuple(v['bounds']) for v in opt.variables}
+        assert rows["Pea protein isolate"] == (11.0, 22.0)
+        assert rows["Wheat gluten"] == (5.0, 10.0)
+        assert rows["Potato starch"] == (2.4, 4.8)
+        assert rows["Methylcellulose"] == (1.6, 3.2)
+        # And the sentence says so in numbers.
+        said = opt.premix_consequence("Dry blend")
+        assert "Pea protein isolate 11.00 to 22.00 g" in said
+
+    def test_gathering_a_premix_back_up_gives_the_row_its_own_amounts(
+            self, tmp_path, monkeypatch):
+        """Switching back left the row fixed at 0.00 / 0.00 g: the band
+        never came back."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_premix_mode("Dry blend", "weighed")
+        opt.set_premix_mode("Dry blend", "portioned")
+        assert tuple(opt._by_name()["Dry blend"]['bounds']) == (20.0, 40.0)
+        assert [round(p['share'], 2)
+                for p in opt.premix_parts("Dry blend")] == [55, 25, 12, 8]
+
+    def test_a_made_as_change_keeps_the_row_where_it_was(self, tmp_path,
+                                                        monkeypatch):
+        """The whole reading order of the list changed under the reader's
+        hand, with nothing said, and stayed changed."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_ingredient("Salt", 1, 3)
+        assert [v['name'] for v in opt.variables] == [
+            "Water", "Dry blend", "Salt"]
+        opt.set_premix_mode("Dry blend", "weighed")
+        assert [v['name'] for v in opt.variables] == [
+            "Water", "Pea protein isolate", "Wheat gluten", "Potato starch",
+            "Methylcellulose", "Salt"]
+        opt.set_premix_mode("Dry blend", "portioned")
+        assert [v['name'] for v in opt.variables] == [
+            "Water", "Dry blend", "Salt"]
+
+    # ---- B2 · a part may be an ingredient you already have -------------- #
+
+    def test_a_portioned_part_may_share_a_row_and_the_totals_add_them_once(
+            self, tmp_path, monkeypatch):
+        """A binder slurry IS methylcellulose plus part of the water. The
+        app made you invent a second name for the same material, and then
+        listed both in the round's totals."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.add_ingredient("Binder slurry", 2, 8)
+        opt.make_premix("Binder slurry", "portioned")
+        errors = None
+        opt.set_premix_parts("Binder slurry", [
+            {'name': "Methylcellulose", 'share': 30, 'unit': "g"},
+            {'name': "Water", 'share': 70, 'unit': "g"}])
+        assert errors is None
+        # The loose Water row stays, and the part is a quantity inside the
+        # pre-mix: two masses, weighed once each.
+        assert "Water" in opt._by_name()
+        assert [p['name'] for p in opt.premix_parts("Binder slurry")] == \
+            ["Methylcellulose", "Water"]
+        opt.set_pending_batch([{'Dry blend': 30, 'Binder slurry': 10,
+                                'Water': 60}])
+        totals = dict(opt.round_shopping_totals())
+        # 60 g of its own plus 7 g inside the slurry, under the one name.
+        assert totals["Water"] == pytest.approx(67.0)
+        # 2.40 g inside the dry blend plus 3.00 g inside the slurry.
+        assert totals["Methylcellulose"] == pytest.approx(5.4)
+
+    def test_letting_go_of_an_adopted_part_leaves_its_row_behind(
+            self, tmp_path, monkeypatch):
+        """The pre-mix did not put that row there, so it is not the
+        pre-mix's to take away."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.add_premix("Fat phase", "weighed")
+        opt.set_premix_parts("Fat phase", [
+            {'name': "Water", 'share': 0, 'unit': "g"}])
+        assert "Water" in opt._by_name()
+        opt.remove_premix("Fat phase")
+        assert tuple(opt._by_name()["Water"]['bounds']) == (30.0, 70.0)
+
+    # ---- S1 / S2 · the allowed amounts scale with the round ------------- #
+
+    def test_a_bigger_round_of_the_same_formula_is_not_a_mistake(
+            self, tmp_path, monkeypatch):
+        """`At 250 g, 5 of 5 ingredients go past the amounts you allowed`
+        was printed on screen, on every formulation page and on the Round
+        sheet for ordinary bench work."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_formulation_total(100.0)
+        opt.set_pending_batch([{'Water': 60, 'Dry blend': 40}])
+        opt.scale_round(250.0)
+        assert opt.open_round_size() == 250.0
+        # The one line it owes is the plain statement that the box moved
+        # the numbers — not five ingredients called mistakes.
+        assert opt.scaled_cautions(opt.pending_batch, 250.0, sized=True) == [
+            opt.scaled_amounts_note(opt.pending_batch, 250.0, sized=True)]
+        assert opt.scaled_caution(opt.pending_batch, 250.0, sized=True) == ""
+        assert opt.amount_scale(250.0) == 2.5
+        # An amount that is genuinely out of proportion still says so.
+        assert opt.bounds_caution("Dry blend", 120.0, 2.5)
+        assert opt.bounds_caution("Dry blend", 75.0, 2.5) == ""
+        # ...and the last bit of a float is not one. 60 g and 40 g both
+        # scale to exact floats, so the case that matters is a row fixed
+        # where the arithmetic does not land: 2.2 g per 100 g is 5.5 g at
+        # 250 g, and the way there is not.
+        opt.add_ingredient("Seasoning", 2.2, 2.2)
+        scaled = 5.499999999999999      # what scale_round(250) reaches
+        assert scaled != 2.2 * 2.5
+        assert opt.bounds_caution("Seasoning", scaled, 2.5) == ""
+
+    # ---- S3 · the cell that cannot be typed in -------------------------- #
+
+    def test_typing_over_sum_of_its_parts_is_answered(self, tmp_path,
+                                                      monkeypatch):
+        """It lit Save, saved nothing, said nothing and the cell reverted."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_premix_mode("Dry blend", "weighed")
+        frame = opt.ingredient_grid_frame()
+        row = frame.index[frame[wording.NAME_LABEL] == "Dry blend"][0]
+        frame.loc[row, wording.HIGHEST_LABEL] = "5"
+        errors, _ = opt.apply_ingredient_grid(frame)
+        assert errors == [(int(row),
+                           wording.premix_amount_is_its_parts("Dry blend"))]
+        assert wording.premix_amount_is_its_parts("Dry blend") == (
+            "Dry blend's amount is the sum of its parts. Change the parts "
+            "in its fold.")
+
+    # ---- S8 · the rebalance names the numbers --------------------------- #
+
+    def test_the_rebalance_says_what_it_wrote(self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        _, messages = opt.apply_premix_grid("Dry blend", _edit(
+            opt.premix_grid_frame("Dry blend"), 1,
+            **{wording.PREMIX_SHARE_LABEL: 20.0}))
+        said = [m for _, m in messages
+                if m.startswith(wording.PREMIX_SHARE_LABEL)]
+        assert said and "Pea protein isolate " in said[0]
+
+    # ---- S11 · the third Made as word ----------------------------------- #
+
+    def test_the_ordinary_row_has_a_word_of_its_own(self, tmp_path,
+                                                    monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        frame = opt.ingredient_grid_frame()
+        assert frame.loc[1, wording.MADE_AS_LABEL] == \
+            wording.PREMIX_MADE_AS_BOUGHT_IN
+        # Saving it back changes nothing: `bought in` is not a pre-mix.
+        errors, messages = opt.apply_ingredient_grid(frame)
+        assert (errors, messages) == ([], [])
+        assert "Water" not in opt.premixes
+
+
+class TestTheMethod:
+    """How the formulation is made, in the order the bench does it: one
+    project-level text, printed on the Round sheet under the amounts."""
+
+    def _opt(self, tmp_path, monkeypatch, name="method"):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer(name, robust=False)
+        opt.set_amount_unit("g")
+        opt.add_ingredient("Water", 0, 100)
+        opt.add_ingredient("Flour", 0, 100)
+        opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+        opt.set_pending_batch([{'Water': 60, 'Flour': 40}])
+        return opt
+
+    def test_the_round_sheet_prints_it_one_line_to_a_row(self, tmp_path,
+                                                         monkeypatch):
+        """Three formulations that must be made identically except for the
+        amounts went to the bench with nothing on the page saying how."""
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_method("Mix 60 s.\n\nForm to 100 g.\nGriddle 3 min a side.")
+        assert opt.method_lines() == ["Mix 60 s.", "Form to 100 g.",
+                                      "Griddle 3 min a side."]
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 1"]
+        column = [sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1)]
+        at = column.index(wording.METHOD_SHEET_HEADING)
+        assert column[at + 1:at + 4] == opt.method_lines()
+
+    def test_a_project_with_no_method_prints_no_heading(self, tmp_path,
+                                                        monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.method_lines() == []
+        sheet = _book(opt.workbook_bytes(opt.pending_batch, 100.0))["Round 1"]
+        assert wording.METHOD_SHEET_HEADING not in [
+            sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1)]
+
+    def test_it_survives_a_save_and_a_file_without_one_still_loads(
+            self, tmp_path, monkeypatch):
+        opt = self._opt(tmp_path, monkeypatch)
+        opt.set_method("  Mix 60 s.  ")
+        assert FoodOptimizer("method").method == "Mix 60 s."
+        state = opt.export_json()
+        assert state['method'] == "Mix 60 s."
+        assert FoodOptimizer.validate_state(state)['version'] == \
+            FoodOptimizer.CLASS_VERSION
+        # A file written before the box existed says nothing about it.
+        del state['method']
+        assert FoodOptimizer.validate_state(state)['version'] == \
+            FoodOptimizer.CLASS_VERSION
+        monkeypatch.chdir(tmp_path)
+        other = FoodOptimizer("method_back", robust=False)
+        other.import_json(state)
+        assert other.method == ""
+        # ...and anything that is not text is a damaged file.
+        state['method'] = 7
+        with pytest.raises(ValueError):
+            FoodOptimizer.validate_state(state)
+
+    def test_the_make_quantity_is_makeable(self, tmp_path, monkeypatch):
+        """`make 7.50 g` of five powders cannot be blended to any
+        homogeneity nor portioned out of without the salt segregating to
+        the bottom, and `make 85.71 g` asks for a blend dispensed with
+        nothing left in the bowl."""
+        opt = self._opt(tmp_path, monkeypatch)
+        assert opt.premix_make_quantity(6.60) == 100.0
+        assert opt.premix_make_quantity(85.71) == 100.0
+        assert opt.premix_make_quantity(160.0) == 180.0
+        assert opt.premix_make_quantity(253.25) == 280.0

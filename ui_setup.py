@@ -25,19 +25,24 @@ import streamlit as st
 
 import storage as storage_backend
 import wording
+import custom_records
+import calculation_editor
 from food_bo import (
-    GRID_ID, WORKBOOK_MIME, grid_signature, ingredients_template_workbook,
+    GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
+    ingredients_template_workbook,
 )
 from ui_helpers import (
-    COPY_KEPT, GRID_KEYS, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
+    COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
     PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
-    armed_confirmation, armed_deletions_key, best_formulation_no,
+    all_grid_keys, armed_confirmation, armed_deletions_key,
+    best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,
     clear_scale_total, confirm_action, confirmation_open,
     disarm, flash,
-    go_to_tab, number_list, other_confirmation, park_clear, park_grid,
-    parked_grid, plural,
+    go_to_tab, note_premix_grids, number_list, other_confirmation, park_clear,
+    park_grid, parked_grid, plural, premix_errors_key, premix_grid_key,
+    premix_save_key,
     parked_grid_key, preserve_tab_forms, readiness, rekey_grid, reset_grids,
     saved_ok, table_height, typed_batch_size, unpark_grid,
 )
@@ -270,7 +275,7 @@ def _formulation_total(opt):
     if not opt.has_ingredients():
         return
     if opt.one_amount_unit() is None:
-        st.caption(wording.NEEDS_ONE_UNIT)
+        st.caption(wording.for_project(opt, wording.NEEDS_ONE_UNIT))
         return
     _seed_formulation_total(opt)
     st.session_state.setdefault("formulation_total", None)
@@ -347,23 +352,44 @@ _MEAS_ERRORS = MEAS_ERRORS_KEY
 _PROP_ERRORS = PROP_ERRORS_KEY
 
 
-def _number_column(label, help=None):
+def _number_column(label, help=None, width=None):
     """Every number on these grids is an amount, and an amount is written to
     two decimal places everywhere else in the app."""
-    return st.column_config.NumberColumn(label, format="%.2f", help=help)
+    return st.column_config.NumberColumn(label, format="%.2f", help=help, width=width)
 
 
 def _ingredient_columns(opt, frame):
     """The typed columns. Every label is read off wording — a bare string
-    here would be a screen label the vocabulary guard never sees."""
+    here would be a screen label the vocabulary guard never sees.
+
+    Every column carries a width. The desktop bundle opens at 1280 px, which
+    leaves the grid about 820 px, and without widths the browser gave each
+    column the same generous share and pushed `Rule` — the column wave 2
+    made the headline of this grid — off the right edge, reachable only by
+    scrolling the canvas sideways, which nothing on the screen asks for.
+    The numbers add up to the space there is, the way the measurements grid
+    below already does.
+    """
     columns = {
         GRID_ID: None,                    # the hidden row identity
         wording.NAME_LABEL: st.column_config.TextColumn(
-            wording.NAME_LABEL, required=True),
+            wording.NAME_LABEL, required=True, width=140),
         wording.TYPE_LABEL: st.column_config.SelectboxColumn(
             wording.TYPE_LABEL, options=[KIND_INGREDIENT, KIND_SETTING],
             default=KIND_INGREDIENT, required=True,
-            help=wording.VARIABLE_TYPE_HELP),
+            help=wording.VARIABLE_TYPE_HELP, width=105),
+        # Right after Type, because it is the other half of what the row IS.
+        # Blank is an ordinary ingredient; the two ways a pre-mix is made
+        # are the bench's own words for them, and the first is the default
+        # because that is how a pilot line works — blend once, scoop into
+        # every mix.
+        wording.MADE_AS_LABEL: st.column_config.SelectboxColumn(
+            wording.MADE_AS_LABEL,
+            options=[wording.PREMIX_MADE_AS_BOUGHT_IN,
+                     wording.PREMIX_MADE_AS_PORTIONED,
+                     wording.PREMIX_MADE_AS_WEIGHED],
+            default=wording.PREMIX_MADE_AS_BOUGHT_IN,
+            help=wording.MADE_AS_HELP, width=175),
         # Text, not numbers, and only on this grid. A row with a formula
         # has no Lowest and no Highest of its own: both cells read the
         # app's own word for it, and a number column cannot hold a word.
@@ -372,24 +398,29 @@ def _ingredient_columns(opt, frame):
         # back, so a cell holding something that is not a number is still
         # answered by Enter a number.
         wording.LOWEST_LABEL: st.column_config.TextColumn(
-            wording.LOWEST_LABEL),
+            wording.LOWEST_LABEL, width=80, help=wording.INGREDIENT_MIN_HELP),
         wording.HIGHEST_LABEL: st.column_config.TextColumn(
-            wording.HIGHEST_LABEL),
+            wording.HIGHEST_LABEL, width=80, help=wording.INGREDIENT_MAX_HELP),
         wording.UNIT_LABEL: st.column_config.TextColumn(
-            wording.UNIT_LABEL, default=opt.amount_unit or "g"),
-        wording.VENDOR_LABEL: st.column_config.TextColumn(
-            wording.VENDOR_LABEL, help=wording.VENDOR_HELP),
-        wording.SKU_LABEL: st.column_config.TextColumn(
-            wording.SKU_LABEL, help=wording.SKU_HELP),
+            wording.UNIT_LABEL, default=opt.amount_unit or "g", width=50),
     }
+    # Vendor and SKU are specification data, typed once and never looked at
+    # again, so they are off until the project asks for them (More settings
+    # → Also record). Off, the grid is two columns narrower.
+    if wording.VENDOR_LABEL in frame.columns:
+        columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
+            wording.VENDOR_LABEL, help=wording.VENDOR_HELP, width=95)
+    if wording.SKU_LABEL in frame.columns:
+        columns[wording.SKU_LABEL] = st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP, width=95)
     if wording.BASELINE_LABEL in frame.columns:
         columns[wording.BASELINE_LABEL] = _number_column(
-            wording.BASELINE_LABEL, help=wording.BASELINE_HELP)
-    # Last and narrow: one column for one idea, and the idea is the answer
-    # to the two columns it replaces. `= rest` is typed here too, so there
-    # is no Balance column beside it.
+            wording.BASELINE_LABEL, help=wording.BASELINE_HELP, width=90)
+    # Second and wide enough to read a calculation in: one column for one
+    # idea, and the idea is the answer to the two columns it replaces. Fill
+    # to total is typed here too, so there is no Balance column beside it.
     columns[wording.FORMULA_LABEL] = st.column_config.TextColumn(
-        wording.FORMULA_LABEL, width="small", help=wording.FORMULA_HELP)
+        wording.FORMULA_LABEL, width=190, help=wording.FORMULA_HELP)
     return columns
 
 
@@ -397,19 +428,23 @@ def _measurement_columns():
     return {
         GRID_ID: None,
         wording.MEASUREMENT_COLUMN: st.column_config.TextColumn(
-            wording.MEASUREMENT_COLUMN, required=True),
+            wording.MEASUREMENT_COLUMN, required=True, width=130),
         wording.GOAL_LABEL: st.column_config.SelectboxColumn(
             wording.GOAL_LABEL, options=list(wording.GOAL_LABELS.values()),
-            default=wording.GOAL_LABELS['max'], required=True),
-        wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL),
+            default=wording.GOAL_LABELS['max'], required=True, width=115),
+        wording.TARGET_LABEL: _number_column(wording.TARGET_LABEL, width=75),
+        # The full words, not `Lowest` / `Highest`: those two are an
+        # ingredient's allowed amounts on the grid directly above, and one
+        # word says one thing. The width is what makes the column fit; the
+        # header does not have to be shortened to pay for it.
         wording.LOWEST_MEASURABLE_LABEL: _number_column(
-            wording.LOWEST_MEASURABLE_LABEL),
+            wording.LOWEST_MEASURABLE_LABEL, width=105, help=wording.MEASUREMENT_MIN_HELP),
         wording.HIGHEST_MEASURABLE_LABEL: _number_column(
-            wording.HIGHEST_MEASURABLE_LABEL),
-        wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL),
+            wording.HIGHEST_MEASURABLE_LABEL, width=105, help=wording.MEASUREMENT_MAX_HELP),
+        wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL, width=55),
         wording.SHARE_COLUMN: st.column_config.NumberColumn(
             wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
-            format="%.2f", help=wording.SHARE_HELP),
+            format="%.2f", help=wording.SHARE_HELP, width=145),
     }
 
 
@@ -506,7 +541,7 @@ def _discard_grid(grid):
     its key turns over so that the frame it parked is what it opens at,
     because this rerun may never reach it to read its record."""
     clear_grid(grid)
-    for other in GRID_KEYS:
+    for other in all_grid_keys():
         if other != grid:
             rekey_grid(other)
     st.rerun()
@@ -531,16 +566,24 @@ def _variables(opt, storage):
     typed 250 into that box, and only came right after they left the tab
     and came back.
     """
-    st.subheader(wording.VARIABLES_HEADER)
+    st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
     st.caption(wording.INGREDIENT_GRID_CAPTION)
+    st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     edited = st.data_editor(
-        opening, key=grid_key(ING_GRID_KEY),
+        calculation_editor.display_frame(opening), key=grid_key(ING_GRID_KEY),
         num_rows="dynamic",
         column_config=_ingredient_columns(opt, saved),
+        column_order=[wording.NAME_LABEL, wording.FORMULA_LABEL,
+                      wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
+                      wording.TYPE_LABEL, wording.MADE_AS_LABEL] +
+                     [c for c in saved.columns if c not in (GRID_ID, wording.NAME_LABEL,
+                      wording.FORMULA_LABEL, wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
+                      wording.UNIT_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL)],
         use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    edited = calculation_editor.canonical_frame(edited, opening)
     slot = st.empty()            # where a refused Save writes its rows
     _grid_errors(slot, _ING_ERRORS, names={
         int(no): str(edited.loc[no, wording.NAME_LABEL] or "").strip()
@@ -566,14 +609,30 @@ def _variables(opt, storage):
         # with no Yes to reach, and every coloured button in the app stays
         # grey behind it.
         _disarm_grid_deletion(ING_SAVE_KEY)
+    if st.button(wording.CALCULATION_EDIT_BUTTON, icon=":material/edit:", key="edit_calculation",
+                 disabled=confirmation_open() or edited.empty):
+        st.session_state[calculation_editor.EDITOR_OPEN] = True
+    # Drawn while it is open, not only on the run the button was pressed:
+    # the expression box reruns the app on every keystroke, and a dialog
+    # rendered from the button alone closed under the reader's hand — with
+    # the refusal it had just written in it.
+    if st.session_state.get(calculation_editor.EDITOR_OPEN):
+        calculation_editor.open_editor(opt, edited.copy())
+    staged = st.session_state.pop(calculation_editor.EDITOR_STAGED, None)
+    if staged:
+        st.success(staged)
+    st.caption(wording.CALCULATION_EDIT_HINT)
     _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
         # may have been percentages or millilitres, and nothing on screen
         # would otherwise say the g was the app's guess and not the user's.
         st.caption(wording.made_before_units_caption(opt.amount_unit))
-    with st.expander(wording.UPLOAD_INGREDIENTS_EXPANDER):
-        _upload_ingredients(opt)
+    # Directly beneath the grid, in the grid's own order: a pre-mix's parts
+    # open under the row that says how it is made.
+    if opt.premixes:
+        st.markdown(wording.BLEND_COMPOSITIONS_HEADING)
+    pending = _premixes(opt, storage) or pending
     return pending, captions
 
 
@@ -597,7 +656,19 @@ def _save_ingredients(opt, storage, edited):
     """The one write the ingredients grid makes. A deleted row is confirmed
     by name first, an open round the save would take away is named in the
     same question, and a copy is kept before anything goes."""
-    deletions = opt.ingredient_grid_deletions(edited)
+    deleted_rows = opt.ingredient_grid_deletions(edited)
+    blanked = opt.ingredient_grid_blanked_premixes(edited)
+    deletions = deleted_rows + blanked
+    force_names = set(deletions)
+    for name in deletions:
+        if name in opt.premixes:
+            force_names.update(p['name'] for p in opt.premix_parts(name))
+    warnings = ([wording.delete_rows_warning(number_list(deleted_rows))]
+                if deleted_rows else [])
+    for name in blanked:
+        parts = [p['name'] for p in opt.premix_parts(name)]
+        warnings.append(wording.premix_no_longer_a_premix(
+            name, number_list(parts), many=len(parts) > 1))
     key = ING_SAVE_KEY
     # Before the colour is read and before the early return: a question that
     # is no longer this grid's question has to come down first, or `lit`
@@ -606,7 +677,7 @@ def _save_ingredients(opt, storage, edited):
     lit = not confirmation_open()
     # Read here rather than off the tick box below, which is drawn after the
     # question and only while one is up.
-    forced = set(deletions) if st.session_state.get("delete_ing_force") else ()
+    forced = force_names if st.session_state.get("delete_ing_force") else ()
     at_risk = _round_at_risk(opt, edited, force=forced)
     if not deletions:
         _remember_armed_deletions(key, deletions)
@@ -625,9 +696,9 @@ def _save_ingredients(opt, storage, edited):
         return
     confirmed = confirm_action(
         key, wording.SAVE_CHANGES_BUTTON,
-        " ".join(p for p in (wording.delete_rows_warning(
-            number_list(deletions)), at_risk) if p),
-        confirm_label=wording.YES_DELETE, primary=lit,
+        " ".join(p for p in [*warnings, at_risk] if p),
+        confirm_label=(wording.YES_DELETE if deleted_rows
+                       else wording.YES_SAVE_AND_DISCARD), primary=lit,
         disabled=other_confirmation(key))
     _remember_armed_deletions(key, deletions)
     # Read here, before the tick box below is drawn: the run that confirms
@@ -640,8 +711,8 @@ def _save_ingredients(opt, storage, edited):
     # deletion is armed: deleting an ingredient that was used above 0 would
     # rewrite formulations nobody made.
     if armed:
-        st.caption(wording.DELETE_VS_FIXING_CAPTION)
-        st.checkbox(wording.DELETE_EVEN_IF_USED_CHECKBOX,
+        st.caption(wording.for_project(opt, wording.DELETE_VS_FIXING_CAPTION))
+        st.checkbox(wording.for_project(opt, wording.DELETE_EVEN_IF_USED_CHECKBOX),
                     key="delete_ing_force")
     else:
         # Never carried into the next deletion, or the next project: a tick
@@ -656,7 +727,7 @@ def _save_ingredients(opt, storage, edited):
         st.error(str(e))
         return
     _apply_ingredient_grid(opt, edited,
-                           force=set(deletions) if force else ())
+                           force=force_names if force else ())
 
 
 def _discard_beside(key, grid):
@@ -725,10 +796,12 @@ def _apply_ingredient_grid(opt, edited, force=()):
     """
     scaled = typed_batch_size(opt)
     round_before = opt.pending_batch_no
-    # The properties grid is drawn ingredient by ingredient, in this order.
-    # A deletion, a rename or a reorder moves who sits in a row it may be
+    # The properties grid is drawn ingredient by ingredient, in this order —
+    # a portioned pre-mix's own row stands in for its parts there. A
+    # deletion, a rename or a reorder moves who sits in a row it may be
     # holding a pending edit for; a changed Highest does not.
-    rows_before = opt.ingredient_names()
+    rows_before = opt.property_grid_names()
+    premixes_before = list(opt.premixes)
     errors, messages = opt.apply_ingredient_grid(edited, force=force)
     if errors:
         # st.rerun() does not return: the errors are drawn into the slot
@@ -752,7 +825,7 @@ def _apply_ingredient_grid(opt, edited, force=()):
     # parked — is what lets that frame be drawn in its place: the edit, the
     # banner and the Save all stay where the reader left them.
     rekey_grid(MEAS_GRID_KEY)
-    if opt.ingredient_names() == rows_before:
+    if opt.property_grid_names() == rows_before:
         # The rows the properties grid is drawn from have not moved, so it
         # keeps its own edit exactly as the measurements grid does.
         rekey_grid(PROP_GRID_KEY)
@@ -764,7 +837,257 @@ def _apply_ingredient_grid(opt, edited, force=()):
         if _grid_is_pending(PROP_GRID_KEY):
             flash("info", wording.PROPERTY_FIGURES_SET_ASIDE)
         clear_grid(PROP_GRID_KEY)
+    for name in premixes_before:
+        # A fold whose pre-mix is made another way now is a different grid
+        # — different columns, different rules — so what was typed into the
+        # old one is not an edit this one can still draw. One that is only
+        # further down the page keeps its edit, exactly as the grids below
+        # it do.
+        grid = premix_grid_key(name)
+        if name in opt.premixes:
+            rekey_grid(grid)
+        else:
+            clear_grid(grid)
+            st.session_state.pop(premix_errors_key(name), None)
+            st.session_state.pop(
+                _armed_deletions_key(premix_save_key(name)), None)
     st.session_state.pop(_armed_deletions_key(ING_SAVE_KEY), None)
+    st.rerun()
+
+
+# ------------------------------------------------------------------ #
+#  A pre-mix's parts, in a fold of its own
+#
+#  Directly under the ingredients grid, in the grid's own order, one
+#  `st.expander` per pre-mix. Collapsed is the sparse view: the grid above
+#  shows one line per pre-mix and never a line per part, and the parts are
+#  one click away for the reader who wants them.
+#
+#  Named deviation (spec 3.1 asks for indented parts): st.data_editor has
+#  no tree, so the parts cannot literally be indented inside the one grid.
+#  The alternative considered — one flat grid with a read-only `Part of`
+#  column — was refused because a part and an ingredient would then share a
+#  row shape while obeying different rules, which is the confusion the fold
+#  exists to remove.
+#
+#  Each fold keeps its own Save/Discard. The first pending grid on the tab
+#  owns the coloured Save, including a fold when the grid above is saved.
+# ------------------------------------------------------------------ #
+
+def _premix_columns(opt, name):
+    """Only the columns the way this pre-mix is made actually needs. A cell
+    that is there but means nothing is the thing the fold takes away."""
+    weighed = opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED
+    columns = {
+        GRID_ID: None,
+        wording.PART_LABEL: st.column_config.TextColumn(
+            wording.PART_LABEL, required=True),
+    }
+    if weighed:
+        # Weighed, a part IS a row of the list and carries its own allowed
+        # amounts. Text for the same reason the grid above uses text.
+        columns[wording.LOWEST_LABEL] = st.column_config.TextColumn(
+            wording.LOWEST_LABEL)
+        columns[wording.HIGHEST_LABEL] = st.column_config.TextColumn(
+            wording.HIGHEST_LABEL)
+    else:
+        columns[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
+            wording.PREMIX_SHARE_LABEL, min_value=0.0, format="%.2f")
+    columns[wording.UNIT_LABEL] = (st.column_config.TextColumn(
+        wording.UNIT_LABEL, default=opt.amount_unit or "g") if weighed else None)
+    if opt.records("vendor"):
+        columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
+            wording.VENDOR_LABEL, help=wording.VENDOR_HELP)
+    if opt.records("sku"):
+        columns[wording.SKU_LABEL] = st.column_config.TextColumn(
+            wording.SKU_LABEL, help=wording.SKU_HELP)
+    return columns
+
+
+def _premixes(opt, storage):
+    """One fold per pre-mix. True while any of them has an edit in hand."""
+    names = opt.premix_grid_order()
+    note_premix_grids(names)
+    pending = False
+    for name in names:
+        pending = _premix_grid(opt, storage, name) or pending
+        st.session_state[ING_PENDING_KEY] = _ingredients_pending() or pending
+    return pending
+
+
+def _premix_fold_open(name, grid):
+    """True while this fold holds something the reader must not lose sight
+    of: an edit in hand, a refusal to read, or a cell typed on the run that
+    is being drawn now.
+
+    A `st.data_editor` reruns the script on every keystroke, and the fold
+    came back shut each time — with `Save changes`, `Discard changes` and
+    the "not saved yet" caption all inside it. The screen went back to
+    looking finished over an unsaved edit, and entering a four-part pre-mix
+    meant reopening the fold nine times.
+
+    The third question is asked of the editor's own record of what was
+    typed, which Streamlit writes into session state BEFORE this run: the
+    park below is written at the END of the run, so on the very run that
+    carries the first keystroke there is nothing parked yet.
+    """
+    if _grid_is_pending(grid) or st.session_state.get(premix_errors_key(name)):
+        return True
+    typed = st.session_state.get(grid_key(grid))
+    if isinstance(typed, dict):
+        return any(typed.get(k) for k in
+                   ("edited_rows", "added_rows", "deleted_rows"))
+    return False
+
+
+def _premix_grid(opt, storage, name):
+    grid = premix_grid_key(name)
+    saved = opt.premix_grid_frame(name)
+    with st.expander(wording.premix_grid_title(name),
+                     expanded=_premix_fold_open(name, grid)):
+        # One caption at the top of the fold, saying what the column under
+        # it is and what may go in it. `% of pre-mix` was the one term on
+        # the tab with no tooltip, no caption and no line under the grid.
+        st.caption(wording.premix_fold_caption(
+            opt.premix_mode(name) == wording.PREMIX_MADE_AS_WEIGHED))
+        portioned = opt.premix_mode(name) == wording.PREMIX_MADE_AS_PORTIONED
+        if (not portioned and name == "Fats and oils"
+                and {p['name'] for p in opt.premix_parts(name)} == {"Coconut oil", "Sunflower oil"}
+                and all(opt.unit_of(p['name']) == "g" for p in opt.premix_parts(name))):
+            st.caption(wording.BLEND_OILS_EXAMPLE)
+        amount_entry = False
+        quantity = 100.0
+        unit = opt.unit_of(name) or opt.amount_unit or "g"
+        if portioned:
+            basis = "by mass" if unit.lower() in ("g", "kg", "mg", "oz", "lb") else f"on a shared {unit} basis"
+            st.caption(wording.composition_basis_caption(basis))
+            amount_entry = st.checkbox(wording.COMPOSITION_ENTRY_LABEL, key=grid + "_amount_entry")
+            mode = wording.COMPOSITION_AMOUNTS if amount_entry else wording.COMPOSITION_PERCENTAGES
+            if amount_entry:
+                st.caption(wording.COMPOSITION_AMOUNTS_HELP)
+            quantity = st.number_input(wording.premix_quantity_label(unit), min_value=0.01,
+                                       value=100.0, key=grid + "_preview_quantity")
+            marker = (mode, quantity)
+            if st.session_state.get(grid + "_mode_mark") != marker:
+                rekey_grid(grid)
+                st.session_state[grid + "_mode_mark"] = marker
+        opening, from_park = _opening_frame(grid, saved)
+        display = opening.copy()
+        config = _premix_columns(opt, name)
+        if amount_entry:
+            shares = pd.to_numeric(display[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            display[wording.PREMIX_SHARE_LABEL] = shares * quantity / (shares.sum() or 100)
+            config[wording.PREMIX_SHARE_LABEL] = st.column_config.NumberColumn(
+                f"Amount ({unit})", min_value=0.0, format="%.2f")
+        st.caption(wording.EDITABLE_TABLE_HELP)
+        edited = st.data_editor(
+            display, key=grid_key(grid), num_rows="dynamic",
+            column_config=config, use_container_width=True,
+            height=table_height(max(len(saved) + 1, 2), max_rows=20))
+        if amount_entry:
+            shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            if shares.sum() > 0:
+                edited[wording.PREMIX_SHARE_LABEL] = shares / shares.sum() * 100
+        if portioned:
+            shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
+            if shares.sum() > 0:
+                preview = pd.DataFrame({"Ingredient": edited[wording.PART_LABEL],
+                                        "Composition (%)": shares / shares.sum() * 100,
+                                        f"Amount ({unit})": shares / shares.sum() * quantity})
+                st.dataframe(preview.style.format({"Composition (%)": "{:.2f}",
+                                                  f"Amount ({unit})": "{:.2f}"}), hide_index=True)
+        slot = st.empty()
+        names = ({int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
+                  for no in edited.index}
+                 if wording.PART_LABEL in edited.columns else {})
+        _grid_errors(slot, premix_errors_key(name), names=names)
+        if wording.PREMIX_SHARE_LABEL in edited.columns:
+            # The column the reader is typing in, with its own sum under it:
+            # the shares are scaled to 100 at the Save, and this is what
+            # they add up to now.
+            st.caption(wording.premix_parts_total(
+                _share_text(opt.premix_parts_total(edited))))
+        pending = _pending(saved, edited)
+        _keep_pending(grid, pending, edited, from_park)
+        if pending:
+            st.caption(wording.unsaved_grid_caption(
+                wording.premix_grid_title(name)))
+            _save_premix(opt, storage, name, edited)
+        else:
+            _disarm_grid_deletion(premix_save_key(name))
+    return pending
+
+
+def _share_text(total):
+    """A share as the app writes one: two decimals, and no trailing pair of
+    zeros on a number that has none to write."""
+    text = f"{float(total):.2f}".rstrip("0").rstrip(".")
+    return f"{text} %"
+
+
+def _save_premix(opt, storage, name, edited):
+    """Save the parts, highlighting the first pending grid on this tab."""
+    deletions = opt.premix_grid_deletions(name, edited)
+    key = premix_save_key(name)
+    grid = premix_grid_key(name)
+    _disarm_stale_deletion(key, deletions)
+    lit = not _ingredients_pending() and not confirmation_open()
+    force_key = f"delete_part_force__{name}"
+    if not deletions:
+        st.session_state.pop(force_key, None)
+        _remember_armed_deletions(key, deletions)
+        if _save_and_discard(key, grid, lit):
+            _apply_premix_grid(opt, storage, name, edited)
+        return
+    confirmed = confirm_action(
+        key, wording.SAVE_CHANGES_BUTTON,
+        wording.delete_rows_warning(number_list(deletions)),
+        confirm_label=wording.YES_DELETE, primary=lit,
+        disabled=other_confirmation(key))
+    _remember_armed_deletions(key, deletions)
+    force = bool(st.session_state.get(force_key, False))
+    armed = (armed_confirmation() == key
+             and st.session_state.get(f"{key}__pending"))
+    if armed:
+        st.caption(wording.for_project(opt, wording.DELETE_VS_FIXING_CAPTION))
+        st.checkbox(wording.for_project(opt, wording.DELETE_EVEN_IF_USED_CHECKBOX), key=force_key)
+    else:
+        st.session_state.pop(force_key, None)
+    if not confirmed:
+        _discard_beside(key, grid)
+        return
+    try:
+        storage.archive(opt.project_name, "pre_delete", copy=True)
+    except storage_backend.StorageError as e:
+        st.error(str(e))
+        return
+    _apply_premix_grid(opt, storage, name, edited,
+                       force=set(deletions) if force else ())
+
+
+def _apply_premix_grid(opt, storage, name, edited, force=()):
+    """Hand one pre-mix's finished parts grid to the model, and say what it
+    did. Every consequence arrives as one message from there, exactly as the
+    ingredients grid's do."""
+    round_before = opt.pending_batch_no
+    errors, messages = opt.apply_premix_grid(name, edited, force=force)
+    if errors:
+        st.session_state[premix_errors_key(name)] = errors
+        st.rerun()
+    if not saved_ok(opt):
+        return
+    _remember_discarded_round(opt, round_before)
+    for kind, line in messages:
+        flash(kind, line)
+    clear_grid(premix_grid_key(name))
+    # This rerun happens above every grid further down the page, and
+    # Streamlit throws away the record of a widget the run did not create.
+    # Turning their keys over is what lets the frames they parked be drawn
+    # in their place, so their edits and their banners stay where they were.
+    for other in all_grid_keys():
+        if other != premix_grid_key(name):
+            rekey_grid(other)
+    st.session_state.pop(armed_deletions_key(premix_save_key(name)), None)
     st.rerun()
 
 
@@ -903,6 +1226,13 @@ _TARGETS_SOURCE_BOX = "targets_source_box"
 
 
 def _targets_source_editor(opt):
+    label = (wording.EXAMPLE_REFERENCES_LABEL if opt.project_name == wording.SAMPLE_PROJECT_NAME
+             else wording.TARGET_REFERENCES_LABEL)
+    with st.popover(label):
+        _targets_source_contents(opt)
+
+
+def _targets_source_contents(opt):
     """The optional note on where the measurement targets came from: a
     caption once it is set, and a button that opens a one-line box to set or
     change it. Its Save is always secondary — unlike the measurement editor,
@@ -910,7 +1240,10 @@ def _targets_source_editor(opt):
     closes it without saving, same word and same act as the measurement
     editor's own Cancel."""
     if opt.targets_source:
-        st.caption(wording.targets_from_caption(opt.targets_source))
+        st.markdown(wording.targets_from_caption(opt.targets_source))
+        if opt.targets_source == wording.SAMPLE_TARGETS_SOURCE:
+            with st.expander(wording.BACKGROUND_REFERENCE_LABEL):
+                st.markdown(wording.SAMPLE_REFERENCE)
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
         st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
@@ -940,6 +1273,82 @@ def _targets_source_editor(opt):
             st.rerun()
 
 
+def _record_key(field):
+    return f"record_{field}"
+
+
+def _also_record(opt):
+    """One optional selector; hiding a field preserves existing records."""
+    key = "record_fields"
+    definitions = custom_records.fields(opt, enabled=False)
+    by_id = {f['id']: f for f in definitions}
+    standard = [f for f in RECORD_FIELDS if f != 'actual']
+    options = standard + list(by_id)
+    st.session_state.setdefault(key, [f for f in standard if opt.records(f)]
+                                + [f['id'] for f in definitions if f['enabled']])
+
+    if any(f not in options for f in st.session_state[key]):
+        st.session_state[key] = [f for f in st.session_state[key] if f in options]
+
+    def _save():
+        selected = set(st.session_state.get(key, []))
+        changed = False
+        for field in standard:
+            changed = opt.set_records(field, field in selected) or changed
+        custom_records.set_enabled(opt, selected)
+        if saved_ok(opt):
+            flash("success", wording.RECORDS_UPDATED)
+
+    st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
+                   format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
+                       else wording.custom_record_option(by_id[field]['name'], by_id[field]['scope'])),
+                   help=wording.ALSO_RECORD_HELP, on_change=_save)
+    if opt.records("lot"):
+        st.caption(wording.LOT_LOCATION_HELP)
+    st.caption(wording.RECORDING_GUIDANCE)
+    custom_records.setup(opt)
+    def _save_actual():
+        opt.set_records('actual', st.session_state['record_actual'])
+        saved_ok(opt)
+    st.session_state.setdefault('record_actual', opt.records('actual'))
+    st.checkbox(wording.ACTUAL_RECORD_OPTION, key='record_actual',
+                help=wording.ACTUAL_RECORD_HELP, on_change=_save_actual)
+    if opt.records('actual'):
+        st.caption(wording.ACTUAL_RECORD_HELP)
+
+
+_METHOD_BOX = "method_box"
+
+
+def _method_editor(opt):
+    """How the formulation is made, in the order the bench does it: one text
+    area, saved the moment it loses focus, printed on the Round sheet.
+
+    A text area rather than the targets note's one-line box with its own
+    Add/Edit pair: a method is six lines, and the page that carries it to
+    the bench prints them one to a row. It saves on change, which is what
+    every other box in this tier does, and the flash is the only line it
+    owes.
+    """
+    st.session_state.setdefault(_METHOD_BOX, getattr(opt, 'method', "") or "")
+
+    def _save():
+        typed = str(st.session_state.get(_METHOD_BOX) or "").strip()
+        had = bool(getattr(opt, 'method', ""))
+        if typed == (getattr(opt, 'method', "") or ""):
+            return
+        opt.set_method(typed)
+        if saved_ok(opt):
+            flash("success",
+                  wording.METHOD_SAVED if typed
+                  else (wording.METHOD_CLEARED if had else wording.METHOD_SAVED))
+
+    st.text_area(wording.METHOD_LABEL, key=_METHOD_BOX,
+                 help=wording.METHOD_HELP,
+                 placeholder=wording.METHOD_PLACEHOLDER,
+                 on_change=_save)
+
+
 def _measurements(opt, storage):
     """The measurements, in a grid of their own.
 
@@ -953,13 +1362,27 @@ def _measurements(opt, storage):
     """
     st.subheader(wording.MEASUREMENTS_HEADER)
     st.caption(wording.MEASUREMENT_GRID_CAPTION)
+    st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.measurement_grid_frame()
     opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
     edited = st.data_editor(
         opening, key=grid_key(MEAS_GRID_KEY),
         num_rows="dynamic",
+        column_order=[wording.MEASUREMENT_COLUMN, wording.GOAL_LABEL,
+                      wording.TARGET_LABEL, wording.SHARE_COLUMN,
+                      wording.UNIT_LABEL, wording.LOWEST_MEASURABLE_LABEL,
+                      wording.HIGHEST_MEASURABLE_LABEL],
         column_config=_measurement_columns(), use_container_width=True,
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
+    preview = opt.preview_measurement_shares(edited)
+    if preview:
+        typed = dict(zip(edited[wording.MEASUREMENT_COLUMN], edited[wording.SHARE_COLUMN]))
+        adjusted = any(abs(float(typed.get(name, value)) - value) > 0.001 for name, value in preview.items())
+        st.caption(wording.SHARE_SAVED_TOTAL if adjusted else wording.SHARE_TOTAL)
+        if adjusted:
+            st.caption(wording.SHARE_PREVIEW_HELP)
+            st.dataframe(pd.DataFrame({wording.MEASUREMENT_COLUMN: list(preview),
+                                       wording.SHARE_COLUMN: list(preview.values())}), hide_index=True)
     slot = st.empty()
     _grid_errors(slot, _MEAS_ERRORS)
     pending = _pending(saved, edited)
@@ -1186,7 +1609,7 @@ def _properties(opt, storage):
     # and it deletes the same way as any other even though it never shows
     # on the grid above.
     all_properties = opt.properties()
-    names = opt.ingredient_names()
+    names = opt.property_grid_names()
     if properties and names:
         # Property names carry their own basis as often as not ("Fat per
         # 100 g"), and a caption that then adds ", per 100 g" said it twice.
@@ -1198,6 +1621,7 @@ def _properties(opt, storage):
         # is drawn, and Streamlit throws away the entry of a widget the run
         # never created. It carries a banner of its own, so it has to be
         # able to keep what the banner promises.
+        st.caption(wording.EDITABLE_TABLE_HELP)
         opening, from_park = _opening_frame(PROP_GRID_KEY, saved)
         edited = st.data_editor(
             opening, key=grid_key(PROP_GRID_KEY), num_rows="fixed",
@@ -1241,6 +1665,7 @@ def _property_limits(opt):
         return
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
                           key="prop_metric")
+    st.caption(wording.LIMIT_BOUND_HELP)
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
@@ -1298,7 +1723,7 @@ def _limits(opt, storage):
     # "of your ingredients", not "from your ingredient file": a property
     # is named in the app as often as it arrives in a file, and the grid
     # that names one is further down this expander.
-    st.caption(wording.LIMITS_CAPTION)
+    st.caption(wording.for_project(opt, wording.LIMITS_CAPTION))
 
     _property_limits(opt)
 
@@ -1322,7 +1747,7 @@ def _limits(opt, storage):
                           constraint['metric'],
                           lambda i=i: opt.remove_constraint(i))
 
-    names = opt.ingredient_names()
+    names = opt.quantity_limit_choices()
 
     # ONE amount limit, on the ingredients the user names. The total
     # over ALL of them is not written here — it is the Default batch size
@@ -1389,7 +1814,7 @@ def _limits(opt, storage):
             st.error(wording.LIMIT_NUMBER_NEEDED_ERROR)
         else:
             try:
-                opt.add_quantity_constraint(picked, min_val=low, max_val=high,
+                opt.add_chosen_quantity_constraint(picked, min_val=low, max_val=high,
                                             exactly=exact, percent=is_percent)
             except ValueError as e:
                 st.error(str(e))
@@ -1425,13 +1850,15 @@ def _advanced(opt):
     open before the first sentence is the state this tier exists to end.
     """
     with st.expander(wording.ADVANCED_EXPANDER):
-        st.markdown(wording.HOW_FORMULATIONS_CHOSEN_HEADING)
+        st.markdown(wording.HOW_IT_WORKS_HEADING)
+        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
+        st.markdown(wording.for_project(opt, wording.HOW_FORMULATIONS_CHOSEN_HEADING))
         st.caption(wording.STANDARD_VS_EXPERT_CAPTION)
         current = getattr(opt, "bo_config", None)
         # The radio's label is collapsed: the section it is the only control
         # in already names it, and a heading repeated as a label reads as two
         # things.
-        mode = st.radio(wording.HOW_FORMULATIONS_CHOSEN_LABEL,
+        mode = st.radio(wording.for_project(opt, wording.HOW_FORMULATIONS_CHOSEN_LABEL),
                         [wording.STANDARD_DEFAULT_OPTION, wording.EXPERT_SELECTED_OPTION],
                         index=1 if current else 0, key="bo_cfg_mode",
                         horizontal=True, label_visibility="collapsed")
@@ -1483,17 +1910,12 @@ def _advanced(opt):
         # Only under Standard: with the boxes on screen this line repeats
         # what they already show, four values at a time.
         if current and mode == wording.STANDARD_DEFAULT_OPTION:
-            st.caption(wording.IN_USE_PREFIX
-                       + ", ".join(f"{k}: {v}" for k, v in current.items()))
+            st.caption(wording.for_project(opt, wording.IN_USE_PREFIX
+                       + ", ".join(f"{k}: {v}" for k, v in current.items())))
 
-        # Four flat bullets, then the arithmetic behind the second one
-        # directly beneath: the pair used to be two folds under the
-        # measurements grid, where they were the last thing on the tab a
-        # formulator needed and the first thing they saw.
-        st.markdown(wording.HOW_IT_WORKS_HEADING)
-        st.markdown("\n".join("- " + line for line in HOW_IT_WORKS))
-        st.markdown(wording.HOW_CLOSENESS_HEADING)
-        st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
+        with st.popover(wording.SCORING_DETAILS_CHECKBOX):
+            st.markdown(wording.HOW_CLOSENESS_HEADING)
+            st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 
 
 # What counts as a limit still being written: anything typed into the
@@ -1515,36 +1937,30 @@ def _limit_half_written():
 
 
 def _more_settings(opt, storage):
-    """The middle tier (spec 1.5): everything tab 1 asks at most once, in one
-    collapsed expander, in the order a project needs it — how big a
-    formulation is, where the targets came from, the hard rules, and the
-    figures those rules read.
+    """Shared preparation and records, separated from optional ingredient limits.
 
-    Nothing in here is a fold of its own. Streamlit cannot nest one expander
-    in another, and the point of the tier is that the tab has ONE thing to
-    open rather than six.
-
-    It stays OPEN while a limit is half-written. Every picker and select in
-    here causes a rerun, and a rerun closed the whole tier under the
-    reader's hand: writing one limit takes four fields, and each of them
-    shut the fold and sent them scrolling back.
+    Keep the limits section open while a limit is being entered.
     """
-    with st.expander(wording.MORE_SETTINGS_EXPANDER,
-                     expanded=_limit_half_written()):
+    with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
+        _method_editor(opt)
+        _also_record(opt)
         _targets_source_editor(opt)
-        _limits(opt, storage)
-        _properties(opt, storage)
+    if opt.has_ingredients():
+        with st.expander(wording.INGREDIENT_LIMITS_EXPANDER,
+                         expanded=_limit_half_written()):
+            _limits(opt, storage)
+            _properties(opt, storage)
 
 
 def _foot(opt, pending=False):
-    ready, missing = readiness(opt)
+    ready, missing = readiness(opt, here=True)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; moving on can wait a click. An
     # unsaved grid is the same case: its `Save changes` is the lit one, and
     # Continue would leave the tab and throw the edit away.
     lit = ready and not confirmation_open() and not pending
-    if st.button(wording.NEXT_MAKE_BATCH_BUTTON,
+    if st.button(wording.for_project(opt, wording.NEXT_MAKE_BATCH_BUTTON),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
         go_to_tab(TAB_BATCH)
@@ -1553,13 +1969,18 @@ def _foot(opt, pending=False):
 
 
 def render(opt, storage):
+    if not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
+        st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
+                   else wording.SETUP_INTRO))
     # The sample's own welcome, directly under the tab's title: gone the
     # moment any formulation exists, scored or not — a batch whose one row
     # was ticked Not scored has still been made, and "Next: make a round"
     # would be wrong about it.
     if (not opt.X_history and not opt.skipped
             and opt.project_name == wording.SAMPLE_PROJECT_NAME):
-        st.caption(wording.SAMPLE_TAB1_DESCRIPTION)
+        st.caption(wording.for_project(opt, wording.SAMPLE_TAB1_DESCRIPTION))
+    if opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
+        st.caption(wording.TEACHING_EXAMPLE_CAPTION)
     pending, captions = _variables(opt, storage)
     st.divider()
     pending = _measurements(opt, storage) or pending
@@ -1572,16 +1993,23 @@ def render(opt, storage):
     # More settings, and a caption drawn before it read the old number on
     # the very run the reader changed it.
     with captions:
-        lines = opt.worked_out_captions()
-        for line in lines:
+        # Every calculated row says what its calculation comes to, in
+        # numbers, at the size those numbers are read against; then the one
+        # line that says how to write one, whether or not any row has.
+        for line in opt.worked_out_captions():
             st.caption(line)
-        if not lines:
-            # The column arrived with no header tooltip anybody reads, no
-            # placeholder and no mention in the caption above the grid, so
-            # everything a cold reader learned about it they learned from
-            # refusals. One line, and only while there is nothing better to
-            # say: the worked-out captions take its place.
+        if opt.has_ingredients():
             st.caption(wording.RULE_HINT)
+        help_col, import_col = st.columns(2)
+        with help_col:
+            if opt.has_ingredients():
+                with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
+                    st.markdown(wording.RULE_GUIDE)
+                    with st.expander(wording.CALCULATION_SYNTAX_LABEL):
+                        st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
+        with import_col:
+            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
+                _upload_ingredients(opt)
     _advanced(opt)
     st.divider()
     _foot(opt, pending)

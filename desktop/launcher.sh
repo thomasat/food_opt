@@ -183,7 +183,7 @@ if [ "$NEED_SETUP" = "1" ]; then
   if [ -f "$MARKER_FILE" ]; then
     STEP_ENV="step 1 of 2"
     STEP_SYNC="step 2 of 2"
-    status "Updating components…|2"
+    status "Updating components|2"
   else
     STEP_ENV="step 2 of 3"
     STEP_SYNC="step 3 of 3"
@@ -294,7 +294,7 @@ fi
 # Empty percent, like the line below it: this step has no measurable
 # progress, and the wrapper shows it as one step of its own with a live
 # elapsed counter rather than a bar that would have to be invented.
-WARM_MSG="Loading the app's components…"
+WARM_MSG="Loading the app's components"
 status "$WARM_MSG|"
 WARM_START=$SECONDS
 # Quitting mid-warm-up must not orphan the interpreter: this replaces the
@@ -325,7 +325,7 @@ say "components loaded in $((SECONDS - WARM_START)) s"
 
 # Empty percent on purpose: a percent here would make the window treat a
 # plain warm launch as a setup page ("Updating Food Optimizer").
-status "Starting the app…|"
+status "Starting the app|"
 "$VENV_DIR/bin/python" -m streamlit run "$RESOURCES_DIR/app.py" \
   --server.headless=true \
   --server.address=127.0.0.1 \
