@@ -294,7 +294,7 @@ fi
 # Empty percent, like the line below it: this step has no measurable
 # progress, and the wrapper shows it as one step of its own with a live
 # elapsed counter rather than a bar that would have to be invented.
-WARM_MSG="Loading the model components…"
+WARM_MSG="Loading the app's components…"
 status "$WARM_MSG|"
 WARM_START=$SECONDS
 # Quitting mid-warm-up must not orphan the interpreter: this replaces the

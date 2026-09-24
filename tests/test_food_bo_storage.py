@@ -154,7 +154,7 @@ def test_design_space_mutations_clear_pending_batch():
     assert opt.pending_batch is None
 
     opt.set_pending_batch([{"Water": 3.0, "Sugar": 1.0, "Temp": 150.0}])
-    opt.deactivate_variable("Sugar")
+    opt.add_ingredient("Sugar", 0, 0)   # fixing a row is a design change too
     assert opt.pending_batch is None
 
 

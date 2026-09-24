@@ -37,9 +37,10 @@ from food_bo import (                         # noqa: E402
 )
 from ui_helpers import (                      # noqa: E402
     ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
-    confirm_action, confirmation_open, drain_clears, flash, landing_tab,
+    confirm_action, confirmation_open, drain_clears,
+    flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
-    render_flash, saved_line, saved_ok, take_clear,
+    copy_when, render_flash, reset_grids, saved_line, saved_ok, take_clear,
 )
 
 if _starting is not None:
@@ -65,14 +66,16 @@ _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
 # form. Popping a key while its widget is on screen raises, which is why this
 # only ever runs from a handler, before the tabs render.
 _FORM_KEY_PREFIXES = (
-    "meas_",                       # the measurement form, new and per-edit
-    "var_",                        # the one add form: name, type, lowest,
-                                   # highest, unit, baseline, and the picker
+    # Tab 1's ingredients and measurements are two editable grids now. A
+    # grid's own key is neither popped nor parked — it is turned over
+    # (ui_helpers.reset_grids) — and there is no add form and no per-row
+    # editor left to empty.
     "qc_",                         # amount limit min, max
     "tm_",                         # total limit min, max
     "prop_",                       # property limit metric, at least, at most,
-                                   # and the box that names a new property
-    "setprop_",                    # the Set properties editor
+                                   # the box that names a new property and
+                                   # the picker the Delete beside the
+                                   # properties grid is armed from
     "bo_",                         # advanced model settings
     # The three file uploaders. A file uploader cannot be emptied from session
     # state at all — assigning None is refused and popping the key leaves the
@@ -90,15 +93,10 @@ _GRID_KEY_RE = _re.compile(r"^f\d+_")   # tab 2: f7_Firmness, f7_note, f7_leave_
 # So the empty value is PARKED and assigned before the widget is created, the
 # same pattern clear_selection has always used for a select box.
 _FORM_FRESH = {
-    "var_name": "", "var_low": 0.0, "var_high": 100.0, "var_base": None,
-    "var_kind": "Ingredient", "unit_value": "",
     "prop_min": None, "prop_max": None, "prop_new": "",
     "qc_min": None, "qc_max": None, "tm_min": None, "tm_max": None,
-    "meas_new_name": "", "meas_new_unit": "", "meas_new_goal": "max",
-    "meas_new_target": 0.0, "meas_new_min": 0.0, "meas_new_max": 10.0,
-    "meas_new_importance": 1.0,
     "qty_pick": [], "delete_formulations": [],
-    "batch_size": 3, "scale_total": None, "own_note": "",
+    "how_many": 3, "scale_total": None, "own_note": "",
     "formulation_total": None,
     "targets_source_box": "",
     # Tab 3's "Add a formulation you already made": the note box opens
@@ -106,22 +104,19 @@ _FORM_FRESH = {
     # on the typed-in half.
     "past_note": wording.IMPORTED_NOTE, "add_past_mode": wording.TYPE_IT_IN,
 }
-# The boxes whose empty value is None: the select boxes, and the add form's
-# unit box, which empties to the newly opened project's own default (app.py
-# passes it to drain_clears; it is not known here).
+# The boxes whose empty value is None: the select boxes.
 _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
-                         "var_unit")
+                         "prop_delete")
 
 # The boxes whose names are the project's own, so they cannot be listed in
-# _FORM_FRESH above: one per property on the add form (var_prop_<name>), one
-# per property in the Set properties editor (setprop_<row>_<name>), one
-# per variable in tab 2's "Add a formulation of your own" (own_<name> — its
-# own_note box is named in _FORM_FRESH, and is parked before this), one per
-# amount in tab 3's correction row (correct_amount_<no>_<name>), and one per
-# amount and measurement in tab 3's typed-in past formulation (past_<name>
-# and past_m_<name>; past_note is named in _FORM_FRESH and parked first).
-_PER_NAME_BOX_PREFIXES = ("var_prop_", "setprop_", "own_",
-                          "correct_amount_", "past_")
+# _FORM_FRESH above: one per variable in tab 2's "Add a formulation of your
+# own" (own_<name> — its own_note box is named in _FORM_FRESH, and is parked
+# before this), one per amount in tab 3's correction row
+# (correct_amount_<no>_<name>), and one per amount and measurement in tab 3's
+# typed-in past formulation (past_<name> and past_m_<name>; past_note is
+# named in _FORM_FRESH and parked first). Properties are a grid now, and a
+# grid's key is turned over rather than parked.
+_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_")
 
 
 def _grid_fresh(key):
@@ -140,11 +135,16 @@ def _reset_project_session():
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
     for k in ("optimizer", "current_batch", "_restore_candidate",
-              "_results_upload", "_import_rows", "_editing_measurement",
+              "_results_upload", "_import_rows",
               "_ingredients_loaded", "results_order", "show_amounts",
-              "_pending_tab", "_var_kind_shown", "_props_for",
-              "_targets_source_open", ARMED_KEY):
+              "_pending_tab", "_targets_source_open",
+              ui_setup._ROUND_DISCARDED, ui_setup._ROUND_DISCARDED_FLASHED,
+              ARMED_KEY):
         st.session_state.pop(k, None)
+    # Every pending grid edit, every grid's refused-save errors and whatever
+    # each grid's deletion question was armed over: none of it belongs to
+    # the project being opened.
+    reset_grids()
     for k in [k for k in st.session_state if isinstance(k, str)]:
         if k in _FORM_FRESH:
             park_clear(k, _FORM_FRESH[k])
@@ -216,6 +216,11 @@ def _build_sample_project(name):
                           min_val=0, max_val=10, unit="/10")
     _sample.add_objective("Firmness", 1.5, goal="target", target=6,
                           min_val=0, max_val=10, unit="/10")
+    # add_objective does not normalise (the weights are a scale of their
+    # own until something says otherwise), so the file it writes would say
+    # 1.0 / 1.5 under CLASS_VERSION 11 while every screen read 40 / 60. The
+    # shares are stated outright, in the scale the version claims.
+    _sample.set_shares({"Firmness": 60.0, "Juiciness": 40.0})
     _sample.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
     # A burger patty is made to a weight, and the panel is served
     # one size. 100 g is what the sample's allowed amounts are
@@ -259,6 +264,56 @@ def _open_sample_project():
             # "Created" only the first time: rebuilding a sample the user
             # never used is still, to them, opening the sample.
             _open_project(_name, made=_existing is None)
+
+
+def _safety_copies(opt):
+    """The copies the app made for itself, offered back.
+
+    They were files named `burger_pre_edit` in the project folder, which
+    nothing on screen ever mentioned — under a heading that promises a list
+    — while the sentence beside every destructive button said a copy had
+    been kept. Each is named for what it was taken before, and Open sends
+    it through the same preview and Yes, replace that a copy of the
+    reader's own goes through.
+    """
+    try:
+        archives = STORAGE.list_archives()
+    except storage_backend.StorageError:
+        return
+    prefix = f"{opt.project_name}_"
+    mine = []
+    for name in archives:
+        if not name.startswith(prefix):
+            continue
+        match = storage_backend.ARCHIVE_SUFFIX_RE.search(name)
+        reason = wording.SAFETY_COPY_REASONS.get(match.group(1)) if match else None
+        if reason is None:
+            continue
+        when = STORAGE.saved_at(name)
+        mine.append((when, name, reason))
+    if not mine:
+        return
+    st.caption(wording.SAFETY_COPIES_CAPTION)
+    # Newest first: the copy somebody wants back is nearly always the last
+    # one the app took.
+    for when, name, reason in sorted(
+            mine, key=lambda row: row[0] or datetime.min.astimezone(),
+            reverse=True):
+        line, button = st.columns([3, 1])
+        line.caption(wording.safety_copy_line(
+            reason, copy_when(when) if when is not None else ""))
+        if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
+            try:
+                state = STORAGE.load(name)
+            except storage_backend.StorageError as e:
+                st.error(str(e))
+            else:
+                if state is None:
+                    st.error(wording.COPY_UNREADABLE)
+                else:
+                    st.session_state["_restore_candidate"] = state
+                    preserve_tab_forms()
+                    st.rerun()
 
 
 def _held(opt):
@@ -395,12 +450,25 @@ with st.sidebar:
             # would be an empty file wearing the project's name.
             st.caption(wording.COPY_UNAVAILABLE)
         else:
+            _copy_name = (f"{opt.project_name} copy "
+                          f"{datetime.now():%Y-%m-%d}.json")
             st.download_button(
                 wording.SAVE_A_COPY,
                 data=json.dumps(opt.export_json(), indent=2),
-                file_name=f"{opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
+                file_name=_copy_name,
                 mime="application/json",
+                # A download is the one action in the app that leaves no
+                # mark: the reader clicked and nothing moved. The click sets
+                # a flag and the line below shows on the next run, because
+                # this one has already handed the browser the file.
+                on_click=lambda name=_copy_name: st.session_state.__setitem__(
+                    "_copy_downloaded", name),
             )
+            _downloaded = st.session_state.pop("_copy_downloaded", None)
+            if _downloaded:
+                st.caption(wording.copy_downloaded(_downloaded))
+
+        _safety_copies(opt)
 
         # Any file name: what is inside decides, not the extension.
         uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
@@ -461,6 +529,13 @@ with st.sidebar:
                                 if new_opt.save_error:
                                     st.error(new_opt.save_error)
                                 else:
+                                    # Every row on tab 1 belongs to a
+                                    # different project from this run on.
+                                    # A data editor's record is positional,
+                                    # so a Lowest typed against Water here
+                                    # would land on whatever the copy puts
+                                    # in row 0.
+                                    _reset_project_session()
                                     st.session_state.optimizer = new_opt
                                     st.session_state.pop("_restore_candidate", None)
                                     st.session_state.pop("current_batch", None)
@@ -583,7 +658,7 @@ if opt is None:
 
 
 # A damaged project must never be silently overwritten: every edit below
-# calls save(), so pause the editing UI until the user opens a saved copy or
+# calls save(), so stop the editing UI until the user opens a saved copy or
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
@@ -641,8 +716,8 @@ if getattr(_opt, "pending_batch", None):
 
 
 # The landing rule. This is one of the seven places allowed to change tabs
-# (the other six are go_to_tab's callers: Next: make a batch, Back to set up,
-# Save results, Save uploaded results, Start the next batch, Change a
+# (the other six are go_to_tab's callers: Next: make a round, Back to set up,
+# Save results, Save uploaded results, Start the next round, Change a
 # measurement or an ingredient), and it fires only on the run that follows
 # opening a project.
 if st.session_state.pop("_land_on_open", False):
@@ -667,7 +742,7 @@ _line = _batch_line(_opt)
 
 with tab_setup:
     # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
-    # directly above "Batch 1 · make these 3 formulations" saying it again.
+    # directly above "Round 1 · make these 3 formulations" saying it again.
     if _line:
         st.caption(_line)
     ui_setup.render(_opt, STORAGE)
