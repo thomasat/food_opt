@@ -472,3 +472,55 @@ def path_predictions(opt, fitted, path):
     X = [opt._encode(r) for r in path.recipes]
     return {name: predict(opt, f, X) for name, f in fitted.items()
             if f.model is not None}
+
+
+@dataclass
+class BestFacts:
+    score: float
+    formulation: int
+    round: int | None
+    rounds_since: int
+    latest: bool
+
+
+def best_facts(opt):
+    i = opt.best_index()
+    if i is None:
+        return None
+    order = round_order(opt)
+    since = [r for r, first in order if first > i]
+    r = opt.batch_history[i]
+    latest = r is not None and bool(order) and order[-1][0] == r
+    return BestFacts(float(opt.Y_history[i]), int(opt.formulation_ids[i]), r,
+                     len(since), latest)
+
+
+def _same(opt, a, b):
+    for v in opt.variables:
+        if opt.has_formula(v):
+            continue
+        x, y = a.get(v['name']), b.get(v['name'])
+        if v.get('type') != 'continuous':
+            if x != y:
+                return False
+            continue
+        lo, hi = (float(t) for t in v['bounds'])
+        tol = 0.0 if hi == lo else 0.005 * (hi - lo)
+        if abs(float(x or 0.0) - float(y or 0.0)) > tol + 1e-12:
+            return False
+    return True
+
+
+def repeat_spread(opt):
+    recipes = [start_recipe(opt, i) for i in range(len(opt.Y_history))]
+    groups = []
+    for i, r in enumerate(recipes):
+        for g in groups:
+            if _same(opt, recipes[g[0]], r):
+                g.append(i)
+                break
+        else:
+            groups.append([i])
+    spreads = [max(opt.Y_history[j] for j in g) - min(opt.Y_history[j] for j in g)
+               for g in groups if len(g) > 1]
+    return max(spreads) if spreads else None

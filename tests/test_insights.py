@@ -525,3 +525,44 @@ def test_build_path_writes_nothing_to_the_optimizer():
     insights.build_path(opt, "Pea", s)
     after = opt.export_json()
     assert before == after
+
+
+def test_best_facts_counts_rounds_since():
+    opt = _burger(rounds=3, per_round=2)
+    i = opt.best_index()
+    f = insights.best_facts(opt)
+    assert f.formulation == int(opt.formulation_ids[i])
+    assert f.round == opt.batch_history[i]
+    assert f.rounds_since == 3 - f.round
+    assert f.latest == (f.round == 3)
+
+
+def test_best_facts_for_an_import():
+    opt = FoodOptimizer("imp")
+    opt.add_ingredient("Pea", 0, 10)
+    opt.add_objective("Firmness", 100, goal="max", min_val=0, max_val=10)
+    opt.import_formulation({"Pea": 5.0}, {"Firmness": 9.5})
+    opt.tell({"Pea": 1.0}, {"Firmness": 2.0}, formulation_no=10, batch_no=1)
+    f = insights.best_facts(opt)
+    assert f.round is None and f.rounds_since == 1 and not f.latest
+
+
+def test_repeat_spread():
+    opt = _burger(rounds=2, per_round=3)
+    assert insights.repeat_spread(opt) is None
+    same = opt._recorded_recipe(0)
+    opt.tell(same, {"Firmness": 3.0, "Juiciness": 1.0}, formulation_no=80, batch_no=3)
+    spread = insights.repeat_spread(opt)
+    assert spread == pytest.approx(abs(opt.Y_history[0] - opt.Y_history[-1]))
+
+
+def test_repeat_tolerance_is_half_a_percent_of_the_span():
+    opt = _burger(rounds=1, per_round=1)
+    r = opt._recorded_recipe(0)
+    near = opt.fill_formulas({"Pea": r["Pea"] + 0.004 * 4, "Oil": r["Oil"]})   # 0.4 % of 4 g
+    far = opt.fill_formulas({"Pea": r["Pea"] + 0.02 * 4, "Oil": r["Oil"]})     # 2 %
+    opt.tell(near, {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=81, batch_no=2)
+    assert insights.repeat_spread(opt) is not None
+    opt2 = _burger(rounds=1, per_round=1)
+    opt2.tell(far, {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=82, batch_no=2)
+    assert insights.repeat_spread(opt2) is None
