@@ -566,3 +566,52 @@ def test_repeat_tolerance_is_half_a_percent_of_the_span():
     opt2 = _burger(rounds=1, per_round=1)
     opt2.tell(far, {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=82, batch_no=2)
     assert insights.repeat_spread(opt2) is None
+
+
+def test_repeat_spread_is_pairwise_not_anchor_groups():
+    # RULING (fix round 1, finding 1): repeat_spread must compare every PAIR
+    # independently, not chain each new row only against an existing group's
+    # first member. Pea's span is 4-8 g (4 g), tolerance = 0.005 * 4 = 0.02 g.
+    # Row 0 (the recorded start) and row 1 (+0.015 g) match (diff 0.015 g).
+    # Row 1 and row 2 (+0.030 g from row 0, i.e. +0.015 g from row 1) also
+    # match (diff 0.015 g). Row 0 and row 2 do NOT match (diff 0.030 g).
+    # An anchor-group scheme puts row 1 in row 0's group on that first match,
+    # then tests row 2 only against the group's anchor (row 0), sees no
+    # match, and starts a new group for row 2 alone -- so it never learns
+    # that (1, 2) match at all. Row 1 and row 0 are told the SAME measured
+    # result (so their Overall scores are equal, spread 0); row 2 is told a
+    # very different result, so the only real spread -- and the one an
+    # anchor-group scheme would miss entirely -- is between rows 1 and 2.
+    opt = _burger(rounds=1, per_round=1)
+    r = opt._recorded_recipe(0)
+    row1 = opt.fill_formulas({"Pea": r["Pea"] + 0.015, "Oil": r["Oil"]})
+    row2 = opt.fill_formulas({"Pea": r["Pea"] + 0.030, "Oil": r["Oil"]})
+    row0_results = dict(opt.results_history[0])
+    opt.tell(row1, row0_results, formulation_no=90, batch_no=2)
+    opt.tell(row2, {"Firmness": 10.0, "Juiciness": 10.0}, formulation_no=91, batch_no=2)
+    y0, y1, y2 = opt.Y_history[0], opt.Y_history[1], opt.Y_history[2]
+    assert y0 == pytest.approx(y1)                 # rows 0 and 1: same result, no spread
+    assert abs(y1 - y2) > abs(y0 - y1)              # the missed pair has the real spread
+    assert insights.repeat_spread(opt) == pytest.approx(abs(y1 - y2))
+
+
+def test_same_fixed_row_requires_exact_match():
+    # RULING (fix round 1, finding 3): a fixed row's tolerance is 0 (its
+    # Lowest equals its Highest, so the usual "0.5 % of the span" rule would
+    # divide by zero) -- decided via opt.is_fixed rather than re-deriving
+    # "hi == lo" locally. `insights._same` is exercised directly because
+    # `repeat_spread`'s own pipeline (via `start_recipe` -> `_recorded_recipe`
+    # -> decode) always snaps a fixed row back to its one allowed amount, so
+    # two real formulations could never actually disagree on it -- there is
+    # no way to reach this branch with a "slightly different" value through
+    # the public entry point.
+    opt = _burger(rounds=2)
+    # See test_path_choices_premixes_and_process for why Salt is added with
+    # room first and folded into the total's own limit before being fixed.
+    opt.add_ingredient("Salt", 0, 5)
+    opt.set_formulation_total(101)
+    opt.set_formulation_total(100)
+    opt.add_ingredient("Salt", 1, 1)               # fixed: Lowest == Highest
+    a = {**opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), "Salt": 1.0}
+    b = {**opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), "Salt": 1.0001}
+    assert not insights._same(opt, a, b)

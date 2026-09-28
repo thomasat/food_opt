@@ -505,22 +505,28 @@ def _same(opt, a, b):
                 return False
             continue
         lo, hi = (float(t) for t in v['bounds'])
-        tol = 0.0 if hi == lo else 0.005 * (hi - lo)
+        tol = 0.0 if opt.is_fixed(v) else 0.005 * (hi - lo)
         if abs(float(x or 0.0) - float(y or 0.0)) > tol + 1e-12:
             return False
     return True
 
 
 def repeat_spread(opt):
+    """The largest |Overall score difference| between any two formulations
+    that `_same` calls a match.
+
+    Pairwise, not anchor groups: `_same`'s per-row tolerance is not
+    transitive (a chain of small steps can drift past it end to end), so
+    comparing each new row only against one earlier "anchor" row can miss a
+    matching pair -- and the largest spread -- entirely. Every pair of
+    formulations is compared independently instead."""
     recipes = [start_recipe(opt, i) for i in range(len(opt.Y_history))]
-    groups = []
-    for i, r in enumerate(recipes):
-        for g in groups:
-            if _same(opt, recipes[g[0]], r):
-                g.append(i)
-                break
-        else:
-            groups.append([i])
-    spreads = [max(opt.Y_history[j] for j in g) - min(opt.Y_history[j] for j in g)
-               for g in groups if len(g) > 1]
-    return max(spreads) if spreads else None
+    n = len(recipes)
+    best = None
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _same(opt, recipes[i], recipes[j]):
+                spread = abs(opt.Y_history[i] - opt.Y_history[j])
+                if best is None or spread > best:
+                    best = spread
+    return best
