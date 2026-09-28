@@ -3827,3 +3827,160 @@ def path_below_zero(name):
 
 PATH_NO_ROOM_DOWN = "the other ingredients are all at their Lowest"
 PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
+
+
+TAB_INSIGHTS = "Insights"
+INSIGHTS_NONE = "Insights appear once formulations are scored."
+INSIGHTS_WORKING = "Working out the insights…"
+
+
+def insights_header(n, last_round):
+    tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
+    return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{tail}. "
+            "Likely range: where about 19 in 20 results should land.")
+
+
+def insights_gate(n):
+    return f"Starts once 5 {FORMULATION}s are scored. So far: {n}."
+
+
+Q_PREDICTIONS = "Did the predictions come true?"
+Q_CHANGE = "What happens if you change one ingredient?"
+Q_IMPROVING = "Is it still improving?"
+PREDICTIONS_NONE = "The first check comes with the next round after 5 scored formulations."
+
+
+def predictions_early(n):
+    return f"Too early to judge: {n} measured value{'s' if n != 1 else ''} checked so far."
+
+
+def rounds_span(rounds):
+    if len(rounds) == 1:
+        return f"{ROUND_CAP} {rounds[0]}"
+    return f"{ROUND_CAP}s {rounds[0]}–{rounds[-1]}"
+
+
+def predictions_count(k, rounds, inside, total):
+    last = f"the last {k} {ROUND}s checked" if k != 1 else f"the last {ROUND} checked"
+    return (f"In {last} ({rounds_span(rounds)}), {inside} of {total} measured values "
+            "landed inside their likely range.")
+
+
+VERDICT = {
+    "holding": "The predictions are holding up.",
+    "caution": "More misses than the 19 in 20 expected: read the likely range with some caution.",
+    "unreliable": ("Many more misses than expected: the predictions are not reliable yet. "
+                   "More formulations, and Repeats, will help."),
+}
+SCORE_BELOW = ("Most Overall scores came in below their prediction: suggestions may look "
+               "better on screen than at the bench.")
+PREDICTIONS_CAPTION = "Each Round is checked against what the formulations recorded before it predicted."
+SHOW_PREDICTIONS = "Show each prediction"
+INGREDIENT_OR_SETTING = "Ingredient or process setting"
+START_FROM = "Start from"
+
+
+def start_best(n):
+    return f"Best so far ({FORMULATION_CAP} {n})"
+
+
+def start_formulation(n):
+    return f"{FORMULATION_CAP} {n}"
+
+
+def path_fill(name, fill, n):
+    return f"More {name} in place of {fill}; everything else stays as in {FORMULATION_CAP} {n}."
+
+
+def path_proportional(name, total_text):
+    return (f"More {name}; the other varying ingredients shrink in proportion, "
+            f"so the batch size stays {total_text}.")
+
+
+def path_free(name, n):
+    return f"More {name}; everything else stays as in {FORMULATION_CAP} {n}."
+
+
+def path_process(name, n):
+    return f"{name} changes; the ingredients stay as in {FORMULATION_CAP} {n}."
+
+
+def path_stops(amount_text, reason):
+    return f"Stops at {amount_text} ({reason})."
+
+
+def path_fixed(items_text):
+    return f"Fixed: {items_text}."
+
+
+def path_follows(name):
+    return f"{name} follows its calculation."
+
+
+def path_outside(n, amount_text):
+    return f"{FORMULATION_CAP} {n} used {amount_text}, outside today's Lowest–Highest."
+
+
+def path_start_breaks(n, reason):
+    return f"{FORMULATION_CAP} {n} breaks today's limit: {reason}."
+
+
+def path_not_checked(limit):
+    return f"Not checked: {limit} — some ingredients have no value for it."
+
+
+PATH_GREY = "Grey: amounts not tested yet — treat the curve there as a guess."
+
+
+def panel_missing(name):
+    return f"{name}: not enough formulations measured yet."
+
+
+def panel_failed(name):
+    return f"Could not be worked out for {name}."
+
+
+def best_line(score_text, n, rnd):
+    where = (f"{FORMULATION_CAP} {n} in {ROUND_CAP} {rnd}" if rnd is not None
+             else f"{FORMULATION_CAP} {n} (made earlier)")
+    return f"Best so far: {score_text}, {where}."
+
+
+BEST_LATEST = "It came from the latest round."
+
+
+def best_since(k):
+    return ("No higher score in the round since." if k == 1
+            else f"No higher score in the {k} rounds since.")
+
+
+def repeats_line(spread_text):
+    return (f"Repeats of the same formulation differed by up to {spread_text} points, "
+            "so a smaller rise may be chance.")
+
+
+SHOW_PROGRESS = "Show progress chart"
+HOW_WORKED_OUT = "How these are worked out"
+HOW_MODELS = ("Each measurement, and the Overall score, has its own prediction learned from "
+              "the formulations scored so far (a Gaussian process for each). They are used "
+              "only on this tab; suggestions on Make a round still come from the Overall "
+              "score alone. Because they are learned separately, the Overall score curve "
+              "can differ a little from what the measurement curves imply.")
+HOW_RANGE = ("Likely range: where about 19 in 20 results should land, including the variation "
+             "seen between Repeats (a 95 % prediction interval).")
+HOW_RANGE_FIXED_TINY = ("Likely range: your model settings assume no variation between Repeats, "
+                        "so the likely range covers only how sure the prediction is.")
+HOW_CHECKS = ("Checks: each Round is predicted from the formulations recorded before it, at the "
+              "amounts it was made at, using today's measurements, targets and Share of score. "
+              "The verdict allows for chance: with 19 in 20 expected, a few misses are normal.")
+HOW_NO_P = ("There are no p-values or coefficient tables. These predictions have no terms to "
+            "test, and the formulations were chosen one round at a time rather than designed "
+            "in advance, so such tables would mislead. The checks above measure the same thing "
+            "directly: how well a formulation is predicted before it is made.")
+DETAILS_COLUMNS = ("Measurement", "Checked", "Inside likely range", "Typical likely range",
+                   "Typical miss", "R² of Round-ahead predictions")
+TRACK_PREDICTED = "Predicted"
+TRACK_MEASURED = "Measured"
+TRACK_LOW = "Likely range from"
+TRACK_HIGH = "Likely range to"
+TRACK_INSIDE = "Inside"
