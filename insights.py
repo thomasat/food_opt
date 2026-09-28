@@ -8,6 +8,8 @@ FoodOptimizer._ask_optimize fits; the models here never reach it."""
 import contextlib
 import hashlib
 import json
+import math
+import statistics
 from dataclasses import dataclass
 
 import torch
@@ -119,3 +121,133 @@ def data_key(opt):
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def round_order(opt):
+    seen, out = set(), []
+    for i, r in enumerate(opt.batch_history):
+        if r is not None and r not in seen:
+            seen.add(r)
+            out.append((r, i))
+    return out
+
+
+@dataclass
+class Check:
+    formulation: int
+    round: int
+    name: str
+    predicted: float
+    low: float
+    high: float
+    measured: float
+    inside: bool
+    fully_measured: bool
+
+
+def check_rounds(opt):
+    checks = []
+    names = [n for n, _, _ in outputs(opt)]
+    for r, first in round_order(opt):
+        train = list(range(first))
+        targets = [i for i, b in enumerate(opt.batch_history) if b == r]
+        for name in names:
+            fitted = fit(opt, name, train)
+            if fitted.model is None:
+                continue
+            rows = [i for i in targets if measured(opt, name, i) is not None]
+            preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
+            for i, p in zip(rows, preds):
+                value = measured(opt, name, i)
+                checks.append(Check(
+                    int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
+                    value, p.low <= value <= p.high, opt.fully_measured(i)))
+    return checks
+
+
+def binomial_tail(m, n, p=0.05):
+    if m <= 0:
+        return 1.0
+    return sum(math.comb(n, k) * p ** k * (1 - p) ** (n - k)
+               for k in range(m, n + 1))
+
+
+@dataclass
+class Headline:
+    state: str
+    rounds: list
+    inside: int
+    total: int
+    verdict: str
+    score_below: bool
+
+    def _score_rule_for_tests(self):
+        return self.score_below
+
+
+def _ordered_rounds(checks):
+    out = []
+    for c in checks:
+        if c.round not in out:
+            out.append(c.round)
+    return out
+
+
+def headline(opt, checks):
+    values = [c for c in checks if c.name != SCORE]
+    rounds = _ordered_rounds(values)
+    score_rounds = _ordered_rounds([c for c in checks if c.name == SCORE])
+    if not rounds:
+        chosen = score_rounds[-3:]
+        return Headline("none", [], 0, 0, None,
+                        _score_below(checks, chosen))
+    k = min(3, len(rounds))
+    chosen = rounds[-k:]
+    while (sum(c.round in chosen for c in values) < 10 and k < len(rounds)):
+        k += 1
+        chosen = rounds[-k:]
+    picked = [c for c in values if c.round in chosen]
+    below = _score_below(checks, chosen)
+    if len(picked) < 10:
+        return Headline("early", chosen, sum(c.inside for c in picked),
+                        len(values), None, below)
+    inside = sum(c.inside for c in picked)
+    tail = binomial_tail(len(picked) - inside, len(picked))
+    verdict = ("holding" if tail >= 0.10 else
+               "caution" if tail >= 0.01 else "unreliable")
+    return Headline("verdict", chosen, inside, len(picked), verdict, below)
+
+
+def _score_below(checks, chosen):
+    scores = [c for c in checks if c.name == SCORE and c.round in chosen
+              and c.fully_measured]
+    return (len(scores) >= 10 and
+            sum(c.measured < c.predicted for c in scores) >= 0.8 * len(scores))
+
+
+@dataclass
+class DetailRow:
+    name: str
+    checked: int
+    inside: int
+    half_width: float
+    typical_miss: float
+    r2: float
+
+
+def details(opt, checks):
+    rows = []
+    for name, _, _ in outputs(opt):
+        mine = [c for c in checks if c.name == name]
+        if len(mine) < 5:
+            continue
+        meas = [c.measured for c in mine]
+        mean = sum(meas) / len(meas)
+        ss_tot = sum((m - mean) ** 2 for m in meas)
+        ss_res = sum((c.measured - c.predicted) ** 2 for c in mine)
+        rows.append(DetailRow(
+            name, len(mine), sum(c.inside for c in mine),
+            statistics.median((c.high - c.low) / 2 for c in mine),
+            statistics.median(abs(c.measured - c.predicted) for c in mine),
+            None if ss_tot == 0 else 1 - ss_res / ss_tot))
+    return rows

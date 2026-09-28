@@ -148,3 +148,89 @@ def test_data_key_changes_with_results_and_settings():
     k1 = insights.data_key(opt)
     opt.results_history[0]["Firmness"] = 1.0
     assert insights.data_key(opt) != k1
+
+
+def test_round_order_skips_imports_and_orders_by_first_row():
+    opt = _burger(rounds=2)
+    opt.import_formulation(opt.fill_formulas({"Pea": 5.0, "Oil": 3.0}),
+                           {"Firmness": 6.0, "Juiciness": 4.0})
+    assert [r for r, _ in insights.round_order(opt)] == [1, 2]
+
+
+def test_first_rounds_without_five_earlier_rows_are_not_checked():
+    opt = _burger(rounds=3, per_round=3)          # rows 0-2 R1, 3-5 R2, 6-8 R3
+    checks = insights.check_rounds(opt)
+    assert {c.round for c in checks} == {3}       # R2 has only 3 earlier rows
+
+
+def test_imports_train_but_are_never_checked():
+    opt = _burger(rounds=2, per_round=3)
+    for k in range(3):
+        opt.import_formulation(opt.fill_formulas({"Pea": 5.0 + k, "Oil": 3.0}),
+                               {"Firmness": 6.0, "Juiciness": 4.0})
+    # third round after the imports: 9 earlier rows
+    opt.tell(opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}),
+             {"Firmness": 7.4, "Juiciness": 5.8}, formulation_no=50, batch_no=3)
+    checks = insights.check_rounds(opt)
+    assert all(c.round is not None for c in checks)
+    assert {c.formulation for c in checks if c.round == 3} == {50}
+
+
+def test_smooth_truth_holds_up():
+    opt = _burger(rounds=6, per_round=4, noise=0.05)
+    h = insights.headline(opt, insights.check_rounds(opt))
+    assert h.state == "verdict" and h.verdict == "holding", h
+
+
+def test_a_truth_that_moves_misses():
+    opt = _burger(rounds=6, per_round=5, noise=0.05, shift=3.0)
+    h = insights.headline(opt, insights.check_rounds(opt))
+    assert h.state == "verdict" and h.verdict in ("caution", "unreliable"), h
+
+
+def test_early_when_fewer_than_ten_values():
+    opt = _burger(rounds=3, per_round=3)          # only R3 checked: 3 rows x 2 = 6 values
+    h = insights.headline(opt, insights.check_rounds(opt))
+    assert h.state == "early" and h.total == 6
+
+
+def test_none_when_nothing_is_checkable():
+    opt = _burger(rounds=1, per_round=5)
+    assert insights.headline(opt, insights.check_rounds(opt)).state == "none"
+
+
+def test_binomial_tail_boundaries():
+    assert insights.binomial_tail(0, 20) == pytest.approx(1.0)
+    assert insights.binomial_tail(1, 20) == pytest.approx(1 - 0.95 ** 20)
+    assert insights.binomial_tail(3, 20) < 0.10 <= insights.binomial_tail(2, 20)
+
+
+def test_partial_rows_are_checked_per_measurement():
+    opt = _burger(rounds=2, per_round=3)
+    opt.tell(opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), {"Juiciness": 5.8},
+             formulation_no=40, batch_no=3)
+    checks = [c for c in insights.check_rounds(opt) if c.formulation == 40]
+    assert {c.name for c in checks} == {"Juiciness", insights.SCORE}
+    assert all(not c.fully_measured for c in checks)
+
+
+def test_score_line_needs_ten_fully_measured_and_eighty_percent_below():
+    mk = lambda below: insights.Check(1, 3, insights.SCORE, 50.0, 40.0, 60.0,
+                                      45.0 if below else 55.0, True, True)
+    opt = _burger(rounds=1)
+    nine = [mk(True)] * 9
+    assert not insights.headline(opt, nine)._score_rule_for_tests()
+    ten = [mk(True)] * 8 + [mk(False)] * 2
+    assert insights.headline(opt, ten)._score_rule_for_tests()
+    ten_bad = [mk(True)] * 7 + [mk(False)] * 3
+    assert not insights.headline(opt, ten_bad)._score_rule_for_tests()
+
+
+def test_details_r2_negative_and_constant_cases():
+    c = lambda meas, pred: insights.Check(1, 3, "Firmness", pred, pred - 1, pred + 1,
+                                          meas, True, True)
+    opt = _burger(rounds=1)
+    rows = insights.details(opt, [c(5.0, 5.0)] * 5)
+    assert rows[0].r2 is None                       # every measured value the same
+    bad = [c(m, 10 - m) for m in (1.0, 2.0, 3.0, 4.0, 5.0)]
+    assert insights.details(opt, bad)[0].r2 < 0
