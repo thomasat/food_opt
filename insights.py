@@ -17,6 +17,8 @@ from botorch.fit import fit_gpytorch_mll
 from botorch.utils.transforms import normalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
+import wording
+
 SCORE = "__overall_score__"
 MIN_ROWS = 5
 Z95 = 1.959963984540054
@@ -253,8 +255,6 @@ def details(opt, checks):
     return rows
 
 
-import wording
-
 _EPS = 1e-9
 
 
@@ -277,18 +277,16 @@ def start_recipe(opt, i):
     if opt.has_formulation_total():
         total = float(opt.formulation_total)
         own = opt.ingredient_total(recipe)
-        if own > 0 and abs(own - total) > 1e-9 * total:
-            factor = total / own
-            for v in opt.variables:
-                if _is_ingredient(v) and not opt.has_formula(v):
-                    recipe[v['name']] = float(recipe.get(v['name'], 0.0)) * factor
+        tolerance = total * opt.FORMULATION_TOTAL_TOLERANCE
+        if own > 0 and abs(own - total) > tolerance:
+            return opt.scaled_recipe(recipe, scale_to=total)
     return opt.fill_formulas(recipe)
 
 
 @dataclass
 class PathEnd:
     amount: float
-    reason: str
+    reason: str | None
 
 
 @dataclass
@@ -296,16 +294,16 @@ class Path:
     name: str
     unit: str
     mode: str
-    fill_name: str
+    fill_name: str | None
     amounts: list
     recipes: list
     start_amount: float
     low_end: PathEnd
     high_end: PathEnd
-    start_breaks: str
+    start_breaks: str | None
     skipped: list
     outside: bool
-    tested: tuple
+    tested: tuple | None
     fixed: list
     follows: list
 
@@ -325,6 +323,16 @@ def _others(opt, name):
             if _is_ingredient(v) and v['name'] != name and v.get('type') == 'continuous']
 
 
+def _widened(var, start):
+    """This row's own Lowest-Highest, widened to include its start amount —
+    the same rule the chosen row gets in `build_path`, so a formulation
+    recorded before a range was narrowed still draws a path instead of
+    reading as permanently past a bound it predates."""
+    lo, hi = (float(b) for b in var['bounds'])
+    s = float(start.get(var['name'], lo))
+    return min(lo, s), max(hi, s)
+
+
 def _recipe_at(opt, name, start, mode, t):
     r = dict(start)
     delta = t - float(start[name])
@@ -332,21 +340,30 @@ def _recipe_at(opt, name, start, mode, t):
     if mode == "proportional" and abs(delta) > _EPS:
         others = _others(opt, name)
         if delta > 0:
-            room = {v['name']: float(start[v['name']]) - float(v['bounds'][0]) for v in others}
+            room = {v['name']: float(start[v['name']]) - _widened(v, start)[0]
+                    for v in others}
         else:
-            room = {v['name']: float(v['bounds'][1]) - float(start[v['name']]) for v in others}
+            room = {v['name']: _widened(v, start)[1] - float(start[v['name']])
+                    for v in others}
         total_room = sum(max(0.0, x) for x in room.values())
-        if total_room <= _EPS:
-            return None   # nothing can give way
+        if total_room <= _EPS or abs(delta) > total_room + _EPS:
+            return None   # nothing can give way, or not enough of it
         for n, x in room.items():
             r[n] = float(start[n]) - delta * max(0.0, x) / total_room
     return opt.fill_formulas(r)
 
 
-def _limits_broken(opt, recipe, moving):
-    """The first limit `recipe` breaks, as the text Set up shows, or None."""
+def _limits_broken(opt, recipe, moving, start):
+    """The first limit `recipe` breaks, as the text Set up shows, or None.
+
+    A moving OTHER ingredient running past its own Lowest/Highest is not
+    named here in practice: `_recipe_at` already reports that as the
+    aggregate "no room" wording (see `_reason`) before a recipe naming one
+    specific ingredient is ever produced, in proportional mode, for the
+    direction that ran out. This loop stays as the defensive fallback for
+    any other case a start already widened away from — see `_widened`."""
     for n in moving:
-        lo, hi = (float(b) for b in _var(opt, n)['bounds'])
+        lo, hi = _widened(_var(opt, n), start)
         v = float(recipe.get(n, 0.0))
         if v < lo - 1e-6 * (1 + abs(lo)):
             return wording.path_past_lowest(n)
@@ -382,7 +399,7 @@ def _reason(opt, name, start, mode, t, moving):
     if r is None:
         return (wording.PATH_NO_ROOM_DOWN if t > start[name]
                 else wording.PATH_NO_ROOM_UP), None
-    return _limits_broken(opt, r, moving), r
+    return _limits_broken(opt, r, moving, start), r
 
 
 def _edge(opt, name, start, mode, moving, ok_t, bad_t):
@@ -405,7 +422,8 @@ def build_path(opt, name, start, points=60):
     lo, hi = min(lo, s), max(hi, s)
     moving = [v['name'] for v in _others(opt, name)] if mode == "proportional" else []
     skipped = [opt.property_limit_text(c) for c in opt.constraints
-               if opt.ingredients_without_property(c['metric'])]
+               if (c.get('min') is not None or c.get('max') is not None)
+               and opt.ingredients_without_property(c['metric'])]
     fixed = [(v['name'], float(start.get(v['name'], v['bounds'][0])), opt.unit_of(v['name']))
              for v in opt.fixed_variables()]
     watched = {name, *moving}
@@ -416,18 +434,21 @@ def build_path(opt, name, start, points=60):
                 fill_name=opt.balance_row_name() if mode == "fill" else None,
                 start_amount=s, skipped=skipped, outside=outside, tested=tested,
                 fixed=fixed, follows=follows)
-    start_reason = _reason(opt, name, start, mode, s, moving)[0]
+    start_reason, start_recipe_value = _reason(opt, name, start, mode, s, moving)
     if start_reason is not None:
         return Path(amounts=[], recipes=[], low_end=PathEnd(s, None),
                     high_end=PathEnd(s, None), start_breaks=start_reason, **base)
     grid = sorted({lo + (hi - lo) * k / (points - 1) for k in range(points)} | {s})
     ends = {}
+    computed = {s: start_recipe_value}   # each grid point's recipe, computed once
     for side, seq in (("low", [t for t in reversed(grid) if t <= s]),
                       ("high", [t for t in grid if t >= s])):
         last = s
         ends[side] = PathEnd(seq[-1], None)
         for t in seq:
-            if _reason(opt, name, start, mode, t, moving)[0] is None:
+            reason, r = _reason(opt, name, start, mode, t, moving)
+            if reason is None:
+                computed[t] = r
                 last = t
                 continue
             amount, why = _edge(opt, name, start, mode, moving, last, t)
@@ -435,7 +456,8 @@ def build_path(opt, name, start, points=60):
             break
     keep = sorted({t for t in grid if ends["low"].amount <= t <= ends["high"].amount}
                   | {ends["low"].amount, ends["high"].amount})
-    recipes = [_recipe_at(opt, name, start, mode, t) for t in keep]
+    recipes = [computed[t] if t in computed else _recipe_at(opt, name, start, mode, t)
+               for t in keep]
     return Path(amounts=keep, recipes=recipes, low_end=ends["low"],
                 high_end=ends["high"], start_breaks=None, **base)
 

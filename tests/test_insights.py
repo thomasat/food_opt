@@ -265,6 +265,95 @@ def test_proportional_path_keeps_the_total_and_ends_when_room_is_used():
         assert 80.0 - 1e-6 <= r["Water"] <= 94.0 + 1e-6
 
 
+def _room_project():
+    """A minimal three-ingredient proportional project where the OTHER
+    ingredients' combined room (not the chosen row's own Lowest/Highest) is
+    the true binding constraint in both directions: B and C only span 3-5 g
+    each, so redistributing more than 4 g total between them runs out long
+    before A's own declared 0-100 g range does."""
+    opt = FoodOptimizer("insights_room_test")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("A", 0, 100)
+    opt.add_ingredient("B", 3, 5)
+    opt.add_ingredient("C", 3, 5)
+    opt.set_formulation_total(100)
+    opt.add_objective("Score", 100, goal="max", min_val=0, max_val=10)
+    return opt
+
+
+def test_proportional_path_stops_when_the_others_run_out_of_room():
+    # Ruling 3: when a proportional path ends because the OTHER ingredients
+    # have used up their combined room, the end names that collectively
+    # ("the other ingredients are all at their Highest"), not whichever one
+    # of them happened to be checked first.
+    opt = _room_project()
+    start = {"A": 94.0, "B": 3.0, "C": 3.0}   # B, C already at their Lowest
+    p = insights.build_path(opt, "A", start)
+    assert p.mode == "proportional"
+    # Decreasing A asks B and C to rise toward their Highest (5 each); their
+    # combined room is (5-3)+(5-3) = 4, so A cannot go below 94-4 = 90 even
+    # though A's own declared Lowest is 0.
+    assert p.low_end.reason == wording.PATH_NO_ROOM_UP
+    assert p.low_end.amount == pytest.approx(90.0, abs=1e-3)
+    for r in p.recipes:
+        assert r["A"] + r["B"] + r["C"] == pytest.approx(100.0, abs=1e-6)
+        assert 3.0 - 1e-6 <= r["B"] <= 5.0 + 1e-6
+        assert 3.0 - 1e-6 <= r["C"] <= 5.0 + 1e-6
+
+
+def test_proportional_path_with_zero_room_at_the_start():
+    # Ruling 3, the other direction of the same project: B and C are
+    # already exactly at their Lowest, so increasing A has zero room from
+    # the very first step -- the high end sits right at the start amount.
+    opt = _room_project()
+    start = {"A": 94.0, "B": 3.0, "C": 3.0}
+    p = insights.build_path(opt, "A", start)
+    assert p.high_end.reason == wording.PATH_NO_ROOM_DOWN
+    assert p.high_end.amount == pytest.approx(94.0, abs=1e-3)
+
+
+def test_a_moving_ingredient_recorded_outside_its_now_narrower_range_still_draws_a_path():
+    # Ruling 4: C was recorded at 6 g before its allowed range was narrowed
+    # to 3-5 g. Without widening C's own bounds to include its start (the
+    # same rule the chosen row already gets), the bounds check in
+    # _limits_broken would see C=6 > today's Highest=5 on every single
+    # point of the path, including the start itself, and the path would
+    # draw nothing at all.
+    opt = _room_project()
+    start = {"A": 90.0, "B": 4.0, "C": 6.0}
+    p = insights.build_path(opt, "A", start)
+    assert p.start_breaks is None
+    assert len(p.amounts) > 1
+    for r in p.recipes:
+        assert r["A"] + r["B"] + r["C"] == pytest.approx(100.0, abs=1e-6)
+    # path_past_lowest/path_past_highest for a MOVING other ingredient are
+    # not reachable as an end reason here, or anywhere in proportional mode:
+    # once ruling 3 makes _recipe_at report the aggregate "no room" wording
+    # the instant a redistribution would ask more of the others than they
+    # collectively have, no individual other ingredient's own bound can ever
+    # be the first thing crossed (the algebra: redistributing delta <=
+    # total_room never sends any single other ingredient past its own
+    # share of that room). The two tests above exercise the wording this
+    # collapses to; see the fix report for the fuller argument.
+    assert p.low_end.reason in (None, wording.PATH_NO_ROOM_UP, wording.PATH_NO_ROOM_DOWN)
+    assert p.high_end.reason in (None, wording.PATH_NO_ROOM_UP, wording.PATH_NO_ROOM_DOWN)
+
+
+def test_property_min_limit_stops_the_path_and_is_named():
+    opt = _burger(rounds=2)
+    opt.add_property("Fat")
+    for n, v in (("Pea", 2.0), ("Oil", 100.0), ("Water", 0.0)):
+        opt.set_property_value(n, "Fat", v)
+    opt.add_constraint("Fat", min_val=4.0)   # decreasing Oil drops Fat below 4
+    s = opt.fill_formulas({"Pea": 6.0, "Oil": 4.0})
+    p = insights.build_path(opt, "Oil", s)
+    assert p.low_end.reason == opt.property_limit_text(opt.constraints[0])
+    fat = lambda r: sum(r[n] * {"Pea": 2.0, "Oil": 100.0, "Water": 0.0}[n]
+                        for n in ("Pea", "Oil", "Water")) / 100.0
+    end = opt.fill_formulas({**s, "Oil": p.low_end.amount})
+    assert fat(end) == pytest.approx(4.0, abs=1e-3)
+
+
 def test_property_limit_stops_the_path_exactly_and_is_named():
     opt = _burger(rounds=2)
     opt.add_property("Fat")     # set_property_value requires a known property
@@ -336,6 +425,26 @@ def test_resized_round_is_brought_back_to_the_total():
 def test_path_choices_premixes_and_process():
     opt = _burger(rounds=2)
     opt.add_process_parameter("Mixing time", 45, 150, baseline=90, unit="s")
+    # A WEIGHED pre-mix: the parts (not the group) are rows, so each part is
+    # its own choice on the path list, just like any other ingredient.
+    opt.add_premix("Dry blend", "weighed")
+    opt.set_premix_parts("Dry blend", [{"name": "Bran", "share": 60},
+                                       {"name": "Fibre", "share": 40}])
+    opt.add_ingredient("Bran", 1, 5)
+    opt.add_ingredient("Fibre", 1, 5)
+    # A PORTIONED pre-mix: the group is one row and its own choice; the
+    # parts (Pepper, Cumin) are not rows at all, so they never appear.
+    opt.add_premix("Spice mix", "portioned")
+    opt.set_premix_parts("Spice mix", [{"name": "Pepper", "share": 50},
+                                       {"name": "Cumin", "share": 50}])
+    opt.add_ingredient("Spice mix", 1, 5)
+    # A categorical variable is never offered. There is no public API left
+    # to create one (the type is kept only for old files to migrate; see
+    # test_food_bo.py's test_a_categorical_row_keeps_what_the_migration_
+    # cannot_read for the same shape), so it is appended directly, the way
+    # that test does.
+    opt.variables.append({'name': "Package type", 'type': 'categorical',
+                          'options': ["Tray", "Pouch"], 'category': 'process'})
     # Fixing a brand-new ingredient straight at one amount is refused mid-run:
     # _check_fixed_feasible compares the "Total of each formulation" limit's
     # reach before/after, and that limit's own ingredient list (Pea, Oil,
@@ -349,7 +458,8 @@ def test_path_choices_premixes_and_process():
     opt.set_formulation_total(101)
     opt.set_formulation_total(100)
     opt.add_ingredient("Salt", 1, 1)                  # fixed: not offered
-    assert insights.path_choices(opt) == ["Pea", "Oil", "Mixing time"]
+    assert insights.path_choices(opt) == [
+        "Pea", "Oil", "Bran", "Fibre", "Spice mix", "Mixing time"]
 
 
 def test_process_only_project_path():
@@ -400,9 +510,15 @@ def test_path_predictions_cover_every_output():
 def test_build_path_writes_nothing_to_the_optimizer():
     opt = _burger(rounds=2)
     opt.add_property("Fat")
-    opt.set_property_value("Pea", "Fat", 2.0)   # exercise the property-limit
-    opt.add_constraint("Fat", max_val=5.0)      # and quantity-limit branches
-    opt.add_quantity_constraint(["Pea", "Oil"], max_val=10.0)
+    # Every ingredient needs a value or ingredients_without_property("Fat")
+    # is non-empty and the property-limit loop in _limits_broken skips
+    # straight past _property_residual without calling it (see
+    # test_property_limit_with_missing_values_is_skipped_and_noted) -- this
+    # test means to actually exercise that call, not skip it.
+    for n, v in (("Pea", 2.0), ("Oil", 100.0), ("Water", 0.0)):
+        opt.set_property_value(n, "Fat", v)
+    opt.add_constraint("Fat", max_val=5.0)      # exercise the property-limit
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=10.0)  # and quantity-limit branches
     s = _start(opt)
     before = opt.export_json()
     insights.build_path(opt, "Oil", s)
