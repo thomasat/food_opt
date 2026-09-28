@@ -5,6 +5,7 @@ import torch
 import pytest
 from food_bo import FoodOptimizer
 import insights
+import wording
 
 
 @pytest.fixture(autouse=True)
@@ -234,3 +235,177 @@ def test_details_r2_negative_and_constant_cases():
     assert rows[0].r2 is None                       # every measured value the same
     bad = [c(m, 10 - m) for m in (1.0, 2.0, 3.0, 4.0, 5.0)]
     assert insights.details(opt, bad)[0].r2 < 0
+
+
+def _start(opt):
+    return insights.start_recipe(opt, opt.best_index())
+
+
+def test_fill_path_moves_only_the_choice_and_the_fill_row():
+    opt = _burger(rounds=2)
+    s = _start(opt)
+    p = insights.build_path(opt, "Oil", s)
+    assert p.mode == "fill" and p.fill_name == "Water"
+    for r in p.recipes:
+        assert r["Pea"] == pytest.approx(s["Pea"])
+        assert r["Pea"] + r["Oil"] + r["Water"] == pytest.approx(100.0)
+    assert p.amounts == sorted(p.amounts)
+    assert p.low_end.amount == pytest.approx(2.0) and p.low_end.reason is None
+    assert p.high_end.amount == pytest.approx(6.0) and p.high_end.reason is None
+
+
+def test_proportional_path_keeps_the_total_and_ends_when_room_is_used():
+    opt = _burger(rounds=2, fill=False)
+    s = _start(opt)
+    p = insights.build_path(opt, "Pea", s)
+    assert p.mode == "proportional"
+    for r in p.recipes:
+        assert r["Pea"] + r["Oil"] + r["Water"] == pytest.approx(100.0, abs=1e-6)
+        assert 2.0 - 1e-6 <= r["Oil"] <= 6.0 + 1e-6
+        assert 80.0 - 1e-6 <= r["Water"] <= 94.0 + 1e-6
+
+
+def test_property_limit_stops_the_path_exactly_and_is_named():
+    opt = _burger(rounds=2)
+    opt.add_property("Fat")     # set_property_value requires a known property
+    for n, v in (("Pea", 2.0), ("Oil", 100.0), ("Water", 0.0)):
+        opt.set_property_value(n, "Fat", v)
+    opt.add_constraint("Fat", max_val=5.0)       # Oil ≤ ~4.9 g with Pea ≈ 4–8
+    s = _start(opt)
+    s = opt.fill_formulas({**s, "Oil": 2.5})
+    p = insights.build_path(opt, "Oil", s)
+    assert p.high_end.reason == opt.property_limit_text(opt.constraints[0])
+    fat = lambda r: sum(r[n] * {"Pea": 2.0, "Oil": 100.0, "Water": 0.0}[n]
+                        for n in ("Pea", "Oil", "Water")) / 100.0
+    end = opt.fill_formulas({**s, "Oil": p.high_end.amount})
+    assert fat(end) == pytest.approx(5.0, abs=1e-3)
+
+
+def test_quantity_limit_is_named():
+    opt = _burger(rounds=2)
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=10.0)
+    s = opt.fill_formulas({"Pea": 5.0, "Oil": 3.0})
+    p = insights.build_path(opt, "Oil", s)
+    assert p.high_end.reason == opt.limit_text(opt.quantity_constraints[-1])
+    assert p.high_end.amount == pytest.approx(5.0, abs=1e-3)
+
+
+def test_fill_row_below_zero_is_named():
+    opt = _burger(rounds=2)
+    opt.set_formulation_total(12)                # Pea 4–8 + Oil 2–6 can exceed 12
+    s = opt.fill_formulas({"Pea": 7.0, "Oil": 3.0})
+    p = insights.build_path(opt, "Oil", s)
+    assert p.high_end.reason == wording.path_below_zero("Water")
+    assert p.high_end.amount == pytest.approx(5.0, abs=1e-3)
+
+
+def test_property_limit_with_missing_values_is_skipped_and_noted():
+    opt = _burger(rounds=2)
+    opt.add_property("Fat")     # set_property_value requires a known property
+    opt.set_property_value("Oil", "Fat", 100.0)  # Pea and Water have no Fat value
+    opt.add_constraint("Fat", max_val=5.0)
+    p = insights.build_path(opt, "Oil", _start(opt))
+    assert p.skipped and p.high_end.reason is None
+
+
+def test_start_breaking_a_limit_draws_nothing():
+    opt = _burger(rounds=2)
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=8.0)
+    s = opt.fill_formulas({"Pea": 7.0, "Oil": 3.0})
+    p = insights.build_path(opt, "Oil", s)
+    assert p.start_breaks == opt.limit_text(opt.quantity_constraints[-1])
+    assert p.amounts == [] and p.recipes == []
+
+
+def test_start_outside_lowest_highest_widens_the_path():
+    opt = _burger(rounds=2)
+    s = opt.fill_formulas({"Pea": 6.0, "Oil": 7.0})   # Oil Highest is 6
+    p = insights.build_path(opt, "Oil", s)
+    assert p.outside and max(p.amounts) >= 7.0
+
+
+def test_resized_round_is_brought_back_to_the_total():
+    opt = _burger(rounds=2)
+    big = opt.fill_formulas({"Pea": 6.0, "Oil": 4.0})
+    big = {k: v * 5 for k, v in big.items()}          # made at 500 g
+    opt.tell(big, {"Firmness": 6.0, "Juiciness": 5.0}, formulation_no=70, batch_no=3)
+    s = insights.start_recipe(opt, len(opt.Y_history) - 1)
+    assert s["Pea"] == pytest.approx(6.0) and s["Oil"] == pytest.approx(4.0)
+
+
+def test_path_choices_premixes_and_process():
+    opt = _burger(rounds=2)
+    opt.add_process_parameter("Mixing time", 45, 150, baseline=90, unit="s")
+    # Fixing a brand-new ingredient straight at one amount is refused mid-run:
+    # _check_fixed_feasible compares the "Total of each formulation" limit's
+    # reach before/after, and that limit's own ingredient list (Pea, Oil,
+    # Water) predates Salt, so fixing Salt at 1 g reads as shrinking the
+    # reachable total by 1 g -- past the 0.5 % tolerance. Adding Salt with
+    # room first, then re-running set_formulation_total (a real change, so
+    # it rebuilds the limit over every current ingredient, Salt included)
+    # folds Salt into that limit; the balance row (Water) then absorbs it,
+    # so fixing Salt afterwards changes nothing the limit can see.
+    opt.add_ingredient("Salt", 0, 5)
+    opt.set_formulation_total(101)
+    opt.set_formulation_total(100)
+    opt.add_ingredient("Salt", 1, 1)                  # fixed: not offered
+    assert insights.path_choices(opt) == ["Pea", "Oil", "Mixing time"]
+
+
+def test_process_only_project_path():
+    opt = FoodOptimizer("process_only")
+    opt.add_process_parameter("Proof time", 30, 90, unit="min")
+    opt.add_objective("Volume", 100, goal="max", min_val=0, max_val=10)
+    for k, t in enumerate((30, 45, 60, 75, 90, 50)):
+        opt.tell({"Proof time": float(t)}, {"Volume": 2 + t / 20},
+                 formulation_no=k + 1, batch_no=1 + k // 3)
+    p = insights.build_path(opt, "Proof time", insights.start_recipe(opt, 0))
+    assert p.mode == "process" and p.fill_name is None
+    assert p.low_end.amount == pytest.approx(30) and p.high_end.amount == pytest.approx(90)
+
+
+def test_fixed_rows_never_move_and_are_listed():
+    opt = _burger(rounds=2)
+    # See test_path_choices_premixes_and_process for why Salt is added with
+    # room first and folded into the total's own limit before being fixed.
+    opt.add_ingredient("Salt", 0, 5)
+    opt.set_formulation_total(101)
+    opt.set_formulation_total(100)
+    opt.add_ingredient("Salt", 1, 1)
+    s = opt.fill_formulas({**_start(opt), "Salt": 1.0})
+    p = insights.build_path(opt, "Oil", s)
+    assert all(r["Salt"] == pytest.approx(1.0) for r in p.recipes)
+    assert ("Salt", 1.0, "g") in p.fixed
+
+
+def test_calculations_follow_and_are_listed():
+    opt = _burger(rounds=2)
+    opt.add_ingredient("Hydration", 0, 50)
+    opt.set_formula("Hydration", "= 2 * Pea")
+    s = _start(opt)
+    p = insights.build_path(opt, "Pea", s)
+    assert "Hydration" in p.follows
+    assert all(r["Hydration"] == pytest.approx(2 * r["Pea"]) for r in p.recipes)
+
+
+def test_path_predictions_cover_every_output():
+    opt = _burger(rounds=3)
+    fitted = insights.fit_all(opt)
+    p = insights.build_path(opt, "Oil", _start(opt))
+    preds = insights.path_predictions(opt, fitted, p)
+    assert set(preds) == {"Firmness", "Juiciness", insights.SCORE}
+    assert all(len(v) == len(p.amounts) for v in preds.values())
+
+
+def test_build_path_writes_nothing_to_the_optimizer():
+    opt = _burger(rounds=2)
+    opt.add_property("Fat")
+    opt.set_property_value("Pea", "Fat", 2.0)   # exercise the property-limit
+    opt.add_constraint("Fat", max_val=5.0)      # and quantity-limit branches
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=10.0)
+    s = _start(opt)
+    before = opt.export_json()
+    insights.build_path(opt, "Oil", s)
+    insights.build_path(opt, "Pea", s)
+    after = opt.export_json()
+    assert before == after

@@ -251,3 +251,202 @@ def details(opt, checks):
             statistics.median(abs(c.measured - c.predicted) for c in mine),
             None if ss_tot == 0 else 1 - ss_res / ss_tot))
     return rows
+
+
+import wording
+
+_EPS = 1e-9
+
+
+def _var(opt, name):
+    return opt._by_name()[name]
+
+
+def _is_ingredient(v):
+    return v.get('category', 'ingredient') == 'ingredient'
+
+
+def path_choices(opt):
+    varying = [v for v in opt.varying_variables() if v.get('type') == 'continuous']
+    return ([v['name'] for v in varying if _is_ingredient(v)] +
+            [v['name'] for v in varying if not _is_ingredient(v)])
+
+
+def start_recipe(opt, i):
+    recipe = dict(opt._recorded_recipe(i))
+    if opt.has_formulation_total():
+        total = float(opt.formulation_total)
+        own = opt.ingredient_total(recipe)
+        if own > 0 and abs(own - total) > 1e-9 * total:
+            factor = total / own
+            for v in opt.variables:
+                if _is_ingredient(v) and not opt.has_formula(v):
+                    recipe[v['name']] = float(recipe.get(v['name'], 0.0)) * factor
+    return opt.fill_formulas(recipe)
+
+
+@dataclass
+class PathEnd:
+    amount: float
+    reason: str
+
+
+@dataclass
+class Path:
+    name: str
+    unit: str
+    mode: str
+    fill_name: str
+    amounts: list
+    recipes: list
+    start_amount: float
+    low_end: PathEnd
+    high_end: PathEnd
+    start_breaks: str
+    skipped: list
+    outside: bool
+    tested: tuple
+    fixed: list
+    follows: list
+
+
+def _mode(opt, name):
+    if not _is_ingredient(_var(opt, name)):
+        return "process"
+    if opt.balance_row_name():
+        return "fill"
+    if opt.has_formulation_total():
+        return "proportional"
+    return "free"
+
+
+def _others(opt, name):
+    return [v for v in opt.varying_variables()
+            if _is_ingredient(v) and v['name'] != name and v.get('type') == 'continuous']
+
+
+def _recipe_at(opt, name, start, mode, t):
+    r = dict(start)
+    delta = t - float(start[name])
+    r[name] = t
+    if mode == "proportional" and abs(delta) > _EPS:
+        others = _others(opt, name)
+        if delta > 0:
+            room = {v['name']: float(start[v['name']]) - float(v['bounds'][0]) for v in others}
+        else:
+            room = {v['name']: float(v['bounds'][1]) - float(start[v['name']]) for v in others}
+        total_room = sum(max(0.0, x) for x in room.values())
+        if total_room <= _EPS:
+            return None   # nothing can give way
+        for n, x in room.items():
+            r[n] = float(start[n]) - delta * max(0.0, x) / total_room
+    return opt.fill_formulas(r)
+
+
+def _limits_broken(opt, recipe, moving):
+    """The first limit `recipe` breaks, as the text Set up shows, or None."""
+    for n in moving:
+        lo, hi = (float(b) for b in _var(opt, n)['bounds'])
+        v = float(recipe.get(n, 0.0))
+        if v < lo - 1e-6 * (1 + abs(lo)):
+            return wording.path_past_lowest(n)
+        if v > hi + 1e-6 * (1 + abs(hi)):
+            return wording.path_past_highest(n)
+    for n, form in opt._resolved_forms().items():
+        v = float(recipe.get(n, 0.0))
+        if v < -1e-6 * (1.0 + abs(v)):
+            return wording.path_below_zero(n)
+    for qc in getattr(opt, 'quantity_constraints', []):
+        total = sum(float(recipe.get(n, 0.0)) for n in qc['ingredients'])
+        slack = 1e-6 * (1.0 + abs(total))
+        if qc['min'] is not None and total < float(qc['min']) - slack:
+            return opt.limit_text(qc)
+        if qc['max'] is not None and total > float(qc['max']) + slack:
+            return opt.limit_text(qc)
+    scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe.values())
+    for c in opt.constraints:
+        if opt.ingredients_without_property(c['metric']):
+            continue
+        for bound, sign in ((c['min'], -1), (c['max'], 1)):
+            if bound is None:
+                continue
+            slack = 1e-9 * scale * (1.0 + abs(float(bound)))
+            res = opt._property_residual(recipe, c['metric'], bound)
+            if sign * res > slack:
+                return opt.property_limit_text(c)
+    return None
+
+
+def _reason(opt, name, start, mode, t, moving):
+    r = _recipe_at(opt, name, start, mode, t)
+    if r is None:
+        return (wording.PATH_NO_ROOM_DOWN if t > start[name]
+                else wording.PATH_NO_ROOM_UP), None
+    return _limits_broken(opt, r, moving), r
+
+
+def _edge(opt, name, start, mode, moving, ok_t, bad_t):
+    """Bisect between an allowed amount and a broken one."""
+    for _ in range(40):
+        mid = (ok_t + bad_t) / 2
+        if _reason(opt, name, start, mode, mid, moving)[0] is None:
+            ok_t = mid
+        else:
+            bad_t = mid
+    return ok_t, _reason(opt, name, start, mode, bad_t, moving)[0]
+
+
+def build_path(opt, name, start, points=60):
+    var = _var(opt, name)
+    mode = _mode(opt, name)
+    lo, hi = (float(b) for b in var['bounds'])
+    s = float(start[name])
+    outside = s < lo - _EPS or s > hi + _EPS
+    lo, hi = min(lo, s), max(hi, s)
+    moving = [v['name'] for v in _others(opt, name)] if mode == "proportional" else []
+    skipped = [opt.property_limit_text(c) for c in opt.constraints
+               if opt.ingredients_without_property(c['metric'])]
+    fixed = [(v['name'], float(start.get(v['name'], v['bounds'][0])), opt.unit_of(v['name']))
+             for v in opt.fixed_variables()]
+    watched = {name, *moving}
+    follows = [n for n, f in opt._resolved_forms().items()
+               if n != opt.balance_row_name() and watched & set(f.names())]
+    tested = _tested_span(opt, name)
+    base = dict(name=name, unit=opt.unit_of(name), mode=mode,
+                fill_name=opt.balance_row_name() if mode == "fill" else None,
+                start_amount=s, skipped=skipped, outside=outside, tested=tested,
+                fixed=fixed, follows=follows)
+    start_reason = _reason(opt, name, start, mode, s, moving)[0]
+    if start_reason is not None:
+        return Path(amounts=[], recipes=[], low_end=PathEnd(s, None),
+                    high_end=PathEnd(s, None), start_breaks=start_reason, **base)
+    grid = sorted({lo + (hi - lo) * k / (points - 1) for k in range(points)} | {s})
+    ends = {}
+    for side, seq in (("low", [t for t in reversed(grid) if t <= s]),
+                      ("high", [t for t in grid if t >= s])):
+        last = s
+        ends[side] = PathEnd(seq[-1], None)
+        for t in seq:
+            if _reason(opt, name, start, mode, t, moving)[0] is None:
+                last = t
+                continue
+            amount, why = _edge(opt, name, start, mode, moving, last, t)
+            ends[side] = PathEnd(amount, why)
+            break
+    keep = sorted({t for t in grid if ends["low"].amount <= t <= ends["high"].amount}
+                  | {ends["low"].amount, ends["high"].amount})
+    recipes = [_recipe_at(opt, name, start, mode, t) for t in keep]
+    return Path(amounts=keep, recipes=recipes, low_end=ends["low"],
+                high_end=ends["high"], start_breaks=None, **base)
+
+
+def _tested_span(opt, name):
+    values = [float(start_recipe(opt, i).get(name, 0.0))
+              for i in range(len(opt.Y_history))]
+    return (min(values), max(values)) if values else None
+
+
+def path_predictions(opt, fitted, path):
+    X = [opt._encode(r) for r in path.recipes]
+    return {name: predict(opt, f, X) for name, f in fitted.items()
+            if f.model is not None}

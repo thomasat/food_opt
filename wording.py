@@ -3807,3 +3807,23 @@ WORKBOOK_RESULTS_ARE_NUMBERS = (
     "Enter results as numbers, not Excel formulas, then upload again.")
 WORKBOOK_ACTUALS_ARE_NUMBERS = (
     "Enter actual amounts as numbers, not Excel formulas.")
+
+
+# ------------------------------------------------------------------ #
+#  Insights (0.8.0)
+# ------------------------------------------------------------------ #
+
+def path_past_lowest(name):
+    return f"{name} would go below its Lowest"
+
+
+def path_past_highest(name):
+    return f"{name} would go past its Highest"
+
+
+def path_below_zero(name):
+    return f"{name} would drop below 0"
+
+
+PATH_NO_ROOM_DOWN = "the other ingredients are all at their Lowest"
+PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
