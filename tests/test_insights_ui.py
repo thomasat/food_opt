@@ -25,8 +25,8 @@ def test_track_chart_has_one_panel_per_output_and_no_caps():
     spec = _spec(chart)
     panels = {row["panel"] for row in spec["datasets"][next(iter(spec["datasets"]))]}
     assert panels == {ui_insights.panel_label(opt, n) for n in ("Firmness", "Juiciness", insights.SCORE)}
-    marks = str(spec)
-    assert "errorbar" not in marks and "tick" not in marks     # no end caps
+    marks = {layer["mark"]["type"] for layer in spec["spec"]["layer"]}
+    assert not marks & {"errorbar", "tick"}                   # no end caps
     assert spec["facet"] and spec.get("columns") == 3
 
 
@@ -66,6 +66,106 @@ def test_path_chart_none_without_points():
     opt.add_quantity_constraint(["Pea", "Oil"], max_val=8.0)
     p = insights.build_path(opt, "Oil", opt.fill_formulas({"Pea": 7.0, "Oil": 3.0}))
     assert ui_insights.path_chart(opt, p, {}) is None
+
+
+def _layers_by_panel(spec):
+    """What each layer of a faceted chart actually draws, panel by panel:
+    the chart's one dataset put through that layer's own filters. A layer
+    carrying its own data would be drawn whole in every panel, so none may."""
+    from collections import defaultdict
+    rows = spec["datasets"][spec["data"]["name"]]
+    out = {}
+    for layer in spec["spec"]["layer"]:
+        assert "data" not in layer, layer
+        kept, mark = rows, None
+        for t in layer.get("transform", []):
+            f = t["filter"]
+            if "equal" in f:
+                kept = [r for r in kept if r.get(f["field"]) == f["equal"]]
+                if f["field"] == "mark":
+                    mark = f["equal"]
+            elif set(f) == {"field"}:
+                kept = [r for r in kept if r.get(f["field"])]
+            else:
+                raise AssertionError(f"unexpected filter {f}")
+        assert mark is not None, layer          # every layer names its rows
+        by = defaultdict(list)
+        for r in kept:
+            by[r["panel"]].append(r)
+        out.setdefault(mark, []).append((layer["mark"], dict(by)))
+    return out
+
+
+def test_track_chart_target_only_in_its_own_panel():
+    opt = _burger(rounds=4, per_round=4, noise=0.1)
+    spec = _spec(ui_insights.track_chart(opt, insights.check_rounds(opt)))
+    layers = _layers_by_panel(spec)
+    [(mark, panels)] = layers["target"]
+    firm = ui_insights.panel_label(opt, "Firmness")
+    assert list(panels) == [firm]
+    assert [r["target"] for r in panels[firm]] == [6.0]
+    # Dashed and lighter than the likely-range bars, so it never reads as one.
+    assert mark["strokeDash"] == [4, 3]
+    bars = [m for m, _ in layers["check"] if m["type"] == "rule"]
+    assert bars and all("strokeDash" not in m for m in bars)
+    assert mark.get("strokeWidth", 1) < bars[0]["strokeWidth"]
+    # Every check in its own panel, once.
+    for m, by in layers["check"]:
+        assert sum(len(v) for v in by.values()) <= len(insights.check_rounds(opt))
+
+
+def test_track_chart_width_is_bounded():
+    opt = _burger(rounds=1, per_round=1)
+    checks = [insights.Check(no, 1 + no // 4, name, 5.0, 4.0, 6.0, 5.2, True, True)
+              for no in range(1, 121) for name in ("Firmness", "Juiciness", insights.SCORE)]
+    spec = _spec(ui_insights.track_chart(opt, checks))
+    assert spec["spec"]["width"] <= 240 and spec["spec"]["height"] <= 240
+    x = [layer["encoding"]["x"] for layer in spec["spec"]["layer"] if "x" in layer["encoding"]]
+    assert x and all(e["type"] == "quantitative" for e in x)
+
+
+def _path_spec(opt, name="Oil"):
+    fitted = insights.fit_all(opt)
+    p = insights.build_path(opt, name, insights.start_recipe(opt, opt.best_index()))
+    return p, _spec(ui_insights.path_chart(opt, p, insights.path_predictions(opt, fitted, p)))
+
+
+def test_path_chart_marks_stay_in_their_own_panel():
+    opt = _burger(rounds=3)
+    p, spec = _path_spec(opt)
+    layers = _layers_by_panel(spec)
+    labels = [ui_insights.panel_label(opt, n) for n in ui_insights.path_panels(opt)]
+    firm = ui_insights.panel_label(opt, "Firmness")
+    # Target: Firmness's panel only, once; the Overall score panel has none.
+    [(mark, panels)] = layers["target"]
+    assert list(panels) == [firm] and [r["target"] for r in panels[firm]] == [6.0]
+    assert mark["strokeDash"] == [4, 3]
+    # Start marker: once per panel.
+    [(_, starts)] = layers["start"]
+    assert sorted(starts) == sorted(labels)
+    assert all([r["x"] for r in v] == [p.start_amount] for v in starts.values())
+    # Grey: exactly this chart's untested intervals, once in each panel.
+    want = []
+    if p.amounts[0] < p.tested[0]:
+        want.append((p.amounts[0], p.tested[0]))
+    if p.amounts[-1] > p.tested[1]:
+        want.append((p.tested[1], p.amounts[-1]))
+    assert want                                   # this fixture has some
+    [(_, grey)] = layers["grey"]
+    assert sorted(grey) == sorted(labels)
+    for v in grey.values():
+        assert sorted((r["x"], r["x2"]) for r in v) == sorted(want)
+    # The curve: one point per amount in each panel, for band and line alike.
+    for _, by in layers["curve"]:
+        assert sorted(by) == sorted(labels)
+        assert all(len(v) == len(p.amounts) for v in by.values())
+
+
+def test_path_chart_without_targets_has_no_target_layer():
+    opt = _burger(rounds=3)
+    opt.objectives[0]["goal"] = "max"
+    _, spec = _path_spec(opt)
+    assert "target" not in _layers_by_panel(spec)
 
 
 def test_every_insights_string_passes_the_vocabulary_guard():

@@ -28,12 +28,32 @@ def path_panels(opt):
     return [insights.SCORE] + [o['name'] for o in opt.objectives]
 
 
-def _targets(opt, names):
-    rows = []
-    for o in opt.objectives:
-        if o['name'] in names and o.get('goal') == 'target' and o.get('target') is not None:
-            rows.append({"panel": panel_label(opt, o['name']), "target": float(o['target'])})
-    return pd.DataFrame(rows, columns=["panel", "target"])
+def _target_rows(opt, names):
+    return [{"panel": panel_label(opt, o['name']), "mark": "target",
+             "target": float(o['target'])}
+            for o in opt.objectives
+            if o['name'] in names and o.get('goal') == 'target' and o.get('target') is not None]
+
+
+def _only(mark):
+    """Each layer draws only its own rows of the chart's one long frame. A
+    layer given a frame of its own is drawn whole in EVERY facet panel, so a
+    target, a grey interval or a start marker would show up everywhere."""
+    return alt.FieldEqualPredicate(field="mark", equal=mark)
+
+
+def _target_layer():
+    # Dashed, thin and grey: never mistaken for a likely-range bar.
+    return (alt.Chart().mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray", opacity=0.6)
+            .encode(y="target:Q").transform_filter(_only("target")))
+
+
+def _faceted(layers, df, order):
+    # Fixed panel size, three to a row: fits beside the sidebar however many
+    # formulations there are (the x axis squeezes, the page does not widen).
+    return (alt.layer(*layers, data=df).properties(width=220, height=160)
+            .facet(facet=alt.Facet("panel:N", sort=order, title=None), columns=3)
+            .resolve_scale(y="independent"))
 
 
 def track_chart(opt, checks):
@@ -42,9 +62,10 @@ def track_chart(opt, checks):
     measured value, filled when inside, hollow when outside."""
     if not checks:
         return None
-    order = [panel_label(opt, n) for n in track_panels(opt)]
-    df = pd.DataFrame([{
-        "panel": panel_label(opt, c.name),
+    names = track_panels(opt)
+    order = [panel_label(opt, n) for n in names]
+    rows = [{
+        "panel": panel_label(opt, c.name), "mark": "check",
         wording.FORMULATION_CAP: c.formulation,
         wording.ROUND_CAP: c.round,
         wording.TRACK_PREDICTED: round(c.predicted, 2),
@@ -52,29 +73,34 @@ def track_chart(opt, checks):
         wording.TRACK_HIGH: round(c.high, 2),
         wording.TRACK_MEASURED: round(c.measured, 2),
         wording.TRACK_INSIDE: c.inside,
-    } for c in checks])
-    x = alt.X(f"{wording.FORMULATION_CAP}:O", title=wording.FORMULATION_CAP)
+    } for c in checks]
+    rows += _target_rows(opt, {c.name for c in checks})   # spec §3.1
+    df = pd.DataFrame(rows)
+    # Quantitative, not one band per formulation: 100 formulations fit the
+    # same 220 px as 10.
+    x = alt.X(f"{wording.FORMULATION_CAP}:Q", title=wording.FORMULATION_CAP,
+              scale=alt.Scale(zero=False, nice=False),
+              axis=alt.Axis(format="d", tickMinStep=1))
     tip = [wording.FORMULATION_CAP, wording.ROUND_CAP, wording.TRACK_PREDICTED,
            wording.TRACK_LOW, wording.TRACK_HIGH, wording.TRACK_MEASURED]
-    bars = alt.Chart().mark_rule(strokeWidth=3, opacity=0.35).encode(
+    bars = (alt.Chart().mark_rule(strokeWidth=3, opacity=0.35).encode(
         x=x, y=alt.Y(f"{wording.TRACK_LOW}:Q", title=None), y2=f"{wording.TRACK_HIGH}:Q",
-        tooltip=tip)
+        tooltip=tip).transform_filter(_only("check")))
     # Every measured value gets a ring in the theme's own mark colour; the
     # ones inside their likely range get a filled dot of the same colour on
     # top. A single layer filled with "currentColor" painted the inside dots
     # in the TEXT colour (near-black / near-white) inside a blue ring.
     y = alt.Y(f"{wording.TRACK_MEASURED}:Q")
-    rings = alt.Chart().mark_point(size=60, strokeWidth=2).encode(x=x, y=y, tooltip=tip)
+    rings = (alt.Chart().mark_point(size=60, strokeWidth=2).encode(x=x, y=y, tooltip=tip)
+             .transform_filter(_only("check")))
     filled = (alt.Chart().mark_point(size=60, filled=True, opacity=1)
               .encode(x=x, y=y, tooltip=tip)
-              .transform_filter(alt.datum[wording.TRACK_INSIDE]))
+              .transform_filter(_only("check"))
+              .transform_filter(alt.FieldEqualPredicate(field=wording.TRACK_INSIDE, equal=True)))
     layers = [bars, rings, filled]
-    targets = _targets(opt, set(track_panels(opt)))
-    if not targets.empty:   # spec §3.1: a light rule at the target
-        layers.insert(0, alt.Chart(targets).mark_rule(opacity=0.4).encode(y="target:Q"))
-    return (alt.layer(*layers, data=df)
-            .facet(facet=alt.Facet("panel:N", sort=order, title=None), columns=3)
-            .resolve_scale(y="independent"))
+    if any(r["mark"] == "target" for r in rows):
+        layers.insert(0, _target_layer())
+    return _faceted(layers, df, order)
 
 
 def path_chart(opt, path, preds):
@@ -87,43 +113,35 @@ def path_chart(opt, path, preds):
     x_title = f"{path.name} ({path.unit})" if path.unit else path.name
     rows = []
     for n in names:
+        label = panel_label(opt, n)
         for t, p in zip(path.amounts, preds[n]):
-            rows.append({"panel": panel_label(opt, n), "x": t, "mean": p.mean,
+            rows.append({"panel": label, "mark": "curve", "x": t, "mean": p.mean,
                          "low": p.low, "high": p.high})
-    df = pd.DataFrame(rows)
-    grey = []
-    if path.tested:
-        lo, hi = path.amounts[0], path.amounts[-1]
-        for n in names:
-            label = panel_label(opt, n)
+        rows.append({"panel": label, "mark": "start", "x": path.start_amount})
+        if path.tested:
+            lo, hi = path.amounts[0], path.amounts[-1]
             if lo < path.tested[0]:
-                grey.append({"panel": label, "x": lo, "x2": path.tested[0]})
+                rows.append({"panel": label, "mark": "grey", "x": lo, "x2": path.tested[0]})
             if hi > path.tested[1]:
-                grey.append({"panel": label, "x": path.tested[1], "x2": hi})
+                rows.append({"panel": label, "mark": "grey", "x": path.tested[1], "x2": hi})
+    targets = _target_rows(opt, names)
+    df = pd.DataFrame(rows + targets)
     # Not from 0: the path runs over this row's own Lowest-Highest, and a
     # zero-based axis squeezed a 4-6 g path into the right third of each panel.
     x = alt.X("x:Q", title=x_title, scale=alt.Scale(zero=False, nice=False))
-    # `band`/`line` carry no data of their own so they inherit the top-level
-    # `data=df` given to alt.layer() below; a faceted layer chart needs data
-    # at that top level even when every other layer (start/grey/targets)
-    # brings its own smaller frame — Altair only requires the combined
-    # LayerChart itself to have a `data` attribute before `.facet()` lifts it.
-    band = alt.Chart().mark_area(opacity=_BAND).encode(x=x, y=alt.Y("low:Q", title=None), y2="high:Q")
-    line = alt.Chart().mark_line().encode(x=x, y="mean:Q")
-    start = alt.Chart(pd.DataFrame([{"panel": panel_label(opt, n), "x": path.start_amount}
-                                    for n in names])).mark_rule(strokeDash=[2, 2]).encode(x="x:Q")
+    band = (alt.Chart().mark_area(opacity=_BAND)
+            .encode(x=x, y=alt.Y("low:Q", title=None), y2="high:Q")
+            .transform_filter(_only("curve")))
+    line = alt.Chart().mark_line().encode(x=x, y="mean:Q").transform_filter(_only("curve"))
+    start = (alt.Chart().mark_rule(strokeDash=[2, 2]).encode(x="x:Q")
+             .transform_filter(_only("start")))
     layers = [band, line, start]
-    if grey:
-        layers.insert(0, alt.Chart(pd.DataFrame(grey)).mark_rect(opacity=_GREY, color="gray")
-                      .encode(x="x:Q", x2="x2:Q"))
-    targets = _targets(opt, names)
-    if not targets.empty:
-        layers.append(alt.Chart(targets).mark_rule(opacity=0.5).encode(y="target:Q"))
-    order = [panel_label(opt, n) for n in names]
-    # Three panels to a row must fit the page beside the sidebar.
-    return (alt.layer(*layers, data=df).properties(width=220, height=160)
-            .facet(facet=alt.Facet("panel:N", sort=order, title=None), columns=3)
-            .resolve_scale(y="independent"))
+    if any(r["mark"] == "grey" for r in rows):
+        layers.insert(0, alt.Chart().mark_rect(opacity=_GREY, color="gray")
+                      .encode(x="x:Q", x2="x2:Q").transform_filter(_only("grey")))
+    if targets:
+        layers.append(_target_layer())
+    return _faceted(layers, df, [panel_label(opt, n) for n in names])
 
 
 # ------------------------------------------------------------------ #
