@@ -846,6 +846,15 @@ RECORDED_FALLBACK = "Recorded"
 NOT_MEASURED = "not measured"
 
 
+def waiting_for(names_text=""):
+    """'waiting for Cook loss' — a formulation's Overall score while a
+    measurement that applies to it has no value. Distinct from a Not scored
+    row, which waits to be scored at all. With nothing to name (every
+    measurement it was measured on has since been deleted), 'waiting for
+    results'."""
+    return f"waiting for {names_text or 'results'}"
+
+
 def not_measured_tail(names_text):
     """' · Juiciness not measured' — `names_text` is one name or a
     number_list of several."""

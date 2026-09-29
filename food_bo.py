@@ -3112,6 +3112,12 @@ class FoodOptimizer:
             is_target = obj['goal'] == 'target'
             goal = goal_text(obj)
             raw = results.get(obj['name'])
+            if raw is None and not self.applies(obj, index):
+                # Added after this formulation was recorded: never expected
+                # of it, so it is not "not measured" either.
+                rows.append({'name': name, 'goal': goal,
+                             'measured': "—", 'off_by': "—"})
+                continue
             if raw is None:
                 rows.append({'name': name, 'goal': goal,
                              'measured': wording.NOT_MEASURED,
@@ -3625,27 +3631,30 @@ class FoodOptimizer:
         rows = []
         for i in range(len(self.X_history)):
             results = self.results_history[i] if i < len(self.results_history) else {}
-            unmeasured = [o['name'] for o in objs if o['name'] not in results]
+            complete = self.fully_measured(i)
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 wording.BEST_SO_FAR_COLUMN: "★" if i == best_i else "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
+                "_rank": 0 if complete else 1,
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
                 "_batch": 0 if batch is None else int(batch),
             }
             for obj in objs:
-                row[self._measurement_column(obj)] = results.get(obj['name'])
-            # '2.30 · Juiciness not measured', in the separator the rest of
-            # the app reads a list with. The measurement is NAMED: a score
-            # missing one is not the same number as a complete one, and
-            # "partial" made the reader go and find out which.
+                value = results.get(obj['name'])
+                # A dash for a measurement added after this formulation was
+                # recorded: it was never expected of it.
+                row[self._measurement_column(obj)] = (
+                    "—" if value is None and not self.applies(obj, i)
+                    else value)
+            # A formulation still waiting shows what it waits for, never the
+            # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
-                f"{float(self.Y_history[i]):.2f}"
-                + (wording.not_measured_tail(number_list(unmeasured))
-                   if unmeasured else ""))
+                f"{float(self.Y_history[i]):.2f}" if complete
+                else wording.waiting_for(number_list(self.waiting_on(i))))
             row[wording.DATE_RECORDED_COLUMN] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
@@ -3660,6 +3669,7 @@ class FoodOptimizer:
                 wording.BEST_SO_FAR_COLUMN: "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
+                "_rank": 2,
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
                 "_batch": 0 if batch is None else int(batch),
@@ -3688,7 +3698,9 @@ class FoodOptimizer:
         elif order == wording.SORT_BATCH_ORDER:
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
         else:
-            df = df.sort_values(["_score", "_seq"], ascending=[False, True])
+            # Scored, then waiting for results, then Not scored.
+            df = df.sort_values(["_rank", "_score", "_seq"],
+                                ascending=[True, False, True])
         return df[columns].reset_index(drop=True)
 
     def batch_frame(self, batch, scale_to=None):
@@ -5275,7 +5287,9 @@ class FoodOptimizer:
                 wording.DATE_RECORDED_COLUMN: local_date(ts),
                 # Two decimals, as the screen shows it: a file that says
                 # 2.625 where the table says 2.62 reads as a third number.
-                wording.OVERALL_SCORE_COLUMN: round(float(self.Y_history[i]), 2),
+                # Blank while it waits for results, as a Not scored row's is.
+                wording.OVERALL_SCORE_COLUMN: (round(float(self.Y_history[i]), 2)
+                                               if self.fully_measured(i) else ""),
             }
             recipe = self._recorded_recipe(i)
             row.update(self._amount_columns(recipe))

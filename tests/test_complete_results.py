@@ -433,3 +433,70 @@ def test_export_trajectory_marks_waiting_rows():
     none = _patty(rows=0)
     _tell(none, 1, 1, drop=("Cook loss",))
     assert not any(l.startswith("*") for l in none.export_trajectory().splitlines())
+
+
+# ---------------------------------------------------------------- Task 5
+import pandas as pd
+
+
+def _row(frame, number):
+    return frame[frame["Formulation"] == number].iloc[0]
+
+
+def test_the_table_names_what_a_formulation_waits_for():
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    _tell(opt, 4, 1, drop=("Cook loss", "Juiciness"))
+    frame = opt.history_frame()
+    assert _row(frame, 3)[wording.OVERALL_SCORE_COLUMN] == "waiting for Cook loss"
+    assert (_row(frame, 4)[wording.OVERALL_SCORE_COLUMN]
+            == "waiting for Juiciness and Cook loss")
+    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
+
+
+def test_a_measurement_that_does_not_apply_shows_a_dash():
+    opt = _patty(rows=2, cook_loss=False)
+    _add_cook_loss(opt)
+    frame = opt.history_frame()
+    assert _row(frame, 1)["Cook loss"] == "—"
+    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
+    details = {d['name']: d for d in opt.closeness_details(0)}
+    assert details["Cook loss"]["measured"] == "—"
+    assert details["Cook loss"]["off_by"] == "—"
+    assert wording.NOT_MEASURED not in str(frame.to_dict())
+
+
+def test_best_first_puts_scored_then_waiting_then_not_scored():
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    opt.Y_history[2] = 1000.0                 # a high number never jumps the queue
+    opt.set_pending_batch([_recipe(4)])
+    opt.record_skipped(4, opt.pending_batch_no, _recipe(4))
+    order = list(opt.history_frame(order=wording.SORT_BEST_FIRST)["Formulation"])
+    best = opt.best_formulation_no()
+    assert order == [best, 3 - best, 3, 4]
+
+
+def test_downloads_leave_a_waiting_score_blank_and_raw_values_alone():
+    opt = _patty(rows=2, cook_loss=False)
+    _add_cook_loss(opt)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    frame = opt.history_export_frame()
+    assert _row(frame, 3)[wording.OVERALL_SCORE_COLUMN] == ""
+    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == round(opt.Y_history[0], 2)
+    assert pd.isna(_row(frame, 1)["Cook loss"])      # a blank, not a dash
+
+
+def test_a_downloaded_waiting_row_imports_as_scored_on_what_it_has():
+    """Download all formulations, then import it elsewhere: the blank
+    measurement becomes an exemption, not a wait (review focus 4)."""
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    row = _row(opt.history_export_frame(), 3)
+    other = _patty(rows=0)
+    results = {n: float(row[n]) for n in ("Firmness", "Juiciness", "Cook loss")
+               if not pd.isna(row[n])}
+    other.import_formulation({"Pea": float(row["Pea (g)"]),
+                              "Oil": float(row["Oil (g)"])}, results)
+    assert other.fully_measured(0)
+    assert other.waiting_rows() == []

@@ -2547,7 +2547,7 @@ class TestUnitsAndImportance:
         # Named, not "partial": the reader should not have to work out which
         # measurement is missing from a row that has room to say.
         assert opt.history_frame()["Overall score"].iloc[0] == \
-            "1.50 · Juiciness not measured"
+            "waiting for Juiciness"
 
     def test_history_frame_orders(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
