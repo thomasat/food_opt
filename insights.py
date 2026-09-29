@@ -655,22 +655,45 @@ class Spread:
     spread: float
 
 
+@dataclass
+class Spreads:
+    moved: list     # [Spread], largest first
+    held: list      # names the limits hold in place from this start
+
+
+# A path over less than this share of its own Lowest-Highest is held in
+# place by the limits: its flat line would read as "no effect", which the
+# predictions never said.
+HELD = 0.02
+
+
+def has_ingredient_choice(opt):
+    """Whether any ingredient is among the path choices."""
+    return any(_is_ingredient(_var(opt, n)) for n in path_choices(opt))
+
+
 def spreads(opt, fitted, start):
     """How far each path choice moves the predicted Overall score from
     `start`: highest minus lowest mean along its path, largest first (ties
-    keep path_choices order). A path that cannot be drawn is left out; with
-    no Overall-score model there is nothing to say."""
+    keep path_choices order). A choice whose path the limits box in (under
+    HELD of its Lowest-Highest) is named in `held` instead of given a
+    spread. A path that cannot be drawn is left out; with no Overall-score
+    model there is nothing to say."""
     score = fitted.get(SCORE)
     if score is None or score.model is None:
-        return []
-    out = []
+        return Spreads([], [])
+    moved, held = [], []
     for name in path_choices(opt):
         path = build_path(opt, name, start)
         if path.start_breaks or not path.recipes:
             continue
+        lo, hi = (float(b) for b in _var(opt, name)['bounds'])
+        if path.amounts[-1] - path.amounts[0] < HELD * (hi - lo):
+            held.append(name)
+            continue
         means = [p.mean for p in predict(opt, score, [opt._encode(r) for r in path.recipes])]
-        out.append(Spread(name, max(means) - min(means)))
-    return sorted(out, key=lambda s: -s.spread)
+        moved.append(Spread(name, max(means) - min(means)))
+    return Spreads(sorted(moved, key=lambda s: -s.spread), held)
 
 
 def best_refusal(opt):

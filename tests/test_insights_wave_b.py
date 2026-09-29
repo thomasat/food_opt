@@ -163,7 +163,7 @@ def test_round_predictions_leave_the_project_and_rng_untouched():
 def test_the_steeper_ingredient_has_the_larger_spread():
     opt = _linear()
     fitted = insights.fit_all(opt)
-    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index())).moved
     assert [s.name for s in found] == ["Pea", "Oil"]
     pea, oil = found[0].spread, found[1].spread
     assert pea > 2 * oil > 0
@@ -176,7 +176,7 @@ def test_a_spread_is_highest_minus_lowest_mean_along_the_path():
     path = insights.build_path(opt, "Oil", start)
     means = [p.mean for p in insights.predict(
         opt, fitted[insights.SCORE], [opt._encode(r) for r in path.recipes])]
-    oil = next(s for s in insights.spreads(opt, fitted, start) if s.name == "Oil")
+    oil = next(s for s in insights.spreads(opt, fitted, start).moved if s.name == "Oil")
     assert oil.spread == pytest.approx(max(means) - min(means))
 
 
@@ -185,21 +185,21 @@ def test_a_start_that_breaks_a_limit_is_left_out():
     fitted = insights.fit_all(opt)
     opt.add_quantity_constraint(["Pea", "Oil"], max_val=8.0)
     start = opt.fill_formulas({"Pea": 7.0, "Oil": 3.0})
-    assert insights.spreads(opt, fitted, start) == []
+    assert insights.spreads(opt, fitted, start) == insights.Spreads([], [])
 
 
 def test_no_overall_score_model_no_spreads():
     opt = _linear()
     fitted = insights.fit_all(opt)
     fitted[insights.SCORE] = insights.Fitted(insights.SCORE, None, None, 4, 0.0, 100.0)
-    assert insights.spreads(opt, fitted, insights.start_recipe(opt, 0)) == []
+    assert insights.spreads(opt, fitted, insights.start_recipe(opt, 0)) == insights.Spreads([], [])
 
 
 def test_one_choice_gives_one_spread():
     opt = _linear()
     opt.add_ingredient("Oil", 5, 5)                     # fixed: not a choice
     fitted = insights.fit_all(opt)
-    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index())).moved
     assert [s.name for s in found] == ["Pea"]
 
 
@@ -208,9 +208,66 @@ def test_equal_spreads_keep_the_path_choice_order(monkeypatch):
     fitted = insights.fit_all(opt)
     monkeypatch.setattr(insights, "predict",
                         lambda o, f, X: [insights.Prediction(50.0, 40.0, 60.0) for _ in X])
-    found = insights.spreads(opt, fitted, insights.start_recipe(opt, 0))
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, 0)).moved
     assert [s.name for s in found] == ["Pea", "Oil"]
     assert all(s.spread == 0.0 for s in found)
+
+
+def _boxed(n=8, seed=1):
+    """Three free ingredients, Pea, Oil and Salt 0–10 g, no total; Taste =
+    2·Pea + 0.5·Oil + Salt on 0–40."""
+    g = torch.Generator().manual_seed(seed)
+    opt = FoodOptimizer(f"boxed_{next(_linear_no)}")
+    opt.set_amount_unit("g")
+    for name in ("Pea", "Oil", "Salt"):
+        opt.add_ingredient(name, 0, 10)
+    opt.add_objective("Taste", 100, goal="max", min_val=0, max_val=40)
+    for no in range(1, n + 1):
+        pea, oil, salt = (10 * torch.rand(3, generator=g)).tolist()
+        opt.tell({"Pea": pea, "Oil": oil, "Salt": salt},
+                 {"Taste": 2 * pea + 0.5 * oil + salt}, formulation_no=no, batch_no=1)
+    return opt
+
+
+def _pin(opt, names, start):
+    """A limit on the sum of `names` at exactly the start's own sum: Best so
+    far sits against it both ways, so each of them can barely move."""
+    opt.add_quantity_constraint(names, exactly=sum(start[n] for n in names))
+
+
+def test_a_path_boxed_in_by_the_limits_is_held_not_a_spread():
+    opt = _boxed()
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    _pin(opt, ["Pea", "Oil"], start)
+    for name in ("Pea", "Oil"):             # drawn, but over under 2 % of 0–10 g
+        path = insights.build_path(opt, name, start)
+        assert not path.start_breaks and path.recipes
+        assert 0 < path.amounts[-1] - path.amounts[0] < 0.02 * 10
+    found = insights.spreads(opt, fitted, start)
+    assert [s.name for s in found.moved] == ["Salt"]
+    assert found.held == ["Pea", "Oil"]
+    assert found.moved[0].spread > 1
+
+
+def test_every_path_boxed_in_moves_nothing():
+    opt = _boxed()
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    _pin(opt, ["Pea", "Oil", "Salt"], start)
+    assert insights.spreads(opt, fitted, start) == insights.Spreads([], ["Pea", "Oil", "Salt"])
+
+
+def test_a_path_at_one_end_of_its_range_still_moves():
+    """Against a limit on one side only: the path runs the other way, so it
+    has a spread."""
+    opt = _boxed()
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=start["Pea"] + start["Oil"])
+    found = insights.spreads(opt, fitted, start)
+    assert found.held == []
+    assert {s.name for s in found.moved} == {"Pea", "Oil", "Salt"}
 
 
 def test_spreads_leave_the_project_and_rng_untouched():

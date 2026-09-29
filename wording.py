@@ -4119,25 +4119,57 @@ def spread_from(best, n):
     return "Best so far" if best else f"{FORMULATION_CAP} {n}"
 
 
-def spread_line(name, spread_text, start_text, only=False):
+def spread_line(name, spread_text, start_text, only=False, values=False):
     """The answer above the two boxes of question 2. `only`: the one choice
-    there is, so nothing is "the most"."""
+    there is, so nothing is "the most". `values`: a process setting, which
+    has values rather than amounts."""
     how = ("by a spread of" if only
            else "the most: a spread of")
-    return (f"Across its allowed amounts, {name} changes the predicted {OVERALL_SCORE_COLUMN} "
+    what = "values" if values else "amounts"
+    return (f"Across its allowed {what}, {name} changes the predicted {OVERALL_SCORE_COLUMN} "
             f"{how} {spread_text} points (from {start_text}).")
 
 
-SPREAD_FLAT = (f"No ingredient or process setting changes the predicted {OVERALL_SCORE_COLUMN} "
-               "by more than 0.1 points yet.")
+def held_line(start_text, names):
+    """Under the answer: the choices the limits box in from this start, so
+    their flat line is not read as "no effect"."""
+    # Not "Held": the vocabulary retired Hold/held in 0.5.0.
+    return f"Kept in place by your limits from {start_text}: {', '.join(names)}."
 
 
-def compare_all(has_settings):
+def _choices_word(settings_only, both, settings):
+    return settings if settings_only else both
+
+
+def held_all(start_text, settings_only=False):
+    """The answer when the limits box in every path from this start."""
+    what = _choices_word(settings_only, "ingredient and process setting", "process setting")
+    return f"From {start_text}, your limits keep every {what} in place."
+
+
+def spread_flat(settings_only=False):
+    what = _choices_word(settings_only, "ingredient or process setting", "process setting")
+    return (f"No {what} changes the predicted {OVERALL_SCORE_COLUMN} "
+            "by more than 0.1 points yet.")
+
+
+SPREAD_FLAT = spread_flat()
+
+
+def compare_all(has_settings, has_ingredients=True):
+    if not has_ingredients:
+        return "Compare all process settings"
     return "Compare all ingredients and settings" if has_settings else "Compare all ingredients"
 
 
-SPREAD_CAPTION = (f"Spread = highest minus lowest predicted {OVERALL_SCORE_COLUMN} along each "
-                  f"path, from the same starting {FORMULATION}, including amounts not tested yet.")
+def spread_caption(values=False):
+    """`values`: every choice is a process setting."""
+    what = "values" if values else "amounts"
+    return (f"Spread = highest minus lowest predicted {OVERALL_SCORE_COLUMN} along each "
+            f"path, from the same starting {FORMULATION}, including {what} not tested yet.")
+
+
+SPREAD_CAPTION = spread_caption()
 SPREAD_AXIS = "Spread (points)"
 
 

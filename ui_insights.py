@@ -301,11 +301,11 @@ def _change(opt, computed, n):
     try:
         found = insights.spreads(opt, fitted, insights.start_recipe(opt, ids.index(number)))
     except Exception:   # the answer line is left out; the path still draws
-        found = []
+        found = insights.Spreads([], [])
     # The box opens on the largest spread; after that it keeps the reader's
     # own choice (_keep_if_offered drops it only when it is no longer offered).
-    if found and CHOICE_KEY not in st.session_state:
-        st.session_state[CHOICE_KEY] = found[0].name
+    if found.moved and CHOICE_KEY not in st.session_state:
+        st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
         _spread_answer(opt, found, number == best_no, number)
     name = left.selectbox(wording.INGREDIENT_OR_SETTING, choices, key=CHOICE_KEY)
@@ -341,21 +341,33 @@ def spread_chart(spreads):
             .properties(height=28 * len(spreads) + 20))
 
 
+# Under a tenth of a point every spread reads "0.0" or "0.1": no choice
+# moves the prediction by more than SPREAD_FLAT's 0.1 points.
+_FLAT = 0.1
+
+
 def _spread_answer(opt, found, from_best, number):
-    """The one line above the boxes, and the compare expander. Nothing when
-    no path could be drawn or there is no Overall-score model yet."""
-    if not found:
+    """The one line above the boxes, a caption naming any choice the limits
+    hold in place, and the compare expander. Nothing when no path could be
+    drawn or there is no Overall-score model yet."""
+    start = wording.spread_from(from_best, number)
+    moved = found.moved
+    if not moved:
+        if found.held:
+            st.write(wording.held_all(start))
         return
-    if all(s.spread < 0.05 for s in found):
+    flat = all(s.spread < _FLAT for s in moved)
+    if flat:
         st.write(wording.SPREAD_FLAT)
-        return
-    top = found[0]
-    st.write(wording.spread_line(top.name, f"{top.spread:.1f}",
-                                 wording.spread_from(from_best, number),
-                                 only=len(found) == 1))
-    if len(found) > 1:
+    else:
+        top = moved[0]
+        st.write(wording.spread_line(top.name, f"{top.spread:.1f}", start,
+                                     only=len(moved) == 1))
+    if found.held:
+        st.caption(wording.held_line(start, found.held))
+    if not flat and len(moved) > 1:
         with st.expander(wording.compare_all(insights.has_setting_choice(opt))):
-            st.altair_chart(spread_chart(found))
+            st.altair_chart(spread_chart(moved))
             st.caption(wording.SPREAD_CAPTION)
 
 

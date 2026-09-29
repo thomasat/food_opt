@@ -289,9 +289,9 @@ def test_score_and_value_text():
 #  Task 3: which ingredients matter most
 # ------------------------------------------------------------------ #
 
-def _spreads(monkeypatch, *pairs):
-    monkeypatch.setattr(insights, "spreads",
-                        lambda opt, fitted, start: [insights.Spread(n, s) for n, s in pairs])
+def _spreads(monkeypatch, *pairs, held=()):
+    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads(
+        [insights.Spread(n, s) for n, s in pairs], list(held)))
 
 
 def test_section_2_answer_line_and_compare_expander(insights_scored):
@@ -300,7 +300,7 @@ def test_section_2_answer_line_and_compare_expander(insights_scored):
     md, caps = _tab_text(at)
     opt = FoodOptimizer("burger")
     fitted = insights.fit_all(opt)
-    [top, _] = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    [top, _] = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index())).moved
     line = wording.spread_line(top.name, f"{top.spread:.1f}", "Best so far")
     assert line in md
     # Above the two boxes: it is the answer, the boxes are the detail.
@@ -351,6 +351,84 @@ def test_a_flat_model_says_so(insights_scored, monkeypatch):
     at = _open_insights(_app())
     md, _ = _tab_text(at)
     assert wording.SPREAD_FLAT in md
+    assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
+
+
+def test_a_spread_under_a_tenth_is_flat(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Pea protein", 0.09), ("Methylcellulose", 0.0))
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert wording.SPREAD_FLAT in md
+    assert not [m for m in md if m.startswith("Across its allowed")]
+
+
+def test_a_spread_of_a_tenth_or_more_is_not_flat(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Pea protein", 0.12), ("Methylcellulose", 0.0))
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert wording.SPREAD_FLAT not in md
+    assert wording.spread_line("Pea protein", "0.1", "Best so far") in md
+
+
+def test_a_choice_boxed_in_by_the_limits_is_named_under_the_answer(insights_scored):
+    """Best so far sits against a limit on Pea protein + Methylcellulose both
+    ways: Pea protein's path covers under 2 % of its 0–25 g, so it is held in
+    place, not read as having no effect; Methylcellulose still moves."""
+    best = insights_scored.best_index()
+    start = insights.start_recipe(insights_scored, best)
+    names = ["Pea protein", "Methylcellulose"]
+    insights_scored.add_quantity_constraint(names, exactly=sum(start[n] for n in names))
+    opt = FoodOptimizer("burger")
+    found = insights.spreads(opt, insights.fit_all(opt), insights.start_recipe(opt, best))
+    assert found.held == ["Pea protein"] and [s.name for s in found.moved] == ["Methylcellulose"]
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    top = found.moved[0]
+    line = wording.spread_line(top.name, f"{top.spread:.1f}", "Best so far", only=True)
+    assert line in md
+    held = wording.held_line("Best so far", ["Pea protein"])
+    assert held == "Kept in place by your limits from Best so far: Pea protein."
+    assert caps.count(held) == 1
+    assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
+    assert at.tabs[3].selectbox(key=ui_insights.CHOICE_KEY).value == "Methylcellulose"
+
+
+def test_held_choices_stay_out_of_the_compare_chart(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Methylcellulose", 5.0), ("Pea protein", 2.0), held=["Salt"])
+    drawn = []
+    real = ui_insights.spread_chart
+    monkeypatch.setattr(ui_insights, "spread_chart", lambda s: drawn.append(s) or real(s))
+    at = _open_insights(_app())
+    md, caps = _tab_text(at)
+    assert wording.spread_line("Methylcellulose", "5.0", "Best so far") in md
+    assert wording.held_line("Best so far", ["Salt"]) in caps
+    assert wording.compare_all(False) in [e.label for e in at.tabs[3].expander]
+    assert [[s.name for s in one] for one in drawn] == [["Methylcellulose", "Pea protein"]]
+
+
+def test_a_flat_answer_still_names_what_is_held(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Methylcellulose", 0.02), held=["Pea protein"])
+    at = _open_insights(_app())
+    at.tabs[3].selectbox(key=ui_insights.START_KEY).set_value(9)
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    md, caps = _tab_text(at)
+    assert wording.SPREAD_FLAT in md
+    assert wording.held_line("Formulation 9", ["Pea protein"]) in caps
+
+
+def test_every_choice_held_says_the_limits_hold_them(insights_scored, monkeypatch):
+    _spreads(monkeypatch, held=["Pea protein", "Methylcellulose"])
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    line = wording.held_all("Best so far")
+    assert line == ("From Best so far, your limits keep every ingredient and process setting "
+                    "in place.")
+    assert line in md
+    assert wording.SPREAD_FLAT not in md
+    assert not [m for m in md if m.startswith("Across its allowed")]
+    assert not [c for c in caps if c.startswith("Kept in place")]
     assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
 
 
