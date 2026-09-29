@@ -88,6 +88,50 @@ done
 if grep -q '+cpu' "$LOCK"; then fail "lock is macOS-resolvable (no +cpu)"; else ok "lock is macOS-resolvable (no +cpu)"; fi
 if grep -qi '^pytest==' "$LOCK"; then fail "lock excludes pytest"; else ok "lock excludes pytest"; fi
 
+echo "== Level 1: bundle list covers app.py's local imports =="
+# app.py fails to import in the packaged app if a module it (or a ui_*.py it
+# imports) imports at module level isn't in build_dmg.sh's bundle list. Derive
+# the required local modules straight from the source instead of hand-listing
+# them, so this catches the next missed module too.
+REPO_DIR="$(dirname "$DESKTOP_DIR")"
+BUNDLE_FOR_LINE="$(grep -m1 '^for f in .*; do$' "$DESKTOP_DIR/build_dmg.sh")"
+BUNDLE_FILES="$(printf '%s\n' "$BUNDLE_FOR_LINE" | sed -e 's/^for f in //' -e 's/; do$//')"
+MISSING="$(REPO_DIR="$REPO_DIR" BUNDLE_FILES="$BUNDLE_FILES" python3 <<'PYEOF'
+import ast, os
+
+repo_dir = os.environ["REPO_DIR"]
+bundle = set(os.environ["BUNDLE_FILES"].split())
+
+
+def top_level_local_imports(path):
+    mods = set()
+    with open(path) as fh:
+        tree = ast.parse(fh.read(), filename=path)
+    for node in tree.body:  # top-level only: skip imports nested in functions
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mods.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                mods.add(node.module.split(".")[0])
+    return {m for m in mods if os.path.exists(os.path.join(repo_dir, m + ".py"))}
+
+
+required = top_level_local_imports(os.path.join(repo_dir, "app.py"))
+for mod in list(required):
+    if mod.startswith("ui_"):
+        required |= top_level_local_imports(os.path.join(repo_dir, mod + ".py"))
+
+missing = sorted(mod + ".py" for mod in required if mod + ".py" not in bundle)
+print("\n".join(missing))
+PYEOF
+)"
+if [ -z "$MISSING" ]; then
+  ok "bundle list covers app.py's local imports"
+else
+  fail "bundle list covers app.py's local imports (missing: $(printf '%s' "$MISSING" | tr '\n' ' '))"
+fi
+
 echo "== Level 1: build =="
 if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
 
@@ -105,7 +149,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
