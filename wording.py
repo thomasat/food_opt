@@ -1945,6 +1945,17 @@ PROGRESS_CHART_CAPTION = ('The best-so-far line follows the highest score among 
                           'does not prove that the best possible formulation has '
                           'been found.')
 
+# 0.8.0 review fixes (§9 I4): the Progress chart draws a formulation scored
+# without a measurement (recorded before it existed) as a hollow dot; the
+# caption names it only when there is one.
+PROGRESS_RING = 'A hollow dot is a formulation scored without every measurement.'
+
+
+def progress_caption(rings=False):
+    """Under the Progress chart."""
+    return f"{PROGRESS_CHART_CAPTION} {PROGRESS_RING}" if rings else PROGRESS_CHART_CAPTION
+
+
 def batch_open_record_first_caption():
     """food_bo.undo_last_batch's refusal. No screen reaches it any more —
     the Delete the last batch button retired with this section — but the

@@ -185,3 +185,32 @@ def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
             assert t["format"] == ".1f", t
         else:
             assert t["title"] == wording.FORMULATION_CAP and t["format"] == "d", t
+
+
+def _progress_captions(opt, monkeypatch):
+    said = []
+    monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: None)
+    monkeypatch.setattr(ui_insights.st, "caption", lambda text, **k: said.append(text))
+    ui_insights._progress_chart_body(opt)
+    return said
+
+
+def test_the_progress_caption_names_the_ring_when_one_is_drawn(monkeypatch):
+    """Review of Task 4: nothing said what the hollow dot meant."""
+    from tests.test_best_candidates import _upgrade_like
+    said = _progress_captions(_upgrade_like(), monkeypatch)
+    assert said == [wording.progress_caption(rings=True)]
+    assert said[0].startswith(wording.PROGRESS_CHART_CAPTION)
+    assert said[0].endswith(" " + wording.PROGRESS_RING)
+    assert not any(p.search(wording.PROGRESS_RING) for p in __import__(
+        "tests.test_food_bo", fromlist=["_BANNED"])._BANNED)
+
+
+def test_the_progress_caption_says_nothing_of_rings_without_one(monkeypatch):
+    """No ring, no clause, and a formulation still waiting (a gap, not a
+    dot) does not count as one."""
+    from tests.test_complete_results import _patty, _tell
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    assert _progress_captions(opt, monkeypatch) == [wording.PROGRESS_CHART_CAPTION]
+    assert wording.progress_caption(rings=False) == wording.PROGRESS_CHART_CAPTION

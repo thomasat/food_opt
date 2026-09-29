@@ -628,7 +628,11 @@ def progress_chart(opt):
 def _progress_chart_body(opt):
     # Moved unchanged from Results (0.7.2), minus its own expander.
     show_chart(progress_chart(opt))
-    st.caption(_say(opt, wording.PROGRESS_CHART_CAPTION))
+    # A ring is a scored (plotted) formulation outside best_candidates(); a
+    # formulation still waiting is a gap, not a dot, so it does not count.
+    pool = set(opt.best_candidates())
+    rings = any(opt.fully_measured(i) and i not in pool for i in range(len(opt.Y_history)))
+    st.caption(_say(opt, wording.progress_caption(rings)))
 
 
 def _predicted_best(opt, fitted):
