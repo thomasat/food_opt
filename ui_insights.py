@@ -284,12 +284,14 @@ def _question(opt, text):
 
 
 def render(opt):
-    # A formulation moved to Not scored counts for nothing here, so it is
-    # not one of the scored ones either, nor towards MIN_ROWS (review M-3).
-    n = len(opt.Y_history) - sum(map(opt.is_set_aside, range(len(opt.Y_history))))
-    if n == 0:
+    # A formulation moved to Not scored counts for nothing here (review M-3).
+    if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
         st.caption(_say(opt, wording.INSIGHTS_NONE))
         return
+    # The one "scored" count on the tab, the header's: formulations with all
+    # their results. A waiting one, or one moved to Not scored, is not
+    # scored, so it counts towards neither MIN_ROWS nor "So far: N".
+    n = opt.complete_count()
     # The header's range sentence depends on whether there is a verdict, so
     # its slot is filled once the checks are known.
     header = st.empty()

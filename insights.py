@@ -467,13 +467,19 @@ def details(opt, checks):
     it is below 0 even for a perfect prediction one time in seven. The
     typical miss is compared with the spread between Repeats instead."""
     rows = []
+    matches = None
     ordered = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
     for name in ordered:
         mine = [c for c in checks if c.name == name]
         if not mine:
             continue
         miss = statistics.median(abs(c.measured - c.predicted) for c in mine)
-        sd = repeat_sd(opt, name).sd
+        if matches is None:
+            # The recipe comparisons, once for every output (review M-4):
+            # each output's rows are among the fully measured ones.
+            matches = _matches(opt, [i for i in range(len(opt.Y_history))
+                                     if opt.fully_measured(i)])
+        sd = repeat_sd(opt, name, matches).sd
         rows.append(DetailRow(
             name, len(mine), sum(c.inside for c in mine),
             statistics.median((c.high - c.low) / 2 for c in mine), miss,
@@ -786,11 +792,22 @@ class RepeatSpread:
     pairs: int              # how many pairs of Repeats it rests on
 
 
-def repeat_groups(opt, rows):
+def _matches(opt, rows):
+    """Every pair among `rows` that `_same` calls a match."""
+    recipes = {i: start_recipe(opt, i) for i in rows}
+    return [(i, j) for a, i in enumerate(rows) for j in rows[a + 1:]
+            if _same(opt, recipes[i], recipes[j])]
+
+
+def repeat_groups(opt, rows, matches=None):
     """The Repeat groups among `rows`: formulations `_same` calls a match,
     joined when any two of them match (a chain of matches is one group,
-    since `_same` is not transitive). Groups of one are left out."""
-    recipes = {i: start_recipe(opt, i) for i in rows}
+    since `_same` is not transitive). Groups of one are left out.
+    `matches`: `_matches` over any rows that include `rows`, computed
+    once by a caller that needs the groups of several subsets; only the
+    pairs with both ends in `rows` join them."""
+    if matches is None:
+        matches = _matches(opt, rows)
     parent = {i: i for i in rows}
 
     def root(i):
@@ -798,21 +815,21 @@ def repeat_groups(opt, rows):
             parent[i] = parent[parent[i]]
             i = parent[i]
         return i
-    for a, i in enumerate(rows):
-        for j in rows[a + 1:]:
-            if _same(opt, recipes[i], recipes[j]):
-                parent[root(j)] = root(i)
+    for i, j in matches:
+        if i in parent and j in parent:
+            parent[root(j)] = root(i)
     groups = {}
     for i in rows:
         groups.setdefault(root(i), []).append(i)
     return [g for g in groups.values() if len(g) > 1]
 
 
-def repeat_sd(opt, name):
+def repeat_sd(opt, name, matches=None):
     """The spread between Repeats for one output: the pooled standard
     deviation within Repeat groups (0.8.0 review fixes §9 I9). The Overall
     score uses the formulations Best so far compares; a measurement, the
-    fully measured formulations with a value for it."""
+    fully measured formulations with a value for it. `matches`: as for
+    repeat_groups, over the fully measured formulations or more."""
     if name == SCORE:
         rows = opt.best_candidates()
         value = lambda i: float(opt.Y_history[i])
@@ -820,7 +837,7 @@ def repeat_sd(opt, name):
         rows = [i for i in range(len(opt.Y_history))
                 if opt.fully_measured(i) and measured(opt, name, i) is not None]
         value = lambda i: measured(opt, name, i)
-    groups = repeat_groups(opt, rows)
+    groups = repeat_groups(opt, rows, matches)
     if not groups:
         return RepeatSpread(None, 0)
     ss = dof = pairs = 0

@@ -44,7 +44,7 @@ def one_waiting(scored):
 
 @pytest.fixture
 def six_waiting(burger):
-    """Six formulations over two Rounds, all waiting: Insights opens."""
+    """Six formulations over two Rounds, all waiting: none scored yet."""
     _firmness_only(burger, (1, 2, 3), 1)
     _firmness_only(burger, (4, 5, 6), 2)
     return burger
@@ -67,10 +67,14 @@ def test_make_a_round_with_no_complete_formulation_offers_no_best(all_waiting):
 
 
 def test_insights_with_no_complete_formulation(six_waiting):
+    """None of the six is scored, so the checks wait (0.8.0 review fixes,
+    Task 5 I-1): the header and the gate both count 0 scored."""
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
-    start = at.tabs[3].selectbox(key="insights_start")
-    assert start.options[0] == wording.start_formulation(6)
+    captions = [c.value for c in at.tabs[3].caption]
+    assert captions[0].startswith("Based on 0 scored formulations, up to Round 2. "
+                                  "6 more are waiting for Juiciness. "), captions
+    assert wording.insights_gate(0) in captions, captions
 
 
 # ---------------------------------------------------------------- Task 6

@@ -54,6 +54,41 @@ def test_header_text_leaves_out_waiting_and_set_aside_rows():
                            "1 more is waiting for Cook loss. ")
 
 
+def test_header_text_takes_the_verdict_form_only_with_a_verdict():
+    opt = _burger(rounds=1)
+    verdict = insights.Headline("verdict", [1], 10, 10, "holding")
+    assert ui_insights.header_text(opt, verdict).endswith(wording.LIKELY_RANGE_HEADER)
+    early = insights.Headline("early", [1], 3, 3, None)
+    assert ui_insights.header_text(opt, early).endswith(wording.LIKELY_RANGE_EARLY)
+
+
+def _recorded(opt, complete, waiting):
+    """`complete` formulations with both results in Round 1, then `waiting`
+    with Firmness only (Juiciness to come) in Round 2."""
+    for no in range(1, complete + waiting + 1):
+        values = {"Firmness": 3.0 + 0.3 * no}
+        if no <= complete:
+            values["Juiciness"] = 4.0 + 0.2 * no
+        opt.tell({"Pea protein": 8.0 + no, "Methylcellulose": 0.5 + 0.2 * no}, values,
+                 formulation_no=no, batch_no=1 if no <= complete else 2)
+
+
+@pytest.mark.parametrize("complete", [3, 4])
+def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, complete):
+    """Review I-1: with one of 4 (or 5) recorded formulations waiting, the
+    header and "So far: N" both count the scored ones, and a waiting one
+    does not open the checks early."""
+    _recorded(burger, complete, 1)
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    assert not at.exception
+    captions = [c.value for c in at.tabs[3].caption]
+    assert captions[0].startswith(
+        f"Based on {complete} scored formulations, up to Round 2. "
+        "1 more is waiting for Juiciness. "), captions
+    gates = [c for c in captions if c.startswith("Starts once 5 ")]
+    assert gates == [wording.insights_gate(complete)] * 3, captions   # sections 1, 2 and 4
+
+
 # ------------------------------------------------------------------ #
 #  §3.2 / §9 B1, I8 the verdict and the wide-range line
 # ------------------------------------------------------------------ #
@@ -124,6 +159,7 @@ def test_the_headline_carries_the_record_for_its_own_rounds():
     checks = insights.check_rounds(opt)
     h = insights.headline(opt, checks)
     want = insights.score_record(checks, h.rounds)
+    assert h.score is not None and h.score.total >= insights.SCORE_RECORD_MIN
     assert h.score == want
     assert not hasattr(wording, "SCORE_BELOW")
 
@@ -170,6 +206,8 @@ def test_the_ratio_column_bands():
     assert wording.repeat_ratio(None, 0.0) == "Repeats matched exactly"
     assert wording.repeat_ratio(0.6) == "about the same"
     assert wording.repeat_ratio(1.5) == "about the same"
+    assert wording.repeat_ratio(1.54) == "about the same"          # shown as 1.5
+    assert wording.repeat_ratio(1.56) == "about 1.6× larger"
     assert wording.repeat_ratio(2.04) == "about 2× larger"
     assert wording.repeat_ratio(3.46) == "about 3.5× larger"
     assert wording.DETAILS_COLUMNS[5] == "Typical miss compared with the spread between Repeats"
@@ -187,6 +225,22 @@ def test_repeats_that_agreed_exactly_are_not_no_repeats():
     [row] = insights.details(opt, [_check("Juiciness", measured=5.0, predicted=5.4)])
     assert row.repeat_sd == 0.0 and row.ratio is None
     assert wording.repeat_ratio(row.ratio, row.repeat_sd) == "Repeats matched exactly"
+
+
+def test_details_compare_the_recipes_once_for_every_output(monkeypatch):
+    """Review M-4: the O(n²) recipe comparisons run once per details call,
+    and give each output the same spread as its own repeat_sd."""
+    opt = _with_repeats()
+    calls = []
+    real = insights._matches
+    monkeypatch.setattr(insights, "_matches",
+                        lambda o, rows: calls.append(rows) or real(o, rows))
+    checks = [_check(n, measured=5.0, predicted=5.4)
+              for n in ("Firmness", "Juiciness", insights.SCORE)]
+    rows = insights.details(opt, checks)
+    assert len(calls) == 1
+    monkeypatch.setattr(insights, "_matches", real)
+    assert [r.repeat_sd for r in rows] == [insights.repeat_sd(opt, r.name).sd for r in rows]
 
 
 def test_details_compare_the_typical_miss_with_the_repeats():
@@ -209,6 +263,34 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
     assert captions[0].startswith("Based on 9 scored formulations, up to Round 3. Likely range")
     text = " ".join(m.value for m in tab.markdown)
     assert "holding up" not in text and "R²" not in text
+
+
+@pytest.fixture
+def verdict_project():
+    """Six Rounds of a noisy _burger: a verdict (holding), Firmness and
+    Juiciness with wide likely ranges, the Overall score's not, and 9
+    fully measured Overall-score checks in the headline's Rounds."""
+    return _burger(rounds=6, noise=2.0)
+
+
+def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project):
+    """Review I-2: the verdict state on screen — the header's plain range
+    sentence, the past-tense verdict with its wide-range line, and the
+    Overall score's own record."""
+    opt = verdict_project
+    h = insights.headline(opt, insights.check_rounds(opt))
+    assert h.state == "verdict" and h.score is not None
+    assert h.wide == ["Firmness", "Juiciness"]
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    assert not at.exception
+    tab = at.tabs[3]
+    captions = [c.value for c in tab.caption]
+    assert captions[0].endswith(wording.LIKELY_RANGE_HEADER), captions[0]
+    assert wording.LIKELY_RANGE_EARLY not in " ".join(captions)
+    text = " ".join(m.value for m in tab.markdown)
+    verdict = wording.predictions_count(len(h.rounds), h.rounds, h.inside, h.total, h.verdict)
+    assert (verdict + " " + wording.wide_line("Firmness and Juiciness")) in text, text
+    assert wording.score_record_line(h.score.inside, h.score.total, h.score.mean_miss) in text
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

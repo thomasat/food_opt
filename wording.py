@@ -4249,9 +4249,12 @@ def repeat_ratio(ratio, sd=None):
     is nothing to compare the miss with."""
     if ratio is None:
         return "Repeats matched exactly" if sd == 0 else "no Repeats yet"
-    if ratio <= 1.5:
+    # Rounded first, so the band follows the number shown: 1.54 reads
+    # "about the same", never "about 1.5× larger".
+    r = round(ratio, 1)
+    if r <= 1.5:
         return "about the same"
-    return f"about {ratio:.1f}".rstrip("0").rstrip(".") + "× larger"
+    return f"about {r:g}× larger"
 
 
 TRACK_PREDICTED = "Predicted"
