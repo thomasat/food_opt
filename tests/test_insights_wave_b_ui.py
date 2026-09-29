@@ -81,7 +81,24 @@ def test_the_column_explains_itself_in_its_tooltip(warm_round):
     assert wording.PREDICTED_SCORE_HELP in str(_batch_table(at).proto)
 
 
-def test_one_caption_and_the_predicted_measurements(warm_round):
+def _scores(monkeypatch, below=()):
+    """The real predictions, with each Overall score moved just above Best
+    so far's measured one, or well below it for the formulations in
+    `below`."""
+    real = insights.round_predictions
+
+    def fake(opt, fitted, rows):
+        got = real(opt, fitted, rows)
+        top = float(opt.Y_history[opt.best_index()])
+        for no, per in got.items():
+            m = top - 5.0 if no in below else top + 0.5
+            per[insights.SCORE] = insights.Prediction(m, m - 3.0, m + 3.0)
+        return got
+    monkeypatch.setattr(insights, "round_predictions", fake)
+
+
+def test_one_caption_and_the_predicted_measurements(warm_round, monkeypatch):
+    _scores(monkeypatch, below={warm_round.pending_batch[0]['formulation']})
     at = _app()
     at.run()
     captions = [c.value for c in at.caption]
@@ -94,6 +111,31 @@ def test_one_caption_and_the_predicted_measurements(warm_round):
     for _, row in frame.iterrows():
         p = expected[int(row[wording.FORMULATION_CAP])]["Firmness"]
         assert row["Firmness (N)"] == ui_insights.value_text(p)
+
+
+def test_no_round_caption_when_every_suggestion_is_predicted_above_best(warm_round, monkeypatch):
+    _scores(monkeypatch)
+    at = _app()
+    at.run()
+    assert not at.exception
+    assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
+    assert wording.PREDICTIONS_ROUND_CAPTION not in [c.value for c in at.caption]
+    assert wording.PREDICTED_MEASUREMENTS in [e.label for e in at.expander]
+
+
+def test_an_own_formulation_predicted_below_best_needs_no_caption(warm_round, monkeypatch):
+    """The caption explains why a SUGGESTION can be predicted lower; a
+    formulation of the user's own was not chosen to try anything."""
+    own = warm_round.add_to_pending_batch({"Pea protein": 5.0, "Methylcellulose": 0.2},
+                                          note="our standard")
+    _scores(monkeypatch, below={own})
+    at = _app()
+    at.run()
+    assert not at.exception
+    assert wording.PREDICTIONS_ROUND_CAPTION not in [c.value for c in at.caption]
+    _scores(monkeypatch, below={own, warm_round.pending_batch[1]['formulation']})
+    _rerun_on(at, wording.TAB_BATCH)
+    assert [c.value for c in at.caption].count(wording.PREDICTIONS_ROUND_CAPTION) == 1
 
 
 @pytest.fixture
@@ -238,6 +280,44 @@ def test_a_failed_fit_leaves_the_table_as_it_was(warm_round, monkeypatch):
     assert wording.PREDICTED_SCORE_COLUMN not in _batch_table(at).value.columns
     _rerun_on(at, wording.TAB_BATCH)
     assert calls == [1]
+
+
+def test_the_round_screen_is_drawn_before_the_fit(warm_round, monkeypatch):
+    """The table, the Save results button and the record and upload steps
+    are all on screen before the models are fitted; the table is then drawn
+    again in its place with the column."""
+    import ui_batch
+    order = []
+    for name in ("_record_results", "_upload"):
+        real = getattr(ui_batch, name)
+        monkeypatch.setattr(ui_batch, name,
+                            lambda *a, _real=real, _name=name, **k: order.append(_name) or _real(*a, **k))
+    real_fit = insights.fit_all
+    monkeypatch.setattr(insights, "fit_all", lambda opt: order.append("fit") or real_fit(opt))
+    at = _app()
+    at.run()
+    assert not at.exception
+    assert order == ["_record_results", "_upload", "fit"]
+    assert wording.SAVE_RESULTS in [b.label for b in at.button]
+    [table] = [d for d in at.dataframe if "Pea protein (g)" in d.value.columns
+               and wording.FORMULATION_CAP in d.value.columns]      # drawn once, in place
+    assert wording.PREDICTED_SCORE_COLUMN in table.value.columns
+    [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
+
+
+def test_no_open_rows_no_fit(warm_round, monkeypatch):
+    rows = warm_round.pending_batch
+    for row in rows[:2]:
+        warm_round.tell(row['recipe'], {"Juiciness": 6.0, "Firmness": 5.0},
+                        formulation_no=row['formulation'], batch_no=warm_round.pending_batch_no)
+    warm_round.record_skipped(rows[2]['formulation'], warm_round.pending_batch_no, rows[2]['recipe'])
+    calls = _counting(monkeypatch, "fit_all")
+    at = _app()
+    at.run()
+    assert not at.exception
+    assert calls == []
+    assert ui_insights.FITTED_KEY not in at.session_state
+    assert wording.PREDICTED_SCORE_COLUMN not in _batch_table(at).value.columns
 
 
 def _cells(book):

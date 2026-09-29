@@ -551,22 +551,38 @@ def _title(opt):
             len(opt.pending_batch_discarded) > 1))
 
 
-def _round_predictions(opt, tab_open):
+def _round_predictions(opt):
     """{Formulation number: {output: Prediction}} for the open Round's rows
-    not yet recorded, or None when there is nothing to show: the tab is not
-    open (hidden tabs never fit a model), the spread-out start is not over,
-    or there is no Overall-score model."""
-    if not tab_open or opt.complete_count() < insights.MIN_ROWS:
+    not yet recorded, or None when there is nothing to show: no row left to
+    record (then nothing is fitted), the spread-out start is not over, or
+    there is no Overall-score model."""
+    if opt.complete_count() < insights.MIN_ROWS:
+        return None
+    rows = open_rows(opt)
+    if not rows:
         return None
     fitted = ui_insights.fitted_models(opt, wording.PREDICTIONS_WORKING)
     score = None if fitted is None else fitted.get(insights.SCORE)
     if score is None or score.model is None:
         return None
     try:
-        preds = insights.round_predictions(opt, fitted, open_rows(opt))
+        preds = insights.round_predictions(opt, fitted, rows)
     except Exception:   # the table stands without the column
         return None
     return preds or None
+
+
+def _a_suggestion_below_best(opt, preds):
+    """Whether a suggested row (not one of the user's own, which carries a
+    note) is predicted below Best so far's measured Overall score: the only
+    case the Round caption explains."""
+    best = opt.best_index()
+    if best is None:
+        return False
+    top = float(opt.Y_history[best])
+    own = {r['formulation'] for r in opt.pending_batch or [] if r.get('note')}
+    return any(per[insights.SCORE].mean < top for no, per in preds.items()
+               if no not in own and insights.SCORE in per)
 
 
 def _with_predictions(opt, frame, preds):
@@ -594,7 +610,7 @@ def _predicted_measurements(opt, preds):
         st.dataframe(pd.DataFrame(rows), hide_index=True, height=table_height(len(rows)))
 
 
-def _batch_table(opt, scale_to, tab_open=False):
+def _batch_table(opt, scale_to):
     """The make-these table and the lines it owes the reader.
 
     Nothing is rewritten to make a row add up: a suggestion that could not be
@@ -607,28 +623,24 @@ def _batch_table(opt, scale_to, tab_open=False):
     With no total in force at all, one line says so. The cold read watched a
     batch come out at 73 to 89 g with nothing on the screen to say the 100 g
     rule had stopped applying.
+
+    Returns (editing, later): `later` is what _show_predictions needs to
+    add the predictions once the rest of the screen is drawn; None while
+    editing, which never shows them.
     """
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
-    preds = None
     if not editing:
         if st.button(wording.for_project(opt, wording.EDIT_FORMULATIONS), key=edit_key + "_start", icon=":material/edit:"):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
         st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
-        preds = _round_predictions(opt, tab_open)
-        if preds:
-            frame = _with_predictions(opt, frame, preds)
-        st.dataframe(frame.style.format(_amount_format(opt, frame)),
-                     column_config={
-                         wording.FORMULATION_CAP: st.column_config.Column(
-                             wording.for_project(opt, wording.FORMULATION_CAP)),
-                         wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
-                             wording.PREDICTED_SCORE_COLUMN,
-                             help=wording.for_project(opt, wording.PREDICTED_SCORE_HELP))},
-                     hide_index=True, key="batch_table", height=table_height(len(frame)))
+        # Drawn now without the predictions; _show_predictions draws it again
+        # in the same place with them, once the rest of the screen is up.
+        table_slot = st.empty()
+        _draw_table(opt, table_slot, frame)
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
         st.caption(wording.EDIT_FORMULATIONS_CAPTION)
@@ -687,14 +699,40 @@ def _batch_table(opt, scale_to, tab_open=False):
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
         st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
-    # Last, after the lines about the table's amounts: what the new column
-    # means for a row predicted below Best so far, then the per-measurement
-    # predictions one click away.
-    if not editing and preds:
-        st.caption(wording.for_project(opt, wording.PREDICTIONS_ROUND_CAPTION))
-        _predicted_measurements(opt, preds)
+    # Last, after the lines about the table's amounts: kept for what the new
+    # column means for a row predicted below Best so far, then the
+    # per-measurement predictions one click away.
+    if editing:
+        return True, None
+    return False, (table_slot, frame, st.container())
 
-    return editing
+
+def _draw_table(opt, slot, frame):
+    slot.dataframe(frame.style.format(_amount_format(opt, frame)),
+                   column_config={
+                       wording.FORMULATION_CAP: st.column_config.Column(
+                           wording.for_project(opt, wording.FORMULATION_CAP)),
+                       wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
+                           wording.PREDICTED_SCORE_COLUMN,
+                           help=wording.for_project(opt, wording.PREDICTED_SCORE_HELP))},
+                   hide_index=True, key="batch_table", height=table_height(len(frame)))
+
+
+def _show_predictions(opt, later):
+    """Fit (once per data_key, shared with Insights) and draw the table again
+    in its place with the Predicted Overall score column, then the caption
+    and the expander in the place kept for them under the table. Called
+    last, so a fit never holds up the rest of the screen."""
+    table_slot, frame, notes = later
+    with notes:                     # the spinner shows under the table
+        preds = _round_predictions(opt)
+    if not preds:
+        return
+    _draw_table(opt, table_slot, _with_predictions(opt, frame, preds))
+    with notes:
+        if _a_suggestion_below_best(opt, preds):
+            st.caption(wording.for_project(opt, wording.PREDICTIONS_ROUND_CAPTION))
+        _predicted_measurements(opt, preds)
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):
@@ -1330,7 +1368,8 @@ def render(opt, storage, tab_open=False):
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    if _batch_table(opt, scale_to, tab_open):
+    editing, later = _batch_table(opt, scale_to)
+    if editing:
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
         return
@@ -1375,3 +1414,7 @@ def render(opt, storage, tab_open=False):
 
     if regenerate:
         _regenerate(opt, rows, numbers)
+    elif tab_open:
+        # Only while this tab is open (a hidden tab never fits a model), and
+        # only now: the table, Save results and the upload are already up.
+        _show_predictions(opt, later)
