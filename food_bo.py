@@ -3445,7 +3445,8 @@ class FoodOptimizer:
     def _recompute_utilities(self):
         for i, results_dict in enumerate(self.results_history):
             if i < len(self.Y_history):
-                self.Y_history[i] = self._compute_utility(results_dict)
+                self.Y_history[i] = self._compute_utility(
+                    results_dict, self._number_at(i))
 
     def utility_ceiling(self):
         """The overall score a formulation that hits every goal would get:
@@ -3453,15 +3454,88 @@ class FoodOptimizer:
         0.5.0 (see set_shares and _rescale_shares_to_100)."""
         return float(sum(obj['weight'] for obj in self.objectives))
 
+    def _results_at(self, index):
+        return (self.results_history[index]
+                if index < len(self.results_history) else {})
+
+    def _number_at(self, index):
+        return (int(self.formulation_ids[index])
+                if index < len(self.formulation_ids) else None)
+
+    @staticmethod
+    def _applies_to(obj, formulation_no, results):
+        """A measurement applies to a formulation unless it was added after
+        that formulation was recorded (its number is in `not_for`) — and a
+        value entered anyway makes it apply: a value only adds information.
+        No number (None) means every measurement applies."""
+        if results.get(obj['name']) is not None:
+            return True
+        return (formulation_no is None
+                or int(formulation_no) not in (obj.get('not_for') or ()))
+
+    def applies(self, obj, index):
+        return self._applies_to(obj, self._number_at(index),
+                                self._results_at(index))
+
+    def waiting_on(self, index):
+        """The measurements this formulation still needs, most important
+        first: the ones that apply to it and have no value yet."""
+        results = self._results_at(index)
+        return [o['name'] for o in self.measurements_by_importance()
+                if results.get(o['name']) is None and self.applies(o, index)]
+
+    def not_expected(self, index):
+        """The measurements added after this formulation was recorded and
+        never entered on it: shown as a dash, never as not measured."""
+        results = self._results_at(index)
+        return [o['name'] for o in self.measurements_by_importance()
+                if results.get(o['name']) is None
+                and not self.applies(o, index)]
+
     def fully_measured(self, index):
-        """True when every measurement the project scores has a number on
-        this formulation's row. A missing measurement contributes zero to
-        the overall score, so a formulation nobody finished measuring
-        competes on a shorter scale than the one beside it."""
-        results = (self.results_history[index]
-                   if index < len(self.results_history) else {})
-        return all(results.get(obj['name']) is not None
-                   for obj in self.objectives)
+        """True when every measurement that applies to this formulation has
+        a number on its row. Only such a formulation teaches the suggestion
+        model, competes for Best so far and trains Insights' Overall-score
+        model: a missing measurement counts as zero in the score, so a
+        formulation nobody finished measuring would be taught as a bad one.
+
+        A row with no value for any current measurement (every one it was
+        measured on has since been deleted) has nothing to be scored on and
+        is never fully measured. With no measurements at all every row is,
+        as it always was."""
+        if not self.objectives:
+            return True
+        results = self._results_at(index)
+        if not any(results.get(o['name']) is not None
+                   for o in self.objectives):
+            return False
+        return not self.waiting_on(index)
+
+    def waiting_rows(self):
+        """Positions of the scored formulations still waiting for results."""
+        return [i for i in range(len(self.Y_history))
+                if not self.fully_measured(i)]
+
+    def complete_count(self):
+        """How many formulations have all their results: what the cold start
+        counts towards COLD_START_RUNS."""
+        return len(self.Y_history) - len(self.waiting_rows())
+
+    def score_without(self, formulation_no, name):
+        """Stop waiting for `name` on one formulation — the sample is gone,
+        or the value will never come — and score it on the rest at once.
+        Entering a value later undoes it: a value always applies."""
+        obj = next((o for o in self.objectives if o['name'] == name), None)
+        if obj is None:
+            raise ValueError(wording.no_measurement_named(name))
+        index = self.index_of_formulation(formulation_no)
+        if index is None:
+            raise IndexError("There is no formulation at that position.")
+        obj['not_for'] = sorted(set(obj.get('not_for') or [])
+                                | {int(formulation_no)})
+        self.Y_history[index] = self._compute_utility(
+            self._results_at(index), int(formulation_no))
+        self.save()
 
     def best_index(self):
         """0-based index of the highest-scoring experiment, or None.
@@ -6814,10 +6888,19 @@ class FoodOptimizer:
     #  Utility Scoring
     # ------------------------------------------------------------------ #
 
-    def _compute_utility(self, results_dict):
-        """Compute a weighted utility score from raw results."""
+    def _compute_utility(self, results_dict, formulation_no=None):
+        """Compute a weighted utility score from raw results.
+
+        `formulation_no` says which measurements apply (see _applies_to).
+        With every one applying — any project with no measurement added
+        partway — the loop below is the whole computation, unchanged. A
+        formulation recorded before a measurement was added is scored on
+        the ones that apply, their shares rescaled to the full score, so it
+        reads on the same 0-100 as every other."""
+        applicable = [obj for obj in self.objectives
+                      if self._applies_to(obj, formulation_no, results_dict)]
         total_utility = 0.0
-        for obj in self.objectives:
+        for obj in applicable:
             raw_val = results_dict.get(obj['name'])
             if raw_val is None:
                 continue
@@ -6843,7 +6926,13 @@ class FoodOptimizer:
                 utility = 0.0
 
             total_utility += obj['weight'] * utility
-        return total_utility
+        if len(applicable) == len(self.objectives):
+            return total_utility
+        share = sum(float(obj['weight']) for obj in applicable)
+        if share <= 0:
+            return 0.0
+        return total_utility * (sum(float(obj['weight'])
+                                    for obj in self.objectives) / share)
 
     # ------------------------------------------------------------------ #
     #  History Editing
@@ -6855,7 +6944,8 @@ class FoodOptimizer:
             raise IndexError("There is no formulation at that position.")
         if index < len(self.results_history):
             self.results_history[index] = dict(new_results_dict)
-        self.Y_history[index] = self._compute_utility(new_results_dict)
+        self.Y_history[index] = self._compute_utility(
+            new_results_dict, self._number_at(index))
         self.save()
 
     def edit_note(self, index, note):
@@ -7526,7 +7616,7 @@ class FoodOptimizer:
             self._retire_batch_no(batch_no)
 
         self.X_history.append(self._encode(recipe_dict))
-        self.Y_history.append(self._compute_utility(kept))
+        self.Y_history.append(self._compute_utility(kept, formulation_no))
         self.recipe_history.append(dict(recipe_dict))
         self.results_history.append(kept)
         self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
@@ -7728,6 +7818,8 @@ class FoodOptimizer:
             for obj in blank:
                 obj['not_for'] = sorted(set(obj.get('not_for') or [])
                                         | {number})
+            self.Y_history[-1] = self._compute_utility(
+                self.results_history[-1], number)
             self.save()
 
     def delete_formulation(self, no):
@@ -12556,7 +12648,8 @@ class FoodOptimizer:
         self._backfill_identity()
         self._migrate_not_for()
         if self.results_history and self.objectives:
-            self.Y_history = [self._compute_utility(r) for r in self.results_history]
+            self.Y_history = [self._compute_utility(r, self._number_at(i))
+                              for i, r in enumerate(self.results_history)]
         else:
             self.Y_history = state.get('Y_history', [])
 

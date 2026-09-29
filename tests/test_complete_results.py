@@ -201,3 +201,134 @@ def test_an_older_file_is_saved_back_with_not_for_on_open():
     assert saved['CLASS_VERSION'] == 16
     cook = next(o for o in saved['objectives'] if o['name'] == "Cook loss")
     assert cook['not_for'] == [3]
+
+
+# ---------------------------------------------------------------- Task 3
+
+
+def test_earlier_rows_are_scored_on_their_measurements_rescaled():
+    opt = _patty(rows=3, cook_loss=False)
+    _add_cook_loss(opt)
+    for i, no in enumerate((1, 2, 3)):
+        u = _u(no)
+        assert opt.Y_history[i] == pytest.approx(
+            (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
+        assert opt.fully_measured(i)
+        assert opt.waiting_on(i) == []
+        assert opt.not_expected(i) == ["Cook loss"]
+
+
+def test_rows_recorded_after_the_measurement_need_it():
+    opt = _patty(rows=3, cook_loss=False)
+    _add_cook_loss(opt)
+    _tell(opt, 4, 2, drop=("Cook loss",))
+    assert opt.waiting_on(3) == ["Cook loss"]
+    assert not opt.fully_measured(3)
+    assert opt.waiting_rows() == [3]
+    u = _u(4)
+    # Stored as it always was (a blank counts 0); never shown, never taught.
+    assert opt.Y_history[3] == pytest.approx(50 * u["Firmness"] + 30 * u["Juiciness"])
+
+
+def test_open_round_rows_need_a_measurement_added_before_they_are_recorded():
+    opt = _patty(rows=3, cook_loss=False)
+    opt.set_pending_batch([_recipe(4), _recipe(5)])
+    _add_cook_loss(opt)
+    _tell(opt, 4, opt.pending_batch_no, drop=("Cook loss",))
+    assert opt.waiting_on(3) == ["Cook loss"]
+
+
+def test_a_value_entered_on_an_earlier_row_then_counts():
+    opt = _patty(rows=3, cook_loss=False)
+    _add_cook_loss(opt)
+    results = dict(opt.results_history[0], **{"Cook loss": _full(1)["Cook loss"]})
+    opt.edit_result(0, results)
+    u = _u(1)
+    assert opt.Y_history[0] == pytest.approx(
+        50 * u["Firmness"] + 30 * u["Juiciness"] + 20 * u["Cook loss"])
+    assert opt.not_expected(0) == []
+
+
+def test_a_not_scored_row_scored_later_needs_the_new_measurement():
+    opt = _patty(rows=3, cook_loss=False)
+    opt.set_pending_batch([_recipe(4)])
+    opt.record_skipped(4, opt.pending_batch_no, _recipe(4))
+    opt.set_pending_batch(None)
+    _add_cook_loss(opt)
+    opt.score_skipped(4, {"Firmness": 6.0, "Juiciness": 5.0})
+    assert opt.waiting_on(opt.index_of_formulation(4)) == ["Cook loss"]
+
+
+def test_old_values_count_after_a_delete_and_add_again():
+    """The values a delete left on the rows were measured: the measurement
+    added again under the same name applies to them (spec §3)."""
+    opt = _patty(rows=2)
+    opt.remove_objective("Cook loss")      # the other two go to 62.5 / 37.5
+    _add_cook_loss(opt)
+    assert _not_for(opt, "Cook loss") == [1, 2]
+    for i, no in enumerate((1, 2)):
+        u = _u(no)
+        assert opt.fully_measured(i)
+        assert opt.Y_history[i] == pytest.approx(
+            62.5 * u["Firmness"] + 37.5 * u["Juiciness"] + 20 * u["Cook loss"])
+
+
+def test_deleting_a_measurement_releases_every_row_waiting_on_it():
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    assert opt.waiting_rows() == [2]
+    opt.remove_objective("Cook loss")
+    assert opt.waiting_rows() == []
+
+
+def test_an_import_is_scored_on_what_it_has():
+    opt = _patty(rows=2)
+    opt.import_formulation(_recipe(9), {"Firmness": 6.0})
+    assert opt.fully_measured(2)
+    assert opt.Y_history[2] == pytest.approx(100.0)   # on target, rescaled
+
+
+def test_score_without_exempts_one_formulation_and_rescores_it():
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    opt.score_without(3, "Cook loss")
+    assert 3 in _not_for(opt, "Cook loss")
+    assert opt.fully_measured(2)
+    u = _u(3)
+    assert opt.Y_history[2] == pytest.approx(
+        (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
+    again = FoodOptimizer(opt.project_name)
+    assert again.Y_history[2] == pytest.approx(opt.Y_history[2])
+    # Undo is entering the value.
+    opt.edit_result(2, dict(opt.results_history[2], **{"Cook loss": 10.0}))
+    assert opt.not_expected(2) == []
+
+
+def test_score_without_refuses_an_unknown_measurement():
+    opt = _patty(rows=1)
+    with pytest.raises(ValueError):
+        opt.score_without(1, "Crunch")
+
+
+def test_a_row_with_nothing_that_applies_is_never_fully_measured():
+    """Every measurement it was measured on deleted, a new one added after
+    it: nothing to be scored on. Never taught to the model as a 0, and no
+    division by zero (review focus 3)."""
+    opt = _patty(rows=2, cook_loss=False)
+    opt.remove_objective("Juiciness")
+    opt.remove_objective("Firmness")
+    opt.add_objective("Taste", 1, goal="max", min_val=0, max_val=10)
+    assert opt.Y_history == [0.0, 0.0]
+    assert opt.waiting_on(0) == [] and not opt.fully_measured(0)
+    assert opt.waiting_rows() == [0, 1]
+
+
+def test_migration_scores_exempt_rows_on_what_they_have():
+    opt = _patty(rows=3)
+    _tell(opt, 4, 2, drop=("Cook loss",))
+    other = FoodOptimizer("migrated_scores")
+    other.import_json(_v15_state(opt))
+    u = _u(4)
+    assert other.Y_history[3] == pytest.approx(
+        (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
+    assert other.fully_measured(3)
