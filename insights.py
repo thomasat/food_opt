@@ -626,3 +626,27 @@ def round_predictions(opt, fitted, rows):
            if f.model is not None}
     return {int(r['formulation']): {name: preds[k] for name, preds in per.items()}
             for k, r in enumerate(rows)}
+
+
+@dataclass
+class Spread:
+    name: str
+    spread: float
+
+
+def spreads(opt, fitted, start):
+    """How far each path choice moves the predicted Overall score from
+    `start`: highest minus lowest mean along its path, largest first (ties
+    keep path_choices order). A path that cannot be drawn is left out; with
+    no Overall-score model there is nothing to say."""
+    score = fitted.get(SCORE)
+    if score is None or score.model is None:
+        return []
+    out = []
+    for name in path_choices(opt):
+        path = build_path(opt, name, start)
+        if path.start_breaks or not path.recipes:
+            continue
+        means = [p.mean for p in predict(opt, score, [opt._encode(r) for r in path.recipes])]
+        out.append(Spread(name, max(means) - min(means)))
+    return sorted(out, key=lambda s: -s.spread)

@@ -154,3 +154,68 @@ def test_round_predictions_leave_the_project_and_rng_untouched():
     snap = _snapshot(opt)
     insights.round_predictions(opt, fitted, open_rows(opt))
     assert _unchanged(opt, snap)
+
+
+# ------------------------------------------------------------------ #
+#  Task 3: which ingredients matter most
+# ------------------------------------------------------------------ #
+
+def test_the_steeper_ingredient_has_the_larger_spread():
+    opt = _linear()
+    fitted = insights.fit_all(opt)
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    assert [s.name for s in found] == ["Pea", "Oil"]
+    pea, oil = found[0].spread, found[1].spread
+    assert pea > 2 * oil > 0
+
+
+def test_a_spread_is_highest_minus_lowest_mean_along_the_path():
+    opt = _linear()
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    path = insights.build_path(opt, "Oil", start)
+    means = [p.mean for p in insights.predict(
+        opt, fitted[insights.SCORE], [opt._encode(r) for r in path.recipes])]
+    oil = next(s for s in insights.spreads(opt, fitted, start) if s.name == "Oil")
+    assert oil.spread == pytest.approx(max(means) - min(means))
+
+
+def test_a_start_that_breaks_a_limit_is_left_out():
+    opt = _burger(rounds=3)
+    fitted = insights.fit_all(opt)
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=8.0)
+    start = opt.fill_formulas({"Pea": 7.0, "Oil": 3.0})
+    assert insights.spreads(opt, fitted, start) == []
+
+
+def test_no_overall_score_model_no_spreads():
+    opt = _linear()
+    fitted = insights.fit_all(opt)
+    fitted[insights.SCORE] = insights.Fitted(insights.SCORE, None, None, 4, 0.0, 100.0)
+    assert insights.spreads(opt, fitted, insights.start_recipe(opt, 0)) == []
+
+
+def test_one_choice_gives_one_spread():
+    opt = _linear()
+    opt.add_ingredient("Oil", 5, 5)                     # fixed: not a choice
+    fitted = insights.fit_all(opt)
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    assert [s.name for s in found] == ["Pea"]
+
+
+def test_equal_spreads_keep_the_path_choice_order(monkeypatch):
+    opt = _linear()
+    fitted = insights.fit_all(opt)
+    monkeypatch.setattr(insights, "predict",
+                        lambda o, f, X: [insights.Prediction(50.0, 40.0, 60.0) for _ in X])
+    found = insights.spreads(opt, fitted, insights.start_recipe(opt, 0))
+    assert [s.name for s in found] == ["Pea", "Oil"]
+    assert all(s.spread == 0.0 for s in found)
+
+
+def test_spreads_leave_the_project_and_rng_untouched():
+    opt = _linear()
+    fitted = insights.fit_all(opt)
+    snap = _snapshot(opt)
+    insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    assert _unchanged(opt, snap)

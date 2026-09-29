@@ -4111,3 +4111,30 @@ PREDICTED_SCORE_HELP = (f"Predicted from the {FORMULATION}s scored so far; about
 PREDICTIONS_ROUND_CAPTION = (f"Some {FORMULATION}s are chosen to try amounts not tested yet, "
                              "so their prediction can be lower than Best so far.")
 PREDICTED_MEASUREMENTS = "Predicted measurements"
+
+
+def spread_from(best, n):
+    """"Best so far" or "Formulation 9": the start a spread is measured from."""
+    return "Best so far" if best else f"{FORMULATION_CAP} {n}"
+
+
+def spread_line(name, spread_text, start_text, only=False):
+    """The answer above the two boxes of question 2. `only`: the one choice
+    there is, so nothing is "the most"."""
+    how = ("by a spread of" if only
+           else "the most: a spread of")
+    return (f"Across its allowed amounts, {name} changes the predicted {OVERALL_SCORE_COLUMN} "
+            f"{how} {spread_text} points (from {start_text}).")
+
+
+SPREAD_FLAT = (f"No ingredient or process setting changes the predicted {OVERALL_SCORE_COLUMN} "
+               "by more than 0.1 points yet.")
+
+
+def compare_all(has_settings):
+    return "Compare all ingredients and settings" if has_settings else "Compare all ingredients"
+
+
+SPREAD_CAPTION = (f"Spread = highest minus lowest predicted {OVERALL_SCORE_COLUMN} along each "
+                  f"path, from the same starting {FORMULATION}, including amounts not tested yet.")
+SPREAD_AXIS = "Spread (points)"

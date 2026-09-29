@@ -283,13 +283,24 @@ def _change(opt, computed, n):
               + [ids[i] for i in reversed(range(len(ids))) if i != best])
     _keep_if_offered(CHOICE_KEY, choices)
     _keep_if_offered(START_KEY, starts)
+    answer = st.container()
     left, right = st.columns(2)
-    name = left.selectbox(wording.INGREDIENT_OR_SETTING, choices, key=CHOICE_KEY)
     number = right.selectbox(
         wording.START_FROM, starts, key=START_KEY,
         format_func=lambda no: (wording.start_best(no) if no == best_no
                                 else wording.start_formulation(no)))
     fitted = computed["fitted"]
+    try:
+        found = insights.spreads(opt, fitted, insights.start_recipe(opt, ids.index(number)))
+    except Exception:   # the answer line is left out; the path still draws
+        found = []
+    # The box opens on the largest spread; after that it keeps the reader's
+    # own choice (_keep_if_offered drops it only when it is no longer offered).
+    if found and CHOICE_KEY not in st.session_state:
+        st.session_state[CHOICE_KEY] = found[0].name
+    with answer:
+        _spread_answer(opt, found, number == best_no, number)
+    name = left.selectbox(wording.INGREDIENT_OR_SETTING, choices, key=CHOICE_KEY)
     try:
         path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
         if path.start_breaks:
@@ -304,6 +315,40 @@ def _change(opt, computed, n):
         st.altair_chart(chart)
     for line in lines:
         st.caption(line)
+
+
+def spread_chart(spreads):
+    """Compare all ingredients and settings: one horizontal bar per choice,
+    largest spread first, in points of Overall score. No error bars: a
+    spread is worked from the predicted means, and the caption says so."""
+    if not spreads:
+        return None
+    df = pd.DataFrame({"name": [s.name for s in spreads],
+                       wording.SPREAD_AXIS: [round(s.spread, 1) for s in spreads]})
+    order = [s.name for s in spreads]
+    return (alt.Chart(df).mark_bar()
+            .encode(x=alt.X(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS),
+                    y=alt.Y("name:N", sort=order, title=None),
+                    tooltip=["name:N", f"{wording.SPREAD_AXIS}:Q"])
+            .properties(height=28 * len(spreads) + 20))
+
+
+def _spread_answer(opt, found, from_best, number):
+    """The one line above the boxes, and the compare expander. Nothing when
+    no path could be drawn or there is no Overall-score model yet."""
+    if not found:
+        return
+    if all(s.spread < 0.05 for s in found):
+        st.write(wording.SPREAD_FLAT)
+        return
+    top = found[0]
+    st.write(wording.spread_line(top.name, f"{top.spread:.1f}",
+                                 wording.spread_from(from_best, number),
+                                 only=len(found) == 1))
+    if len(found) > 1:
+        with st.expander(wording.compare_all(insights.has_setting_choice(opt))):
+            st.altair_chart(spread_chart(found))
+            st.caption(wording.SPREAD_CAPTION)
 
 
 def _whole(value):

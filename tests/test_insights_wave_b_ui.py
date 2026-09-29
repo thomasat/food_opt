@@ -283,3 +283,93 @@ def test_score_and_value_text():
     p = insights.Prediction(78.4, 70.2, 85.49)
     assert ui_insights.score_text(p) == "78 (70–85)"
     assert ui_insights.value_text(insights.Prediction(5.81, 5.1, 6.54)) == "5.81 (5.1–6.54)"
+
+
+# ------------------------------------------------------------------ #
+#  Task 3: which ingredients matter most
+# ------------------------------------------------------------------ #
+
+def _spreads(monkeypatch, *pairs):
+    monkeypatch.setattr(insights, "spreads",
+                        lambda opt, fitted, start: [insights.Spread(n, s) for n, s in pairs])
+
+
+def test_section_2_answer_line_and_compare_expander(insights_scored):
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    opt = FoodOptimizer("burger")
+    fitted = insights.fit_all(opt)
+    [top, _] = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
+    line = wording.spread_line(top.name, f"{top.spread:.1f}", "Best so far")
+    assert line in md
+    # Above the two boxes: it is the answer, the boxes are the detail.
+    assert md.index(line) == md.index(f"**{wording.q_change(False)}**") + 1
+    assert wording.compare_all(False) in [e.label for e in at.tabs[3].expander]
+    assert wording.SPREAD_CAPTION in caps
+
+
+def test_the_box_opens_on_the_largest_spread_then_keeps_the_choice(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Methylcellulose", 9.0), ("Pea protein", 3.0))
+    at = _open_insights(_app())
+    box = at.tabs[3].selectbox(key=ui_insights.CHOICE_KEY)
+    assert box.value == "Methylcellulose"
+    box.set_value("Pea protein")
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert at.tabs[3].selectbox(key=ui_insights.CHOICE_KEY).value == "Pea protein"
+
+
+def test_the_answer_names_another_start(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Pea protein", 6.25), ("Methylcellulose", 1.0))
+    at = _open_insights(_app())
+    at.tabs[3].selectbox(key=ui_insights.START_KEY).set_value(9)
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    md, _ = _tab_text(at)
+    assert wording.spread_line("Pea protein", "6.2", "Formulation 9") in md
+
+
+def test_no_spreads_no_answer_line(insights_scored, monkeypatch):
+    _spreads(monkeypatch)
+    at = _open_insights(_app())
+    assert not at.exception
+    md, _ = _tab_text(at)
+    assert not [m for m in md if m.startswith("Across its allowed amounts")]
+    assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
+    assert at.tabs[3].selectbox(key=ui_insights.CHOICE_KEY).value == "Pea protein"
+
+
+def test_one_choice_answer_line_and_no_expander(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Pea protein", 4.0))
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert wording.spread_line("Pea protein", "4.0", "Best so far", only=True) in md
+    assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
+
+
+def test_a_flat_model_says_so(insights_scored, monkeypatch):
+    _spreads(monkeypatch, ("Pea protein", 0.04), ("Methylcellulose", 0.0))
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert wording.SPREAD_FLAT in md
+    assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
+
+
+def test_a_failed_spread_leaves_the_path(insights_scored, monkeypatch):
+    def boom(*a):
+        raise RuntimeError("no spread")
+    monkeypatch.setattr(insights, "spreads", boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert not [m for m in md if m.startswith("Across its allowed amounts")]
+    assert [c for c in caps if c.startswith("More Pea protein")]
+
+
+def test_spread_chart_is_horizontal_largest_first_without_error_bars():
+    chart = ui_insights.spread_chart([insights.Spread("Oil", 6.2), insights.Spread("Pea", 2.0)])
+    spec = chart.to_dict()
+    assert spec["mark"]["type"] == "bar"
+    assert spec["encoding"]["y"]["sort"] == ["Oil", "Pea"]
+    assert spec["encoding"]["x"]["title"] == wording.SPREAD_AXIS
+    assert "errorbar" not in str(spec)
+    assert ui_insights.spread_chart([]) is None
