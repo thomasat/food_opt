@@ -15,6 +15,27 @@ from ui_helpers import amount_format, table_height
 _BAND = 0.25
 _GREY = 0.12
 
+# Minor 14 (privacy): no chart this tab draws may offer to send its data
+# off the machine. `usermeta` on the TOP-LEVEL spec — set after any layering
+# or faceting — survives Streamlit 1.55's conversion to Vega-Lite and
+# overrides Streamlit's own embed options; set on an inner view instead, it
+# would not reach the frontend at all.
+_NO_CHART_ACTIONS = {"embedOptions": {"actions": False}}
+
+
+def _private(chart):
+    """`chart`, its action menu ("…" → Open in Vega Editor, view source,
+    export) turned off. Pure: no Streamlit call, so it can be tested on its
+    own against whatever a builder below actually returns."""
+    return chart.properties(usermeta=_NO_CHART_ACTIONS)
+
+
+def show_chart(chart, **kwargs):
+    """The one door this file draws an Altair chart through: every chart on
+    this tab goes here instead of calling st.altair_chart directly, so none
+    of a project's data can leave the machine through its action menu."""
+    st.altair_chart(_private(chart), **kwargs)
+
 
 def panel_label(opt, name):
     if name == insights.SCORE:
@@ -277,7 +298,7 @@ def _predictions(opt, computed, n):
     chart = track_chart(opt, checks)
     if chart is not None:
         with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
-            st.altair_chart(chart)
+            show_chart(chart)
 
 
 def _keep_if_offered(key, options):
@@ -340,7 +361,7 @@ def _change(opt, computed, n):
         st.caption(_say(opt, wording.panel_failed(name)))
         return
     if chart is not None:
-        st.altair_chart(chart)
+        show_chart(chart)
     for line in lines:
         st.caption(_say(opt, line))
 
@@ -395,7 +416,7 @@ def _spread_answer(opt, found, from_best, number):
     if not flat and len(moved) > 1:
         with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
                                                        not settings_only))):
-            st.altair_chart(spread_chart(moved))
+            show_chart(spread_chart(moved))
             st.caption(_say(opt, wording.spread_caption(values=settings_only)))
 
 
@@ -519,14 +540,35 @@ def progress_frame(opt):
     }).set_index(formulation)
 
 
+def progress_chart(opt):
+    """The Progress chart: Overall score per Formulation (a line with a dot
+    at each measured one — a gap where a formulation is still waiting for
+    its results) and Best so far (a second, neutral grey dashed line), both
+    against Formulation number on one shared axis. Drawn with Altair, not
+    st.line_chart (Minor 14): a built-in chart has no hook to turn its
+    action menu off, so it is redrawn here through the same door — show_chart
+    — as every other chart on this tab."""
+    frame = progress_frame(opt).reset_index()
+    formulation = frame.columns[0]
+    score, best = wording.OVERALL_SCORE_COLUMN, wording.BEST_SO_FAR_COLUMN
+    # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0 with one
+    # round of data and nothing on the chart said what either number was.
+    x = alt.X(f"{formulation}:Q", title=formulation,
+              axis=alt.Axis(format="d", tickMinStep=1))
+    score_line = (alt.Chart(frame).mark_line(point=True)
+                  .encode(x=x, y=alt.Y(f"{score}:Q", title=score),
+                          tooltip=[alt.Tooltip(f"{formulation}:Q"),
+                                   alt.Tooltip(f"{score}:Q")]))
+    best_line = (alt.Chart(frame).mark_line(color="gray", strokeDash=[4, 3])
+                 .encode(x=x, y=alt.Y(f"{best}:Q", title=score),
+                         tooltip=[alt.Tooltip(f"{formulation}:Q"),
+                                  alt.Tooltip(f"{best}:Q", title=best)]))
+    return alt.layer(score_line, best_line).properties(height=220)
+
+
 def _progress_chart_body(opt):
     # Moved unchanged from Results (0.7.2), minus its own expander.
-    st.line_chart(progress_frame(opt), height=220,
-        # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
-        # with one round of data and nothing on the chart said what
-        # either number was.
-        x_label=_say(opt, wording.FORMULATION_CAP),
-        y_label=wording.OVERALL_SCORE_COLUMN)
+    show_chart(progress_chart(opt))
     st.caption(_say(opt, wording.PROGRESS_CHART_CAPTION))
 
 
@@ -926,7 +968,7 @@ def _pair(opt):
     if not points:
         st.caption(_say(opt, wording.PAIR_NONE))
         return True
-    st.altair_chart(pair_chart(opt, *picked, points))
+    show_chart(pair_chart(opt, *picked, points))
     st.caption(_say(opt, pair_caption(opt, *picked)))
     return True
 
@@ -1037,7 +1079,7 @@ def _mixture(opt, fitted):
         return True
     chart = mixture_chart(opt, mix, preds, number, own)
     if chart is not None:
-        st.altair_chart(chart, width="content")
+        show_chart(chart, width="content")
     st.caption(_say(opt, wording.mixture_caption(number)))
     for line in ([wording.path_follows(n) for n in mix.follows]
                  + ([wording.mixture_fills(mix.fill_moves)] if mix.fill_moves else [])
@@ -1054,7 +1096,7 @@ def _misses(opt, checks):
     if chart is None:
         return False
     _question(opt, wording.Q_MISSES)
-    st.altair_chart(chart)
+    show_chart(chart)
     st.caption(_say(opt, wording.MISSES_CAPTION))
     return True
 
