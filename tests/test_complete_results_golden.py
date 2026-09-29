@@ -9,7 +9,6 @@ code, by
 and committed. It is never regenerated: every later commit on the branch
 keeps this file green, which is the proof that a project with no blanks and
 no measurement added partway scores and suggests exactly what it did."""
-import itertools
 import json
 import os
 import pathlib
@@ -22,7 +21,6 @@ import torch
 from food_bo import FoodOptimizer
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "complete_results_golden.json"
-_names = itertools.count()
 
 
 def _truth(pea, oil, salt):
@@ -36,10 +34,17 @@ def _recipe(k):
             "Salt": (k * 0.29) % 1}
 
 
-def _project(robust=False, bo_config=None, rows=7):
+def _project(name, robust=False, bo_config=None, rows=7):
     """Three ingredients, three measurements (one of each goal), `rows`
-    fully measured formulations numbered 1..rows in Rounds of three."""
-    opt = FoodOptimizer(f"golden_{next(_names)}", robust=robust)
+    fully measured formulations numbered 1..rows in Rounds of three.
+
+    `name` is derived from the case only (never from call order): the
+    project name feeds `_sobol_seed` (it hashes `project_name`), so a
+    counter-based name would make the cold-start Sobol sequence, and
+    therefore the recorded suggestions, depend on which other cases ran
+    first in the same process -- e.g. `pytest -k qlogei` would then see
+    different names, and therefore different seeds, than a full run."""
+    opt = FoodOptimizer(name, robust=robust)
     opt.set_amount_unit("g")
     opt.add_ingredient("Pea", 4, 8)
     opt.add_ingredient("Oil", 2, 6)
@@ -82,10 +87,10 @@ def _run_case(kind):
     """Cold ask on 3 rows, warm ask on 7, and the scores and GP inputs."""
     if kind == "open_round":
         return _run_open_round()
-    cold = _project(rows=3, **CASES[kind])
+    cold = _project(f"golden_{kind}_3", rows=3, **CASES[kind])
     cold_seen = _spy(cold)
     cold_out = cold.ask(2)
-    warm = _project(rows=7, **CASES[kind])
+    warm = _project(f"golden_{kind}_7", rows=7, **CASES[kind])
     seen = _spy(warm)
     warm_out = warm.ask(2)
     return {
@@ -100,7 +105,7 @@ def _run_open_round():
     """Round 3 open: two generated rows and one of the user's own; the own
     row and the first generated row recorded one sheet at a time; then the
     next ask."""
-    opt = _project(rows=6)
+    opt = _project("golden_open_round", rows=6)
     first = opt.ask(2)
     own_no = opt.add_to_pending_batch({"Pea": 6.0, "Oil": 4.0, "Salt": 0.5},
                                       note="Own formulation")
@@ -169,13 +174,13 @@ def _reference_utility(objectives, results):
 
 
 def test_scores_equal_the_pre_change_formula():
-    opt = _project(rows=7)
+    opt = _project("golden_formula_check", rows=7)
     for i, results in enumerate(opt.results_history):
         assert opt.Y_history[i] == _reference_utility(opt.objectives, results)
 
 
 def test_a_reopened_project_scores_the_same():
-    opt = _project(rows=7)
+    opt = _project("golden_reopen_check", rows=7)
     again = FoodOptimizer(opt.project_name)
     assert again.Y_history == opt.Y_history
 
