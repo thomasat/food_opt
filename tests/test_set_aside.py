@@ -81,6 +81,10 @@ def test_deleting_the_measurement_it_lacked_makes_it_an_ordinary_formulation():
     opt.remove_objective("Cook loss")
     i = opt.index_of_formulation(7)
     assert opt.fully_measured(i) and not opt.is_set_aside(i)
+    # Pruned from the file too: a later edit that left it short again would
+    # otherwise bring the flag back (Task 3 review, M-1).
+    assert opt.set_aside == []
+    assert FoodOptimizer(opt.project_name).set_aside == []
 
 
 def test_deleting_the_formulation_drops_its_number():
@@ -88,6 +92,33 @@ def test_deleting_the_formulation_drops_its_number():
     opt.set_aside_formulation(7)
     opt.delete_formulation(7)
     assert opt.set_aside == []
+
+
+def test_undoing_its_round_drops_its_number():
+    opt = _with_one_waiting()
+    opt.set_aside_formulation(7)
+    opt.undo_last_batch()
+    assert opt.index_of_formulation(7) is None
+    assert opt.set_aside == []
+    assert FoodOptimizer(opt.project_name).set_aside == []
+
+
+def test_rewinding_past_it_drops_its_number():
+    opt = _with_one_waiting()
+    opt.set_aside_formulation(7)
+    opt.rewind_to(opt.index_of_formulation(6))
+    assert opt.set_aside == []
+
+
+def test_a_saved_copy_never_carries_a_stale_number():
+    opt = _with_one_waiting()
+    opt.set_aside_formulation(7)
+    opt.set_aside.append(99)                     # no such formulation
+    assert opt.export_json()['set_aside'] == [7]
+
+
+def test_with_nothing_named_it_reads_plain_not_scored():
+    assert wording.not_scored_missing("") == wording.NOT_SCORED
 
 
 def test_set_aside_survives_a_saved_copy_and_a_reopen():
@@ -170,6 +201,7 @@ def test_the_new_strings_pass_the_vocabulary_guard():
                  wording.MOVE_TO_NOT_SCORED, wording.WAIT_AGAIN,
                  wording.move_to_not_scored_warning(33), wording.moved_to_not_scored(33),
                  wording.waiting_again(33, "Cook loss"),
+                 wording.saved_not_scored(33, "Cook loss"),
                  wording.formulation_has_all_results(33)):
         assert not any(p.search(text) for p in _BANNED), text
     assert wording.move_to_not_scored_warning(33) == (

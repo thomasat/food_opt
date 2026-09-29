@@ -5,7 +5,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from food_bo import FoodOptimizer
-from ui_results import _amount_rows
+from ui_results import BEST_CHOICE, _amount_rows
 import wording
 
 APP = str(Path(__file__).resolve().parents[1] / 'app.py')
@@ -48,7 +48,7 @@ def test_best_other_and_unscored_details_are_read_only(project):
     assert any(i.value == wording.RESULT_UNSCORED_HELP for i in at.info)
     assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['40.00', '60.00', '']
     assert not any('Measured' in d.value.columns for d in at.tabs[2].dataframe)
-    at.selectbox(key='result_view_details').select('best').run()
+    at.selectbox(key='result_view_details').select(BEST_CHOICE).run()
     assert any(h.value == wording.best_so_far_heading(2, 1) for h in at.subheader)
     assert FoodOptimizer('details').export_json() == before
 

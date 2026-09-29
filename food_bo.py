@@ -3571,6 +3571,20 @@ class FoodOptimizer:
         self.set_aside = [n for n in self.set_aside if n != int(formulation_no)]
         self.save()
 
+    def _live_set_aside(self):
+        """set_aside with only the numbers that still mean something: a
+        formulation on file that is still short of a result. Everything
+        that takes a row away or completes it — the value entered, the
+        measurement it lacked deleted, the row, its Round or a rewind —
+        reaches save(), which prunes through this; left in, a stale number
+        brought the flag back on a later edit (Task 3 review, M-1)."""
+        live = []
+        for n in self.set_aside:
+            index = self.index_of_formulation(n)
+            if index is not None and not self.fully_measured(index):
+                live.append(int(n))
+        return sorted(set(live))
+
     def has_every_measurement(self, index):
         """True when this formulation has a value for every current
         measurement: fully measured and scored without none of them."""
@@ -7038,11 +7052,8 @@ class FoodOptimizer:
             self.results_history[index] = dict(new_results_dict)
         self.Y_history[index] = self._compute_utility(
             new_results_dict, self._number_at(index))
-        if self.fully_measured(index):
-            # The missing value arrived: a formulation moved to Not scored
-            # is scored again, with nothing else to click.
-            self.set_aside = [n for n in self.set_aside
-                              if n != self._number_at(index)]
+        # The missing value arrived: a formulation moved to Not scored is
+        # scored again, with nothing else to click (save() prunes it).
         self.save()
 
     def edit_note(self, index, note):
@@ -7075,8 +7086,6 @@ class FoodOptimizer:
             raise IndexError("There is no formulation at that position.")
         self.X_history.pop(index)
         self.Y_history.pop(index)
-        number = self._number_at(index)
-        self.set_aside = [n for n in self.set_aside if n != number]
         for lst in (self.recipe_history, self.results_history,
                     self.timestamps_history, self.formulation_ids,
                     self.batch_history, self.notes_history):
@@ -12179,6 +12188,7 @@ class FoodOptimizer:
         # Delegates to the storage backend. StorageError (a cloud backend
         # failure) is swallowed into save_error so the user's in-memory work
         # survives; the app shows it as a banner. Local I/O errors propagate.
+        self.set_aside = self._live_set_aside()
         try:
             self.storage.save(self.project_name, self.export_json())
         except StorageError as e:
@@ -12264,7 +12274,7 @@ class FoodOptimizer:
             'batch_history': self.batch_history,
             'notes_history': self.notes_history,
             'skipped': self.skipped,
-            'set_aside': self.set_aside,
+            'set_aside': self._live_set_aside(),
             'next_formulation_no': self.next_formulation_no,
             'next_batch_number': self.next_batch_number,
             'sobol_seed': getattr(self, 'sobol_seed', None),

@@ -321,43 +321,53 @@ def _missing_key(no, name):
     return f"missing_{no}_{name}"
 
 
-def _missing_panel(opt, number, names):
+def _missing_panel(opt, number, names, correcting=False):
     """Under a formulation still waiting for results, or moved to Not
     scored: one box per missing measurement and Save, the lit button —
     entering the value is the first way out, and it used to be the hardest
     (review 0.8.0) — then the secondary one: Move to Not scored, behind a
     confirmation, or Wait for its results again. Greyed and ignored while
-    another confirmation is open."""
+    another confirmation is open.
+
+    `correcting`: a correction is open in Edit past formulations, and its
+    Save correction is the one lit button on the tab; this Save stays
+    usable, in grey. With nothing to name (every measurement the row was
+    measured on deleted) there is nothing to type, so no boxes and no Save."""
     index = opt.index_of_formulation(number)
-    objs = {o['name']: o for o in opt.objectives}
-    typed = _measurement_boxes([objs[n] for n in names if n in objs],
-                               lambda name: _missing_key(number, name))
-    key = f"set_aside_{number}"
     lit = not confirmation_open()
-    if st.button(wording.save_missing(number_list(names)), key=f"save_missing_{number}",
-                 type="primary" if lit else "secondary", disabled=not lit) and lit:
-        _save_missing(opt, number, typed)
+    if names:
+        objs = {o['name']: o for o in opt.objectives}
+        typed = _measurement_boxes([objs[n] for n in names if n in objs],
+                                   lambda name: _missing_key(number, name))
+        if st.button(wording.save_missing(number_list(names)),
+                     key=f"save_missing_{number}",
+                     type="primary" if lit and not correcting else "secondary",
+                     disabled=not lit) and lit:
+            _save_missing(opt, number, typed)
+    key = f"set_aside_{number}"
     if opt.is_set_aside(index):
         if st.button(wording.WAIT_AGAIN, key=f"wait_again_{number}",
                      disabled=not lit) and lit:
             opt.wait_again(number)
             if saved_ok(opt):
-                flash("success", wording.waiting_again(number, number_list(names)))
+                flash("success", wording.for_project(
+                    opt, wording.waiting_again(number, number_list(names))))
                 st.rerun()
         return
     if confirm_action(key, wording.MOVE_TO_NOT_SCORED,
-                      wording.move_to_not_scored_warning(number),
+                      wording.for_project(opt, wording.move_to_not_scored_warning(number)),
                       disabled=other_confirmation(key)):
         opt.set_aside_formulation(number)
         if saved_ok(opt):
-            flash("success", wording.moved_to_not_scored(number))
+            flash("success", wording.for_project(opt, wording.moved_to_not_scored(number)))
             st.rerun()
 
 
 def _save_missing(opt, number, typed):
     """Write the values typed into the missing boxes onto the recorded row.
     Nothing recorded is overwritten, so no copy is kept first; a blank box
-    stays missing."""
+    stays missing. A row moved to Not scored that still lacks a value stays
+    Not scored, and the flash says so rather than 'scored'."""
     objs = {o['name']: o for o in opt.objectives}
     for name, value in typed.items():
         problem = scale_error(objs[name], value)
@@ -375,11 +385,14 @@ def _save_missing(opt, number, typed):
         return
     for name in typed:
         st.session_state.pop(_missing_key(number, name), None)
-    sentences = [wording.formulation_scored(number, waiting_text(opt, index))]
+    if opt.is_set_aside(index):
+        sentences = [wording.saved_not_scored(number, number_list(opt.waiting_on(index)))]
+    else:
+        sentences = [wording.formulation_scored(number, waiting_text(opt, index))]
     move = best_move_sentence(before, best_formulation_no(opt))
     if move:
         sentences.append(move)
-    flash("success", " ".join(sentences))
+    flash("success", wording.for_project(opt, " ".join(sentences)))
     st.rerun()
 
 
@@ -1400,7 +1413,7 @@ def render(opt, storage):
     with foot:
         # A formulation's own Save for its missing values is the lit button
         # while it is on screen (spec 0.8.0 review fixes §9 B2).
-        _foot(opt, pending is not None or missing is not None)
+        _foot(opt, pending is not None or bool(missing and missing['names']))
     if pending is not None:
         with pending['slot']:
             _save_correction(opt, storage, pending)
@@ -1408,6 +1421,7 @@ def render(opt, storage):
     # tab has been drawn: what is typed in the fold below survives.
     if missing is not None:
         with missing['slot']:
-            _missing_panel(opt, missing['number'], missing['names'])
+            _missing_panel(opt, missing['number'], missing['names'],
+                           correcting=pending is not None)
     with open_correction:
         _open_correction_button(opt)

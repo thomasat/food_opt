@@ -284,7 +284,9 @@ def _question(opt, text):
 
 
 def render(opt):
-    n = len(opt.Y_history)
+    # A formulation moved to Not scored counts for nothing here, so it is
+    # not one of the scored ones either, nor towards MIN_ROWS (review M-3).
+    n = len(opt.Y_history) - sum(map(opt.is_set_aside, range(len(opt.Y_history))))
     if n == 0:
         st.caption(_say(opt, wording.INSIGHTS_NONE))
         return

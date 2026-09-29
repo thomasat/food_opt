@@ -1902,8 +1902,17 @@ def overall_score_waiting(names_text):
 # and its partial values; entering the value scores it again.
 def not_scored_missing(names_text):
     """'Not scored · Cook loss not measured' — a recorded formulation moved
-    to Not scored: its Overall score cell and its line on Results."""
-    return f"{NOT_SCORED}{not_measured_tail(names_text)}"
+    to Not scored: its Overall score cell and its line on Results. With
+    nothing to name (every measurement it was measured on deleted), plain
+    'Not scored'."""
+    return f"{NOT_SCORED}{not_measured_tail(names_text)}" if names_text else NOT_SCORED
+
+
+def saved_not_scored(no, names_text):
+    """A value typed for a formulation moved to Not scored that still lacks
+    another: 'Formulation 4 saved · Not scored · Cook loss not measured.'
+    It is not scored yet, so the flash must not say it is."""
+    return f"{FORMULATION_CAP} {no} saved · {not_scored_missing(names_text)}."
 
 
 def save_missing(names_text):
