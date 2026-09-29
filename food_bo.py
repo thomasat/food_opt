@@ -8009,20 +8009,24 @@ class FoodOptimizer:
         self.formulation_total = getattr(self, 'formulation_total', None)
 
     def _migrate_not_for(self):
-        """A file written before 0.8.0 has no `not_for`. When unsure, exempt:
-        every recorded formulation with no value for a measurement is taken
-        as recorded before it was added, and is scored on what it has rather
-        than left waiting for a value nobody may have. A present list is
+        """A file written before 0.8.0 has no `not_for`, so it is worked out
+        from the first recorded formulation (recording order) that has a
+        value for the measurement: the rows without one recorded BEFORE it
+        are taken as recorded before the measurement was added, and are
+        scored on what they have. A blank after it is a result still to
+        come, and waits — Score without resolves one that never will. With
+        no value anywhere, every recorded row is exempt. A present list is
         kept, as whole numbers, sorted."""
         for obj in self.objectives:
             if 'not_for' in obj:
                 obj['not_for'] = sorted({int(n) for n in obj['not_for'] or []})
                 continue
+            rows = list(zip(self.formulation_ids, self.results_history))
+            first = next((k for k, (_, results) in enumerate(rows)
+                          if results.get(obj['name']) is not None), len(rows))
             obj['not_for'] = sorted(
-                int(self.formulation_ids[i])
-                for i, results in enumerate(self.results_history)
-                if i < len(self.formulation_ids)
-                and results.get(obj['name']) is None)
+                int(no) for no, results in rows[:first]
+                if results.get(obj['name']) is None)
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a

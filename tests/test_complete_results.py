@@ -136,21 +136,76 @@ def _v15_state(opt):
     return state
 
 
-def test_migration_exempts_every_recorded_row_without_a_value():
-    opt = _patty(rows=3)
+def test_migration_exempts_rows_recorded_before_the_first_value():
+    """Rev. 3: a measurement with no `not_for` exempts the recorded rows with
+    no value for it that came BEFORE the first recorded row that has one.
+    A blank after that is a result still to come: it waits."""
+    opt = _patty(rows=0)
+    _tell(opt, 1, 1, drop=("Cook loss",))
+    _tell(opt, 2, 1, drop=("Cook loss",))
+    _tell(opt, 3, 1)
     _tell(opt, 4, 2, drop=("Cook loss",))
     _tell(opt, 5, 2, drop=("Juiciness",))
     other = FoodOptimizer("migrated")
     other.import_json(_v15_state(opt))
-    assert _not_for(other, "Cook loss") == [4]
-    assert _not_for(other, "Juiciness") == [5]
+    assert _not_for(other, "Cook loss") == [1, 2]
+    assert _not_for(other, "Juiciness") == []
     assert _not_for(other, "Firmness") == []
+    assert other.waiting_on(other.index_of_formulation(4)) == ["Cook loss"]
+    assert other.waiting_on(other.index_of_formulation(5)) == ["Juiciness"]
+
+
+def test_migration_exempts_every_row_when_none_has_a_value():
+    opt = _patty(rows=0)
+    for no in (1, 2, 3):
+        _tell(opt, no, 1, drop=("Cook loss",))
+    other = FoodOptimizer("migrated_none")
+    other.import_json(_v15_state(opt))
+    assert _not_for(other, "Cook loss") == [1, 2, 3]
+    assert other.waiting_rows() == []
+
+
+def test_migration_follows_recording_order_not_numbers():
+    """Recording order is the history's order: a Round recorded one sheet
+    at a time can record 6 before 5."""
+    opt = _patty(rows=0)
+    _tell(opt, 6, 2, drop=("Cook loss",))
+    _tell(opt, 4, 2)
+    _tell(opt, 5, 2, drop=("Cook loss",))
+    other = FoodOptimizer("migrated_order")
+    other.import_json(_v15_state(opt))
+    assert _not_for(other, "Cook loss") == [6]
+
+
+def test_a_migrated_project_keeps_its_best_and_its_later_partial_row_waits():
+    """A 0.7.x project: the star is on a complete row, and a later row was
+    saved with Cook loss still to come. After load the star stays, and the
+    partial row reads waiting — it is not rescaled past the star (review #3)."""
+    opt = _patty(rows=0)
+    for no in range(1, 7):
+        opt.tell({"Pea": 5.0, "Oil": 3.0},
+                 {"Firmness": 5.0, "Juiciness": 6.0, "Cook loss": 20.0},
+                 formulation_no=no, batch_no=1)
+    opt.tell({"Pea": 6.0, "Oil": 5.0}, {"Firmness": 6.0, "Juiciness": 9.5},
+             formulation_no=7, batch_no=2)
+    star = opt.best_formulation_no()
+    assert star != 7
+    other = FoodOptimizer("migrated_star")
+    other.import_json(_v15_state(opt))
+    assert other.best_formulation_no() == star
+    assert _not_for(other, "Cook loss") == []
+    frame = other.history_frame()
+    assert _row(frame, 7)[wording.OVERALL_SCORE_COLUMN] == "waiting for Cook loss"
+    assert _row(frame, star)[wording.BEST_SO_FAR_COLUMN] == "★"
 
 
 def test_migration_runs_after_the_identity_backfill():
     """A 0.2.x file has no formulation numbers: they are backfilled first,
     then not_for is read off them, then the scores (review I1)."""
-    opt = _patty(rows=3)
+    opt = _patty(rows=0)
+    _tell(opt, 1, 1, drop=("Cook loss",))
+    _tell(opt, 2, 1)
+    _tell(opt, 3, 1)
     _tell(opt, 4, 2, drop=("Cook loss",))
     state = _v15_state(opt)
     for key in ('formulation_ids', 'batch_history', 'notes_history',
@@ -160,7 +215,7 @@ def test_migration_runs_after_the_identity_backfill():
     other = FoodOptimizer("legacy")
     other.import_json(state)
     assert other.formulation_ids == [1, 2, 3, 4]
-    assert _not_for(other, "Cook loss") == [4]
+    assert _not_for(other, "Cook loss") == [1]
 
 
 @pytest.mark.parametrize("bad", ["3", [1, "2"], [True], None, {"n": 1}, [1.5]])
@@ -190,8 +245,9 @@ def test_class_version_16_round_trips():
 
 
 def test_an_older_file_is_saved_back_with_not_for_on_open():
-    opt = _patty(rows=2)
+    opt = _patty(rows=0)
     _tell(opt, 3, 1, drop=("Cook loss",))
+    _tell(opt, 4, 1)
     state = _v15_state(opt)
     state['project_name'] = "older"      # import_json takes the file's name
     store = LocalStorage()
@@ -324,14 +380,16 @@ def test_a_row_with_nothing_that_applies_is_never_fully_measured():
 
 
 def test_migration_scores_exempt_rows_on_what_they_have():
-    opt = _patty(rows=3)
-    _tell(opt, 4, 2, drop=("Cook loss",))
+    opt = _patty(rows=0)
+    _tell(opt, 4, 1, drop=("Cook loss",))
+    for no in (5, 6, 7):
+        _tell(opt, no, 1)
     other = FoodOptimizer("migrated_scores")
     other.import_json(_v15_state(opt))
     u = _u(4)
-    assert other.Y_history[3] == pytest.approx(
+    assert other.Y_history[0] == pytest.approx(
         (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
-    assert other.fully_measured(3)
+    assert other.fully_measured(0)
 
 
 # ---------------------------------------------------------------- Task 4
