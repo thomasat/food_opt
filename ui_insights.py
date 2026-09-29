@@ -777,6 +777,56 @@ def mixture_chart(opt, mix, preds, number):
             .configure_view(stroke=None))
 
 
+def misses_chart(opt, found):
+    """How far did each prediction miss? One panel per measurement plus the
+    Overall score, all on one y axis in standard deviations: a grey band
+    for the likely range (±1.96), a zero line, a ring for every miss and a
+    filled dot for one inside its likely range, as in "Show each
+    prediction". Round on x; formulations of one Round sit side by side in
+    Formulation-number order."""
+    if not found:
+        return None
+    names = [n for n in track_panels(opt) if any(m.name == n for m in found)]
+    order = [panel_label(opt, n) for n in names]
+    rows = []
+    for name in names:
+        mine = sorted((m for m in found if m.name == name), key=lambda m: (m.round, m.formulation))
+        slot = {}
+        for m in mine:
+            k = slot[m.round] = slot.get(m.round, -1) + 1
+            rows.append({"panel": panel_label(opt, name), "mark": "miss",
+                         wording.ROUND_CAP: m.round, "slot": k,
+                         wording.FORMULATION_CAP: m.formulation,
+                         wording.MISSES_AXIS: round(m.z, 2), "inside": m.inside})
+        rows.append({"panel": panel_label(opt, name), "mark": "band",
+                     "lo": -insights.Z95, "hi": insights.Z95, "zero": 0.0})
+    df = pd.DataFrame(rows)
+    zs = [m.z for m in found]
+    top = max(2.5, max(abs(v) for v in zs) + 0.25)
+    y = alt.Y(f"{wording.MISSES_AXIS}:Q", title=wording.MISSES_AXIS,
+              scale=alt.Scale(domain=[-top, top], nice=False))
+    x = alt.X(f"{wording.ROUND_CAP}:O", title=wording.ROUND_CAP, axis=alt.Axis(labelAngle=0))
+    off = alt.XOffset("slot:O")
+    tip = [wording.FORMULATION_CAP, wording.ROUND_CAP, f"{wording.MISSES_AXIS}:Q"]
+    band = (alt.Chart().mark_rect(opacity=_BAND, color="gray")
+            .encode(y=alt.Y("lo:Q", scale=alt.Scale(domain=[-top, top], nice=False)), y2="hi:Q")
+            .transform_filter(_only("band")))
+    label = (alt.Chart().mark_text(align="left", baseline="bottom", dx=3, dy=-2, color="gray")
+             .encode(y="hi:Q", x=alt.value(0), text=alt.value(wording.MISSES_BAND))
+             .transform_filter(_only("band")))
+    zero = (alt.Chart().mark_rule(color="gray", strokeWidth=1)
+            .encode(y="zero:Q").transform_filter(_only("band")))
+    rings = (alt.Chart().mark_point(size=50, strokeWidth=2)
+             .encode(x=x, xOffset=off, y=y, tooltip=tip).transform_filter(_only("miss")))
+    filled = (alt.Chart().mark_point(size=50, filled=True, opacity=1)
+              .encode(x=x, xOffset=off, y=y, tooltip=tip)
+              .transform_filter(_only("miss"))
+              .transform_filter(alt.FieldEqualPredicate(field="inside", equal=True)))
+    return (alt.layer(band, zero, label, rings, filled, data=df)
+            .properties(width=220, height=160)
+            .facet(facet=alt.Facet("panel:N", sort=order, title=None), columns=3))
+
+
 def _pair(opt):
     names = insights.pair_choices(opt)
     if len(names) < 2:
@@ -873,6 +923,19 @@ def _mixture(opt, fitted):
     return True
 
 
+def _misses(opt, checks):
+    if not insights.misses_ready(checks):
+        return False
+    found = insights.misses(checks)
+    chart = misses_chart(opt, found)
+    if chart is None:
+        return False
+    _question(opt, wording.Q_MISSES)
+    st.altair_chart(chart)
+    st.caption(wording.MISSES_CAPTION)
+    return True
+
+
 def more_charts_offered(opt, computed):
     """Whether "More charts" has anything to show: 5 formulations with all
     their results, the models fitted, and at least one of its charts past
@@ -883,7 +946,8 @@ def more_charts_offered(opt, computed):
     score = fitted.get(insights.SCORE)
     return (len(opt.objectives) >= 2
             or (len(insights.mixture_choices(opt)) >= 3 and score is not None
-                and score.model is not None))
+                and score.model is not None)
+            or insights.misses_ready(computed["checks"]))
 
 
 def _more_charts(opt, computed):
@@ -891,7 +955,8 @@ def _more_charts(opt, computed):
         return
     with st.expander(wording.MORE_CHARTS):
         for draw in (lambda: _pair(opt),
-                     lambda: _mixture(opt, computed["fitted"])):
+                     lambda: _mixture(opt, computed["fitted"]),
+                     lambda: _misses(opt, computed["checks"])):
             try:
                 draw()
             except Exception:   # one chart failing must not take the tab down

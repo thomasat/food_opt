@@ -4273,3 +4273,12 @@ def mixture_together(unit):
 MIXTURE_TESTED = "Tested near here"
 MIXTURE_UNTESTED = "Not tested near here"
 MIXTURE_BLOCKED = "Not allowed by your limits"
+
+
+# Wave C: "How far did each prediction miss?"
+Q_MISSES = "How far did each prediction miss?"
+MISSES_CAPTION = ("How far each prediction missed, measured in standard deviations of its "
+                  "likely range; about 19 in 20 land inside the band. A drift over the "
+                  f"{ROUND_CAP}s means the predictions run consistently high or low.")
+MISSES_AXIS = "Miss (standard deviations)"
+MISSES_BAND = "likely range"

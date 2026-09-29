@@ -662,3 +662,79 @@ def test_the_triangle_strings_pass_the_word_guards():
                   wording.mixture_fill_follows("Hydration water", "Remaining water"),
                   wording.mixture_together("g"), wording.MIXTURE_TESTED,
                   wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED)
+
+
+# ------------------------------------------------------------------ #
+#  Task 5: "How far did each prediction miss?"
+# ------------------------------------------------------------------ #
+
+def test_the_misses_chart_heading_and_caption(mixture_scored):
+    at = _open_insights(_app())
+    more = _more(at)
+    md = [m.value for m in more.markdown]
+    assert md[-1] == f"**{wording.Q_MISSES}**"
+    assert [c.value for c in more.caption][-1] == wording.MISSES_CAPTION
+
+
+def test_no_misses_chart_before_ten_measurement_checks(insights_scored):
+    at = _open_insights(_app())                      # 6 measurement checks
+    assert f"**{wording.Q_MISSES}**" not in [m.value for m in _more(at).markdown]
+
+
+def _checks(opt):
+    return insights.check_rounds(opt)
+
+
+def test_misses_chart_band_zero_and_filled_inside(mixture_scored):
+    opt = mixture_scored
+    found = insights.misses(_checks(opt))
+    spec = ui_insights.misses_chart(opt, found).to_dict()
+    layers = spec["spec"]["layer"]
+    rect = next(l for l in layers if l["mark"]["type"] == "rect")
+    assert rect["encoding"]["y"]["field"] == "lo" and rect["encoding"]["y2"]["field"] == "hi"
+    rows = next(iter(spec["datasets"].values()))
+    bands = [r for r in rows if r["mark"] == "band"]
+    assert bands and all(r["lo"] == -insights.Z95 and r["hi"] == insights.Z95 and r["zero"] == 0
+                         for r in bands)
+    label = next(l for l in layers if l["mark"]["type"] == "text")
+    assert label["encoding"]["text"] == {"value": wording.MISSES_BAND}
+    filled = [l for l in layers if l["mark"].get("filled")]
+    assert filled[0]["transform"][-1] == {"filter": {"field": "inside", "equal": True}}
+    misses = [r for r in rows if r["mark"] == "miss"]
+    assert [r["inside"] for r in misses] == [m.inside for m in sorted(
+        found, key=lambda m: (ui_insights.track_panels(opt).index(m.name), m.round, m.formulation))]
+
+
+def test_misses_chart_shares_one_y_axis_and_puts_round_on_x(mixture_scored):
+    opt = mixture_scored
+    spec = ui_insights.misses_chart(opt, insights.misses(_checks(opt))).to_dict()
+    assert "resolve" not in spec
+    ring = next(l for l in spec["spec"]["layer"] if l["mark"]["type"] == "point")
+    assert ring["encoding"]["x"]["type"] == "ordinal"
+    assert ring["encoding"]["x"]["field"] == wording.ROUND_CAP
+    assert ring["encoding"]["xOffset"]["field"] == "slot"
+    assert ring["encoding"]["y"]["title"] == wording.MISSES_AXIS
+    assert spec["columns"] == 3
+
+
+def test_formulations_of_one_round_sit_side_by_side_in_number_order():
+    opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
+                              "_measurement_column": lambda self, o: "Firmness (N)"})()
+    found = [insights.Miss(9, 3, "Firmness", 0.5, True), insights.Miss(7, 3, "Firmness", -1.0, True),
+             insights.Miss(8, 3, "Firmness", 2.5, False), insights.Miss(10, 4, "Firmness", 0.1, True)]
+    spec = ui_insights.misses_chart(opt_like, found).to_dict()
+    rows = [r for r in next(iter(spec["datasets"].values())) if r["mark"] == "miss"]
+    assert [(r[wording.FORMULATION_CAP], r["slot"]) for r in rows] == [(7, 0), (8, 1), (9, 2), (10, 0)]
+
+
+def test_exact_wave_c_strings_for_the_misses():
+    assert wording.Q_MISSES == "How far did each prediction miss?"
+    assert wording.MISSES_CAPTION == (
+        "How far each prediction missed, measured in standard deviations of its likely range; "
+        "about 19 in 20 land inside the band. A drift over the Rounds means the predictions run "
+        "consistently high or low.")
+
+
+def test_the_misses_strings_pass_the_word_guards():
+    _assert_clean(wording.Q_MISSES, wording.MISSES_CAPTION, wording.MISSES_AXIS,
+                  wording.MISSES_BAND)
