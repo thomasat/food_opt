@@ -87,7 +87,7 @@ def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
     [box] = more.multiselect
     assert box.label == wording.PAIR_PICK
     assert box.value == ["Firmness", "Juiciness"]          # Share 1.5 before 1.0
-    assert wording.PAIR_CAPTION in [c.value for c in more.caption]
+    assert wording.PAIR_CAPTION in [c.value for c in more.caption]    # both have targets
     [spec] = _charts(more)
     titles = [layer["encoding"]["x"].get("title") for layer in spec["layer"]
               if "x" in layer.get("encoding", {})]
@@ -233,7 +233,7 @@ def test_pair_chart_colours_by_score_and_draws_waiting_rows_hollow(tmp_path, mon
     hollow = [l for l in _layers(spec, "point") if l["mark"].get("filled") is False
               and l["mark"].get("color") == "gray" and l["mark"].get("size") == 60]
     assert hollow and hollow[0]["transform"] == [{"filter": {"field": "waiting", "equal": True}}]
-    [label] = _layers(spec, "text")
+    [label] = [l for l in _layers(spec, "text") if not l["mark"].get("stroke")]
     assert label["encoding"]["text"] == {"value": wording.PAIR_BEST}
 
 
@@ -356,8 +356,22 @@ def test_the_triangle_starts_from_section_2s_choice(mixture_scored):
     assert wording.mixture_caption(4) in [c.value for c in _more(at).caption]
 
 
+def _full_slices(monkeypatch):
+    """Counts the triangle's own slices: the default three's room check
+    (steps=1, three points) is not one."""
+    calls = []
+    real = insights.mixture_slice
+
+    def counted(*a, **k):
+        if k.get("steps", insights.GRID_STEPS) != 1:
+            calls.append(1)
+        return real(*a, **k)
+    monkeypatch.setattr(insights, "mixture_slice", counted)
+    return calls
+
+
 def test_the_triangle_is_worked_out_once(mixture_scored, monkeypatch):
-    calls = _counting(monkeypatch, "mixture_slice")
+    calls = _full_slices(monkeypatch)
     at = _open_insights(_app())
     _rerun_on(at)
     _rerun_on(at)
@@ -372,14 +386,15 @@ def test_a_failed_triangle_is_one_line_and_not_retried(mixture_scored, monkeypat
     calls = []
 
     def boom(*a, **k):
-        calls.append(1)
+        if k.get("steps", insights.GRID_STEPS) != 1:
+            calls.append(1)
         raise RuntimeError("no triangle")
     monkeypatch.setattr(insights, "mixture_slice", boom)
     at = _open_insights(_app())
     assert not at.exception
     more = _more(at)
     assert wording.panel_failed(wording.OVERALL_SCORE_COLUMN) in [c.value for c in more.caption]
-    assert wording.PAIR_CAPTION in [c.value for c in more.caption]      # the others still draw
+    assert wording.pair_caption(["Firmness"]) in [c.value for c in more.caption]  # the others still draw
     _rerun_on(at)
     assert calls == [1]
 
@@ -496,7 +511,7 @@ def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
     assert enc["x"]["axis"] is None and enc["y"]["axis"] is None
     texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
     for k, name in enumerate(mix.names):
-        assert wording.mixture_corner(name, ui_insights._amount(mix.upper[k], "g")) in texts
+        assert wording.mixture_corner(name, ui_insights._amount(mix.lower[k] + mix.span, "g")) in texts
     assert wording.start_formulation(7) in texts
 
 
@@ -550,7 +565,7 @@ def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    texts = [l for l in spec["layer"] if _mark_type(l) == "text"]
+    texts = [l for l in spec["layer"] if _mark_type(l) == "text" and not l["mark"].get("stroke")]
     assert len(texts) == 4          # the three corners plus the start's own label
     assert all(l["mark"].get("color") == "gray" for l in texts)
 
@@ -571,6 +586,14 @@ def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_sco
     tips = ring["encoding"]["tooltip"]
     assert [t["field"] for t in tips] == ["no", "a0", "a1", "a2", "sum"]
     assert tips[0]["title"] == wording.FORMULATION_CAP
+    own = insights.Prediction(71.4, 64.0, 79.2)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7, own).to_dict()
+    ring = next(l for l in spec["layer"]
+                if _mark_type(l) == "point" and l["mark"].get("size") == 260)
+    tips = ring["encoding"]["tooltip"]
+    assert [t["field"] for t in tips] == ["no", "a0", "a1", "a2", "sum", "pred"]
+    assert tips[-1]["title"] == wording.PREDICTED_SCORE_COLUMN
+    assert spec["datasets"][ring["data"]["name"]][0]["pred"] == ui_insights.score_text(own)
 
 
 def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixture_scored):
@@ -630,9 +653,10 @@ def test_the_left_and_right_corner_labels_anchor_at_their_own_corner(mixture_sco
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    left_text = wording.mixture_corner(mix.names[0], ui_insights._amount(mix.upper[0], mix.units[0]))
-    right_text = wording.mixture_corner(mix.names[1], ui_insights._amount(mix.upper[1], mix.units[1]))
-    top_text = wording.mixture_corner(mix.names[2], ui_insights._amount(mix.upper[2], mix.units[2]))
+    left_text, right_text, top_text = (
+        wording.mixture_corner(mix.names[k], ui_insights._amount(mix.lower[k] + mix.span,
+                                                                 mix.units[k]))
+        for k in range(3))
 
     def align_for(text):
         for l in spec["layer"]:
@@ -652,7 +676,7 @@ def test_exact_wave_c_strings_for_the_triangle():
     assert wording.mixture_caption(14) == (
         "Colour = predicted Overall score as the three amounts trade places; everything else "
         "as in Formulation 14.")
-    assert wording.mixture_corner("Coconut oil", "9.4 g") == "Coconut oil up to 9.4 g"
+    assert wording.mixture_corner("Coconut oil", "9.4 g") == "Coconut oil 9.4 g"
 
 
 def test_the_triangle_strings_pass_the_word_guards():
@@ -701,7 +725,7 @@ def test_misses_chart_band_zero_and_filled_inside(mixture_scored):
     filled = [l for l in layers if l["mark"].get("filled")]
     assert filled[0]["transform"][-1] == {"filter": {"field": "inside", "equal": True}}
     misses = [r for r in rows if r["mark"] == "miss"]
-    assert [r["inside"] for r in misses] == [m.inside for m in sorted(
+    assert [r["inside"] for r in misses] == [abs(m.z) <= insights.Z95 for m in sorted(
         found, key=lambda m: (ui_insights.track_panels(opt).index(m.name), m.round, m.formulation))]
 
 
@@ -853,8 +877,8 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     md = [m.value for m in more.markdown]
     assert md == [f"**{wording.Q_PAIR}**", f"**{wording.Q_MISSES}**"]
     caps = [c.value for c in more.caption]
-    assert ("Each dot is a trial you measured; lines mark your targets. If no dot sits near "
-            "both targets, the two may pull against each other.") in caps
+    assert ("Each dot is a trial you measured; the line marks Acidity's target, and the "
+            "other axis title says which way is better.") in caps
     assert wording.MISSES_CAPTION in caps
     pair, misses = _charts(more)
     assert {"field": "no", "title": wording.TRIAL_CAP, "type": "quantitative"} in [
@@ -881,6 +905,201 @@ def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, mo
                  wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
                  wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,
-                 wording.PAIR_CAPTION, wording.PAIR_BEST, wording.Q_MISSES,
+                 wording.pair_caption(["Firmness"]), wording.PAIR_BEST, wording.Q_MISSES,
                  wording.MISSES_CAPTION, wording.MISSES_BAND, wording.MISSES_AXIS):
         assert line in said, line
+
+
+# ------------------------------------------------------------------ #
+#  Final fix wave (waves B + C)
+# ------------------------------------------------------------------ #
+
+def _layer_rows(spec, layer):
+    return spec["datasets"][layer["data"]["name"]]
+
+
+def test_each_corner_label_shows_the_amount_its_corner_tooltip_shows(mixture_scored):
+    """A corner is where one of the three takes all the room: its own
+    amount L*ᵢ + R, the same number the grid point there shows on hover —
+    not the row's Highest, which the corner may never reach."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    frame, _, _ = ui_insights.mixture_frame(opt, mix, preds)
+    labels = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
+    for k, name in enumerate(mix.names):
+        corner = next(p for p in mix.points if p.x[k] == 1.0)
+        X, Y = ui_insights._xy(corner.x)
+        [tip] = frame[(frame["X"] == X) & (frame["Y"] == Y)][f"a{k}"]
+        [label] = [t for t in labels if t.startswith(name + " ")]
+        assert label == wording.mixture_corner(name, ui_insights._amount(corner.amounts[k],
+                                                                         mix.units[k]))
+        shown = float(label[len(name) + 1:].split()[0])
+        assert shown == pytest.approx(tip, abs=0.051)
+        assert "up to" not in label
+
+
+def test_the_triangle_colour_legend_title_is_never_cut_short(mixture_scored):
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    grid = next(l for l in spec["layer"]
+                if _mark_type(l) == "circle" and "color" in l["encoding"])
+    assert grid["encoding"]["color"]["legend"]["titleLimit"] == 0
+
+
+def _halo_for(spec, label_layer):
+    """The layer drawn immediately under a label: the same text with a
+    stroke, so the grey label reads over the marks around it."""
+    layers = spec["layer"]
+    halo = layers[layers.index(label_layer) - 1]
+    assert _mark_type(halo) == "text" and halo["mark"].get("stroke")
+    assert halo["mark"].get("strokeWidth", 0) >= 2
+    for key in ("align", "dx", "dy", "baseline"):
+        assert halo["mark"].get(key) == label_layer["mark"].get(key), key
+    assert halo["encoding"]["text"] == label_layer["encoding"]["text"]
+    assert halo["encoding"]["x"] == label_layer["encoding"]["x"]
+    assert halo["encoding"]["y"] == label_layer["encoding"]["y"]
+    return halo
+
+
+def test_the_start_label_has_a_halo_so_it_reads_over_the_grid(mixture_scored):
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    [label] = [l for l in spec["layer"] if _mark_type(l) == "text" and not l["mark"].get("stroke")
+               and _layer_rows(spec, l)[0]["t"] == wording.start_formulation(7)]
+    assert label["mark"]["color"] == "gray"
+    _halo_for(spec, label)
+
+
+def test_the_best_so_far_label_has_a_halo(tmp_path, monkeypatch):
+    opt = _pair_opt(tmp_path, monkeypatch)
+    spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
+                                  insights.pair_points(opt, "Firmness", "Cook loss")).to_dict()
+    [label] = [l for l in _layers(spec, "text") if not l["mark"].get("stroke")]
+    assert label["mark"]["color"] == "gray"
+    assert label["encoding"]["text"] == {"value": wording.PAIR_BEST}
+    _halo_for(spec, label)
+
+
+def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):
+    """Streamlit sends a chart's rows apart from its spec, so the start's
+    prediction is read where the triangle keeps it, beside its grid."""
+    at = _open_insights(_app())
+    assert not at.exception
+    assert _triangles(_more(at))
+    mix, preds, got = at.session_state[ui_insights.MIXTURE_KEY][1]
+    opt = mixture_scored
+    fitted = at.session_state[ui_insights.FITTED_KEY][1]
+    start = insights.start_recipe(opt, opt.best_index())
+    [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(start)])
+    assert (got.mean, got.low, got.high) == (own.mean, own.low, own.high)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7, got).to_dict()
+    ring = next(l for l in spec["layer"]
+                if _mark_type(l) == "point" and l["mark"].get("size") == 260)
+    [row] = spec["datasets"][ring["data"]["name"]]
+    assert row["pred"] == ui_insights.score_text(own)
+
+
+def test_the_default_three_have_room_from_a_start_at_its_lowests(mixture_scored, monkeypatch):
+    """Pea protein, Oil and Starch all at their Lowest: the three largest
+    spreads cannot trade places from there, so the default moves on to the
+    first combination that can, in the same order."""
+    opt = mixture_scored
+    monkeypatch.setattr(insights, "spreads", lambda o, fitted, start: insights.Spreads([
+        insights.Spread("Pea protein", 9.0), insights.Spread("Oil", 5.0),
+        insights.Spread("Starch", 2.0)], []))
+    start = opt.fill_formulas({"Pea protein": 10.0, "Oil": 2.0, "Starch": 1.0})
+    offered = insights.mixture_choices(opt)
+    assert insights.mixture_slice(opt, ["Pea protein", "Oil", "Starch"], start).refusal == \
+        insights.NO_ROOM
+    got = ui_insights._three_default(opt, {}, offered, start)
+    assert got == ["Pea protein", "Oil", "Water"]
+    mix = insights.mixture_slice(opt, got, start)
+    assert mix.refusal is None and not mix.start_breaks
+
+
+def test_with_no_triple_with_room_the_default_is_as_before(mixture_scored, monkeypatch):
+    opt = mixture_scored
+    monkeypatch.setattr(insights, "spreads", lambda o, fitted, start: insights.Spreads([
+        insights.Spread("Starch", 9.0)], []))
+    real = insights.mixture_slice
+
+    def no_room(o, names, start, steps=insights.GRID_STEPS):
+        return insights.Mixture(**{**real(o, names, start, steps).__dict__,
+                                   "refusal": insights.NO_ROOM})
+    monkeypatch.setattr(insights, "mixture_slice", no_room)
+    start = insights.start_recipe(opt, opt.best_index())
+    got = ui_insights._three_default(opt, {}, insights.mixture_choices(opt), start)
+    assert got == ["Starch", "Pea protein", "Oil"]
+
+
+def test_the_default_three_search_is_capped(mixture_scored, monkeypatch):
+    opt = mixture_scored
+    calls = []
+    monkeypatch.setattr(insights, "spreads", lambda o, fitted, start: insights.Spreads([], []))
+    monkeypatch.setattr(insights, "mixture_slice",
+                        lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(RuntimeError()))
+    offered = [f"R{k}" for k in range(10)]                 # 120 combinations
+    got = ui_insights._three_default(opt, {}, offered, {})
+    assert got == offered[:3]
+    assert len(calls) == ui_insights._THREE_TRIES == 20
+
+
+def test_the_misses_chart_fills_by_its_own_band_not_by_the_check():
+    """A value outside a narrowed Range can make Check.inside and |z| ≤ 1.96
+    disagree; the chart's filled dots follow its own band."""
+    opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
+                              "_measurement_column": lambda self, o: "Firmness (N)",
+                              "has_ingredients": lambda self: True})()
+    found = [insights.Miss(7, 3, "Firmness", 2.5, True), insights.Miss(8, 3, "Firmness", 0.5, False),
+             insights.Miss(9, 3, "Firmness", -1.9, False)]
+    spec = ui_insights.misses_chart(opt_like, found).to_dict()
+    rows = [r for r in next(iter(spec["datasets"].values())) if r["mark"] == "miss"]
+    assert [r["inside"] for r in rows] == [False, True, True]
+
+
+def _pair_caption_for(opt, a, b):
+    return ui_insights.pair_caption(opt, a, b)
+
+
+def test_the_pair_caption_says_which_lines_are_drawn(tmp_path, monkeypatch):
+    opt = _pair_opt(tmp_path, monkeypatch)
+    assert _pair_caption_for(opt, "Firmness", "Cook loss") == (
+        "Each dot is a formulation you measured; the line marks Firmness's target, and the other "
+        "axis title says which way is better.")
+    assert _pair_caption_for(opt, "Cook loss", "Juiciness") == (
+        "Each dot is a formulation you measured; the axis titles say which way is better. If no "
+        "dot is good on both, the two may pull against each other.")
+    opt.add_objective("Colour", 10, goal="target", target=4, min_val=0, max_val=10)
+    assert _pair_caption_for(opt, "Firmness", "Colour") == wording.PAIR_CAPTION
+
+
+def test_the_pair_caption_variants_pass_the_word_guards():
+    _assert_clean(wording.pair_caption([]), wording.pair_caption(["Firmness"]),
+                  wording.pair_caption(["Firmness", "Colour"]), wording.PAIR_WAITING)
+    assert wording.pair_caption(["Firmness", "Colour"]) == wording.PAIR_CAPTION
+
+
+def test_waiting_dots_are_named_in_the_legend_only_when_there_are_some(tmp_path, monkeypatch):
+    opt = _pair_opt(tmp_path, monkeypatch)
+    points = insights.pair_points(opt, "Firmness", "Cook loss")
+    spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss", points).to_dict()
+    [hollow] = [l for l in _layers(spec, "point") if l["mark"].get("size") == 60]
+    stroke = hollow["encoding"]["stroke"]
+    assert stroke["scale"] == {"domain": [wording.PAIR_WAITING], "range": ["gray"]}
+    assert stroke["legend"]["title"] is None
+    done = [p for p in points if p.score is not None]
+    spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss", done).to_dict()
+    assert not [l for l in spec["layer"] if "stroke" in l.get("encoding", {})]   # no legend entry
+
+
+def test_the_pair_tooltip_titles_go_through_the_projects_own_words(tmp_path, monkeypatch):
+    opt = _pair_opt(tmp_path, monkeypatch)
+    said = []
+    real = wording.for_project
+    monkeypatch.setattr(wording, "for_project", lambda o, text: said.append(text) or real(o, text))
+    ui_insights.pair_chart(opt, "Firmness", "Cook loss",
+                           insights.pair_points(opt, "Firmness", "Cook loss"))
+    assert "Firmness (N)" in said and "Cook loss (%)" in said

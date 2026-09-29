@@ -1,5 +1,6 @@
 """The Insights tab. Builders here return Altair charts from computed facts
 and never call Streamlit; render() at the bottom is the only Streamlit code."""
+import itertools
 import math
 
 import altair as alt
@@ -612,6 +613,17 @@ def _keep_all_offered(key, options):
             st.session_state[key] = kept
 
 
+def _labels(chart, x, y, text, **mark):
+    """A grey text label and, drawn just under it, the same text with a
+    thick white stroke: a small halo, so the label reads over the dots and
+    grid marks around it in either theme. Neither carries a tooltip."""
+    halo = (chart.mark_text(color="white", stroke="white", strokeWidth=3, strokeJoin="round",
+                            opacity=0.8, tooltip=False, **mark)
+            .encode(x=x, y=y, text=text))
+    label = chart.mark_text(color="gray", tooltip=False, **mark).encode(x=x, y=y, text=text)
+    return [halo, label]
+
+
 def _xy(x):
     """Barycentric (x1, x2, x3) to the page: corner 1 bottom left, corner 2
     bottom right, corner 3 at the top."""
@@ -636,24 +648,33 @@ def pair_chart(opt, a, b, points):
     def domain(o, values):
         return [min(float(o['min_val']), *values), max(float(o['max_val']), *values)]
 
+    waiting = _say(opt, wording.PAIR_WAITING)
     df = pd.DataFrame([{"x": p.a, "y": p.b, "no": p.formulation,
                         "score": None if p.score is None else round(p.score, 1),
-                        "waiting": p.score is None, "best": p.best} for p in points])
+                        "waiting": p.score is None, "state": waiting, "best": p.best}
+                       for p in points])
     x = alt.X("x:Q", title=xt, scale=alt.Scale(domain=domain(oa, list(df["x"])), nice=False))
     y = alt.Y("y:Q", title=yt, scale=alt.Scale(domain=domain(ob, list(df["y"])), nice=False))
     tip = [alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP)),
-           alt.Tooltip("x:Q", title=opt._measurement_column(oa)),
-           alt.Tooltip("y:Q", title=opt._measurement_column(ob)),
+           alt.Tooltip("x:Q", title=_say(opt, opt._measurement_column(oa))),
+           alt.Tooltip("y:Q", title=_say(opt, opt._measurement_column(ob))),
            alt.Tooltip("score:Q", title=overall)]
     base = alt.Chart(df)
     layers = []
     for o, enc in ((oa, "x"), (ob, "y")):
-        if o.get('goal') == 'target' and o.get('target') is not None:
+        if _target_line(o):
             layers.append(alt.Chart(pd.DataFrame({"t": [float(o['target'])]}))
                           .mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray")
                           .encode(**{enc: alt.X("t:Q") if enc == "x" else alt.Y("t:Q")}))
+    # A hollow grey dot is named in the legend, only when there is one: a
+    # one-entry stroke legend under the Overall score colour bar.
+    hollow = {}
+    if df["waiting"].any():
+        hollow["stroke"] = alt.Stroke("state:N",
+                                      scale=alt.Scale(domain=[waiting], range=["gray"]),
+                                      legend=alt.Legend(title=None, labelLimit=0))
     layers.append(base.mark_point(filled=False, color="gray", size=60)
-                  .encode(x=x, y=y, tooltip=tip)
+                  .encode(x=x, y=y, tooltip=tip, **hollow)
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=True)))
     layers.append(base.mark_circle(size=70, opacity=1)
                   .encode(x=x, y=y, tooltip=tip,
@@ -664,9 +685,20 @@ def pair_chart(opt, a, b, points):
     best = base.transform_filter(alt.FieldEqualPredicate(field="best", equal=True))
     layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color="gray")
                   .encode(x=x, y=y, tooltip=tip))
-    layers.append(best.mark_text(align="left", dx=12, color="gray")
-                  .encode(x=x, y=y, text=alt.value(_say(opt, wording.PAIR_BEST))))
+    layers += _labels(best, x, y, alt.value(_say(opt, wording.PAIR_BEST)), align="left", dx=12)
     return alt.layer(*layers).properties(height=320)
+
+
+def _target_line(o):
+    """Whether "Can you have both?" draws a target line for this measurement."""
+    return o.get('goal') == 'target' and o.get('target') is not None
+
+
+def pair_caption(opt, a, b):
+    """The chart's one caption line, by how many of the two have a target
+    line drawn (two, one or none)."""
+    objs = {o['name']: o for o in opt.objectives}
+    return wording.pair_caption([n for n in (a, b) if _target_line(objs[n])])
 
 
 def _mixture_kinds(opt):
@@ -696,13 +728,14 @@ def mixture_frame(opt, mix, preds):
     return pd.DataFrame(rows), cols, unit
 
 
-def mixture_chart(opt, mix, preds, number):
+def mixture_chart(opt, mix, preds, number, start_pred=None):
     """What happens when three ingredients trade places? A triangle of
     predicted Overall scores: one hue, darker is higher, over the allowed
     points only; a smaller mark where nothing was tested near; light grey
     where a limit is broken. Tested formulations are white dots and the
     start is a grey ring named by its number. No axes: the corners carry
-    the names and the most of each ingredient allowed."""
+    the names and each one's own amount there. `start_pred`, the start's
+    own predicted Overall score, goes in the start ring's tooltip."""
     if not mix.points or not preds:
         return None
     df, cols, unit = mixture_frame(opt, mix, preds)
@@ -738,7 +771,8 @@ def mixture_chart(opt, mix, preds, number):
             .encode(x=x, y=y, size=size,
                     color=alt.Color("score:Q", title=predicted,
                                     scale=alt.Scale(scheme=_BLUES,
-                                                    domain=[lo, hi])),
+                                                    domain=[lo, hi]),
+                                    legend=alt.Legend(titleLimit=0)),
                     tooltip=amounts + [alt.Tooltip("pred:N", title=predicted)])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
     # An invisible layer, off the drawn area, whose only job is the legend:
@@ -763,13 +797,15 @@ def mixture_chart(opt, mix, preds, number):
                                        for k, (cx, cy) in enumerate(corners + corners[:1])]))
                .mark_line(color="gray", strokeWidth=1, tooltip=False)
                .encode(x=x, y=y, order="k:Q"))
+    # Each corner's own amount, L*ᵢ + R: where that ingredient takes all the
+    # room, the same number the grid point there shows on hover.
+    def corner(k):
+        return _say(opt, wording.mixture_corner(
+            mix.names[k], _amount(mix.lower[k] + mix.span, mix.units[k])))
     labels = pd.DataFrame([
-        {"X": 0.0, "Y": -0.06, "t": _say(opt, wording.mixture_corner(
-            mix.names[0], _amount(mix.upper[0], mix.units[0]))), "align": "left"},
-        {"X": 1.0, "Y": -0.06, "t": _say(opt, wording.mixture_corner(
-            mix.names[1], _amount(mix.upper[1], mix.units[1]))), "align": "right"},
-        {"X": 0.5, "Y": _TRI_H + 0.05, "t": _say(opt, wording.mixture_corner(
-            mix.names[2], _amount(mix.upper[2], mix.units[2]))), "align": "center"}])
+        {"X": 0.0, "Y": -0.06, "t": corner(0), "align": "left"},
+        {"X": 1.0, "Y": -0.06, "t": corner(1), "align": "right"},
+        {"X": 0.5, "Y": _TRI_H + 0.05, "t": corner(2), "align": "center"}])
     text = [alt.Chart(labels[labels["align"] == al])
             .mark_text(align=al, baseline="middle", color="gray", tooltip=False)
             .encode(x=x, y=y, text="t:N") for al in ("left", "right", "center")]
@@ -786,13 +822,14 @@ def mixture_chart(opt, mix, preds, number):
     start = pd.DataFrame([{
         "X": sx, "Y": sy, "t": _say(opt, wording.start_formulation(number)), "no": number,
         "a0": round(s_amounts[0], 2), "a1": round(s_amounts[1], 2), "a2": round(s_amounts[2], 2),
-        "sum": round(sum(s_amounts), 2)}])
+        "sum": round(sum(s_amounts), 2),
+        "pred": "" if start_pred is None else score_text(start_pred)}])
+    own = [] if start_pred is None else [alt.Tooltip("pred:N", title=predicted)]
     layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
                                               color="gray")
                   .encode(x=x, y=y,
-                          tooltip=[alt.Tooltip("no:Q", title=formulation)] + amounts))
-    layers.append(alt.Chart(start).mark_text(align="left", dx=12, color="gray", tooltip=False)
-                  .encode(x=x, y=y, text="t:N"))
+                          tooltip=[alt.Tooltip("no:Q", title=formulation)] + amounts + own))
+    layers += _labels(alt.Chart(start), x, y, "t:N", align="left", dx=12)
     return (alt.layer(*layers, *text).properties(
                 width=_MIX_SIZE, height=_MIX_SIZE,
                 autosize=alt.AutoSizeParams(type="pad", contains="padding"))
@@ -803,7 +840,7 @@ def misses_chart(opt, found):
     """How far did each prediction miss? One panel per measurement plus the
     Overall score, all on one y axis in standard deviations: a grey band
     for the likely range (±1.96), a zero line, a ring for every miss and a
-    filled dot for one inside its likely range, as in "Show each
+    filled dot for one inside the band (|z| ≤ 1.96), as in "Show each
     prediction". Round on x; formulations of one Round sit side by side in
     Formulation-number order."""
     if not found:
@@ -820,7 +857,7 @@ def misses_chart(opt, found):
             k = slot[m.round] = slot.get(m.round, -1) + 1
             rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "miss",
                          rnd: m.round, "slot": k, formulation: m.formulation,
-                         miss: round(m.z, 2), "inside": m.inside})
+                         miss: round(m.z, 2), "inside": abs(m.z) <= insights.Z95})
         rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "band",
                      "lo": -insights.Z95, "hi": insights.Z95, "zero": 0.0})
     df = pd.DataFrame(rows)
@@ -867,7 +904,7 @@ def _pair(opt):
         st.caption(_say(opt, wording.PAIR_NONE))
         return True
     st.altair_chart(pair_chart(opt, *picked, points))
-    st.caption(_say(opt, wording.PAIR_CAPTION))
+    st.caption(_say(opt, pair_caption(opt, *picked)))
     return True
 
 
@@ -881,18 +918,38 @@ def _start_number(opt):
     return ids[best] if best is not None else ids[-1]
 
 
+# How many combinations _three_default tries before it settles for the
+# first: each try is a three-point slice, a few milliseconds.
+_THREE_TRIES = 20
+
+
+def _has_room(opt, names, start):
+    """Whether these three can trade places from `start`: room between
+    their implied Lowest and Highest, and a start that breaks no limit."""
+    try:
+        mix = insights.mixture_slice(opt, names, start, steps=1)
+    except Exception:
+        return False
+    return mix.refusal is None and not mix.start_breaks
+
+
 def _three_default(opt, fitted, offered, start):
-    """The three with the largest spread from question 2 that the triangle
-    offers (a choice the limits keep in place has no spread and is not
-    ranked), topped up with the first offered; any failure falls back to
-    the first three."""
+    """The first three, in order, that can trade places from `start`: the
+    offered choices ranked by their spread from question 2 (a choice the
+    limits keep in place has no spread and is not ranked), then the rest in
+    Set up order, taken three at a time in that order (at most _THREE_TRIES
+    tries). With none that can, the first combination, as before; any
+    failure of the spreads falls back to Set up order."""
     try:
         ranked = [s.name for s in insights.spreads(opt, fitted, start).moved
                   if s.name in offered]
     except Exception:
         ranked = []
-    out = ranked[:3]
-    return out + [n for n in offered if n not in out][:3 - len(out)]
+    order = ranked + [n for n in offered if n not in ranked]
+    for names in itertools.islice(itertools.combinations(order, 3), _THREE_TRIES):
+        if _has_room(opt, list(names), start):
+            return list(names)
+    return order[:3]
 
 
 def _mixture_cached(opt, fitted, names, number, start):
@@ -903,11 +960,24 @@ def _mixture_cached(opt, fitted, names, number, start):
     with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
         try:
             mix = insights.mixture_slice(opt, names, start)
-            value = (mix, insights.mixture_predictions(opt, fitted, mix))
+            value = (mix, insights.mixture_predictions(opt, fitted, mix),
+                     _start_prediction(opt, fitted, mix, start))
         except Exception:
             value = _FAILED
     st.session_state[MIXTURE_KEY] = (key, value)
     return value
+
+
+def _start_prediction(opt, fitted, mix, start):
+    """The start's own predicted Overall score, for its ring's tooltip; None
+    when there is no chart or it cannot be predicted (the ring stands)."""
+    if not mix.points:
+        return None
+    try:
+        [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(start)])
+    except Exception:
+        return None
+    return own
 
 
 def _mixture(opt, fitted):
@@ -931,7 +1001,7 @@ def _mixture(opt, fitted):
     if got is _FAILED:
         st.caption(_say(opt, wording.panel_failed(wording.OVERALL_SCORE_COLUMN)))
         return True
-    mix, preds = got
+    mix, preds, own = got
     if mix.refusal == insights.NO_ROOM:
         st.caption(_say(opt, wording.mixture_no_room(number)))
         return True
@@ -942,7 +1012,7 @@ def _mixture(opt, fitted):
     if mix.start_breaks:
         st.caption(_say(opt, wording.path_start_breaks(number, mix.start_breaks)))
         return True
-    chart = mixture_chart(opt, mix, preds, number)
+    chart = mixture_chart(opt, mix, preds, number, own)
     if chart is not None:
         st.altair_chart(chart, width="content")
     st.caption(_say(opt, wording.mixture_caption(number)))

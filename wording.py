@@ -4233,6 +4233,23 @@ PAIR_PICK = "Two measurements"
 PICK_TWO = "Choose two measurements."
 PAIR_CAPTION = (f"Each dot is a {FORMULATION} you measured; lines mark your targets. If no dot "
                 "sits near both targets, the two may pull against each other.")
+
+
+def pair_caption(targets):
+    """One line, by how many of the two measurements have a target line
+    drawn: `targets` names them."""
+    if len(targets) >= 2:
+        return PAIR_CAPTION
+    if len(targets) == 1:
+        return (f"Each dot is a {FORMULATION} you measured; the line marks {targets[0]}'s "
+                "target, and the other axis title says which way is better.")
+    return (f"Each dot is a {FORMULATION} you measured; the axis titles say which way is "
+            "better. If no dot is good on both, the two may pull against each other.")
+
+
+# The legend entry for a hollow grey dot: a formulation still waiting for
+# some of its results, so it has no Overall score to colour it by.
+PAIR_WAITING = "Still waiting for results"
 PAIR_NONE = f"No {FORMULATION} has a value for both yet."
 PAIR_BEST = "Best so far"
 
@@ -4262,8 +4279,10 @@ def mixture_caption(n):
 
 
 def mixture_corner(name, amount_text):
-    """A corner of the triangle: the most of that ingredient allowed there."""
-    return f"{name} up to {amount_text}"
+    """A corner of the triangle: that ingredient's own amount there, where
+    it takes all the room the three share (the same number as the corner's
+    tooltip)."""
+    return f"{name} {amount_text}"
 
 
 def mixture_fills(fill):
