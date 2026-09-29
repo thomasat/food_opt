@@ -239,6 +239,8 @@ def render(opt):
     # With the models failed, INSIGHTS_FAILED above already said so once.
     if not failed:
         _best(opt, computed)
+        # Wave C: after question 4, before "How these insights are made".
+        _more_charts(opt, computed)
     _how(opt, computed)
 
 
@@ -570,6 +572,119 @@ def _best(opt, computed):
                      help=_say(opt, wording.PREDICTED_SCORE_HELP))},
                  height=table_height(len(frame)))
     st.caption(_say(opt, wording.BEST_CAPTION))
+
+
+# ------------------------------------------------------------------ #
+#  Wave C: More charts
+# ------------------------------------------------------------------ #
+
+# The two multiselects (a project's own rows and measurements) and the
+# triangle's cached grid, keyed by setup_key, the three names and the start.
+PAIR_KEY = "insights_pair"
+THREE_KEY = "insights_three"
+MIXTURE_KEY = "_insights_mixture"
+
+# One hue, light to dark, starting a quarter in: the palest blues read as
+# the light grey of a point that breaks a limit.
+_BLUES = alt.SchemeParams(name="blues", extent=[0.25, 1])
+
+
+def _keep_all_offered(key, options):
+    """A multiselect's picks, minus any no longer offered (a deletion or a
+    Set up change), before the box is drawn."""
+    if key in st.session_state:
+        kept = [v for v in st.session_state[key] if v in options]
+        if kept != list(st.session_state[key]):
+            st.session_state[key] = kept
+
+
+def pair_chart(opt, a, b, points):
+    """Can you have both? Measured values only: one dot per formulation with
+    both values, coloured by its Overall score on 0 to the ceiling; one still
+    waiting for results is a hollow grey dot; Best so far is ringed and
+    named; a target is a dashed line."""
+    if not points:
+        return None
+    objs = {o['name']: o for o in opt.objectives}
+    oa, ob = objs[a], objs[b]
+    xt = wording.pair_axis(opt._measurement_column(oa), oa.get('goal'), oa.get('target'))
+    yt = wording.pair_axis(opt._measurement_column(ob), ob.get('goal'), ob.get('target'))
+
+    def domain(o, values):
+        return [min(float(o['min_val']), *values), max(float(o['max_val']), *values)]
+
+    df = pd.DataFrame([{"x": p.a, "y": p.b, "no": p.formulation,
+                        "score": None if p.score is None else round(p.score, 1),
+                        "waiting": p.score is None, "best": p.best} for p in points])
+    x = alt.X("x:Q", title=xt, scale=alt.Scale(domain=domain(oa, list(df["x"])), nice=False))
+    y = alt.Y("y:Q", title=yt, scale=alt.Scale(domain=domain(ob, list(df["y"])), nice=False))
+    tip = [alt.Tooltip("no:Q", title=wording.FORMULATION_CAP),
+           alt.Tooltip("x:Q", title=opt._measurement_column(oa)),
+           alt.Tooltip("y:Q", title=opt._measurement_column(ob)),
+           alt.Tooltip("score:Q", title=wording.OVERALL_SCORE_COLUMN)]
+    base = alt.Chart(df)
+    layers = []
+    for o, enc in ((oa, "x"), (ob, "y")):
+        if o.get('goal') == 'target' and o.get('target') is not None:
+            layers.append(alt.Chart(pd.DataFrame({"t": [float(o['target'])]}))
+                          .mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray")
+                          .encode(**{enc: alt.X("t:Q") if enc == "x" else alt.Y("t:Q")}))
+    layers.append(base.mark_point(filled=False, color="gray", size=60)
+                  .encode(x=x, y=y, tooltip=tip)
+                  .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=True)))
+    layers.append(base.mark_circle(size=70, opacity=1)
+                  .encode(x=x, y=y, tooltip=tip,
+                          color=alt.Color("score:Q", title=wording.OVERALL_SCORE_COLUMN,
+                                          scale=alt.Scale(scheme=_BLUES,
+                                                          domain=[0, opt.utility_ceiling()])))
+                  .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=False)))
+    best = base.transform_filter(alt.FieldEqualPredicate(field="best", equal=True))
+    layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color="gray")
+                  .encode(x=x, y=y, tooltip=tip))
+    layers.append(best.mark_text(align="left", dx=12, color="gray")
+                  .encode(x=x, y=y, text=alt.value(wording.PAIR_BEST)))
+    return alt.layer(*layers).properties(height=320)
+
+
+def _pair(opt):
+    names = insights.pair_choices(opt)
+    if len(names) < 2:
+        return False
+    _question(opt, wording.Q_PAIR)
+    _keep_all_offered(PAIR_KEY, names)
+    if PAIR_KEY not in st.session_state:
+        st.session_state[PAIR_KEY] = names[:2]
+    picked = st.multiselect(wording.PAIR_PICK, names, key=PAIR_KEY, max_selections=2)
+    if len(picked) != 2:
+        st.caption(wording.PICK_TWO)
+        return True
+    points = insights.pair_points(opt, *picked)
+    if not points:
+        st.caption(wording.PAIR_NONE)
+        return True
+    st.altair_chart(pair_chart(opt, *picked, points))
+    st.caption(wording.PAIR_CAPTION)
+    return True
+
+
+def more_charts_offered(opt, computed):
+    """Whether "More charts" has anything to show: 5 formulations with all
+    their results, the models fitted, and at least one of its charts past
+    its own gate."""
+    if computed is None or opt.complete_count() < insights.MIN_ROWS:
+        return False
+    return len(opt.objectives) >= 2
+
+
+def _more_charts(opt, computed):
+    if not more_charts_offered(opt, computed):
+        return
+    with st.expander(wording.MORE_CHARTS):
+        for draw in (lambda: _pair(opt),):
+            try:
+                draw()
+            except Exception:   # one chart failing must not take the tab down
+                st.caption(wording.CHART_FAILED)
 
 
 def _how(opt, computed):

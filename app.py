@@ -169,6 +169,8 @@ def _reset_project_session():
               # Wave B: the fitted models Make a round shares with Insights,
               # and the formulation predicted to score highest.
               ui_insights.FITTED_KEY, ui_insights.BEST_KEY,
+              # Wave C: the More charts picks and the triangle's grid.
+              ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever

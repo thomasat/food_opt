@@ -4206,3 +4206,31 @@ BEST_ROW = "Predicted best"
 BEST_CAPTION = (f"Suggestions on {TAB_BATCH_NAME} also try untested areas; this is the single "
                 f"{FORMULATION} predicted to score highest.")
 BEST_FAILED = f"The {FORMULATION} predicted to score highest could not be worked out."
+
+
+# Insights wave C (0.8.0): "More charts", the three views a reader who knows
+# designed experiments expects. One heading (a question), at most two
+# selectors, one chart and one caption each.
+MORE_CHARTS = "More charts"
+Q_PAIR = "Can you have both?"
+
+CHART_FAILED = "This chart could not be drawn."
+PAIR_PICK = "Two measurements"
+PICK_TWO = "Choose two measurements."
+PAIR_CAPTION = (f"Each dot is a {FORMULATION} you measured; lines mark your targets. If no dot "
+                "sits near both targets, the two may pull against each other.")
+PAIR_NONE = f"No {FORMULATION} has a value for both yet."
+PAIR_BEST = "Best so far"
+
+
+def pair_axis(label, goal, target=None):
+    """'Cook loss (%) · lower is better'; 'Firmness (N) · target 6'."""
+    if goal == "max":
+        what = "higher is better"
+    elif goal == "min":
+        what = "lower is better"
+    elif target is not None:
+        what = f"target {float(target):g}"
+    else:
+        return label
+    return f"{label} · {what}"
