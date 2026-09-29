@@ -143,7 +143,8 @@ def test_best_so_far_compares_only_formulations_measured_all_the_way(
     # took is the thing being refused, not the arithmetic that got it there.
     opt.Y_history[1] = opt.Y_history[0] + 10.0
     assert opt.best_formulation_no() == 1
-    # With nothing finished there is still a best to name.
+    # With nothing finished there is no best to name (0.8.0): the star
+    # would land on a row whose score reads "waiting for results".
     half = FoodOptimizer('half', robust=False)
     half.set_amount_unit('g')
     half.add_ingredient('Pea protein', 10, 30)
@@ -152,7 +153,7 @@ def test_best_so_far_compares_only_formulations_measured_all_the_way(
     half.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40)
     half.tell({'Pea protein': 20.0, 'Water': 80.0}, {'Firmness': 6.0},
               formulation_no=1, batch_no=1)
-    assert half.best_formulation_no() == 1
+    assert half.best_formulation_no() is None
 
 
 def test_a_wrong_reading_has_a_door_beside_the_table_it_is_read_in(project):

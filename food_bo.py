@@ -3194,7 +3194,7 @@ class FoodOptimizer:
         measured against. During the cold start it is not: those formulations
         are spread across the allowed amounts rather than stepped away from a
         best, so there is a best-so-far but nothing to compare with."""
-        if len(self.X_history) < COLD_START_RUNS:
+        if self.complete_count() < COLD_START_RUNS:
             return None
         return self._best_recipe_index()
 
@@ -3538,24 +3538,27 @@ class FoodOptimizer:
         self.save()
 
     def best_index(self):
-        """0-based index of the highest-scoring experiment, or None.
+        """0-based index of the highest-scoring formulation, or None.
 
-        Only formulations with every measurement recorded are compared: a
-        6.2/7.1 against targets of 6/7 scored 78.75 and a 5.4/6.2 scored
-        90.10 and took the star, because nobody had measured its cook loss
-        yet. With none of them finished the field is all of them, so the
-        screen still has a best to name."""
-        if not self.Y_history:
-            return None
+        Only formulations with all their results are compared: a 6.2/7.1
+        against targets of 6/7 scored 78.75 and a 5.4/6.2 scored 90.10 and
+        took the star, because nobody had measured its cook loss yet. With
+        none of them finished there is no best (0.8.0): the star, the Best
+        so far heading and the Insights facts all used to land on a row
+        whose score reads "waiting for results"."""
         pool = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
-        return int(max(pool or range(len(self.Y_history)),
-                       key=lambda i: self.Y_history[i]))
+        if not pool:
+            return None
+        return int(max(pool, key=lambda i: self.Y_history[i]))
 
     def best_so_far(self):
-        """Running maximum of the Overall Score, one value per experiment."""
-        out, cur = [], float('-inf')
-        for y in self.Y_history:
-            cur = max(cur, float(y))
+        """Running maximum of the Overall score over the formulations with
+        all their results, one value per formulation: a waiting one repeats
+        the value before it (None before the first)."""
+        out, cur = [], None
+        for i, y in enumerate(self.Y_history):
+            if self.fully_measured(i):
+                cur = float(y) if cur is None else max(cur, float(y))
             out.append(cur)
         return out
 
@@ -7360,7 +7363,9 @@ class FoodOptimizer:
             dim = bounds_tensor.shape[1]
 
             # Cold start: space-filling Sobol sequence
-            if len(self.X_history) < n_init_random:
+            # Counted in formulations with all their results: one still
+            # waiting teaches the model nothing yet.
+            if self.complete_count() < n_init_random:
                 recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
             else:
                 # Warm: GP-based Bayesian optimization
@@ -7492,7 +7497,7 @@ class FoodOptimizer:
         # A wider pool did not fill the batch. With results already in, the
         # model can be asked instead — it is handed the same limits as
         # inequalities and solves them rather than sampling for them.
-        if self.X_history:
+        if self.complete_count():
             try:
                 chosen = self._ask_optimize(n_suggestions, bounds_tensor, dim)
             except Exception:
@@ -7555,8 +7560,20 @@ class FoodOptimizer:
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
         torch.manual_seed(self._ask_seed())
 
-        train_X = torch.tensor(self.X_history, dtype=torch.double)
-        train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
+        waiting = set(self.waiting_rows())
+        if not waiting:
+            train_X = torch.tensor(self.X_history, dtype=torch.double)
+            train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
+        else:
+            # Only formulations with all their results: a missing
+            # measurement counts as zero in the score, and the model would
+            # learn the formulation as a bad one. qLogNEI's baseline and
+            # qLogEI's best follow from these tensors.
+            keep = [i for i in range(len(self.X_history)) if i not in waiting]
+            train_X = torch.tensor([self.X_history[i] for i in keep],
+                                   dtype=torch.double)
+            train_Y = torch.tensor([self.Y_history[i] for i in keep],
+                                   dtype=torch.double).unsqueeze(-1)
         train_X_norm = normalize(train_X, bounds_tensor)
 
         input_tf = Warp(d=dim, indices=list(range(dim))) if self.robust else None
@@ -11979,7 +11996,7 @@ class FoodOptimizer:
         arm). The app appends the 'available to add' pool (full CSV minus active)."""
         if not self.Y_history:
             return "No formulations recorded yet."
-        best_i = int(np.argmax(self.Y_history))
+        best_i = self.best_index()
         active = [v['name'] for v in self.varying_variables()]
         inactive = [
             f"{v['name']} (fixed at {self._fixed_value(v):.3g})"
@@ -11998,8 +12015,11 @@ class FoodOptimizer:
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
+            waiting = self.waiting_on(i)
+            score = (f"score {y:.3f}" if self.fully_measured(i)
+                     else f"waiting for {', '.join(waiting) or 'results'}")
             lines.append(
-                f"{mark} Formulation {self.formulation_ids[i]}: score {y:.3f} | "
+                f"{mark} Formulation {self.formulation_ids[i]}: {score} | "
                 f"{comp} | results: {attrs}"
             )
         return "\n".join(lines)

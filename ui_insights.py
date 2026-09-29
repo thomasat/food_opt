@@ -246,19 +246,22 @@ def _change(opt, computed, n):
     if not choices:
         st.caption(wording.CHANGE_NONE)
         return
-    # Never None here: computed is only there with MIN_ROWS scored rows.
+    # None while no formulation has all its results: then there is no best
+    # to start from, and the box offers the newest first.
     best = opt.best_index()
     ids = [int(x) for x in opt.formulation_ids]
+    best_no = None if best is None else ids[best]
     # By Formulation number, not list position: a deletion on Results shifts
     # positions, and the box must keep naming the formulation it named.
-    starts = [ids[best]] + [ids[i] for i in reversed(range(len(ids))) if i != best]
+    starts = (([] if best is None else [best_no])
+              + [ids[i] for i in reversed(range(len(ids))) if i != best])
     _keep_if_offered(CHOICE_KEY, choices)
     _keep_if_offered(START_KEY, starts)
     left, right = st.columns(2)
     name = left.selectbox(wording.INGREDIENT_OR_SETTING, choices, key=CHOICE_KEY)
     number = right.selectbox(
         wording.START_FROM, starts, key=START_KEY,
-        format_func=lambda no: (wording.start_best(no) if no == ids[best]
+        format_func=lambda no: (wording.start_best(no) if no == best_no
                                 else wording.start_formulation(no)))
     fitted = computed["fitted"]
     try:

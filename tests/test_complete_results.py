@@ -332,3 +332,104 @@ def test_migration_scores_exempt_rows_on_what_they_have():
     assert other.Y_history[3] == pytest.approx(
         (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
     assert other.fully_measured(3)
+
+
+# ---------------------------------------------------------------- Task 4
+
+
+def _spy_gp(opt):
+    seen = []
+    real = opt._build_gp
+
+    def spy(X, Y, dim, tf):
+        seen.append((X.detach().clone(), Y.detach().clone()))
+        return real(X, Y, dim, tf)
+
+    opt._build_gp = spy
+    return seen
+
+
+def test_a_waiting_row_is_not_taught_to_the_model():
+    opt = _patty(rows=6)
+    _tell(opt, 7, 3, drop=("Cook loss",))
+    seen = _spy_gp(opt)
+    opt.ask(1)
+    X, Y = seen[0]
+    assert X.shape[0] == 6
+    assert torch.equal(Y, torch.tensor(opt.Y_history[:6], dtype=torch.double).unsqueeze(-1))
+
+
+def test_once_its_value_is_entered_it_is_taught():
+    opt = _patty(rows=6)
+    _tell(opt, 7, 3, drop=("Cook loss",))
+    opt.edit_result(6, _full(7))
+    seen = _spy_gp(opt)
+    opt.ask(1)
+    assert torch.equal(seen[0][1], torch.tensor(opt.Y_history, dtype=torch.double).unsqueeze(-1))
+
+
+def test_expected_improvement_and_its_baseline_see_only_complete_rows():
+    opt = _patty(rows=6)
+    opt.set_bo_config({"acquisition": "qlogei"})
+    _tell(opt, 7, 3, drop=("Cook loss",))
+    opt.Y_history[6] = 1000.0        # a waiting row must never be the best_f
+    seen = []
+    real = opt._build_acqf
+    opt._build_acqf = lambda gp, X, Y: seen.append((X.shape[0], float(Y.max()))) or real(gp, X, Y)
+    opt.ask(1)
+    assert seen[0][0] == 6 and seen[0][1] < 1000.0
+
+
+def test_the_cold_start_counts_only_complete_formulations():
+    opt = _patty(rows=COLD_START_RUNS - 1)
+    _tell(opt, COLD_START_RUNS, 2, drop=("Cook loss",))
+    seen = _spy_gp(opt)
+    opt.ask(1)
+    assert seen == []                                   # still spread out
+    assert opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED
+    opt.set_pending_batch(None)
+    opt.edit_result(COLD_START_RUNS - 1, _full(COLD_START_RUNS))
+    opt.ask(1)
+    assert len(seen) == 1                               # the model now
+    assert opt.compared_with_column() != wording.COMPARED_WITH_ALLOWED
+
+
+def test_the_cold_start_fallback_needs_a_complete_formulation(monkeypatch):
+    opt = _patty(rows=0)
+    _tell(opt, 1, 1, drop=("Cook loss",))
+    calls = []
+    monkeypatch.setattr(opt, "_cold_start_pool", lambda *a: [])
+    monkeypatch.setattr(opt, "_ask_optimize", lambda *a: calls.append(1) or [])
+    with pytest.raises(ValueError):
+        opt.ask(1)
+    assert calls == []
+    _tell(opt, 2, 1)
+    with pytest.raises(ValueError):
+        opt.ask(1)
+    assert calls == [1]
+
+
+def test_no_best_until_a_formulation_has_all_its_results():
+    opt = _patty(rows=0)
+    _tell(opt, 1, 1, drop=("Cook loss",))
+    assert opt.best_index() is None
+    assert opt.best_formulation_no() is None
+    assert opt.best_so_far() == [None]
+    assert opt.history_frame()[wording.BEST_SO_FAR_COLUMN].tolist() == [""]
+    assert opt.vs_best_text(_recipe(5)) == ""
+    _tell(opt, 2, 1)
+    _tell(opt, 3, 1, drop=("Juiciness",))
+    assert opt.best_formulation_no() == 2
+    assert opt.best_so_far() == [None, opt.Y_history[1], opt.Y_history[1]]
+
+
+def test_export_trajectory_marks_waiting_rows():
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    text = opt.export_trajectory()
+    line = next(l for l in text.splitlines() if "Formulation 3:" in l)
+    assert "waiting for Cook loss" in line and "score" not in line
+    assert not line.startswith("*")
+    none = _patty(rows=0)
+    _tell(none, 1, 1, drop=("Cook loss",))
+    assert not any(l.startswith("*") for l in none.export_trajectory().splitlines())
