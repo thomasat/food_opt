@@ -6821,7 +6821,7 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     sentence = wording.COMPLETE_RESULTS_CAPTION
     assert sentence == ("A formulation counts once all its results are in; "
                         "“—” means it is scored without that "
-                        "measurement."), sentence
+                        "measurement, so it is not compared for Best so far."), sentence
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.

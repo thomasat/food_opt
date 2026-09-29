@@ -1718,7 +1718,7 @@ NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 # scored without — added after it was recorded, or Score without.
 COMPLETE_RESULTS_CAPTION = ("A formulation counts once all its results are "
                             "in; “—” means it is scored without that "
-                            "measurement.")
+                            "measurement, so it is not compared for Best so far.")
 NO_COMPLETE_FORMULATION = "No formulation has all its results yet."
 
 
@@ -4087,10 +4087,12 @@ def change_none(settings_only=False):
 CHANGE_NONE = change_none()
 
 
-def best_line(score_text, n, rnd):
+def best_line(score_text, n, rnd, without_text=""):
+    """`without_text`: what Best so far is scored without, when no
+    formulation has every measurement yet ('· scored without Aroma')."""
     where = (f"{FORMULATION_CAP} {n} in {ROUND_CAP} {rnd}" if rnd is not None
              else f"{FORMULATION_CAP} {n} (made earlier)")
-    return f"Best so far: {score_text}, {where}."
+    return f"Best so far: {score_text}, {where}{scored_without_tail(without_text)}."
 
 
 BEST_LATEST = f"It came from the latest {ROUND}."

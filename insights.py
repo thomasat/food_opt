@@ -686,6 +686,7 @@ class BestFacts:
     round: int | None
     rounds_since: int
     latest: bool
+    without: list       # measurements Best so far is scored without ([] as a rule)
 
 
 def best_facts(opt):
@@ -697,7 +698,7 @@ def best_facts(opt):
     r = opt.batch_history[i]
     latest = r is not None and bool(order) and order[-1][0] == r
     return BestFacts(float(opt.Y_history[i]), int(opt.formulation_ids[i]), r,
-                     len(since), latest)
+                     len(since), latest, opt.best_scored_without())
 
 
 def _same(opt, a, b):
@@ -718,16 +719,17 @@ def _same(opt, a, b):
 
 def repeat_spread(opt):
     """The largest |Overall score difference| between any two formulations
-    that `_same` calls a match, both fully measured: a missing measurement
-    counts as 0 in the Overall score, so a partly measured repeat would read
-    as a spread nobody saw at the bench.
+    that `_same` calls a match, both among opt.best_candidates(): a missing
+    measurement counts as 0 in the Overall score, so a partly measured
+    repeat would read as a spread nobody saw at the bench, and a score
+    rescaled without a measurement is not on the others' footing.
 
     Pairwise, not anchor groups: `_same`'s per-row tolerance is not
     transitive (a chain of small steps can drift past it end to end), so
     comparing each new row only against one earlier "anchor" row can miss a
     matching pair -- and the largest spread -- entirely. Every pair of
     formulations is compared independently instead."""
-    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    rows = opt.best_candidates()
     recipes = {i: start_recipe(opt, i) for i in rows}
     best = None
     for a, i in enumerate(rows):
@@ -871,12 +873,12 @@ def distance(opt, a, b):
 
 
 def nearest(opt, recipe):
-    """(index, distance) of the nearest fully measured formulation, ties to
-    the lowest Formulation number; (None, None) when none can be compared."""
+    """(index, distance) of the nearest formulation among
+    opt.best_candidates() (its score is quoted beside the predicted best),
+    ties to the lowest Formulation number; (None, None) when none can be
+    compared."""
     best = None
-    for i in range(len(opt.Y_history)):
-        if not opt.fully_measured(i):
-            continue
+    for i in opt.best_candidates():
         d = distance(opt, recipe, start_recipe(opt, i))
         if d is None:
             continue

@@ -160,8 +160,8 @@ def _number(cell):
 
 def _progress_line(opt):
     last = opt.last_batch_no()   # counts a batch nobody managed to make
-    # Formulations with all their results only, as Best so far compares.
-    complete = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    # The formulations Best so far compares, and only those.
+    complete = opt.best_candidates()
     if last is None or not complete:
         return ""
     earlier = [float(opt.Y_history[i]) for i in complete

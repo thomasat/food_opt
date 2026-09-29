@@ -236,10 +236,10 @@ def _score_without(at, number, name):
     return [s.value for s in at.success]
 
 
-def test_score_without_that_moves_the_best_says_so(burger):
+def test_score_without_never_takes_the_star(burger):
     """Formulation 2 has Firmness on target and waits for Juiciness. Scored
-    without it, it takes the star — and the flash says so, as a correction's
-    does (review #1)."""
+    without it, it would outscore Formulation 1, which has every
+    measurement; it is not compared with it (review fixes, Task 1)."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=1,
                 batch_no=1)
@@ -248,9 +248,8 @@ def test_score_without_that_moves_the_best_says_so(burger):
     assert burger.best_formulation_no() == 1
     at = _app(wording.TAB_RESULTS)
     flashes = _score_without(at, 2, "Juiciness")
-    assert ("Formulation 2 scored without Juiciness. "
-            + wording.best_moved(1, 2)) in flashes, flashes
-    assert FoodOptimizer("burger").best_formulation_no() == 2
+    assert "Formulation 2 scored without Juiciness." in flashes, flashes
+    assert FoodOptimizer("burger").best_formulation_no() == 1
 
 
 def test_score_without_names_what_it_still_waits_for(burger):
@@ -312,7 +311,7 @@ def test_the_caption_says_what_a_dash_means():
     """Review #2: the dash is a measurement it is scored without."""
     assert wording.COMPLETE_RESULTS_CAPTION == (
         "A formulation counts once all its results are in; “—” means it is "
-        "scored without that measurement.")
+        "scored without that measurement, so it is not compared for Best so far.")
 
 
 def test_a_formulation_scored_without_a_measurement_says_so(scored):

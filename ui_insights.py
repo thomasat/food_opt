@@ -9,7 +9,7 @@ import streamlit as st
 
 import insights
 import wording
-from food_bo import join_unit
+from food_bo import join_unit, number_list
 from ui_helpers import amount_format, table_height
 
 _BAND = 0.25
@@ -517,7 +517,8 @@ def _improving(opt):
     if f is not None:
         second = (wording.BEST_LATEST if f.latest and f.rounds_since == 0
                   else wording.best_since(f.rounds_since) if f.rounds_since else "")
-        st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round)
+        st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round,
+                                             number_list(f.without))
                       + (" " + second if second else "")))
     spread = insights.repeat_spread(opt)
     # A spread that would read 0 says nothing about chance.

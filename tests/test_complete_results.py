@@ -590,18 +590,17 @@ def test_the_progress_chart_leaves_a_gap_for_a_waiting_row():
     assert best[2] == best[1]
 
 
-def test_repeat_spread_compares_rescaled_and_full_scores_on_one_scale():
+def test_repeat_spread_leaves_out_a_rescaled_repeat():
     """A repeat recorded before Cook loss was added (rescaled) beside one
-    recorded after (full): both 0-100, so the spread is a real one."""
+    recorded after (full): the rescaled score is not on the full one's
+    footing (review fixes, Task 1), so there is no pair to compare."""
     import insights
     opt = _patty(rows=1, cook_loss=False)
     _add_cook_loss(opt)
     _tell(opt, 2, 1)
     opt.recipe_history[1] = dict(opt.recipe_history[0])
     opt.X_history[1] = list(opt.X_history[0])
-    spread = insights.repeat_spread(opt)
-    assert spread == pytest.approx(abs(opt.Y_history[0] - opt.Y_history[1]))
-    assert spread < 100
+    assert insights.repeat_spread(opt) is None
 
 
 def test_every_new_string_passes_the_vocabulary_guard():

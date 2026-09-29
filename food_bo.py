@@ -3549,8 +3549,31 @@ class FoodOptimizer:
             self._results_at(index), int(formulation_no))
         self.save()
 
+    def has_every_measurement(self, index):
+        """True when this formulation has a value for every current
+        measurement: fully measured and scored without none of them."""
+        return self.fully_measured(index) and not self.not_expected(index)
+
+    def best_candidates(self):
+        """Positions that may be Best so far, in history order: the
+        formulations with a value for every current measurement. A
+        formulation scored without one (recorded before it was added, or
+        imported without it) keeps its rescaled score and still teaches the
+        suggestions, but its score leaves out a measurement the others were
+        judged on, so it is not compared with them (0.8.0 review: 97.47
+        without Cook loss took the star from 90.50 with it).
+
+        When no formulation has every measurement yet — a measurement was
+        just added — the formulations with all the results that apply to
+        them are compared instead, so the project keeps a Best so far; the
+        screens then say what it is scored without."""
+        full = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        every = [i for i in full if not self.not_expected(i)]
+        return every or full
+
     def best_index(self):
-        """0-based index of the highest-scoring formulation, or None.
+        """0-based index of the highest-scoring formulation among
+        best_candidates(), or None.
 
         Only formulations with all their results are compared: a 6.2/7.1
         against targets of 6/7 scored 78.75 and a 5.4/6.2 scored 90.10 and
@@ -3558,18 +3581,25 @@ class FoodOptimizer:
         none of them finished there is no best (0.8.0): the star, the Best
         so far heading and the Insights facts all used to land on a row
         whose score reads "waiting for results"."""
-        pool = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        pool = self.best_candidates()
         if not pool:
             return None
         return int(max(pool, key=lambda i: self.Y_history[i]))
 
+    def best_scored_without(self):
+        """The measurements Best so far is scored without: [] unless no
+        formulation has every measurement yet (see best_candidates)."""
+        best = self.best_index()
+        return [] if best is None else self.not_expected(best)
+
     def best_so_far(self):
-        """Running maximum of the Overall score over the formulations with
-        all their results, one value per formulation: a waiting one repeats
-        the value before it (None before the first)."""
+        """Running maximum of the Overall score over best_candidates(), one
+        value per formulation: any other formulation repeats the value before
+        it (None before the first)."""
+        pool = set(self.best_candidates())
         out, cur = [], None
         for i, y in enumerate(self.Y_history):
-            if self.fully_measured(i):
+            if i in pool:
                 cur = float(y) if cur is None else max(cur, float(y))
             out.append(cur)
         return out
@@ -3634,6 +3664,7 @@ class FoodOptimizer:
         column renders inconsistently."""
         objs = self.measurements_by_importance()
         best_i = self.best_index()
+        every = {i for i in range(len(self.X_history)) if self.has_every_measurement(i)}
         rows = []
         for i in range(len(self.X_history)):
             results = self.results_history[i] if i < len(self.results_history) else {}
@@ -3644,7 +3675,10 @@ class FoodOptimizer:
                 wording.BEST_SO_FAR_COLUMN: "★" if i == best_i else "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
-                "_rank": 0 if complete else 1,
+                # Every measurement, then scored without one, then waiting
+                # for results, then Not scored: a rescaled score sorted
+                # among the full ones put an unstarred 97.47 above the star.
+                "_rank": (0 if i in every else 1) if complete else 2,
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
                 "_batch": 0 if batch is None else int(batch),
@@ -3674,7 +3708,7 @@ class FoodOptimizer:
                 wording.BEST_SO_FAR_COLUMN: "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
-                "_rank": 2,
+                "_rank": 3,
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
                 "_batch": 0 if batch is None else int(batch),
@@ -3707,7 +3741,7 @@ class FoodOptimizer:
         elif order == wording.SORT_BATCH_ORDER:
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
         else:
-            # Scored, then waiting for results, then Not scored.
+            # Every measurement, scored without one, waiting, Not scored.
             df = df.sort_values(["_rank", "_score", "_seq"],
                                 ascending=[True, False, True])
         return df[columns].reset_index(drop=True)
