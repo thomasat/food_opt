@@ -1865,10 +1865,11 @@ def formulation_corrected(no, waiting=None):
     return f"{FORMULATION_CAP} {no} corrected{_waiting_tail(waiting)}."
 
 
-def saved_waiting(no, names_text):
-    """'Formulation 12 saved · waiting for Cook loss.' — after a round is
-    saved with a formulation that still waits for a result."""
-    return f"{FORMULATION_CAP} {no} saved{_waiting_tail(names_text)}."
+def saved_waiting(numbers, names_text):
+    """'Formulation 12 saved · waiting for Cook loss.', or 'Formulations
+    7–12 saved · …' — after a round is saved with formulations that still
+    wait for the same results: one line for them all."""
+    return f"{formulations_span(numbers)} saved{_waiting_tail(names_text)}."
 
 
 def overall_score_waiting(names_text):
@@ -3941,15 +3942,25 @@ def _contiguous(rounds):
     return numbers == list(range(numbers[0], numbers[0] + len(numbers)))
 
 
+def _span(word, numbers):
+    numbers = [str(n) for n in numbers]
+    if len(numbers) == 1:
+        return f"{word} {numbers[0]}"
+    if _contiguous(numbers):
+        return f"{word}s {numbers[0]}–{numbers[-1]}"
+    return f"{word}s {', '.join(numbers[:-1])} and {numbers[-1]}"
+
+
 def rounds_span(rounds):
     """"Round 4"; "Rounds 3–5" when they run on; "Rounds 3 and 5" or
     "Rounds 3, 5 and 6" when one is skipped, so a gap is never hidden."""
-    rounds = [str(r) for r in rounds]
-    if len(rounds) == 1:
-        return f"{ROUND_CAP} {rounds[0]}"
-    if _contiguous(rounds):
-        return f"{ROUND_CAP}s {rounds[0]}–{rounds[-1]}"
-    return f"{ROUND_CAP}s {', '.join(rounds[:-1])} and {rounds[-1]}"
+    return _span(ROUND_CAP, rounds)
+
+
+def formulations_span(numbers):
+    """"Formulation 7"; "Formulations 7–12"; "Formulations 7, 9 and 12" —
+    the same rule as rounds_span, in number order."""
+    return _span(FORMULATION_CAP, sorted(int(n) for n in numbers))
 
 
 def rounds_not_checked(rounds):

@@ -293,13 +293,15 @@ def _no_batch(opt):
 
 def _waiting_caption(opt):
     """'2 formulations are waiting for Cook loss…' while any is, plus why
-    the suggestions are still spread out when that is the reason."""
+    the suggestions are still spread out when that is the reason. The
+    measurement is named only when every waiting formulation waits for the
+    same ones; otherwise 'waiting for results'."""
     waiting = opt.waiting_rows()
     if not waiting:
         return ""
-    names = [o['name'] for o in opt.measurements_by_importance()
-             if any(o['name'] in opt.waiting_on(i) for i in waiting)]
-    line = wording.waiting_generate_caption(len(waiting), number_list(names))
+    sets = {tuple(opt.waiting_on(i)) for i in waiting}
+    names = number_list(next(iter(sets))) if len(sets) == 1 else ""
+    line = wording.waiting_generate_caption(len(waiting), names)
     complete = len(opt.Y_history) - len(waiting)
     if complete < COLD_START_RUNS <= len(opt.Y_history):
         line += " " + wording.still_spread_out(COLD_START_RUNS)

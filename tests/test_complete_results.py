@@ -613,7 +613,11 @@ def test_every_new_string_passes_the_vocabulary_guard():
         wording.overall_score_waiting("Cook loss"),
         wording.score_without_button("Cook loss"),
         wording.scored_without(12, "Cook loss"),
-        wording.saved_waiting(12, "Cook loss"),
+        wording.saved_waiting([12], "Cook loss"),
+        wording.saved_waiting([7, 8, 9, 10, 11, 12], "Cook loss"),
+        wording.scored_without(12, "Cook loss", "Juiciness"),
+        wording.overall_score_caption(80.0, 100, "Cook loss"),
+        wording.waiting_generate_caption(2, ""),
         wording.formulation_corrected(12, "Cook loss"),
         wording.formulation_scored(12, "Cook loss"),
         wording.waiting_generate_caption(1, "Cook loss"),
@@ -623,8 +627,16 @@ def test_every_new_string_passes_the_vocabulary_guard():
     ]
     for text in strings:
         assert not any(p.search(text) for p in _BANNED), text
-    assert wording.saved_waiting(12, "Cook loss") == \
+    assert wording.saved_waiting([12], "Cook loss") == \
         "Formulation 12 saved · waiting for Cook loss."
+    assert wording.saved_waiting([12, 7, 8, 9, 10, 11], "Cook loss") == \
+        "Formulations 7–12 saved · waiting for Cook loss."
+    assert wording.saved_waiting([7, 9, 12], "Cook loss") == \
+        "Formulations 7, 9 and 12 saved · waiting for Cook loss."
+    assert wording.overall_score_caption(80.0, 100, "Cook loss").startswith(
+        "Overall score 80.00 of 100 · scored without Cook loss. ")
+    assert wording.overall_score_caption(80.0, 100).startswith(
+        "Overall score 80.00 of 100. ")
     assert wording.insights_header(17, 5, 2).startswith(
         "Based on 17 scored formulations (2 waiting for results), up to Round 5.")
     assert wording.insights_header(17, 5).startswith(

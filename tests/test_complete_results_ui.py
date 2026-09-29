@@ -327,3 +327,42 @@ def test_a_formulation_with_all_its_results_says_nothing_more(scored):
     at = _app(wording.TAB_RESULTS)
     assert not any("scored without" in c.value for c in at.caption)
 
+
+def _save_firmness_only(burger, numbers_with_juiciness=()):
+    burger.set_pending_batch([{"Pea protein": 10.0 + k, "Methylcellulose": 1.0}
+                              for k in range(3)])
+    at = _app(wording.TAB_BATCH)
+    for no in (1, 2, 3):
+        at.number_input(key=f"f{no}_Firmness").set_value(6.0)
+        if no in numbers_with_juiciness:
+            at.number_input(key=f"f{no}_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    return [i.value for i in at.info if " saved · " in i.value]
+
+
+def test_a_round_saved_with_the_same_blank_says_it_once(burger):
+    """Three formulations waiting for Juiciness: one line, not three
+    (review #4)."""
+    assert _save_firmness_only(burger) == [
+        "Formulations 1–3 saved · waiting for Juiciness."]
+
+
+def test_a_round_saved_with_gaps_names_the_numbers(burger):
+    assert _save_firmness_only(burger, numbers_with_juiciness=(2,)) == [
+        "Formulations 1 and 3 saved · waiting for Juiciness."]
+
+
+def test_make_a_round_names_no_measurement_when_the_waiting_differ(burger):
+    """Review #6: one waits for Juiciness, the other for Firmness — naming
+    either would be wrong for the other."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Firmness": 6.0}, formulation_no=1, batch_no=1)
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
+                {"Juiciness": 7.0}, formulation_no=2, batch_no=1)
+    at = _app(wording.TAB_BATCH)
+    assert ("2 formulations are waiting for results and are not used for "
+            "suggestions yet. Enter their results on Results."
+            ) in _generate_captions(at), _generate_captions(at)

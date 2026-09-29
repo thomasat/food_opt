@@ -448,13 +448,16 @@ def best_formulation_no(opt):
 
 
 def flash_waiting(opt, numbers):
-    """One line per formulation just saved that still waits for results,
-    naming what it waits for. Queued after the round's own line."""
+    """One line per set of measurements the formulations just saved still
+    wait for — 'Formulations 7–12 saved · waiting for Cook loss.' — not one
+    per formulation. Queued after the round's own line."""
+    groups = {}
     for no in numbers:
         index = opt.index_of_formulation(no)
         if index is not None and not opt.fully_measured(index):
-            flash("info", wording.saved_waiting(
-                no, number_list(opt.waiting_on(index))))
+            groups.setdefault(tuple(opt.waiting_on(index)), []).append(no)
+    for names, group in groups.items():
+        flash("info", wording.saved_waiting(group, number_list(names)))
 
 
 def waiting_text(opt, index):
