@@ -1705,11 +1705,11 @@ NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 # (ui_results.py).
 # ------------------------------------------------------------------ #
 # 0.8.0: a formulation teaches the suggestions only once every measurement
-# that applies to it has a value; one added later does not apply to the
-# formulations recorded before it.
+# that applies to it has a value. A dash in its row is a measurement it is
+# scored without — added after it was recorded, or Score without.
 COMPLETE_RESULTS_CAPTION = ("A formulation counts once all its results are "
-                            "in; measurements added later are not expected "
-                            "of earlier formulations.")
+                            "in; “—” means it is scored without that "
+                            "measurement.")
 NO_COMPLETE_FORMULATION = "No formulation has all its results yet."
 
 
@@ -1761,14 +1761,21 @@ AMOUNT_COLUMN = "Amount"
 NOT_USED_PREFIX = "Not used: "
 
 
-def overall_score_caption(score, ceiling, missing_text=""):
-    """`missing_text` names the measurements nobody took, or is empty. A goal
-    re-scores every formulation exactly as a share of the score or a range
-    does, so it is named here with them."""
+def overall_score_caption(score, ceiling, without_text=""):
+    """`without_text` names the measurements the formulation is scored
+    without (added after it was recorded, or Score without), or is empty. A
+    goal re-scores every formulation exactly as a share of the score or a
+    range does, so it is named here with them."""
     return (f"{OVERALL_SCORE_COLUMN} {score:.2f} of {ceiling:g}"
-            + (not_measured_tail(missing_text) if missing_text else "")
+            + scored_without_tail(without_text)
             + ". Scores only compare within this project. Change a share, a "
             "goal or a range and every score is recalculated.")
+
+
+def scored_without_tail(names_text):
+    """' · scored without Cook loss' — `names_text` is one name or a
+    number_list of several; '' when there is nothing to name."""
+    return f" · scored without {names_text}" if names_text else ""
 
 
 ALL_FORMULATIONS_HEADING = "**All formulations**"
@@ -1874,8 +1881,10 @@ def score_without_button(name):
     return f"Score without {name}"
 
 
-def scored_without(no, name):
-    return f"{FORMULATION_CAP} {no} scored without {name}."
+def scored_without(no, name, waiting=None):
+    """After Score without: 'Formulation 4 scored without Juiciness.', with
+    what it still waits for when another measurement is still to come."""
+    return f"{FORMULATION_CAP} {no} scored without {name}{_waiting_tail(waiting)}."
 
 
 def waiting_generate_caption(n, names_text):
@@ -3707,9 +3716,9 @@ BACKGROUND_REFERENCE_LABEL = "Background reference"
 RESULT_VIEW_LABEL = "View formulation"
 RESULT_VIEW_HELP = "Choose a recorded formulation to see its measurements, amounts and percentages below."
 RESULT_BEST_HELP = "Best so far has the highest recorded overall score for your current measurements and targets."
-# A missing measurement contributes zero to the overall score, so a
-# half-measured formulation outscored a better one that had been
-# measured all the way through, and nothing on the screen said why.
+# A formulation still waiting for a result is never compared: its missing
+# measurement would count as zero, so a half-measured formulation would be
+# judged against one measured all the way through.
 RESULT_BEST_COMPLETE_ONLY = ("Only formulations with all their results "
                             "are compared.")
 RESULT_PERCENT_COLUMN = "% of formulation"

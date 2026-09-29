@@ -218,3 +218,112 @@ def test_insights_header_counts_the_waiting(one_waiting):
     assert any(c.value.startswith(
         "Based on 3 scored formulations (1 waiting for results), up to Round 2.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
+
+
+# ---------------------------------------------------------------- final fixes
+
+
+def _score_without(at, number, name):
+    at.selectbox(key="result_view_burger").set_value(number)
+    at.run()
+    _submit_button(at, f"Score without {name}").click()
+    at.run()
+    assert not at.exception
+    return [s.value for s in at.success]
+
+
+def test_score_without_that_moves_the_best_says_so(burger):
+    """Formulation 2 has Firmness on target and waits for Juiciness. Scored
+    without it, it takes the star — and the flash says so, as a correction's
+    does (review #1)."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=1,
+                batch_no=1)
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
+                {"Firmness": 6.0}, formulation_no=2, batch_no=1)
+    assert burger.best_formulation_no() == 1
+    at = _app(wording.TAB_RESULTS)
+    flashes = _score_without(at, 2, "Juiciness")
+    assert ("Formulation 2 scored without Juiciness. "
+            + wording.best_moved(1, 2)) in flashes, flashes
+    assert FoodOptimizer("burger").best_formulation_no() == 2
+
+
+def test_score_without_names_what_it_still_waits_for(burger):
+    burger.add_objective("Cook loss", 1.0, goal="min", min_val=0, max_val=40)
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0, "Cook loss": 10.0},
+                formulation_no=1, batch_no=1)
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
+                {"Firmness": 6.0}, formulation_no=2, batch_no=1)
+    at = _app(wording.TAB_RESULTS)
+    flashes = _score_without(at, 2, "Juiciness")
+    assert ("Formulation 2 scored without Juiciness · waiting for "
+            "Cook loss.") in flashes, flashes
+
+
+def _arm_delete(at):
+    """Arm the Delete confirmation in Edit past formulations, below the
+    Score without button and the correction button."""
+    at.multiselect(key="delete_formulations").set_value([1])
+    at.run()
+    _submit_button(at, "Delete Formulation 1").click()
+    at.run()
+    assert any(w.value.startswith("Delete Formulation 1?") for w in at.warning)
+
+
+def test_score_without_steps_aside_while_a_confirmation_is_open(one_waiting):
+    """The confirmation's Yes is the one thing to do: Score without is greyed
+    on the very run the question opens below it, and a click that reaches it
+    anyway is ignored (T6)."""
+    at = _app(wording.TAB_RESULTS)
+    at.selectbox(key="result_view_burger").set_value(4)
+    at.run()
+    assert not _submit_button(at, "Score without Juiciness").disabled
+    _arm_delete(at)
+    button = _submit_button(at, "Score without Juiciness")
+    assert button.disabled
+    button.click()
+    at.run()
+    assert not at.exception
+    reloaded = FoodOptimizer("burger")
+    assert not reloaded.fully_measured(reloaded.index_of_formulation(4))
+    assert not any("scored without" in s.value for s in at.success)
+
+
+def test_the_correction_door_steps_aside_while_a_confirmation_is_open(one_waiting):
+    at = _app(wording.TAB_RESULTS)
+    _arm_delete(at)
+    button = _submit_button(at, wording.CORRECT_A_RESULT_BUTTON)
+    assert button.disabled
+    button.click()
+    at.run()
+    assert not at.exception
+    fold = next(e for e in at.expander
+                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
+    assert not fold.proto.expanded
+
+
+def test_the_caption_says_what_a_dash_means():
+    """Review #2: the dash is a measurement it is scored without."""
+    assert wording.COMPLETE_RESULTS_CAPTION == (
+        "A formulation counts once all its results are in; “—” means it is "
+        "scored without that measurement.")
+
+
+def test_a_formulation_scored_without_a_measurement_says_so(scored):
+    scored.add_objective("Cook loss", 1.0, goal="min", min_val=0, max_val=40)
+    at = _app(wording.TAB_RESULTS)
+    assert not at.exception
+    opened = FoodOptimizer("burger")         # the scores the screen reads
+    best = opened.best_index()
+    line = (f"Overall score {opened.Y_history[best]:.2f} of "
+            f"{opened.utility_ceiling():g} · scored without Cook loss.")
+    assert any(c.value.startswith(line) for c in at.caption), \
+        [c.value for c in at.caption]
+
+
+def test_a_formulation_with_all_its_results_says_nothing_more(scored):
+    at = _app(wording.TAB_RESULTS)
+    assert not any("scored without" in c.value for c in at.caption)
+

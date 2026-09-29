@@ -180,19 +180,21 @@ def _progress_line(opt):
 
 def _best(opt):
     """Details for the selected formulation, defaulting to the best. Returns
-    True when it has already said what a
-    partial score cannot be compared with, so the table below does not say the
-    same sentence again on the same screen."""
+    (said_partial, score_without): said_partial is True when it has already
+    said what a partial score cannot be compared with, so the table below
+    does not say the same sentence again on the same screen; score_without
+    is the reserved slot for the Score without buttons, or None, which
+    render() fills last."""
     if opt.Y_history and opt.best_index() is None:
         # Nothing has all its results, so there is no best to name.
         st.caption(wording.for_project(opt, wording.NO_COMPLETE_FORMULATION))
     number = _selected_formulation(opt)
     if number is None:
-        return False
+        return False, None
     index = opt.index_of_formulation(number)
     if index is None:
         _unscored_details(opt, number)
-        return False
+        return False, None
     batch = opt.batch_history[index]
     is_best = index == opt.best_index()
     heading = (wording.best_so_far_heading(number, batch) if is_best
@@ -269,29 +271,44 @@ def _best(opt):
     # With every measurement deleted the ceiling is 0, and "Overall score
     # 0.00 of 0.00" is a sentence about nothing; the banner at the top of
     # the tab already says what to do about it.
+    score_without = None
     if waiting is not None:
         st.caption(wording.overall_score_waiting(number_list(waiting)))
-        _score_without_buttons(opt, number, waiting)
+        # Reserved here, drawn last by render(): a confirmation armed in
+        # Edit past formulations below must grey these on the same run.
+        score_without = {"number": number, "names": waiting,
+                         "slot": st.container()}
     elif ceiling > 0:
         st.caption(wording.overall_score_caption(
-            float(opt.Y_history[index]), ceiling))
+            float(opt.Y_history[index]), ceiling,
+            number_list(opt.not_expected(index))))
     if partial:
         st.caption(wording.for_project(opt, wording.COMPLETE_RESULTS_CAPTION))
-    return partial
+    return partial, score_without
 
 
 def _score_without_buttons(opt, number, names):
     """One secondary button per measurement the formulation waits for: the
     sample is gone, or the value will never come. Entering the value later
-    undoes it."""
+    undoes it. Greyed and ignored while a confirmation is open, and the
+    flash says when the star moved, as a correction's does."""
+    lit = not confirmation_open()
     for name in names:
         if st.button(wording.score_without_button(name),
                      key=f"score_without_{number}_{name}",
-                     disabled=confirmation_open()):
+                     disabled=not lit) and lit:
+            before = best_formulation_no(opt)
             opt.score_without(number, name)
             if not saved_ok(opt):
                 return
-            flash("success", wording.scored_without(number, name))
+            index = opt.index_of_formulation(number)
+            sentences = [wording.scored_without(
+                number, name,
+                None if index is None else waiting_text(opt, index))]
+            move = best_move_sentence(before, best_formulation_no(opt))
+            if move:
+                sentences.append(move)
+            flash("success", " ".join(sentences))
             st.rerun()
 
 
@@ -322,9 +339,8 @@ def _amount_format(opt, frame):
     # Every number in the table reads to two decimals: the amounts, the
     # measurements and the score alike. Left to pandas, a panel score typed
     # as 5 came out as 5.000000 beside an amount written 11.88. A process
-    # setting keeps fmt_setting (180, not 180.00), and a text column — the
-    # score with "· Juiciness not measured" behind it, Note, Best — is left
-    # alone.
+    # setting keeps fmt_setting (180, not 180.00), and a text column — a
+    # score reading "waiting for Juiciness", Note, Best — is left alone.
     # Every column but the two counts and the settings. Read off the dtype,
     # a column that holds one blank went to `object` and slipped the net
     # entirely: the amounts of a row recorded before a pre-mix moved printed
@@ -396,10 +412,20 @@ def _all_formulations(opt, said_partial=False):
                        mime=WORKBOOK_MIME, key="download_formulations",
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
     # Beside the table the wrong number is read in, because that is where
-    # the reader is standing when they find it.
+    # the reader is standing when they find it. Its slot is reserved here
+    # and drawn last (_open_correction_button), as Change setup's is.
+    return st.container()
+
+
+def _open_correction_button(opt):
+    """`Correct a formulation`, drawn into its reserved slot once every
+    confirmation on the tab has had its say: greyed and ignored while one is
+    open. The fold it opens was drawn already this run, so it reruns."""
+    lit = not confirmation_open()
     if st.button(wording.for_project(opt, wording.CORRECT_A_RESULT_BUTTON),
-                 key="open_correction", disabled=confirmation_open()):
+                 key="open_correction", disabled=not lit) and lit:
         st.session_state[OPEN_CORRECTION] = True
+        st.rerun()
 
 
 def _correct_amount_key(no, name):
@@ -1275,7 +1301,7 @@ def render(opt, storage):
         return
     if not opt.objectives:
         st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
-    said_partial = _best(opt)
+    said_partial, score_without = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the
     # one way back to Set up is right here, not several sections down. Its
@@ -1284,7 +1310,7 @@ def render(opt, storage):
     # greys this button on the same run.
     change_setup = st.container()
     st.divider()
-    _all_formulations(opt, said_partial)
+    open_correction = _all_formulations(opt, said_partial)
     custom_records.history(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
@@ -1305,3 +1331,11 @@ def render(opt, storage):
     if pending is not None:
         with pending['slot']:
             _save_correction(opt, storage, pending)
+    # Both rerun when clicked, so they come after every other widget on the
+    # tab has been drawn: what is typed in the fold below survives.
+    if score_without is not None:
+        with score_without['slot']:
+            _score_without_buttons(opt, score_without['number'],
+                                   score_without['names'])
+    with open_correction:
+        _open_correction_button(opt)

@@ -4909,8 +4909,8 @@ def test_a_measurement_recorded_for_the_first_time_is_stored(burger):
 
 
 def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
-    """The All formulations row already says (partial); the caption above it
-    said the same score as a full one."""
+    """The All formulations row says what it waits for; the caption above it
+    must not show the lowered number as if it were a full score."""
     burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
                 {"Firmness": 6.0}, formulation_no=1, batch_no=1)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -4920,10 +4920,9 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     # The missing measurement is NAMED, never the lowered number.
     assert any(c.value == "Overall score waiting for Juiciness."
                for c in at.caption), [c.value for c in at.caption]
-    # ...and one line under it says what the missing measurement costs, in
-    # the same words the All formulations table uses. A dropped measurement
-    # is arithmetically a zero closeness, and the row is fitted at that
-    # depressed score, so the model is taught that region is bad.
+    # ...and one line under it says when a formulation counts, in the same
+    # words as under the All formulations table: a waiting formulation is
+    # not taught to the model until its results are in.
     assert any(c.value == wording.COMPLETE_RESULTS_CAPTION
                for c in at.caption), [c.value for c in at.caption]
 
@@ -6821,8 +6820,8 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at.run()
     sentence = wording.COMPLETE_RESULTS_CAPTION
     assert sentence == ("A formulation counts once all its results are in; "
-                        "measurements added later are not expected of "
-                        "earlier formulations."), sentence
+                        "“—” means it is scored without that "
+                        "measurement."), sentence
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.
