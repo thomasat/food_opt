@@ -177,16 +177,26 @@ def fit_all(opt):
     return {name: fit(opt, name, rows) for name, _, _ in outputs(opt)}
 
 
-def data_key(opt):
-    """Everything a fitted model or a Round-ahead check depends on."""
-    payload = {
-        "X": opt.X_history, "Y": opt.Y_history, "R": opt.results_history,
-        "ids": opt.formulation_ids, "rounds": opt.batch_history,
-        "objectives": opt.objectives, "cfg": getattr(opt, "bo_config", None),
-        "bounds": opt._get_bounds().tolist(),
-    }
+def _digest(payload):
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _model_settings(opt):
+    """What every model here depends on besides its rows: the measurements
+    (their Ranges, goals and shares, so the Overall score too), an expert's
+    model settings, and the rows' Lowest-Highest and encoding."""
+    return {"objectives": opt.objectives, "cfg": getattr(opt, "bo_config", None),
+            "bounds": opt._get_bounds().tolist()}
+
+
+def data_key(opt):
+    """Everything a fitted model or a Round-ahead check depends on."""
+    return _digest({
+        "X": opt.X_history, "Y": opt.Y_history, "R": opt.results_history,
+        "ids": opt.formulation_ids, "rounds": opt.batch_history,
+        **_model_settings(opt),
+    })
 
 
 def setup_key(opt):
@@ -231,27 +241,84 @@ class Check:
     sd: float | None = None
 
 
-def check_rounds(opt):
+def _row_key(opt, i):
+    """One recorded row as a Round-ahead check sees it: its encoded make-up,
+    its Overall score, its results and its Formulation number (which
+    decides the measurements that apply to it)."""
+    at = lambda seq: seq[i] if i < len(seq) else None
+    return _digest([opt.X_history[i], opt.Y_history[i], at(opt.results_history),
+                    at(opt.formulation_ids)])
+
+
+def round_keys(opt):
+    """{Round: key}: everything that Round's checks depend on and nothing
+    else, so a key changes only when its checks could. That is the rows
+    recorded before the Round's first row (what its models learn from),
+    the Round's own rows (what they predict) and the model settings
+    data_key covers; not a later Round, nor a row's Round number."""
+    settings = _digest(_model_settings(opt))
+    rows = [_row_key(opt, i) for i in range(len(opt.Y_history))]
+    return {r: _digest({"settings": settings, "round": r, "first": first,
+                        "train": rows[:first],
+                        "targets": [(i, rows[i]) for i, b in enumerate(opt.batch_history)
+                                    if b == r]})
+            for r, first in round_order(opt)}
+
+
+def _check_round(opt, r, first, names):
     checks = []
+    train = list(range(first))
+    targets = [i for i, b in enumerate(opt.batch_history) if b == r]
+    for name in names:
+        fitted = fit(opt, name, train)
+        if fitted.model is None:
+            continue
+        rows = [i for i in targets if measured(opt, name, i) is not None]
+        try:
+            preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
+        except Exception:   # like a failed fit: no checks for this pair
+            continue
+        for i, p in zip(rows, preds):
+            value = measured(opt, name, i)
+            checks.append(Check(
+                int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
+                value, p.low <= value <= p.high, opt.fully_measured(i),
+                p.raw_mean, p.sd))
+    return checks
+
+
+def check_rounds(opt, cache=None, checking=None):
+    """Each Round's formulations predicted from the rows recorded before
+    it, Round by Round.
+
+    `cache`, a dict the caller keeps between calls, holds each Round's
+    checks under its round_keys key: a Round whose key is there is not
+    fitted again, and on the way out the dict holds this project's Rounds
+    alone. Every fit runs in its own `_isolated()` with the same seed, so a
+    Round's checks come out the same whichever other Rounds are fitted with
+    it: kept or fresh, the answer is identical.
+
+    `checking(r, last)`, when given, is entered around each Round actually
+    fitted (one that could be checked), for the screen's progress line."""
     names = [n for n, _, _ in outputs(opt)]
-    for r, first in round_order(opt):
-        train = list(range(first))
-        targets = [i for i, b in enumerate(opt.batch_history) if b == r]
-        for name in names:
-            fitted = fit(opt, name, train)
-            if fitted.model is None:
-                continue
-            rows = [i for i in targets if measured(opt, name, i) is not None]
-            try:
-                preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
-            except Exception:   # like a failed fit: no checks for this pair
-                continue
-            for i, p in zip(rows, preds):
-                value = measured(opt, name, i)
-                checks.append(Check(
-                    int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
-                    value, p.low <= value <= p.high, opt.fully_measured(i),
-                    p.raw_mean, p.sd))
+    order = round_order(opt)
+    keys = round_keys(opt) if cache is not None else {}
+    checks = []
+    for r, first in order:
+        key = keys.get(r)
+        if key is not None and key in cache:
+            checks.extend(cache[key])
+            continue
+        line = (checking(r, order[-1][0]) if checking is not None and first >= MIN_ROWS
+                else contextlib.nullcontext())
+        with line:
+            found = _check_round(opt, r, first, names)
+        if cache is not None:
+            cache[key] = found
+        checks.extend(found)
+    if cache is not None:
+        for gone in set(cache) - set(keys.values()):
+            del cache[gone]
     return checks
 
 

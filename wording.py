@@ -3906,6 +3906,11 @@ INSIGHTS_WORKING = "Preparing the insights…"
 INSIGHTS_FAILED = "Insights could not be prepared for this project."
 
 
+def checking_round(r, last):
+    """The spinner line while one Round's predictions are checked."""
+    return f"Checking {ROUND_CAP} {r} of {last}…"
+
+
 def insights_header(n, last_round, waiting=0):
     tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
     wait = f" ({waiting} {waiting_for()})" if waiting else ""

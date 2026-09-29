@@ -159,6 +159,9 @@ FITTED_KEY = "_insights_fitted"
 # The Round-by-Round checks, under the same key. They take the models from
 # FITTED_KEY and add only the checks.
 CACHE_KEY = "_insights_cache"
+# Each Round's checks on their own, keyed by insights.round_keys: after a
+# new result only the Rounds whose inputs changed are fitted again.
+ROUNDS_KEY = "_insights_rounds"
 # The formulation predicted to score highest, keyed by insights.setup_key: a
 # limit edit on Set up changes it without changing a fitted model.
 BEST_KEY = "_insights_best"
@@ -194,13 +197,15 @@ def _computed(opt):
     if fitted is None:
         value = _FAILED
     else:
-        with st.spinner(wording.INSIGHTS_WORKING):
-            try:
-                value = {"fitted": fitted, "checks": insights.check_rounds(opt)}
-            except Exception:
-                # Cached like a success, under the same key: one line on the
-                # tab instead of a traceback, and not tried again every rerun.
-                value = _FAILED
+        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
+        checking = lambda r, last: st.spinner(_say(opt, wording.checking_round(r, last)))
+        try:
+            value = {"fitted": fitted,
+                     "checks": insights.check_rounds(opt, cache=rounds, checking=checking)}
+        except Exception:
+            # Cached like a success, under the same key: one line on the
+            # tab instead of a traceback, and not tried again every rerun.
+            value = _FAILED
     st.session_state[CACHE_KEY] = (key, value)
     return value
 

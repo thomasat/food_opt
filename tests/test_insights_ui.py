@@ -357,7 +357,7 @@ def test_insights_computed_once_then_cached(insights_scored, monkeypatch):
     real_fit, real_check = insights.fit_all, insights.check_rounds
     monkeypatch.setattr(insights, "fit_all", lambda opt: fit_calls.append(1) or real_fit(opt))
     monkeypatch.setattr(insights, "check_rounds",
-                        lambda opt: check_calls.append(1) or real_check(opt))
+                        lambda opt, **kw: check_calls.append(1) or real_check(opt, **kw))
     at = _open_insights(_app())
     assert fit_calls == [1] and check_calls == [1] and ui_insights.CACHE_KEY in at.session_state
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
@@ -518,7 +518,7 @@ def _tab_text(at):
 
 def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, monkeypatch):
     calls = []
-    def boom(opt):
+    def boom(opt, **kw):
         calls.append(1)
         raise RuntimeError("no checks")
     monkeypatch.setattr(insights, "check_rounds", boom)

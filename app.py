@@ -166,6 +166,8 @@ def _reset_project_session():
               # Insights: the models fitted to THIS project, and its two
               # boxes, which name this project's rows and formulations.
               ui_insights.CACHE_KEY, ui_insights.CHOICE_KEY, ui_insights.START_KEY,
+              # Each Round's checks, kept so a new result refits one Round.
+              ui_insights.ROUNDS_KEY,
               # Wave B: the fitted models Make a round shares with Insights,
               # and the formulation predicted to score highest.
               ui_insights.FITTED_KEY, ui_insights.BEST_KEY,
