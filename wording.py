@@ -1872,6 +1872,20 @@ def scored_without(no, name):
     return f"{FORMULATION_CAP} {no} scored without {name}."
 
 
+def waiting_generate_caption(n, names_text):
+    """Under Generate while formulations wait for results."""
+    if n == 1:
+        return (f"1 {FORMULATION} is {waiting_for(names_text)} and is not "
+                "used for suggestions yet. Enter its results on Results.")
+    return (f"{n} {FORMULATION}s are {waiting_for(names_text)} and are not "
+            "used for suggestions yet. Enter their results on Results.")
+
+
+def still_spread_out(k):
+    return (f"Suggestions stay spread out until {k} {FORMULATION}s have all "
+            "their results.")
+
+
 def back_to_batch_label(no, n):
     return f"Back to {ROUND_CAP} {no} · {n} to record"
 

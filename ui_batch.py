@@ -28,6 +28,7 @@ from ui_helpers import (
     park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, typed_batch_size, unit_after_number,
 )
+from food_bo import COLD_START_RUNS
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
@@ -285,6 +286,24 @@ def _no_batch(opt):
     # How it works bullet. Two captions for the two halves of one rule left
     # a reader who had only seen one of them thinking there were two.
     st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
+    line = _waiting_caption(opt)
+    if line:
+        st.caption(line)
+
+
+def _waiting_caption(opt):
+    """'2 formulations are waiting for Cook loss…' while any is, plus why
+    the suggestions are still spread out when that is the reason."""
+    waiting = opt.waiting_rows()
+    if not waiting:
+        return ""
+    names = [o['name'] for o in opt.measurements_by_importance()
+             if any(o['name'] in opt.waiting_on(i) for i in waiting)]
+    line = wording.waiting_generate_caption(len(waiting), number_list(names))
+    complete = len(opt.Y_history) - len(waiting)
+    if complete < COLD_START_RUNS <= len(opt.Y_history):
+        line += " " + wording.still_spread_out(COLD_START_RUNS)
+    return line
 
 
 def _own_key(name):
@@ -769,7 +788,9 @@ def _recorded_row(opt, number, ordered):
                   unit_after_number(o.get('unit')))
         for o in ordered if o['name'] in results
     )
-    unmeasured = [o['name'] for o in ordered if o['name'] not in results]
+    # Only what it still waits for: a measurement added after this row was
+    # recorded was never expected of it.
+    unmeasured = opt.waiting_on(index) if index is not None else []
     if unmeasured:
         # Named, not "partial": the row has room to say which measurement
         # nobody took, and the reader would otherwise have to go and look.

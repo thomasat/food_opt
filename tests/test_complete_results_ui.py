@@ -150,3 +150,40 @@ def test_saving_a_round_with_a_blank_names_what_it_waits_for(open_batch):
     assert any(i.value == "Formulation 1 saved · waiting for Juiciness."
                for i in at.info), [i.value for i in at.info]
     assert not any("Formulation 2 saved" in i.value for i in at.info)
+
+
+# ---------------------------------------------------------------- Task 7
+
+
+def _generate_captions(at):
+    return [c.value for c in at.tabs[1].caption]
+
+
+def test_make_a_round_says_nothing_while_nothing_waits(scored):
+    at = _app(wording.TAB_BATCH)
+    assert not any("waiting for" in c for c in _generate_captions(at))
+
+
+def test_make_a_round_names_one_waiting_formulation(one_waiting):
+    at = _app(wording.TAB_BATCH)
+    assert ("1 formulation is waiting for Juiciness and is not used for "
+            "suggestions yet. Enter its results on Results.") in _generate_captions(at)
+
+
+def test_make_a_round_counts_several_and_says_why_it_is_still_spread_out(six_waiting):
+    at = _app(wording.TAB_BATCH)
+    assert ("6 formulations are waiting for Juiciness and are not used for "
+            "suggestions yet. Enter their results on Results. Suggestions stay "
+            "spread out until 5 formulations have all their results."
+            ) in _generate_captions(at), _generate_captions(at)
+
+
+def test_a_row_recorded_before_a_measurement_was_added_is_not_missing_it(open_batch):
+    open_batch.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                    {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1,
+                    batch_no=open_batch.pending_batch_no)
+    open_batch.add_objective("Cook loss", 20, goal="min", min_val=0, max_val=40)
+    at = _app(wording.TAB_BATCH)
+    assert not at.exception
+    assert not any("Cook loss not measured" in c.value for c in at.caption), \
+        [c.value for c in at.caption]
