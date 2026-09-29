@@ -4234,3 +4234,42 @@ def pair_axis(label, goal, target=None):
     else:
         return label
     return f"{label} · {what}"
+
+
+# Wave C: "What happens when three ingredients trade places?"
+Q_MIXTURE = "What happens when three ingredients trade places?"
+MIXTURE_PICK = "Three ingredients"
+PICK_THREE = "Choose three ingredients."
+
+
+def mixture_caption(n):
+    return (f"Colour = predicted {OVERALL_SCORE_COLUMN} as the three amounts trade places; "
+            f"everything else as in {FORMULATION_CAP} {n}.")
+
+
+def mixture_corner(name, amount_text):
+    """A corner of the triangle: the most of that ingredient allowed there."""
+    return f"{name} up to {amount_text}"
+
+
+def mixture_fills(fill):
+    return f"{fill} fills to the total."
+
+
+def mixture_no_room(n):
+    return (f"From {FORMULATION_CAP} {n}, these three cannot trade places: together they "
+            "are already at their Lowest or Highest.")
+
+
+def mixture_fill_follows(calc, fill):
+    return (f"{calc} follows its calculation, so {fill} cannot trade places with the other "
+            "two; choose another three.")
+
+
+def mixture_together(unit):
+    return f"The three together ({unit})" if unit else "The three together"
+
+
+MIXTURE_TESTED = "Tested near here"
+MIXTURE_UNTESTED = "Not tested near here"
+MIXTURE_BLOCKED = "Not allowed by your limits"

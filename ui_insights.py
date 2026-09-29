@@ -584,6 +584,9 @@ PAIR_KEY = "insights_pair"
 THREE_KEY = "insights_three"
 MIXTURE_KEY = "_insights_mixture"
 
+_TRI_H = math.sqrt(3) / 2
+_MIX_SIZE = 380          # px, width and height: the triangle keeps its shape
+
 # One hue, light to dark, starting a quarter in: the palest blues read as
 # the light grey of a point that breaks a limit.
 _BLUES = alt.SchemeParams(name="blues", extent=[0.25, 1])
@@ -596,6 +599,12 @@ def _keep_all_offered(key, options):
         kept = [v for v in st.session_state[key] if v in options]
         if kept != list(st.session_state[key]):
             st.session_state[key] = kept
+
+
+def _xy(x):
+    """Barycentric (x1, x2, x3) to the page: corner 1 bottom left, corner 2
+    bottom right, corner 3 at the top."""
+    return x[1] + x[2] / 2, x[2] * _TRI_H
 
 
 def pair_chart(opt, a, b, points):
@@ -646,6 +655,95 @@ def pair_chart(opt, a, b, points):
     return alt.layer(*layers).properties(height=320)
 
 
+def mixture_frame(opt, mix, preds):
+    """One row per grid point: its place on the page, what it is (tested
+    near here, not tested near here, not allowed) and its tooltip."""
+    unit = mix.units[0] if len(set(mix.units)) == 1 else ""
+    cols = [opt._amount_column(n) for n in mix.names]
+    rows = []
+    for p, pred in zip(mix.points, preds or [None] * len(mix.points)):
+        X, Y = _xy(p.x)
+        state = (wording.MIXTURE_BLOCKED if p.broken else
+                wording.MIXTURE_TESTED if p.tested else wording.MIXTURE_UNTESTED)
+        row = {"X": X, "Y": Y, "state": state,
+               "score": None if pred is None else pred.mean,
+               "a0": round(p.amounts[0], 2), "a1": round(p.amounts[1], 2),
+               "a2": round(p.amounts[2], 2), "sum": round(sum(p.amounts), 2),
+               "pred": "" if pred is None else score_text(pred),
+               "why": p.broken or ""}
+        rows.append(row)
+    return pd.DataFrame(rows), cols, unit
+
+
+def mixture_chart(opt, mix, preds, number):
+    """What happens when three ingredients trade places? A triangle of
+    predicted Overall scores: one hue, darker is higher, over the allowed
+    points only; a smaller mark where nothing was tested near; light grey
+    where a limit is broken. Tested formulations are white dots and the
+    start is a grey ring named by its number. No axes: the corners carry
+    the names and the most of each ingredient allowed."""
+    if not mix.points or not preds:
+        return None
+    df, cols, unit = mixture_frame(opt, mix, preds)
+    allowed = df[df["state"] != wording.MIXTURE_BLOCKED]["score"]
+    lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
+    pad = 0.12
+    x = alt.X("X:Q", axis=None, scale=alt.Scale(domain=[-pad, 1 + pad], nice=False, zero=False))
+    y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=[-pad - 0.07, 1 + pad - 0.07],
+                                                nice=False, zero=False))
+    kinds = [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
+    # One size legend for the three kinds, shared by both layers: the
+    # smaller mark says "not tested near here" without fading a colour
+    # that already means a score.
+    size = alt.Size("state:N", title=None, sort=kinds,
+                    scale=alt.Scale(domain=kinds, range=[70, 16, 16]),
+                    legend=alt.Legend(symbolFillColor="gray", symbolStrokeColor="gray"))
+    amounts = ([alt.Tooltip(f"a{k}:Q", title=cols[k]) for k in range(3)]
+               + [alt.Tooltip("sum:Q", title=wording.mixture_together(unit))])
+    blocked = alt.FieldEqualPredicate(field="state", equal=wording.MIXTURE_BLOCKED)
+    grey = (alt.Chart(df).mark_circle(opacity=1, color="lightgray")
+            .encode(x=x, y=y, size=size,
+                    tooltip=amounts + [alt.Tooltip("why:N", title=wording.MIXTURE_BLOCKED)])
+            .transform_filter(blocked))
+    grid = (alt.Chart(df).mark_circle(opacity=1)
+            .encode(x=x, y=y, size=size,
+                    color=alt.Color("score:Q", title=wording.PREDICTED_SCORE_COLUMN,
+                                    scale=alt.Scale(scheme=_BLUES,
+                                                    domain=[lo, hi])),
+                    tooltip=amounts + [alt.Tooltip("pred:N", title=wording.PREDICTED_SCORE_COLUMN)])
+            .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
+    corners = [(0.0, 0.0), (1.0, 0.0), (0.5, _TRI_H)]
+    outline = (alt.Chart(pd.DataFrame([{"X": cx, "Y": cy, "k": k}
+                                       for k, (cx, cy) in enumerate(corners + corners[:1])]))
+               .mark_line(color="gray", strokeWidth=1).encode(x=x, y=y, order="k:Q"))
+    labels = pd.DataFrame([
+        {"X": 0.0, "Y": -0.06, "t": wording.mixture_corner(
+            mix.names[0], _amount(mix.upper[0], mix.units[0])), "align": "left"},
+        {"X": 1.0, "Y": -0.06, "t": wording.mixture_corner(
+            mix.names[1], _amount(mix.upper[1], mix.units[1])), "align": "right"},
+        {"X": 0.5, "Y": _TRI_H + 0.05, "t": wording.mixture_corner(
+            mix.names[2], _amount(mix.upper[2], mix.units[2])), "align": "center"}])
+    text = [alt.Chart(labels[labels["align"] == al]).mark_text(align=al, baseline="middle")
+            .encode(x=x, y=y, text="t:N") for al in ("left", "right", "center")]
+    layers = [outline, grey, grid]
+    if mix.dots:
+        dots = pd.DataFrame([{**dict(zip(("X", "Y"), _xy(d.x))), "no": d.formulation}
+                             for d in mix.dots])
+        layers.append(alt.Chart(dots).mark_point(filled=True, fill="white", stroke="gray",
+                                                 strokeWidth=1.5, size=45, opacity=1)
+                      .encode(x=x, y=y, tooltip=[alt.Tooltip(
+                          "no:Q", title=wording.FORMULATION_CAP)]))
+    s = [(float(mix.start.get(n, 0.0)) - mix.lower[k]) / mix.span for k, n in enumerate(mix.names)]
+    sx, sy = _xy(s)
+    start = pd.DataFrame([{"X": sx, "Y": sy, "t": wording.start_formulation(number)}])
+    layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
+                                              color="gray").encode(x=x, y=y))
+    layers.append(alt.Chart(start).mark_text(align="left", dx=12, color="gray")
+                  .encode(x=x, y=y, text="t:N"))
+    return (alt.layer(*layers, *text).properties(width=_MIX_SIZE, height=_MIX_SIZE)
+            .configure_view(stroke=None))
+
+
 def _pair(opt):
     names = insights.pair_choices(opt)
     if len(names) < 2:
@@ -667,20 +765,100 @@ def _pair(opt):
     return True
 
 
+def _start_number(opt):
+    """Section 2's Start from, else Best so far, else the newest."""
+    ids = [int(x) for x in opt.formulation_ids]
+    chosen = st.session_state.get(START_KEY)
+    if chosen in ids:
+        return chosen
+    best = opt.best_index()
+    return ids[best] if best is not None else ids[-1]
+
+
+def _three_default(opt, fitted, offered, start):
+    try:
+        ranked = [s.name for s in insights.spreads(opt, fitted, start) if s.name in offered]
+    except Exception:
+        ranked = []
+    out = ranked[:3]
+    return out + [n for n in offered if n not in out][:3 - len(out)]
+
+
+def _mixture_cached(opt, fitted, names, number, start):
+    key = (insights.setup_key(opt), tuple(names), number)
+    hit = st.session_state.get(MIXTURE_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    with st.spinner(wording.INSIGHTS_WORKING):
+        try:
+            mix = insights.mixture_slice(opt, names, start)
+            value = (mix, insights.mixture_predictions(opt, fitted, mix))
+        except Exception:
+            value = _FAILED
+    st.session_state[MIXTURE_KEY] = (key, value)
+    return value
+
+
+def _mixture(opt, fitted):
+    offered = insights.mixture_choices(opt)
+    score = fitted.get(insights.SCORE)
+    if len(offered) < 3 or score is None or score.model is None:
+        return False
+    _question(opt, wording.Q_MIXTURE)
+    number = _start_number(opt)
+    ids = [int(x) for x in opt.formulation_ids]
+    start = insights.start_recipe(opt, ids.index(number))
+    _keep_all_offered(THREE_KEY, offered)
+    if THREE_KEY not in st.session_state:
+        st.session_state[THREE_KEY] = _three_default(opt, fitted, offered, start)
+    picked = st.multiselect(wording.MIXTURE_PICK, offered, key=THREE_KEY, max_selections=3)
+    if len(picked) != 3:
+        st.caption(wording.PICK_THREE)
+        return True
+    got = _mixture_cached(opt, fitted, picked, number, start)
+    if got is _FAILED:
+        st.caption(wording.panel_failed(wording.OVERALL_SCORE_COLUMN))
+        return True
+    mix, preds = got
+    if mix.refusal == insights.NO_ROOM:
+        st.caption(wording.mixture_no_room(number))
+        return True
+    if mix.refusal == insights.FILL_FOLLOWS:
+        st.caption(wording.mixture_fill_follows(mix.follows[0], opt.balance_row_name()))
+        return True
+    if mix.start_breaks:
+        st.caption(wording.path_start_breaks(number, mix.start_breaks))
+        return True
+    chart = mixture_chart(opt, mix, preds, number)
+    if chart is not None:
+        st.altair_chart(chart, width="content")
+    st.caption(wording.mixture_caption(number))
+    for line in ([wording.path_follows(n) for n in mix.follows]
+                 + ([wording.mixture_fills(mix.fill_moves)] if mix.fill_moves else [])
+                 + [wording.path_not_checked(t, prop) for t, prop in mix.skipped]):
+        st.caption(line)
+    return True
+
+
 def more_charts_offered(opt, computed):
     """Whether "More charts" has anything to show: 5 formulations with all
     their results, the models fitted, and at least one of its charts past
     its own gate."""
     if computed is None or opt.complete_count() < insights.MIN_ROWS:
         return False
-    return len(opt.objectives) >= 2
+    fitted = computed["fitted"]
+    score = fitted.get(insights.SCORE)
+    return (len(opt.objectives) >= 2
+            or (len(insights.mixture_choices(opt)) >= 3 and score is not None
+                and score.model is not None))
 
 
 def _more_charts(opt, computed):
     if not more_charts_offered(opt, computed):
         return
     with st.expander(wording.MORE_CHARTS):
-        for draw in (lambda: _pair(opt),):
+        for draw in (lambda: _pair(opt),
+                     lambda: _mixture(opt, computed["fitted"])):
             try:
                 draw()
             except Exception:   # one chart failing must not take the tab down

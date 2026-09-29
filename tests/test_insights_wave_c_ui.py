@@ -270,3 +270,270 @@ def test_no_formulation_has_both_values_says_so(insights_scored):
     more = _more(at)
     assert wording.PAIR_NONE in [c.value for c in more.caption]
     assert _charts(more) == []
+
+
+# ------------------------------------------------------------------ #
+#  Task 4: "What happens when three ingredients trade places?"
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def mixture_scored(tmp_path, monkeypatch):
+    """Pea protein 10–20 g, Oil 2–6 g, Starch 1–5 g and Water filling to
+    100 g; two measurements; twelve formulations over four Rounds, all with
+    their results (enough for all three charts)."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mix")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 10, 20)
+    opt.add_ingredient("Oil", 2, 6)
+    opt.add_ingredient("Starch", 1, 5)
+    opt.add_ingredient("Water", 0, 100)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_objective("Firmness", 1.5, goal="target", target=6, min_val=0, max_val=10, unit="N")
+    opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10, unit="/10")
+    g = torch.Generator().manual_seed(4)
+    for no in range(1, 13):
+        u = torch.rand(3, generator=g).tolist()
+        pea, oil, starch = 10 + 10 * u[0], 2 + 4 * u[1], 1 + 4 * u[2]
+        opt.tell(opt.fill_formulas({"Pea protein": pea, "Oil": oil, "Starch": starch}),
+                 {"Firmness": 0.4 * pea + 0.3 * starch, "Juiciness": 1 + 1.2 * oil},
+                 formulation_no=no, batch_no=1 + (no - 1) // 3)
+    return opt
+
+
+def _triangles(block):
+    return [c for c in _charts(block) if c.get("width") == ui_insights._MIX_SIZE]
+
+
+def test_the_triangle_heading_picks_and_caption(mixture_scored):
+    at = _open_insights(_app())
+    assert not at.exception
+    more = _more(at)
+    md = [m.value for m in more.markdown]
+    assert md.index(f"**{wording.Q_PAIR}**") < md.index(f"**{wording.Q_MIXTURE}**")
+    boxes = {b.label: b for b in more.multiselect}
+    three = boxes[wording.MIXTURE_PICK]
+    assert three.options == ["Pea protein", "Oil", "Starch", "Water"]
+    assert len(three.value) == 3
+    best_no = mixture_scored.best_formulation_no()
+    assert wording.mixture_caption(best_no) in [c.value for c in more.caption]
+    [tri] = _triangles(more)
+    assert tri["height"] == ui_insights._MIX_SIZE
+
+
+def test_the_triangle_opens_on_the_largest_spreads(mixture_scored, monkeypatch):
+    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: [
+        insights.Spread("Starch", 9.0), insights.Spread("Oil", 5.0),
+        insights.Spread("Pea protein", 1.0)])
+    at = _open_insights(_app())
+    three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
+    assert three.value == ["Starch", "Oil", "Pea protein"]
+
+
+def test_without_spreads_the_triangle_opens_on_the_first_three(mixture_scored, monkeypatch):
+    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: [])
+    at = _open_insights(_app())
+    three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
+    assert three.value == ["Pea protein", "Oil", "Starch"]
+
+
+def test_two_picked_asks_for_three(mixture_scored):
+    at = _open_insights(_app())
+    next(b for b in _more(at).multiselect
+         if b.label == wording.MIXTURE_PICK).set_value(["Oil", "Water"])
+    _rerun_on(at)
+    assert not at.exception
+    more = _more(at)
+    assert wording.PICK_THREE in [c.value for c in more.caption]
+    assert _triangles(more) == []
+
+
+def test_the_triangle_starts_from_section_2s_choice(mixture_scored):
+    at = _open_insights(_app())
+    at.tabs[3].selectbox(key=ui_insights.START_KEY).set_value(4)
+    _rerun_on(at)
+    assert wording.mixture_caption(4) in [c.value for c in _more(at).caption]
+
+
+def test_the_triangle_is_worked_out_once(mixture_scored, monkeypatch):
+    calls = _counting(monkeypatch, "mixture_slice")
+    at = _open_insights(_app())
+    _rerun_on(at)
+    _rerun_on(at)
+    assert calls == [1]
+    next(b for b in _more(at).multiselect
+         if b.label == wording.MIXTURE_PICK).set_value(["Oil", "Starch", "Water"])
+    _rerun_on(at)
+    assert calls == [1, 1]
+
+
+def test_a_failed_triangle_is_one_line_and_not_retried(mixture_scored, monkeypatch):
+    calls = []
+
+    def boom(*a, **k):
+        calls.append(1)
+        raise RuntimeError("no triangle")
+    monkeypatch.setattr(insights, "mixture_slice", boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    more = _more(at)
+    assert wording.panel_failed(wording.OVERALL_SCORE_COLUMN) in [c.value for c in more.caption]
+    assert wording.PAIR_CAPTION in [c.value for c in more.caption]      # the others still draw
+    _rerun_on(at)
+    assert calls == [1]
+
+
+def _refused(monkeypatch, **kw):
+    def fake(opt, names, start, steps=insights.GRID_STEPS):
+        base = dict(names=list(names), units=["g"] * 3, start=dict(start), total=20.0,
+                    lower=[0.0] * 3, upper=[1.0] * 3, span=0.0, points=[], dots=[],
+                    refusal=None, start_breaks=None, follows=[], fill_moves=None, skipped=[])
+        return insights.Mixture(**{**base, **kw})
+    monkeypatch.setattr(insights, "mixture_slice", fake)
+
+
+def test_no_room_is_one_line(mixture_scored, monkeypatch):
+    _refused(monkeypatch, refusal=insights.NO_ROOM)
+    at = _open_insights(_app())
+    more = _more(at)
+    best_no = mixture_scored.best_formulation_no()
+    assert wording.mixture_no_room(best_no) in [c.value for c in more.caption]
+    assert _triangles(more) == []
+
+
+def test_a_start_that_breaks_a_limit_is_one_line(mixture_scored, monkeypatch):
+    _refused(monkeypatch, start_breaks="Oil would go past its Highest")
+    at = _open_insights(_app())
+    best_no = mixture_scored.best_formulation_no()
+    assert wording.path_start_breaks(best_no, "Oil would go past its Highest") in [
+        c.value for c in _more(at).caption]
+
+
+def test_the_fill_following_a_calculation_is_one_line(mixture_scored, monkeypatch):
+    _refused(monkeypatch, refusal=insights.FILL_FOLLOWS, follows=["Hydration"])
+    at = _open_insights(_app())
+    assert wording.mixture_fill_follows("Hydration", "Water") in [
+        c.value for c in _more(at).caption]
+
+
+def test_calculation_and_fill_lines_under_the_caption(mixture_scored):
+    opt = mixture_scored
+    opt.add_ingredient("Hydration", 0, 50)
+    opt.set_formula("Hydration", "= 0.5 * Oil")
+    at = _open_insights(_app())
+    next(b for b in _more(at).multiselect
+         if b.label == wording.MIXTURE_PICK).set_value(["Pea protein", "Oil", "Starch"])
+    _rerun_on(at)
+    assert not at.exception
+    caps = [c.value for c in _more(at).caption]
+    i = caps.index(wording.mixture_caption(opt.best_formulation_no()))
+    assert caps[i + 1:i + 3] == [wording.path_follows("Hydration"), wording.mixture_fills("Water")]
+
+
+def test_a_project_switch_drops_the_wave_c_keys(mixture_scored):
+    at = _open_insights(_app())
+    keys = (ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY)
+    assert all(k in at.session_state for k in keys)
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at.run()
+    at.selectbox(key="project_select").set_value("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert not any(k in at.session_state for k in keys)
+
+
+def test_the_triangle_is_drawn_at_its_own_size(mixture_scored, monkeypatch):
+    """A layered chart stretches to the column by default, which would pull
+    the triangle out of shape: it is drawn at its own width and height."""
+    import streamlit as st
+    drawn = []
+    real = st.altair_chart
+
+    def spy(chart, *a, **k):
+        drawn.append((chart.to_dict().get("width"), k.get("width")))
+        return real(chart, *a, **k)
+    monkeypatch.setattr(st, "altair_chart", spy)
+    _open_insights(_app())
+    assert (ui_insights._MIX_SIZE, "content") in drawn
+
+
+def test_the_triangle_writes_nothing_and_leaves_the_rng(mixture_scored):
+    at = _open_insights(_app())
+    before = _state(at.session_state["optimizer"])
+    rng = torch.get_rng_state().clone()
+    next(b for b in _more(at).multiselect
+         if b.label == wording.MIXTURE_PICK).set_value(["Oil", "Starch", "Water"])
+    _rerun_on(at)
+    assert _state(at.session_state["optimizer"]) == before
+    assert torch.equal(torch.get_rng_state(), rng)
+
+
+def _mix_parts(opt):
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    mix = insights.mixture_slice(opt, ["Pea protein", "Oil", "Water"], start)
+    return mix, insights.mixture_predictions(opt, fitted, mix)
+
+
+def test_triangle_corners_on_the_page():
+    assert ui_insights._xy((1.0, 0.0, 0.0)) == (0.0, 0.0)
+    assert ui_insights._xy((0.0, 1.0, 0.0)) == (1.0, 0.0)
+    x, y = ui_insights._xy((0.0, 0.0, 1.0))
+    assert (x, y) == pytest.approx((0.5, 3 ** 0.5 / 2))
+
+
+def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    assert spec["width"] == spec["height"]
+    enc = next(l for l in spec["layer"] if l["mark"]["type"] == "circle")["encoding"]
+    xd, yd = enc["x"]["scale"]["domain"], enc["y"]["scale"]["domain"]
+    assert xd[1] - xd[0] == pytest.approx(yd[1] - yd[0])
+    assert enc["x"]["axis"] is None and enc["y"]["axis"] is None
+    texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
+    for k, name in enumerate(mix.names):
+        assert wording.mixture_corner(name, ui_insights._amount(mix.upper[k], "g")) in texts
+    assert wording.start_formulation(7) in texts
+
+
+def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(mixture_scored):
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    circles = [l for l in spec["layer"] if l["mark"]["type"] == "circle"]
+    grey, coloured = circles
+    assert grey["mark"]["color"] == "lightgray"
+    assert [t["title"] for t in grey["encoding"]["tooltip"]][-1] == wording.MIXTURE_BLOCKED
+    assert coloured["encoding"]["color"]["scale"]["scheme"] == {"name": "blues", "extent": [0.25, 1]}
+    allowed = [q.mean for q in preds if q is not None]
+    assert coloured["encoding"]["color"]["scale"]["domain"] == pytest.approx([min(allowed), max(allowed)])
+    size = coloured["encoding"]["size"]["scale"]
+    assert size["domain"] == [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
+    assert size["range"][0] > size["range"][1]
+    frame, _, _ = ui_insights.mixture_frame(opt, mix, preds)
+    assert (frame["state"] == wording.MIXTURE_BLOCKED).sum() == sum(p.broken is not None for p in mix.points)
+    assert (frame["state"] == wording.MIXTURE_TESTED).sum() == sum(
+        p.tested and p.broken is None for p in mix.points)
+    shown = frame[frame["state"] != wording.MIXTURE_BLOCKED]["pred"]
+    assert all(" (" in t for t in shown)
+
+
+def test_exact_wave_c_strings_for_the_triangle():
+    assert wording.Q_MIXTURE == "What happens when three ingredients trade places?"
+    assert wording.mixture_caption(14) == (
+        "Colour = predicted Overall score as the three amounts trade places; everything else "
+        "as in Formulation 14.")
+    assert wording.mixture_corner("Coconut oil", "9.4 g") == "Coconut oil up to 9.4 g"
+
+
+def test_the_triangle_strings_pass_the_word_guards():
+    _assert_clean(wording.Q_MIXTURE, wording.MIXTURE_PICK, wording.PICK_THREE,
+                  wording.mixture_caption(14), wording.mixture_corner("Coconut oil", "9.4 g"),
+                  wording.mixture_fills("Water"), wording.mixture_no_room(14),
+                  wording.mixture_fill_follows("Hydration water", "Remaining water"),
+                  wording.mixture_together("g"), wording.MIXTURE_TESTED,
+                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED)
