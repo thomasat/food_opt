@@ -188,7 +188,8 @@ def render(opt):
         st.caption(wording.INSIGHTS_NONE)
         return
     order = insights.round_order(opt)
-    st.caption(wording.insights_header(n, order[-1][0] if order else None))
+    st.caption(wording.insights_header(n, order[-1][0] if order else None,
+                                       len(opt.waiting_rows())))
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
     if computed is not None and computed.get("failed"):
         st.caption(wording.INSIGHTS_FAILED)
@@ -353,13 +354,21 @@ def _improving(opt):
         _progress_chart_body(opt)
 
 
+def progress_frame(opt):
+    """The Progress chart's data, one row per scored formulation. A
+    formulation still waiting for results is a gap in the Overall score line
+    and repeats the best so far before it."""
+    return pd.DataFrame({
+        wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
+        wording.OVERALL_SCORE_COLUMN: [float(y) if opt.fully_measured(i) else None
+                                       for i, y in enumerate(opt.Y_history)],
+        wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
+    }).set_index(wording.FORMULATION_CAP)
+
+
 def _progress_chart_body(opt):
     # Moved unchanged from Results (0.7.2), minus its own expander.
-    st.line_chart(pd.DataFrame({
-        wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
-        wording.OVERALL_SCORE_COLUMN: [float(y) for y in opt.Y_history],
-        wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
-    }).set_index(wording.FORMULATION_CAP), height=220,
+    st.line_chart(progress_frame(opt), height=220,
         # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
         # with one round of data and nothing on the chart said what
         # either number was.

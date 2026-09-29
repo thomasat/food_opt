@@ -3890,9 +3890,10 @@ INSIGHTS_WORKING = "Preparing the insights…"
 INSIGHTS_FAILED = "Insights could not be prepared for this project."
 
 
-def insights_header(n, last_round):
+def insights_header(n, last_round, waiting=0):
     tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
-    return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{tail}. "
+    wait = f" ({waiting} {waiting_for()})" if waiting else ""
+    return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{wait}{tail}. "
             "Likely range: where about 19 in 20 results should land.")
 
 

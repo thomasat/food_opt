@@ -61,7 +61,9 @@ def outputs(opt):
 
 def measured(opt, name, i):
     if name == SCORE:
-        return float(opt.Y_history[i])
+        # A formulation still waiting for results has no Overall score to
+        # learn from yet: its missing measurement counts as zero in it.
+        return float(opt.Y_history[i]) if opt.fully_measured(i) else None
     value = (opt.results_history[i] if i < len(opt.results_history) else {}).get(name)
     return None if value is None else float(value)
 

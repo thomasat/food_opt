@@ -211,7 +211,8 @@ def test_partial_rows_are_checked_per_measurement():
     opt.tell(opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), {"Juiciness": 5.8},
              formulation_no=40, batch_no=3)
     checks = [c for c in insights.check_rounds(opt) if c.formulation == 40]
-    assert {c.name for c in checks} == {"Juiciness", insights.SCORE}
+    # Waiting for Firmness: no Overall score to check it against yet.
+    assert {c.name for c in checks} == {"Juiciness"}
     assert all(not c.fully_measured for c in checks)
 
 

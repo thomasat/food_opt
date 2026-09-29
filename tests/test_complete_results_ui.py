@@ -187,3 +187,14 @@ def test_a_row_recorded_before_a_measurement_was_added_is_not_missing_it(open_ba
     assert not at.exception
     assert not any("Cook loss not measured" in c.value for c in at.caption), \
         [c.value for c in at.caption]
+
+
+# ---------------------------------------------------------------- Task 8
+
+
+def test_insights_header_counts_the_waiting(one_waiting):
+    at = _app(wording.TAB_INSIGHTS)
+    assert not at.exception
+    assert any(c.value.startswith(
+        "Based on 3 scored formulations (1 waiting for results), up to Round 2.")
+        for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]

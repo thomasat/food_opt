@@ -500,3 +500,71 @@ def test_a_downloaded_waiting_row_imports_as_scored_on_what_it_has():
                               "Oil": float(row["Oil (g)"])}, results)
     assert other.fully_measured(0)
     assert other.waiting_rows() == []
+
+
+# ---------------------------------------------------------------- Task 8
+
+
+def test_the_insights_score_model_learns_only_from_complete_rows():
+    import insights
+    opt = _patty(rows=6)
+    _tell(opt, 7, 3, drop=("Cook loss",))
+    rows = list(range(7))
+    assert insights.measured(opt, insights.SCORE, 6) is None
+    assert insights.fit(opt, insights.SCORE, rows).n_rows == 6
+    assert insights.fit(opt, "Firmness", rows).n_rows == 7
+    assert insights.fit(opt, "Cook loss", rows).n_rows == 6
+
+
+def test_the_progress_chart_leaves_a_gap_for_a_waiting_row():
+    import math
+    import ui_insights
+    opt = _patty(rows=2)
+    _tell(opt, 3, 1, drop=("Cook loss",))
+    _tell(opt, 4, 2)
+    frame = ui_insights.progress_frame(opt)
+    score = frame[wording.OVERALL_SCORE_COLUMN].tolist()
+    assert math.isnan(score[2]) and not math.isnan(score[3])
+    best = frame[wording.BEST_SO_FAR_COLUMN].tolist()
+    assert best[2] == best[1]
+
+
+def test_repeat_spread_compares_rescaled_and_full_scores_on_one_scale():
+    """A repeat recorded before Cook loss was added (rescaled) beside one
+    recorded after (full): both 0-100, so the spread is a real one."""
+    import insights
+    opt = _patty(rows=1, cook_loss=False)
+    _add_cook_loss(opt)
+    _tell(opt, 2, 1)
+    opt.recipe_history[1] = dict(opt.recipe_history[0])
+    opt.X_history[1] = list(opt.X_history[0])
+    spread = insights.repeat_spread(opt)
+    assert spread == pytest.approx(abs(opt.Y_history[0] - opt.Y_history[1]))
+    assert spread < 100
+
+
+def test_every_new_string_passes_the_vocabulary_guard():
+    from tests.test_food_bo import _BANNED
+    strings = [
+        wording.waiting_for("Cook loss"), wording.waiting_for(),
+        wording.COMPLETE_RESULTS_CAPTION, wording.NO_COMPLETE_FORMULATION,
+        wording.RESULT_BEST_COMPLETE_ONLY,
+        wording.overall_score_waiting("Cook loss"),
+        wording.score_without_button("Cook loss"),
+        wording.scored_without(12, "Cook loss"),
+        wording.saved_waiting(12, "Cook loss"),
+        wording.formulation_corrected(12, "Cook loss"),
+        wording.formulation_scored(12, "Cook loss"),
+        wording.waiting_generate_caption(1, "Cook loss"),
+        wording.waiting_generate_caption(2, "Cook loss"),
+        wording.still_spread_out(5),
+        wording.insights_header(17, 5, 2),
+    ]
+    for text in strings:
+        assert not any(p.search(text) for p in _BANNED), text
+    assert wording.saved_waiting(12, "Cook loss") == \
+        "Formulation 12 saved · waiting for Cook loss."
+    assert wording.insights_header(17, 5, 2).startswith(
+        "Based on 17 scored formulations (2 waiting for results), up to Round 5.")
+    assert wording.insights_header(17, 5).startswith(
+        "Based on 17 scored formulations, up to Round 5.")

@@ -191,6 +191,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.INSIGHTS_WORKING)
     _check(wording.insights_header(1, None))
     _check(wording.insights_header(17, "5"))
+    _check(wording.insights_header(17, "5", 2))
     _check(wording.insights_gate(3))
     _check(wording.Q_PREDICTIONS)
     _check(wording.q_change(True))
