@@ -623,15 +623,27 @@ def _near_copy_prefixes(opt, batch):
     that nearly repeats a formulation still waiting for results (Minor 15,
     2026-09-29 review) — never for the user's own formulations, which carry
     a note. Screen only: passed to batch_frame's own `near_copies` argument,
-    which the workbook path never supplies."""
+    which the workbook path never supplies.
+
+    Routed through `wording.for_project`: a process-only study's table calls
+    every row a Trial, and the prefix has to use the same word for the row
+    it names, or a cell reads 'Nearly the same as Formulation 7' beside a
+    table that has never once said Formulation.
+
+    During the cold start there is no Compared with column to prefix at all
+    (batch_frame drops it, COMPARED_WITH_ALLOWED), so nothing here would
+    ever be read; skipped rather than computed and thrown away."""
+    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
+        return {}
     prefixes = {}
     for row in opt._batch_rows(batch):
         if row.get('note'):
             continue
         match = insights.near_copy(opt, row['recipe'])
         if match is not None:
-            prefixes[row['formulation']] = wording.near_copy_prefix(
-                match.formulation, number_list(match.waiting_on))
+            prefixes[row['formulation']] = wording.for_project(
+                opt, wording.near_copy_prefix(
+                    match.formulation, number_list(match.waiting_on)))
     return prefixes
 
 

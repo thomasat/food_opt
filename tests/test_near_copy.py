@@ -163,6 +163,38 @@ def test_the_prefix_names_the_nearest_formulation_and_what_it_waits_for():
          "and Juiciness. ")
 
 
+def test_the_prefix_uses_trial_wording_in_a_process_only_study():
+    """No ingredients, only process settings dialled in: the table's own
+    rows are Trials (wording.for_project), so a near-copy prefix has to say
+    'Trial', never 'Formulation', beside it."""
+    opt = FoodOptimizer(f"near_copy_{next(_n)}")
+    opt.add_process_parameter("Temp", 0, 100, unit="°C")
+    opt.add_process_parameter("Time", 0, 60, unit="min")
+    opt.add_objective("Firmness", 50, goal="target", target=6,
+                      min_val=0, max_val=10)
+    opt.add_objective("Cook loss", 50, goal="min", min_val=0, max_val=40)
+    for k in range(6):
+        opt.tell({"Temp": 50.0, "Time": 30.0},
+                 {"Firmness": 6.0, "Cook loss": 10.0},
+                 formulation_no=k + 1, batch_no=k // 3 + 1)
+    # Trial 7, Round 3: still waiting for Cook loss.
+    opt.tell({"Temp": 50.0, "Time": 30.0}, {"Firmness": 6.0},
+             formulation_no=7, batch_no=3)
+    opt.set_pending_batch([{"Temp": 54.0, "Time": 30.0}], batch_no=4)
+    prefixes = _near_copy_prefixes(opt, opt.pending_batch)
+    no = opt.pending_batch[0]['formulation']
+    assert prefixes[no] == (
+        "Nearly the same as Trial 7, still waiting for Cook loss. ")
+    assert "Formulation" not in prefixes[no]
+    # And in the cell itself, on the table (the column header still reads
+    # "Compared with Formulation N" — a pre-existing, separate for_project
+    # gap the review notes as out of scope for this fix).
+    frame = opt.batch_frame(opt.pending_batch, near_copies=prefixes)
+    cell = frame[opt.compared_with_column()].iloc[0]
+    assert cell.startswith("Nearly the same as Trial 7, still waiting for "
+                          "Cook loss. ")
+
+
 def test_the_flagged_cell_is_prefixed_on_the_batch_table():
     opt = _project(rows=6)
     _waiting(opt, 7, 3)
