@@ -13,11 +13,14 @@ import statistics
 from dataclasses import dataclass
 
 import torch
+from botorch.acquisition import PosteriorMean
 from botorch.fit import fit_gpytorch_mll
-from botorch.utils.transforms import normalize
+from botorch.optim import optimize_acqf
+from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
 import wording
+from food_bo import CLOSE_TO_THE_BEST, number_list
 
 SCORE = "__overall_score__"
 MIN_ROWS = 5
@@ -176,6 +179,24 @@ def data_key(opt):
         "ids": opt.formulation_ids, "rounds": opt.batch_history,
         "objectives": opt.objectives, "cfg": getattr(opt, "bo_config", None),
         "bounds": opt._get_bounds().tolist(),
+    }
+    blob = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def setup_key(opt):
+    """data_key plus everything else the formulation predicted to score
+    highest depends on: the rows and their Lowest/Highest, calculations and
+    fixed amounts, every limit, the Formulation total, the ingredient
+    properties and the pre-mix make-ups (with the open Round's number and
+    its Not scored rows, which decide which make-up a new Round uses)."""
+    payload = {
+        "data": data_key(opt), "variables": opt.variables,
+        "limits": opt.constraints,
+        "amounts": getattr(opt, "quantity_constraints", []),
+        "total": opt.formulation_total,
+        "properties": opt.ingredient_properties, "premixes": opt.premixes,
+        "round": opt.pending_batch_no, "skipped": opt.skipped,
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
@@ -650,3 +671,98 @@ def spreads(opt, fitted, start):
         means = [p.mean for p in predict(opt, score, [opt._encode(r) for r in path.recipes])]
         out.append(Spread(name, max(means) - min(means)))
     return sorted(out, key=lambda s: -s.spread)
+
+
+def best_refusal(opt):
+    """Why no Round could be made now (the refusals `ask` raises before it
+    searches), or None."""
+    for c in opt.constraints:
+        if c['min'] is None and c['max'] is None:
+            continue
+        gaps = opt.ingredients_without_property(c['metric'])
+        if gaps:
+            return wording.missing_property_values(c['metric'], number_list(gaps))
+    missing = opt.premix_readiness_error()
+    if missing:
+        return missing
+    if not opt.varying_variables():
+        return wording.EVERYTHING_IS_FIXED
+    return None
+
+
+def distance(opt, a, b):
+    """The largest change between two make-ups, each varying amount or
+    setting as a share of its own Lowest-Highest span; None when a choice
+    (a categorical row) differs."""
+    largest = 0.0
+    for v in opt.varying_variables():
+        if v.get('type') != 'continuous':
+            if a.get(v['name']) != b.get(v['name']):
+                return None
+            continue
+        lo, hi = (float(t) for t in v['bounds'])
+        d = abs(float(a.get(v['name'], 0.0) or 0.0) - float(b.get(v['name'], 0.0) or 0.0))
+        largest = max(largest, d / (hi - lo))
+    return largest
+
+
+def nearest(opt, recipe):
+    """(index, distance) of the nearest fully measured formulation, ties to
+    the lowest Formulation number; (None, None) when none can be compared."""
+    best = None
+    for i in range(len(opt.Y_history)):
+        if not opt.fully_measured(i):
+            continue
+        d = distance(opt, recipe, start_recipe(opt, i))
+        if d is None:
+            continue
+        key = (d, int(opt.formulation_ids[i]))
+        if best is None or key < best[0]:
+            best = (key, i)
+    return (None, None) if best is None else (best[1], best[0][0])
+
+
+@dataclass
+class PredictedBest:
+    recipe: dict
+    score: Prediction
+    close: int | None       # index of the nearest formulation when close, else None
+    compare: int            # index of the table's second row
+
+
+def predicted_best(opt, fitted):
+    """The single formulation the Overall-score model predicts highest,
+    found the way suggestions are made and never written anywhere.
+
+    Returns a PredictedBest, or a one-line reason (str) when `ask` would
+    refuse to make a Round. Raises when the search fails or its answer
+    breaks a limit; the caller shows one line."""
+    reason = best_refusal(opt)
+    if reason:
+        return reason
+    score = fitted[SCORE]
+    bounds = opt._get_bounds()
+    dim = bounds.shape[1]
+    with opt._premixes_for_generation():
+        with _isolated():
+            candidate, _ = optimize_acqf(
+                acq_function=PosteriorMean(score.model),
+                bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+                q=1, num_restarts=10, raw_samples=512,
+                inequality_constraints=opt._get_botorch_constraints(),
+                fixed_features=opt._get_fixed_features() or None,
+            )
+        recipe = opt._decode(unnormalize(candidate[0], bounds).detach().numpy().flatten())
+        if opt.has_formulation_total():
+            recipe = opt._snapped_if_it_still_fits(recipe)
+        recipe = opt._settings_on_their_step(recipe)
+        # A categorical row holds a word, which the limit check would read
+        # as an amount; no limit can name one.
+        if not opt._check_constraints({k: v for k, v in recipe.items()
+                                       if not isinstance(v, str)}):
+            raise ValueError("the predicted best breaks a limit")
+    [prediction] = predict(opt, score, [opt._encode(recipe)])
+    i, d = nearest(opt, recipe)
+    close = i if i is not None and d <= CLOSE_TO_THE_BEST + 1e-9 else None
+    return PredictedBest(recipe, prediction, close,
+                         close if close is not None else opt.best_index())

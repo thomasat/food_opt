@@ -219,3 +219,177 @@ def test_spreads_leave_the_project_and_rng_untouched():
     snap = _snapshot(opt)
     insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index()))
     assert _unchanged(opt, snap)
+
+
+#  Task 4: the formulation predicted to score highest
+# ------------------------------------------------------------------ #
+
+def test_predicted_best_lands_near_the_true_best():
+    """Firmness hits its target 6 at Pea = 4.44 g; Juiciness rises with Oil,
+    so the true best is Pea near 4.44 g and Oil at its Highest, 6 g."""
+    opt = _burger(rounds=4)
+    best = insights.predicted_best(opt, insights.fit_all(opt))
+    assert isinstance(best, insights.PredictedBest)
+    assert best.recipe["Oil"] >= 5.4
+    assert abs(best.recipe["Pea"] - 4.44) <= CLOSE_TO_THE_BEST * 4
+    assert opt._check_constraints(best.recipe)
+
+
+def _limited(seed):
+    """_burger with a property limit, a limit on two amounts and a process
+    setting that moves in 10 °C steps, added after Round 3 at 170 °C."""
+    opt = _burger(rounds=3, seed=seed, noise=0.2)
+    opt.add_property("Fat")
+    for name, fat in (("Pea", 2.0), ("Oil", 100.0), ("Water", 0.0)):
+        opt.set_property_value(name, "Fat", fat)
+    opt.add_constraint("Fat", max_val=5.0)
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=11.0)
+    opt.add_process_parameter("Temp", 150, 200, baseline=170, unit="°C", step=10)
+    return opt
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_predicted_best_keeps_every_limit_the_total_and_the_steps(seed):
+    opt = _limited(seed)
+    best = insights.predicted_best(opt, insights.fit_all(opt))
+    r = best.recipe
+    assert opt._check_constraints(r)
+    assert opt.ingredient_total(r) == pytest.approx(100.0, rel=opt.FORMULATION_TOTAL_TOLERANCE)
+    assert r["Temp"] % 10 == pytest.approx(0.0, abs=1e-9) and 150 <= r["Temp"] <= 200
+    assert 4 <= r["Pea"] <= 8 and 2 <= r["Oil"] <= 6
+
+
+def test_predicted_best_keeps_a_fixed_row():
+    opt = _burger(rounds=3)
+    opt.add_ingredient("Oil", 3, 3)
+    best = insights.predicted_best(opt, insights.fit_all(opt))
+    assert best.recipe["Oil"] == pytest.approx(3.0)
+
+
+def test_the_shown_score_is_predicted_again_and_clipped_to_the_ceiling():
+    opt = _burger(rounds=4)
+    fitted = insights.fit_all(opt)
+    best = insights.predicted_best(opt, fitted)
+    again = insights.predict(opt, fitted[insights.SCORE], [opt._encode(best.recipe)])[0]
+    assert _close(best.score, again)
+    assert 0.0 <= best.score.low <= best.score.mean <= best.score.high <= opt.utility_ceiling()
+
+
+def test_a_mean_above_the_ceiling_is_shown_at_the_ceiling(monkeypatch):
+    opt = _burger(rounds=4)
+    fitted = insights.fit_all(opt)
+    real = insights.predict
+
+    def high(o, f, X):
+        out = real(o, f, X)
+        clip = lambda v: min(f.high, max(f.low, v))
+        return [insights.Prediction(clip(p.mean + 50), clip(p.low + 50), clip(p.high + 50))
+                for p in out]
+    monkeypatch.setattr(insights, "predict", high)
+    best = insights.predicted_best(opt, fitted)
+    assert best.score.mean == opt.utility_ceiling() == best.score.high
+
+
+def test_predicted_best_refuses_what_ask_refuses():
+    opt = _burger(rounds=3)
+    fitted = insights.fit_all(opt)
+    opt.add_constraint("Fat", max_val=5.0)            # no ingredient has a Fat value
+    assert insights.predicted_best(opt, fitted) == wording.missing_property_values(
+        "Fat", "Pea, Oil and Water")
+    opt = _burger(rounds=3)
+    opt.add_premix("Spice mix", "portioned")
+    assert insights.predicted_best(opt, fitted) == opt.premix_readiness_error()
+    opt = _burger(rounds=3)
+    opt.add_ingredient("Pea", 6, 6)
+    opt.add_ingredient("Oil", 4, 4)
+    assert insights.predicted_best(opt, fitted) == wording.EVERYTHING_IS_FIXED
+
+
+def test_distance_is_the_largest_share_of_each_span():
+    opt = _burger(rounds=2)                          # Pea 4–8, Oil 2–6: spans 4
+    a = opt.fill_formulas({"Pea": 6.0, "Oil": 4.0})
+    assert insights.distance(opt, a, opt.fill_formulas({"Pea": 6.6, "Oil": 4.2})) == pytest.approx(0.15)
+    assert insights.distance(opt, a, opt.fill_formulas({"Pea": 6.0, "Oil": 3.0})) == pytest.approx(0.25)
+
+
+def test_close_to_is_at_most_fifteen_hundredths(monkeypatch):
+    opt = _burger(rounds=4)
+    fitted = insights.fit_all(opt)
+    monkeypatch.setattr(insights, "nearest", lambda o, r: (2, CLOSE_TO_THE_BEST))
+    best = insights.predicted_best(opt, fitted)
+    assert best.close == 2 and best.compare == 2
+    monkeypatch.setattr(insights, "nearest", lambda o, r: (2, CLOSE_TO_THE_BEST + 0.001))
+    best = insights.predicted_best(opt, fitted)
+    assert best.close is None and best.compare == opt.best_index()
+
+
+def test_nearest_uses_complete_rows_at_the_total_and_ties_go_to_the_lower_number():
+    opt = _burger(rounds=0)
+    r = opt.fill_formulas({"Pea": 6.0, "Oil": 4.0})
+    opt.tell(opt.fill_formulas({"Pea": 6.4, "Oil": 4.0}), {"Firmness": 6.0, "Juiciness": 5.0},
+             formulation_no=7, batch_no=1)
+    opt.tell(opt.fill_formulas({"Pea": 5.6, "Oil": 4.0}), {"Firmness": 6.0, "Juiciness": 5.0},
+             formulation_no=3, batch_no=1)
+    opt.tell(r, {"Juiciness": 5.0}, formulation_no=9, batch_no=1)   # waiting: not a candidate
+    big = {k: v * 2 for k, v in opt.fill_formulas({"Pea": 6.1, "Oil": 4.0}).items()}
+    i, d = insights.nearest(opt, r)
+    assert int(opt.formulation_ids[i]) == 3 and d == pytest.approx(0.1)
+    opt.tell(big, {"Firmness": 6.0, "Juiciness": 5.0}, formulation_no=11, batch_no=2)
+    i, d = insights.nearest(opt, r)                  # made at 200 g, compared at 100 g
+    assert int(opt.formulation_ids[i]) == 11 and d == pytest.approx(0.025)
+
+
+def _categorical(opt):
+    # No public API makes a categorical row any more (old files only), so it
+    # is appended the way tests/test_insights.py's path-choice test does.
+    opt.variables.append({'name': "Package", 'type': 'categorical',
+                          'options': ["Tray", "Pouch"], 'category': 'process'})
+    return opt
+
+
+def test_a_choice_that_differs_is_never_close():
+    opt = _categorical(_burger(rounds=0))
+    a = dict(opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), Package="Tray")
+    assert insights.distance(opt, a, dict(a, Package="Pouch")) is None
+    assert insights.distance(opt, a, dict(a)) == 0.0
+
+
+def test_predicted_best_in_a_categorical_project():
+    """An old file's categorical row: relaxed in the search, decoded to one
+    of its options, never passed to a limit check as a number."""
+    opt = _categorical(_linear(n=0))
+    g = torch.Generator().manual_seed(3)
+    for no in range(1, 9):
+        pea, oil = (10 * torch.rand(2, generator=g)).tolist()
+        pack = "Pouch" if no % 2 else "Tray"
+        opt.tell({"Pea": pea, "Oil": oil, "Package": pack},
+                 {"Taste": 2 * pea + 0.5 * oil + (3 if pack == "Pouch" else 0)},
+                 formulation_no=no, batch_no=1 + (no - 1) // 4)
+    best = insights.predicted_best(opt, insights.fit_all(opt))
+    assert best.recipe["Package"] in ("Tray", "Pouch")
+    assert 0 <= best.recipe["Pea"] <= 10 and 0 <= best.recipe["Oil"] <= 10
+
+
+def test_predicted_best_leaves_the_project_rng_and_next_suggestion_untouched():
+    a, b = _limited(0), _limited(0)
+    fitted = insights.fit_all(b)
+    snap = _snapshot(b)
+    insights.predicted_best(b, fitted)
+    assert _unchanged(b, snap)
+    assert not hasattr(b, "_generation_premixes")
+    assert a.ask(2) == b.ask(2)
+
+
+def test_setup_key_follows_every_limit_but_not_a_rerun():
+    opt = _burger(rounds=2)
+    k = insights.setup_key(opt)
+    assert insights.setup_key(opt) == k
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=11.0)
+    k2 = insights.setup_key(opt)
+    assert k2 != k
+    opt.add_property("Fat")
+    opt.set_property_value("Oil", "Fat", 100.0)
+    k3 = insights.setup_key(opt)
+    assert k3 != k2
+    opt.set_formulation_total(120)
+    assert insights.setup_key(opt) != k3
