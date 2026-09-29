@@ -3998,9 +3998,11 @@ HOW_MODELS = ("Each measurement, and the Overall score, has its own prediction l
               "score alone. Because they are learned separately, the Overall score curve "
               "can differ a little from what the measurement curves imply.")
 HOW_RANGE = ("Likely range: where about 19 in 20 results should land, including the variation "
-             "seen between Repeats (a 95 % prediction interval).")
+             "seen between Repeats (a 95 % prediction interval). When earlier predictions missed "
+             "by more than their range allowed, the range is widened to match.")
 HOW_RANGE_FIXED_TINY = ("Likely range: your model settings assume no variation between Repeats, "
-                        "so the likely range covers only how sure the prediction is.")
+                        "so the range comes from how sure the prediction is, widened when earlier "
+                        "predictions missed by more than it allowed.")
 HOW_CHECKS = ("Checks: each Round is predicted from the formulations recorded before it, at the "
               "amounts it was made at, using today's measurements, targets and Share of score. "
               "The verdict allows for chance: with 19 in 20 expected, a few misses are normal.")

@@ -280,16 +280,20 @@ def _change(opt, computed, n):
 def _num(value):
     """A number for the tab, never in scientific notation: 0 decimals from
     100, 1 from 10, otherwise up to 2 significant decimals with no trailing
-    zeros; below 0.0001 it reads 0."""
+    zeros. Only a true zero reads 0: a non-zero value gets enough decimals
+    (up to 6) to show, and one too small even for that says so."""
     a = abs(value)
     if a >= 100:
         return f"{value:.0f}"
     if a >= 10:
         return f"{value:.1f}"
-    if a < 1e-4:
+    if a == 0:
         return "0"
-    decimals = 2 if a >= 1 else 1 - math.floor(math.log10(a))
-    return f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    decimals = 2 if a >= 1 else min(6, 1 - math.floor(math.log10(a)))
+    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    if text.strip("-") in ("0", ""):
+        return "< 0.000001" if value > 0 else "> -0.000001"
+    return text
 
 
 def _amount(value, unit):

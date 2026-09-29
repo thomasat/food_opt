@@ -421,10 +421,16 @@ def test_num_never_uses_scientific_notation():
     assert n(12.34) == "12.3" and n(10.0) == "10.0"
     assert n(3.14159) == "3.14" and n(2.5) == "2.5" and n(4.0) == "4"
     assert n(0.5) == "0.5" and n(0.0123) == "0.012" and n(0.00012) == "0.00012"
-    assert n(0.00005) == "0" and n(0.0) == "0" and n(-0.00001) == "0"
     assert n(-3.14159) == "-3.14"
-    for v in (1e-3, 2.5e-4, 1e-4, 0.05, 99.99, 1e6):
+    # Only a true zero reads 0: a non-zero value shows enough decimals (up
+    # to 6) to be non-zero, and anything smaller says so.
+    assert n(0.0) == "0" and n(-0.0) == "0"
+    assert n(0.00005) == "0.00005" and n(-0.00001) == "-0.00001"
+    assert n(0.0000012) == "0.000001" and n(0.000001) == "0.000001"
+    assert n(0.0000004) == "< 0.000001" and n(-0.0000004) == "> -0.000001"
+    for v in (1e-3, 2.5e-4, 1e-4, 5e-5, 1e-6, 1e-9, -1e-9, 0.05, 99.99, 1e6):
         assert "e" not in n(v).lower(), (v, n(v))
+        assert n(v).strip("<> -") not in ("0", "0.0", "0.000000"), (v, n(v))
 
 
 def test_rounds_span_contiguous_and_not():
@@ -584,3 +590,14 @@ def test_details_table_shows_rows_after_one_checked_round(insights_scored):
 def test_unchecked_rounds_caption(insights_scored):
     at = _open_insights(_app())
     assert wording.rounds_not_checked([1, 2]) in _tab_text(at)[1]
+
+
+def test_how_range_wording_says_the_range_is_widened():
+    assert wording.HOW_RANGE == (
+        "Likely range: where about 19 in 20 results should land, including the variation "
+        "seen between Repeats (a 95 % prediction interval). When earlier predictions missed "
+        "by more than their range allowed, the range is widened to match.")
+    assert wording.HOW_RANGE_FIXED_TINY == (
+        "Likely range: your model settings assume no variation between Repeats, so the range "
+        "comes from how sure the prediction is, widened when earlier predictions missed by "
+        "more than it allowed.")
