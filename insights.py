@@ -886,6 +886,69 @@ def nearest(opt, recipe):
     return (None, None) if best is None else (best[1], best[0][0])
 
 
+# Minor 15 (2026-09-29 review): a suggestion within this share of each
+# varying row's own span of a formulation still waiting for results may be
+# repeating it before either can be told apart — the model has not been
+# taught that waiting formulation's result yet, so it cannot know. Tighter
+# than CLOSE_TO_THE_BEST (0.15, "close to the best formulation so far"): a
+# near-copy is a much narrower claim, that two specific rows are hard to
+# tell apart at all.
+NEAR_COPY_SPAN = 0.05
+
+
+@dataclass
+class NearCopy:
+    formulation: int   # the waiting formulation's own number
+    waiting_on: list    # what it still needs, most important first
+
+
+def _fixed_rows_match(opt, a, b):
+    """Whether every pinned-at-one-amount row agrees between two make-ups.
+    In practice this is never the disagreement — a fixed row decodes to
+    today's pinned amount on both sides, recorded or not — but the rule is
+    checked anyway, exactly as the ones that can differ are."""
+    return all(abs(float(a.get(v['name'], 0.0) or 0.0)
+                  - float(b.get(v['name'], 0.0) or 0.0)) < 1e-6
+              for v in opt.fixed_variables())
+
+
+def near_copy(opt, recipe):
+    """The nearest formulation still waiting for results that `recipe` may
+    be repeating, or None. Read-only: decides nothing the search sees, and
+    is never asked before a Round is generated — only after, to flag a row
+    already chosen.
+
+    A match needs every varying row (continuous, as a share of its own
+    Lowest-Highest span; categorical, the same choice) within
+    NEAR_COPY_SPAN, and every fixed row the same, both compared at the
+    Formulation total (`at_total`) rather than whatever the round happens to
+    be scaled to on screen. A waiting formulation from `recipe`'s own Round
+    is excluded: it is a row of the batch being built, not one the model
+    should already have learned from.
+
+    Ties go to the lowest Formulation number, as `nearest` does."""
+    a = at_total(opt, recipe)
+    own_round = opt.pending_batch_no
+    best = None
+    for i in opt.waiting_rows():
+        batch = opt.batch_history[i] if i < len(opt.batch_history) else None
+        if own_round is not None and batch == own_round:
+            continue
+        b = start_recipe(opt, i)
+        if not _fixed_rows_match(opt, a, b):
+            continue
+        d = distance(opt, a, b)
+        if d is None or d > NEAR_COPY_SPAN + _EPS:
+            continue
+        key = (d, int(opt.formulation_ids[i]))
+        if best is None or key < best[0]:
+            best = (key, i)
+    if best is None:
+        return None
+    i = best[1]
+    return NearCopy(int(opt.formulation_ids[i]), opt.waiting_on(i))
+
+
 @dataclass
 class PredictedBest:
     recipe: dict

@@ -3277,7 +3277,7 @@ class FoodOptimizer:
             return wording.COMPARED_WITH_ALLOWED
         return wording.compared_with_column(self.best_formulation_no())
 
-    def compared_with_text(self, recipe, scale_to=None, own=False):
+    def compared_with_text(self, recipe, scale_to=None, own=False, prefix=""):
         """One cell of the batch table, and the same line on the sheet: what
         kind of formulation this is, and the amounts that carry it.
 
@@ -3290,15 +3290,21 @@ class FoodOptimizer:
         it has no kind: the app describing its own sampling ('spread across
         the allowed amounts') on a row somebody wrote out by hand was the
         app taking credit for their bench standard. The changes from the best
-        still follow — those are a fact about the amounts."""
+        still follow — those are a fact about the amounts.
+
+        `prefix` (Minor 15, 2026-09-29 review) is text stuck onto the front
+        of the cell, screen-only: every caller writing to the workbook (the
+        formulation sheet) leaves it at "", so what is printed never carries
+        it — only ui_batch's on-screen table passes one, for a suggestion
+        near a formulation still waiting for results."""
         if own:
-            return wording.compared_with_cell(
+            return prefix + wording.compared_with_cell(
                 wording.OWN_FORMULATION_KIND,
                 self.vs_best_text(recipe, scale_to=scale_to))
         kind = self.suggestion_kind(recipe)
         changes = ("" if kind == wording.SUGGESTION_SPREAD
                    else self.vs_best_text(recipe, scale_to=scale_to))
-        return wording.compared_with_cell(kind, changes)
+        return prefix + wording.compared_with_cell(kind, changes)
 
     def ingredient_total(self, recipe):
         """The formulation total: process settings are not amounts and are excluded."""
@@ -3706,12 +3712,17 @@ class FoodOptimizer:
                                 ascending=[True, False, True])
         return df[columns].reset_index(drop=True)
 
-    def batch_frame(self, batch, scale_to=None):
+    def batch_frame(self, batch, scale_to=None, near_copies=None):
         """The open batch as the make-these table: one row per formulation, one
         column per ingredient and setting carrying its own unit, and the total
         of the ingredients — one number while they share a unit, `340.00 g ·
         60.00 ml` when they do not. `scale_to` rewrites it for a different
-        formulation total — display only, the stored row never changes."""
+        formulation total — display only, the stored row never changes.
+
+        `near_copies` (Minor 15, 2026-09-29 review) is {formulation number:
+        prefix text}, off by default: nothing here writes to the workbook,
+        so a caller that never passes it — every one but ui_batch's own
+        on-screen table — gets exactly today's cell, unchanged."""
         total_col = self.total_column()
         # The total closes the amounts you weigh out, so it sits with them,
         # before the settings you dial in — the order the sheet is filled in.
@@ -3757,8 +3768,10 @@ class FoodOptimizer:
             if trying is not None:
                 # The stored amounts, with the table's own total handed on:
                 # the changes are then between two numbers the screen shows.
+                prefix = ("" if own or not near_copies
+                          else near_copies.get(row['formulation'], ""))
                 item[trying] = self.compared_with_text(
-                    row['recipe'], scale_to=scale_to, own=own)
+                    row['recipe'], scale_to=scale_to, own=own, prefix=prefix)
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name'], mark=True)

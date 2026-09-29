@@ -187,14 +187,18 @@ def test_make_a_round_says_nothing_while_nothing_waits(scored):
 def test_make_a_round_names_one_waiting_formulation(one_waiting):
     at = _app(wording.TAB_BATCH)
     assert ("1 formulation is waiting for Juiciness and is not used for "
-            "suggestions yet. Enter its results on Results.") in _generate_captions(at)
+            "suggestions yet. Enter its results on Results. Suggestions "
+            "don't know about these yet and may be close to them."
+            ) in _generate_captions(at)
 
 
 def test_make_a_round_counts_several_and_says_why_it_is_still_spread_out(six_waiting):
     at = _app(wording.TAB_BATCH)
     assert ("6 formulations are waiting for Juiciness and are not used for "
-            "suggestions yet. Enter their results on Results. Suggestions stay "
-            "spread out until 5 formulations have all their results."
+            "suggestions yet. Enter their results on Results. Suggestions "
+            "don't know about these yet and may be close to them. "
+            "Suggestions stay spread out until 5 formulations have all "
+            "their results."
             ) in _generate_captions(at), _generate_captions(at)
 
 
@@ -364,5 +368,6 @@ def test_make_a_round_names_no_measurement_when_the_waiting_differ(burger):
                 {"Juiciness": 7.0}, formulation_no=2, batch_no=1)
     at = _app(wording.TAB_BATCH)
     assert ("2 formulations are waiting for results and are not used for "
-            "suggestions yet. Enter their results on Results."
+            "suggestions yet. Enter their results on Results. Suggestions "
+            "don't know about these yet and may be close to them."
             ) in _generate_captions(at), _generate_captions(at)

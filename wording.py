@@ -760,6 +760,15 @@ def compared_with_cell(kind, changes=""):
     return f"{head} · {changes}" if changes else head
 
 
+def near_copy_prefix(no, names_text):
+    """'Nearly the same as Formulation 20, still waiting for Cook loss. ' —
+    prefixed onto a suggestion's Compared with cell (Minor 15, 2026-09-29
+    review) when it sits within NEAR_COPY_SPAN of a formulation the model
+    has not been told the result of yet. Screen only: the trailing space
+    joins straight onto the cell's own text, which is never rewritten."""
+    return f"Nearly the same as {FORMULATION_CAP} {no}, still {waiting_for(names_text)}. "
+
+
 NEEDS_ONE_UNIT = (f"To make each {FORMULATION} to a {BATCH_SIZE_NOUN}, "
                   f"every {INGREDIENT} needs the same unit.")
 
@@ -1889,12 +1898,16 @@ def scored_without(no, name, waiting=None):
 
 
 def waiting_generate_caption(n, names_text):
-    """Under Generate while formulations wait for results."""
+    """Under Generate while formulations wait for results. Minor 15
+    (2026-09-29 review): says the suggestions do not know about them yet,
+    since one may be flagged on the table as nearly repeating one."""
+    tail = (" Suggestions don't know about these yet and may be close to "
+            "them.")
     if n == 1:
         return (f"1 {FORMULATION} is {waiting_for(names_text)} and is not "
-                "used for suggestions yet. Enter its results on Results.")
+                f"used for suggestions yet. Enter its results on Results.{tail}")
     return (f"{n} {FORMULATION}s are {waiting_for(names_text)} and are not "
-            "used for suggestions yet. Enter their results on Results.")
+            f"used for suggestions yet. Enter their results on Results.{tail}")
 
 
 def still_spread_out(k):

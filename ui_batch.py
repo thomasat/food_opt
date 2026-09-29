@@ -618,6 +618,23 @@ def _models_ready(opt):
     return bool(hit) and hit[0] == insights.data_key(opt)
 
 
+def _near_copy_prefixes(opt, batch):
+    """{Formulation number: prefix text} for every suggestion in `batch`
+    that nearly repeats a formulation still waiting for results (Minor 15,
+    2026-09-29 review) — never for the user's own formulations, which carry
+    a note. Screen only: passed to batch_frame's own `near_copies` argument,
+    which the workbook path never supplies."""
+    prefixes = {}
+    for row in opt._batch_rows(batch):
+        if row.get('note'):
+            continue
+        match = insights.near_copy(opt, row['recipe'])
+        if match is not None:
+            prefixes[row['formulation']] = wording.near_copy_prefix(
+                match.formulation, number_list(match.waiting_on))
+    return prefixes
+
+
 def _batch_table(opt, scale_to, tab_open=False):
     """The make-these table and the lines it owes the reader.
 
@@ -638,7 +655,9 @@ def _batch_table(opt, scale_to, tab_open=False):
     the tab open) the table is drawn with its predictions straight away,
     so the column does not blink on every rerun.
     """
-    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
+    near_copies = _near_copy_prefixes(opt, opt.pending_batch)
+    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to,
+                            near_copies=near_copies)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
     if not editing:
