@@ -4169,6 +4169,21 @@ TRACK_HIGH = "Likely range to"
 TRACK_INSIDE = "Inside"
 
 
+# 0.8.0 review fixes §6: the keys of the two charts that had none, one
+# line each.
+def track_caption(targets=True):
+    """Under "Show each prediction"."""
+    tail = "; dashed line = target" if targets else ""
+    return ("Bar = likely range, predicted before the Round; filled dot = landed inside, "
+            f"ring = outside{tail}.")
+
+
+def path_lines(n, targets=True):
+    """Under the one-ingredient chart: its two kinds of line."""
+    tail = "; dashed line: target" if targets else ""
+    return f"Dotted line: {FORMULATION_CAP} {n}{tail}."
+
+
 # Insights wave B (0.8.0): predictions on Make a round, the spread of each
 # ingredient or process setting, and the formulation predicted to score
 # highest. Every number that is a prediction carries its likely range.

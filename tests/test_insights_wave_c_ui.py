@@ -621,7 +621,7 @@ def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     texts = [l for l in spec["layer"] if _mark_type(l) == "text" and not l["mark"].get("stroke")]
     assert len(texts) == 4          # the three corners plus the start's own label
-    assert all(l["mark"].get("color") == "gray" for l in texts)
+    assert all(l["mark"].get("color") == ui_insights.muted() for l in texts)
 
 
 def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_scored):
@@ -790,6 +790,7 @@ def test_misses_chart_shares_one_y_axis_and_puts_round_on_x(mixture_scored):
 
 def test_formulations_of_one_round_sit_side_by_side_in_number_order():
     opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
+                              "measurements_by_importance": lambda self: self.objectives,
                               "_measurement_column": lambda self, o: "Firmness (N)",
                               "has_ingredients": lambda self: True})()
     found = [insights.Miss(9, 3, "Firmness", 0.5, True), insights.Miss(7, 3, "Firmness", -1.0, True),
@@ -1014,7 +1015,7 @@ def test_the_start_label_is_offset_not_haloed(mixture_scored):
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     [label] = [l for l in spec["layer"] if _mark_type(l) == "text"
                and _layer_rows(spec, l)[0]["t"] == wording.start_formulation(7)]
-    assert label["mark"]["color"] == "gray"
+    assert label["mark"]["color"] == ui_insights.muted()
     _assert_offset_not_haloed(spec, label)
 
 
@@ -1023,7 +1024,7 @@ def test_the_best_so_far_label_is_offset_not_haloed(tmp_path, monkeypatch):
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
                                   insights.pair_points(opt, "Firmness", "Cook loss")).to_dict()
     [label] = _layers(spec, "text")
-    assert label["mark"]["color"] == "gray"
+    assert label["mark"]["color"] == ui_insights.muted()
     assert label["encoding"]["text"] == {"value": wording.PAIR_BEST}
     _assert_offset_not_haloed(spec, label)
 
@@ -1099,6 +1100,7 @@ def test_the_misses_chart_fills_by_its_own_band_not_by_the_check():
     """A value outside a narrowed Range can make Check.inside and |z| ≤ 1.96
     disagree; the chart's filled dots follow its own band."""
     opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
+                              "measurements_by_importance": lambda self: self.objectives,
                               "_measurement_column": lambda self, o: "Firmness (N)",
                               "has_ingredients": lambda self: True})()
     found = [insights.Miss(7, 3, "Firmness", 2.5, True), insights.Miss(8, 3, "Firmness", 0.5, False),

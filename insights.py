@@ -427,7 +427,8 @@ class DetailRow:
 
 def details(opt, checks):
     rows = []
-    for name, _, _ in outputs(opt):
+    ordered = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
+    for name in ordered:
         mine = [c for c in checks if c.name == name]
         if not mine:
             continue

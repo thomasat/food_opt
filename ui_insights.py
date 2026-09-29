@@ -14,6 +14,30 @@ from ui_helpers import amount_format, table_height
 
 _BAND = 0.25
 _GREY = 0.12
+# Text drawn on a chart (labels, the band's name): at least 4.5:1 against
+# the page in each theme. No single grey reaches that on both white and
+# Streamlit's dark background, so the theme picks (0.8.0 review fixes §6).
+_MUTED_LIGHT = "#5c6370"      # 6.0:1 on white
+_MUTED_DARK = "#a3a8b4"       # 7.9:1 on #0e1117
+
+
+def muted():
+    """The chart text colour for the theme the reader has on."""
+    try:
+        dark = st.context.theme.type == "dark"
+    except Exception:
+        dark = False
+    return _MUTED_DARK if dark else _MUTED_LIGHT
+
+
+def decimals(opt, name):
+    """One number of decimals for everything this measurement shows — a
+    prediction, its likely range, a tooltip — from the width of its Range:
+    0 from 100, 1 from 1, 2 below. The Overall score (Range 0 to the
+    ceiling) gets 0: a predicted score is a whole number."""
+    lo, hi = insights._range_of(opt, name)
+    width = abs(hi - lo)
+    return 0 if width >= 100 else 1 if width >= 1 else 2
 
 # Minor 14 (privacy): no chart this tab draws may offer to send its data
 # off the machine. `usermeta` on the TOP-LEVEL spec — set after any layering
@@ -45,11 +69,13 @@ def panel_label(opt, name):
 
 
 def track_panels(opt):
-    return [o['name'] for o in opt.objectives] + [insights.SCORE]
+    """The measurements in the order Results lists them (largest Share of
+    score first), then the Overall score."""
+    return [o['name'] for o in opt.measurements_by_importance()] + [insights.SCORE]
 
 
 def path_panels(opt):
-    return [insights.SCORE] + [o['name'] for o in opt.objectives]
+    return [insights.SCORE] + [o['name'] for o in opt.measurements_by_importance()]
 
 
 def _target_rows(opt, names):
@@ -68,7 +94,8 @@ def _only(mark):
 
 def _target_layer():
     # Dashed, thin and grey: never mistaken for a likely-range bar.
-    return (alt.Chart().mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray", opacity=0.6)
+    return (alt.Chart().mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray", opacity=0.6,
+                                  tooltip=False)
             .encode(y="target:Q").transform_filter(_only("target")))
 
 
@@ -93,10 +120,11 @@ def track_chart(opt, checks):
         "panel": panel_label(opt, c.name), "mark": "check",
         formulation: c.formulation,
         wording.ROUND_CAP: c.round,
-        wording.TRACK_PREDICTED: round(c.predicted, 2),
-        wording.TRACK_LOW: round(c.low, 2),
-        wording.TRACK_HIGH: round(c.high, 2),
-        wording.TRACK_MEASURED: round(c.measured, 2),
+        wording.TRACK_PREDICTED: round(c.predicted, decimals(opt, c.name)),
+        wording.TRACK_LOW: round(c.low, decimals(opt, c.name)),
+        wording.TRACK_HIGH: round(c.high, decimals(opt, c.name)),
+        # A measured Overall score reads to one decimal, as Best so far does.
+        wording.TRACK_MEASURED: round(c.measured, max(1, decimals(opt, c.name))),
         wording.TRACK_INSIDE: c.inside,
     } for c in checks]
     rows += _target_rows(opt, {c.name for c in checks})   # spec §3.1
@@ -106,8 +134,9 @@ def track_chart(opt, checks):
     x = alt.X(f"{formulation}:Q", title=formulation,
               scale=alt.Scale(zero=False, nice=False),
               axis=alt.Axis(format="d", tickMinStep=1))
-    tip = [formulation, wording.ROUND_CAP, wording.TRACK_PREDICTED,
-           wording.TRACK_LOW, wording.TRACK_HIGH, wording.TRACK_MEASURED]
+    tip = [alt.Tooltip(f"{f}:{t}", title=f) for f, t in (
+        (formulation, "Q"), (wording.ROUND_CAP, "N"), (wording.TRACK_PREDICTED, "Q"),
+        (wording.TRACK_LOW, "Q"), (wording.TRACK_HIGH, "Q"), (wording.TRACK_MEASURED, "Q"))]
     bars = (alt.Chart().mark_rule(strokeWidth=3, opacity=0.35).encode(
         x=x, y=alt.Y(f"{wording.TRACK_LOW}:Q", title=None), y2=f"{wording.TRACK_HIGH}:Q",
         tooltip=tip).transform_filter(_only("check")))
@@ -139,9 +168,12 @@ def path_chart(opt, path, preds):
     rows = []
     for n in names:
         label = panel_label(opt, n)
+        d = decimals(opt, n)
         for t, p in zip(path.amounts, preds[n]):
             rows.append({"panel": label, "mark": "curve", "x": t, "mean": p.mean,
-                         "low": p.low, "high": p.high})
+                         "low": p.low, "high": p.high,
+                         "amount": _amount(t, path.unit),
+                         "predicted": f"{p.mean:.{d}f} ({range_text(p.low, p.high, lambda v: f'{v:.{d}f}')})"})
         rows.append({"panel": label, "mark": "start", "x": path.start_amount})
         if path.tested:
             lo, hi = path.amounts[0], path.amounts[-1]
@@ -154,15 +186,21 @@ def path_chart(opt, path, preds):
     # Not from 0: the path runs over this row's own Lowest-Highest, and a
     # zero-based axis squeezed a 4-6 g path into the right third of each panel.
     x = alt.X("x:Q", title=x_title, scale=alt.Scale(zero=False, nice=False))
-    band = (alt.Chart().mark_area(opacity=_BAND)
-            .encode(x=x, y=alt.Y("low:Q", title=None), y2="high:Q")
+    # Not from 0 either: the effect the question asks about filled a tenth
+    # of a 0-100 panel (0.8.0 review fixes §6).
+    y = alt.Y("low:Q", title=None, scale=alt.Scale(zero=False))
+    tip = [alt.Tooltip("amount:N", title=path.name),
+           alt.Tooltip("predicted:N", title=_say(opt, wording.TRACK_PREDICTED))]
+    band = (alt.Chart().mark_area(opacity=_BAND, tooltip=False)
+            .encode(x=x, y=y, y2="high:Q")
             .transform_filter(_only("curve")))
-    line = alt.Chart().mark_line().encode(x=x, y="mean:Q").transform_filter(_only("curve"))
-    start = (alt.Chart().mark_rule(strokeDash=[2, 2]).encode(x="x:Q")
+    line = (alt.Chart().mark_line().encode(x=x, y="mean:Q", tooltip=tip)
+            .transform_filter(_only("curve")))
+    start = (alt.Chart().mark_rule(strokeDash=[2, 2], tooltip=False).encode(x="x:Q")
              .transform_filter(_only("start")))
     layers = [band, line, start]
     if any(r["mark"] == "grey" for r in rows):
-        layers.insert(0, alt.Chart().mark_rect(opacity=_GREY, color="gray")
+        layers.insert(0, alt.Chart().mark_rect(opacity=_GREY, color="gray", tooltip=False)
                       .encode(x="x:Q", x2="x2:Q").transform_filter(_only("grey")))
     if targets:
         layers.append(_target_layer())
@@ -299,6 +337,8 @@ def _predictions(opt, computed, n):
     if chart is not None:
         with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
             show_chart(chart)
+            st.caption(_say(opt, wording.track_caption(
+                bool(_target_rows(opt, {c.name for c in checks})))))
 
 
 def _keep_if_offered(key, options):
@@ -375,13 +415,15 @@ def spread_chart(spreads):
     df = pd.DataFrame({"name": [s.name for s in spreads],
                        wording.SPREAD_AXIS: [round(s.spread, 1) for s in spreads]})
     order = [s.name for s in spreads]
+    tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
+           alt.Tooltip(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS, format=".1f")]
     return (alt.Chart(df).mark_bar()
             .encode(x=alt.X(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS),
                     # An ingredient's name is never cut short, however long:
                     # labelLimit=0 turns off Vega-Lite's default truncation.
                     y=alt.Y("name:N", sort=order, title=None,
                            axis=alt.Axis(labelLimit=0, titleLimit=0)),
-                    tooltip=["name:N", f"{wording.SPREAD_AXIS}:Q"])
+                    tooltip=tip)
             .properties(height=28 * len(spreads) + 20))
 
 
@@ -508,6 +550,7 @@ def _path_captions(opt, path, number, fitted):
             lines.append(wording.panel_missing(panel_label(opt, name)))
     if path.tested and (path.amounts[0] < path.tested[0] or path.amounts[-1] > path.tested[1]):
         lines.append(wording.path_grey(values=path.mode == "process"))
+    lines.append(wording.path_lines(number, bool(_target_rows(opt, path_panels(opt)))))
     return lines
 
 
@@ -552,19 +595,34 @@ def progress_chart(opt):
     frame = progress_frame(opt).reset_index()
     formulation = frame.columns[0]
     score, best = wording.OVERALL_SCORE_COLUMN, wording.BEST_SO_FAR_COLUMN
+    # Spec 2026-09-29 §9 I4: a formulation scored without a measurement
+    # (recorded before it existed) is never Best so far, and its dot is a
+    # ring rather than a filled dot. "series" names the line both marks
+    # share, so the ring's outline and the filled dot are the line's colour.
+    pool = set(opt.best_candidates())
+    frame["full"] = [i in pool for i in range(len(frame))]
+    frame["series"] = score
     # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0 with one
     # round of data and nothing on the chart said what either number was.
     x = alt.X(f"{formulation}:Q", title=formulation,
               axis=alt.Axis(format="d", tickMinStep=1))
-    score_line = (alt.Chart(frame).mark_line(point=True)
-                  .encode(x=x, y=alt.Y(f"{score}:Q", title=score),
-                          tooltip=[alt.Tooltip(f"{formulation}:Q"),
-                                   alt.Tooltip(f"{score}:Q")]))
+    y = alt.Y(f"{score}:Q", title=score)
+    colour = alt.Color("series:N", legend=None)
+    # Titled and rounded (0.8.0 review fixes §6): a measured Overall score
+    # reads one decimal, never 73.283749….
+    no_tip = alt.Tooltip(f"{formulation}:Q", title=formulation, format="d")
+    score_line = (alt.Chart(frame).mark_line(tooltip=False)
+                  .encode(x=x, y=y, color=colour))
+    dots = (alt.Chart(frame).mark_point(size=40, strokeWidth=1.5)
+            .encode(x=x, y=y, color=colour,
+                    fill=alt.condition(alt.FieldEqualPredicate(field="full", equal=True),
+                                       colour, alt.value("transparent")),
+                    tooltip=[no_tip, alt.Tooltip(f"{score}:Q", title=score, format=".1f")])
+            .transform_filter(alt.FieldValidPredicate(field=score, valid=True)))
     best_line = (alt.Chart(frame).mark_line(color="gray", strokeDash=[4, 3])
                  .encode(x=x, y=alt.Y(f"{best}:Q", title=score),
-                         tooltip=[alt.Tooltip(f"{formulation}:Q"),
-                                  alt.Tooltip(f"{best}:Q", title=best)]))
-    return alt.layer(score_line, best_line).properties(height=220)
+                         tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
+    return alt.layer(score_line, dots, best_line).properties(height=220)
 
 
 def _progress_chart_body(opt):
@@ -683,7 +741,7 @@ def _labels(chart, x, y, text, **mark):
     sideways) rather than a white halo: a halo glows in dark mode and
     duplicates the text for screen readers. Carries no tooltip."""
     mark.setdefault("dy", -14)
-    return [chart.mark_text(color="gray", tooltip=False, **mark).encode(x=x, y=y, text=text)]
+    return [chart.mark_text(color=muted(), tooltip=False, **mark).encode(x=x, y=y, text=text)]
 
 
 def _xy(x):
@@ -711,22 +769,32 @@ def pair_chart(opt, a, b, points):
         return [min(float(o['min_val']), *values), max(float(o['max_val']), *values)]
 
     waiting = _say(opt, wording.PAIR_WAITING)
+    def score_text(p):
+        if p.score is not None:
+            return f"{p.score:.1f}"
+        i = opt.index_of_formulation(p.formulation)
+        return wording.waiting_for(number_list(opt.waiting_on(i) if i is not None else []))
     df = pd.DataFrame([{"x": p.a, "y": p.b, "no": p.formulation,
                         "score": None if p.score is None else round(p.score, 1),
+                        "score_text": score_text(p),
                         "waiting": p.score is None, "state": waiting, "best": p.best}
                        for p in points])
     x = alt.X("x:Q", title=xt, scale=alt.Scale(domain=domain(oa, list(df["x"])), nice=False))
     y = alt.Y("y:Q", title=yt, scale=alt.Scale(domain=domain(ob, list(df["y"])), nice=False))
     tip = [alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP)),
-           alt.Tooltip("x:Q", title=_say(opt, opt._measurement_column(oa))),
-           alt.Tooltip("y:Q", title=_say(opt, opt._measurement_column(ob))),
-           alt.Tooltip("score:Q", title=overall)]
+           alt.Tooltip("x:Q", title=_say(opt, opt._measurement_column(oa)),
+                       format=f".{decimals(opt, a)}f"),
+           alt.Tooltip("y:Q", title=_say(opt, opt._measurement_column(ob)),
+                       format=f".{decimals(opt, b)}f"),
+           # Words, never "null": a formulation still waiting says what for.
+           alt.Tooltip("score_text:N", title=overall)]
     base = alt.Chart(df)
     layers = []
     for o, enc in ((oa, "x"), (ob, "y")):
         if _target_line(o):
             layers.append(alt.Chart(pd.DataFrame({"t": [float(o['target'])]}))
-                          .mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray")
+                          .mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray",
+                                     tooltip=False)
                           .encode(**{enc: alt.X("t:Q") if enc == "x" else alt.Y("t:Q")}))
     # A hollow grey dot is named in the legend, only when there is one: a
     # one-entry stroke legend under the Overall score colour bar.
@@ -878,7 +946,7 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
             mix.names[k], join_unit(f"{mix.top[k]:.{corner_decimals}f}", mix.units[k])))
     places = _corner_places(mix, pad, corner)
     text = [alt.Chart(pd.DataFrame([row]))
-            .mark_text(align=row["align"], baseline="middle", color="gray", tooltip=False)
+            .mark_text(align=row["align"], baseline="middle", color=muted(), tooltip=False)
             .encode(x=x, y=y, text="t:N") for row in places]
     layers = [grey, grid, state_legend]
     if mix.dots:
@@ -966,14 +1034,17 @@ def misses_chart(opt, found):
     y = alt.Y(f"{miss}:Q", title=miss, scale=alt.Scale(domain=[-top, top], nice=False))
     x = alt.X(f"{rnd}:O", title=rnd, axis=alt.Axis(labelAngle=0))
     off = alt.XOffset("slot:O")
-    tip = [formulation, rnd, f"{miss}:Q"]
-    band = (alt.Chart().mark_rect(opacity=_BAND, color="gray")
+    tip = [alt.Tooltip(f"{formulation}:Q", title=formulation),
+           alt.Tooltip(f"{rnd}:O", title=rnd),
+           alt.Tooltip(f"{miss}:Q", title=miss, format=".1f")]
+    band = (alt.Chart().mark_rect(opacity=_BAND, color="gray", tooltip=False)
             .encode(y=alt.Y("lo:Q", scale=alt.Scale(domain=[-top, top], nice=False)), y2="hi:Q")
             .transform_filter(_only("band")))
-    label = (alt.Chart().mark_text(align="left", baseline="bottom", dx=3, dy=-2, color="gray")
+    label = (alt.Chart().mark_text(align="left", baseline="bottom", dx=3, dy=-2, color=muted(),
+                                   tooltip=False)
              .encode(y="hi:Q", x=alt.value(0), text=alt.value(_say(opt, wording.MISSES_BAND)))
              .transform_filter(_only("band")))
-    zero = (alt.Chart().mark_rule(color="gray", strokeWidth=1)
+    zero = (alt.Chart().mark_rule(color="gray", strokeWidth=1, tooltip=False)
             .encode(y="zero:Q").transform_filter(_only("band")))
     rings = (alt.Chart().mark_point(size=50, strokeWidth=2)
              .encode(x=x, xOffset=off, y=y, tooltip=tip).transform_filter(_only("miss")))
