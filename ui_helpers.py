@@ -314,6 +314,22 @@ def bounds_caution(opt, name, value, scale=1.0):
     return opt.bounds_caution(name, value, scale)
 
 
+def amount_format(opt, frame):
+    """How each column of the batch table is written out: two decimals for the
+    amounts and the total, because that is the precision a balance works to,
+    and fmt_setting for a process setting, because a cook temperature is
+    neither an amount nor 180.00 nor 188.494. The column header already
+    carries the setting's unit, so only the number is formatted here."""
+    settings = {opt._amount_column(v['name']) for v in opt.variables
+                if v.get('category') == 'process'}
+    # A total across several units is already written out ("10.00 g · 40.00
+    # ml"); formatting a string as a number would raise.
+    skip = {wording.FORMULATION_CAP, wording.NOTE} | {
+        c for c in frame.columns if frame[c].dtype == object}
+    return {c: (fmt_setting if c in settings else "{:.2f}")
+            for c in frame.columns if c not in skip}
+
+
 def table_height(n_rows, max_rows=12):
     """Pixel height that shows up to max_rows rows of a st.dataframe without an
     inner scrollbar (35 px per row plus the header). Zero rows still get one

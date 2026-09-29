@@ -20,7 +20,7 @@ import custom_records
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
-    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_format, amount_range_placeholder,
     best_formulation_no,
     bounds_caution, confirm_action,
     confirmation_open, flash, flash_waiting, fmt_setting, go_to_tab, goal_line,
@@ -31,6 +31,9 @@ from ui_helpers import (
 from food_bo import COLD_START_RUNS
 import insights
 import ui_insights
+
+# The batch table's own formatter, under the name tests and older code import.
+_amount_format = amount_format
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
@@ -535,22 +538,6 @@ def _prefilled_caption(opt):
                   if st.session_state.get(_own_key(var['name'])) is not None)
     if outside:
         st.caption(wording.prefilled_outside_caption(no))
-
-
-def _amount_format(opt, frame):
-    """How each column of the batch table is written out: two decimals for the
-    amounts and the total, because that is the precision a balance works to,
-    and fmt_setting for a process setting, because a cook temperature is
-    neither an amount nor 180.00 nor 188.494. The column header already
-    carries the setting's unit, so only the number is formatted here."""
-    settings = {opt._amount_column(v['name']) for v in opt.variables
-                if v.get('category') == 'process'}
-    # A total across several units is already written out ("10.00 g · 40.00
-    # ml"); formatting a string as a number would raise.
-    skip = {wording.FORMULATION_CAP, wording.NOTE} | {
-        c for c in frame.columns if frame[c].dtype == object}
-    return {c: (fmt_setting if c in settings else "{:.2f}")
-            for c in frame.columns if c not in skip}
 
 
 def _title(opt):

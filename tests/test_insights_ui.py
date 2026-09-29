@@ -377,7 +377,7 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     assert not at.exception
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
-    assert captions.count(wording.insights_gate(2)) == 2       # sections 1 and 2
+    assert captions.count(wording.insights_gate(2)) == 3       # sections 1, 2 and 4
     assert any(m.value.startswith("Best so far:") for m in tab.markdown)   # section 3 shows
 
 
@@ -391,7 +391,7 @@ def test_how_section_default_wording(insights_scored):
     at = _open_insights(_app())
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
-    frame = at.tabs[3].dataframe[0].value
+    [frame] = _details_frames(at)
     assert list(frame.columns) == list(wording.DETAILS_COLUMNS)
     assert frame.iloc[-1][wording.DETAILS_COLUMNS[0]] == wording.OVERALL_SCORE_COLUMN
 
@@ -504,6 +504,13 @@ def test_band_and_amount_text_use_num():
 
 # The tab in the app ------------------------------------------------ #
 
+def _details_frames(at):
+    """The details table in "How these insights are made". Question 4's
+    table (wave B) is drawn above it, so it is found by its columns."""
+    return [d.value for d in at.tabs[3].dataframe
+            if list(d.value.columns) == list(wording.DETAILS_COLUMNS)]
+
+
 def _tab_text(at):
     tab = at.tabs[3]
     return ([m.value for m in tab.markdown], [c.value for c in tab.caption])
@@ -584,12 +591,12 @@ def test_details_table_empty_says_so(insights_two_rounds):
     at = _open_insights(_app())
     assert not at.exception
     assert wording.DETAILS_NONE in _tab_text(at)[1]
-    assert not at.tabs[3].dataframe
+    assert not _details_frames(at)
 
 
 def test_details_table_shows_rows_after_one_checked_round(insights_scored):
     at = _open_insights(_app())
-    frame = at.tabs[3].dataframe[0].value
+    [frame] = _details_frames(at)
     assert len(frame) == 3                                        # 3 checked each
     assert set(frame[wording.DETAILS_COLUMNS[5]]) == {"—"}
     assert wording.DETAILS_NONE not in _tab_text(at)[1]

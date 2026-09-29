@@ -4075,9 +4075,10 @@ SHOW_PROGRESS = "Show progress chart"
 HOW_WORKED_OUT = "How these insights are made"
 HOW_MODELS = ("Each measurement, and the Overall score, has its own prediction learned from "
               f"the {FORMULATION}s scored so far (a Gaussian process for each). They are used "
-              f"only on this tab; suggestions on {TAB_BATCH_NAME} still come from the Overall "
-              "score alone. Because they are learned separately, the Overall score curve "
-              "can differ a little from what the measurement curves imply.")
+              f"on this tab and for the predictions on {TAB_BATCH_NAME}; suggestions on "
+              f"{TAB_BATCH_NAME} still come from the Overall score alone. Because they are "
+              "learned separately, the Overall score curve can differ a little from what the "
+              "measurement curves imply.")
 HOW_RANGE = ("Likely range: where about 19 in 20 results should land, including the variation "
              "seen between Repeats (a 95 % prediction interval). When earlier predictions missed "
              "by more than their range allowed, the range is widened to match.")
@@ -4138,3 +4139,21 @@ def compare_all(has_settings):
 SPREAD_CAPTION = (f"Spread = highest minus lowest predicted {OVERALL_SCORE_COLUMN} along each "
                   f"path, from the same starting {FORMULATION}, including amounts not tested yet.")
 SPREAD_AXIS = "Spread (points)"
+
+
+Q_BEST = f"Which {FORMULATION} is predicted to score highest?"
+
+
+def best_answer(mean_text, low_text, high_text):
+    return f"Predicted to score highest: {mean_text} (likely {low_text}–{high_text})."
+
+
+def best_close(n, score_text):
+    return f"Close to {FORMULATION_CAP} {n}, which scored {score_text}."
+
+
+BEST_UNTESTED = "Not tested near here yet — treat it as a guess."
+BEST_ROW = "Predicted best"
+BEST_CAPTION = (f"Suggestions on {TAB_BATCH_NAME} also try untested areas; this is the single "
+                f"{FORMULATION} predicted to score highest.")
+BEST_FAILED = f"The {FORMULATION} predicted to score highest could not be worked out."

@@ -9,7 +9,7 @@ import streamlit as st
 import insights
 import wording
 from food_bo import join_unit
-from ui_helpers import table_height
+from ui_helpers import amount_format, table_height
 
 _BAND = 0.25
 _GREY = 0.12
@@ -157,6 +157,9 @@ FITTED_KEY = "_insights_fitted"
 # The Round-by-Round checks, under the same key. They take the models from
 # FITTED_KEY and add only the checks.
 CACHE_KEY = "_insights_cache"
+# The formulation predicted to score highest, keyed by insights.setup_key: a
+# limit edit on Set up changes it without changing a fitted model.
+BEST_KEY = "_insights_best"
 # All of the above are a project's own: app.py's _reset_project_session drops
 # them with the two section-2 controls below.
 CHOICE_KEY = "insights_choice"
@@ -216,13 +219,18 @@ def render(opt):
     st.caption(wording.insights_header(n, order[-1][0] if order else None,
                                        len(opt.waiting_rows())))
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
-    if computed is not None and computed.get("failed"):
+    failed = computed is not None and computed.get("failed")
+    if failed:
         st.caption(wording.INSIGHTS_FAILED)
         computed = None
     else:
         _predictions(opt, computed, n)
         _change(opt, computed, n)
     _improving(opt)
+    # After "Is it still improving?", before "How these insights are made".
+    # With the models failed, INSIGHTS_FAILED above already said so once.
+    if not failed:
+        _best(opt, computed)
     _how(opt, computed)
 
 
@@ -467,6 +475,67 @@ def _progress_chart_body(opt):
         x_label=wording.FORMULATION_CAP,
         y_label=wording.OVERALL_SCORE_COLUMN)
     st.caption(wording.PROGRESS_CHART_CAPTION)
+
+
+def _predicted_best(opt, fitted):
+    """insights.predicted_best, once per setup_key. A failure is cached as
+    such and shows one line."""
+    key = insights.setup_key(opt)
+    hit = st.session_state.get(BEST_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    with st.spinner(wording.INSIGHTS_WORKING):
+        try:
+            value = insights.predicted_best(opt, fitted)
+        except Exception:
+            value = _FAILED
+    st.session_state[BEST_KEY] = (key, value)
+    return value
+
+
+def best_frame(opt, best):
+    """The predicted best and the formulation it is compared with, in the
+    Round table's columns and units."""
+    ids = [int(x) for x in opt.formulation_ids]
+    no = ids[best.compare]
+    label = (wording.start_formulation(no) if best.close is not None
+             else wording.start_best(no))
+    frame = opt.batch_frame([{"formulation": 0, "recipe": best.recipe},
+                             {"formulation": no,
+                              "recipe": insights.start_recipe(opt, best.compare)}])
+    trying = opt.compared_with_column()
+    frame = frame[[c for c in frame.columns if c not in (wording.NOTE, trying)]].copy()
+    frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, label]
+    return frame
+
+
+def _best(opt, computed):
+    _question(wording.Q_BEST)
+    fitted = None if computed is None else computed["fitted"]
+    score = None if fitted is None else fitted.get(insights.SCORE)
+    if (opt.complete_count() < insights.MIN_ROWS or score is None
+            or score.model is None):
+        st.caption(wording.insights_gate(opt.complete_count()))
+        return
+    best = _predicted_best(opt, fitted)
+    if isinstance(best, str):
+        st.caption(best)
+        return
+    if best is _FAILED:
+        st.caption(wording.BEST_FAILED)
+        return
+    p = best.score
+    line = wording.best_answer(_whole(p.mean), _whole(p.low), _whole(p.high))
+    if best.close is not None:
+        line += " " + wording.best_close(int(opt.formulation_ids[best.close]),
+                                         f"{opt.Y_history[best.close]:.1f}")
+    else:
+        line += " " + wording.BEST_UNTESTED
+    st.write(line)
+    frame = best_frame(opt, best)
+    st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
+                 height=table_height(len(frame)))
+    st.caption(wording.BEST_CAPTION)
 
 
 def _how(opt, computed):

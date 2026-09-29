@@ -373,3 +373,184 @@ def test_spread_chart_is_horizontal_largest_first_without_error_bars():
     assert spec["encoding"]["x"]["title"] == wording.SPREAD_AXIS
     assert "errorbar" not in str(spec)
     assert ui_insights.spread_chart([]) is None
+
+
+# ------------------------------------------------------------------ #
+#  Task 5: which formulation is predicted to score highest
+# ------------------------------------------------------------------ #
+
+def _best_frames(at):
+    return [d.value for d in at.tabs[3].dataframe
+            if wording.FORMULATION_CAP in d.value.columns
+            and wording.BEST_ROW in list(d.value[wording.FORMULATION_CAP])]
+
+
+def test_section_4_answer_table_and_caption(insights_scored):
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    q = f"**{wording.Q_BEST}**"
+    assert md.index(f"**{wording.Q_IMPROVING}**") < md.index(q)
+    answer = md[md.index(q) + 1]
+    opt = FoodOptimizer("burger")
+    best = insights.predicted_best(opt, insights.fit_all(opt))
+    p = best.score
+    assert answer.startswith(wording.best_answer(f"{p.mean:.0f}", f"{p.low:.0f}", f"{p.high:.0f}"))
+    assert wording.BEST_CAPTION in caps
+    [frame] = _best_frames(at)
+    assert list(frame.columns) == [wording.FORMULATION_CAP, "Pea protein (g)",
+                                   "Methylcellulose (g)", "Total (g)"]
+    labels = list(frame[wording.FORMULATION_CAP])
+    assert labels[0] == wording.BEST_ROW
+    assert labels[1] in (wording.start_best(opt.best_formulation_no()),
+                         *(wording.start_formulation(int(n)) for n in opt.formulation_ids))
+
+
+def _best(monkeypatch, close):
+    def fake(opt, fitted):
+        return insights.PredictedBest(
+            dict(opt.recipe_history[0]), insights.Prediction(88.2, 80.4, 95.1),
+            close, close if close is not None else opt.best_index())
+    monkeypatch.setattr(insights, "predicted_best", fake)
+
+
+def test_section_4_close_to_a_tested_formulation(insights_scored, monkeypatch):
+    _best(monkeypatch, close=4)
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    # Read back from disk: opening the project puts the shares on 100.
+    opt = FoodOptimizer("burger")
+    no, score = int(opt.formulation_ids[4]), opt.Y_history[4]
+    assert (wording.best_answer("88", "80", "95") + " "
+            + wording.best_close(no, f"{score:.1f}")) in md
+    [frame] = _best_frames(at)
+    assert list(frame[wording.FORMULATION_CAP]) == [wording.BEST_ROW, wording.start_formulation(no)]
+
+
+def test_section_4_not_tested_near_here(insights_scored, monkeypatch):
+    _best(monkeypatch, close=None)
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert wording.best_answer("88", "80", "95") + " " + wording.BEST_UNTESTED in md
+    [frame] = _best_frames(at)
+    assert list(frame[wording.FORMULATION_CAP]) == [
+        wording.BEST_ROW, wording.start_best(insights_scored.best_formulation_no())]
+
+
+def test_section_4_shows_the_reason_a_round_could_not_be_made(insights_scored, monkeypatch):
+    monkeypatch.setattr(insights, "predicted_best", lambda opt, fitted: wording.EVERYTHING_IS_FIXED)
+    at = _open_insights(_app())
+    md, caps = _tab_text(at)
+    assert wording.EVERYTHING_IS_FIXED in caps
+    assert not [m for m in md if m.startswith("Predicted to score highest")]
+
+
+def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypatch):
+    calls = []
+    def boom(opt, fitted):
+        calls.append(1)
+        raise RuntimeError("no best")
+    monkeypatch.setattr(insights, "predicted_best", boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert caps.count(wording.BEST_FAILED) == 1
+    assert any(m.startswith("Best so far:") for m in md)
+    assert wording.Q_PREDICTIONS in " ".join(md)
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert caps.count(wording.BEST_FAILED) == 1 and calls == [1]
+
+
+def test_section_4_gate(scored):          # 2 formulations with all their results
+    at = _open_insights(_app())
+    md, caps = _tab_text(at)
+    assert f"**{wording.Q_BEST}**" in md
+    assert caps.count(wording.insights_gate(2)) == 3      # sections 1, 2 and 4
+
+
+def test_a_limit_edit_works_out_the_best_again(insights_scored, monkeypatch):
+    calls = _counting(monkeypatch, "predicted_best")
+    at = _open_insights(_app())
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert calls == [1]
+    at.session_state["optimizer"].add_quantity_constraint(
+        ["Pea protein", "Methylcellulose"], max_val=15.0)
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert not at.exception
+    assert calls == [1, 1]
+    assert wording.Q_BEST in " ".join(_tab_text(at)[0])
+
+
+def test_a_project_switch_drops_the_best(warm_round):
+    at = _open_insights(_app())
+    assert ui_insights.BEST_KEY in at.session_state
+    FoodOptimizer("second").add_ingredient("Flour", 0, 100)
+    at.run()
+    at.selectbox(key="project_select").set_value("second")
+    at.run()
+    _submit_button(at.sidebar, "Open").click()
+    at.run()
+    assert not at.exception
+    assert ui_insights.BEST_KEY not in at.session_state
+
+
+def test_the_models_are_shared_with_question_4(warm_round, monkeypatch):
+    calls = _counting(monkeypatch, "fit_all")
+    at = _app()
+    at.run()                                          # Make a round
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert wording.Q_BEST in " ".join(_tab_text(at)[0])
+    assert calls == [1]
+
+
+def test_how_models_names_both_places():
+    assert wording.HOW_MODELS == (
+        "Each measurement, and the Overall score, has its own prediction learned from the "
+        "formulations scored so far (a Gaussian process for each). They are used on this tab "
+        "and for the predictions on Make a round; suggestions on Make a round still come from "
+        "the Overall score alone. Because they are learned separately, the Overall score curve "
+        "can differ a little from what the measurement curves imply.")
+
+
+def test_every_wave_b_string_passes_the_vocabulary_guard():
+    import re
+    from tests.test_food_bo import _BANNED
+    also = re.compile(r"\b(optimum|optimal|maximi[sz]e|confidence|probability|the model)\b", re.I)
+    for s in (wording.PREDICTIONS_WORKING, wording.PREDICTED_SCORE_COLUMN,
+              wording.PREDICTED_SCORE_HELP, wording.PREDICTIONS_ROUND_CAPTION,
+              wording.PREDICTED_MEASUREMENTS,
+              wording.spread_line("Coconut oil", "6.2", wording.spread_from(True, 14)),
+              wording.spread_line("Coconut oil", "6.2", wording.spread_from(False, 9), only=True),
+              wording.SPREAD_FLAT, wording.compare_all(True), wording.compare_all(False),
+              wording.SPREAD_CAPTION, wording.SPREAD_AXIS, wording.Q_BEST,
+              wording.best_answer("88", "80", "95"), wording.best_close(14, "81.0"),
+              wording.BEST_UNTESTED, wording.BEST_ROW, wording.BEST_CAPTION,
+              wording.BEST_FAILED, wording.HOW_MODELS):
+        assert not any(p.search(s) for p in _BANNED), s
+        assert not also.search(s), s
+
+
+def test_exact_wave_b_strings():
+    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score"
+    assert wording.PREDICTED_SCORE_HELP == (
+        "Predicted from the formulations scored so far; about 19 in 20 results land in the likely range.")
+    assert wording.PREDICTIONS_ROUND_CAPTION == (
+        "Some formulations are chosen to try amounts not tested yet, so their prediction can be "
+        "lower than Best so far.")
+    assert wording.spread_line("Coconut oil", "6.2", wording.spread_from(True, 14)) == (
+        "Across its allowed amounts, Coconut oil changes the predicted Overall score the most: "
+        "a spread of 6.2 points (from Best so far).")
+    assert wording.spread_from(False, 9) == "Formulation 9"
+    assert wording.SPREAD_CAPTION == (
+        "Spread = highest minus lowest predicted Overall score along each path, from the same "
+        "starting formulation, including amounts not tested yet.")
+    assert wording.SPREAD_FLAT == (
+        "No ingredient or process setting changes the predicted Overall score by more than 0.1 "
+        "points yet.")
+    assert wording.Q_BEST == "Which formulation is predicted to score highest?"
+    assert wording.best_answer("88", "80", "95") == "Predicted to score highest: 88 (likely 80–95)."
+    assert wording.best_close(14, "81.0") == "Close to Formulation 14, which scored 81.0."
+    assert wording.BEST_UNTESTED == "Not tested near here yet — treat it as a guess."
+    assert wording.BEST_CAPTION == (
+        "Suggestions on Make a round also try untested areas; this is the single formulation "
+        "predicted to score highest.")

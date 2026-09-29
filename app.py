@@ -166,8 +166,9 @@ def _reset_project_session():
               # Insights: the models fitted to THIS project, and its two
               # boxes, which name this project's rows and formulations.
               ui_insights.CACHE_KEY, ui_insights.CHOICE_KEY, ui_insights.START_KEY,
-              # Wave B: the fitted models Make a round shares with Insights.
-              ui_insights.FITTED_KEY,
+              # Wave B: the fitted models Make a round shares with Insights,
+              # and the formulation predicted to score highest.
+              ui_insights.FITTED_KEY, ui_insights.BEST_KEY,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
