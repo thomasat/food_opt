@@ -53,6 +53,11 @@ class Prediction:
     mean: float
     low: float
     high: float
+    # The model's own mean and its calibrated predictive sd (already
+    # widened), before any clipping to the Range: what a miss in standard
+    # deviations is measured against. None where a caller made its own.
+    raw_mean: float | None = None
+    sd: float | None = None
 
 
 def outputs(opt):
@@ -163,7 +168,7 @@ def predict(opt, fitted, X_rows):
     clip = lambda v: min(fitted.high, max(fitted.low, v))
     # The band is worked from the model's own mean, then clipped: centring it
     # on a mean already clipped to the Range would shift it.
-    return [Prediction(clip(m), clip(m - Z95 * s), clip(m + Z95 * s))
+    return [Prediction(clip(m), clip(m - Z95 * s), clip(m + Z95 * s), m, s)
             for m, s in zip(mean, sd)]
 
 
@@ -222,6 +227,8 @@ class Check:
     measured: float
     inside: bool
     fully_measured: bool
+    raw_mean: float | None = None   # Prediction.raw_mean / .sd: for the misses chart
+    sd: float | None = None
 
 
 def check_rounds(opt):
@@ -243,7 +250,8 @@ def check_rounds(opt):
                 value = measured(opt, name, i)
                 checks.append(Check(
                     int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
-                    value, p.low <= value <= p.high, opt.fully_measured(i)))
+                    value, p.low <= value <= p.high, opt.fully_measured(i),
+                    p.raw_mean, p.sd))
     return checks
 
 
@@ -251,6 +259,33 @@ def rounds_not_checked(opt):
     """The Rounds with fewer than MIN_ROWS formulations recorded before
     them: nothing earlier to predict them from, so they are never checked."""
     return [r for r, first in round_order(opt) if first < MIN_ROWS]
+
+
+# Wave C: how far each prediction missed, in standard deviations.
+
+@dataclass
+class Miss:
+    formulation: int
+    round: int
+    name: str
+    z: float
+    inside: bool
+
+
+def misses(checks):
+    """Each check's miss in standard deviations of its likely range:
+    (measured - unclipped mean) / calibrated sd. A check with no sd is
+    left out."""
+    return [Miss(c.formulation, c.round, c.name, (c.measured - c.raw_mean) / c.sd, c.inside)
+            for c in checks if c.sd is not None and c.sd > 0 and c.raw_mean is not None]
+
+
+MISSES_GATE = 10
+
+
+def misses_ready(checks):
+    """The same threshold as the headline: 10 measurement checks."""
+    return sum(c.name != SCORE for c in checks) >= MISSES_GATE
 
 
 def binomial_tail(m, n, p=0.05):
@@ -635,6 +670,40 @@ def repeat_spread(opt):
                 if best is None or spread > best:
                     best = spread
     return best
+
+
+# Wave C: two measurements against each other (measured values only).
+
+def pair_choices(opt):
+    """The measurements, largest Share of score first (ties keep the
+    project's order): the two defaults of "Can you have both?" lead."""
+    order = {o['name']: k for k, o in enumerate(opt.objectives)}
+    return [o['name'] for o in sorted(
+        opt.objectives, key=lambda o: (-float(o['weight']), order[o['name']]))]
+
+
+@dataclass
+class PairPoint:
+    formulation: int
+    a: float
+    b: float
+    score: float | None     # None: still waiting for results
+    best: bool
+
+
+def pair_points(opt, a, b):
+    """Every scored formulation with a value for both `a` and `b`, fully
+    measured or not; only a fully measured one carries its Overall score."""
+    best = opt.best_index()
+    out = []
+    for i in range(len(opt.Y_history)):
+        x, y = measured(opt, a, i), measured(opt, b, i)
+        if x is None or y is None:
+            continue
+        full = opt.fully_measured(i)
+        out.append(PairPoint(int(opt.formulation_ids[i]), x, y,
+                             float(opt.Y_history[i]) if full else None, i == best))
+    return out
 
 
 # ------------------------------------------------------------------ #
