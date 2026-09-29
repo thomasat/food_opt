@@ -847,3 +847,103 @@ def test_process_setting_wording():
     assert wording.PREDICTIONS_ROUND_CAPTION == wording.predictions_round_caption()
     assert wording.SPREAD_CAPTION == wording.spread_caption()
     assert wording.SPREAD_FLAT == wording.spread_flat()
+
+
+# ------------------------------------------------------------------ #
+#  Final fix wave (waves B + C): carried from wave B's final review
+# ------------------------------------------------------------------ #
+
+def test_a_warm_round_table_is_drawn_once_with_its_column(warm_round, monkeypatch):
+    """With the models already fitted for this data, the table is drawn
+    with the Predicted Overall score column on the first pass: no draw
+    without it first, so the column does not blink on every rerun."""
+    import ui_batch
+    at = _app()
+    at.run()                                   # cold: fits, then fills the column
+    assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
+    drawn = []
+    real = ui_batch._draw_table
+    monkeypatch.setattr(ui_batch, "_draw_table",
+                        lambda opt, slot, frame: drawn.append(list(frame.columns))
+                        or real(opt, slot, frame))
+    calls = _counting(monkeypatch, "fit_all")
+    _rerun_on(at, wording.TAB_BATCH)
+    assert not at.exception
+    assert calls == []
+    assert len(drawn) == 1 and wording.PREDICTED_SCORE_COLUMN in drawn[0]
+    assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
+    assert wording.PREDICTED_MEASUREMENTS in [e.label for e in at.expander]
+
+
+def test_a_cold_round_table_is_drawn_first_and_filled_after(warm_round, monkeypatch):
+    import ui_batch
+    drawn = []
+    real = ui_batch._draw_table
+    monkeypatch.setattr(ui_batch, "_draw_table",
+                        lambda opt, slot, frame: drawn.append(list(frame.columns))
+                        or real(opt, slot, frame))
+    at = _app()
+    at.run()
+    assert not at.exception
+    assert [wording.PREDICTED_SCORE_COLUMN in cols for cols in drawn] == [False, True]
+
+
+def test_a_hidden_round_tab_predicts_nothing_even_when_warm(warm_round, monkeypatch):
+    at = _app()
+    at.run()
+    calls = _counting(monkeypatch, "round_predictions")
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert not at.exception
+    assert calls == []
+
+
+def test_question_4_stands_when_its_own_prediction_fails(insights_scored, monkeypatch):
+    import inspect
+    _best(monkeypatch, close=None)
+    real = insights.predict
+
+    def boom(*a, **k):
+        if inspect.stack()[1].function == "best_frame":
+            raise RuntimeError("no prediction")
+        return real(*a, **k)
+    monkeypatch.setattr(insights, "predict", boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    [frame] = _best_frames(at)
+    assert wording.PREDICTED_SCORE_COLUMN not in frame.columns
+    assert list(frame[wording.FORMULATION_CAP])[0] == wording.BEST_ROW
+    labels = [e.label for e in at.tabs[3].expander]
+    assert wording.MORE_CHARTS in labels and wording.HOW_WORKED_OUT in labels
+
+
+def test_question_2_keeps_ingredient_when_nothing_varies(insights_scored, monkeypatch):
+    monkeypatch.setattr(insights, "path_choices", lambda opt: [])
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert "**What happens if you change one ingredient?**" in md
+    assert wording.CHANGE_NONE in caps
+
+
+def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypatch):
+    monkeypatch.setattr(insights, "path_choices", lambda opt: [])
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert "**What happens if you change one process setting?**" in md
+    assert "Nothing to change yet: every process setting is fixed." in caps
+    [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
+    checks = next(m.value for m in how.markdown if m.value.startswith("Checks:"))
+    assert "at the values it was run at" in checks and "amounts" not in checks
+    assert "ngredient" not in " ".join(md + caps)
+
+
+def test_the_process_only_lines_pass_the_word_guards():
+    import re
+    from tests.test_food_bo import _BANNED
+    also = re.compile(r"\b(optimum|optimal|maximi[sz]e|confidence|probability|the model)\b", re.I)
+    for s in (wording.how_checks(values=True), wording.change_none(settings_only=True)):
+        assert not any(p.search(s) for p in _BANNED), s
+        assert not also.search(s), s
+    assert wording.how_checks() == wording.HOW_CHECKS
+    assert wording.change_none() == wording.CHANGE_NONE

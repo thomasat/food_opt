@@ -610,7 +610,15 @@ def _predicted_measurements(opt, preds):
         st.dataframe(pd.DataFrame(rows), hide_index=True, height=table_height(len(rows)))
 
 
-def _batch_table(opt, scale_to):
+def _models_ready(opt):
+    """Whether the models for this data are already fitted (by Insights or
+    an earlier run): then the predictions cost no fit, and the table can be
+    drawn with them on its first pass."""
+    hit = st.session_state.get(ui_insights.FITTED_KEY)
+    return bool(hit) and hit[0] == insights.data_key(opt)
+
+
+def _batch_table(opt, scale_to, tab_open=False):
     """The make-these table and the lines it owes the reader.
 
     Nothing is rewritten to make a row add up: a suggestion that could not be
@@ -626,7 +634,9 @@ def _batch_table(opt, scale_to):
 
     Returns (editing, later): `later` is what _show_predictions needs to
     add the predictions once the rest of the screen is drawn; None while
-    editing, which never shows them.
+    editing, which never shows them. With the models already fitted (and
+    the tab open) the table is drawn with its predictions straight away,
+    so the column does not blink on every rerun.
     """
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
@@ -637,10 +647,13 @@ def _batch_table(opt, scale_to):
             preserve_tab_forms()
             st.rerun()
         st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
-        # Drawn now without the predictions; _show_predictions draws it again
+        # With the models fitted, drawn once with the predictions. Otherwise
+        # drawn now without them; _show_predictions fits and draws it again
         # in the same place with them, once the rest of the screen is up.
+        preds = _round_predictions(opt) if tab_open and _models_ready(opt) else None
         table_slot = st.empty()
-        _draw_table(opt, table_slot, frame)
+        _draw_table(opt, table_slot,
+                    _with_predictions(opt, frame, preds) if preds else frame)
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
         st.caption(wording.EDIT_FORMULATIONS_CAPTION)
@@ -704,7 +717,7 @@ def _batch_table(opt, scale_to):
     # per-measurement predictions one click away.
     if editing:
         return True, None
-    return False, (table_slot, frame, st.container())
+    return False, (table_slot, frame, st.container(), preds)
 
 
 def _draw_table(opt, slot, frame):
@@ -722,13 +735,17 @@ def _show_predictions(opt, later):
     """Fit (once per data_key, shared with Insights) and draw the table again
     in its place with the Predicted Overall score column, then the caption
     and the expander in the place kept for them under the table. Called
-    last, so a fit never holds up the rest of the screen."""
-    table_slot, frame, notes = later
-    with notes:                     # the spinner shows under the table
-        preds = _round_predictions(opt)
+    last, so a fit never holds up the rest of the screen. A table already
+    drawn with its predictions (the models were fitted) is not drawn again."""
+    table_slot, frame, notes, drawn = later
+    preds = drawn
+    if drawn is None:
+        with notes:                 # the spinner shows under the table
+            preds = _round_predictions(opt)
     if not preds:
         return
-    _draw_table(opt, table_slot, _with_predictions(opt, frame, preds))
+    if drawn is None:
+        _draw_table(opt, table_slot, _with_predictions(opt, frame, preds))
     with notes:
         if _a_suggestion_below_best(opt, preds):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
@@ -1369,7 +1386,7 @@ def render(opt, storage, tab_open=False):
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    editing, later = _batch_table(opt, scale_to)
+    editing, later = _batch_table(opt, scale_to, tab_open)
     if editing:
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))

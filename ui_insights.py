@@ -282,14 +282,17 @@ def _keep_if_offered(key, options):
 
 
 def _change(opt, computed, n):
+    choices = insights.path_choices(opt)
+    # With nothing varying at all, an ingredient project still asks about
+    # an ingredient (there is no process setting to name instead).
     _question(opt, wording.q_change(insights.has_setting_choice(opt),
-                                    insights.has_ingredient_choice(opt)))
+                                    insights.has_ingredient_choice(opt)
+                                    or (not choices and opt.has_ingredients())))
     if computed is None:
         st.caption(_say(opt, wording.insights_gate(n)))
         return
-    choices = insights.path_choices(opt)
     if not choices:
-        st.caption(_say(opt, wording.CHANGE_NONE))
+        st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
         return
     # None while no formulation has all its results: then there is no best
     # to start from, and the box offers the newest first.
@@ -537,8 +540,12 @@ def best_frame(opt, best, fitted):
     trying = opt.compared_with_column()
     frame = frame[[c for c in frame.columns if c not in (wording.NOTE, trying)]].copy()
     frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, _say(opt, label)]
-    [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(other)])
-    frame[wording.PREDICTED_SCORE_COLUMN] = [score_text(best.score), score_text(own)]
+    try:
+        [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(other)])
+    except Exception:   # the table stands without the column
+        own = None
+    if own is not None:
+        frame[wording.PREDICTED_SCORE_COLUMN] = [score_text(best.score), score_text(own)]
     return frame.rename(columns={wording.FORMULATION_CAP: _say(opt, wording.FORMULATION_CAP)})
 
 
@@ -565,7 +572,11 @@ def _best(opt, computed):
     else:
         line += " " + wording.BEST_UNTESTED
     st.write(_say(opt, line))
-    frame = best_frame(opt, best, fitted)
+    try:
+        frame = best_frame(opt, best, fitted)
+    except Exception:   # one line, never a traceback: the tab still stands
+        st.caption(_say(opt, wording.BEST_FAILED))
+        return
     st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
                  column_config={wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
                      wording.PREDICTED_SCORE_COLUMN,
@@ -987,7 +998,8 @@ def _how(opt, computed):
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
-                     wording.HOW_CHECKS, wording.HOW_NO_P):
+                     wording.how_checks(values=not opt.has_ingredients()),
+                     wording.HOW_NO_P):
             st.markdown(_say(opt, text))
         if computed is None:
             return

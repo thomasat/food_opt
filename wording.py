@@ -4060,7 +4060,13 @@ def panel_failed(name):
     return f"Could not be predicted for {name}."
 
 
-CHANGE_NONE = "Nothing to change yet: every ingredient and process setting is fixed."
+def change_none(settings_only=False):
+    """Nothing varies: a project of process settings alone names settings."""
+    what = "process setting" if settings_only else "ingredient and process setting"
+    return f"Nothing to change yet: every {what} is fixed."
+
+
+CHANGE_NONE = change_none()
 
 
 def best_line(score_text, n, rnd):
@@ -4096,9 +4102,17 @@ HOW_RANGE = ("Likely range: where about 19 in 20 results should land, including 
 HOW_RANGE_FIXED_TINY = ("Likely range: your model settings assume no variation between Repeats, "
                         "so the range comes from how sure the prediction is, widened when earlier "
                         "predictions missed by more than it allowed.")
-HOW_CHECKS = ("Checks: each Round is predicted from the formulations recorded before it, at the "
-              "amounts it was made at, using today's measurements, targets and Share of score. "
-              "The verdict allows for chance: with 19 in 20 expected, a few misses are normal.")
+
+
+def how_checks(values=False):
+    """A project of process settings alone runs each trial at its values."""
+    at = "values it was run at" if values else "amounts it was made at"
+    return ("Checks: each Round is predicted from the formulations recorded before it, at the "
+            f"{at}, using today's measurements, targets and Share of score. "
+            "The verdict allows for chance: with 19 in 20 expected, a few misses are normal.")
+
+
+HOW_CHECKS = how_checks()
 HOW_NO_P = ("There are no p-values or coefficient tables. These predictions have no terms to "
             "test, and the formulations were chosen one round at a time rather than designed "
             "in advance, so such tables would mislead. The checks above measure the same thing "
