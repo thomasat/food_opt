@@ -1,5 +1,7 @@
 """The Insights tab. Builders here return Altair charts from computed facts
 and never call Streamlit; render() at the bottom is the only Streamlit code."""
+import math
+
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -162,10 +164,18 @@ def _computed(opt):
     if hit and hit[0] == key:
         return hit[1]
     with st.spinner(wording.INSIGHTS_WORKING):
-        # Through the module attribute, so a test can stand in for the fit.
-        value = {"fitted": insights.fit_all(opt), "checks": insights.check_rounds(opt)}
+        try:
+            # Through the module attribute, so a test can stand in for the fit.
+            value = {"fitted": insights.fit_all(opt), "checks": insights.check_rounds(opt)}
+        except Exception:
+            # Cached like a success, under the same key: one line on the tab
+            # instead of a traceback, and not tried again on every rerun.
+            value = _FAILED
     st.session_state[CACHE_KEY] = (key, value)
     return value
+
+
+_FAILED = {"failed": True}
 
 
 def _question(text):
@@ -180,8 +190,12 @@ def render(opt):
     order = insights.round_order(opt)
     st.caption(wording.insights_header(n, order[-1][0] if order else None))
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
-    _predictions(opt, computed, n)
-    _change(opt, computed, n)
+    if computed is not None and computed.get("failed"):
+        st.caption(wording.INSIGHTS_FAILED)
+        computed = None
+    else:
+        _predictions(opt, computed, n)
+        _change(opt, computed, n)
     _improving(opt)
     _how(opt, computed)
 
@@ -205,6 +219,11 @@ def _predictions(opt, computed, n):
     if h.score_below and h.state in ("early", "verdict"):
         st.write(wording.SCORE_BELOW)
     st.caption(wording.PREDICTIONS_CAPTION)
+    # Only once something has been checked: before that, PREDICTIONS_NONE
+    # already says when the first check comes.
+    skipped = insights.rounds_not_checked(opt)
+    if skipped and h.state != "none":
+        st.caption(wording.rounds_not_checked(skipped))
     chart = track_chart(opt, checks)
     if chart is not None:
         with st.expander(wording.SHOW_PREDICTIONS):
@@ -219,14 +238,16 @@ def _keep_if_offered(key, options):
 
 
 def _change(opt, computed, n):
-    _question(wording.Q_CHANGE)
+    _question(wording.q_change(insights.has_setting_choice(opt)))
     if computed is None:
         st.caption(wording.insights_gate(n))
         return
     choices = insights.path_choices(opt)
-    best = opt.best_index()
-    if not choices or best is None:
+    if not choices:
+        st.caption(wording.CHANGE_NONE)
         return
+    # Never None here: computed is only there with MIN_ROWS scored rows.
+    best = opt.best_index()
     ids = [int(x) for x in opt.formulation_ids]
     # By Formulation number, not list position: a deletion on Results shifts
     # positions, and the box must keep naming the formulation it named.
@@ -239,20 +260,40 @@ def _change(opt, computed, n):
         wording.START_FROM, starts, key=START_KEY,
         format_func=lambda no: (wording.start_best(no) if no == ids[best]
                                 else wording.start_formulation(no)))
-    path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
-    if path.start_breaks:
-        st.caption(wording.path_start_breaks(number, path.start_breaks))
-        return
     fitted = computed["fitted"]
-    chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path))
+    try:
+        path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
+        if path.start_breaks:
+            st.caption(wording.path_start_breaks(number, path.start_breaks))
+            return
+        chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path))
+        lines = _path_captions(opt, path, number, fitted)
+    except Exception:   # one path failing must not take the tab down
+        st.caption(wording.panel_failed(name))
+        return
     if chart is not None:
         st.altair_chart(chart)
-    for line in _path_captions(opt, path, number, fitted):
+    for line in lines:
         st.caption(line)
 
 
+def _num(value):
+    """A number for the tab, never in scientific notation: 0 decimals from
+    100, 1 from 10, otherwise up to 2 significant decimals with no trailing
+    zeros; below 0.0001 it reads 0."""
+    a = abs(value)
+    if a >= 100:
+        return f"{value:.0f}"
+    if a >= 10:
+        return f"{value:.1f}"
+    if a < 1e-4:
+        return "0"
+    decimals = 2 if a >= 1 else 1 - math.floor(math.log10(a))
+    return f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+
+
 def _amount(value, unit):
-    return join_unit(f"{value:.3g}" if abs(value) < 100 else f"{value:.0f}", unit)
+    return join_unit(_num(value), unit)
 
 
 def _path_captions(opt, path, number, fitted):
@@ -275,7 +316,7 @@ def _path_captions(opt, path, number, fitted):
         lines.append(wording.path_fixed(", ".join(
             f"{n} {_amount(a, u)}" for n, a, u in path.fixed)))
     lines += [wording.path_follows(n) for n in path.follows]
-    lines += [wording.path_not_checked(t) for t in path.skipped]
+    lines += [wording.path_not_checked(t, prop) for t, prop in path.skipped]
     for name in path_panels(opt):
         f = fitted.get(name)
         if f is None:
@@ -298,8 +339,9 @@ def _improving(opt):
         st.write(wording.best_line(f"{f.score:.1f}", f.formulation, f.round)
                  + (" " + second if second else ""))
     spread = insights.repeat_spread(opt)
-    if spread is not None:
-        st.write(wording.repeats_line(f"{spread:.1f}"))
+    # A spread that would read 0 says nothing about chance.
+    if spread is not None and spread >= 0.05:
+        st.write(wording.repeats_line(_num(spread)))
     with st.expander(wording.SHOW_PROGRESS):
         _progress_chart_body(opt)
 
@@ -329,12 +371,14 @@ def _how(opt, computed):
         if computed is None:
             return
         rows = insights.details(opt, computed["checks"])
-        if rows:
+        if not rows:
+            st.caption(wording.DETAILS_NONE)
+        else:
             st.dataframe(pd.DataFrame([{
                 wording.DETAILS_COLUMNS[0]: panel_label(opt, r.name),
                 wording.DETAILS_COLUMNS[1]: r.checked,
                 wording.DETAILS_COLUMNS[2]: r.inside,
-                wording.DETAILS_COLUMNS[3]: f"± {r.half_width:.2g}",
-                wording.DETAILS_COLUMNS[4]: f"{r.typical_miss:.2g}",
+                wording.DETAILS_COLUMNS[3]: f"± {_num(r.half_width)}",
+                wording.DETAILS_COLUMNS[4]: _num(r.typical_miss),
                 wording.DETAILS_COLUMNS[5]: "—" if r.r2 is None else f"{r.r2:.2f}",
             } for r in rows]), hide_index=True, height=table_height(len(rows)))

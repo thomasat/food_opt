@@ -615,3 +615,91 @@ def test_same_fixed_row_requires_exact_match():
     a = {**opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), "Salt": 1.0}
     b = {**opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), "Salt": 1.0001}
     assert not insights._same(opt, a, b)
+
+
+class _FakePosterior:
+    def __init__(self, mean, var):
+        self.mean = torch.tensor([[mean]], dtype=torch.double)
+        self.variance = torch.tensor([[var]], dtype=torch.double)
+
+
+class _FakeModel:
+    def __init__(self, mean, var):
+        self._p = _FakePosterior(mean, var)
+
+    def posterior(self, X, observation_noise=False):
+        return self._p
+
+
+def test_band_is_worked_from_the_raw_mean_then_clipped():
+    # Final fix G7: a mean past the Range's top keeps its band where the
+    # model put it; only then is each end (and the shown mean) clipped.
+    opt = _burger(rounds=1, per_round=1)
+    f = insights.Fitted("Firmness", _FakeModel(11.0, 1.0), None, 5, 0.0, 10.0)
+    p = insights.predict(opt, f, [opt.X_history[0]])[0]
+    assert p.mean == 10.0 and p.high == 10.0
+    assert p.low == pytest.approx(11.0 - insights.Z95)
+
+
+# ------------------------------------------------------------------ #
+#  Final fix wave D, E, F
+# ------------------------------------------------------------------ #
+
+def test_a_partly_measured_repeat_gives_no_spread():
+    # D: a missing measurement counts as 0 in the Overall score, so a repeat
+    # nobody finished measuring would read as a huge spread.
+    opt = _burger(rounds=2, per_round=3)
+    opt.tell(opt._recorded_recipe(0), {"Juiciness": 1.0}, formulation_no=80, batch_no=3)
+    assert not opt.fully_measured(len(opt.Y_history) - 1)
+    assert insights.repeat_spread(opt) is None
+
+
+def test_a_fully_measured_repeat_beside_a_partial_one():
+    opt = _burger(rounds=2, per_round=3)
+    same = opt._recorded_recipe(0)
+    opt.tell(same, {"Juiciness": 1.0}, formulation_no=80, batch_no=3)
+    opt.tell(same, {"Firmness": 3.0, "Juiciness": 1.0}, formulation_no=81, batch_no=3)
+    assert insights.repeat_spread(opt) == pytest.approx(
+        abs(opt.Y_history[0] - opt.Y_history[-1]))
+
+
+def test_a_failed_prediction_is_treated_like_a_failed_fit(monkeypatch):
+    # E: one (Round, output) that cannot be predicted gives no checks for
+    # that pair; every other pair is still checked.
+    opt = _burger(rounds=4, per_round=3)
+    real = insights.predict
+    def boom(o, fitted, rows):
+        if fitted.name == "Juiciness":
+            raise RuntimeError("no predict")
+        return real(o, fitted, rows)
+    monkeypatch.setattr(insights, "predict", boom)
+    checks = insights.check_rounds(opt)
+    assert {c.name for c in checks} == {"Firmness", insights.SCORE}
+
+
+def test_details_has_a_row_for_every_output_checked_at_least_once():
+    # F1: never silently empty; R² only from 5 checked values.
+    c = lambda name, meas: insights.Check(1, 3, name, 5.0, 4.0, 6.0, meas, True, True)
+    opt = _burger(rounds=1)
+    rows = insights.details(opt, [c("Firmness", 5.5)] * 3 + [c("Juiciness", m) for m in
+                                                            (1.0, 2.0, 3.0, 4.0, 5.0)])
+    assert [(r.name, r.checked) for r in rows] == [("Firmness", 3), ("Juiciness", 5)]
+    assert rows[0].r2 is None and rows[1].r2 is not None
+    assert insights.details(opt, []) == []
+
+
+def test_rounds_not_checked_are_the_ones_without_five_rows_before_them():
+    # F2
+    opt = _burger(rounds=4, per_round=2)          # R1 0 before, R2 2, R3 4, R4 6
+    assert insights.rounds_not_checked(opt) == [1, 2, 3]
+    assert {c.round for c in insights.check_rounds(opt)} == {4}
+    opt = _burger(rounds=2, per_round=5)          # R2 has 5 before it
+    assert insights.rounds_not_checked(opt) == [1]
+
+
+def test_setting_choice_is_known():
+    # G2
+    opt = _burger(rounds=1)
+    assert not insights.has_setting_choice(opt)
+    opt.add_process_parameter("Mixing time", 45, 150, baseline=90, unit="s")
+    assert insights.has_setting_choice(opt)

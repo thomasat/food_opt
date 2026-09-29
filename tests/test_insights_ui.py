@@ -193,7 +193,8 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.insights_header(17, "5"))
     _check(wording.insights_gate(3))
     _check(wording.Q_PREDICTIONS)
-    _check(wording.Q_CHANGE)
+    _check(wording.q_change(True))
+    _check(wording.q_change(False))
     _check(wording.Q_IMPROVING)
     _check(wording.PREDICTIONS_NONE)
     _check(wording.predictions_early(1))
@@ -220,7 +221,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.path_follows("Total fat"))
     _check(wording.path_outside(3, "9 g"))
     _check(wording.path_start_breaks(3, "Fat: at most 16 g"))
-    _check(wording.path_not_checked("Fat"))
+    _check(wording.path_not_checked("Fat: at most 16 g", "Fat"))
     _check(wording.PATH_GREY)
     _check(wording.panel_missing("Firmness"))
     _check(wording.panel_failed("Firmness"))
@@ -244,6 +245,14 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.TRACK_LOW)
     _check(wording.TRACK_HIGH)
     _check(wording.TRACK_INSIDE)
+
+    # Final fix wave
+    _check(wording.INSIGHTS_FAILED)
+    _check(wording.CHANGE_NONE)
+    _check(wording.DETAILS_NONE)
+    _check(wording.rounds_not_checked([1, 2]))
+    _check(wording.rounds_not_checked([1]))
+    _check(wording.rounds_span([3, 5, 6]))
 
 
 # ------------------------------------------------------------------ #
@@ -304,7 +313,7 @@ def test_insights_sections_and_expanders(insights_scored):
     assert not at.exception
     tab = at.tabs[3]
     text = " ".join(m.value for m in tab.markdown)
-    for q in (wording.Q_PREDICTIONS, wording.Q_CHANGE, wording.Q_IMPROVING):
+    for q in (wording.Q_PREDICTIONS, wording.q_change(False), wording.Q_IMPROVING):
         assert q in text
     labels = [e.label for e in tab.expander]
     for lab in (wording.SHOW_PREDICTIONS, wording.SHOW_PROGRESS, wording.HOW_WORKED_OUT):
@@ -400,3 +409,178 @@ def test_insights_cache_does_not_follow_a_project_switch(insights_scored):
     assert ui_insights.CACHE_KEY not in at.session_state
     assert "insights_choice" not in at.session_state
     assert "insights_start" not in at.session_state
+
+
+# ------------------------------------------------------------------ #
+#  Final fix wave D, E, F, G
+# ------------------------------------------------------------------ #
+
+def test_num_never_uses_scientific_notation():
+    n = ui_insights._num
+    assert n(1234.567) == "1235" and n(100.0) == "100"
+    assert n(12.34) == "12.3" and n(10.0) == "10.0"
+    assert n(3.14159) == "3.14" and n(2.5) == "2.5" and n(4.0) == "4"
+    assert n(0.5) == "0.5" and n(0.0123) == "0.012" and n(0.00012) == "0.00012"
+    assert n(0.00005) == "0" and n(0.0) == "0" and n(-0.00001) == "0"
+    assert n(-3.14159) == "-3.14"
+    for v in (1e-3, 2.5e-4, 1e-4, 0.05, 99.99, 1e6):
+        assert "e" not in n(v).lower(), (v, n(v))
+
+
+def test_rounds_span_contiguous_and_not():
+    assert wording.rounds_span([3]) == "Round 3"
+    assert wording.rounds_span([3, 4, 5]) == "Rounds 3–5"
+    assert wording.rounds_span([3, 4]) == "Rounds 3–4"
+    assert wording.rounds_span([3, 5]) == "Rounds 3 and 5"
+    assert wording.rounds_span([3, 5, 6]) == "Rounds 3, 5 and 6"
+
+
+def test_rounds_not_checked_wording():
+    assert wording.rounds_not_checked([1, 2]) == (
+        "Rounds 1–2 are not checked: fewer than 5 formulations were recorded before them.")
+    assert wording.rounds_not_checked([1]) == (
+        "Round 1 is not checked: fewer than 5 formulations were recorded before it.")
+
+
+def test_final_wave_wording():
+    assert wording.INSIGHTS_WORKING == "Preparing the insights…"
+    assert wording.HOW_WORKED_OUT == "How these insights are made"
+    assert wording.panel_failed("Firmness") == "Could not be predicted for Firmness."
+    assert wording.q_change(True) == "What happens if you change one ingredient or process setting?"
+    assert wording.q_change(False) == "What happens if you change one ingredient?"
+    assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
+        "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
+    assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
+    assert wording.CHANGE_NONE == (
+        "Nothing to change yet: every ingredient and process setting is fixed.")
+    assert wording.DETAILS_NONE == "This table fills in once a round has been checked."
+    for text in (wording.INSIGHTS_WORKING, wording.HOW_WORKED_OUT, wording.panel_failed("X"),
+                 wording.PREDICTIONS_NONE, wording.BEST_LATEST, wording.best_since(1),
+                 wording.best_since(3), wording.HOW_MODELS, wording.q_change(True),
+                 wording.q_change(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
+                 wording.DETAILS_NONE, wording.rounds_not_checked([1, 2])):
+        assert "worked out" not in text.lower() and "working out" not in text.lower(), text
+
+
+def test_round_and_tab_words_come_from_constants(monkeypatch):
+    # G3: rename the round word and the tab, and every Insights string follows.
+    import importlib
+    src = open(wording.__file__).read()
+    assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
+    assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
+    assert wording.TAB_BATCH_NAME in wording.HOW_MODELS
+    for fn in ("PREDICTIONS_NONE", "BEST_LATEST", "best_since", "HOW_MODELS"):
+        block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
+        assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
+
+
+def test_path_skipped_names_the_property():
+    opt = _burger(rounds=2)
+    opt.add_property("Fat")
+    opt.set_property_value("Oil", "Fat", 100.0)
+    opt.add_constraint("Fat", max_val=5.0)
+    p = insights.build_path(opt, "Oil", insights.start_recipe(opt, opt.best_index()))
+    assert p.skipped == [(opt.property_limit_text(opt.constraints[0]), "Fat")]
+
+
+def test_band_and_amount_text_use_num():
+    opt = _burger(rounds=2)
+    assert ui_insights._amount(0.00012, "g") == "0.00012 g"
+    assert ui_insights._amount(123.4, "g") == "123 g"
+
+
+# The tab in the app ------------------------------------------------ #
+
+def _tab_text(at):
+    tab = at.tabs[3]
+    return ([m.value for m in tab.markdown], [c.value for c in tab.caption])
+
+
+def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, monkeypatch):
+    calls = []
+    def boom(opt):
+        calls.append(1)
+        raise RuntimeError("no checks")
+    monkeypatch.setattr(insights, "check_rounds", boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert caps.count(wording.INSIGHTS_FAILED) == 1
+    assert any(m.startswith("Best so far:") for m in md)       # section 3 still shows
+    at.run()
+    assert not at.exception and calls == [1]
+
+
+@pytest.mark.parametrize("where", ["build_path", "path_predictions", "start_recipe"])
+def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, where):
+    real = getattr(insights, where)
+    def boom(*a, **k):
+        import inspect
+        caller = inspect.stack()[1].function
+        if caller == "_change":
+            raise RuntimeError("no path")
+        return real(*a, **k)
+    monkeypatch.setattr(insights, where, boom)
+    at = _open_insights(_app())
+    assert not at.exception
+    md, caps = _tab_text(at)
+    assert wording.panel_failed("Pea protein") in caps
+    assert wording.Q_PREDICTIONS in " ".join(md)
+    assert any(m.startswith("Best so far:") for m in md)
+
+
+def test_section_2_says_when_there_is_nothing_to_change(insights_scored, monkeypatch):
+    monkeypatch.setattr(insights, "path_choices", lambda opt: [])
+    at = _open_insights(_app())
+    assert not at.exception
+    assert wording.CHANGE_NONE in _tab_text(at)[1]
+
+
+def test_question_2_names_process_settings_only_when_there_are_some(insights_scored):
+    at = _open_insights(_app())
+    body = " ".join(_tab_text(at)[0])
+    assert wording.q_change(False) in body and wording.q_change(True) not in body
+
+
+@pytest.mark.parametrize("spread, shown", [(0.04, False), (0.0, False), (0.06, True)])
+def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, spread, shown):
+    monkeypatch.setattr(insights, "repeat_spread", lambda opt: spread)
+    at = _open_insights(_app())
+    md = " ".join(_tab_text(at)[0])
+    assert ("Repeats of the same formulation" in md) == shown
+    if shown:
+        assert wording.repeats_line("0.06") in md
+
+
+@pytest.fixture
+def insights_two_rounds(burger):
+    """Six scored formulations over two rounds: enough to fit, none checked."""
+    no = 0
+    for r in (1, 2):
+        for pea, mc in ((8.0, 0.5), (14.0, 1.5), (20.0, 2.5)):
+            no += 1
+            pea += r * 0.7
+            burger.tell({"Pea protein": pea, "Methylcellulose": mc},
+                        {"Juiciness": 3 + 0.2 * pea, "Firmness": 1 + 0.25 * pea + mc},
+                        formulation_no=no, batch_no=r)
+    return burger
+
+
+def test_details_table_empty_says_so(insights_two_rounds):
+    at = _open_insights(_app())
+    assert not at.exception
+    assert wording.DETAILS_NONE in _tab_text(at)[1]
+    assert not at.tabs[3].dataframe
+
+
+def test_details_table_shows_rows_after_one_checked_round(insights_scored):
+    at = _open_insights(_app())
+    frame = at.tabs[3].dataframe[0].value
+    assert len(frame) == 3                                        # 3 checked each
+    assert set(frame[wording.DETAILS_COLUMNS[5]]) == {"—"}
+    assert wording.DETAILS_NONE not in _tab_text(at)[1]
+
+
+def test_unchecked_rounds_caption(insights_scored):
+    at = _open_insights(_app())
+    assert wording.rounds_not_checked([1, 2]) in _tab_text(at)[1]

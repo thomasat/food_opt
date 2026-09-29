@@ -100,12 +100,11 @@ def predict(opt, fitted, X_rows):
         post = fitted.model.posterior(X, observation_noise=True)
         mean = post.mean.reshape(-1).tolist()
         sd = post.variance.clamp_min(0.0).sqrt().reshape(-1).tolist()
-    out = []
-    for m, s in zip(mean, sd):
-        m = min(fitted.high, max(fitted.low, m))
-        out.append(Prediction(m, max(fitted.low, m - Z95 * s),
-                              min(fitted.high, m + Z95 * s)))
-    return out
+    clip = lambda v: min(fitted.high, max(fitted.low, v))
+    # The band is worked from the model's own mean, then clipped: centring it
+    # on a mean already clipped to the Range would shift it.
+    return [Prediction(clip(m), clip(m - Z95 * s), clip(m + Z95 * s))
+            for m, s in zip(mean, sd)]
 
 
 def fit_all(opt):
@@ -158,13 +157,22 @@ def check_rounds(opt):
             if fitted.model is None:
                 continue
             rows = [i for i in targets if measured(opt, name, i) is not None]
-            preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
+            try:
+                preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
+            except Exception:   # like a failed fit: no checks for this pair
+                continue
             for i, p in zip(rows, preds):
                 value = measured(opt, name, i)
                 checks.append(Check(
                     int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
                     value, p.low <= value <= p.high, opt.fully_measured(i)))
     return checks
+
+
+def rounds_not_checked(opt):
+    """The Rounds with fewer than MIN_ROWS formulations recorded before
+    them: nothing earlier to predict them from, so they are never checked."""
+    return [r for r, first in round_order(opt) if first < MIN_ROWS]
 
 
 def binomial_tail(m, n, p=0.05):
@@ -241,7 +249,7 @@ def details(opt, checks):
     rows = []
     for name, _, _ in outputs(opt):
         mine = [c for c in checks if c.name == name]
-        if len(mine) < 5:
+        if not mine:
             continue
         meas = [c.measured for c in mine]
         mean = sum(meas) / len(meas)
@@ -251,7 +259,7 @@ def details(opt, checks):
             name, len(mine), sum(c.inside for c in mine),
             statistics.median((c.high - c.low) / 2 for c in mine),
             statistics.median(abs(c.measured - c.predicted) for c in mine),
-            None if ss_tot == 0 else 1 - ss_res / ss_tot))
+            None if len(mine) < MIN_ROWS or ss_tot == 0 else 1 - ss_res / ss_tot))
     return rows
 
 
@@ -270,6 +278,11 @@ def path_choices(opt):
     varying = [v for v in opt.varying_variables() if v.get('type') == 'continuous']
     return ([v['name'] for v in varying if _is_ingredient(v)] +
             [v['name'] for v in varying if not _is_ingredient(v)])
+
+
+def has_setting_choice(opt):
+    """Whether any process setting is among the path choices."""
+    return any(not _is_ingredient(_var(opt, n)) for n in path_choices(opt))
 
 
 def start_recipe(opt, i):
@@ -421,7 +434,7 @@ def build_path(opt, name, start, points=60):
     outside = s < lo - _EPS or s > hi + _EPS
     lo, hi = min(lo, s), max(hi, s)
     moving = [v['name'] for v in _others(opt, name)] if mode == "proportional" else []
-    skipped = [opt.property_limit_text(c) for c in opt.constraints
+    skipped = [(opt.property_limit_text(c), c['metric']) for c in opt.constraints
                if (c.get('min') is not None or c.get('max') is not None)
                and opt.ingredients_without_property(c['metric'])]
     fixed = [(v['name'], float(start.get(v['name'], v['bounds'][0])), opt.unit_of(v['name']))
@@ -513,18 +526,20 @@ def _same(opt, a, b):
 
 def repeat_spread(opt):
     """The largest |Overall score difference| between any two formulations
-    that `_same` calls a match.
+    that `_same` calls a match, both fully measured: a missing measurement
+    counts as 0 in the Overall score, so a partly measured repeat would read
+    as a spread nobody saw at the bench.
 
     Pairwise, not anchor groups: `_same`'s per-row tolerance is not
     transitive (a chain of small steps can drift past it end to end), so
     comparing each new row only against one earlier "anchor" row can miss a
     matching pair -- and the largest spread -- entirely. Every pair of
     formulations is compared independently instead."""
-    recipes = [start_recipe(opt, i) for i in range(len(opt.Y_history))]
-    n = len(recipes)
+    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    recipes = {i: start_recipe(opt, i) for i in rows}
     best = None
-    for i in range(n):
-        for j in range(i + 1, n):
+    for a, i in enumerate(rows):
+        for j in rows[a + 1:]:
             if _same(opt, recipes[i], recipes[j]):
                 spread = abs(opt.Y_history[i] - opt.Y_history[j])
                 if best is None or spread > best:

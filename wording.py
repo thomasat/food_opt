@@ -61,7 +61,9 @@ STARTING_APP = f"Starting {APP_TITLE}. Please wait while the app loads."
 
 # The three tabs, in loop order. The separator is U+00B7 MIDDLE DOT.
 TAB_SETUP = "1 · Set up"
-TAB_BATCH = f"2 · Make a {ROUND}"
+# The tab's name without its number, for prose that points at it.
+TAB_BATCH_NAME = f"Make a {ROUND}"
+TAB_BATCH = f"2 · {TAB_BATCH_NAME}"
 TAB_RESULTS = "3 · Results"
 
 # Archived copies are written beside the project's own file, which on the
@@ -3830,7 +3832,8 @@ PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
 
 TAB_INSIGHTS = "Insights"
 INSIGHTS_NONE = "Insights appear once formulations are scored."
-INSIGHTS_WORKING = "Working out the insights…"
+INSIGHTS_WORKING = "Preparing the insights…"
+INSIGHTS_FAILED = "Insights could not be prepared for this project."
 
 
 def insights_header(n, last_round):
@@ -3844,19 +3847,45 @@ def insights_gate(n):
 
 
 Q_PREDICTIONS = "Did the predictions come true?"
-Q_CHANGE = "What happens if you change one ingredient?"
+
+
+def q_change(has_settings):
+    """Names process settings only when the project has one to change."""
+    tail = " or process setting" if has_settings else ""
+    return f"What happens if you change one ingredient{tail}?"
+
+
 Q_IMPROVING = "Is it still improving?"
-PREDICTIONS_NONE = "The first check comes with the next round after 5 scored formulations."
+PREDICTIONS_NONE = f"The first check comes with the next {ROUND} after 5 scored {FORMULATION}s."
 
 
 def predictions_early(n):
     return f"Too early to judge: {n} measured value{'s' if n != 1 else ''} checked so far."
 
 
+def _contiguous(rounds):
+    try:
+        numbers = [int(r) for r in rounds]
+    except (TypeError, ValueError):
+        return False
+    return numbers == list(range(numbers[0], numbers[0] + len(numbers)))
+
+
 def rounds_span(rounds):
+    """"Round 4"; "Rounds 3–5" when they run on; "Rounds 3 and 5" or
+    "Rounds 3, 5 and 6" when one is skipped, so a gap is never hidden."""
+    rounds = [str(r) for r in rounds]
     if len(rounds) == 1:
         return f"{ROUND_CAP} {rounds[0]}"
-    return f"{ROUND_CAP}s {rounds[0]}–{rounds[-1]}"
+    if _contiguous(rounds):
+        return f"{ROUND_CAP}s {rounds[0]}–{rounds[-1]}"
+    return f"{ROUND_CAP}s {', '.join(rounds[:-1])} and {rounds[-1]}"
+
+
+def rounds_not_checked(rounds):
+    one = len(rounds) == 1
+    return (f"{rounds_span(rounds)} {'is' if one else 'are'} not checked: fewer than 5 "
+            f"{FORMULATION}s were recorded before {'it' if one else 'them'}.")
 
 
 def predictions_count(k, rounds, inside, total):
@@ -3924,8 +3953,8 @@ def path_start_breaks(n, reason):
     return f"{FORMULATION_CAP} {n} breaks today's limit: {reason}."
 
 
-def path_not_checked(limit):
-    return f"Not checked: {limit} — some ingredients have no value for it."
+def path_not_checked(limit, prop):
+    return f"Not checked: {limit} — some ingredients have no {prop} value."
 
 
 PATH_GREY = "Grey: amounts not tested yet — treat the curve there as a guess."
@@ -3936,7 +3965,10 @@ def panel_missing(name):
 
 
 def panel_failed(name):
-    return f"Could not be worked out for {name}."
+    return f"Could not be predicted for {name}."
+
+
+CHANGE_NONE = "Nothing to change yet: every ingredient and process setting is fixed."
 
 
 def best_line(score_text, n, rnd):
@@ -3945,12 +3977,12 @@ def best_line(score_text, n, rnd):
     return f"Best so far: {score_text}, {where}."
 
 
-BEST_LATEST = "It came from the latest round."
+BEST_LATEST = f"It came from the latest {ROUND}."
 
 
 def best_since(k):
-    return ("No higher score in the round since." if k == 1
-            else f"No higher score in the {k} rounds since.")
+    return (f"No higher score in the {ROUND} since." if k == 1
+            else f"No higher score in the {k} {ROUND}s since.")
 
 
 def repeats_line(spread_text):
@@ -3959,10 +3991,10 @@ def repeats_line(spread_text):
 
 
 SHOW_PROGRESS = "Show progress chart"
-HOW_WORKED_OUT = "How these are worked out"
+HOW_WORKED_OUT = "How these insights are made"
 HOW_MODELS = ("Each measurement, and the Overall score, has its own prediction learned from "
-              "the formulations scored so far (a Gaussian process for each). They are used "
-              "only on this tab; suggestions on Make a round still come from the Overall "
+              f"the {FORMULATION}s scored so far (a Gaussian process for each). They are used "
+              f"only on this tab; suggestions on {TAB_BATCH_NAME} still come from the Overall "
               "score alone. Because they are learned separately, the Overall score curve "
               "can differ a little from what the measurement curves imply.")
 HOW_RANGE = ("Likely range: where about 19 in 20 results should land, including the variation "
@@ -3976,6 +4008,7 @@ HOW_NO_P = ("There are no p-values or coefficient tables. These predictions have
             "test, and the formulations were chosen one round at a time rather than designed "
             "in advance, so such tables would mislead. The checks above measure the same thing "
             "directly: how well a formulation is predicted before it is made.")
+DETAILS_NONE = f"This table fills in once a {ROUND} has been checked."
 DETAILS_COLUMNS = ("Measurement", "Checked", "Inside likely range", "Typical likely range",
                    "Typical miss", "R² of Round-ahead predictions")
 TRACK_PREDICTED = "Predicted"
