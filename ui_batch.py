@@ -731,7 +731,8 @@ def _show_predictions(opt, later):
     _draw_table(opt, table_slot, _with_predictions(opt, frame, preds))
     with notes:
         if _a_suggestion_below_best(opt, preds):
-            st.caption(wording.for_project(opt, wording.PREDICTIONS_ROUND_CAPTION))
+            st.caption(wording.for_project(opt, wording.predictions_round_caption(
+                values=not opt.has_ingredients())))
         _predicted_measurements(opt, preds)
 
 

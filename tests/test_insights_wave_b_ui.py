@@ -167,8 +167,9 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     assert "trial" in trial_help and "formulation" not in trial_help
     assert trial_help in proto and wording.PREDICTED_SCORE_HELP not in proto
     captions = [c.value for c in at.caption]
-    trial_caption = wording.for_project(warm_ferment, wording.PREDICTIONS_ROUND_CAPTION)
-    assert "trial" in trial_caption and "formulation" not in trial_caption
+    trial_caption = wording.for_project(warm_ferment, wording.predictions_round_caption(values=True))
+    assert trial_caption == ("Some trials are chosen to try values not tested yet, so their "
+                             "prediction can be lower than Best so far.")
     assert captions.count(trial_caption) == 1
     assert wording.PREDICTIONS_ROUND_CAPTION not in captions
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
@@ -705,7 +706,14 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
               wording.SPREAD_CAPTION, wording.SPREAD_AXIS, wording.Q_BEST,
               wording.best_answer("88", "80", "95"), wording.best_close(14, "81.0"),
               wording.BEST_UNTESTED, wording.BEST_ROW, wording.BEST_CAPTION,
-              wording.BEST_FAILED, wording.HOW_MODELS):
+              wording.BEST_FAILED, wording.HOW_MODELS,
+              wording.held_line("Best so far", ["Wheat gluten", "Sunflower oil"]),
+              wording.held_all("Formulation 9"), wording.held_all("Best so far", True),
+              wording.spread_flat(True), wording.compare_all(False, False),
+              wording.spread_caption(True), wording.predictions_round_caption(True),
+              wording.path_grey(True), wording.q_change(True, False),
+              wording.path_process("Mixing time", 3, False),
+              wording.spread_line("Mixing time", "2.0", "Best so far", values=True)):
         assert not any(p.search(s) for p in _BANNED), s
         assert not also.search(s), s
 
@@ -734,3 +742,108 @@ def test_exact_wave_b_strings():
     assert wording.BEST_CAPTION == (
         "Suggestions on Make a round also try untested areas; this is the single formulation "
         "predicted to score highest.")
+
+
+# ------------------------------------------------------------------ #
+#  One vocabulary across Insights: trials, process settings, values
+# ------------------------------------------------------------------ #
+
+def _everything_said(tab):
+    said = ([m.value for m in tab.markdown] + [c.value for c in tab.caption]
+            + [e.label for e in tab.expander] + [s.label for s in tab.selectbox])
+    for box in tab.selectbox:
+        said += [str(o) for o in box.options]
+    for d in tab.dataframe:
+        said += [str(c) for c in d.value.columns]
+        said += [str(v) for v in d.value.astype(str).to_numpy().ravel()]
+    return said
+
+
+def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment):
+    at = _open_insights(_app())
+    assert not at.exception
+    tab = at.tabs[3]
+    said = _everything_said(tab)
+    assert not [t for t in said if "ormulation" in t], [t for t in said if "ormulation" in t]
+    assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
+    md, caps = _tab_text(at)
+    assert "**What happens if you change one process setting?**" in md
+    assert "**Which trial is predicted to score highest?**" in md
+    assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
+    assert [c for c in caps if c.startswith("Based on 5 scored trials")]
+    answer = [m for m in md if m.startswith("Across its allowed")]
+    assert answer and all(m.startswith("Across its allowed values, ") for m in answer)
+    [best] = _best_frames_for(tab, wording.TRIAL_CAP)
+    assert list(best[wording.TRIAL_CAP])[0] == wording.BEST_ROW
+
+
+def test_the_process_only_compare_expander_and_caption(warm_ferment, monkeypatch):
+    _spreads(monkeypatch, ("Incubation temperature", 0.8), ("Incubation time", 0.3))
+    at = _open_insights(_app())
+    tab = at.tabs[3]
+    md, caps = _tab_text(at)
+    assert ("Across its allowed values, Incubation temperature changes the predicted Overall "
+            "score the most: a spread of 0.8 points (from Best so far).") in md
+    assert "Compare all process settings" in [e.label for e in tab.expander]
+    assert ("Spread = highest minus lowest predicted Overall score along each path, from the "
+            "same starting trial, including values not tested yet.") in caps
+
+
+def test_a_process_only_project_held_and_flat_lines(warm_ferment, monkeypatch):
+    _spreads(monkeypatch, held=["Incubation temperature", "Incubation time"])
+    at = _open_insights(_app())
+    md, _ = _tab_text(at)
+    assert "From Best so far, your limits keep every process setting in place." in md
+    _spreads(monkeypatch, ("Incubation time", 0.02), held=["Incubation temperature"])
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    md, caps = _tab_text(at)
+    assert "No process setting changes the predicted Overall score by more than 0.1 points yet." in md
+    assert "Kept in place by your limits from Best so far: Incubation temperature." in caps
+
+
+def _best_frames_for(tab, first):
+    return [d.value for d in tab.dataframe
+            if first in d.value.columns and wording.BEST_ROW in list(d.value[first])]
+
+
+@pytest.fixture
+def mixed_scored(burger):
+    """The burger with a process setting as well, nine formulations scored."""
+    burger.add_process_parameter("Mixing time", 2, 10, unit="min")
+    no = 0
+    for r in (1, 2, 3):
+        for pea, mc, mix in ((8.0, 0.5, 3.0), (14.0, 1.5, 6.0), (20.0, 2.5, 9.0)):
+            no += 1
+            pea += r * 0.7
+            burger.tell({"Pea protein": pea, "Methylcellulose": mc, "Mixing time": mix},
+                        {"Juiciness": 3 + 0.2 * pea, "Firmness": 1 + 0.25 * pea + mc},
+                        formulation_no=no, batch_no=r)
+    return burger
+
+
+@pytest.mark.parametrize("top, what", [("Mixing time", "values"), ("Pea protein", "amounts")])
+def test_the_answer_says_values_for_a_setting_and_amounts_for_an_ingredient(
+        mixed_scored, monkeypatch, top, what):
+    other = "Pea protein" if top == "Mixing time" else "Mixing time"
+    _spreads(monkeypatch, (top, 5.0), (other, 2.0))
+    at = _open_insights(_app())
+    md, caps = _tab_text(at)
+    assert (f"Across its allowed {what}, {top} changes the predicted Overall score the most: "
+            "a spread of 5.0 points (from Best so far).") in md
+    assert wording.compare_all(True) in [e.label for e in at.tabs[3].expander]
+    assert wording.SPREAD_CAPTION in caps           # amounts and values: says amounts
+
+
+def test_process_setting_wording():
+    assert wording.q_change(True, False) == "What happens if you change one process setting?"
+    assert wording.q_change(True) == "What happens if you change one ingredient or process setting?"
+    assert wording.compare_all(True, False) == "Compare all process settings"
+    assert wording.path_grey(True) == "Grey: values not tested yet — treat the curve there as a guess."
+    assert wording.PATH_GREY == "Grey: amounts not tested yet — treat the curve there as a guess."
+    assert wording.path_process("Incubation time", 1, False) == (
+        "Incubation time changes; everything else stays as in Formulation 1.")
+    assert wording.path_process("Mixing time", 1) == (
+        "Mixing time changes; the ingredients stay as in Formulation 1.")
+    assert wording.PREDICTIONS_ROUND_CAPTION == wording.predictions_round_caption()
+    assert wording.SPREAD_CAPTION == wording.spread_caption()
+    assert wording.SPREAD_FLAT == wording.spread_flat()

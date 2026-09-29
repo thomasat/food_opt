@@ -358,6 +358,11 @@ def path_choices(opt):
             [v['name'] for v in varying if not _is_ingredient(v)])
 
 
+def is_setting(opt, name):
+    """Whether this row is a process setting (it has values, not amounts)."""
+    return not _is_ingredient(_var(opt, name))
+
+
 def has_setting_choice(opt):
     """Whether any process setting is among the path choices."""
     return any(not _is_ingredient(_var(opt, n)) for n in path_choices(opt))

@@ -66,9 +66,10 @@ def track_chart(opt, checks):
         return None
     names = track_panels(opt)
     order = [panel_label(opt, n) for n in names]
+    formulation = _say(opt, wording.FORMULATION_CAP)
     rows = [{
         "panel": panel_label(opt, c.name), "mark": "check",
-        wording.FORMULATION_CAP: c.formulation,
+        formulation: c.formulation,
         wording.ROUND_CAP: c.round,
         wording.TRACK_PREDICTED: round(c.predicted, 2),
         wording.TRACK_LOW: round(c.low, 2),
@@ -80,10 +81,10 @@ def track_chart(opt, checks):
     df = pd.DataFrame(rows)
     # Quantitative, not one band per formulation: 100 formulations fit the
     # same 220 px as 10.
-    x = alt.X(f"{wording.FORMULATION_CAP}:Q", title=wording.FORMULATION_CAP,
+    x = alt.X(f"{formulation}:Q", title=formulation,
               scale=alt.Scale(zero=False, nice=False),
               axis=alt.Axis(format="d", tickMinStep=1))
-    tip = [wording.FORMULATION_CAP, wording.ROUND_CAP, wording.TRACK_PREDICTED,
+    tip = [formulation, wording.ROUND_CAP, wording.TRACK_PREDICTED,
            wording.TRACK_LOW, wording.TRACK_HIGH, wording.TRACK_MEASURED]
     bars = (alt.Chart().mark_rule(strokeWidth=3, opacity=0.35).encode(
         x=x, y=alt.Y(f"{wording.TRACK_LOW}:Q", title=None), y2=f"{wording.TRACK_HIGH}:Q",
@@ -206,22 +207,29 @@ def _computed(opt):
 _FAILED = {"failed": True}
 
 
-def _question(text):
-    st.markdown(f"**{text}**")
+def _say(opt, text):
+    """Every line on the tab in the project's own words, as the rest of the
+    app writes them: trials, not formulations, in a project of process
+    settings alone."""
+    return wording.for_project(opt, text)
+
+
+def _question(opt, text):
+    st.markdown(f"**{_say(opt, text)}**")
 
 
 def render(opt):
     n = len(opt.Y_history)
     if n == 0:
-        st.caption(wording.INSIGHTS_NONE)
+        st.caption(_say(opt, wording.INSIGHTS_NONE))
         return
     order = insights.round_order(opt)
-    st.caption(wording.insights_header(n, order[-1][0] if order else None,
-                                       len(opt.waiting_rows())))
+    st.caption(_say(opt, wording.insights_header(n, order[-1][0] if order else None,
+                                                 len(opt.waiting_rows()))))
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
     failed = computed is not None and computed.get("failed")
     if failed:
-        st.caption(wording.INSIGHTS_FAILED)
+        st.caption(_say(opt, wording.INSIGHTS_FAILED))
         computed = None
     else:
         _predictions(opt, computed, n)
@@ -235,32 +243,32 @@ def render(opt):
 
 
 def _predictions(opt, computed, n):
-    _question(wording.Q_PREDICTIONS)
+    _question(opt, wording.Q_PREDICTIONS)
     if computed is None:
-        st.caption(wording.insights_gate(n))
+        st.caption(_say(opt, wording.insights_gate(n)))
         return
     checks = computed["checks"]
     h = insights.headline(opt, checks)
     if h.state == "none":
-        st.write(wording.PREDICTIONS_NONE)
+        st.write(_say(opt, wording.PREDICTIONS_NONE))
     elif h.state == "early":
-        st.write(wording.predictions_early(h.total))
+        st.write(_say(opt, wording.predictions_early(h.total)))
     else:
-        st.write(wording.predictions_count(len(h.rounds), h.rounds, h.inside, h.total)
-                 + " " + wording.VERDICT[h.verdict])
+        st.write(_say(opt, wording.predictions_count(len(h.rounds), h.rounds, h.inside, h.total)
+                      + " " + wording.VERDICT[h.verdict]))
     # Only beside a check that happened: with no checkable Round there are no
     # Overall scores to have come in below anything.
     if h.score_below and h.state in ("early", "verdict"):
-        st.write(wording.SCORE_BELOW)
-    st.caption(wording.PREDICTIONS_CAPTION)
+        st.write(_say(opt, wording.SCORE_BELOW))
+    st.caption(_say(opt, wording.PREDICTIONS_CAPTION))
     # Only once something has been checked: before that, PREDICTIONS_NONE
     # already says when the first check comes.
     skipped = insights.rounds_not_checked(opt)
     if skipped and h.state != "none":
-        st.caption(wording.rounds_not_checked(skipped))
+        st.caption(_say(opt, wording.rounds_not_checked(skipped)))
     chart = track_chart(opt, checks)
     if chart is not None:
-        with st.expander(wording.SHOW_PREDICTIONS):
+        with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
             st.altair_chart(chart)
 
 
@@ -272,13 +280,14 @@ def _keep_if_offered(key, options):
 
 
 def _change(opt, computed, n):
-    _question(wording.q_change(insights.has_setting_choice(opt)))
+    _question(opt, wording.q_change(insights.has_setting_choice(opt),
+                                    insights.has_ingredient_choice(opt)))
     if computed is None:
-        st.caption(wording.insights_gate(n))
+        st.caption(_say(opt, wording.insights_gate(n)))
         return
     choices = insights.path_choices(opt)
     if not choices:
-        st.caption(wording.CHANGE_NONE)
+        st.caption(_say(opt, wording.CHANGE_NONE))
         return
     # None while no formulation has all its results: then there is no best
     # to start from, and the box offers the newest first.
@@ -294,9 +303,9 @@ def _change(opt, computed, n):
     answer = st.container()
     left, right = st.columns(2)
     number = right.selectbox(
-        wording.START_FROM, starts, key=START_KEY,
-        format_func=lambda no: (wording.start_best(no) if no == best_no
-                                else wording.start_formulation(no)))
+        _say(opt, wording.START_FROM), starts, key=START_KEY,
+        format_func=lambda no: _say(opt, wording.start_best(no) if no == best_no
+                                    else wording.start_formulation(no)))
     fitted = computed["fitted"]
     try:
         found = insights.spreads(opt, fitted, insights.start_recipe(opt, ids.index(number)))
@@ -308,21 +317,21 @@ def _change(opt, computed, n):
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
         _spread_answer(opt, found, number == best_no, number)
-    name = left.selectbox(wording.INGREDIENT_OR_SETTING, choices, key=CHOICE_KEY)
+    name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
         if path.start_breaks:
-            st.caption(wording.path_start_breaks(number, path.start_breaks))
+            st.caption(_say(opt, wording.path_start_breaks(number, path.start_breaks)))
             return
         chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path))
         lines = _path_captions(opt, path, number, fitted)
     except Exception:   # one path failing must not take the tab down
-        st.caption(wording.panel_failed(name))
+        st.caption(_say(opt, wording.panel_failed(name)))
         return
     if chart is not None:
         st.altair_chart(chart)
     for line in lines:
-        st.caption(line)
+        st.caption(_say(opt, line))
 
 
 def spread_chart(spreads):
@@ -351,24 +360,29 @@ def _spread_answer(opt, found, from_best, number):
     hold in place, and the compare expander. Nothing when no path could be
     drawn or there is no Overall-score model yet."""
     start = wording.spread_from(from_best, number)
+    # With no ingredient to change, every choice is a process setting: it
+    # has values, not amounts, and the lines name process settings alone.
+    settings_only = not insights.has_ingredient_choice(opt)
     moved = found.moved
     if not moved:
         if found.held:
-            st.write(wording.held_all(start))
+            st.write(_say(opt, wording.held_all(start, settings_only)))
         return
     flat = all(s.spread < _FLAT for s in moved)
     if flat:
-        st.write(wording.SPREAD_FLAT)
+        st.write(_say(opt, wording.spread_flat(settings_only)))
     else:
         top = moved[0]
-        st.write(wording.spread_line(top.name, f"{top.spread:.1f}", start,
-                                     only=len(moved) == 1))
+        st.write(_say(opt, wording.spread_line(top.name, f"{top.spread:.1f}", start,
+                                               only=len(moved) == 1,
+                                               values=insights.is_setting(opt, top.name))))
     if found.held:
-        st.caption(wording.held_line(start, found.held))
+        st.caption(_say(opt, wording.held_line(start, found.held)))
     if not flat and len(moved) > 1:
-        with st.expander(wording.compare_all(insights.has_setting_choice(opt))):
+        with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
+                                                       not settings_only))):
             st.altair_chart(spread_chart(moved))
-            st.caption(wording.SPREAD_CAPTION)
+            st.caption(_say(opt, wording.spread_caption(values=settings_only)))
 
 
 def _whole(value):
@@ -424,7 +438,7 @@ def _path_captions(opt, path, number, fitted):
         lines.append(wording.path_proportional(
             path.name, opt.batch_total_text(opt.formulation_total)))
     elif path.mode == "process":
-        lines.append(wording.path_process(path.name, number))
+        lines.append(wording.path_process(path.name, number, opt.has_ingredients()))
     else:
         lines.append(wording.path_free(path.name, number))
     for end in (path.low_end, path.high_end):
@@ -446,23 +460,23 @@ def _path_captions(opt, path, number, fitted):
         elif f.model is None:
             lines.append(wording.panel_missing(panel_label(opt, name)))
     if path.tested and (path.amounts[0] < path.tested[0] or path.amounts[-1] > path.tested[1]):
-        lines.append(wording.PATH_GREY)
+        lines.append(wording.path_grey(values=path.mode == "process"))
     return lines
 
 
 def _improving(opt):
-    _question(wording.Q_IMPROVING)
+    _question(opt, wording.Q_IMPROVING)
     f = insights.best_facts(opt)
     if f is not None:
         second = (wording.BEST_LATEST if f.latest and f.rounds_since == 0
                   else wording.best_since(f.rounds_since) if f.rounds_since else "")
-        st.write(wording.best_line(f"{f.score:.1f}", f.formulation, f.round)
-                 + (" " + second if second else ""))
+        st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round)
+                      + (" " + second if second else "")))
     spread = insights.repeat_spread(opt)
     # A spread that would read 0 says nothing about chance.
     if spread is not None and spread >= 0.05:
-        st.write(wording.repeats_line(_num(spread)))
-    with st.expander(wording.SHOW_PROGRESS):
+        st.write(_say(opt, wording.repeats_line(_num(spread))))
+    with st.expander(_say(opt, wording.SHOW_PROGRESS)):
         _progress_chart_body(opt)
 
 
@@ -470,12 +484,13 @@ def progress_frame(opt):
     """The Progress chart's data, one row per scored formulation. A
     formulation still waiting for results is a gap in the Overall score line
     and repeats the best so far before it."""
+    formulation = _say(opt, wording.FORMULATION_CAP)
     return pd.DataFrame({
-        wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
+        formulation: [int(n) for n in opt.formulation_ids],
         wording.OVERALL_SCORE_COLUMN: [float(y) if opt.fully_measured(i) else None
                                        for i, y in enumerate(opt.Y_history)],
         wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
-    }).set_index(wording.FORMULATION_CAP)
+    }).set_index(formulation)
 
 
 def _progress_chart_body(opt):
@@ -484,9 +499,9 @@ def _progress_chart_body(opt):
         # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
         # with one round of data and nothing on the chart said what
         # either number was.
-        x_label=wording.FORMULATION_CAP,
+        x_label=_say(opt, wording.FORMULATION_CAP),
         y_label=wording.OVERALL_SCORE_COLUMN)
-    st.caption(wording.PROGRESS_CHART_CAPTION)
+    st.caption(_say(opt, wording.PROGRESS_CHART_CAPTION))
 
 
 def _predicted_best(opt, fitted):
@@ -519,26 +534,26 @@ def best_frame(opt, best, fitted):
                              {"formulation": no, "recipe": other}])
     trying = opt.compared_with_column()
     frame = frame[[c for c in frame.columns if c not in (wording.NOTE, trying)]].copy()
-    frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, label]
+    frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, _say(opt, label)]
     [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(other)])
     frame[wording.PREDICTED_SCORE_COLUMN] = [score_text(best.score), score_text(own)]
-    return frame
+    return frame.rename(columns={wording.FORMULATION_CAP: _say(opt, wording.FORMULATION_CAP)})
 
 
 def _best(opt, computed):
-    _question(wording.Q_BEST)
+    _question(opt, wording.Q_BEST)
     fitted = None if computed is None else computed["fitted"]
     score = None if fitted is None else fitted.get(insights.SCORE)
     if (opt.complete_count() < insights.MIN_ROWS or score is None
             or score.model is None):
-        st.caption(wording.insights_gate(opt.complete_count()))
+        st.caption(_say(opt, wording.insights_gate(opt.complete_count())))
         return
     best = _predicted_best(opt, fitted)
     if isinstance(best, str):
-        st.caption(best)
+        st.caption(_say(opt, best))
         return
     if best is _FAILED:
-        st.caption(wording.BEST_FAILED)
+        st.caption(_say(opt, wording.BEST_FAILED))
         return
     p = best.score
     line = wording.best_answer(_whole(p.mean), _whole(p.low), _whole(p.high))
@@ -547,27 +562,28 @@ def _best(opt, computed):
                                          f"{opt.Y_history[best.close]:.1f}")
     else:
         line += " " + wording.BEST_UNTESTED
-    st.write(line)
+    st.write(_say(opt, line))
     frame = best_frame(opt, best, fitted)
     st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
                  column_config={wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
-                     wording.PREDICTED_SCORE_COLUMN, help=wording.PREDICTED_SCORE_HELP)},
+                     wording.PREDICTED_SCORE_COLUMN,
+                     help=_say(opt, wording.PREDICTED_SCORE_HELP))},
                  height=table_height(len(frame)))
-    st.caption(wording.BEST_CAPTION)
+    st.caption(_say(opt, wording.BEST_CAPTION))
 
 
 def _how(opt, computed):
-    with st.expander(wording.HOW_WORKED_OUT):
+    with st.expander(_say(opt, wording.HOW_WORKED_OUT)):
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
                      wording.HOW_CHECKS, wording.HOW_NO_P):
-            st.markdown(text)
+            st.markdown(_say(opt, text))
         if computed is None:
             return
         rows = insights.details(opt, computed["checks"])
         if not rows:
-            st.caption(wording.DETAILS_NONE)
+            st.caption(_say(opt, wording.DETAILS_NONE))
         else:
             st.dataframe(pd.DataFrame([{
                 wording.DETAILS_COLUMNS[0]: panel_label(opt, r.name),

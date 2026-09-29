@@ -3920,8 +3920,11 @@ def insights_gate(n):
 Q_PREDICTIONS = "Did the predictions come true?"
 
 
-def q_change(has_settings):
-    """Names process settings only when the project has one to change."""
+def q_change(has_settings, has_ingredients=True):
+    """Names process settings only when the project has one to change, and
+    ingredients only when it has one."""
+    if not has_ingredients:
+        return "What happens if you change one process setting?"
     tail = " or process setting" if has_settings else ""
     return f"What happens if you change one ingredient{tail}?"
 
@@ -4010,8 +4013,10 @@ def path_free(name, n):
     return f"More {name}; everything else stays as in {FORMULATION_CAP} {n}."
 
 
-def path_process(name, n):
-    return f"{name} changes; the ingredients stay as in {FORMULATION_CAP} {n}."
+def path_process(name, n, has_ingredients=True):
+    """`has_ingredients`: False in a project of process settings alone."""
+    rest = "the ingredients stay" if has_ingredients else "everything else stays"
+    return f"{name} changes; {rest} as in {FORMULATION_CAP} {n}."
 
 
 def path_stops(amount_text, reason):
@@ -4038,7 +4043,13 @@ def path_not_checked(limit, prop):
     return f"Not checked: {limit} — some ingredients have no {prop} value."
 
 
-PATH_GREY = "Grey: amounts not tested yet — treat the curve there as a guess."
+def path_grey(values=False):
+    """`values`: the path is a process setting's, which has values."""
+    what = "values" if values else "amounts"
+    return f"Grey: {what} not tested yet — treat the curve there as a guess."
+
+
+PATH_GREY = path_grey()
 
 
 def panel_missing(name):
@@ -4109,8 +4120,14 @@ PREDICTIONS_WORKING = "Preparing the predictions…"
 PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN}"
 PREDICTED_SCORE_HELP = (f"Predicted from the {FORMULATION}s scored so far; about 19 in 20 "
                         "results land in the likely range.")
-PREDICTIONS_ROUND_CAPTION = (f"Some {FORMULATION}s are chosen to try amounts not tested yet, "
-                             "so their prediction can be lower than Best so far.")
+def predictions_round_caption(values=False):
+    """`values`: a project of process settings alone, which has no amounts."""
+    what = "values" if values else "amounts"
+    return (f"Some {FORMULATION}s are chosen to try {what} not tested yet, "
+            "so their prediction can be lower than Best so far.")
+
+
+PREDICTIONS_ROUND_CAPTION = predictions_round_caption()
 PREDICTED_MEASUREMENTS = "Predicted measurements"
 
 
