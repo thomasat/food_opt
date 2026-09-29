@@ -863,3 +863,186 @@ def predicted_best(opt, fitted):
     close = i if i is not None and d <= CLOSE_TO_THE_BEST + 1e-9 else None
     return PredictedBest(recipe, prediction, close,
                          close if close is not None else opt.best_index())
+
+
+# ------------------------------------------------------------------ #
+#  Wave C: More charts — three ingredients trading places
+# ------------------------------------------------------------------ #
+
+def mixture_choices(opt):
+    """The rows "What happens when three ingredients trade places?" offers,
+    in project order: the varying ingredients and, when there is one, the
+    Fill to total row. Without a Fill to total row an ingredient that a
+    calculation reads is left out: moving it would move the calculation and
+    take the formulation off its total. [] without a Formulation total."""
+    if not opt.has_formulation_total():
+        return []
+    fill = opt.balance_row_name()
+    read = set()
+    if fill is None:
+        for form in opt._resolved_forms().values():
+            read |= form.names()
+    varying = {v['name'] for v in opt.varying_variables()
+               if _is_ingredient(v) and v.get('type') == 'continuous'}
+    return [v['name'] for v in opt.variables
+            if v['name'] == fill or (v['name'] in varying and v['name'] not in read)]
+
+
+GRID_STEPS = 30          # barycentric step 1/30: 496 points
+# Why a Mixture has no chart (Mixture.refusal); the screen words each one.
+NO_ROOM = "no_room"            # the three already sit at their Lowest or Highest
+FILL_FOLLOWS = "fill_follows"  # the Fill to total row is one of the three and a
+                               # calculation reads another of them
+
+
+def _simplex(steps=GRID_STEPS):
+    return [(i / steps, j / steps, (steps - i - j) / steps)
+            for i in range(steps + 1) for j in range(steps + 1 - i)]
+
+
+@dataclass
+class MixturePoint:
+    x: tuple               # barycentric (x1, x2, x3), summing to 1
+    amounts: tuple         # the three amounts
+    recipe: dict | None    # None when the point breaks a limit
+    broken: str | None     # the limit it breaks, as Set up words it
+    tested: bool           # within CLOSE_TO_THE_BEST of a dot
+
+
+@dataclass
+class MixtureDot:
+    formulation: int
+    x: tuple               # barycentric, after projecting onto the slice
+    amounts: tuple
+
+
+@dataclass
+class Mixture:
+    names: list
+    units: list
+    start: dict
+    total: float           # S: the three amounts' sum in the start
+    lower: list            # L*: implied lowest of each
+    upper: list            # U*: implied highest of each
+    span: float            # R = S - sum(L*)
+    points: list
+    dots: list
+    refusal: str | None    # NO_ROOM / FILL_FOLLOWS: one line instead of a chart
+    start_breaks: str | None
+    follows: list          # calculation rows that move with the three
+    fill_moves: str | None # the Fill to total row, when it takes up a change
+    skipped: list          # property limits that cannot be checked
+
+
+def _numeric(recipe):
+    """A make-up without its categorical rows: a choice ("Tray") is not an
+    amount, and _limits_broken adds every value up for its tolerance."""
+    return {k: v for k, v in recipe.items() if not isinstance(v, str)}
+
+
+def _own_bounds(opt, name, start):
+    """A chosen row's Lowest-Highest widened to its start amount; the Fill
+    to total row's are 0 to the total (its own two cells are dormant)."""
+    if name == opt.balance_row_name():
+        return 0.0, float(opt.formulation_total)
+    return _widened(_var(opt, name), start)
+
+
+def _near_other_rows(opt, names, start, rec):
+    """Whether `rec` matches `start` on every choice (a categorical row) and
+    sits within CLOSE_TO_THE_BEST of it, as a share of each span, on every
+    other varying row (process settings included)."""
+    for v in opt.varying_variables():
+        if v['name'] in names:
+            continue
+        if v.get('type') != 'continuous':
+            if rec.get(v['name']) != start.get(v['name']):
+                return False
+            continue
+        lo, hi = (float(t) for t in v['bounds'])
+        d = abs(float(rec.get(v['name'], 0.0) or 0.0) - float(start.get(v['name'], 0.0) or 0.0))
+        if d / (hi - lo) > CLOSE_TO_THE_BEST + _EPS:
+            return False
+    return True
+
+
+def _mixture_dots(opt, names, start, S, low, R):
+    """The fully measured formulations close to the slice, each projected
+    onto it (its three amounts scaled to sum to S) and kept only when that
+    lands inside the triangle."""
+    dots = []
+    for i in range(len(opt.Y_history)):
+        if not opt.fully_measured(i):
+            continue
+        rec = start_recipe(opt, i)
+        if not _near_other_rows(opt, names, start, rec):
+            continue
+        amounts = [float(rec.get(n, 0.0) or 0.0) for n in names]
+        s2 = sum(amounts)
+        if s2 <= 0 or abs(s2 - S) / R > CLOSE_TO_THE_BEST + _EPS:
+            continue
+        a = [v * S / s2 for v in amounts]
+        x = tuple((a[k] - low[k]) / R for k in range(3))
+        if min(x) < -1e-6 or max(x) > 1 + 1e-6:
+            continue
+        dots.append(MixtureDot(int(opt.formulation_ids[i]), x, tuple(a)))
+    return dots
+
+
+def mixture_slice(opt, names, start, steps=GRID_STEPS):
+    """The three amounts in `names` trading places with their sum kept at
+    their sum in `start`; every other row stays as in `start`, and the
+    calculations (and a Fill to total row not among the three) are worked
+    out again. Each grid point is checked limit by limit, like a path."""
+    names = list(names)
+    fill = opt.balance_row_name()
+    units = [opt.unit_of(n) for n in names]
+    start = dict(start)
+    S = sum(float(start.get(n, 0.0) or 0.0) for n in names)
+    bounds = [_own_bounds(opt, n, start) for n in names]
+    low = [max(bounds[k][0], S - sum(bounds[j][1] for j in range(3) if j != k)) for k in range(3)]
+    up = [min(bounds[k][1], S - sum(bounds[j][0] for j in range(3) if j != k)) for k in range(3)]
+    R = S - sum(low)
+    moving = [n for n in names if n != fill]
+    follows = [n for n, f in opt._resolved_forms().items()
+               if n != fill and set(names) & f.names()]
+    skipped = [(opt.property_limit_text(c), c['metric']) for c in opt.constraints
+               if (c.get('min') is not None or c.get('max') is not None)
+               and opt.ingredients_without_property(c['metric'])]
+    base = dict(names=names, units=units, start=start, total=S, lower=low, upper=up,
+                span=R, points=[], dots=[], refusal=None, start_breaks=None,
+                follows=follows, fill_moves=None, skipped=skipped)
+    if fill in names and follows:
+        return Mixture(**dict(base, refusal=FILL_FOLLOWS))
+    if R <= 1e-9 * max(1.0, abs(S)):
+        return Mixture(**dict(base, refusal=NO_ROOM))
+    breaks = _limits_broken(opt, _numeric(opt.fill_formulas(dict(start))), moving, start)
+    if breaks:
+        return Mixture(**dict(base, start_breaks=breaks))
+    dots = _mixture_dots(opt, names, start, S, low, R)
+    spans = [bounds[k][1] - bounds[k][0] for k in range(3)]
+    points = []
+    for x in _simplex(steps):
+        a = tuple(low[k] + x[k] * R for k in range(3))
+        r = dict(start)
+        for n, v in zip(names, a):
+            if n != fill:
+                r[n] = v
+        r = opt.fill_formulas(r)
+        broken = _limits_broken(opt, _numeric(r), moving, start)
+        tested = any(max(abs(a[k] - d.amounts[k]) / spans[k] for k in range(3))
+                     <= CLOSE_TO_THE_BEST + _EPS for d in dots)
+        points.append(MixturePoint(x, a, None if broken else r, broken, tested))
+    return Mixture(**dict(base, points=points, dots=dots,
+                          fill_moves=fill if (follows and fill and fill not in names) else None))
+
+
+def mixture_predictions(opt, fitted, mix):
+    """The predicted Overall score at each allowed point of `mix`, None at a
+    point that breaks a limit; [] without an Overall-score model."""
+    score = fitted.get(SCORE)
+    if score is None or score.model is None:
+        return []
+    allowed = [p.recipe for p in mix.points if p.recipe is not None]
+    preds = iter(predict(opt, score, [opt._encode(r) for r in allowed]))
+    return [next(preds) if p.recipe is not None else None for p in mix.points]
