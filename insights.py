@@ -342,8 +342,11 @@ def has_setting_choice(opt):
     return any(not _is_ingredient(_var(opt, n)) for n in path_choices(opt))
 
 
-def start_recipe(opt, i):
-    recipe = dict(opt._recorded_recipe(i))
+def at_total(opt, recipe):
+    """A formulation's make-up at the project's Formulation total: a row
+    made to another batch size is brought back to the total, so a
+    prediction or a comparison never moves with the Batch size box."""
+    recipe = dict(recipe)
     if opt.has_formulation_total():
         total = float(opt.formulation_total)
         own = opt.ingredient_total(recipe)
@@ -351,6 +354,10 @@ def start_recipe(opt, i):
         if own > 0 and abs(own - total) > tolerance:
             return opt.scaled_recipe(recipe, scale_to=total)
     return opt.fill_formulas(recipe)
+
+
+def start_recipe(opt, i):
+    return at_total(opt, opt._recorded_recipe(i))
 
 
 @dataclass
@@ -602,3 +609,20 @@ def repeat_spread(opt):
                 if best is None or spread > best:
                     best = spread
     return best
+
+
+# ------------------------------------------------------------------ #
+#  Wave B: predictions for the open Round, spreads, predicted best
+# ------------------------------------------------------------------ #
+
+def round_predictions(opt, fitted, rows):
+    """{Formulation number: {output name: Prediction}} for `rows` (open
+    Round rows, each {'formulation', 'recipe'}), each predicted at its
+    make-up at the Formulation total. Outputs with no model are left out."""
+    if not rows:
+        return {}
+    X = [opt._encode(at_total(opt, r['recipe'])) for r in rows]
+    per = {name: predict(opt, f, X) for name, f in fitted.items()
+           if f.model is not None}
+    return {int(r['formulation']): {name: preds[k] for name, preds in per.items()}
+            for k, r in enumerate(rows)}
