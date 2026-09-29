@@ -934,11 +934,15 @@ def near_copy(opt, recipe):
     is excluded: it is a row of the batch being built, not one the model
     should already have learned from.
 
+    A formulation moved to Not scored is not waiting (awaited_rows): no
+    result is coming for it, so repeating it is not a repeat of anything
+    still to arrive.
+
     Ties go to the lowest Formulation number, as `nearest` does."""
     a = at_total(opt, recipe)
     own_round = opt.pending_batch_no
     best = None
-    for i in opt.waiting_rows():
+    for i in opt.awaited_rows():
         batch = opt.batch_history[i] if i < len(opt.batch_history) else None
         if own_round is not None and batch == own_round:
             continue

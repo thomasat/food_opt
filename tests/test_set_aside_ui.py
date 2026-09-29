@@ -8,6 +8,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, _submit_button, burger, scored  # noqa: F401
 from tests.test_complete_results_ui import one_waiting  # noqa: F401
+from tests.test_insights_ui import insights_scored  # noqa: F401
 
 
 def _results(select=None):
@@ -131,3 +132,21 @@ def test_the_view_box_follows_best_so_far_when_it_moves(one_waiting):
     assert box.proto.set_value
     assert box.proto.options[0] == wording.result_view_option(4, 2, best=True)
     assert box.value == ui_results.BEST_CHOICE
+
+
+def test_a_set_aside_formulation_is_never_flagged_as_waiting(insights_scored):
+    """Task 3 x $NEAR: a formulation moved to Not scored is not 'still
+    waiting', so no suggestion on Make a round is flagged as nearly the
+    same as it, and the waiting caption does not count it."""
+    opt = insights_scored
+    opt.tell({"Pea protein": 16.0, "Methylcellulose": 1.2}, {"Firmness": 5.5},
+             formulation_no=10, batch_no=4)
+    opt.set_aside_formulation(10)
+    opt.set_pending_batch([{"Pea protein": 16.25, "Methylcellulose": 1.23},
+                           {"Pea protein": 4.0, "Methylcellulose": 2.8}])
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert not at.exception
+    cells = [str(v) for d in at.dataframe for col in d.value.columns for v in d.value[col]]
+    assert not [c for c in cells if c.startswith("Nearly the same")]
+    assert not any("waiting for" in c.value for c in at.caption)
