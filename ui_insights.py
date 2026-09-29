@@ -692,12 +692,14 @@ def mixture_chart(opt, mix, preds, number):
     y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=[-pad - 0.07, 1 + pad - 0.07],
                                                 nice=False, zero=False))
     kinds = [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
-    # One size legend for the three kinds, shared by both layers: the
-    # smaller mark says "not tested near here" without fading a colour
-    # that already means a score.
-    size = alt.Size("state:N", title=None, sort=kinds,
-                    scale=alt.Scale(domain=kinds, range=[70, 16, 16]),
-                    legend=alt.Legend(symbolFillColor="gray", symbolStrokeColor="gray"))
+    size_scale = alt.Scale(domain=kinds, range=[70, 16, 16])
+    # A size-only channel, shared by both layers: the smaller mark says
+    # "not tested near here" without fading a colour that already means a
+    # score. Its legend swatches get their fill from state_legend below —
+    # Vega-Lite merges a size legend and a colour legend that share the
+    # same field into one, so the entries read larger blue, small blue,
+    # small grey instead of one flat grey circle.
+    size = alt.Size("state:N", title=None, sort=kinds, scale=size_scale)
     amounts = ([alt.Tooltip(f"a{k}:Q", title=cols[k]) for k in range(3)]
                + [alt.Tooltip("sum:Q", title=wording.mixture_together(unit))])
     blocked = alt.FieldEqualPredicate(field="state", equal=wording.MIXTURE_BLOCKED)
@@ -712,10 +714,25 @@ def mixture_chart(opt, mix, preds, number):
                                                     domain=[lo, hi])),
                     tooltip=amounts + [alt.Tooltip("pred:N", title=wording.PREDICTED_SCORE_COLUMN)])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
+    # An invisible layer, off the drawn area, whose only job is the legend:
+    # sharing the "state" field with `size` above merges the two into one
+    # legend, so each entry shows both its size and its true colour — blue
+    # for tested and untested, light grey for not allowed. `fill`/`stroke`
+    # rather than `color`, so the merge is not confused by the grid's own
+    # colour scale (the continuous predicted score) sharing the same view.
+    state_colors = alt.Scale(domain=kinds, range=["steelblue", "steelblue", "lightgray"])
+    legend_rows = pd.DataFrame([{"X": -1.0, "Y": -1.0, "state": k} for k in kinds])
+    state_legend = (alt.Chart(legend_rows).mark_circle(opacity=0, tooltip=False)
+                    .encode(x=x, y=y,
+                            size=alt.Size("state:N", sort=kinds, scale=size_scale),
+                            fill=alt.Fill("state:N", sort=kinds, scale=state_colors,
+                                         legend=alt.Legend(title=None, labelLimit=0)),
+                            stroke=alt.Stroke("state:N", sort=kinds, scale=state_colors)))
     corners = [(0.0, 0.0), (1.0, 0.0), (0.5, _TRI_H)]
     outline = (alt.Chart(pd.DataFrame([{"X": cx, "Y": cy, "k": k}
                                        for k, (cx, cy) in enumerate(corners + corners[:1])]))
-               .mark_line(color="gray", strokeWidth=1).encode(x=x, y=y, order="k:Q"))
+               .mark_line(color="gray", strokeWidth=1, tooltip=False)
+               .encode(x=x, y=y, order="k:Q"))
     labels = pd.DataFrame([
         {"X": 0.0, "Y": -0.06, "t": wording.mixture_corner(
             mix.names[0], _amount(mix.upper[0], mix.units[0])), "align": "left"},
@@ -723,9 +740,10 @@ def mixture_chart(opt, mix, preds, number):
             mix.names[1], _amount(mix.upper[1], mix.units[1])), "align": "right"},
         {"X": 0.5, "Y": _TRI_H + 0.05, "t": wording.mixture_corner(
             mix.names[2], _amount(mix.upper[2], mix.units[2])), "align": "center"}])
-    text = [alt.Chart(labels[labels["align"] == al]).mark_text(align=al, baseline="middle")
+    text = [alt.Chart(labels[labels["align"] == al])
+            .mark_text(align=al, baseline="middle", color="gray", tooltip=False)
             .encode(x=x, y=y, text="t:N") for al in ("left", "right", "center")]
-    layers = [outline, grey, grid]
+    layers = [outline, grey, grid, state_legend]
     if mix.dots:
         dots = pd.DataFrame([{**dict(zip(("X", "Y"), _xy(d.x))), "no": d.formulation}
                              for d in mix.dots])
@@ -733,14 +751,22 @@ def mixture_chart(opt, mix, preds, number):
                                                  strokeWidth=1.5, size=45, opacity=1)
                       .encode(x=x, y=y, tooltip=[alt.Tooltip(
                           "no:Q", title=wording.FORMULATION_CAP)]))
-    s = [(float(mix.start.get(n, 0.0)) - mix.lower[k]) / mix.span for k, n in enumerate(mix.names)]
+    s_amounts = [float(mix.start.get(n, 0.0)) for n in mix.names]
+    s = [(s_amounts[k] - mix.lower[k]) / mix.span for k in range(3)]
     sx, sy = _xy(s)
-    start = pd.DataFrame([{"X": sx, "Y": sy, "t": wording.start_formulation(number)}])
+    start = pd.DataFrame([{
+        "X": sx, "Y": sy, "t": wording.start_formulation(number), "no": number,
+        "a0": round(s_amounts[0], 2), "a1": round(s_amounts[1], 2), "a2": round(s_amounts[2], 2),
+        "sum": round(sum(s_amounts), 2)}])
     layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
-                                              color="gray").encode(x=x, y=y))
-    layers.append(alt.Chart(start).mark_text(align="left", dx=12, color="gray")
+                                              color="gray")
+                  .encode(x=x, y=y,
+                          tooltip=[alt.Tooltip("no:Q", title=wording.FORMULATION_CAP)] + amounts))
+    layers.append(alt.Chart(start).mark_text(align="left", dx=12, color="gray", tooltip=False)
                   .encode(x=x, y=y, text="t:N"))
-    return (alt.layer(*layers, *text).properties(width=_MIX_SIZE, height=_MIX_SIZE)
+    return (alt.layer(*layers, *text).properties(
+                width=_MIX_SIZE, height=_MIX_SIZE,
+                autosize=alt.AutoSizeParams(type="pad", contains="padding"))
             .configure_view(stroke=None))
 
 

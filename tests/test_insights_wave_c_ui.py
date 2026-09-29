@@ -504,7 +504,9 @@ def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    circles = [l for l in spec["layer"] if l["mark"]["type"] == "circle"]
+    # opacity 1 excludes the invisible, legend-only circle layer.
+    circles = [l for l in spec["layer"]
+               if l["mark"]["type"] == "circle" and l["mark"].get("opacity") == 1]
     grey, coloured = circles
     assert grey["mark"]["color"] == "lightgray"
     assert [t["title"] for t in grey["encoding"]["tooltip"]][-1] == wording.MIXTURE_BLOCKED
@@ -520,6 +522,105 @@ def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(
         p.tested and p.broken is None for p in mix.points)
     shown = frame[frame["state"] != wording.MIXTURE_BLOCKED]["pred"]
     assert all(" (" in t for t in shown)
+
+
+# ------------------------------------------------------------------ #
+#  Task 4 fix round 1: the triangle as Streamlit actually renders it
+# ------------------------------------------------------------------ #
+
+def _mark_type(layer):
+    mark = layer["mark"]
+    return mark["type"] if isinstance(mark, dict) else mark
+
+
+def test_the_triangle_is_not_squashed_by_streamlits_default_autosize(mixture_scored):
+    """Streamlit sets autosize: fit/padding when a spec declares none, which
+    lets the legends eat into the 380 px width. Pinning autosize to "pad"
+    keeps the plot itself at its full, undistorted size."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    assert spec["width"] == spec["height"] == ui_insights._MIX_SIZE
+    assert spec["autosize"]["type"] == "pad"
+
+
+def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
+    """Streamlit's theme sets no default text colour, so an uncoloured
+    mark_text renders black — invisible in dark mode."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    texts = [l for l in spec["layer"] if _mark_type(l) == "text"]
+    assert len(texts) == 4          # the three corners plus the start's own label
+    assert all(l["mark"].get("color") == "gray" for l in texts)
+
+
+def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_scored):
+    """The outline and the text layers only draw the frame; without an
+    explicit tooltip they would otherwise leak raw X/Y on hover. The start
+    ring gets a real one: the formulation number and its three amounts, the
+    same fields (and titles) as the grid's own tooltip."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    for layer in spec["layer"]:
+        if _mark_type(layer) in ("line", "text"):
+            assert layer["mark"].get("tooltip") is False
+    ring = next(l for l in spec["layer"]
+                if _mark_type(l) == "point" and l["mark"].get("size") == 260)
+    tips = ring["encoding"]["tooltip"]
+    assert [t["field"] for t in tips] == ["no", "a0", "a1", "a2", "sum"]
+    assert tips[0]["title"] == wording.FORMULATION_CAP
+
+
+def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixture_scored):
+    """Tested near here: larger, blue. Not tested near here: small, blue.
+    Not allowed by your limits: small, light grey. Vega-Lite merges a size
+    legend with a fill/stroke legend that share the same field into one
+    combined legend, so this comes from an invisible layer alongside the
+    grey/grid ones, using fill+stroke (not colour, which the grid layer's
+    own predicted-score gradient already claims)."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    dummy = next(l for l in spec["layer"]
+                 if l["mark"].get("type") == "circle" and l["mark"].get("opacity") == 0)
+    kinds = [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
+    size_scale = dummy["encoding"]["size"]["scale"]
+    fill_scale = dummy["encoding"]["fill"]["scale"]
+    stroke_scale = dummy["encoding"]["stroke"]["scale"]
+    assert size_scale["domain"] == kinds
+    assert size_scale["range"][0] > size_scale["range"][1] == size_scale["range"][2]
+    assert fill_scale["domain"] == stroke_scale["domain"] == kinds
+    assert fill_scale["range"] == stroke_scale["range"]
+    assert fill_scale["range"][2] == "lightgray"
+    assert fill_scale["range"][0] == fill_scale["range"][1] != "lightgray"
+    assert dummy["encoding"]["fill"]["legend"]["labelLimit"] == 0
+
+
+def test_the_left_and_right_corner_labels_anchor_at_their_own_corner(mixture_scored):
+    """The left corner's label grows rightward from x=0 with align="left";
+    the right corner's grows leftward from x=1 with align="right"; the top
+    label stays centred. This keeps the two side labels away from each
+    other instead of drifting toward the middle."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    left_text = wording.mixture_corner(mix.names[0], ui_insights._amount(mix.upper[0], mix.units[0]))
+    right_text = wording.mixture_corner(mix.names[1], ui_insights._amount(mix.upper[1], mix.units[1]))
+    top_text = wording.mixture_corner(mix.names[2], ui_insights._amount(mix.upper[2], mix.units[2]))
+
+    def align_for(text):
+        for l in spec["layer"]:
+            if _mark_type(l) != "text":
+                continue
+            rows = spec["datasets"].get(l["data"]["name"], [])
+            if any(r.get("t") == text for r in rows):
+                return l["mark"]["align"]
+        return None
+    assert align_for(left_text) == "left"
+    assert align_for(right_text) == "right"
+    assert align_for(top_text) == "center"
 
 
 def test_exact_wave_c_strings_for_the_triangle():
