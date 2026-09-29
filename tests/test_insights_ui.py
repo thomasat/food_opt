@@ -350,14 +350,19 @@ def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkey
 
 
 def test_insights_computed_once_then_cached(insights_scored, monkeypatch):
-    calls = []
-    real = insights.fit_all
-    monkeypatch.setattr(insights, "fit_all", lambda opt: calls.append(1) or real(opt))
+    # Both counted: fitted_models has its own FITTED_KEY cache, so counting
+    # only fit_all would pass even if _computed's own CACHE_KEY cache (the
+    # checks) never hit and recomputed check_rounds every rerun.
+    fit_calls, check_calls = [], []
+    real_fit, real_check = insights.fit_all, insights.check_rounds
+    monkeypatch.setattr(insights, "fit_all", lambda opt: fit_calls.append(1) or real_fit(opt))
+    monkeypatch.setattr(insights, "check_rounds",
+                        lambda opt: check_calls.append(1) or real_check(opt))
     at = _open_insights(_app())
-    assert calls == [1] and ui_insights.CACHE_KEY in at.session_state
+    assert fit_calls == [1] and check_calls == [1] and ui_insights.CACHE_KEY in at.session_state
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert calls == [1]
+    assert fit_calls == [1] and check_calls == [1]
 
 
 def test_no_scored_formulation_one_line(burger):

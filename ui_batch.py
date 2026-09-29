@@ -598,7 +598,7 @@ def _with_predictions(opt, frame, preds):
 def _predicted_measurements(opt, preds):
     rows = []
     for no, per in preds.items():
-        item = {wording.FORMULATION_CAP: no}
+        item = {wording.for_project(opt, wording.FORMULATION_CAP): no}
         for obj in opt.objectives:
             p = per.get(obj['name'])
             item[opt._measurement_column(obj)] = "—" if p is None else ui_insights.value_text(p)
@@ -640,7 +640,7 @@ def _batch_table(opt, scale_to, tab_open=False):
                              wording.for_project(opt, wording.FORMULATION_CAP)),
                          wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
                              wording.PREDICTED_SCORE_COLUMN,
-                             help=wording.PREDICTED_SCORE_HELP)},
+                             help=wording.for_project(opt, wording.PREDICTED_SCORE_HELP))},
                      hide_index=True, key="batch_table", height=table_height(len(frame)))
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
@@ -704,7 +704,7 @@ def _batch_table(opt, scale_to, tab_open=False):
     # means for a row predicted below Best so far, then the per-measurement
     # predictions one click away.
     if not editing and preds:
-        st.caption(wording.PREDICTIONS_ROUND_CAPTION)
+        st.caption(wording.for_project(opt, wording.PREDICTIONS_ROUND_CAPTION))
         _predicted_measurements(opt, preds)
 
     return editing

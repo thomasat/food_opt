@@ -11,7 +11,7 @@ import insights
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
-from tests.test_app_ui import APP_PATH, _submit_button, burger, scored  # noqa: F401
+from tests.test_app_ui import APP_PATH, _submit_button, burger, ferment, scored  # noqa: F401
 from tests.test_insights_ui import _open_insights, _tab_text, insights_scored  # noqa: F401
 
 
@@ -94,6 +94,44 @@ def test_one_caption_and_the_predicted_measurements(warm_round):
     for _, row in frame.iterrows():
         p = expected[int(row[wording.FORMULATION_CAP])]["Firmness"]
         assert row["Firmness (N)"] == ui_insights.value_text(p)
+
+
+@pytest.fixture
+def warm_ferment(ferment):
+    """Five scored trials (enough for a model) and one more trial open, on a
+    project made of process settings alone: no ingredients, so every one of
+    the Round-screen strings must read "trial", never "formulation"."""
+    for no, (temp, hours) in enumerate(
+            ((32.0, 5.0), (34.0, 7.0), (36.0, 9.0), (38.0, 11.0), (40.0, 13.0)), start=1):
+        ferment.tell({"Incubation temperature": temp, "Incubation time": hours},
+                     {"Acidity": 3.0 + 0.1 * temp}, formulation_no=no, batch_no=1)
+    ferment.set_pending_batch([{"Incubation temperature": 37.0, "Incubation time": 8.0}])
+    return ferment
+
+
+def _ferment_table(at):
+    return next(d for d in at.dataframe
+                if "Incubation temperature (°C)" in d.value.columns)
+
+
+def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
+    at = _app()
+    at.run()
+    assert not at.exception
+    table = _ferment_table(at)
+    assert wording.PREDICTED_SCORE_COLUMN in table.value.columns
+    proto = str(table.proto)
+    trial_help = wording.for_project(warm_ferment, wording.PREDICTED_SCORE_HELP)
+    assert "trial" in trial_help and "formulation" not in trial_help
+    assert trial_help in proto and wording.PREDICTED_SCORE_HELP not in proto
+    captions = [c.value for c in at.caption]
+    trial_caption = wording.for_project(warm_ferment, wording.PREDICTIONS_ROUND_CAPTION)
+    assert "trial" in trial_caption and "formulation" not in trial_caption
+    assert captions.count(trial_caption) == 1
+    assert wording.PREDICTIONS_ROUND_CAPTION not in captions
+    [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
+    frame = exp.dataframe[0].value
+    assert list(frame.columns) == [wording.TRIAL_CAP, "Acidity (pH)"]
 
 
 def test_a_measurement_with_too_few_values_shows_a_dash(warm_round, monkeypatch):
