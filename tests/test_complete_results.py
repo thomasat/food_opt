@@ -512,11 +512,14 @@ def test_the_table_names_what_a_formulation_waits_for():
     assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
 
 
-def test_a_measurement_that_does_not_apply_shows_a_dash():
+def test_a_measurement_that_does_not_apply_is_a_blank_number_in_the_frame():
     opt = _patty(rows=2, cook_loss=False)
     _add_cook_loss(opt)
     frame = opt.history_frame()
-    assert _row(frame, 1)["Cook loss"] == "—"
+    # The cell stays a number (NaN) so the column sorts as numbers; the dash
+    # is the Results table's display formatting (review #5).
+    assert pd.isna(_row(frame, 1)["Cook loss"])
+    assert pd.api.types.is_numeric_dtype(frame["Cook loss"])
     assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
     details = {d['name']: d for d in opt.closeness_details(0)}
     assert details["Cook loss"]["measured"] == "—"

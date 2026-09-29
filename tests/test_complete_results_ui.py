@@ -1,12 +1,13 @@
 """Complete results only (0.8.0) on screen: Results, Make a round, Insights.
 Spec: docs/superpowers/specs/2026-09-28-complete-results-design.md (rev. 2)."""
+import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import (  # noqa: F401  (fixtures)
-    APP_PATH, _submit_button, burger, open_batch, scored)
+    APP_PATH, _displayed, _submit_button, burger, open_batch, scored)
 
 
 def _app(tab=None):
@@ -120,10 +121,29 @@ def test_a_measurement_added_later_shows_a_dash(scored):
     scored.add_objective("Cook loss", 20, goal="min", min_val=0, max_val=40)
     at = _app(wording.TAB_RESULTS)
     assert not at.exception
-    table = next(d.value for d in at.dataframe
-                 if wording.OVERALL_SCORE_COLUMN in d.value.columns)
-    assert list(table.loc[table["Formulation"] == 1, "Cook loss"]) == ["—"]
+    element = next(d for d in at.dataframe
+                   if wording.OVERALL_SCORE_COLUMN in d.value.columns)
+    table = element.value
+    # Numbers underneath, so Streamlit sorts the column as numbers (review #5)…
+    assert pd.api.types.is_numeric_dtype(table["Cook loss"])
+    assert table["Cook loss"].isna().all()
+    # …and a dash on screen, where the measurement does not apply.
+    shown = _displayed(element)
+    assert list(shown.loc[table["Formulation"] == 1, "Cook loss"]) == ["—"]
     assert not any("waiting" in str(v) for v in table[wording.OVERALL_SCORE_COLUMN])
+
+
+def test_a_blank_that_is_waiting_shows_no_dash(one_waiting):
+    """Formulation 4 waits for Juiciness: its cell is blank, not a dash, and
+    the column stays numeric with the measured values beside it."""
+    at = _app(wording.TAB_RESULTS)
+    element = next(d for d in at.dataframe
+                   if wording.OVERALL_SCORE_COLUMN in d.value.columns)
+    table = element.value
+    assert pd.api.types.is_numeric_dtype(table["Juiciness (/10)"])
+    shown = _displayed(element)
+    assert list(shown.loc[table["Formulation"] == 4, "Juiciness (/10)"]) == [""]
+    assert list(shown.loc[table["Formulation"] == 1, "Juiciness (/10)"]) == ["7.00"]
 
 
 def test_correcting_a_waiting_formulation_says_what_it_still_waits_for(one_waiting):

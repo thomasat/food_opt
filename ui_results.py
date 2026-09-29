@@ -338,6 +338,27 @@ def _amount_format(opt, frame):
     return formats
 
 
+def _table_style(opt, frame):
+    """The All formulations table as it is drawn: every number to two
+    decimals, and a dash where a measurement does not apply to the row. The
+    dash is display only — the cell stays a blank number, so Streamlit keeps
+    the column numeric and sorts it as numbers."""
+    styler = frame.style.format(_amount_format(opt, frame))
+    columns = {o['name']: opt._measurement_column(o) for o in opt.objectives}
+    dashes = {}
+    for position, number in enumerate(frame[wording.FORMULATION_CAP]):
+        index = opt.index_of_formulation(int(number))
+        if index is None:
+            continue
+        for name in opt.not_expected(index):
+            if columns.get(name) in frame.columns:
+                dashes.setdefault(columns[name], []).append(frame.index[position])
+    for column, rows in dashes.items():
+        styler = styler.format(lambda _: wording.DOES_NOT_APPLY,
+                               subset=pd.IndexSlice[rows, [column]])
+    return styler
+
+
 # Set by the button beside All formulations, read once by the fold the
 # correction control lives in.
 OPEN_CORRECTION = "_open_correction"
@@ -354,7 +375,7 @@ def _all_formulations(opt, said_partial=False):
     with o2:
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
-    st.dataframe(frame.style.format(_amount_format(opt, frame)),
+    st.dataframe(_table_style(opt, frame),
                      column_config={wording.FORMULATION_CAP: st.column_config.Column(
                          wording.for_project(opt, wording.FORMULATION_CAP))},
                  hide_index=True, key="all_formulations",

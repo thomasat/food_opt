@@ -855,6 +855,12 @@ def waiting_for(names_text=""):
     return f"waiting for {names_text or 'results'}"
 
 
+# A measurement that does not apply to a formulation — added after it was
+# recorded, or scored without — in the All formulations table and the
+# closeness details. Never "not measured": nothing was expected.
+DOES_NOT_APPLY = "—"
+
+
 def not_measured_tail(names_text):
     """' · Juiciness not measured' — `names_text` is one name or a
     number_list of several."""

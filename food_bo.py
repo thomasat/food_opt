@@ -3644,12 +3644,11 @@ class FoodOptimizer:
                 "_batch": 0 if batch is None else int(batch),
             }
             for obj in objs:
-                value = results.get(obj['name'])
-                # A dash for a measurement added after this formulation was
-                # recorded: it was never expected of it.
-                row[self._measurement_column(obj)] = (
-                    "—" if value is None and not self.applies(obj, i)
-                    else value)
+                # A blank stays a number (NaN), so the column sorts as
+                # numbers on screen. A measurement that does not apply to
+                # this row is drawn as a dash by the Results table's own
+                # formatting (ui_results), not written into the cell.
+                row[self._measurement_column(obj)] = results.get(obj['name'])
             # A formulation still waiting shows what it waits for, never the
             # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
@@ -3693,6 +3692,10 @@ class FoodOptimizer:
         if not rows:
             return pd.DataFrame(columns=columns)
         df = pd.DataFrame(rows)
+        for obj in objs:
+            # A column with no value yet came out `object` (every cell None).
+            column = self._measurement_column(obj)
+            df[column] = df[column].astype(float)
         if order == wording.SORT_NEWEST_FIRST:
             df = df.sort_values("_seq", ascending=False)
         elif order == wording.SORT_BATCH_ORDER:
