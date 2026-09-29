@@ -323,16 +323,16 @@ def test_the_triangle_heading_picks_and_caption(mixture_scored):
 
 
 def test_the_triangle_opens_on_the_largest_spreads(mixture_scored, monkeypatch):
-    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: [
+    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([
         insights.Spread("Starch", 9.0), insights.Spread("Oil", 5.0),
-        insights.Spread("Pea protein", 1.0)])
+        insights.Spread("Pea protein", 1.0)], []))
     at = _open_insights(_app())
     three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
     assert three.value == ["Starch", "Oil", "Pea protein"]
 
 
 def test_without_spreads_the_triangle_opens_on_the_first_three(mixture_scored, monkeypatch):
-    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: [])
+    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([], []))
     at = _open_insights(_app())
     three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
     assert three.value == ["Pea protein", "Oil", "Starch"]
@@ -719,7 +719,8 @@ def test_misses_chart_shares_one_y_axis_and_puts_round_on_x(mixture_scored):
 
 def test_formulations_of_one_round_sit_side_by_side_in_number_order():
     opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
-                              "_measurement_column": lambda self, o: "Firmness (N)"})()
+                              "_measurement_column": lambda self, o: "Firmness (N)",
+                              "has_ingredients": lambda self: True})()
     found = [insights.Miss(9, 3, "Firmness", 0.5, True), insights.Miss(7, 3, "Firmness", -1.0, True),
              insights.Miss(8, 3, "Firmness", 2.5, False), insights.Miss(10, 4, "Firmness", 0.1, True)]
     spec = ui_insights.misses_chart(opt_like, found).to_dict()
@@ -738,3 +739,148 @@ def test_exact_wave_c_strings_for_the_misses():
 def test_the_misses_strings_pass_the_word_guards():
     _assert_clean(wording.Q_MISSES, wording.MISSES_CAPTION, wording.MISSES_AXIS,
                   wording.MISSES_BAND)
+
+
+# ------------------------------------------------------------------ #
+#  On wave B's final code: the triangle's default three read the moved
+#  spreads, and every wave C line is in the project's own words.
+# ------------------------------------------------------------------ #
+
+_OFFERED = ["Pea protein", "Oil", "Starch", "Water"]
+
+
+def _three_with(monkeypatch, found):
+    def fake(opt, fitted, start):
+        if isinstance(found, Exception):
+            raise found
+        return found
+    monkeypatch.setattr(insights, "spreads", fake)
+    return ui_insights._three_default(None, {}, _OFFERED, {})
+
+
+def test_the_default_three_are_the_largest_moved_spreads(monkeypatch):
+    assert _three_with(monkeypatch, insights.Spreads(
+        [insights.Spread("Water", 9.0), insights.Spread("Starch", 5.0),
+         insights.Spread("Oil", 2.0), insights.Spread("Pea protein", 1.0)], [])) == [
+        "Water", "Starch", "Oil"]
+
+
+def test_a_choice_the_limits_keep_in_place_is_not_ranked(monkeypatch):
+    """A held choice has no spread: it is only a top-up, in offered order."""
+    assert _three_with(monkeypatch, insights.Spreads(
+        [insights.Spread("Water", 9.0), insights.Spread("Starch", 1.0)],
+        ["Pea protein", "Oil"])) == ["Water", "Starch", "Pea protein"]
+
+
+def test_a_moved_spread_the_triangle_does_not_offer_is_skipped(monkeypatch):
+    assert _three_with(monkeypatch, insights.Spreads(
+        [insights.Spread("Mixing time", 20.0), insights.Spread("Oil", 3.0)], [])) == [
+        "Oil", "Pea protein", "Starch"]
+
+
+def test_no_score_model_or_a_failure_opens_on_the_first_three(monkeypatch):
+    assert _three_with(monkeypatch, insights.Spreads([], [])) == ["Pea protein", "Oil", "Starch"]
+    assert _three_with(monkeypatch, RuntimeError("no paths")) == ["Pea protein", "Oil", "Starch"]
+
+
+def test_the_triangle_opens_on_the_real_moved_spreads(mixture_scored):
+    at = _open_insights(_app())
+    assert not at.exception
+    fitted = at.session_state[ui_insights.FITTED_KEY][1]
+    best = mixture_scored.best_index()
+    found = insights.spreads(mixture_scored, fitted,
+                             insights.start_recipe(mixture_scored, best))
+    offered = insights.mixture_choices(mixture_scored)
+    ranked = [s.name for s in found.moved if s.name in offered][:3]
+    want = ranked + [n for n in offered if n not in ranked][:3 - len(ranked)]
+    three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
+    assert three.value == want
+
+
+def test_more_charts_lists_its_three_questions_in_order(mixture_scored):
+    at = _open_insights(_app())
+    md = [m.value for m in _more(at).markdown]
+    assert md == [f"**{q}**" for q in (wording.Q_PAIR, wording.Q_MIXTURE, wording.Q_MISSES)]
+
+
+def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
+    """The expander's gate is the OR of its three charts' own gates."""
+    opt = type("O", (), {"complete_count": lambda self: insights.MIN_ROWS})()
+    fitted = {insights.SCORE: type("F", (), {"model": object()})()}
+    for pair, three, misses, offered in ((0, 0, False, False), (2, 0, False, True),
+                                         (1, 3, False, True), (1, 0, True, True),
+                                         (1, 2, False, False)):
+        opt.objectives = [{"name": f"M{k}"} for k in range(pair)]
+        monkeypatch.setattr(insights, "mixture_choices", lambda o, n=three: ["x"] * n)
+        monkeypatch.setattr(insights, "misses_ready", lambda c, r=misses: r)
+        assert ui_insights.more_charts_offered(
+            opt, {"fitted": fitted, "checks": []}) is offered, (pair, three, misses)
+
+
+@pytest.fixture
+def ferment_scored(tmp_path, monkeypatch):
+    """Process settings alone, two measurements, twelve trials over four
+    Rounds with their results: both of its charts ("Can you have both?" and
+    "How far did each prediction miss?") pass their gates."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ferment")
+    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+    opt.add_objective("Acidity", 1.0, goal="target", target=4.5, min_val=3.0, max_val=7.0,
+                      unit="pH")
+    opt.add_objective("Thickness", 1.0, goal="max", min_val=0, max_val=10, unit="/10")
+    g = torch.Generator().manual_seed(7)
+    for no in range(1, 13):
+        u = torch.rand(2, generator=g).tolist()
+        temp, hours = 30 + 12 * u[0], 4 + 12 * u[1]
+        opt.tell({"Incubation temperature": temp, "Incubation time": hours},
+                 {"Acidity": 3.0 + 0.08 * temp, "Thickness": 1 + 0.5 * hours},
+                 formulation_no=no, batch_no=1 + (no - 1) // 3)
+    return opt
+
+
+def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
+    at = _open_insights(_app())
+    assert not at.exception
+    more = _more(at)
+    assert more is not None
+    said = ([m.value for m in more.markdown] + [c.value for c in more.caption]
+            + [more.label] + [b.label for b in more.multiselect]
+            + [str(o) for b in more.multiselect for o in b.options]
+            + [json.dumps(c) for c in _charts(more)])
+    assert not [t for t in said if "ormulation" in t], [t for t in said if "ormulation" in t]
+    assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
+    md = [m.value for m in more.markdown]
+    assert md == [f"**{wording.Q_PAIR}**", f"**{wording.Q_MISSES}**"]
+    caps = [c.value for c in more.caption]
+    assert ("Each dot is a trial you measured; lines mark your targets. If no dot sits near "
+            "both targets, the two may pull against each other.") in caps
+    assert wording.MISSES_CAPTION in caps
+    pair, misses = _charts(more)
+    assert {"field": "no", "title": wording.TRIAL_CAP, "type": "quantitative"} in [
+        t for layer in pair["layer"] for t in layer["encoding"].get("tooltip", [])]
+    assert wording.TRIAL_CAP in json.dumps(misses["spec"]["layer"][3]["encoding"]["tooltip"])
+
+
+def test_no_trial_has_both_values_reads_trial(ferment_scored, monkeypatch):
+    monkeypatch.setattr(insights, "pair_points", lambda opt, a, b: [])
+    at = _open_insights(_app())
+    assert "No trial has a value for both yet." in [c.value for c in _more(at).caption]
+
+
+def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, monkeypatch):
+    """The triangle needs ingredients, so it never shows on a project of
+    settings alone; its lines still go through the same wording pass."""
+    said = []
+    real = wording.for_project
+    monkeypatch.setattr(wording, "for_project", lambda opt, text: said.append(text)
+                        or real(opt, text))
+    _open_insights(_app())
+    best_no = mixture_scored.best_formulation_no()
+    for line in (wording.MORE_CHARTS, wording.Q_MIXTURE, wording.MIXTURE_PICK,
+                 wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
+                 wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
+                 wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,
+                 wording.PAIR_CAPTION, wording.PAIR_BEST, wording.Q_MISSES,
+                 wording.MISSES_CAPTION, wording.MISSES_BAND, wording.MISSES_AXIS):
+        assert line in said, line

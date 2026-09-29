@@ -616,8 +616,11 @@ def pair_chart(opt, a, b, points):
         return None
     objs = {o['name']: o for o in opt.objectives}
     oa, ob = objs[a], objs[b]
-    xt = wording.pair_axis(opt._measurement_column(oa), oa.get('goal'), oa.get('target'))
-    yt = wording.pair_axis(opt._measurement_column(ob), ob.get('goal'), ob.get('target'))
+    xt = _say(opt, wording.pair_axis(opt._measurement_column(oa), oa.get('goal'),
+                                     oa.get('target')))
+    yt = _say(opt, wording.pair_axis(opt._measurement_column(ob), ob.get('goal'),
+                                     ob.get('target')))
+    overall = _say(opt, wording.OVERALL_SCORE_COLUMN)
 
     def domain(o, values):
         return [min(float(o['min_val']), *values), max(float(o['max_val']), *values)]
@@ -627,10 +630,10 @@ def pair_chart(opt, a, b, points):
                         "waiting": p.score is None, "best": p.best} for p in points])
     x = alt.X("x:Q", title=xt, scale=alt.Scale(domain=domain(oa, list(df["x"])), nice=False))
     y = alt.Y("y:Q", title=yt, scale=alt.Scale(domain=domain(ob, list(df["y"])), nice=False))
-    tip = [alt.Tooltip("no:Q", title=wording.FORMULATION_CAP),
+    tip = [alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP)),
            alt.Tooltip("x:Q", title=opt._measurement_column(oa)),
            alt.Tooltip("y:Q", title=opt._measurement_column(ob)),
-           alt.Tooltip("score:Q", title=wording.OVERALL_SCORE_COLUMN)]
+           alt.Tooltip("score:Q", title=overall)]
     base = alt.Chart(df)
     layers = []
     for o, enc in ((oa, "x"), (ob, "y")):
@@ -643,7 +646,7 @@ def pair_chart(opt, a, b, points):
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=True)))
     layers.append(base.mark_circle(size=70, opacity=1)
                   .encode(x=x, y=y, tooltip=tip,
-                          color=alt.Color("score:Q", title=wording.OVERALL_SCORE_COLUMN,
+                          color=alt.Color("score:Q", title=overall,
                                           scale=alt.Scale(scheme=_BLUES,
                                                           domain=[0, opt.utility_ceiling()])))
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=False)))
@@ -651,8 +654,15 @@ def pair_chart(opt, a, b, points):
     layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color="gray")
                   .encode(x=x, y=y, tooltip=tip))
     layers.append(best.mark_text(align="left", dx=12, color="gray")
-                  .encode(x=x, y=y, text=alt.value(wording.PAIR_BEST)))
+                  .encode(x=x, y=y, text=alt.value(_say(opt, wording.PAIR_BEST))))
     return alt.layer(*layers).properties(height=320)
+
+
+def _mixture_kinds(opt):
+    """What a grid point is, in the legend and the tooltip: tested near
+    here, not tested near here, not allowed by your limits."""
+    return [_say(opt, k) for k in (wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED,
+                                   wording.MIXTURE_BLOCKED)]
 
 
 def mixture_frame(opt, mix, preds):
@@ -660,11 +670,11 @@ def mixture_frame(opt, mix, preds):
     near here, not tested near here, not allowed) and its tooltip."""
     unit = mix.units[0] if len(set(mix.units)) == 1 else ""
     cols = [opt._amount_column(n) for n in mix.names]
+    tested, untested, blocked = _mixture_kinds(opt)
     rows = []
     for p, pred in zip(mix.points, preds or [None] * len(mix.points)):
         X, Y = _xy(p.x)
-        state = (wording.MIXTURE_BLOCKED if p.broken else
-                wording.MIXTURE_TESTED if p.tested else wording.MIXTURE_UNTESTED)
+        state = blocked if p.broken else tested if p.tested else untested
         row = {"X": X, "Y": Y, "state": state,
                "score": None if pred is None else pred.mean,
                "a0": round(p.amounts[0], 2), "a1": round(p.amounts[1], 2),
@@ -685,13 +695,15 @@ def mixture_chart(opt, mix, preds, number):
     if not mix.points or not preds:
         return None
     df, cols, unit = mixture_frame(opt, mix, preds)
-    allowed = df[df["state"] != wording.MIXTURE_BLOCKED]["score"]
+    kinds = _mixture_kinds(opt)
+    formulation = _say(opt, wording.FORMULATION_CAP)
+    predicted = _say(opt, wording.PREDICTED_SCORE_COLUMN)
+    allowed = df[df["state"] != kinds[2]]["score"]
     lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
     pad = 0.12
     x = alt.X("X:Q", axis=None, scale=alt.Scale(domain=[-pad, 1 + pad], nice=False, zero=False))
     y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=[-pad - 0.07, 1 + pad - 0.07],
                                                 nice=False, zero=False))
-    kinds = [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
     # An explicit ordinal type: without it Vega-Lite compiles a "point"
     # scale for a size range, which only honours the range's start and
     # stop and interpolates the middle entry instead of using its own
@@ -705,18 +717,18 @@ def mixture_chart(opt, mix, preds, number):
     # small grey instead of one flat grey circle.
     size = alt.Size("state:N", title=None, sort=kinds, scale=size_scale)
     amounts = ([alt.Tooltip(f"a{k}:Q", title=cols[k]) for k in range(3)]
-               + [alt.Tooltip("sum:Q", title=wording.mixture_together(unit))])
-    blocked = alt.FieldEqualPredicate(field="state", equal=wording.MIXTURE_BLOCKED)
+               + [alt.Tooltip("sum:Q", title=_say(opt, wording.mixture_together(unit)))])
+    blocked = alt.FieldEqualPredicate(field="state", equal=kinds[2])
     grey = (alt.Chart(df).mark_circle(opacity=1, color="lightgray")
             .encode(x=x, y=y, size=size,
-                    tooltip=amounts + [alt.Tooltip("why:N", title=wording.MIXTURE_BLOCKED)])
+                    tooltip=amounts + [alt.Tooltip("why:N", title=kinds[2])])
             .transform_filter(blocked))
     grid = (alt.Chart(df).mark_circle(opacity=1)
             .encode(x=x, y=y, size=size,
-                    color=alt.Color("score:Q", title=wording.PREDICTED_SCORE_COLUMN,
+                    color=alt.Color("score:Q", title=predicted,
                                     scale=alt.Scale(scheme=_BLUES,
                                                     domain=[lo, hi])),
-                    tooltip=amounts + [alt.Tooltip("pred:N", title=wording.PREDICTED_SCORE_COLUMN)])
+                    tooltip=amounts + [alt.Tooltip("pred:N", title=predicted)])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
     # An invisible layer, off the drawn area, whose only job is the legend:
     # sharing the "state" field with `size` above merges the two into one
@@ -741,12 +753,12 @@ def mixture_chart(opt, mix, preds, number):
                .mark_line(color="gray", strokeWidth=1, tooltip=False)
                .encode(x=x, y=y, order="k:Q"))
     labels = pd.DataFrame([
-        {"X": 0.0, "Y": -0.06, "t": wording.mixture_corner(
-            mix.names[0], _amount(mix.upper[0], mix.units[0])), "align": "left"},
-        {"X": 1.0, "Y": -0.06, "t": wording.mixture_corner(
-            mix.names[1], _amount(mix.upper[1], mix.units[1])), "align": "right"},
-        {"X": 0.5, "Y": _TRI_H + 0.05, "t": wording.mixture_corner(
-            mix.names[2], _amount(mix.upper[2], mix.units[2])), "align": "center"}])
+        {"X": 0.0, "Y": -0.06, "t": _say(opt, wording.mixture_corner(
+            mix.names[0], _amount(mix.upper[0], mix.units[0]))), "align": "left"},
+        {"X": 1.0, "Y": -0.06, "t": _say(opt, wording.mixture_corner(
+            mix.names[1], _amount(mix.upper[1], mix.units[1]))), "align": "right"},
+        {"X": 0.5, "Y": _TRI_H + 0.05, "t": _say(opt, wording.mixture_corner(
+            mix.names[2], _amount(mix.upper[2], mix.units[2]))), "align": "center"}])
     text = [alt.Chart(labels[labels["align"] == al])
             .mark_text(align=al, baseline="middle", color="gray", tooltip=False)
             .encode(x=x, y=y, text="t:N") for al in ("left", "right", "center")]
@@ -756,19 +768,18 @@ def mixture_chart(opt, mix, preds, number):
                              for d in mix.dots])
         layers.append(alt.Chart(dots).mark_point(filled=True, fill="white", stroke="gray",
                                                  strokeWidth=1.5, size=45, opacity=1)
-                      .encode(x=x, y=y, tooltip=[alt.Tooltip(
-                          "no:Q", title=wording.FORMULATION_CAP)]))
+                      .encode(x=x, y=y, tooltip=[alt.Tooltip("no:Q", title=formulation)]))
     s_amounts = [float(mix.start.get(n, 0.0)) for n in mix.names]
     s = [(s_amounts[k] - mix.lower[k]) / mix.span for k in range(3)]
     sx, sy = _xy(s)
     start = pd.DataFrame([{
-        "X": sx, "Y": sy, "t": wording.start_formulation(number), "no": number,
+        "X": sx, "Y": sy, "t": _say(opt, wording.start_formulation(number)), "no": number,
         "a0": round(s_amounts[0], 2), "a1": round(s_amounts[1], 2), "a2": round(s_amounts[2], 2),
         "sum": round(sum(s_amounts), 2)}])
     layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
                                               color="gray")
                   .encode(x=x, y=y,
-                          tooltip=[alt.Tooltip("no:Q", title=wording.FORMULATION_CAP)] + amounts))
+                          tooltip=[alt.Tooltip("no:Q", title=formulation)] + amounts))
     layers.append(alt.Chart(start).mark_text(align="left", dx=12, color="gray", tooltip=False)
                   .encode(x=x, y=y, text="t:N"))
     return (alt.layer(*layers, *text).properties(
@@ -787,32 +798,32 @@ def misses_chart(opt, found):
     if not found:
         return None
     names = [n for n in track_panels(opt) if any(m.name == n for m in found)]
-    order = [panel_label(opt, n) for n in names]
+    order = [_say(opt, panel_label(opt, n)) for n in names]
+    formulation, rnd = _say(opt, wording.FORMULATION_CAP), _say(opt, wording.ROUND_CAP)
+    miss = _say(opt, wording.MISSES_AXIS)
     rows = []
     for name in names:
         mine = sorted((m for m in found if m.name == name), key=lambda m: (m.round, m.formulation))
         slot = {}
         for m in mine:
             k = slot[m.round] = slot.get(m.round, -1) + 1
-            rows.append({"panel": panel_label(opt, name), "mark": "miss",
-                         wording.ROUND_CAP: m.round, "slot": k,
-                         wording.FORMULATION_CAP: m.formulation,
-                         wording.MISSES_AXIS: round(m.z, 2), "inside": m.inside})
-        rows.append({"panel": panel_label(opt, name), "mark": "band",
+            rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "miss",
+                         rnd: m.round, "slot": k, formulation: m.formulation,
+                         miss: round(m.z, 2), "inside": m.inside})
+        rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "band",
                      "lo": -insights.Z95, "hi": insights.Z95, "zero": 0.0})
     df = pd.DataFrame(rows)
     zs = [m.z for m in found]
     top = max(2.5, max(abs(v) for v in zs) + 0.25)
-    y = alt.Y(f"{wording.MISSES_AXIS}:Q", title=wording.MISSES_AXIS,
-              scale=alt.Scale(domain=[-top, top], nice=False))
-    x = alt.X(f"{wording.ROUND_CAP}:O", title=wording.ROUND_CAP, axis=alt.Axis(labelAngle=0))
+    y = alt.Y(f"{miss}:Q", title=miss, scale=alt.Scale(domain=[-top, top], nice=False))
+    x = alt.X(f"{rnd}:O", title=rnd, axis=alt.Axis(labelAngle=0))
     off = alt.XOffset("slot:O")
-    tip = [wording.FORMULATION_CAP, wording.ROUND_CAP, f"{wording.MISSES_AXIS}:Q"]
+    tip = [formulation, rnd, f"{miss}:Q"]
     band = (alt.Chart().mark_rect(opacity=_BAND, color="gray")
             .encode(y=alt.Y("lo:Q", scale=alt.Scale(domain=[-top, top], nice=False)), y2="hi:Q")
             .transform_filter(_only("band")))
     label = (alt.Chart().mark_text(align="left", baseline="bottom", dx=3, dy=-2, color="gray")
-             .encode(y="hi:Q", x=alt.value(0), text=alt.value(wording.MISSES_BAND))
+             .encode(y="hi:Q", x=alt.value(0), text=alt.value(_say(opt, wording.MISSES_BAND)))
              .transform_filter(_only("band")))
     zero = (alt.Chart().mark_rule(color="gray", strokeWidth=1)
             .encode(y="zero:Q").transform_filter(_only("band")))
@@ -835,16 +846,17 @@ def _pair(opt):
     _keep_all_offered(PAIR_KEY, names)
     if PAIR_KEY not in st.session_state:
         st.session_state[PAIR_KEY] = names[:2]
-    picked = st.multiselect(wording.PAIR_PICK, names, key=PAIR_KEY, max_selections=2)
+    picked = st.multiselect(_say(opt, wording.PAIR_PICK), names, key=PAIR_KEY,
+                            max_selections=2)
     if len(picked) != 2:
-        st.caption(wording.PICK_TWO)
+        st.caption(_say(opt, wording.PICK_TWO))
         return True
     points = insights.pair_points(opt, *picked)
     if not points:
-        st.caption(wording.PAIR_NONE)
+        st.caption(_say(opt, wording.PAIR_NONE))
         return True
     st.altair_chart(pair_chart(opt, *picked, points))
-    st.caption(wording.PAIR_CAPTION)
+    st.caption(_say(opt, wording.PAIR_CAPTION))
     return True
 
 
@@ -859,8 +871,13 @@ def _start_number(opt):
 
 
 def _three_default(opt, fitted, offered, start):
+    """The three with the largest spread from question 2 that the triangle
+    offers (a choice the limits keep in place has no spread and is not
+    ranked), topped up with the first offered; any failure falls back to
+    the first three."""
     try:
-        ranked = [s.name for s in insights.spreads(opt, fitted, start) if s.name in offered]
+        ranked = [s.name for s in insights.spreads(opt, fitted, start).moved
+                  if s.name in offered]
     except Exception:
         ranked = []
     out = ranked[:3]
@@ -872,7 +889,7 @@ def _mixture_cached(opt, fitted, names, number, start):
     hit = st.session_state.get(MIXTURE_KEY)
     if hit and hit[0] == key:
         return hit[1]
-    with st.spinner(wording.INSIGHTS_WORKING):
+    with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
         try:
             mix = insights.mixture_slice(opt, names, start)
             value = (mix, insights.mixture_predictions(opt, fitted, mix))
@@ -894,32 +911,34 @@ def _mixture(opt, fitted):
     _keep_all_offered(THREE_KEY, offered)
     if THREE_KEY not in st.session_state:
         st.session_state[THREE_KEY] = _three_default(opt, fitted, offered, start)
-    picked = st.multiselect(wording.MIXTURE_PICK, offered, key=THREE_KEY, max_selections=3)
+    picked = st.multiselect(_say(opt, wording.MIXTURE_PICK), offered, key=THREE_KEY,
+                            max_selections=3)
     if len(picked) != 3:
-        st.caption(wording.PICK_THREE)
+        st.caption(_say(opt, wording.PICK_THREE))
         return True
     got = _mixture_cached(opt, fitted, picked, number, start)
     if got is _FAILED:
-        st.caption(wording.panel_failed(wording.OVERALL_SCORE_COLUMN))
+        st.caption(_say(opt, wording.panel_failed(wording.OVERALL_SCORE_COLUMN)))
         return True
     mix, preds = got
     if mix.refusal == insights.NO_ROOM:
-        st.caption(wording.mixture_no_room(number))
+        st.caption(_say(opt, wording.mixture_no_room(number)))
         return True
     if mix.refusal == insights.FILL_FOLLOWS:
-        st.caption(wording.mixture_fill_follows(mix.follows[0], opt.balance_row_name()))
+        st.caption(_say(opt, wording.mixture_fill_follows(mix.follows[0],
+                                                          opt.balance_row_name())))
         return True
     if mix.start_breaks:
-        st.caption(wording.path_start_breaks(number, mix.start_breaks))
+        st.caption(_say(opt, wording.path_start_breaks(number, mix.start_breaks)))
         return True
     chart = mixture_chart(opt, mix, preds, number)
     if chart is not None:
         st.altair_chart(chart, width="content")
-    st.caption(wording.mixture_caption(number))
+    st.caption(_say(opt, wording.mixture_caption(number)))
     for line in ([wording.path_follows(n) for n in mix.follows]
                  + ([wording.mixture_fills(mix.fill_moves)] if mix.fill_moves else [])
                  + [wording.path_not_checked(t, prop) for t, prop in mix.skipped]):
-        st.caption(line)
+        st.caption(_say(opt, line))
     return True
 
 
@@ -932,7 +951,7 @@ def _misses(opt, checks):
         return False
     _question(opt, wording.Q_MISSES)
     st.altair_chart(chart)
-    st.caption(wording.MISSES_CAPTION)
+    st.caption(_say(opt, wording.MISSES_CAPTION))
     return True
 
 
@@ -953,14 +972,14 @@ def more_charts_offered(opt, computed):
 def _more_charts(opt, computed):
     if not more_charts_offered(opt, computed):
         return
-    with st.expander(wording.MORE_CHARTS):
+    with st.expander(_say(opt, wording.MORE_CHARTS)):
         for draw in (lambda: _pair(opt),
                      lambda: _mixture(opt, computed["fitted"]),
                      lambda: _misses(opt, computed["checks"])):
             try:
                 draw()
             except Exception:   # one chart failing must not take the tab down
-                st.caption(wording.CHART_FAILED)
+                st.caption(_say(opt, wording.CHART_FAILED))
 
 
 def _how(opt, computed):
