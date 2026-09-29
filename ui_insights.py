@@ -692,7 +692,11 @@ def mixture_chart(opt, mix, preds, number):
     y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=[-pad - 0.07, 1 + pad - 0.07],
                                                 nice=False, zero=False))
     kinds = [wording.MIXTURE_TESTED, wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED]
-    size_scale = alt.Scale(domain=kinds, range=[70, 16, 16])
+    # An explicit ordinal type: without it Vega-Lite compiles a "point"
+    # scale for a size range, which only honours the range's start and
+    # stop and interpolates the middle entry instead of using its own
+    # value (16 draws as ~43).
+    size_scale = alt.Scale(domain=kinds, range=[70, 16, 16], type="ordinal")
     # A size-only channel, shared by both layers: the smaller mark says
     # "not tested near here" without fading a colour that already means a
     # score. Its legend swatches get their fill from state_legend below —
@@ -720,9 +724,12 @@ def mixture_chart(opt, mix, preds, number):
     # for tested and untested, light grey for not allowed. `fill`/`stroke`
     # rather than `color`, so the merge is not confused by the grid's own
     # colour scale (the continuous predicted score) sharing the same view.
+    # Its rows sit outside the X/Y domains (so they can never be mistaken
+    # for real data); `clip=True` keeps Vega from sizing the canvas around
+    # them anyway, which "pad" autosize would otherwise do even at opacity 0.
     state_colors = alt.Scale(domain=kinds, range=["steelblue", "steelblue", "lightgray"])
     legend_rows = pd.DataFrame([{"X": -1.0, "Y": -1.0, "state": k} for k in kinds])
-    state_legend = (alt.Chart(legend_rows).mark_circle(opacity=0, tooltip=False)
+    state_legend = (alt.Chart(legend_rows).mark_circle(opacity=0, tooltip=False, clip=True)
                     .encode(x=x, y=y,
                             size=alt.Size("state:N", sort=kinds, scale=size_scale),
                             fill=alt.Fill("state:N", sort=kinds, scale=state_colors,

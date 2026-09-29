@@ -591,11 +591,35 @@ def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixtu
     stroke_scale = dummy["encoding"]["stroke"]["scale"]
     assert size_scale["domain"] == kinds
     assert size_scale["range"][0] > size_scale["range"][1] == size_scale["range"][2]
+    # Vega-Lite compiles a nominal size scale with no explicit type to
+    # "point", which only honours the range's two ends and interpolates
+    # the middle one instead of using its own value: pin "ordinal" so the
+    # untested entry draws at 16, not partway between 70 and 16.
+    assert size_scale["type"] == "ordinal"
     assert fill_scale["domain"] == stroke_scale["domain"] == kinds
     assert fill_scale["range"] == stroke_scale["range"]
     assert fill_scale["range"][2] == "lightgray"
     assert fill_scale["range"][0] == fill_scale["range"][1] != "lightgray"
     assert dummy["encoding"]["fill"]["legend"]["labelLimit"] == 0
+
+
+def test_the_invisible_legend_layer_is_clipped(mixture_scored):
+    """Its rows sit at X=Y=-1, well outside the plotted domains, so they
+    are never mistaken for real data — but under Streamlit's autosize
+    Vega would otherwise still grow the canvas to include them even at
+    opacity 0. clip=True keeps the canvas to the plot plus the legend."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    dummy = next(l for l in spec["layer"]
+                 if l["mark"].get("type") == "circle" and l["mark"].get("opacity") == 0)
+    assert dummy["mark"]["clip"] is True
+    x_domain = dummy["encoding"]["x"]["scale"]["domain"]
+    y_domain = dummy["encoding"]["y"]["scale"]["domain"]
+    assert all(not (x_domain[0] <= r["X"] <= x_domain[1]) for r in
+               spec["datasets"][dummy["data"]["name"]])
+    assert all(not (y_domain[0] <= r["Y"] <= y_domain[1]) for r in
+               spec["datasets"][dummy["data"]["name"]])
 
 
 def test_the_left_and_right_corner_labels_anchor_at_their_own_corner(mixture_scored):
