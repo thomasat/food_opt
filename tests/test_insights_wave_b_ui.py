@@ -477,11 +477,33 @@ def test_section_4_answer_table_and_caption(insights_scored):
     assert wording.BEST_CAPTION in caps
     [frame] = _best_frames(at)
     assert list(frame.columns) == [wording.FORMULATION_CAP, "Pea protein (g)",
-                                   "Methylcellulose (g)", "Total (g)"]
+                                   "Methylcellulose (g)", "Total (g)",
+                                   wording.PREDICTED_SCORE_COLUMN]
     labels = list(frame[wording.FORMULATION_CAP])
     assert labels[0] == wording.BEST_ROW
     assert labels[1] in (wording.start_best(opt.best_formulation_no()),
                          *(wording.start_formulation(int(n)) for n in opt.formulation_ids))
+    # Each row carries its own prediction, beside the other's: the compared
+    # formulation's own prediction is never above the predicted best's.
+    fitted = insights.fit_all(opt)
+    [other] = insights.predict(opt, fitted[insights.SCORE],
+                               [opt._encode(insights.start_recipe(opt, best.compare))])
+    assert list(frame[wording.PREDICTED_SCORE_COLUMN]) == [ui_insights.score_text(p),
+                                                          ui_insights.score_text(other)]
+    assert other.mean <= p.mean + 1e-6
+
+
+def test_section_4_rows_show_their_own_predictions(insights_scored, monkeypatch):
+    """Best so far's own prediction sits beside the predicted best's: the
+    measured score of a lucky formulation can be above both."""
+    _best(monkeypatch, close=None)
+    at = _open_insights(_app())
+    [frame] = _best_frames(at)
+    opt = FoodOptimizer("burger")
+    [own] = insights.predict(opt, insights.fit_all(opt)[insights.SCORE],
+                             [opt._encode(insights.start_recipe(opt, opt.best_index()))])
+    assert list(frame[wording.PREDICTED_SCORE_COLUMN]) == [
+        ui_insights.score_text(insights.Prediction(88.2, 80.4, 95.1)), ui_insights.score_text(own)]
 
 
 def _best(monkeypatch, close):

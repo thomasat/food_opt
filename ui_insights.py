@@ -505,19 +505,23 @@ def _predicted_best(opt, fitted):
     return value
 
 
-def best_frame(opt, best):
+def best_frame(opt, best, fitted):
     """The predicted best and the formulation it is compared with, in the
-    Round table's columns and units."""
+    Round table's columns and units, each with its own predicted Overall
+    score as on Make a round: the compared formulation's measured score can
+    be above the predicted best, its prediction never is."""
     ids = [int(x) for x in opt.formulation_ids]
     no = ids[best.compare]
     label = (wording.start_formulation(no) if best.close is not None
              else wording.start_best(no))
+    other = insights.start_recipe(opt, best.compare)
     frame = opt.batch_frame([{"formulation": 0, "recipe": best.recipe},
-                             {"formulation": no,
-                              "recipe": insights.start_recipe(opt, best.compare)}])
+                             {"formulation": no, "recipe": other}])
     trying = opt.compared_with_column()
     frame = frame[[c for c in frame.columns if c not in (wording.NOTE, trying)]].copy()
     frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, label]
+    [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(other)])
+    frame[wording.PREDICTED_SCORE_COLUMN] = [score_text(best.score), score_text(own)]
     return frame
 
 
@@ -544,8 +548,10 @@ def _best(opt, computed):
     else:
         line += " " + wording.BEST_UNTESTED
     st.write(line)
-    frame = best_frame(opt, best)
+    frame = best_frame(opt, best, fitted)
     st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
+                 column_config={wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
+                     wording.PREDICTED_SCORE_COLUMN, help=wording.PREDICTED_SCORE_HELP)},
                  height=table_height(len(frame)))
     st.caption(wording.BEST_CAPTION)
 
