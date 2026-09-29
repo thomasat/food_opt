@@ -326,6 +326,20 @@ def test_a_formulation_scored_without_a_measurement_says_so(scored):
         [c.value for c in at.caption]
 
 
+def test_just_after_a_measurement_is_added_the_caption_fits_the_star(scored):
+    """Review I-1: no formulation has Cook loss, so Best so far is scored
+    without it; the captions under it must not say a dashed row is not
+    compared for Best so far."""
+    scored.add_objective("Cook loss", 1.0, goal="min", min_val=0, max_val=40)
+    at = _app(wording.TAB_RESULTS)
+    assert not at.exception
+    captions = [c.value for c in at.caption]
+    assert wording.complete_results_caption(compared=False) in captions, captions
+    assert wording.COMPLETE_RESULTS_CAPTION not in captions, captions
+    assert wording.RESULT_BEST_HELP_WITHOUT in captions, captions
+    assert wording.RESULT_BEST_HELP not in captions, captions
+
+
 def test_a_formulation_with_all_its_results_says_nothing_more(scored):
     at = _app(wording.TAB_RESULTS)
     assert not any("scored without" in c.value for c in at.caption)

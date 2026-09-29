@@ -161,17 +161,17 @@ def _number(cell):
 def _progress_line(opt):
     last = opt.last_batch_no()   # counts a batch nobody managed to make
     # The formulations Best so far compares, and only those.
-    complete = opt.best_candidates()
-    if last is None or not complete:
+    pool = opt.best_candidates()
+    if last is None or not pool:
         return ""
-    earlier = [float(opt.Y_history[i]) for i in complete
+    earlier = [float(opt.Y_history[i]) for i in pool
                if opt.batch_history[i] != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
         # "Round 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
-    best_now = max(float(opt.Y_history[i]) for i in complete)
+    best_now = max(float(opt.Y_history[i]) for i in pool)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
         return wording.batch_recorded_progress(last, best_before, best_now)
@@ -201,7 +201,8 @@ def _best(opt):
                else wording.result_heading(number, batch))
     st.subheader(wording.for_project(opt, heading))
     if is_best:
-        st.caption(wording.RESULT_BEST_HELP)
+        st.caption(wording.RESULT_BEST_HELP_WITHOUT if opt.best_scored_without()
+                   else wording.RESULT_BEST_HELP)
         if opt.waiting_rows():
             st.caption(wording.RESULT_BEST_COMPLETE_ONLY)
         line = _progress_line(opt)
@@ -283,8 +284,15 @@ def _best(opt):
             float(opt.Y_history[index]), ceiling,
             number_list(opt.not_expected(index))))
     if partial:
-        st.caption(wording.for_project(opt, wording.COMPLETE_RESULTS_CAPTION))
+        st.caption(_complete_results_caption(opt))
     return partial, score_without
+
+
+def _complete_results_caption(opt):
+    """What a dash means, without contradicting the star: while no
+    formulation has every measurement, Best so far has a dash itself."""
+    return wording.for_project(opt, wording.complete_results_caption(
+        not opt.best_scored_without()))
 
 
 def _score_without_buttons(opt, number, names):
@@ -400,7 +408,7 @@ def _all_formulations(opt, said_partial=False):
     # wording so the frame and the screen cannot drift apart.
     if not said_partial and (opt.waiting_rows() or any(
             opt.not_expected(i) for i in range(len(opt.Y_history)))):
-        st.caption(wording.for_project(opt, wording.COMPLETE_RESULTS_CAPTION))
+        st.caption(_complete_results_caption(opt))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it

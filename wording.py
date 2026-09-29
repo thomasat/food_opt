@@ -1716,9 +1716,19 @@ NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 # 0.8.0: a formulation teaches the suggestions only once every measurement
 # that applies to it has a value. A dash in its row is a measurement it is
 # scored without — added after it was recorded, or Score without.
-COMPLETE_RESULTS_CAPTION = ("A formulation counts once all its results are "
-                            "in; “—” means it is scored without that "
-                            "measurement, so it is not compared for Best so far.")
+def complete_results_caption(compared=True):
+    """What a dash means. `compared` is False while no formulation has
+    every measurement (a measurement was just added): Best so far is then
+    itself one with a dash, and saying dashed rows are not compared would
+    contradict the star it sits under (0.8.0 review fixes, Task 1)."""
+    tail = (", so it is not compared for Best so far." if compared
+            else "; until a formulation has every measurement, Best so far "
+                 "is scored without it too.")
+    return ("A formulation counts once all its results are in; “—” means it "
+            "is scored without that measurement" + tail)
+
+
+COMPLETE_RESULTS_CAPTION = complete_results_caption()
 NO_COMPLETE_FORMULATION = "No formulation has all its results yet."
 
 
@@ -1928,7 +1938,12 @@ BEST_SO_FAR_COLUMN = "Best so far"
 # everywhere else on the screen ("Round 1 · recorded", "2 to record") and
 # a date only here.
 DATE_RECORDED_COLUMN = "Date recorded"
-PROGRESS_CHART_CAPTION = 'The best-so-far line shows the highest score recorded. A flat line means no higher score has been recorded; it does not prove that the best possible formulation has been found.'
+PROGRESS_CHART_CAPTION = ('The best-so-far line follows the highest score among '
+                          'formulations with every measurement (among those with '
+                          'all their results, while none has every measurement). '
+                          'A flat line means none of them has scored higher; it '
+                          'does not prove that the best possible formulation has '
+                          'been found.')
 
 def batch_open_record_first_caption():
     """food_bo.undo_last_batch's refusal. No screen reaches it any more —
@@ -3729,7 +3744,14 @@ BACKGROUND_REFERENCE_LABEL = "Background reference"
 # Results detail browsing and ingredient composition.
 RESULT_VIEW_LABEL = "View formulation"
 RESULT_VIEW_HELP = "Choose a recorded formulation to see its measurements, amounts and percentages below."
-RESULT_BEST_HELP = "Best so far has the highest recorded overall score for your current measurements and targets."
+RESULT_BEST_HELP = ("Best so far has the highest overall score among formulations "
+                    "with every measurement, for your current measurements and "
+                    "targets.")
+# While no formulation has every measurement (one was just added), Best so
+# far is compared among those with all the results that apply to them.
+RESULT_BEST_HELP_WITHOUT = ("Best so far has the highest overall score among "
+                            "formulations with all their results; none has "
+                            "every measurement yet.")
 # A formulation still waiting for a result is never compared: its missing
 # measurement would count as zero, so a half-measured formulation would be
 # judged against one measured all the way through.

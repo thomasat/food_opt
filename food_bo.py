@@ -12064,7 +12064,13 @@ class FoodOptimizer:
         arm). The app appends the 'available to add' pool (full CSV minus active)."""
         if not self.Y_history:
             return "No formulations recorded yet."
-        best_i = self.best_index()
+        # Deliberately the pre-0.8.0-review rule, not best_index(): the
+        # highest score among formulations with all their results, scored-
+        # without ones included. This text feeds the adaptive expert, which
+        # is on the suggestion side, and the owner's rule is that nothing
+        # there changes (review fixes, Task 1, M-3).
+        full = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        best_i = int(max(full, key=lambda i: self.Y_history[i])) if full else None
         active = [v['name'] for v in self.varying_variables()]
         inactive = [
             f"{v['name']} (fixed at {self._fixed_value(v):.3g})"

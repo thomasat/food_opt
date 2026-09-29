@@ -108,3 +108,63 @@ def test_suggestions_are_unchanged_by_the_new_best():
         (i for i in range(len(opt.Y_history)) if opt.fully_measured(i)),
         key=lambda i: opt.Y_history[i])     # the rule moved the star here
     same(run(opt), fixture()["exempt_and_waiting"])
+
+
+def test_the_fallback_caption_does_not_contradict_the_star():
+    """Review I-1: while no formulation has every measurement, Best so far
+    has a dash itself, so the caption must not say dashed rows are never
+    compared."""
+    assert wording.complete_results_caption() == wording.COMPLETE_RESULTS_CAPTION
+    assert wording.complete_results_caption(compared=False) == (
+        "A formulation counts once all its results are in; “—” means it is "
+        "scored without that measurement; until a formulation has every "
+        "measurement, Best so far is scored without it too.")
+
+
+def test_the_help_lines_say_which_formulations_are_compared():
+    """Review M-1: neither says 'highest recorded', which a rescaled
+    score above the star would contradict."""
+    assert wording.RESULT_BEST_HELP == (
+        "Best so far has the highest overall score among formulations with "
+        "every measurement, for your current measurements and targets.")
+    assert wording.RESULT_BEST_HELP_WITHOUT == (
+        "Best so far has the highest overall score among formulations with "
+        "all their results; none has every measurement yet.")
+    assert wording.PROGRESS_CHART_CAPTION.startswith(
+        "The best-so-far line follows the highest score among formulations "
+        "with every measurement (among those with all their results, while "
+        "none has every measurement).")
+    assert "recorded" not in wording.RESULT_BEST_HELP + wording.PROGRESS_CHART_CAPTION
+
+
+def test_every_new_string_passes_the_vocabulary_guard():
+    from tests.test_food_bo import _BANNED
+    strings = [wording.COMPLETE_RESULTS_CAPTION,
+               wording.complete_results_caption(compared=False),
+               wording.RESULT_BEST_HELP, wording.RESULT_BEST_HELP_WITHOUT,
+               wording.PROGRESS_CHART_CAPTION,
+               wording.best_line("81.0", 3, "2", "Cook loss"),
+               wording.best_line("81.0", 3, None, "Cook loss and Aroma")]
+    for s in strings:
+        for pattern in _BANNED:
+            assert not pattern.search(s), (pattern.pattern, s)
+
+
+# Written from ce205c9 (before the review fixes) and never regenerated.
+_TRAJECTORY_AT_CE205C9 = """\
+In play (2): Pea, Oil
+
+  Formulation 1: score 77.576 | Pea=4.37, Oil=2.61 | results: Firmness=5.93, Juiciness=4.13
+  Formulation 2: score 79.077 | Pea=4.74, Oil=3.22 | results: Firmness=6.27, Juiciness=4.86
+* Formulation 3: score 79.741 | Pea=5.11, Oil=3.83 | results: Firmness=6.6, Juiciness=5.6
+  Formulation 4: score 77.544 | Pea=5.48, Oil=4.44 | results: Firmness=6.93, Juiciness=6.33, Cook loss=13.6
+  Formulation 5: score 78.630 | Pea=5.85, Oil=5.05 | results: Firmness=7.26, Juiciness=7.06, Cook loss=12.5"""
+
+
+def test_the_expert_trajectory_keeps_the_old_star():
+    """Review M-3: export_trajectory feeds the adaptive expert (the
+    suggestion side), so it keeps the pre-0.8.0 rule: exempt Formulation 3
+    outscores Formulation 5 and keeps the '*', though the screens star 5."""
+    opt = _upgrade_like()
+    assert opt.best_formulation_no() == 5
+    assert opt.export_trajectory() == _TRAJECTORY_AT_CE205C9
