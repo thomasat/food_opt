@@ -781,7 +781,10 @@ def test_tabs_are_the_loop_in_order(project_with_history):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert [t.label for t in at.tabs] == [wording.TAB_SETUP, wording.TAB_BATCH, wording.TAB_RESULTS]
+    # The three steps of the loop, then Insights: a view of it, not a step,
+    # so it is last and carries no number.
+    assert [t.label for t in at.tabs] == [wording.TAB_SETUP, wording.TAB_BATCH,
+                                          wording.TAB_RESULTS, wording.TAB_INSIGHTS]
 
 
 def test_opening_a_project_lands_on_set_up_when_it_is_incomplete(tmp_path, monkeypatch):
@@ -2922,10 +2925,11 @@ def test_results_collapsed_sections_are_the_spec_list(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     labels = [e.label for e in at.expander]
-    # One section holds every way the record is fixed after the fact.
-    for label in (wording.PROGRESS_CHART_EXPANDER,
-                  wording.EDIT_PAST_FORMULATIONS_EXPANDER):
+    # One section holds every way the record is fixed after the fact. The
+    # Progress chart moved to Insights (0.8.0).
+    for label in (wording.EDIT_PAST_FORMULATIONS_EXPANDER,):
         assert label in labels, labels
+    assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
 
 
 def test_whole_batch_pick_fills_the_selection(scored):
@@ -7135,11 +7139,14 @@ def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
 
 
 def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
+    # On Insights since 0.8.0, under "Is it still improving?". The project is
+    # opened first: that run lands on its landing tab, never Insights.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert any(c.value == wording.PROGRESS_CHART_CAPTION
-               for c in at.caption), [c.value for c in at.caption]
+               for c in at.tabs[3].caption), [c.value for c in at.caption]
 
 
 def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(

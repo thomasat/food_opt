@@ -817,24 +817,6 @@ def _foot(opt, correcting=False):
         go_to_tab(TAB_BATCH)
 
 
-def _progress_chart(opt):
-    with st.expander(wording.PROGRESS_CHART_EXPANDER):
-        if not opt.Y_history:
-            st.caption(wording.NO_RESULTS_YET)
-            return
-        st.line_chart(pd.DataFrame({
-            wording.FORMULATION_CAP: [int(n) for n in opt.formulation_ids],
-            wording.OVERALL_SCORE_COLUMN: [float(y) for y in opt.Y_history],
-            wording.BEST_SO_FAR_COLUMN: opt.best_so_far(),
-        }).set_index(wording.FORMULATION_CAP), height=220,
-            # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0
-            # with one round of data and nothing on the chart said what
-            # either number was.
-            x_label=wording.FORMULATION_CAP,
-            y_label=wording.OVERALL_SCORE_COLUMN)
-        st.caption(wording.PROGRESS_CHART_CAPTION)
-
-
 def _batch_numbers(opt):
     """Every batch this project still holds, in order. A batch nobody managed
     to make counts: its formulations have numbers, and this is the only place
@@ -1269,7 +1251,7 @@ def render(opt, storage):
     # buttons until the next click.
     foot = st.container()
     st.divider()
-    _progress_chart(opt)
+    # The Progress chart moved to Insights (0.8.0), under "Is it still improving?".
     pending = _edit_past(opt, storage)
     with change_setup:
         lit = not confirmation_open()

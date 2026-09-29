@@ -4155,7 +4155,10 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         # not see it, which is how sixty sentences reached
                         # the user unread.
                         "calculation_editor.py", "workbook_flow.py",
-                        "custom_records.py"]
+                        "custom_records.py",
+                        # The Insights tab (0.8.0): its computation names
+                        # the reasons a path stops, so both are swept.
+                        "insights.py", "ui_insights.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]

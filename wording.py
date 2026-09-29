@@ -1836,7 +1836,6 @@ def back_to_batch_label(no, n):
 
 START_NEXT_BATCH = f"Start the next {ROUND}"
 
-PROGRESS_CHART_EXPANDER = "Progress chart"
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
 BEST_SO_FAR_COLUMN = "Best so far"
