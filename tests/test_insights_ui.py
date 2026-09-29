@@ -206,7 +206,6 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.predictions_count(1, ["5"], 1, 1))
     for v in wording.VERDICT.values():
         _check(v)
-    _check(wording.SCORE_BELOW)
     _check(wording.PREDICTIONS_CAPTION)
     _check(wording.SHOW_PREDICTIONS)
     _check(wording.INGREDIENT_OR_SETTING)
@@ -598,7 +597,7 @@ def test_details_table_shows_rows_after_one_checked_round(insights_scored):
     at = _open_insights(_app())
     [frame] = _details_frames(at)
     assert len(frame) == 3                                        # 3 checked each
-    assert set(frame[wording.DETAILS_COLUMNS[5]]) == {"—"}
+    assert set(frame[wording.DETAILS_COLUMNS[5]]) == {"no Repeats yet"}
     assert wording.DETAILS_NONE not in _tab_text(at)[1]
 
 

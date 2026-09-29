@@ -216,26 +216,12 @@ def test_partial_rows_are_checked_per_measurement():
     assert all(not c.fully_measured for c in checks)
 
 
-def test_score_line_needs_ten_fully_measured_and_eighty_percent_below():
-    mk = lambda below: insights.Check(1, 3, insights.SCORE, 50.0, 40.0, 60.0,
-                                      45.0 if below else 55.0, True, True)
-    opt = _burger(rounds=1)
-    nine = [mk(True)] * 9
-    assert not insights.headline(opt, nine)._score_rule_for_tests()
-    ten = [mk(True)] * 8 + [mk(False)] * 2
-    assert insights.headline(opt, ten)._score_rule_for_tests()
-    ten_bad = [mk(True)] * 7 + [mk(False)] * 3
-    assert not insights.headline(opt, ten_bad)._score_rule_for_tests()
-
-
-def test_details_r2_negative_and_constant_cases():
+def test_details_without_repeats_have_no_ratio():
     c = lambda meas, pred: insights.Check(1, 3, "Firmness", pred, pred - 1, pred + 1,
                                           meas, True, True)
     opt = _burger(rounds=1)
     rows = insights.details(opt, [c(5.0, 5.0)] * 5)
-    assert rows[0].r2 is None                       # every measured value the same
-    bad = [c(m, 10 - m) for m in (1.0, 2.0, 3.0, 4.0, 5.0)]
-    assert insights.details(opt, bad)[0].r2 < 0
+    assert rows[0].repeat_sd is None and rows[0].ratio is None
 
 
 def _start(opt):
@@ -679,13 +665,13 @@ def test_a_failed_prediction_is_treated_like_a_failed_fit(monkeypatch):
 
 
 def test_details_has_a_row_for_every_output_checked_at_least_once():
-    # F1: never silently empty; R² only from 5 checked values.
+    # F1: never silently empty; no ratio without Repeats.
     c = lambda name, meas: insights.Check(1, 3, name, 5.0, 4.0, 6.0, meas, True, True)
     opt = _burger(rounds=1)
     rows = insights.details(opt, [c("Firmness", 5.5)] * 3 + [c("Juiciness", m) for m in
                                                             (1.0, 2.0, 3.0, 4.0, 5.0)])
     assert [(r.name, r.checked) for r in rows] == [("Firmness", 3), ("Juiciness", 5)]
-    assert rows[0].r2 is None and rows[1].r2 is not None
+    assert rows[0].ratio is None and rows[1].ratio is None      # no Repeats in _burger
     assert insights.details(opt, []) == []
 
 

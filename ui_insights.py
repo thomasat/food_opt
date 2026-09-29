@@ -290,11 +290,13 @@ def render(opt):
     if n == 0:
         st.caption(_say(opt, wording.INSIGHTS_NONE))
         return
-    order = insights.round_order(opt)
-    st.caption(_say(opt, wording.insights_header(n, order[-1][0] if order else None,
-                                                 len(opt.awaited_rows()))))
+    # The header's range sentence depends on whether there is a verdict, so
+    # its slot is filled once the checks are known.
+    header = st.empty()
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
     failed = computed is not None and computed.get("failed")
+    header.caption(_say(opt, header_text(opt, None if computed is None or failed
+                                         else insights.headline(opt, computed["checks"]))))
     if failed:
         st.caption(_say(opt, wording.INSIGHTS_FAILED))
         computed = None
@@ -311,6 +313,32 @@ def render(opt):
     _how(opt, computed)
 
 
+def header_text(opt, h):
+    """The tab's first line: scored formulations (all their results in),
+    the waiting ones apart, and the likely range's promise — its early form
+    until the first verdict. A formulation moved to Not scored is neither
+    scored nor waiting."""
+    order = insights.round_order(opt)
+    waiting = opt.awaited_rows()
+    sets = {tuple(opt.waiting_on(i)) for i in waiting}
+    names = number_list(next(iter(sets))) if len(sets) == 1 else ""
+    return wording.insights_header(opt.complete_count(), order[-1][0] if order else None,
+                                   len(waiting), names,
+                                   early=h is None or h.state != "verdict")
+
+
+def _wide(opt, h):
+    """The wide-range line under the verdict, or ''."""
+    if not h.wide:
+        return ""
+    measured_names = [o['name'] for o in opt.objectives]
+    if all(n in h.wide for n in measured_names + [insights.SCORE]):
+        return wording.WIDE_EVERY
+    names = [f"the {wording.OVERALL_SCORE_COLUMN}" if n == insights.SCORE else n
+             for n in h.wide]
+    return wording.wide_line(number_list(names))
+
+
 def _predictions(opt, computed, n):
     _question(opt, wording.Q_PREDICTIONS)
     if computed is None:
@@ -323,12 +351,15 @@ def _predictions(opt, computed, n):
     elif h.state == "early":
         st.write(_say(opt, wording.predictions_early(h.total)))
     else:
-        st.write(_say(opt, wording.predictions_count(len(h.rounds), h.rounds, h.inside, h.total)
-                      + " " + wording.VERDICT[h.verdict]))
-    # Only beside a check that happened: with no checkable Round there are no
-    # Overall scores to have come in below anything.
-    if h.score_below and h.state in ("early", "verdict"):
-        st.write(_say(opt, wording.SCORE_BELOW))
+        wide = _wide(opt, h)
+        st.write(_say(opt, wording.predictions_count(len(h.rounds), h.rounds, h.inside,
+                                                     h.total, h.verdict)
+                      + (" " + wide if wide else "")))
+    # The number Make a round shows is the Overall score, so its own record
+    # is always in view, not two clicks deep (§3.3, §9 I7).
+    if h.score is not None:
+        st.write(_say(opt, wording.score_record_line(h.score.inside, h.score.total,
+                                                     h.score.mean_miss)))
     st.caption(_say(opt, wording.PREDICTIONS_CAPTION))
     # Only once something has been checked: before that, PREDICTIONS_NONE
     # already says when the first check comes.
@@ -1256,5 +1287,5 @@ def _how(opt, computed):
                 wording.DETAILS_COLUMNS[2]: r.inside,
                 wording.DETAILS_COLUMNS[3]: f"± {_num(r.half_width)}",
                 wording.DETAILS_COLUMNS[4]: _num(r.typical_miss),
-                wording.DETAILS_COLUMNS[5]: "—" if r.r2 is None else f"{r.r2:.2f}",
+                wording.DETAILS_COLUMNS[5]: wording.repeat_ratio(r.ratio, r.repeat_sd),
             } for r in rows]), hide_index=True, height=table_height(len(rows)))

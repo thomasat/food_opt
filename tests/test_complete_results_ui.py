@@ -203,7 +203,7 @@ def test_insights_header_counts_the_waiting(one_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
     assert any(c.value.startswith(
-        "Based on 3 scored formulations (1 waiting for results), up to Round 2.")
+        "Based on 2 scored formulations, up to Round 2. 1 more is waiting for Juiciness.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
 
 

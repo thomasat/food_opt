@@ -368,16 +368,29 @@ def binomial_tail(m, n, p=0.05):
 
 
 @dataclass
+class ScoreRecord:
+    """How the Overall score's own predictions did in the headline's Rounds:
+    fully measured formulations only (0.8.0 review fixes §3.3, §9 I7)."""
+    inside: int
+    total: int
+    mean_miss: float        # measured minus predicted, on average: < 0 is below
+
+
+SCORE_RECORD_MIN = 5
+# A likely range whose typical half-width is over this share of the
+# measurement's Range says little when results land inside it (§3.2, §9 I8).
+WIDE = 0.25
+
+
+@dataclass
 class Headline:
     state: str
     rounds: list
     inside: int
     total: int
     verdict: str
-    score_below: bool
-
-    def _score_rule_for_tests(self):
-        return self.score_below
+    score: ScoreRecord | None = None
+    wide: list = None       # outputs (SCORE included) whose likely range is wide
 
 
 def _ordered_rounds(checks):
@@ -393,32 +406,49 @@ def headline(opt, checks):
     rounds = _ordered_rounds(values)
     score_rounds = _ordered_rounds([c for c in checks if c.name == SCORE])
     if not rounds:
-        chosen = score_rounds[-3:]
-        return Headline("none", [], 0, 0, None,
-                        _score_below(checks, chosen))
+        return Headline("none", [], 0, 0, None)
     k = min(3, len(rounds))
     chosen = rounds[-k:]
     while (sum(c.round in chosen for c in values) < 10 and k < len(rounds)):
         k += 1
         chosen = rounds[-k:]
     picked = [c for c in values if c.round in chosen]
-    below = _score_below(checks, chosen)
+    record = score_record(checks, chosen)
+    wide = wide_ranges(opt, [c for c in checks if c.round in chosen])
     if len(picked) < 10:
         return Headline("early", chosen, sum(c.inside for c in picked),
-                        len(values), None, below)
+                        len(values), None, record, wide)
     inside = sum(c.inside for c in picked)
     tail = binomial_tail(len(picked) - inside, len(picked))
     verdict = ("holding" if tail >= 0.10 else
                "caution" if tail >= 0.01 else "unreliable")
-    return Headline("verdict", chosen, inside, len(picked), verdict, below)
+    return Headline("verdict", chosen, inside, len(picked), verdict, record, wide)
 
 
-def _score_below(checks, chosen):
-    scores = [c for c in checks if c.name == SCORE and c.round in chosen
-              and c.fully_measured]
-    return (len(scores) >= 10 and
-            sum(c.measured < c.predicted for c in scores) >= 0.8 * len(scores))
+def score_record(checks, rounds):
+    """The Overall score's checks in `rounds`, fully measured formulations
+    only; None with fewer than SCORE_RECORD_MIN. It replaced the 0.8.0
+    "most came in below" line, which needed 8 in 10 below and almost never
+    showed while the score ran optimistic in 7 checks out of 10."""
+    mine = [c for c in checks if c.name == SCORE and c.round in rounds and c.fully_measured]
+    if len(mine) < SCORE_RECORD_MIN:
+        return None
+    return ScoreRecord(sum(c.inside for c in mine), len(mine),
+                       sum(c.measured - c.predicted for c in mine) / len(mine))
 
+
+def wide_ranges(opt, checks):
+    """The outputs among `checks` whose typical likely range is wide: a
+    median half-width over WIDE of the output's Range (0 to the ceiling for
+    the Overall score), in the order the tab lists them."""
+    out = []
+    for name, lo, hi in outputs(opt):
+        mine = [c for c in checks if c.name == name]
+        if mine and hi > lo and statistics.median(
+                (c.high - c.low) / 2 for c in mine) > WIDE * (hi - lo):
+            out.append(name)
+    order = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
+    return sorted(out, key=order.index)
 
 @dataclass
 class DetailRow:
@@ -427,25 +457,28 @@ class DetailRow:
     inside: int
     half_width: float
     typical_miss: float
-    r2: float
+    repeat_sd: float | None     # spread between Repeats; None: no Repeats yet
+    ratio: float | None         # typical miss / repeat_sd
 
 
 def details(opt, checks):
+    """One row per output checked at least once, in Results' order. R² is
+    gone (0.8.0 review fixes §3.4): on formulations the suggestions chose
+    it is below 0 even for a perfect prediction one time in seven. The
+    typical miss is compared with the spread between Repeats instead."""
     rows = []
     ordered = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
     for name in ordered:
         mine = [c for c in checks if c.name == name]
         if not mine:
             continue
-        meas = [c.measured for c in mine]
-        mean = sum(meas) / len(meas)
-        ss_tot = sum((m - mean) ** 2 for m in meas)
-        ss_res = sum((c.measured - c.predicted) ** 2 for c in mine)
+        miss = statistics.median(abs(c.measured - c.predicted) for c in mine)
+        sd = repeat_sd(opt, name).sd
         rows.append(DetailRow(
             name, len(mine), sum(c.inside for c in mine),
-            statistics.median((c.high - c.low) / 2 for c in mine),
-            statistics.median(abs(c.measured - c.predicted) for c in mine),
-            None if len(mine) < MIN_ROWS or ss_tot == 0 else 1 - ss_res / ss_tot))
+            statistics.median((c.high - c.low) / 2 for c in mine), miss,
+            # sd 0: the Repeats agreed exactly, and there is no ratio.
+            sd, None if not sd else miss / sd))
     return rows
 
 
@@ -745,6 +778,59 @@ def repeat_spread(opt):
                 if best is None or spread > best:
                     best = spread
     return best
+
+
+@dataclass
+class RepeatSpread:
+    sd: float | None        # pooled sd between Repeats; None without any
+    pairs: int              # how many pairs of Repeats it rests on
+
+
+def repeat_groups(opt, rows):
+    """The Repeat groups among `rows`: formulations `_same` calls a match,
+    joined when any two of them match (a chain of matches is one group,
+    since `_same` is not transitive). Groups of one are left out."""
+    recipes = {i: start_recipe(opt, i) for i in rows}
+    parent = {i: i for i in rows}
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for a, i in enumerate(rows):
+        for j in rows[a + 1:]:
+            if _same(opt, recipes[i], recipes[j]):
+                parent[root(j)] = root(i)
+    groups = {}
+    for i in rows:
+        groups.setdefault(root(i), []).append(i)
+    return [g for g in groups.values() if len(g) > 1]
+
+
+def repeat_sd(opt, name):
+    """The spread between Repeats for one output: the pooled standard
+    deviation within Repeat groups (0.8.0 review fixes §9 I9). The Overall
+    score uses the formulations Best so far compares; a measurement, the
+    fully measured formulations with a value for it."""
+    if name == SCORE:
+        rows = opt.best_candidates()
+        value = lambda i: float(opt.Y_history[i])
+    else:
+        rows = [i for i in range(len(opt.Y_history))
+                if opt.fully_measured(i) and measured(opt, name, i) is not None]
+        value = lambda i: measured(opt, name, i)
+    groups = repeat_groups(opt, rows)
+    if not groups:
+        return RepeatSpread(None, 0)
+    ss = dof = pairs = 0
+    for g in groups:
+        ys = [value(i) for i in g]
+        mean = sum(ys) / len(ys)
+        ss += sum((y - mean) ** 2 for y in ys)
+        dof += len(ys) - 1
+        pairs += len(ys) * (len(ys) - 1) // 2
+    return RepeatSpread(math.sqrt(ss / dof), pairs)
 
 
 # Wave C: two measurements against each other (measured values only).

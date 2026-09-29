@@ -3992,11 +3992,23 @@ def checking_round(r, last):
     return f"Checking {ROUND_CAP} {r} of {last}…"
 
 
-def insights_header(n, last_round, waiting=0):
+def insights_header(n, last_round, waiting=0, names_text="", early=True):
+    """'Based on 18 scored formulations, up to Round 6. 2 more are waiting
+    for Cook loss. Likely range: …' — a formulation still waiting is not
+    counted as scored (0.8.0 review fixes §3.1). `early`: no verdict yet,
+    and the likely range's promise is said as it holds early on (§3.5)."""
     tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
-    wait = f" ({waiting} {waiting_for()})" if waiting else ""
-    return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{wait}{tail}. "
-            "Likely range: where about 19 in 20 results should land.")
+    wait = ""
+    if waiting:
+        verb = "is" if waiting == 1 else "are"
+        wait = f" {waiting} more {verb} {waiting_for(names_text)}."
+    return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{tail}.{wait} "
+            + (LIKELY_RANGE_EARLY if early else LIKELY_RANGE_HEADER))
+
+
+LIKELY_RANGE_HEADER = "Likely range: where about 19 in 20 results should land."
+LIKELY_RANGE_EARLY = ("Likely range: where about 19 in 20 results should land once there are "
+                      "enough formulations; early on it is closer to 17 in 20.")
 
 
 def insights_gate(n):
@@ -4058,20 +4070,41 @@ def rounds_not_checked(rounds):
             f"{FORMULATION}s were recorded before {'it' if one else 'them'}.")
 
 
-def predictions_count(k, rounds, inside, total):
+def predictions_count(k, rounds, inside, total, verdict=None):
+    """The headline, in the past tense: it is about the Rounds checked, not
+    about the next one (0.8.0 review fixes §3.2, §9 B1). `verdict` is a
+    VERDICT key, or None while it is too early to judge."""
     last = f"the last {k} {ROUND}s checked" if k != 1 else f"the last {ROUND} checked"
-    return (f"In {last} ({rounds_span(rounds)}), {inside} of {total} measured values "
-            "landed inside their likely range.")
+    line = (f"In {last} ({rounds_span(rounds)}), {inside} of {total} measured values "
+            "landed inside their likely range")
+    return f"{line}: {VERDICT[verdict]}" if verdict else f"{line}."
 
 
 VERDICT = {
-    "holding": "The predictions are holding up.",
-    "caution": "More misses than the 19 in 20 expected: read the likely range with some caution.",
-    "unreliable": ("Many more misses than expected: the predictions are not reliable yet. "
-                   "More formulations, and Repeats, will help."),
+    "holding": "the likely range proved right.",
+    "caution": "more misses than expected.",
+    "unreliable": "many more misses than expected — treat predictions with caution.",
 }
-SCORE_BELOW = ("Most Overall scores came in below their prediction: suggestions may look "
-               "better on screen than at the bench.")
+WIDE_EVERY = "Each likely range is wide, so this says little yet."
+
+
+def wide_line(names_text):
+    """The likely range of some outputs is wide (§9 I8): `names_text` names
+    them, 'Cook loss and the Overall score'."""
+    return f"The likely range for {names_text} is wide, so this says little yet."
+
+
+def score_record_line(inside, total, mean_miss):
+    """'Overall score: 7 of 8 inside their likely range; on average 1.8
+    points below prediction.' (§3.3, §9 I7)."""
+    size = f"{abs(mean_miss):.1f}"
+    if size == "0.0":
+        how = "on average as predicted"
+    else:
+        how = f"on average {size} points {'below' if mean_miss < 0 else 'above'} prediction"
+    return f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside their likely range; {how}."
+
+
 PREDICTIONS_CAPTION = "Each Round is checked against what the formulations recorded before it predicted."
 SHOW_PREDICTIONS = "Show each prediction"
 INGREDIENT_OR_SETTING = "Ingredient or process setting"
@@ -4207,7 +4240,20 @@ HOW_NO_P = ("There are no p-values or coefficient tables. These predictions have
             "directly: how well a formulation is predicted before it is made.")
 DETAILS_NONE = f"This table fills in once a {ROUND} has been checked."
 DETAILS_COLUMNS = ("Measurement", "Checked", "Inside likely range", "Typical likely range",
-                   "Typical miss", "R² of Round-ahead predictions")
+                   "Typical miss", "Typical miss compared with the spread between Repeats")
+
+
+def repeat_ratio(ratio, sd=None):
+    """The last details column (§3.4, §9 I9): the typical miss over the
+    spread between Repeats. `sd` 0: Repeats that agreed exactly, so there
+    is nothing to compare the miss with."""
+    if ratio is None:
+        return "Repeats matched exactly" if sd == 0 else "no Repeats yet"
+    if ratio <= 1.5:
+        return "about the same"
+    return f"about {ratio:.1f}".rstrip("0").rstrip(".") + "× larger"
+
+
 TRACK_PREDICTED = "Predicted"
 TRACK_MEASURED = "Measured"
 TRACK_LOW = "Likely range from"

@@ -612,6 +612,6 @@ def test_every_new_string_passes_the_vocabulary_guard():
     assert wording.overall_score_caption(80.0, 100).startswith(
         "Overall score 80.00 of 100. ")
     assert wording.insights_header(17, 5, 2).startswith(
-        "Based on 17 scored formulations (2 waiting for results), up to Round 5.")
+        "Based on 17 scored formulations, up to Round 5. 2 more are waiting for results.")
     assert wording.insights_header(17, 5).startswith(
-        "Based on 17 scored formulations, up to Round 5.")
+        "Based on 17 scored formulations, up to Round 5. Likely range")
