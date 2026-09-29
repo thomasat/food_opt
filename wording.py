@@ -1715,7 +1715,7 @@ NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 # ------------------------------------------------------------------ #
 # 0.8.0: a formulation teaches the suggestions only once every measurement
 # that applies to it has a value. A dash in its row is a measurement it is
-# scored without — added after it was recorded, or Score without.
+# scored without — added after it was recorded, or imported without it.
 def complete_results_caption(compared=True):
     """What a dash means. `compared` is False while no formulation has
     every measurement (a measurement was just added): Best so far is then
@@ -1782,7 +1782,7 @@ NOT_USED_PREFIX = "Not used: "
 
 def overall_score_caption(score, ceiling, without_text=""):
     """`without_text` names the measurements the formulation is scored
-    without (added after it was recorded, or Score without), or is empty. A
+    without (added after it was recorded, or imported without it), or is empty. A
     goal re-scores every formulation exactly as a share of the score or a
     range does, so it is named here with them."""
     return (f"{OVERALL_SCORE_COLUMN} {score:.2f} of {ceiling:g}"
@@ -1897,14 +1897,40 @@ def overall_score_waiting(names_text):
     return f"{OVERALL_SCORE_COLUMN} {waiting_for(names_text)}."
 
 
-def score_without_button(name):
-    return f"Score without {name}"
+# 0.8.0 review fixes (§9 B2): a recorded formulation whose result will
+# never come is moved to Not scored in place. It keeps its row, its Round
+# and its partial values; entering the value scores it again.
+def not_scored_missing(names_text):
+    """'Not scored · Cook loss not measured' — a recorded formulation moved
+    to Not scored: its Overall score cell and its line on Results."""
+    return f"{NOT_SCORED}{not_measured_tail(names_text)}"
 
 
-def scored_without(no, name, waiting=None):
-    """After Score without: 'Formulation 4 scored without Juiciness.', with
-    what it still waits for when another measurement is still to come."""
-    return f"{FORMULATION_CAP} {no} scored without {name}{_waiting_tail(waiting)}."
+def save_missing(names_text):
+    """The lit button under a formulation that waits: 'Save Cook loss'."""
+    return f"Save {names_text}"
+
+
+MOVE_TO_NOT_SCORED = f"Move to {NOT_SCORED}"
+WAIT_AGAIN = "Wait for its results again"
+
+
+def move_to_not_scored_warning(no):
+    return (f"Move {FORMULATION_CAP} {no} to {NOT_SCORED}? Its partial results "
+            "will stop counting on Insights.")
+
+
+def moved_to_not_scored(no):
+    return f"{FORMULATION_CAP} {no} moved to {NOT_SCORED}."
+
+
+def waiting_again(no, names_text):
+    return f"{FORMULATION_CAP} {no} is {waiting_for(names_text)} again."
+
+
+def formulation_has_all_results(no):
+    """set_aside_formulation's refusal: nothing is missing."""
+    return f"{FORMULATION_CAP} {no} already has all its results."
 
 
 def waiting_generate_caption(n, names_text):

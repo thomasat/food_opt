@@ -290,7 +290,7 @@ def render(opt):
         return
     order = insights.round_order(opt)
     st.caption(_say(opt, wording.insights_header(n, order[-1][0] if order else None,
-                                                 len(opt.waiting_rows()))))
+                                                 len(opt.awaited_rows()))))
     computed = _computed(opt) if n >= insights.MIN_ROWS else None
     failed = computed is not None and computed.get("failed")
     if failed:

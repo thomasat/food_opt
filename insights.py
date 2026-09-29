@@ -68,6 +68,10 @@ def outputs(opt):
 
 
 def measured(opt, name, i):
+    # A formulation moved to Not scored counts for nothing here, its partial
+    # values included: the confirmation says so.
+    if opt.is_set_aside(i):
+        return None
     if name == SCORE:
         # A formulation still waiting for results has no Overall score to
         # learn from yet: its missing measurement counts as zero in it.
@@ -195,6 +199,7 @@ def data_key(opt):
     return _digest({
         "X": opt.X_history, "Y": opt.Y_history, "R": opt.results_history,
         "ids": opt.formulation_ids, "rounds": opt.batch_history,
+        "aside": [opt.is_set_aside(i) for i in range(len(opt.Y_history))],
         **_model_settings(opt),
     })
 
@@ -247,7 +252,7 @@ def _row_key(opt, i):
     decides the measurements that apply to it)."""
     at = lambda seq: seq[i] if i < len(seq) else None
     return _digest([opt.X_history[i], opt.Y_history[i], at(opt.results_history),
-                    at(opt.formulation_ids)])
+                    at(opt.formulation_ids), opt.is_set_aside(i)])
 
 
 def round_keys(opt):

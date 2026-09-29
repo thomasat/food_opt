@@ -101,6 +101,12 @@ def _amount_table(opt, recipe):
             st.caption(wording.RESULT_PERCENT_PROCESS_HELP)
 
 
+# The View formulation box's entry for Best so far, whichever formulation
+# that is. A word, not None: Streamlit reads a selectbox value of None as
+# "nothing chosen", and the box then read "Choose an option".
+BEST_CHOICE = "best"
+
+
 def _selected_formulation(opt):
     """A default that follows the best score, plus read-only history choices."""
     best_index = opt.best_index()
@@ -108,24 +114,39 @@ def _selected_formulation(opt):
     numbers = _all_numbers(opt)
     if len(numbers) < 2:
         return numbers[0] if numbers else None
-    options = ([None] if best_no is not None else []) + [n for n in numbers if n != best_no]
+    options = ([BEST_CHOICE] if best_no is not None else []) + [n for n in numbers if n != best_no]
     key = f"result_view_{opt.project_name}"
-    if key in st.session_state and st.session_state[key] not in options:
-        st.session_state.pop(key)
+    # The Best so far entry's label names its formulation, and the browser
+    # keeps the label it was shown: after Best so far moved, the box kept
+    # naming the old one above a heading naming the new one (0.8.0 review,
+    # UX minor 11). A value set here is sent to the browser again, so the
+    # box comes back to Best so far under its new label — also when the
+    # formulation picked in it is the one that became Best so far.
+    seen = f"_result_view_best_{opt.project_name}"
+    stale = key in st.session_state and st.session_state[key] not in options
+    moved = (st.session_state.get(seen, best_no) != best_no
+             and st.session_state.get(key) == BEST_CHOICE)
+    if stale or moved:
+        if BEST_CHOICE in options:
+            st.session_state[key] = BEST_CHOICE
+        else:
+            st.session_state.pop(key, None)
+    st.session_state[seen] = best_no
 
     labels = {}
     for choice in options:
-        number = best_no if choice is None else choice
+        number = best_no if choice == BEST_CHOICE else choice
         index = opt.index_of_formulation(number)
         skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
         batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
         labels[choice] = wording.for_project(opt, wording.result_view_option(
-            number, batch, best=choice is None, unscored=index is None))
+            number, batch, best=choice == BEST_CHOICE,
+            unscored=index is None or opt.is_set_aside(index)))
 
     chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
                           format_func=labels.__getitem__, key=key,
                           help=wording.for_project(opt, wording.RESULT_VIEW_HELP))
-    return best_no if chosen is None else chosen
+    return best_no if chosen in (None, BEST_CHOICE) else chosen
 
 
 def _unscored_details(opt, number):
@@ -180,11 +201,11 @@ def _progress_line(opt):
 
 def _best(opt):
     """Details for the selected formulation, defaulting to the best. Returns
-    (said_partial, score_without): said_partial is True when it has already
+    (said_partial, missing): said_partial is True when it has already
     said what a partial score cannot be compared with, so the table below
-    does not say the same sentence again on the same screen; score_without
-    is the reserved slot for the Score without buttons, or None, which
-    render() fills last."""
+    does not say the same sentence again on the same screen; missing is the
+    reserved slot for the missing-values panel of a formulation that waits
+    or was moved to Not scored, or None, which render() fills last."""
     if opt.Y_history and opt.best_index() is None:
         # Nothing has all its results, so there is no best to name.
         st.caption(wording.for_project(opt, wording.NO_COMPLETE_FORMULATION))
@@ -203,7 +224,7 @@ def _best(opt):
     if is_best:
         st.caption(wording.RESULT_BEST_HELP_WITHOUT if opt.best_scored_without()
                    else wording.RESULT_BEST_HELP)
-        if opt.waiting_rows():
+        if opt.awaited_rows():
             st.caption(wording.RESULT_BEST_COMPLETE_ONLY)
         line = _progress_line(opt)
         if line:
@@ -272,20 +293,21 @@ def _best(opt):
     # With every measurement deleted the ceiling is 0, and "Overall score
     # 0.00 of 0.00" is a sentence about nothing; the banner at the top of
     # the tab already says what to do about it.
-    score_without = None
+    missing = None
     if waiting is not None:
-        st.caption(wording.overall_score_waiting(number_list(waiting)))
+        st.caption(wording.not_scored_missing(number_list(waiting)) + "."
+                   if opt.is_set_aside(index)
+                   else wording.overall_score_waiting(number_list(waiting)))
         # Reserved here, drawn last by render(): a confirmation armed in
         # Edit past formulations below must grey these on the same run.
-        score_without = {"number": number, "names": waiting,
-                         "slot": st.container()}
+        missing = {"number": number, "names": waiting, "slot": st.container()}
     elif ceiling > 0:
         st.caption(wording.overall_score_caption(
             float(opt.Y_history[index]), ceiling,
             number_list(opt.not_expected(index))))
     if partial:
         st.caption(_complete_results_caption(opt))
-    return partial, score_without
+    return partial, missing
 
 
 def _complete_results_caption(opt):
@@ -295,29 +317,70 @@ def _complete_results_caption(opt):
         not opt.best_scored_without()))
 
 
-def _score_without_buttons(opt, number, names):
-    """One secondary button per measurement the formulation waits for: the
-    sample is gone, or the value will never come. Entering the value later
-    undoes it. Greyed and ignored while a confirmation is open, and the
-    flash says when the star moved, as a correction's does."""
+def _missing_key(no, name):
+    return f"missing_{no}_{name}"
+
+
+def _missing_panel(opt, number, names):
+    """Under a formulation still waiting for results, or moved to Not
+    scored: one box per missing measurement and Save, the lit button —
+    entering the value is the first way out, and it used to be the hardest
+    (review 0.8.0) — then the secondary one: Move to Not scored, behind a
+    confirmation, or Wait for its results again. Greyed and ignored while
+    another confirmation is open."""
+    index = opt.index_of_formulation(number)
+    objs = {o['name']: o for o in opt.objectives}
+    typed = _measurement_boxes([objs[n] for n in names if n in objs],
+                               lambda name: _missing_key(number, name))
+    key = f"set_aside_{number}"
     lit = not confirmation_open()
-    for name in names:
-        if st.button(wording.score_without_button(name),
-                     key=f"score_without_{number}_{name}",
+    if st.button(wording.save_missing(number_list(names)), key=f"save_missing_{number}",
+                 type="primary" if lit else "secondary", disabled=not lit) and lit:
+        _save_missing(opt, number, typed)
+    if opt.is_set_aside(index):
+        if st.button(wording.WAIT_AGAIN, key=f"wait_again_{number}",
                      disabled=not lit) and lit:
-            before = best_formulation_no(opt)
-            opt.score_without(number, name)
-            if not saved_ok(opt):
-                return
-            index = opt.index_of_formulation(number)
-            sentences = [wording.scored_without(
-                number, name,
-                None if index is None else waiting_text(opt, index))]
-            move = best_move_sentence(before, best_formulation_no(opt))
-            if move:
-                sentences.append(move)
-            flash("success", " ".join(sentences))
+            opt.wait_again(number)
+            if saved_ok(opt):
+                flash("success", wording.waiting_again(number, number_list(names)))
+                st.rerun()
+        return
+    if confirm_action(key, wording.MOVE_TO_NOT_SCORED,
+                      wording.move_to_not_scored_warning(number),
+                      disabled=other_confirmation(key)):
+        opt.set_aside_formulation(number)
+        if saved_ok(opt):
+            flash("success", wording.moved_to_not_scored(number))
             st.rerun()
+
+
+def _save_missing(opt, number, typed):
+    """Write the values typed into the missing boxes onto the recorded row.
+    Nothing recorded is overwritten, so no copy is kept first; a blank box
+    stays missing."""
+    objs = {o['name']: o for o in opt.objectives}
+    for name, value in typed.items():
+        problem = scale_error(objs[name], value)
+        if problem:
+            st.error(problem)
+            return
+    entered = {n: float(v) for n, v in typed.items() if v is not None}
+    if not entered:
+        st.error(wording.ENTER_A_MEASUREMENT)
+        return
+    index = opt.index_of_formulation(number)
+    before = best_formulation_no(opt)
+    opt.edit_result(index, {**opt.results_history[index], **entered})
+    if not saved_ok(opt):
+        return
+    for name in typed:
+        st.session_state.pop(_missing_key(number, name), None)
+    sentences = [wording.formulation_scored(number, waiting_text(opt, index))]
+    move = best_move_sentence(before, best_formulation_no(opt))
+    if move:
+        sentences.append(move)
+    flash("success", " ".join(sentences))
+    st.rerun()
 
 
 def _amount_format(opt, frame):
@@ -1309,7 +1372,7 @@ def render(opt, storage):
         return
     if not opt.objectives:
         st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
-    said_partial, score_without = _best(opt)
+    said_partial, missing = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the
     # one way back to Set up is right here, not several sections down. Its
@@ -1335,15 +1398,16 @@ def render(opt, storage):
                      key="change_setup_from_results", disabled=not lit) and lit:
             go_to_tab(TAB_SETUP)
     with foot:
-        _foot(opt, pending is not None)
+        # A formulation's own Save for its missing values is the lit button
+        # while it is on screen (spec 0.8.0 review fixes §9 B2).
+        _foot(opt, pending is not None or missing is not None)
     if pending is not None:
         with pending['slot']:
             _save_correction(opt, storage, pending)
     # Both rerun when clicked, so they come after every other widget on the
     # tab has been drawn: what is typed in the fold below survives.
-    if score_without is not None:
-        with score_without['slot']:
-            _score_without_buttons(opt, score_without['number'],
-                                   score_without['names'])
+    if missing is not None:
+        with missing['slot']:
+            _missing_panel(opt, missing['number'], missing['names'])
     with open_correction:
         _open_correction_button(opt)

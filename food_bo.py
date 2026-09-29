@@ -1515,7 +1515,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 16  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 17  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -1574,6 +1574,8 @@ class FoodOptimizer:
         self.notes_history = []       # the lab's note per scored row, or ""
         self.skipped = []             # generated but never scored: dicts with
                                       # formulation / batch / recipe / note
+        self.set_aside = []           # numbers of recorded formulations moved
+                                      # to Not scored while waiting (0.8.0)
         self.next_formulation_no = 1
         # The same rule for batches: a batch number is permanent. Deriving it
         # from the batches still on file handed batch 2's number to the next
@@ -3533,20 +3535,40 @@ class FoodOptimizer:
         counts towards COLD_START_RUNS."""
         return len(self.Y_history) - len(self.waiting_rows())
 
-    def score_without(self, formulation_no, name):
-        """Stop waiting for `name` on one formulation — the sample is gone,
-        or the value will never come — and score it on the rest at once.
-        Entering a value later undoes it: a value always applies."""
-        obj = next((o for o in self.objectives if o['name'] == name), None)
-        if obj is None:
-            raise ValueError(wording.no_measurement_named(name))
+    def is_set_aside(self, index):
+        """True when this recorded formulation was moved to Not scored while
+        it waited for results (set_aside_formulation). It keeps its row, its
+        Round and its partial values, and is left out exactly like a waiting
+        one: no suggestion model, no Best so far, nothing on Insights. Once
+        it has all its results — the value was entered, or the measurement
+        it lacked was deleted — it is an ordinary formulation again."""
+        no = self._number_at(index)
+        return (no is not None and int(no) in self.set_aside
+                and not self.fully_measured(index))
+
+    def awaited_rows(self):
+        """Positions of the formulations still waiting for results: the
+        rows waiting_rows() leaves out of the model, minus the ones moved to
+        Not scored. What every "waiting for" count on screen counts."""
+        return [i for i in self.waiting_rows() if not self.is_set_aside(i)]
+
+    def set_aside_formulation(self, formulation_no):
+        """Move a recorded formulation that waits for results to Not scored:
+        the sample is gone, or the value will never come. Nothing about the
+        suggestions changes — a waiting row was never in the model — and
+        entering the missing value, or wait_again(), undoes it."""
         index = self.index_of_formulation(formulation_no)
         if index is None:
             raise IndexError("There is no formulation at that position.")
-        obj['not_for'] = sorted(set(obj.get('not_for') or [])
-                                | {int(formulation_no)})
-        self.Y_history[index] = self._compute_utility(
-            self._results_at(index), int(formulation_no))
+        if self.fully_measured(index):
+            raise ValueError(wording.formulation_has_all_results(formulation_no))
+        self.set_aside = sorted(set(self.set_aside) | {int(formulation_no)})
+        self.save()
+
+    def wait_again(self, formulation_no):
+        """Undo set_aside_formulation: the formulation waits for its results
+        again."""
+        self.set_aside = [n for n in self.set_aside if n != int(formulation_no)]
         self.save()
 
     def has_every_measurement(self, index):
@@ -3678,7 +3700,8 @@ class FoodOptimizer:
                 # Every measurement, then scored without one, then waiting
                 # for results, then Not scored: a rescaled score sorted
                 # among the full ones put an unstarred 97.47 above the star.
-                "_rank": (0 if i in every else 1) if complete else 2,
+                "_rank": ((0 if i in every else 1) if complete
+                          else 3 if self.is_set_aside(i) else 2),
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
                 "_batch": 0 if batch is None else int(batch),
@@ -3693,6 +3716,8 @@ class FoodOptimizer:
             # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
                 f"{float(self.Y_history[i]):.2f}" if complete
+                else wording.not_scored_missing(number_list(self.waiting_on(i)))
+                if self.is_set_aside(i)
                 else wording.waiting_for(number_list(self.waiting_on(i))))
             row[wording.DATE_RECORDED_COLUMN] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
@@ -5347,7 +5372,7 @@ class FoodOptimizer:
                 row[total_col] = self._total_cell(recipe)
             for obj in objs:
                 row[self._measurement_column(obj)] = results.get(obj['name'])
-            row[wording.NOT_SCORED] = ""
+            row[wording.NOT_SCORED] = wording.TICKED_BOX if self.is_set_aside(i) else ""
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             rows.append(row)
         for left_out in self.skipped:
@@ -7013,6 +7038,11 @@ class FoodOptimizer:
             self.results_history[index] = dict(new_results_dict)
         self.Y_history[index] = self._compute_utility(
             new_results_dict, self._number_at(index))
+        if self.fully_measured(index):
+            # The missing value arrived: a formulation moved to Not scored
+            # is scored again, with nothing else to click.
+            self.set_aside = [n for n in self.set_aside
+                              if n != self._number_at(index)]
         self.save()
 
     def edit_note(self, index, note):
@@ -7045,6 +7075,8 @@ class FoodOptimizer:
             raise IndexError("There is no formulation at that position.")
         self.X_history.pop(index)
         self.Y_history.pop(index)
+        number = self._number_at(index)
+        self.set_aside = [n for n in self.set_aside if n != number]
         for lst in (self.recipe_history, self.results_history,
                     self.timestamps_history, self.formulation_ids,
                     self.batch_history, self.notes_history):
@@ -8064,7 +8096,8 @@ class FoodOptimizer:
         value for the measurement: the rows without one recorded BEFORE it
         are taken as recorded before the measurement was added, and are
         scored on what they have. A blank after it is a result still to
-        come, and waits — Score without resolves one that never will. With
+        come, and waits — Move to Not scored (set_aside_formulation) sets
+        aside one that never will. With
         no value anywhere, every recorded row is exempt. A present list is
         kept, as whole numbers, sorted."""
         for obj in self.objectives:
@@ -12231,6 +12264,7 @@ class FoodOptimizer:
             'batch_history': self.batch_history,
             'notes_history': self.notes_history,
             'skipped': self.skipped,
+            'set_aside': self.set_aside,
             'next_formulation_no': self.next_formulation_no,
             'next_batch_number': self.next_batch_number,
             'sobol_seed': getattr(self, 'sobol_seed', None),
@@ -12399,6 +12433,7 @@ class FoodOptimizer:
             # so an older or hand-edited backup with a blank note restores.
             'notes_history': lambda x: x is None or isinstance(x, str),
             'skipped': _left_out,
+            'set_aside': _number,
         }
         for key, ok in identity.items():
             if key not in state:
@@ -12649,6 +12684,8 @@ class FoodOptimizer:
         self.notes_history = ["" if t is None else str(t)
                               for t in state.get('notes_history', [])]
         self.skipped = [dict(s) for s in state.get('skipped', [])]
+        # 0.8.0 review fixes: a file written before it has none.
+        self.set_aside = sorted({int(n) for n in state.get('set_aside') or []})
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
         # A file written before batch numbers were stored has none; it is
         # computed from the batches the file holds, in _backfill_identity.

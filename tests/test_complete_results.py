@@ -232,13 +232,13 @@ def test_the_copy_validator_accepts_a_file_without_not_for():
     assert FoodOptimizer.validate_state(_v15_state(opt))['version'] == 15
 
 
-def test_class_version_16_round_trips():
+def test_class_version_17_round_trips():
     opt = _patty(rows=2, cook_loss=False)
     _add_cook_loss(opt)
     state = opt.export_json()
-    assert FoodOptimizer.CLASS_VERSION == 16
-    assert state['CLASS_VERSION'] == 16
-    assert FoodOptimizer.validate_state(state)['version'] == 16
+    assert FoodOptimizer.CLASS_VERSION == 17
+    assert state['CLASS_VERSION'] == 17
+    assert FoodOptimizer.validate_state(state)['version'] == 17
     other = FoodOptimizer("round_trip")
     other.import_json(state)
     assert _not_for(other, "Cook loss") == [1, 2]
@@ -254,7 +254,7 @@ def test_an_older_file_is_saved_back_with_not_for_on_open():
     store.save("older", state)
     FoodOptimizer("older")
     saved = store.load("older")
-    assert saved['CLASS_VERSION'] == 16
+    assert saved['CLASS_VERSION'] == 17
     cook = next(o for o in saved['objectives'] if o['name'] == "Cook loss")
     assert cook['not_for'] == [3]
 
@@ -342,28 +342,6 @@ def test_an_import_is_scored_on_what_it_has():
     opt.import_formulation(_recipe(9), {"Firmness": 6.0})
     assert opt.fully_measured(2)
     assert opt.Y_history[2] == pytest.approx(100.0)   # on target, rescaled
-
-
-def test_score_without_exempts_one_formulation_and_rescores_it():
-    opt = _patty(rows=2)
-    _tell(opt, 3, 1, drop=("Cook loss",))
-    opt.score_without(3, "Cook loss")
-    assert 3 in _not_for(opt, "Cook loss")
-    assert opt.fully_measured(2)
-    u = _u(3)
-    assert opt.Y_history[2] == pytest.approx(
-        (50 * u["Firmness"] + 30 * u["Juiciness"]) * 100 / 80)
-    again = FoodOptimizer(opt.project_name)
-    assert again.Y_history[2] == pytest.approx(opt.Y_history[2])
-    # Undo is entering the value.
-    opt.edit_result(2, dict(opt.results_history[2], **{"Cook loss": 10.0}))
-    assert opt.not_expected(2) == []
-
-
-def test_score_without_refuses_an_unknown_measurement():
-    opt = _patty(rows=1)
-    with pytest.raises(ValueError):
-        opt.score_without(1, "Crunch")
 
 
 def test_a_row_with_nothing_that_applies_is_never_fully_measured():
@@ -610,11 +588,8 @@ def test_every_new_string_passes_the_vocabulary_guard():
         wording.COMPLETE_RESULTS_CAPTION, wording.NO_COMPLETE_FORMULATION,
         wording.RESULT_BEST_COMPLETE_ONLY,
         wording.overall_score_waiting("Cook loss"),
-        wording.score_without_button("Cook loss"),
-        wording.scored_without(12, "Cook loss"),
         wording.saved_waiting([12], "Cook loss"),
         wording.saved_waiting([7, 8, 9, 10, 11, 12], "Cook loss"),
-        wording.scored_without(12, "Cook loss", "Juiciness"),
         wording.overall_score_caption(80.0, 100, "Cook loss"),
         wording.waiting_generate_caption(2, ""),
         wording.formulation_corrected(12, "Cook loss"),

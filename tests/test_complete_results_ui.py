@@ -100,23 +100,6 @@ def test_no_complete_formulation_says_so(all_waiting):
                for c in at.caption), [c.value for c in at.caption]
 
 
-def test_a_selected_waiting_formulation_offers_score_without(one_waiting):
-    at = _app(wording.TAB_RESULTS)
-    at.selectbox(key="result_view_burger").set_value(4)
-    at.run()
-    captions = [c.value for c in at.caption]
-    assert "Overall score waiting for Juiciness." in captions, captions
-    button = _submit_button(at, "Score without Juiciness")
-    assert button.proto.type == "secondary"
-    button.click()
-    at.run()
-    assert not at.exception
-    assert any(s.value == "Formulation 4 scored without Juiciness."
-               for s in at.success), [s.value for s in at.success]
-    reloaded = FoodOptimizer("burger")
-    assert reloaded.fully_measured(reloaded.index_of_formulation(4))
-
-
 def test_a_measurement_added_later_shows_a_dash(scored):
     scored.add_objective("Cook loss", 20, goal="min", min_val=0, max_val=40)
     at = _app(wording.TAB_RESULTS)
@@ -227,71 +210,14 @@ def test_insights_header_counts_the_waiting(one_waiting):
 # ---------------------------------------------------------------- final fixes
 
 
-def _score_without(at, number, name):
-    at.selectbox(key="result_view_burger").set_value(number)
-    at.run()
-    _submit_button(at, f"Score without {name}").click()
-    at.run()
-    assert not at.exception
-    return [s.value for s in at.success]
-
-
-def test_score_without_never_takes_the_star(burger):
-    """Formulation 2 has Firmness on target and waits for Juiciness. Scored
-    without it, it would outscore Formulation 1, which has every
-    measurement; it is not compared with it (review fixes, Task 1)."""
-    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
-                {"Juiciness": 7.0, "Firmness": 1.0}, formulation_no=1,
-                batch_no=1)
-    burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
-                {"Firmness": 6.0}, formulation_no=2, batch_no=1)
-    assert burger.best_formulation_no() == 1
-    at = _app(wording.TAB_RESULTS)
-    flashes = _score_without(at, 2, "Juiciness")
-    assert "Formulation 2 scored without Juiciness." in flashes, flashes
-    assert FoodOptimizer("burger").best_formulation_no() == 1
-
-
-def test_score_without_names_what_it_still_waits_for(burger):
-    burger.add_objective("Cook loss", 1.0, goal="min", min_val=0, max_val=40)
-    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
-                {"Juiciness": 7.0, "Firmness": 6.0, "Cook loss": 10.0},
-                formulation_no=1, batch_no=1)
-    burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
-                {"Firmness": 6.0}, formulation_no=2, batch_no=1)
-    at = _app(wording.TAB_RESULTS)
-    flashes = _score_without(at, 2, "Juiciness")
-    assert ("Formulation 2 scored without Juiciness · waiting for "
-            "Cook loss.") in flashes, flashes
-
-
 def _arm_delete(at):
     """Arm the Delete confirmation in Edit past formulations, below the
-    Score without button and the correction button."""
+    missing-values panel and the correction button."""
     at.multiselect(key="delete_formulations").set_value([1])
     at.run()
     _submit_button(at, "Delete Formulation 1").click()
     at.run()
     assert any(w.value.startswith("Delete Formulation 1?") for w in at.warning)
-
-
-def test_score_without_steps_aside_while_a_confirmation_is_open(one_waiting):
-    """The confirmation's Yes is the one thing to do: Score without is greyed
-    on the very run the question opens below it, and a click that reaches it
-    anyway is ignored (T6)."""
-    at = _app(wording.TAB_RESULTS)
-    at.selectbox(key="result_view_burger").set_value(4)
-    at.run()
-    assert not _submit_button(at, "Score without Juiciness").disabled
-    _arm_delete(at)
-    button = _submit_button(at, "Score without Juiciness")
-    assert button.disabled
-    button.click()
-    at.run()
-    assert not at.exception
-    reloaded = FoodOptimizer("burger")
-    assert not reloaded.fully_measured(reloaded.index_of_formulation(4))
-    assert not any("scored without" in s.value for s in at.success)
 
 
 def test_the_correction_door_steps_aside_while_a_confirmation_is_open(one_waiting):

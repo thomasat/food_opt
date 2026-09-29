@@ -301,14 +301,13 @@ def _waiting_caption(opt):
     the suggestions are still spread out when that is the reason. The
     measurement is named only when every waiting formulation waits for the
     same ones; otherwise 'waiting for results'."""
-    waiting = opt.waiting_rows()
+    waiting = opt.awaited_rows()
     if not waiting:
         return ""
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
     names = number_list(next(iter(sets))) if len(sets) == 1 else ""
     line = wording.waiting_generate_caption(len(waiting), names)
-    complete = len(opt.Y_history) - len(waiting)
-    if complete < COLD_START_RUNS <= len(opt.Y_history):
+    if opt.complete_count() < COLD_START_RUNS <= len(opt.Y_history):
         line += " " + wording.still_spread_out(COLD_START_RUNS)
     return line
 
