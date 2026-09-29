@@ -659,7 +659,8 @@ THREE_KEY = "insights_three"
 MIXTURE_KEY = "_insights_mixture"
 
 _TRI_H = math.sqrt(3) / 2
-_MIX_SIZE = 380          # px, width and height: the triangle keeps its shape
+_MIX_SIZE = 380          # px, the longer side of the drawn region: it keeps its shape
+_MIX_PAD = 0.12          # of the region's longer side, around it for the labels
 
 # One hue, light to dark, starting a quarter in: the palest blues read as
 # the light grey of a point that breaks a limit.
@@ -804,15 +805,28 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
     predicted = _say(opt, wording.PREDICTED_SCORE_COLUMN)
     allowed = df[df["state"] != kinds[2]]["score"]
     lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
-    pad = 0.12
-    x = alt.X("X:Q", axis=None, scale=alt.Scale(domain=[-pad, 1 + pad], nice=False, zero=False))
-    y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=[-pad - 0.07, 1 + pad - 0.07],
-                                                nice=False, zero=False))
+    # Zoomed to the drawn region (0.8.0 review fixes §5.1): the domains are
+    # its extent plus a margin for the labels, and the chart's width and
+    # height follow them, so a unit is the same length both ways.
+    (x0, x1), (y0, y1) = mixture_extent(df)
+    side = max(x1 - x0, y1 - y0, 1e-9)
+    pad = _MIX_PAD * side
+    x_dom, y_dom = [x0 - pad, x1 + pad], [y0 - pad, y1 + pad]
+    px = _MIX_SIZE / (side + 2 * pad)
+    width, height = round((x_dom[1] - x_dom[0]) * px), round((y_dom[1] - y_dom[0]) * px)
+    x = alt.X("X:Q", axis=None, scale=alt.Scale(domain=x_dom, nice=False, zero=False))
+    y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=y_dom, nice=False, zero=False))
+    # A grid point's mark fills about the same share of the gap to its
+    # neighbour however far the region is zoomed: 70 px² at the whole
+    # triangle's 1/30 step in 380 px.
+    step_px = px / mix.steps
+    big = max(8, round(70 * (step_px / (_MIX_SIZE / GRID_BASE)) ** 2))
+    small = max(3, round(big * 16 / 70))
     # An explicit ordinal type: without it Vega-Lite compiles a "point"
     # scale for a size range, which only honours the range's start and
     # stop and interpolates the middle entry instead of using its own
     # value (16 draws as ~43).
-    size_scale = alt.Scale(domain=kinds, range=[70, 16, 16], type="ordinal")
+    size_scale = alt.Scale(domain=kinds, range=[big, small, small], type="ordinal")
     # A size-only channel, shared by both layers: the smaller mark says
     # "not tested near here" without fading a colour that already means a
     # score. Its legend swatches get their fill from state_legend below —
@@ -852,29 +866,20 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
                             fill=alt.Fill("state:N", sort=kinds, scale=state_colors,
                                          legend=alt.Legend(title=None, labelLimit=0)),
                             stroke=alt.Stroke("state:N", sort=kinds, scale=state_colors)))
-    corners = [(0.0, 0.0), (1.0, 0.0), (0.5, _TRI_H)]
-    outline = (alt.Chart(pd.DataFrame([{"X": cx, "Y": cy, "k": k}
-                                       for k, (cx, cy) in enumerate(corners + corners[:1])]))
-               .mark_line(color="gray", strokeWidth=1, tooltip=False)
-               .encode(x=x, y=y, order="k:Q"))
-    # Each corner's own amount, L*ᵢ + R: where that ingredient takes all the
-    # room, the same number the grid point there shows on hover. The three
-    # share one number of decimals — the most any of them needs, up to 2 —
-    # so the triangle never mixes "10.0 g" and "9 g".
-    corner_amounts = [mix.lower[k] + mix.span for k in range(3)]
-    corner_decimals = _shared_decimals(corner_amounts)
+    # Each one's largest amount inside the region, U*ᵢ where it can reach
+    # it — never an amount past its Highest — written where the region
+    # reaches it. The three share one number of decimals, the most any of
+    # them needs, up to 2, so the labels never mix "10.0 g" and "9 g".
+    corner_decimals = _shared_decimals(mix.top)
 
     def corner(k):
         return _say(opt, wording.mixture_corner(
-            mix.names[k], join_unit(f"{corner_amounts[k]:.{corner_decimals}f}", mix.units[k])))
-    labels = pd.DataFrame([
-        {"X": 0.0, "Y": -0.06, "t": corner(0), "align": "left"},
-        {"X": 1.0, "Y": -0.06, "t": corner(1), "align": "right"},
-        {"X": 0.5, "Y": _TRI_H + 0.05, "t": corner(2), "align": "center"}])
-    text = [alt.Chart(labels[labels["align"] == al])
-            .mark_text(align=al, baseline="middle", color="gray", tooltip=False)
-            .encode(x=x, y=y, text="t:N") for al in ("left", "right", "center")]
-    layers = [outline, grey, grid, state_legend]
+            mix.names[k], join_unit(f"{mix.top[k]:.{corner_decimals}f}", mix.units[k])))
+    places = _corner_places(mix, pad, corner)
+    text = [alt.Chart(pd.DataFrame([row]))
+            .mark_text(align=row["align"], baseline="middle", color="gray", tooltip=False)
+            .encode(x=x, y=y, text="t:N") for row in places]
+    layers = [grey, grid, state_legend]
     if mix.dots:
         dots = pd.DataFrame([{**dict(zip(("X", "Y"), _xy(d.x))), "no": d.formulation}
                              for d in mix.dots])
@@ -896,9 +901,38 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
                           tooltip=[alt.Tooltip("no:Q", title=formulation)] + amounts + own))
     layers += _labels(alt.Chart(start), x, y, "t:N", align="left", dx=12)
     return (alt.layer(*layers, *text).properties(
-                width=_MIX_SIZE, height=_MIX_SIZE,
+                width=width, height=height,
                 autosize=alt.AutoSizeParams(type="pad", contains="padding"))
             .configure_view(stroke=None))
+
+
+GRID_BASE = insights.GRID_STEPS
+
+
+def mixture_extent(df):
+    """((x0, x1), (y0, y1)) of the grid points on the page."""
+    return (float(df["X"].min()), float(df["X"].max())), (float(df["Y"].min()), float(df["Y"].max()))
+
+
+def _corner_places(mix, pad, text):
+    """Where each label goes: beside the grid point where that one is
+    largest (ties: the middle of that edge), pushed outwards from the
+    region's centre by `pad`, aligned away from it."""
+    pts = [(p.x, _xy(p.x)) for p in mix.points]
+    cx = sum(xy[0] for _, xy in pts) / len(pts)
+    cy = sum(xy[1] for _, xy in pts) / len(pts)
+    rows = []
+    for k in range(3):
+        most = max(x[k] for x, _ in pts)
+        at = [xy for x, xy in pts if x[k] >= most - 1e-9]
+        X = sum(a for a, _ in at) / len(at)
+        Y = sum(b for _, b in at) / len(at)
+        dx, dy = X - cx, Y - cy
+        norm = math.hypot(dx, dy) or 1.0
+        align = "left" if dx > 0.25 * norm else "right" if dx < -0.25 * norm else "center"
+        rows.append({"X": X + 0.5 * pad * dx / norm, "Y": Y + 0.5 * pad * dy / norm,
+                     "t": text(k), "align": align})
+    return rows
 
 
 def misses_chart(opt, found):
@@ -988,33 +1022,29 @@ def _start_number(opt):
 _THREE_TRIES = 20
 
 
-def _has_room(opt, names, start):
-    """Whether these three can trade places from `start`: room between
-    their implied Lowest and Highest, and a start that breaks no limit."""
-    try:
-        mix = insights.mixture_slice(opt, names, start, steps=1)
-    except Exception:
-        return False
-    return mix.refusal is None and not mix.start_breaks
-
-
 def _three_default(opt, fitted, offered, start):
-    """The first three, in order, that can trade places from `start`: the
-    offered choices ranked by their spread from question 2 (a choice the
-    limits keep in place has no spread and is not ranked), then the rest in
-    Set up order, taken three at a time in that order (at most _THREE_TRIES
-    tries). With none that can, the first combination, as before; any
-    failure of the spreads falls back to Set up order."""
+    """Of the first _THREE_TRIES combinations of three — the offered choices
+    ranked by their spread from question 2 (a choice the limits keep in
+    place has no spread and is not ranked), then the rest in Set up order —
+    the one with the largest allowed share of its triangle
+    (insights.allowed_share; ties go to the earlier). With none that can
+    trade places, the first combination, as before; any failure of the
+    spreads falls back to Set up order (0.8.0 review fixes §5.2)."""
     try:
         ranked = [s.name for s in insights.spreads(opt, fitted, start).moved
                   if s.name in offered]
     except Exception:
         ranked = []
     order = ranked + [n for n in offered if n not in ranked]
+    best, best_share = None, 0.0
     for names in itertools.islice(itertools.combinations(order, 3), _THREE_TRIES):
-        if _has_room(opt, list(names), start):
-            return list(names)
-    return order[:3]
+        try:
+            share = insights.allowed_share(opt, list(names), start)
+        except Exception:
+            share = 0.0
+        if share > best_share + 1e-12:
+            best, best_share = list(names), share
+    return best if best is not None else order[:3]
 
 
 def _mixture_cached(opt, fitted, names, number, start):

@@ -3,6 +3,7 @@
 and "How far did each prediction miss?". AppTest, like
 tests/test_insights_ui.py, plus the chart builders on their own."""
 import dataclasses
+import itertools
 import json
 import pickle
 import re
@@ -304,14 +305,17 @@ def mixture_scored(tmp_path, monkeypatch):
 
 
 def _triangles(block):
-    return [c for c in _charts(block) if c.get("width") == ui_insights._MIX_SIZE]
+    # The one chart drawn without a view frame (configure_view(stroke=None)).
+    return [c for c in _charts(block)
+            if "stroke" in ((c.get("config") or {}).get("view") or {})
+            and c["config"]["view"]["stroke"] is None]
 
 
 def _corner_texts(mix):
-    """The three corner labels as mixture_chart draws them: one shared
-    number of decimals across all three (the most any of them needs, up to
-    2), so a triangle never mixes "10.0 g" and "9 g"."""
-    amounts = [mix.lower[k] + mix.span for k in range(3)]
+    """The three labels as mixture_chart draws them: each one's largest
+    amount inside the region, one shared number of decimals across all
+    three (the most any of them needs, up to 2)."""
+    amounts = mix.top
     decimals = ui_insights._shared_decimals(amounts)
     return [wording.mixture_corner(mix.names[k],
                                    ui_insights.join_unit(f"{amounts[k]:.{decimals}f}", mix.units[k]))
@@ -331,23 +335,33 @@ def test_the_triangle_heading_picks_and_caption(mixture_scored):
     best_no = mixture_scored.best_formulation_no()
     assert wording.mixture_caption(best_no) in [c.value for c in more.caption]
     [tri] = _triangles(more)
-    assert tri["height"] == ui_insights._MIX_SIZE
+    assert max(tri["width"], tri["height"]) == ui_insights._MIX_SIZE
 
 
-def test_the_triangle_opens_on_the_largest_spreads(mixture_scored, monkeypatch):
+def _most_room(opt, order):
+    """The first combination of three, in `order`, with the largest allowed
+    share (the default rule, worked out here independently)."""
+    start = insights.start_recipe(opt, opt.best_index())
+    combos = list(itertools.combinations(order, 3))[:ui_insights._THREE_TRIES]
+    shares = [insights.allowed_share(opt, list(c), start) for c in combos]
+    return list(combos[shares.index(max(shares))])
+
+
+def test_the_triangle_opens_on_the_most_room_in_spread_order(mixture_scored, monkeypatch):
     monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([
         insights.Spread("Starch", 9.0), insights.Spread("Oil", 5.0),
         insights.Spread("Pea protein", 1.0)], []))
     at = _open_insights(_app())
     three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
-    assert three.value == ["Starch", "Oil", "Pea protein"]
+    assert three.value == _most_room(mixture_scored, ["Starch", "Oil", "Pea protein", "Water"])
 
 
-def test_without_spreads_the_triangle_opens_on_the_first_three(mixture_scored, monkeypatch):
+def test_without_spreads_the_triangle_opens_on_the_most_room_in_set_up_order(
+        mixture_scored, monkeypatch):
     monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([], []))
     at = _open_insights(_app())
     three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
-    assert three.value == ["Pea protein", "Oil", "Starch"]
+    assert three.value == _most_room(mixture_scored, ["Pea protein", "Oil", "Starch", "Water"])
 
 
 def test_two_picked_asks_for_three(mixture_scored):
@@ -388,8 +402,10 @@ def test_the_triangle_is_worked_out_once(mixture_scored, monkeypatch):
     _rerun_on(at)
     _rerun_on(at)
     assert calls == [1]
-    next(b for b in _more(at).multiselect
-         if b.label == wording.MIXTURE_PICK).set_value(["Oil", "Starch", "Water"])
+    box = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
+    other = next(list(c) for c in itertools.combinations(box.options, 3)
+                 if list(c) != list(box.value))
+    box.set_value(other)
     _rerun_on(at)
     assert calls == [1, 1]
 
@@ -480,7 +496,8 @@ def test_the_triangle_is_drawn_at_its_own_size(mixture_scored, monkeypatch):
     real = st.altair_chart
 
     def spy(chart, *a, **k):
-        drawn.append((chart.to_dict().get("width"), k.get("width")))
+        spec = chart.to_dict()
+        drawn.append((max(spec.get("width") or 0, spec.get("height") or 0), k.get("width")))
         return real(chart, *a, **k)
     monkeypatch.setattr(st, "altair_chart", spy)
     _open_insights(_app())
@@ -516,10 +533,11 @@ def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    assert spec["width"] == spec["height"]
     enc = next(l for l in spec["layer"] if l["mark"]["type"] == "circle")["encoding"]
     xd, yd = enc["x"]["scale"]["domain"], enc["y"]["scale"]["domain"]
-    assert xd[1] - xd[0] == pytest.approx(yd[1] - yd[0])
+    # One unit is the same length both ways, whatever the region's shape.
+    assert spec["width"] / (xd[1] - xd[0]) == pytest.approx(
+        spec["height"] / (yd[1] - yd[0]), rel=0.02)
     assert enc["x"]["axis"] is None and enc["y"]["axis"] is None
     texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
     for text in _corner_texts(mix):
@@ -534,7 +552,7 @@ def test_corner_labels_never_mix_decimal_counts(mixture_scored):
     corners share one count instead — the most any of them needs, up to 2."""
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
-    mix = dataclasses.replace(mix, lower=[9.0, 8.0, 4.0], span=1.0)   # corners: 10, 9, 5
+    mix = dataclasses.replace(mix, top=[10.0, 9.0, 5.0])
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
     assert wording.mixture_corner(mix.names[0], "10.0 g") in texts
@@ -591,7 +609,7 @@ def test_the_triangle_is_not_squashed_by_streamlits_default_autosize(mixture_sco
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    assert spec["width"] == spec["height"] == ui_insights._MIX_SIZE
+    assert max(spec["width"], spec["height"]) == ui_insights._MIX_SIZE
     assert spec["autosize"]["type"] == "pad"
 
 
@@ -681,27 +699,23 @@ def test_the_invisible_legend_layer_is_clipped(mixture_scored):
                spec["datasets"][dummy["data"]["name"]])
 
 
-def test_the_left_and_right_corner_labels_anchor_at_their_own_corner(mixture_scored):
-    """The left corner's label grows rightward from x=0 with align="left";
-    the right corner's grows leftward from x=1 with align="right"; the top
-    label stays centred. This keeps the two side labels away from each
-    other instead of drifting toward the middle."""
+def test_each_label_grows_away_from_the_region(mixture_scored):
+    """A label right of the region's centre grows rightward (align left), one
+    left of it grows leftward, one above or below it is centred: the three
+    never grow into the grid or into each other."""
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    left_text, right_text, top_text = _corner_texts(mix)
-
-    def align_for(text):
-        for l in spec["layer"]:
-            if _mark_type(l) != "text":
-                continue
-            rows = spec["datasets"].get(l["data"]["name"], [])
-            if any(r.get("t") == text for r in rows):
-                return l["mark"]["align"]
-        return None
-    assert align_for(left_text) == "left"
-    assert align_for(right_text) == "right"
-    assert align_for(top_text) == "center"
+    cx = sum(ui_insights._xy(p.x)[0] for p in mix.points) / len(mix.points)
+    for text in _corner_texts(mix):
+        layer = next(l for l in spec["layer"] if _mark_type(l) == "text"
+                     and any(r.get("t") == text for r in _layer_rows(spec, l)))
+        [row] = _layer_rows(spec, layer)
+        align = layer["mark"]["align"]
+        if align == "left":
+            assert row["X"] > cx
+        elif align == "right":
+            assert row["X"] < cx
 
 
 def test_exact_wave_c_strings_for_the_triangle():
@@ -848,8 +862,8 @@ def test_the_triangle_opens_on_the_real_moved_spreads(mixture_scored):
     found = insights.spreads(mixture_scored, fitted,
                              insights.start_recipe(mixture_scored, best))
     offered = insights.mixture_choices(mixture_scored)
-    ranked = [s.name for s in found.moved if s.name in offered][:3]
-    want = ranked + [n for n in offered if n not in ranked][:3 - len(ranked)]
+    ranked = [s.name for s in found.moved if s.name in offered]
+    want = _most_room(mixture_scored, ranked + [n for n in offered if n not in ranked])
     three = next(b for b in _more(at).multiselect if b.label == wording.MIXTURE_PICK)
     assert three.value == want
 
@@ -951,24 +965,26 @@ def _layer_rows(spec, layer):
     return spec["datasets"][layer["data"]["name"]]
 
 
-def test_each_corner_label_shows_the_amount_its_corner_tooltip_shows(mixture_scored):
-    """A corner is where one of the three takes all the room: its own
-    amount L*ᵢ + R, the same number the grid point there shows on hover —
-    not the row's Highest, which the corner may never reach."""
+def test_each_label_is_the_largest_amount_a_grid_point_shows(mixture_scored):
+    """Review fixes §5.1: each label is that one's largest amount inside
+    the drawn region, the most any grid point's tooltip shows for it, and
+    never past its own Highest (the 0.8.0 build said "Beet juice powder
+    7.2 g" with a Highest of 1.2 g)."""
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     frame, _, _ = ui_insights.mixture_frame(opt, mix, preds)
     labels = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
     corner_texts = _corner_texts(mix)
+    highest = {v['name']: float(v['bounds'][1]) for v in opt.variables}
     for k, name in enumerate(mix.names):
-        corner = next(p for p in mix.points if p.x[k] == 1.0)
-        X, Y = ui_insights._xy(corner.x)
-        [tip] = frame[(frame["X"] == X) & (frame["Y"] == Y)][f"a{k}"]
         [label] = [t for t in labels if t.startswith(name + " ")]
         assert label == corner_texts[k]
         shown = float(label[len(name) + 1:].split()[0])
-        assert shown == pytest.approx(tip, abs=0.051)
+        # The grid reaches it to within one step of the grid.
+        assert -0.051 <= shown - frame[f"a{k}"].max() <= mix.span / mix.steps + 0.051
+        if name != opt.balance_row_name():
+            assert shown <= highest[name] + 0.051
         assert "up to" not in label
 
 
@@ -1033,8 +1049,8 @@ def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):
 
 def test_the_default_three_have_room_from_a_start_at_its_lowests(mixture_scored, monkeypatch):
     """Pea protein, Oil and Starch all at their Lowest: the three largest
-    spreads cannot trade places from there, so the default moves on to the
-    first combination that can, in the same order."""
+    spreads cannot trade places from there, so the default is a
+    combination that can, the one with the most room."""
     opt = mixture_scored
     monkeypatch.setattr(insights, "spreads", lambda o, fitted, start: insights.Spreads([
         insights.Spread("Pea protein", 9.0), insights.Spread("Oil", 5.0),
@@ -1044,7 +1060,10 @@ def test_the_default_three_have_room_from_a_start_at_its_lowests(mixture_scored,
     assert insights.mixture_slice(opt, ["Pea protein", "Oil", "Starch"], start).refusal == \
         insights.NO_ROOM
     got = ui_insights._three_default(opt, {}, offered, start)
-    assert got == ["Pea protein", "Oil", "Water"]
+    assert "Water" in got
+    shares = {tuple(c): insights.allowed_share(opt, list(c), start)
+              for c in itertools.combinations(offered, 3)}
+    assert shares[tuple(got)] == max(shares.values())
     mix = insights.mixture_slice(opt, got, start)
     assert mix.refusal is None and not mix.start_breaks
 

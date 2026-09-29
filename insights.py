@@ -955,7 +955,12 @@ def mixture_choices(opt):
             if v['name'] == fill or (v['name'] in varying and v['name'] not in read)]
 
 
-GRID_STEPS = 30          # barycentric step 1/30: 496 points
+GRID_STEPS = 30          # barycentric step 1/30: 496 points over the whole triangle
+# The grid covers only the amounts each of the three can take (0.8.0 review
+# fixes §5.1): a region that is a fraction f of the triangle is sampled
+# ceil(1/sqrt(f)) times finer, up to this many times, so it keeps about as
+# many points as the whole triangle had.
+MAX_REFINE = 10
 # Why a Mixture has no chart (Mixture.refusal); the screen words each one.
 NO_ROOM = "no_room"            # the three already sit at their Lowest or Highest
 FILL_FOLLOWS = "fill_follows"  # the Fill to total row is one of the three and a
@@ -999,6 +1004,8 @@ class Mixture:
     follows: list          # calculation rows that move with the three
     fill_moves: str | None # the Fill to total row, when it takes up a change
     skipped: list          # property limits that cannot be checked
+    top: list | None = None  # each one's largest amount inside the drawn region
+    steps: int = GRID_STEPS  # the grid's barycentric steps, after refining
 
 
 def _numeric(recipe):
@@ -1033,10 +1040,10 @@ def _near_other_rows(opt, names, start, rec):
     return True
 
 
-def _mixture_dots(opt, names, start, S, low, R):
+def _mixture_dots(opt, names, start, S, low, R, cap=(1.0, 1.0, 1.0)):
     """The fully measured formulations close to the slice, each projected
     onto it (its three amounts scaled to sum to S) and kept only when that
-    lands inside the triangle."""
+    lands inside the drawn region (x_k <= cap_k)."""
     dots = []
     for i in range(len(opt.Y_history)):
         if not opt.fully_measured(i):
@@ -1050,7 +1057,7 @@ def _mixture_dots(opt, names, start, S, low, R):
             continue
         a = [v * S / s2 for v in amounts]
         x = tuple((a[k] - low[k]) / R for k in range(3))
-        if min(x) < -1e-6 or max(x) > 1 + 1e-6:
+        if min(x) < -1e-6 or any(x[k] > cap[k] + 1e-6 for k in range(3)):
             continue
         dots.append(MixtureDot(int(opt.formulation_ids[i]), x, tuple(a)))
     return dots
@@ -1086,10 +1093,19 @@ def mixture_slice(opt, names, start, steps=GRID_STEPS):
     breaks = _limits_broken(opt, _numeric(opt.fill_formulas(dict(start))), moving, start)
     if breaks:
         return Mixture(**dict(base, start_breaks=breaks))
-    dots = _mixture_dots(opt, names, start, S, low, R)
+    # The drawn region: inside the triangle, each at most its implied
+    # Highest (U*). The L-pseudo corner L*+R can lie past it.
+    cap = [min(1.0, (up[k] - low[k]) / R) for k in range(3)]
+    top = [low[k] + cap[k] * R for k in range(3)]
+    inside = lambda x: all(x[k] <= cap[k] + 1e-9 for k in range(3))
+    base_grid = _simplex(steps)
+    share = sum(inside(x) for x in base_grid) / len(base_grid)
+    refine = min(MAX_REFINE, max(1, math.ceil(1 / math.sqrt(max(share, 1e-12)))))
+    steps = steps * refine
+    dots = _mixture_dots(opt, names, start, S, low, R, cap)
     spans = [bounds[k][1] - bounds[k][0] for k in range(3)]
     points = []
-    for x in _simplex(steps):
+    for x in (x for x in _simplex(steps) if inside(x)):
         a = tuple(low[k] + x[k] * R for k in range(3))
         r = dict(start)
         for n, v in zip(names, a):
@@ -1100,8 +1116,31 @@ def mixture_slice(opt, names, start, steps=GRID_STEPS):
         tested = any(max(abs(a[k] - d.amounts[k]) / spans[k] for k in range(3))
                      <= CLOSE_TO_THE_BEST + _EPS for d in dots)
         points.append(MixturePoint(x, a, None if broken else r, broken, tested))
-    return Mixture(**dict(base, points=points, dots=dots,
+    return Mixture(**dict(base, points=points, dots=dots, top=top, steps=steps,
                           fill_moves=fill if (follows and fill and fill not in names) else None))
+
+
+def allowed_share(opt, names, start, steps=10):
+    """How much of the three's trade space is allowed from `start`: the
+    share of a coarse grid over the whole triangle that keeps every limit,
+    each one's own Lowest-Highest included. 0 when they cannot trade places
+    (no room, the fill follows a calculation, or the start breaks a limit).
+    Picks the default three (0.8.0 review fixes §5.2)."""
+    mix = mixture_slice(opt, names, start, steps=1)
+    if mix.refusal or mix.start_breaks:
+        return 0.0
+    fill = opt.balance_row_name()
+    moving = [n for n in names if n != fill]
+    ok = 0
+    grid = _simplex(steps)
+    for x in grid:
+        r = dict(mix.start)
+        for n, k in zip(names, range(3)):
+            if n != fill:
+                r[n] = mix.lower[k] + x[k] * mix.span
+        if _limits_broken(opt, _numeric(opt.fill_formulas(r)), moving, mix.start) is None:
+            ok += 1
+    return ok / len(grid)
 
 
 def mixture_predictions(opt, fitted, mix):

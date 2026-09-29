@@ -119,19 +119,25 @@ def test_implied_bounds_and_the_span():
     assert mix.span == pytest.approx(8.0)
 
 
-def test_496_points_each_on_the_sum_and_the_corners_are_the_most_of_each():
+def test_the_grid_covers_only_what_each_can_take_and_keeps_its_density():
+    """Review fixes §5.1 / §9 I10: the grid is built over the region where
+    each of the three stays within its implied Highest (U*), not the whole
+    L-pseudo triangle, whose corner (12 g of Pea) lies past Pea's 8 g. Half
+    the triangle is left, so the grid is twice as fine: 1/60."""
     opt = _burger(rounds=0, fill=False)
     s = _start(opt, Pea=6.0, Oil=4.0, Water=90.0)
     mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"], s)
-    assert len(mix.points) == 496
+    assert mix.steps == 60
+    assert len(mix.points) > 496
     for p in mix.points:
         assert sum(p.x) == pytest.approx(1.0)
         assert sum(p.amounts) == pytest.approx(100.0)
         for k in range(3):
             assert p.amounts[k] == pytest.approx(mix.lower[k] + p.x[k] * mix.span)
-    corner = {p.x: p.amounts for p in mix.points}
-    assert corner[(1.0, 0.0, 0.0)] == pytest.approx((12.0, 2.0, 86.0))
-    assert corner[(0.0, 0.0, 1.0)] == pytest.approx((4.0, 2.0, 94.0))
+            assert p.amounts[k] <= mix.upper[k] + 1e-9
+    assert mix.top == pytest.approx([8.0, 6.0, 94.0])
+    for k in range(3):
+        assert max(p.amounts[k] for p in mix.points) == pytest.approx(mix.top[k])
 
 
 def test_every_coloured_point_keeps_every_limit_and_the_sum():
@@ -330,3 +336,54 @@ def test_the_triangle_leaves_the_project_and_rng_untouched():
     mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"], insights.start_recipe(opt, 0))
     insights.mixture_predictions(opt, fitted, mix)
     assert _state(opt) == state and torch.equal(torch.get_rng_state(), rng)
+
+
+# ------------------------------------------------------------------ #
+#  Review fixes (2026-09-29) §5: only the allowed region, and the default
+# ------------------------------------------------------------------ #
+
+def test_a_whole_triangle_keeps_the_base_grid():
+    """Three rows whose implied Highest is the L-pseudo corner itself: the
+    whole triangle is the region, drawn at 1/30 as before."""
+    opt = _four()
+    s = _start(opt, Pea=6.0, Oil=4.0, Starch=5.0, Water=85.0)
+    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Starch"], s)
+    # Pea 4-8, Oil 2-6, Starch 1-21 around S = 15: R = 8, every U* = L* + R
+    # only for Starch; Pea and Oil cap at half the span.
+    assert mix.top[2] == pytest.approx(mix.lower[2] + mix.span)
+    opt2 = FoodOptimizer(f"wide_{next(_no)}")
+    opt2.set_amount_unit("g")
+    for n in ("A", "B", "C"):
+        opt2.add_ingredient(n, 0, 10)
+    opt2.set_formulation_total(10)
+    opt2.add_objective("Taste", 100, goal="max", min_val=0, max_val=30)
+    wide = insights.mixture_slice(opt2, ["A", "B", "C"], _start(opt2, A=4.0, B=3.0, C=3.0))
+    assert wide.steps == insights.GRID_STEPS and len(wide.points) == 496
+    assert wide.top == pytest.approx([10.0, 10.0, 10.0])
+
+
+def test_a_narrow_region_is_refined_but_capped():
+    opt = _four()
+    s = _start(opt, Pea=6.0, Oil=4.0, Starch=5.0, Water=85.0)
+    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"], s)
+    assert insights.GRID_STEPS <= mix.steps <= insights.GRID_STEPS * insights.MAX_REFINE
+    assert all(all(p.amounts[k] <= mix.upper[k] + 1e-9 for k in range(3)) for p in mix.points)
+
+
+def test_a_tested_formulation_outside_the_region_is_not_a_dot():
+    opt = _four([(6.0, 4.0, 5.0)])
+    s = insights.start_recipe(opt, 0)
+    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"], s)
+    for d in mix.dots:
+        assert all(d.amounts[k] <= mix.upper[k] + 1e-6 for k in range(3))
+
+
+def test_allowed_share_counts_the_trade_space_every_limit_keeps():
+    opt = _four()
+    s = _start(opt, Pea=6.0, Oil=4.0, Starch=5.0, Water=85.0)
+    free = insights.allowed_share(opt, ["Pea", "Oil", "Water"], s)
+    opt.add_quantity_constraint(["Pea", "Oil"], max_val=11.0)
+    tighter = insights.allowed_share(opt, ["Pea", "Oil", "Water"], s)
+    assert 0 < tighter < free <= 1
+    stuck = _start(opt, Pea=4.0, Oil=2.0, Starch=1.0, Water=93.0)
+    assert insights.allowed_share(opt, ["Pea", "Oil", "Starch"], stuck) == 0.0
