@@ -4099,3 +4099,15 @@ TRACK_MEASURED = "Measured"
 TRACK_LOW = "Likely range from"
 TRACK_HIGH = "Likely range to"
 TRACK_INSIDE = "Inside"
+
+
+# Insights wave B (0.8.0): predictions on Make a round, the spread of each
+# ingredient or process setting, and the formulation predicted to score
+# highest. Every number that is a prediction carries its likely range.
+PREDICTIONS_WORKING = "Preparing the predictions…"
+PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN}"
+PREDICTED_SCORE_HELP = (f"Predicted from the {FORMULATION}s scored so far; about 19 in 20 "
+                        "results land in the likely range.")
+PREDICTIONS_ROUND_CAPTION = (f"Some {FORMULATION}s are chosen to try amounts not tested yet, "
+                             "so their prediction can be lower than Best so far.")
+PREDICTED_MEASUREMENTS = "Predicted measurements"

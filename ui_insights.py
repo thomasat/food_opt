@@ -150,12 +150,34 @@ def path_chart(opt, path, preds):
 #  render: the only Streamlit code in this module
 # ------------------------------------------------------------------ #
 
-# The fitted models and the Round-by-Round checks, keyed by insights.data_key.
-# A project's own: app.py's _reset_project_session drops it with the two
-# section-2 controls below.
+# The fitted models, keyed by insights.data_key, shared by Make a round (its
+# predictions) and this tab, so neither fits them twice. None: the fit
+# failed, cached like a success so it is not tried again on every rerun.
+FITTED_KEY = "_insights_fitted"
+# The Round-by-Round checks, under the same key. They take the models from
+# FITTED_KEY and add only the checks.
 CACHE_KEY = "_insights_cache"
+# All of the above are a project's own: app.py's _reset_project_session drops
+# them with the two section-2 controls below.
 CHOICE_KEY = "insights_choice"
 START_KEY = "insights_start"
+
+
+def fitted_models(opt, working=wording.INSIGHTS_WORKING):
+    """insights.fit_all for this project's data, fitted once per data_key.
+    None when the fit failed."""
+    key = insights.data_key(opt)
+    hit = st.session_state.get(FITTED_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    with st.spinner(working):
+        try:
+            # Through the module attribute, so a test can stand in for the fit.
+            value = insights.fit_all(opt)
+        except Exception:
+            value = None
+    st.session_state[FITTED_KEY] = (key, value)
+    return value
 
 
 def _computed(opt):
@@ -163,14 +185,17 @@ def _computed(opt):
     hit = st.session_state.get(CACHE_KEY)
     if hit and hit[0] == key:
         return hit[1]
-    with st.spinner(wording.INSIGHTS_WORKING):
-        try:
-            # Through the module attribute, so a test can stand in for the fit.
-            value = {"fitted": insights.fit_all(opt), "checks": insights.check_rounds(opt)}
-        except Exception:
-            # Cached like a success, under the same key: one line on the tab
-            # instead of a traceback, and not tried again on every rerun.
-            value = _FAILED
+    fitted = fitted_models(opt)
+    if fitted is None:
+        value = _FAILED
+    else:
+        with st.spinner(wording.INSIGHTS_WORKING):
+            try:
+                value = {"fitted": fitted, "checks": insights.check_rounds(opt)}
+            except Exception:
+                # Cached like a success, under the same key: one line on the
+                # tab instead of a traceback, and not tried again every rerun.
+                value = _FAILED
     st.session_state[CACHE_KEY] = (key, value)
     return value
 
@@ -279,6 +304,28 @@ def _change(opt, computed, n):
         st.altair_chart(chart)
     for line in lines:
         st.caption(line)
+
+
+def _whole(value):
+    return f"{value:.0f}"
+
+
+def range_text(low, high, fmt=None):
+    """"70–85"; "-1.25 to 0.4" when a bound is negative, so a minus sign is
+    never read as part of the dash."""
+    fmt = fmt or _num
+    sep = " to " if low < 0 or high < 0 else "–"
+    return f"{fmt(low)}{sep}{fmt(high)}"
+
+
+def score_text(p):
+    """An Overall-score prediction: whole numbers, "78 (70–85)"."""
+    return f"{_whole(p.mean)} ({range_text(p.low, p.high, _whole)})"
+
+
+def value_text(p):
+    """A measurement prediction, formatted as the rest of the tab."""
+    return f"{_num(p.mean)} ({range_text(p.low, p.high)})"
 
 
 def _num(value):

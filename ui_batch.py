@@ -29,6 +29,8 @@ from ui_helpers import (
     table_height, typed_batch_size, unit_after_number,
 )
 from food_bo import COLD_START_RUNS
+import insights
+import ui_insights
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
@@ -562,7 +564,50 @@ def _title(opt):
             len(opt.pending_batch_discarded) > 1))
 
 
-def _batch_table(opt, scale_to):
+def _round_predictions(opt, tab_open):
+    """{Formulation number: {output: Prediction}} for the open Round's rows
+    not yet recorded, or None when there is nothing to show: the tab is not
+    open (hidden tabs never fit a model), the spread-out start is not over,
+    or there is no Overall-score model."""
+    if not tab_open or opt.complete_count() < insights.MIN_ROWS:
+        return None
+    fitted = ui_insights.fitted_models(opt, wording.PREDICTIONS_WORKING)
+    score = None if fitted is None else fitted.get(insights.SCORE)
+    if score is None or score.model is None:
+        return None
+    try:
+        preds = insights.round_predictions(opt, fitted, open_rows(opt))
+    except Exception:   # the table stands without the column
+        return None
+    return preds or None
+
+
+def _with_predictions(opt, frame, preds):
+    """The make-these table with the Predicted Overall score column after
+    the amounts and settings, before Note and the Compared-with column. A
+    row already recorded or Not scored shows nothing."""
+    tail = sum(1 for c in (wording.NOTE, opt.compared_with_column())
+               if c in frame.columns)
+    cells = [ui_insights.score_text(preds[no][insights.SCORE]) if no in preds else ""
+             for no in frame[wording.FORMULATION_CAP]]
+    out = frame.copy()
+    out.insert(len(frame.columns) - tail, wording.PREDICTED_SCORE_COLUMN, cells)
+    return out
+
+
+def _predicted_measurements(opt, preds):
+    rows = []
+    for no, per in preds.items():
+        item = {wording.FORMULATION_CAP: no}
+        for obj in opt.objectives:
+            p = per.get(obj['name'])
+            item[opt._measurement_column(obj)] = "—" if p is None else ui_insights.value_text(p)
+        rows.append(item)
+    with st.expander(wording.PREDICTED_MEASUREMENTS):
+        st.dataframe(pd.DataFrame(rows), hide_index=True, height=table_height(len(rows)))
+
+
+def _batch_table(opt, scale_to, tab_open=False):
     """The make-these table and the lines it owes the reader.
 
     Nothing is rewritten to make a row add up: a suggestion that could not be
@@ -579,15 +624,23 @@ def _batch_table(opt, scale_to):
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
+    preds = None
     if not editing:
         if st.button(wording.for_project(opt, wording.EDIT_FORMULATIONS), key=edit_key + "_start", icon=":material/edit:"):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
         st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
+        preds = _round_predictions(opt, tab_open)
+        if preds:
+            frame = _with_predictions(opt, frame, preds)
         st.dataframe(frame.style.format(_amount_format(opt, frame)),
-                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
-                         wording.for_project(opt, wording.FORMULATION_CAP))},
+                     column_config={
+                         wording.FORMULATION_CAP: st.column_config.Column(
+                             wording.for_project(opt, wording.FORMULATION_CAP)),
+                         wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
+                             wording.PREDICTED_SCORE_COLUMN,
+                             help=wording.PREDICTED_SCORE_HELP)},
                      hide_index=True, key="batch_table", height=table_height(len(frame)))
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
@@ -647,7 +700,12 @@ def _batch_table(opt, scale_to):
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
         st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
-
+    # Last, after the lines about the table's amounts: what the new column
+    # means for a row predicted below Best so far, then the per-measurement
+    # predictions one click away.
+    if not editing and preds:
+        st.caption(wording.PREDICTIONS_ROUND_CAPTION)
+        _predicted_measurements(opt, preds)
 
     return editing
 
@@ -1229,7 +1287,7 @@ def _upload(opt):
             go_to_tab(TAB_RESULTS)
 
 
-def render(opt, storage):
+def render(opt, storage, tab_open=False):
     """The open batch reads as the work: make these formulations, print the
     sheets, record what you measured — each step headed with its number, the
     three folded extras after Save, and the one button that throws the batch
@@ -1285,7 +1343,7 @@ def render(opt, storage):
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    if _batch_table(opt, scale_to):
+    if _batch_table(opt, scale_to, tab_open):
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
         return

@@ -166,6 +166,8 @@ def _reset_project_session():
               # Insights: the models fitted to THIS project, and its two
               # boxes, which name this project's rows and formulations.
               ui_insights.CACHE_KEY, ui_insights.CHOICE_KEY, ui_insights.START_KEY,
+              # Wave B: the fitted models Make a round shares with Insights.
+              ui_insights.FITTED_KEY,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
@@ -860,7 +862,9 @@ with tab_setup:
     ui_setup.render(_opt, STORAGE)
 
 with tab_batch:
-    ui_batch.render(_opt, STORAGE)
+    # Its predictions are worked out only while it is open: a hidden tab
+    # never fits a model (a result saved on Results changes the data).
+    ui_batch.render(_opt, STORAGE, tab_open=tab_batch.open)
 
 with tab_results:
     ui_results.render(_opt, STORAGE)

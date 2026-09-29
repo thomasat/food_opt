@@ -355,6 +355,7 @@ def test_insights_computed_once_then_cached(insights_scored, monkeypatch):
     monkeypatch.setattr(insights, "fit_all", lambda opt: calls.append(1) or real(opt))
     at = _open_insights(_app())
     assert calls == [1] and ui_insights.CACHE_KEY in at.session_state
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert calls == [1]
 
@@ -514,6 +515,7 @@ def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, mon
     md, caps = _tab_text(at)
     assert caps.count(wording.INSIGHTS_FAILED) == 1
     assert any(m.startswith("Best so far:") for m in md)       # section 3 still shows
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception and calls == [1]
 
