@@ -42,6 +42,7 @@ class Fitted:
     n_rows: int
     low: float
     high: float
+    widen: float = 1.0
 
 
 @dataclass
@@ -72,23 +73,77 @@ def _range_of(opt, name):
     raise KeyError(name)
 
 
+def _fit_gp(opt, name, rows):
+    """One GP on `rows` (all measured), with the optimizer's own builder so
+    an expert's model settings apply. Raises if the fit fails."""
+    bounds = opt._get_bounds()
+    with _isolated():
+        X = normalize(torch.tensor([opt.X_history[i] for i in rows],
+                                   dtype=torch.double), bounds)
+        Y = torch.tensor([measured(opt, name, i) for i in rows],
+                         dtype=torch.double).unsqueeze(-1)
+        gp = opt._build_gp(X, Y, bounds.shape[1], None)
+        fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+    return gp
+
+
 def fit(opt, name, rows):
     lo, hi = _range_of(opt, name)
     use = [i for i in rows if measured(opt, name, i) is not None]
     if len(use) < MIN_ROWS:
         return Fitted(name, None, None, len(use), lo, hi)
-    bounds = opt._get_bounds()
     try:
-        with _isolated():
-            X = normalize(torch.tensor([opt.X_history[i] for i in use],
-                                       dtype=torch.double), bounds)
-            Y = torch.tensor([measured(opt, name, i) for i in use],
-                             dtype=torch.double).unsqueeze(-1)
-            gp = opt._build_gp(X, Y, bounds.shape[1], None)
-            fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+        gp = _fit_gp(opt, name, use)
     except Exception as exc:   # one model failing must not take the tab down
         return Fitted(name, None, str(exc) or type(exc).__name__, len(use), lo, hi)
-    return Fitted(name, gp, None, len(use), lo, hi)
+    return Fitted(name, gp, None, len(use), lo, hi, _widen(opt, name, use))
+
+
+FOLDS = 5
+
+
+def _cv_z(opt, name, use):
+    """Standardised misses (y - mean) / sd of each row when it was held
+    out: rows go to FOLDS folds by row order, and the model is fitted again
+    (hyperparameters too) on the other folds, then predicts the held-out
+    fold with the variation between Repeats included. A fold whose fit
+    fails is skipped. Only `use` is ever seen, so a Round-ahead check stays
+    honest."""
+    bounds = opt._get_bounds()
+    z = []
+    for k in range(FOLDS):
+        held = [i for n, i in enumerate(use) if n % FOLDS == k]
+        if not held:
+            continue
+        try:
+            gp = _fit_gp(opt, name, [i for n, i in enumerate(use) if n % FOLDS != k])
+            with torch.no_grad(), _isolated():
+                X = normalize(torch.tensor([opt.X_history[i] for i in held],
+                                           dtype=torch.double), bounds)
+                post = gp.posterior(X, observation_noise=True)
+                mean = post.mean.reshape(-1).tolist()
+                sd = post.variance.clamp_min(0.0).sqrt().reshape(-1).tolist()
+        except Exception:
+            continue
+        for i, m, s in zip(held, mean, sd):
+            if s > 0:
+                z.append((measured(opt, name, i) - m) / s)
+    return z
+
+
+def _widen(opt, name, use):
+    """How much to widen this model's likely range: the root-mean-square
+    of its cross-validated misses, never below 1. With few rows the fitted
+    noise comes out too small and the range too narrow (Round-ahead
+    coverage near 78 % at realistic noise); refitting on each fold sees
+    that, where the same-rows leave-one-out did not. Only widens; with no
+    usable fold the range stays as fitted."""
+    try:
+        z = _cv_z(opt, name, use)
+        c = math.sqrt(sum(v * v for v in z) / len(z)) if z else 1.0
+    except Exception:
+        return 1.0
+    return max(1.0, c) if math.isfinite(c) else 1.0
 
 
 def predict(opt, fitted, X_rows):
@@ -99,7 +154,7 @@ def predict(opt, fitted, X_rows):
         X = normalize(torch.tensor(X_rows, dtype=torch.double), bounds)
         post = fitted.model.posterior(X, observation_noise=True)
         mean = post.mean.reshape(-1).tolist()
-        sd = post.variance.clamp_min(0.0).sqrt().reshape(-1).tolist()
+        sd = (post.variance.clamp_min(0.0).sqrt() * fitted.widen).reshape(-1).tolist()
     clip = lambda v: min(fitted.high, max(fitted.low, v))
     # The band is worked from the model's own mean, then clipped: centring it
     # on a mean already clipped to the Range would shift it.

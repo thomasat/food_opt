@@ -703,3 +703,114 @@ def test_setting_choice_is_known():
     assert not insights.has_setting_choice(opt)
     opt.add_process_parameter("Mixing time", 45, 150, baseline=90, unit="s")
     assert insights.has_setting_choice(opt)
+
+
+# ------------------------------------------------------------------ #
+#  Final fix wave A (part 2): the likely range is calibrated by 5-fold
+#  cross-validation, refitting the model on each fold
+# ------------------------------------------------------------------ #
+
+def test_likely_range_holds_about_19_in_20_at_realistic_noise():
+    """Noise sd 0.4 on a 0-10 Range (4 % of it), 4 per Round: the point-fitted
+    noise alone left Round-ahead coverage near 78 % and called good models
+    "not reliable". Widening by the cross-validated misses brings it to ~95 %."""
+    rates, unreliable = [], 0
+    for seed in range(8):
+        opt = _burger(rounds=6 if seed % 2 else 5, per_round=4, noise=0.4, seed=seed)
+        checks = insights.check_rounds(opt)
+        values = [c for c in checks if c.name != insights.SCORE]
+        rates.append(sum(c.inside for c in values) / len(values))
+        unreliable += insights.headline(opt, checks).verdict == "unreliable"
+    assert sum(rates) / len(rates) >= 0.88, rates
+    assert unreliable <= 1, rates
+
+
+def test_widening_only_ever_widens():
+    for noise in (0.0, 0.05, 0.4):
+        opt = _burger(rounds=4, per_round=4, noise=noise)
+        for f in insights.fit_all(opt).values():
+            assert f.widen >= 1.0 and math.isfinite(f.widen)
+
+
+def test_widening_is_one_when_held_out_misses_are_small(monkeypatch):
+    opt = _burger(rounds=3, noise=0.4)
+    monkeypatch.setattr(insights, "_cv_z", lambda opt, name, use: [0.1, -0.2, 0.3])
+    assert insights.fit(opt, "Firmness", list(range(len(opt.Y_history)))).widen == 1.0
+
+
+def test_widening_is_the_rms_of_the_held_out_misses(monkeypatch):
+    opt = _burger(rounds=3, noise=0.4)
+    monkeypatch.setattr(insights, "_cv_z", lambda opt, name, use: [2.0, -2.0, 2.0, -2.0])
+    f = insights.fit(opt, "Firmness", list(range(len(opt.Y_history))))
+    assert f.widen == pytest.approx(2.0)
+    plain = insights.Fitted(f.name, f.model, None, f.n_rows, f.low, f.high)
+    X = [opt.X_history[0]]
+    wide, narrow = insights.predict(opt, f, X)[0], insights.predict(opt, plain, X)[0]
+    assert wide.mean == pytest.approx(narrow.mean)
+    if 0.0 < wide.low and wide.high < 10.0:
+        assert wide.high - wide.low == pytest.approx(2 * (narrow.high - narrow.low))
+
+
+def test_folds_are_by_row_order_and_each_row_is_held_out_once(monkeypatch):
+    opt = _burger(rounds=3, noise=0.4)                     # 9 rows
+    seen = []
+    real = insights._fit_gp
+    def spy(opt_, name, rows):
+        seen.append(list(rows))
+        return real(opt_, name, rows)
+    monkeypatch.setattr(insights, "_fit_gp", spy)
+    use = list(range(9))
+    z = insights._cv_z(opt, "Firmness", use)
+    assert len(z) == 9
+    assert seen == [[i for i in use if i % 5 != k] for k in range(5)]
+    assert insights._cv_z(opt, "Firmness", use) == pytest.approx(z)   # repeatable
+
+
+def test_held_out_misses_match_a_hand_refit():
+    opt = _burger(rounds=3, noise=0.4)
+    use = list(range(9))
+    z = insights._cv_z(opt, "Juiciness", use)
+    held = [0, 5]                                           # fold 0
+    gp = insights._fit_gp(opt, "Juiciness", [i for i in use if i % 5 != 0])
+    f = insights.Fitted("Juiciness", gp, None, 7, -1e9, 1e9)
+    from botorch.utils.transforms import normalize
+    with torch.no_grad():
+        post = gp.posterior(normalize(torch.tensor([opt.X_history[i] for i in held],
+                                                   dtype=torch.double), opt._get_bounds()),
+                            observation_noise=True)
+    y = torch.tensor([insights.measured(opt, "Juiciness", i) for i in held], dtype=torch.double)
+    want = ((y - post.mean.reshape(-1)) / post.variance.sqrt().reshape(-1)).tolist()
+    assert z[:2] == pytest.approx(want, rel=1e-6)
+
+
+def test_a_failed_fold_is_skipped_and_no_folds_means_no_widening(monkeypatch):
+    opt = _burger(rounds=3, noise=0.4)
+    n = len(opt.Y_history)
+    real = opt._build_gp
+    def only_full(X, Y, dim, tf):
+        if Y.shape[0] < n:
+            raise RuntimeError("fold fit")
+        return real(X, Y, dim, tf)
+    monkeypatch.setattr(opt, "_build_gp", only_full)
+    assert insights._cv_z(opt, "Firmness", list(range(n))) == []
+    f = insights.fit(opt, "Firmness", list(range(n)))
+    assert f.model is not None and f.error is None and f.widen == 1.0
+
+
+def test_widening_with_fixed_tiny_noise():
+    opt = _burger(rounds=3, noise=0.4)
+    opt.bo_config = {"noise": "fixed_tiny"}
+    f = insights.fit(opt, "Firmness", list(range(len(opt.Y_history))))
+    assert f.model is not None, f.error
+    assert f.widen >= 1.0 and math.isfinite(f.widen)
+
+
+def test_checks_leave_the_project_rng_and_next_suggestion_untouched():
+    a, b = _burger(rounds=3, noise=0.4), _burger(rounds=3, noise=0.4)
+    before = b.export_json()
+    rng = torch.get_rng_state().clone()
+    insights.fit_all(b)
+    insights.check_rounds(b)
+    assert torch.equal(torch.get_rng_state(), rng)
+    assert b.export_json() == before
+    assert a.ask(2) == b.ask(2)
