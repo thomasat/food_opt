@@ -1515,7 +1515,7 @@ def _build_covar(cfg, dim):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 15  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 16  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
@@ -2291,12 +2291,22 @@ class FoodOptimizer:
                                                          max_val))
         else:
             target = None
-        replaced = any(obj['name'] == name for obj in self.objectives)
+        old = next((obj for obj in self.objectives if obj['name'] == name),
+                   None)
+        replaced = old is not None
+        # Which formulations this measurement does NOT apply to: the ones
+        # already recorded when it was added — they could never have been
+        # measured for it. A replace is the same measurement and keeps its
+        # list; a new name (a delete then a re-add included) starts from the
+        # history as it is now. Open-round rows not yet recorded and Not
+        # scored rows are not in the history, so it applies to them.
+        not_for = (list(old.get('not_for') or []) if replaced
+                   else sorted({int(n) for n in self.formulation_ids}))
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self.objectives.append({
             'name': name, 'weight': weight, 'goal': goal,
             'target': target, 'min_val': min_val, 'max_val': max_val,
-            'unit': str(unit or "").strip(),
+            'unit': str(unit or "").strip(), 'not_for': not_for,
         })
         self._recompute_utilities()
         self.save()
@@ -7708,6 +7718,17 @@ class FoodOptimizer:
         inherit the open batch and write the total that batch is being made
         to against a formulation made before the project existed."""
         self.tell(recipe_dict, results_dict, batch_no=NO_BATCH, note=note)
+        # Past work could not have been measured by this project: a
+        # measurement it has no value for does not apply to it, so it is
+        # scored on what it has instead of waiting for ever.
+        number = int(self.formulation_ids[-1])
+        blank = [obj for obj in self.objectives
+                 if results_dict.get(obj['name']) is None]
+        if blank:
+            for obj in blank:
+                obj['not_for'] = sorted(set(obj.get('not_for') or [])
+                                        | {number})
+            self.save()
 
     def delete_formulation(self, no):
         """Delete one formulation by its global number, scored or left out.
@@ -7863,6 +7884,22 @@ class FoodOptimizer:
         # file from before it existed asked nothing of the sum, and the limit
         # it would have written is not there either.
         self.formulation_total = getattr(self, 'formulation_total', None)
+
+    def _migrate_not_for(self):
+        """A file written before 0.8.0 has no `not_for`. When unsure, exempt:
+        every recorded formulation with no value for a measurement is taken
+        as recorded before it was added, and is scored on what it has rather
+        than left waiting for a value nobody may have. A present list is
+        kept, as whole numbers, sorted."""
+        for obj in self.objectives:
+            if 'not_for' in obj:
+                obj['not_for'] = sorted({int(n) for n in obj['not_for'] or []})
+                continue
+            obj['not_for'] = sorted(
+                int(self.formulation_ids[i])
+                for i, results in enumerate(self.results_history)
+                if i < len(self.formulation_ids)
+                and results.get(obj['name']) is None)
 
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
@@ -12060,6 +12097,16 @@ class FoodOptimizer:
             for item in state[key]:
                 if not isinstance(item, dict) or not isinstance(item.get('name'), str):
                     raise _damaged(f"'{key}' section has the wrong shape")
+        # 0.8.0: the formulations a measurement does not apply to. Absent on
+        # an older file (import_json works it out); present, it is a list of
+        # whole numbers or the copy is refused before anything moves.
+        key = 'objectives'
+        for item in state[key]:
+            not_for = item.get('not_for', [])
+            if not isinstance(not_for, list) or not all(
+                    isinstance(n, int) and not isinstance(n, bool)
+                    for n in not_for):
+                raise _damaged(f"'{key}' section has the wrong shape")
         # A row worked out from the others carries the text as it was typed
         # and, for the one row that takes whatever is left of the batch
         # size, a flag. import_json reads both straight back into the search
@@ -12500,6 +12547,14 @@ class FoodOptimizer:
         else:
             self.X_history = state.get('X_history', [])
 
+        # Identity before the scores: which measurements apply to a row is
+        # read off its formulation number, and a 0.2.x file has none until
+        # _backfill_identity gives it them. And before a 0.2.x pending batch
+        # of bare recipes draws its numbers, or it would reuse numbers the
+        # backfilled history already owns. Order: identity, then the
+        # measurements' not_for, then the scores.
+        self._backfill_identity()
+        self._migrate_not_for()
         if self.results_history and self.objectives:
             self.Y_history = [self._compute_utility(r) for r in self.results_history]
         else:
@@ -12509,10 +12564,6 @@ class FoodOptimizer:
         # restore-from-backup clears any earlier damaged-file error.
         self.load_error = None
 
-        # Identity last: the counter must be correct before a 0.2.x pending
-        # batch of bare recipes draws its numbers, or it would reuse numbers
-        # the backfilled history already owns.
-        self._backfill_identity()
         self.pending_batch = self._number_batch(self.pending_batch)
         if self.pending_batch and self.pending_batch_no is None:
             self.pending_batch_no = self._issue_batch_no()
