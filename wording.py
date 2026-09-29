@@ -4136,7 +4136,7 @@ TRACK_INSIDE = "Inside"
 # ingredient or process setting, and the formulation predicted to score
 # highest. Every number that is a prediction carries its likely range.
 PREDICTIONS_WORKING = "Preparing the predictions…"
-PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN}"
+PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (likely range)"
 PREDICTED_SCORE_HELP = (f"Predicted from the {FORMULATION}s scored so far; about 19 in 20 "
                         "results land in the likely range.")
 def predictions_round_caption(values=False):

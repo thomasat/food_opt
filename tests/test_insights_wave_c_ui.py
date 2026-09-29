@@ -2,6 +2,7 @@
 "Can you have both?", "What happens when three ingredients trade places?"
 and "How far did each prediction miss?". AppTest, like
 tests/test_insights_ui.py, plus the chart builders on their own."""
+import dataclasses
 import json
 import pickle
 import re
@@ -306,6 +307,17 @@ def _triangles(block):
     return [c for c in _charts(block) if c.get("width") == ui_insights._MIX_SIZE]
 
 
+def _corner_texts(mix):
+    """The three corner labels as mixture_chart draws them: one shared
+    number of decimals across all three (the most any of them needs, up to
+    2), so a triangle never mixes "10.0 g" and "9 g"."""
+    amounts = [mix.lower[k] + mix.span for k in range(3)]
+    decimals = ui_insights._shared_decimals(amounts)
+    return [wording.mixture_corner(mix.names[k],
+                                   ui_insights.join_unit(f"{amounts[k]:.{decimals}f}", mix.units[k]))
+            for k in range(3)]
+
+
 def test_the_triangle_heading_picks_and_caption(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -510,9 +522,33 @@ def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
     assert xd[1] - xd[0] == pytest.approx(yd[1] - yd[0])
     assert enc["x"]["axis"] is None and enc["y"]["axis"] is None
     texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
-    for k, name in enumerate(mix.names):
-        assert wording.mixture_corner(name, ui_insights._amount(mix.lower[k] + mix.span, "g")) in texts
+    for text in _corner_texts(mix):
+        assert text in texts
     assert wording.start_formulation(7) in texts
+
+
+def test_corner_labels_never_mix_decimal_counts(mixture_scored):
+    """One corner's own amount can round to a whole number (10 g) by
+    `_num`'s own rule (one decimal from 10) while another needs none (9 g):
+    shown side by side that reads as two different precisions, so the three
+    corners share one count instead — the most any of them needs, up to 2."""
+    opt = mixture_scored
+    mix, preds = _mix_parts(opt)
+    mix = dataclasses.replace(mix, lower=[9.0, 8.0, 4.0], span=1.0)   # corners: 10, 9, 5
+    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
+    texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
+    assert wording.mixture_corner(mix.names[0], "10.0 g") in texts
+    assert wording.mixture_corner(mix.names[1], "9.0 g") in texts
+    assert wording.mixture_corner(mix.names[2], "5.0 g") in texts
+    assert wording.mixture_corner(mix.names[0], "10 g") not in texts
+    assert wording.mixture_corner(mix.names[1], "9 g") not in texts
+
+
+def test_shared_decimals_is_the_neediest_of_the_values_up_to_2():
+    assert ui_insights._shared_decimals([10.0, 9.0]) == 1
+    assert ui_insights._shared_decimals([100.0, 9.0]) == 0
+    assert ui_insights._shared_decimals([10.0, 9.0, 3.25]) == 2
+    assert ui_insights._shared_decimals([0.0001, 5.0]) == 2   # capped at 2
 
 
 def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(mixture_scored):
@@ -653,10 +689,7 @@ def test_the_left_and_right_corner_labels_anchor_at_their_own_corner(mixture_sco
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    left_text, right_text, top_text = (
-        wording.mixture_corner(mix.names[k], ui_insights._amount(mix.lower[k] + mix.span,
-                                                                 mix.units[k]))
-        for k in range(3))
+    left_text, right_text, top_text = _corner_texts(mix)
 
     def align_for(text):
         for l in spec["layer"]:
@@ -927,13 +960,13 @@ def test_each_corner_label_shows_the_amount_its_corner_tooltip_shows(mixture_sco
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     frame, _, _ = ui_insights.mixture_frame(opt, mix, preds)
     labels = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
+    corner_texts = _corner_texts(mix)
     for k, name in enumerate(mix.names):
         corner = next(p for p in mix.points if p.x[k] == 1.0)
         X, Y = ui_insights._xy(corner.x)
         [tip] = frame[(frame["X"] == X) & (frame["Y"] == Y)][f"a{k}"]
         [label] = [t for t in labels if t.startswith(name + " ")]
-        assert label == wording.mixture_corner(name, ui_insights._amount(corner.amounts[k],
-                                                                         mix.units[k]))
+        assert label == corner_texts[k]
         shown = float(label[len(name) + 1:].split()[0])
         assert shown == pytest.approx(tip, abs=0.051)
         assert "up to" not in label
@@ -948,39 +981,35 @@ def test_the_triangle_colour_legend_title_is_never_cut_short(mixture_scored):
     assert grid["encoding"]["color"]["legend"]["titleLimit"] == 0
 
 
-def _halo_for(spec, label_layer):
-    """The layer drawn immediately under a label: the same text with a
-    stroke, so the grey label reads over the marks around it."""
-    layers = spec["layer"]
-    halo = layers[layers.index(label_layer) - 1]
-    assert _mark_type(halo) == "text" and halo["mark"].get("stroke")
-    assert halo["mark"].get("strokeWidth", 0) >= 2
-    for key in ("align", "dx", "dy", "baseline"):
-        assert halo["mark"].get(key) == label_layer["mark"].get(key), key
-    assert halo["encoding"]["text"] == label_layer["encoding"]["text"]
-    assert halo["encoding"]["x"] == label_layer["encoding"]["x"]
-    assert halo["encoding"]["y"] == label_layer["encoding"]["y"]
-    return halo
+def _assert_offset_not_haloed(spec, label_layer):
+    """No second, white-stroked layer duplicates the label (a halo glows in
+    dark mode and doubles the text for screen readers): a plain grey label,
+    moved clear of the mark it names by a `dy` offset, stands alone."""
+    assert not label_layer["mark"].get("stroke")
+    assert label_layer["mark"].get("dy")
+    same_data = [l for l in spec["layer"] if _mark_type(l) == "text"
+                 and l["data"] == label_layer["data"]]
+    assert same_data == [label_layer]
 
 
-def test_the_start_label_has_a_halo_so_it_reads_over_the_grid(mixture_scored):
+def test_the_start_label_is_offset_not_haloed(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    [label] = [l for l in spec["layer"] if _mark_type(l) == "text" and not l["mark"].get("stroke")
+    [label] = [l for l in spec["layer"] if _mark_type(l) == "text"
                and _layer_rows(spec, l)[0]["t"] == wording.start_formulation(7)]
     assert label["mark"]["color"] == "gray"
-    _halo_for(spec, label)
+    _assert_offset_not_haloed(spec, label)
 
 
-def test_the_best_so_far_label_has_a_halo(tmp_path, monkeypatch):
+def test_the_best_so_far_label_is_offset_not_haloed(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
                                   insights.pair_points(opt, "Firmness", "Cook loss")).to_dict()
-    [label] = [l for l in _layers(spec, "text") if not l["mark"].get("stroke")]
+    [label] = _layers(spec, "text")
     assert label["mark"]["color"] == "gray"
     assert label["encoding"]["text"] == {"value": wording.PAIR_BEST}
-    _halo_for(spec, label)
+    _assert_offset_not_haloed(spec, label)
 
 
 def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):

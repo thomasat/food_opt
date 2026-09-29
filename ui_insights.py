@@ -356,7 +356,10 @@ def spread_chart(spreads):
     order = [s.name for s in spreads]
     return (alt.Chart(df).mark_bar()
             .encode(x=alt.X(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS),
-                    y=alt.Y("name:N", sort=order, title=None),
+                    # An ingredient's name is never cut short, however long:
+                    # labelLimit=0 turns off Vega-Lite's default truncation.
+                    y=alt.Y("name:N", sort=order, title=None,
+                           axis=alt.Axis(labelLimit=0, titleLimit=0)),
                     tooltip=["name:N", f"{wording.SPREAD_AXIS}:Q"])
             .properties(height=28 * len(spreads) + 20))
 
@@ -439,6 +442,18 @@ def _num(value):
 
 def _amount(value, unit):
     return join_unit(_num(value), unit)
+
+
+def _shared_decimals(values):
+    """How many decimals to show every one of `values` with: the most any
+    of them needs on its own (by `_num`'s own rule), capped at 2 — so three
+    numbers shown together never mix "10.0" and "9"."""
+    decimals = 0
+    for v in values:
+        text = _num(v)
+        if "." in text:
+            decimals = max(decimals, len(text.split(".", 1)[1]))
+    return min(2, decimals)
 
 
 def _path_captions(opt, path, number, fitted):
@@ -619,14 +634,12 @@ def _keep_all_offered(key, options):
 
 
 def _labels(chart, x, y, text, **mark):
-    """A grey text label and, drawn just under it, the same text with a
-    thick white stroke: a small halo, so the label reads over the dots and
-    grid marks around it in either theme. Neither carries a tooltip."""
-    halo = (chart.mark_text(color="white", stroke="white", strokeWidth=3, strokeJoin="round",
-                            opacity=0.8, tooltip=False, **mark)
-            .encode(x=x, y=y, text=text))
-    label = chart.mark_text(color="gray", tooltip=False, **mark).encode(x=x, y=y, text=text)
-    return [halo, label]
+    """A single grey text label, moved clear of the mark it names by a `dy`
+    offset (and `dx`, from the caller, when the mark also needs to move
+    sideways) rather than a white halo: a halo glows in dark mode and
+    duplicates the text for screen readers. Carries no tooltip."""
+    mark.setdefault("dy", -14)
+    return [chart.mark_text(color="gray", tooltip=False, **mark).encode(x=x, y=y, text=text)]
 
 
 def _xy(x):
@@ -803,10 +816,15 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
                .mark_line(color="gray", strokeWidth=1, tooltip=False)
                .encode(x=x, y=y, order="k:Q"))
     # Each corner's own amount, L*ᵢ + R: where that ingredient takes all the
-    # room, the same number the grid point there shows on hover.
+    # room, the same number the grid point there shows on hover. The three
+    # share one number of decimals — the most any of them needs, up to 2 —
+    # so the triangle never mixes "10.0 g" and "9 g".
+    corner_amounts = [mix.lower[k] + mix.span for k in range(3)]
+    corner_decimals = _shared_decimals(corner_amounts)
+
     def corner(k):
         return _say(opt, wording.mixture_corner(
-            mix.names[k], _amount(mix.lower[k] + mix.span, mix.units[k])))
+            mix.names[k], join_unit(f"{corner_amounts[k]:.{corner_decimals}f}", mix.units[k])))
     labels = pd.DataFrame([
         {"X": 0.0, "Y": -0.06, "t": corner(0), "align": "left"},
         {"X": 1.0, "Y": -0.06, "t": corner(1), "align": "right"},

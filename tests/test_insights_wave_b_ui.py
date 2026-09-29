@@ -534,6 +534,16 @@ def test_spread_chart_is_horizontal_largest_first_without_error_bars():
     assert ui_insights.spread_chart([]) is None
 
 
+def test_spread_chart_never_truncates_an_ingredient_name():
+    """A long name like "Textured pea protein" must not be cut short on the
+    y axis: labelLimit=0 turns off Vega-Lite's default truncation."""
+    chart = ui_insights.spread_chart([insights.Spread("Textured pea protein", 6.2),
+                                      insights.Spread("Oil", 2.0)])
+    axis = chart.to_dict()["encoding"]["y"]["axis"]
+    assert axis["labelLimit"] == 0
+    assert axis["titleLimit"] == 0
+
+
 # ------------------------------------------------------------------ #
 #  Task 5: which formulation is predicted to score highest
 # ------------------------------------------------------------------ #
@@ -719,7 +729,7 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
 
 
 def test_exact_wave_b_strings():
-    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score"
+    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (likely range)"
     assert wording.PREDICTED_SCORE_HELP == (
         "Predicted from the formulations scored so far; about 19 in 20 results land in the likely range.")
     assert wording.PREDICTIONS_ROUND_CAPTION == (
