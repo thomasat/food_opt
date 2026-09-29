@@ -70,3 +70,83 @@ def test_insights_with_no_complete_formulation(six_waiting):
     assert not at.exception
     start = at.tabs[3].selectbox(key="insights_start")
     assert start.options[0] == wording.start_formulation(6)
+
+
+# ---------------------------------------------------------------- Task 6
+
+
+def _overall(at):
+    table = next(d.value for d in at.dataframe
+                 if wording.OVERALL_SCORE_COLUMN in d.value.columns)
+    return dict(zip(table["Formulation"], table[wording.OVERALL_SCORE_COLUMN]))
+
+
+def test_the_table_says_what_a_waiting_formulation_waits_for(one_waiting):
+    at = _app(wording.TAB_RESULTS)
+    assert not at.exception
+    assert _overall(at)[4] == "waiting for Juiciness"
+    captions = [c.value for c in at.caption]
+    assert sum(c == wording.COMPLETE_RESULTS_CAPTION for c in captions) == 1, captions
+    assert wording.RESULT_BEST_COMPLETE_ONLY in captions
+    assert wording.RESULT_BEST_COMPLETE_ONLY == \
+        "Only formulations with all their results are compared."
+    assert not any("contribute zero" in c for c in captions)
+
+
+def test_no_complete_formulation_says_so(all_waiting):
+    at = _app(wording.TAB_RESULTS)
+    assert any(c.value == "No formulation has all its results yet."
+               for c in at.caption), [c.value for c in at.caption]
+
+
+def test_a_selected_waiting_formulation_offers_score_without(one_waiting):
+    at = _app(wording.TAB_RESULTS)
+    at.selectbox(key="result_view_burger").set_value(4)
+    at.run()
+    captions = [c.value for c in at.caption]
+    assert "Overall score waiting for Juiciness." in captions, captions
+    button = _submit_button(at, "Score without Juiciness")
+    assert button.proto.type == "secondary"
+    button.click()
+    at.run()
+    assert not at.exception
+    assert any(s.value == "Formulation 4 scored without Juiciness."
+               for s in at.success), [s.value for s in at.success]
+    reloaded = FoodOptimizer("burger")
+    assert reloaded.fully_measured(reloaded.index_of_formulation(4))
+
+
+def test_a_measurement_added_later_shows_a_dash(scored):
+    scored.add_objective("Cook loss", 20, goal="min", min_val=0, max_val=40)
+    at = _app(wording.TAB_RESULTS)
+    assert not at.exception
+    table = next(d.value for d in at.dataframe
+                 if wording.OVERALL_SCORE_COLUMN in d.value.columns)
+    assert list(table.loc[table["Formulation"] == 1, "Cook loss"]) == ["—"]
+    assert not any("waiting" in str(v) for v in table[wording.OVERALL_SCORE_COLUMN])
+
+
+def test_correcting_a_waiting_formulation_says_what_it_still_waits_for(one_waiting):
+    at = _app(wording.TAB_RESULTS)
+    at.selectbox(key="correct_formulation").set_value(4)
+    at.run()
+    at.number_input(key="correct_4_Firmness").set_value(6.0)
+    at.run()
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert any(s.value.startswith("Formulation 4 corrected · waiting for Juiciness.")
+               for s in at.success), [s.value for s in at.success]
+
+
+def test_saving_a_round_with_a_blank_names_what_it_waits_for(open_batch):
+    at = _app(wording.TAB_BATCH)
+    at.number_input(key="f1_Firmness").set_value(6.0)
+    at.number_input(key="f2_Firmness").set_value(5.0)
+    at.number_input(key="f2_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, "Save results").click()
+    at.run()
+    assert not at.exception
+    assert any(i.value == "Formulation 1 saved · waiting for Juiciness."
+               for i in at.info), [i.value for i in at.info]
+    assert not any("Formulation 2 saved" in i.value for i in at.info)

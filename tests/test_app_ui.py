@@ -4917,18 +4917,14 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
-    # The missing measurement is NAMED after the ceiling, and nothing after
-    # it claims the measurements were on target.
-    assert any(c.value == ("Overall score 60.00 of 100 · Juiciness not "
-                           "measured. Scores only compare within this "
-                           "project. Change a share, a goal or a range and "
-                           "every score is recalculated.")
+    # The missing measurement is NAMED, never the lowered number.
+    assert any(c.value == "Overall score waiting for Juiciness."
                for c in at.caption), [c.value for c in at.caption]
     # ...and one line under it says what the missing measurement costs, in
     # the same words the All formulations table uses. A dropped measurement
     # is arithmetically a zero closeness, and the row is fitted at that
     # depressed score, so the model is taught that region is bad.
-    assert any(c.value == wording.PARTIAL_SCORES_CAPTION
+    assert any(c.value == wording.COMPLETE_RESULTS_CAPTION
                for c in at.caption), [c.value for c in at.caption]
 
 
@@ -6823,9 +6819,10 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    sentence = wording.PARTIAL_SCORES_CAPTION
-    assert sentence == ("Missing measurements contribute zero to the overall score. "
-                        "Add them when available to update the score."), sentence
+    sentence = wording.COMPLETE_RESULTS_CAPTION
+    assert sentence == ("A formulation counts once all its results are in; "
+                        "measurements added later are not expected of "
+                        "earlier formulations."), sentence
     assert sum(1 for c in at.caption if c.value == sentence) == 1, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.

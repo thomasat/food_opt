@@ -447,6 +447,24 @@ def best_formulation_no(opt):
     return opt.best_formulation_no()
 
 
+def flash_waiting(opt, numbers):
+    """One line per formulation just saved that still waits for results,
+    naming what it waits for. Queued after the round's own line."""
+    for no in numbers:
+        index = opt.index_of_formulation(no)
+        if index is not None and not opt.fully_measured(index):
+            flash("info", wording.saved_waiting(
+                no, number_list(opt.waiting_on(index))))
+
+
+def waiting_text(opt, index):
+    """What formulation `index` waits for, named — or None when it has
+    all its results."""
+    if opt.fully_measured(index):
+        return None
+    return number_list(opt.waiting_on(index))
+
+
 def best_move_sentence(before, after):
     """'Best moved from Formulation 3 to Formulation 7.' or '' when it stayed."""
     if before is None or after is None or before == after:

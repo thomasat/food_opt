@@ -22,7 +22,7 @@ from ui_helpers import (
     go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
-    table_height, take_clear,
+    table_height, take_clear, waiting_text,
 )
 
 
@@ -160,16 +160,18 @@ def _number(cell):
 
 def _progress_line(opt):
     last = opt.last_batch_no()   # counts a batch nobody managed to make
-    if last is None or not opt.Y_history:
+    # Formulations with all their results only, as Best so far compares.
+    complete = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    if last is None or not complete:
         return ""
-    earlier = [float(y) for y, b in zip(opt.Y_history, opt.batch_history)
-               if b != last]
+    earlier = [float(opt.Y_history[i]) for i in complete
+               if opt.batch_history[i] != last]
     if not earlier:
         # Nothing to compare it with. The flash above the tabs already says
         # "Round 1 recorded."; saying it again four lines lower is the same
         # sentence twice on one screen.
         return ""
-    best_now = max(float(y) for y in opt.Y_history)
+    best_now = max(float(opt.Y_history[i]) for i in complete)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
         return wording.batch_recorded_progress(last, best_before, best_now)
@@ -181,6 +183,9 @@ def _best(opt):
     True when it has already said what a
     partial score cannot be compared with, so the table below does not say the
     same sentence again on the same screen."""
+    if opt.Y_history and opt.best_index() is None:
+        # Nothing has all its results, so there is no best to name.
+        st.caption(wording.for_project(opt, wording.NO_COMPLETE_FORMULATION))
     number = _selected_formulation(opt)
     if number is None:
         return False
@@ -195,7 +200,7 @@ def _best(opt):
     st.subheader(wording.for_project(opt, heading))
     if is_best:
         st.caption(wording.RESULT_BEST_HELP)
-        if any(not opt.fully_measured(i) for i in range(len(opt.Y_history))):
+        if opt.waiting_rows():
             st.caption(wording.RESULT_BEST_COMPLETE_ONLY)
         line = _progress_line(opt)
         if line:
@@ -252,13 +257,10 @@ def _best(opt):
     if unused:
         st.caption(wording.NOT_USED_PREFIX + ", ".join(unused))
     ceiling = opt.utility_ceiling()
-    # The measurements nobody took, named exactly as the All formulations
-    # row names them: a score missing one is not the same number as a full
-    # one, and the reader should not have to go and find out which.
-    recorded = opt.results_history[index] if index < len(opt.results_history) else {}
-    unmeasured = [o['name'] for o in opt.measurements_by_importance()
-                  if o['name'] not in recorded]
-    partial = bool(unmeasured)
+    # A formulation still waiting shows what it waits for, never the lowered
+    # number — named exactly as the All formulations row names it.
+    waiting = opt.waiting_on(index) if not opt.fully_measured(index) else None
+    partial = waiting is not None or bool(opt.not_expected(index))
     # What the ceiling MEANS is said once, under the measurements grid on
     # Set up ("A formulation that hits every goal scores 100."). Repeating it
     # here read as a claim about the formulation on screen — false whenever
@@ -267,13 +269,30 @@ def _best(opt):
     # With every measurement deleted the ceiling is 0, and "Overall score
     # 0.00 of 0.00" is a sentence about nothing; the banner at the top of
     # the tab already says what to do about it.
-    if ceiling > 0:
+    if waiting is not None:
+        st.caption(wording.overall_score_waiting(number_list(waiting)))
+        _score_without_buttons(opt, number, waiting)
+    elif ceiling > 0:
         st.caption(wording.overall_score_caption(
-            float(opt.Y_history[index]), ceiling,
-            number_list(unmeasured) if unmeasured else ""))
+            float(opt.Y_history[index]), ceiling))
     if partial:
-        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
+        st.caption(wording.for_project(opt, wording.COMPLETE_RESULTS_CAPTION))
     return partial
+
+
+def _score_without_buttons(opt, number, names):
+    """One secondary button per measurement the formulation waits for: the
+    sample is gone, or the value will never come. Entering the value later
+    undoes it."""
+    for name in names:
+        if st.button(wording.score_without_button(name),
+                     key=f"score_without_{number}_{name}",
+                     disabled=confirmation_open()):
+            opt.score_without(number, name)
+            if not saved_ok(opt):
+                return
+            flash("success", wording.scored_without(number, name))
+            st.rerun()
 
 
 def _amount_format(opt, frame):
@@ -342,9 +361,9 @@ def _all_formulations(opt, said_partial=False):
                  height=table_height(len(frame), max_rows=20))
     # The overall-score column of food_bo's history_frame, named once in
     # wording so the frame and the screen cannot drift apart.
-    if not said_partial and any(wording.NOT_MEASURED in str(v)
-                                for v in frame[wording.OVERALL_SCORE_COLUMN]):
-        st.caption(wording.for_project(opt, wording.PARTIAL_SCORES_CAPTION))
+    if not said_partial and (opt.waiting_rows() or any(
+            opt.not_expected(i) for i in range(len(opt.Y_history)))):
+        st.caption(wording.for_project(opt, wording.COMPLETE_RESULTS_CAPTION))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it
@@ -728,7 +747,7 @@ def _save_correction(opt, storage, pending):
     # One sentence for the whole correction: a row can change its amounts and
     # its measurements in one save, and naming every number that moved made a
     # flash longer than the table above it.
-    sentences = [wording.formulation_corrected(choice)]
+    sentences = [wording.formulation_corrected(choice, waiting_text(opt, index))]
     move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
@@ -781,7 +800,9 @@ def _save_score(opt, storage, pending):
         return
     if not saved_ok(opt):
         return
-    sentences = [wording.formulation_scored(choice)]
+    index = opt.index_of_formulation(choice)
+    sentences = [wording.formulation_scored(
+        choice, None if index is None else waiting_text(opt, index))]
     move = best_move_sentence(before, best_formulation_no(opt))
     if move:
         sentences.append(move)

@@ -23,7 +23,7 @@ from ui_helpers import (
     BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
     best_formulation_no,
     bounds_caution, confirm_action,
-    confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
+    confirmation_open, flash, flash_waiting, fmt_setting, go_to_tab, goal_line,
     clear_scale_total, entry_label, join_unit, label_with_unit, number_list, open_rows,
     park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, typed_batch_size, unit_after_number,
@@ -944,16 +944,19 @@ def _save_results(opt, kept, left_out, to_record):
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
+    saved = [row['formulation'] for row in kept]
     if open_rows(opt):
         flash('success', wording.upload_partial_flash(
             len(kept) + len(left_out), len(opt.pending_batch),
             batch_no, len(open_rows(opt))))
+        flash_waiting(opt, saved)
         st.rerun()
     opt.set_pending_batch(None)
     clear_scale_total()
     if not saved_ok(opt):
         return
     flash("success", wording.batch_recorded_flash(batch_no))
+    flash_waiting(opt, saved)
     go_to_tab(TAB_RESULTS)
 
 
@@ -1190,6 +1193,7 @@ def _upload(opt):
                 flash("success", wording.upload_partial_flash(
                     len(parsed) + len(left_out), len(opt.pending_batch),
                     batch_no, len(left)))
+                flash_waiting(opt, [no for no, _, _ in parsed])
                 st.rerun()
             opt.set_pending_batch(None)
             clear_scale_total()
@@ -1198,6 +1202,7 @@ def _upload(opt):
                 # hide it, and the batch is still open on disk.
                 return
             flash("success", wording.batch_recorded_flash(batch_no))
+            flash_waiting(opt, [no for no, _, _ in parsed])
             go_to_tab(TAB_RESULTS)
 
 

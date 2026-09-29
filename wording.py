@@ -1698,7 +1698,13 @@ NEXT_MAKE_BATCH_BUTTON = "Generate formulations"
 # Tab 3 · Results: the best formulation, every formulation, corrections
 # (ui_results.py).
 # ------------------------------------------------------------------ #
-PARTIAL_SCORES_CAPTION = 'Missing measurements contribute zero to the overall score. Add them when available to update the score.'
+# 0.8.0: a formulation teaches the suggestions only once every measurement
+# that applies to it has a value; one added later does not apply to the
+# formulations recorded before it.
+COMPLETE_RESULTS_CAPTION = ("A formulation counts once all its results are "
+                            "in; measurements added later are not expected "
+                            "of earlier formulations.")
+NO_COMPLETE_FORMULATION = "No formulation has all its results yet."
 
 
 # 'Overall score' as a noun inside a sentence, and the scale it is on. The
@@ -1824,21 +1830,46 @@ def not_scored_option(no):
     return f"{no} · {NOT_SCORED}"
 
 
-def formulation_scored(no):
+def _waiting_tail(waiting):
+    return "" if waiting is None else f" · {waiting_for(waiting)}"
+
+
+def formulation_scored(no, waiting=None):
     """A formulation that was left not scored, scored later from Results. It
-    is not a correction: nothing recorded changed, a result arrived."""
-    return f"{FORMULATION_CAP} {no} scored."
+    is not a correction: nothing recorded changed, a result arrived.
+    `waiting` names what it still waits for (None: nothing)."""
+    return f"{FORMULATION_CAP} {no} scored{_waiting_tail(waiting)}."
 
 
 def formulation_unchanged(no):
     return f"{FORMULATION_CAP} {no} is unchanged."
 
 
-def formulation_corrected(no):
+def formulation_corrected(no, waiting=None):
     """One sentence for the whole correction. A row can now change its
     amounts and its measurements in one save, and naming every number that
     moved made a flash longer than the table it described."""
-    return f"{FORMULATION_CAP} {no} corrected."
+    return f"{FORMULATION_CAP} {no} corrected{_waiting_tail(waiting)}."
+
+
+def saved_waiting(no, names_text):
+    """'Formulation 12 saved · waiting for Cook loss.' — after a round is
+    saved with a formulation that still waits for a result."""
+    return f"{FORMULATION_CAP} {no} saved{_waiting_tail(names_text)}."
+
+
+def overall_score_waiting(names_text):
+    """The score line of a formulation still waiting: 'Overall score
+    waiting for Cook loss.' — never the lowered number."""
+    return f"{OVERALL_SCORE_COLUMN} {waiting_for(names_text)}."
+
+
+def score_without_button(name):
+    return f"Score without {name}"
+
+
+def scored_without(no, name):
+    return f"{FORMULATION_CAP} {no} scored without {name}."
 
 
 def back_to_batch_label(no, n):
@@ -3659,8 +3690,8 @@ RESULT_BEST_HELP = "Best so far has the highest recorded overall score for your 
 # A missing measurement contributes zero to the overall score, so a
 # half-measured formulation outscored a better one that had been
 # measured all the way through, and nothing on the screen said why.
-RESULT_BEST_COMPLETE_ONLY = ("Only formulations with every measurement "
-                            "recorded are compared.")
+RESULT_BEST_COMPLETE_ONLY = ("Only formulations with all their results "
+                            "are compared.")
 RESULT_PERCENT_COLUMN = "% of formulation"
 RESULT_PERCENT_PROCESS_HELP = "Percentages use the ingredient amounts shown. Process settings are excluded."
 RESULT_PERCENT_MIXED_HELP = "Percentages are unavailable because the ingredient amounts use different units."
