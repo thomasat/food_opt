@@ -28,6 +28,7 @@ from datetime import datetime, timedelta                 # noqa: E402
 
 import pandas as pd                           # noqa: E402
 
+import insights                               # noqa: E402
 import storage as storage_backend             # noqa: E402
 import ui_batch                               # noqa: E402
 import ui_insights                            # noqa: E402
@@ -178,6 +179,10 @@ def _reset_project_session():
               ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY,
               # Review fixes: what Compare all ranks by.
               ui_insights.SPREAD_KEY,
+              # 0.8.0 speed: the fitted models read from beside the project,
+              # what they are for, and what was drawn and written from them.
+              ui_insights.MEMO_KEY, ui_insights.PLAN_KEY, ui_insights.PARTIAL_KEY,
+              ui_insights.SAVED_KEY, ui_insights.SEEN_KEY,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
@@ -871,6 +876,15 @@ tab_setup, tab_batch, tab_results, tab_insights = st.tabs(
     key="main_tab", on_change="rerun")
 
 _line = _batch_line(_opt)
+# 0.8.0 speed (spec 2026-09-30 §10.3): Insights' models start fitting in the
+# worker processes as soon as a project is open or its data changes —
+# opening it, Save results, Move to Not scored, a waiting value — whichever
+# tab is showing. A worker never shares this process's torch state, so
+# nothing it does can reach ask() (review B2).
+try:
+    ui_insights.start(_opt)
+except Exception:   # the screens fit in this process instead, as before
+    pass
 
 with tab_setup:
     # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
@@ -892,6 +906,21 @@ with tab_insights:
     # project that never opens the tab never pays for them.
     if tab_insights.open:
         ui_insights.render(_opt)
+
+# After the page is drawn, in this same run (review B2): the predicted best,
+# once the Overall score's models are in, so Insights need not wait for it.
+try:
+    ui_insights.warm_best(_opt)
+except Exception:   # Insights works it out when it is opened, as before
+    pass
+
+# While the open tab waits for the workers, look again every half second
+# and rerun the page as each part lands (review I15): one poller, for
+# whichever of the two tabs is open.
+if tab_insights.open and _opt.complete_count() >= insights.MIN_ROWS:
+    ui_insights.poll_while_waiting(_opt, ("column", "trust", "stand", "all"))
+elif tab_batch.open and _opt.complete_count() >= insights.MIN_ROWS and open_rows(_opt):
+    ui_insights.poll_while_waiting(_opt, ("column", "trust", "now"))
 
 # A save that failed during this run must be visible now, not after the next
 # click: form submits do not rerun, and the banner above already rendered.

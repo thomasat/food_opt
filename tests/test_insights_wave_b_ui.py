@@ -260,15 +260,16 @@ def test_the_models_are_fitted_once_for_both_screens(warm_round, monkeypatch):
     assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
 
 
-def test_the_round_screen_says_what_it_is_preparing(warm_round, monkeypatch):
+def test_the_round_screen_waits_with_dots_not_a_spinner(warm_round, monkeypatch):
+    """Spec 2026-09-30 §1 (V28), review I1: the column's "…" is the one
+    indicator while its models are fitted; no spinner of its own."""
     said = []
     real = ui_insights.fitted_models
     monkeypatch.setattr(ui_insights, "fitted_models",
                         lambda opt, working=wording.INSIGHTS_WORKING: said.append(working) or real(opt, working))
     at = _app()
     at.run()
-    assert said == [wording.PREDICTIONS_WORKING]
-    assert wording.PREDICTIONS_WORKING == "Preparing the predictions…"
+    assert said == [None]
 
 
 def test_a_failed_fit_leaves_the_table_as_it_was(warm_round, monkeypatch):
@@ -594,12 +595,15 @@ def test_a_cold_round_table_is_drawn_first_and_filled_after(warm_round, monkeypa
     drawn = []
     real = ui_batch._draw_table
     monkeypatch.setattr(ui_batch, "_draw_table",
-                        lambda opt, slot, frame: drawn.append(list(frame.columns))
+                        lambda opt, slot, frame: drawn.append(
+                            list(frame[wording.PREDICTED_SCORE_COLUMN]))
                         or real(opt, slot, frame))
     at = _app()
     at.run()
     assert not at.exception
-    assert [wording.PREDICTED_SCORE_COLUMN in cols for cols in drawn] == [False, True]
+    # Review I1: drawn first with "…" in the column (its width kept), then
+    # again with the numbers.
+    assert [cells[0] == wording.PREDICTION_PENDING for cells in drawn] == [True, False]
 
 
 def test_a_hidden_round_tab_predicts_nothing_even_when_warm(warm_round, monkeypatch):

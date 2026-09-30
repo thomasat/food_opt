@@ -557,17 +557,26 @@ def _title(opt):
             len(opt.pending_batch_discarded) > 1))
 
 
+# The predicted column while its models are still being fitted (review I1).
+_PENDING = "pending"
+
+
 def _round_predictions(opt):
     """{Formulation number: {output: Prediction}} for the open Round's rows
-    not yet recorded, or None when there is nothing to show: no row left to
-    record (then nothing is fitted), the spread-out start is not over, or
-    there is no Overall-score model."""
+    not yet recorded, the Overall score's likely range widened by
+    score_widen of every Round's check (review I1); _PENDING while the
+    workers are still fitting what it needs; or None when there is nothing
+    to show: no row left to record (then nothing is fitted), the
+    spread-out start is not over, or there is no Overall-score model."""
     if opt.complete_count() < insights.MIN_ROWS:
         return None
     rows = open_rows(opt)
     if not rows:
         return None
-    fitted = ui_insights.fitted_models(opt, wording.PREDICTIONS_WORKING)
+    got = ui_insights.column_models(opt)
+    if got is None:
+        return _PENDING
+    fitted, factor = got
     score = None if fitted is None else fitted.get(insights.SCORE)
     if score is None or score.model is None:
         return None
@@ -575,6 +584,8 @@ def _round_predictions(opt):
         preds = insights.round_predictions(opt, fitted, rows)
     except Exception:   # the table stands without the column
         return None
+    for per in preds.values():
+        per[insights.SCORE] = insights.widened(score, per[insights.SCORE], factor)
     return preds or None
 
 
@@ -596,8 +607,13 @@ def _with_predictions(opt, frame, preds):
     after Formulation: at 1440 px it was the twelfth column, off screen
     (0.8.0 review fixes §6). A row already recorded or Not scored shows
     nothing."""
-    cells = [ui_insights.score_text(preds[no][insights.SCORE]) if no in preds else ""
-             for no in frame[wording.FORMULATION_CAP]]
+    if preds == _PENDING:
+        waiting = {int(r['formulation']) for r in open_rows(opt)}
+        cells = [wording.PREDICTION_PENDING if no in waiting else ""
+                 for no in frame[wording.FORMULATION_CAP]]
+    else:
+        cells = [ui_insights.score_text(preds[no][insights.SCORE]) if no in preds else ""
+                 for no in frame[wording.FORMULATION_CAP]]
     out = frame.copy()
     out.insert(1, wording.PREDICTED_SCORE_COLUMN, cells)
     return out
@@ -646,11 +662,10 @@ def _predicted_measurements(opt, preds):
 
 
 def _models_ready(opt):
-    """Whether the models for this data are already fitted (by Insights or
-    an earlier run): then the predictions cost no fit, and the table can be
-    drawn with them on its first pass."""
-    hit = st.session_state.get(ui_insights.FITTED_KEY)
-    return bool(hit) and hit[0] == insights.data_key(opt)
+    """Whether the predictions cost no fit in this process (the workers
+    fit them, or they are in already): then the table is drawn with them —
+    or with "…" — on its first pass."""
+    return not ui_insights.fits_here(opt)
 
 
 def _near_copy_prefixes(opt, batch):
@@ -716,7 +731,11 @@ def _batch_table(opt, scale_to, tab_open=False):
         # With the models fitted, drawn once with the predictions. Otherwise
         # drawn now without them; _show_predictions fits and draws it again
         # in the same place with them, once the rest of the screen is up.
-        preds = _round_predictions(opt) if tab_open and _models_ready(opt) else None
+        preds = None
+        if tab_open and opt.complete_count() >= insights.MIN_ROWS and open_rows(opt):
+            # "…" until they are worked out (review I1): the column keeps its
+            # width, so the table never jumps when the numbers land.
+            preds = _round_predictions(opt) if _models_ready(opt) else _PENDING
         table_slot = st.empty()
         _draw_table(opt, table_slot,
                     _with_predictions(opt, frame, preds) if preds else frame)
@@ -820,18 +839,23 @@ def _show_predictions(opt, later):
     drawn with its predictions (the models were fitted) is not drawn again."""
     table_slot, frame, notes, drawn = later
     preds = drawn
-    if drawn is None:
-        with notes:                 # the spinner shows under the table
-            preds = _round_predictions(opt)
-    if not preds:
+    if drawn == _PENDING and _models_ready(opt):
+        return                      # the workers are fitting: the poller reruns the page
+    if drawn is None or drawn == _PENDING:
+        preds = _round_predictions(opt)
+        _draw_table(opt, table_slot,
+                    _with_predictions(opt, frame, preds) if preds else frame)
+    if not preds or preds == _PENDING:
         return
-    if drawn is None:
-        _draw_table(opt, table_slot, _with_predictions(opt, frame, preds))
     with notes:
+        line = ui_insights.track_line(opt)
+        if line:
+            st.caption(line)
         if _a_suggestion_below_best(opt, preds):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
                 values=not opt.has_ingredients())))
-        _predicted_measurements(opt, preds)
+        if not ui_insights.waiting(opt, "now"):
+            _predicted_measurements(opt, preds)
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):

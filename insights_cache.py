@@ -32,6 +32,13 @@ def empty():
     return Saved({}, {}, None)
 
 
+def enabled():
+    """Off only when FOODOPT_INSIGHTS_CACHE is "0": the test suite's
+    default (tests/conftest.py), so one test's app never reads what
+    another wrote. Its own tests turn it on."""
+    return os.environ.get("FOODOPT_INSIGHTS_CACHE", "1") != "0"
+
+
 def path(project, folder="."):
     return os.path.join(folder, FOLDER, f"{project}{SUFFIX}")
 
@@ -63,6 +70,8 @@ def _best_from_json(item):
 def load(project, folder="."):
     """The Saved models and checks for `project`, or empty() when the file
     is missing, unreadable, from another version or another MODEL_SALT."""
+    if not enabled():
+        return empty()
     try:
         with open(path(project, folder), encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -78,7 +87,10 @@ def load(project, folder="."):
 
 def save(project, saved, folder="."):
     """Write `saved` for `project`, failed fits left out, through a temp file
-    moved into place so a crash never leaves half a file. Returns the path."""
+    moved into place so a crash never leaves half a file. Returns the path,
+    or None when the cache is off."""
+    if not enabled():
+        return None
     target = path(project, folder)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     payload = {"version": VERSION, "salt": insights.MODEL_SALT,

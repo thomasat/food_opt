@@ -9,6 +9,8 @@ import pandas as pd
 import streamlit as st
 
 import insights
+import insights_cache
+import insights_jobs
 import wording
 from food_bo import join_unit, number_list
 from ui_helpers import (TAB_BATCH, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
@@ -255,7 +257,9 @@ def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
         return hit[1]
     if bar is not None:
         bar.progress(0.0, text=_say(opt, wording.CHECKING))
-    with (contextlib.nullcontext() if bar is not None else st.spinner(working)):
+    quiet = bar is not None or working is None
+    with (contextlib.nullcontext() if quiet else st.spinner(working)), \
+            insights.memo_in_use(memo(opt)):
         try:
             # Through the module attribute, so a test can stand in for the fit.
             value = insights.fit_all(opt)
@@ -286,12 +290,11 @@ def _cached(opt):
 
 
 def cached_checks(opt):
-    """The Round-by-Round checks for this project's data when Insights has
-    already worked them out, else (). Results and Make a round read them
-    here and never check Rounds themselves (spec 2026-09-30 Plan B; Plan A
-    swaps in its precomputed cache behind this one door)."""
-    hit = _cached(opt)
-    return () if hit is None or hit.get("failed") else hit["checks"]
+    """The Round-by-Round checks for this project's data when they are
+    already worked out — by this tab, or from the workers' models (at
+    least every Round's Overall score and the verdict's Rounds) — else ().
+    Results and Make a round read them here and never fit for them."""
+    return checks_for(opt, "trust") or ()
 
 
 def _computed(opt, bar=None):
@@ -311,8 +314,9 @@ def _computed(opt, bar=None):
         rounds = st.session_state.setdefault(ROUNDS_KEY, {})
         checking = _stepper(opt, bar)
         try:
-            value = {"fitted": fitted,
-                     "checks": insights.check_rounds(opt, cache=rounds, checking=checking)}
+            with insights.memo_in_use(memo(opt)):
+                checks = insights.check_rounds(opt, cache=rounds, checking=checking)
+            value = {"fitted": fitted, "checks": checks}
         except Exception:
             # Cached like a success, under the same key: one line on the
             # tab instead of a traceback, and not tried again every rerun.
@@ -322,6 +326,238 @@ def _computed(opt, bar=None):
 
 
 _FAILED = {"failed": True}
+
+
+# ------------------------------------------------------------------ #
+#  0.8.0 speed (spec 2026-09-30 §10; review B2, I1, I15): the models
+#  are fitted in worker processes as soon as a project opens or its data
+#  changes, kept here and beside the project, and each screen draws what
+#  is ready. Without workers everything below reads as ready, and the
+#  screens fit in this process as before.
+# ------------------------------------------------------------------ #
+
+# (project name, {insights.model_key: fitted model entry}): read from
+# beside the project on first use, filled by the workers and by every fit
+# made here; insights.fit() takes a model from it instead of fitting.
+MEMO_KEY = "_insights_memo"
+# (data_key, [insights_jobs.Spec]): what this project's data needs fitted.
+PLAN_KEY = "_insights_plan"
+# {(data_key, stage): checks}: a part of the checks worked out while the
+# rest are still being fitted.
+PARTIAL_KEY = "_insights_partial"
+# What was last written beside the project, so it is written once per state.
+SAVED_KEY = "_insights_saved"
+# What the screen drew last, for the poller to compare with.
+SEEN_KEY = "_insights_seen"
+# How often a screen waiting for the workers looks again (seconds).
+POLL_SECS = 0.5
+
+
+def memo(opt):
+    """This project's fitted models, read from beside the project (with
+    its Round checks and predicted best) the first time it is asked for."""
+    hit = st.session_state.get(MEMO_KEY)
+    if hit is None or hit[0] != opt.project_name:
+        saved = insights_cache.load(opt.project_name)
+        st.session_state[MEMO_KEY] = (opt.project_name, saved.memo)
+        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
+        for key, checks in saved.rounds.items():
+            rounds.setdefault(key, checks)
+        if saved.best is not None and BEST_KEY not in st.session_state:
+            st.session_state[BEST_KEY] = saved.best
+    return st.session_state[MEMO_KEY][1]
+
+
+def _plan(opt):
+    key = insights.data_key(opt)
+    hit = st.session_state.get(PLAN_KEY)
+    if hit is None or hit[0] != key:
+        hit = (key, insights_jobs.plan(opt))
+        st.session_state[PLAN_KEY] = hit
+    return hit[1]
+
+
+def start(opt):
+    """Called by app.py on every run with a project open: the background
+    fits for this project's data — started after it opens and after
+    anything that changes its data (Save results, Move to Not scored, a
+    waiting value entered), and nothing when they are running or done.
+    Returns the Job while fits are in flight, else None (no workers, too
+    few formulations, or everything is in)."""
+    if opt is None or opt.complete_count() < insights.MIN_ROWS:
+        return None
+    pool = insights_jobs.pool()
+    if pool is None:
+        return None
+    mem, specs = memo(opt), _plan(opt)
+    if insights_jobs.ready(specs, mem):
+        save(opt)
+        return None
+    job = insights_jobs.job_for(opt, pool, mem, specs)
+    if job.poll(mem):
+        save(opt)
+    return None if job.failed else job
+
+
+def waiting(opt, stage):
+    """True while the workers are still fitting what `stage` needs
+    (insights_jobs.stage_specs); False once it is in, and always without
+    workers — the screen then fits it here, as before."""
+    if start(opt) is None:
+        return False
+    specs = insights_jobs.stage_specs(opt, _plan(opt), stage)
+    return not insights_jobs.ready(specs, memo(opt))
+
+
+def _partial_checks(opt, stage):
+    """The checks `stage` needs, from the fitted models alone; None until
+    they are all in. When the verdict's Rounds came out short of plan (a fit
+    failed), the verdict could read other Rounds: then every check, once
+    everything is in."""
+    specs = insights_jobs.stage_specs(opt, _plan(opt), stage)
+    mem = memo(opt)
+    if not insights_jobs.ready(specs, mem):
+        return None
+    data = insights.data_key(opt)
+    parts = st.session_state.setdefault(PARTIAL_KEY, {})
+    if (data, stage) not in parts:
+        for gone in [k for k in parts if k[0] != data]:
+            del parts[gone]
+        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
+        with insights.memo_in_use(mem):
+            checks = insights.check_rounds(opt, cache=rounds, only=insights_jobs.only_pairs(specs))
+            if stage != "column" and not insights_jobs.settled(opt, checks):
+                if not insights_jobs.ready(_plan(opt), mem):
+                    return None
+                checks = insights.check_rounds(opt, cache=rounds)
+        parts[(data, stage)] = checks
+    return parts[(data, stage)]
+
+
+def checks_for(opt, stage):
+    """This tab's checks when worked out, else the part `stage` needs from
+    the fitted models, else None. Never fits anything."""
+    hit = _cached(opt)
+    if hit is not None and not hit.get("failed"):
+        return hit["checks"]
+    return _partial_checks(opt, stage)
+
+
+def save(opt):
+    """Write what is worked out for this project's data beside the project:
+    its fitted models, its Round checks and its predicted best, pruned to
+    what this data uses. Once per state; a failed write only means the next
+    open fits again."""
+    mem = memo(opt)
+    specs = _plan(opt)
+    keys = set(insights.round_keys(opt).values())
+    rounds = {k: v for k, v in st.session_state.get(ROUNDS_KEY, {}).items() if k in keys}
+    best = st.session_state.get(BEST_KEY)
+    best = best if best and best[0] == insights.setup_key(opt) else None
+    kept = {s.key: mem[s.key] for s in specs if s.key in mem}
+    mark = (insights.data_key(opt), len(kept), tuple(sorted(rounds)), best is not None)
+    if st.session_state.get(SAVED_KEY) == mark:
+        return
+    try:
+        insights_cache.save(opt.project_name, insights_cache.Saved(kept, rounds, best))
+    except Exception:
+        pass
+    st.session_state[SAVED_KEY] = mark
+
+
+def warm_best(opt):
+    """app.py, after the page is drawn: the predicted best (a 0.7 s search
+    in this process), as soon as the Overall score's models are in from the
+    workers, so answer 2 need not wait for it. In this script run, never
+    beside ask() (review B2); once per setup_key. Nothing without workers."""
+    if opt is None or opt.complete_count() < insights.MIN_ROWS or insights_jobs.pool() is None:
+        return
+    hit = st.session_state.get(BEST_KEY)
+    if (hit and hit[0] == insights.setup_key(opt)) or waiting(opt, "column"):
+        return
+    checks = _partial_checks(opt, "column")
+    with insights.memo_in_use(memo(opt)):
+        score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
+    if checks is None or score.model is None:
+        return
+    _predicted_best(opt, {insights.SCORE: score}, checks, spinner=False)
+    save(opt)
+
+
+def fits_here(opt):
+    """Whether Make a round's predictions would be fitted in this process
+    now: no workers (or they failed) and its models not all in."""
+    job = insights_jobs.current_job(opt)
+    if insights_jobs.pool() is not None and not (job is not None and job.failed):
+        return False
+    specs = [s for s in _plan(opt) if s.name == insights.SCORE or s.stage == insights_jobs.NOW]
+    return not insights_jobs.ready(specs, memo(opt))
+
+
+def column_models(opt):
+    """(models, factor) for Make a round's predicted columns (review I1):
+    the current models that are in — the Overall score's at least; None
+    when its fit failed — and score_widen of every Round's Overall-score
+    check, so the range shown is the one that Round's check will judge.
+    None while the workers are still fitting those: the column shows "…".
+    Without workers they are fitted here, with no spinner of their own
+    (the "…" is the one indicator)."""
+    if waiting(opt, "column"):
+        return None
+    mem = memo(opt)
+    checks = checks_for(opt, "column")
+    if checks is None:
+        insights_jobs.compute_inline(
+            opt, mem, insights_jobs.stage_specs(opt, _plan(opt), "column"))
+        checks = _partial_checks(opt, "column")
+    if waiting(opt, "now"):
+        rows = list(range(len(opt.Y_history)))
+        ready = {s.name for s in _plan(opt) if s.stage == insights_jobs.NOW and s.key in mem}
+        with insights.memo_in_use(mem):
+            models = {n: insights.fit(opt, n, rows) for n, _, _ in insights.outputs(opt)
+                      if n in ready}
+    else:
+        models = fitted_models(opt, working=None)
+    return models, insights.score_widen(checks)
+
+
+def track_line(opt):
+    """Make a round's track-record line (spec §3, review I16), or '' —
+    from checks already worked out, never fitted for."""
+    checks = checks_for(opt, "trust")
+    if checks is None:
+        return ""
+    t = insights.round_track(opt, checks)
+    if t is None:
+        return ""
+    if not t.rough:
+        return wording.round_track_holding(t.inside, t.total, t.see_insights)
+    gap = None if t.gap is None else f"{abs(t.gap):.1f}"
+    return wording.round_track_rough(t.inside, t.total, gap, below=(t.gap or 0) < 0,
+                                     see_insights=t.see_insights)
+
+
+def _seen(opt, stages):
+    return tuple(not waiting(opt, stage) for stage in stages)
+
+
+def poll_while_waiting(opt, stages):
+    """While the open screen waits for the workers (`stages` it draws in
+    parts), look again every POLL_SECS and rerun the page the moment one
+    more part is in: each part is drawn once, final. Nothing when nothing
+    is waited for."""
+    if not stages or opt is None:
+        return
+    now = _seen(opt, stages)
+    st.session_state[SEEN_KEY] = now
+    if not all(now):
+        _poller(opt, tuple(stages))
+
+
+@st.fragment(run_every=POLL_SECS)
+def _poller(opt, stages):
+    if _seen(opt, stages) != st.session_state.get(SEEN_KEY):
+        st.rerun()
 
 
 def _say(opt, text):
@@ -358,6 +594,9 @@ def render(opt):
         _foot(opt)
         _how(opt, None)
         return
+    if waiting(opt, "all"):
+        _render_filling(opt)
+        return
     bar = st.empty()
     computed = _computed(opt, bar)
     bar.empty()
@@ -389,6 +628,42 @@ def render(opt):
         _change(opt, computed, yard)
     _more_charts(opt, computed)
     _how(opt, computed)
+    save(opt)
+
+
+def _render_filling(opt):
+    """The tab while the workers are still fitting (spec 2026-09-30 §10.3,
+    review I15): one progress line with a count, "Where do you stand?" line
+    1 and the foot at once, then answer 1 once every Round's Overall score
+    and the verdict's Rounds are in, answers 2 and 3 once the current
+    Overall-score model is in too. Each is drawn once, final; the folds
+    wait for everything. app.py's poller reruns the page as parts land."""
+    done, total = insights_jobs.rounds_done(opt, _plan(opt), memo(opt))
+    specs = _plan(opt)
+    fraction = sum(s.key in memo(opt) for s in specs) / max(1, len(specs))
+    st.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
+    checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
+    yard = insights.noise_yardstick(opt, checks or ())
+    trust = st.container()
+    _question(opt, wording.Q_STAND)
+    change = None
+    if checks is not None and not waiting(opt, "stand"):
+        with insights.memo_in_use(memo(opt)):
+            score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
+        computed = {"fitted": {insights.SCORE: score}, "checks": checks, "partial": True}
+        standing = _stand(opt, computed, yard)
+        _question(opt, wording.Q_NEXT)
+        change = _next_step(opt, insights.next_step(opt, checks, standing))
+    else:
+        _stand_first(opt, yard)
+    if checks is not None:
+        with trust:
+            _question(opt, wording.Q_TRUST)
+            step = insights.next_step(opt, checks, None)
+            _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
+                   yard, repeat=step.kind != "repeat")
+    _foot(opt, change)
+    _how(opt, None)
 
 
 def _foot(opt, change=None):
@@ -423,10 +698,10 @@ def score_record_help(opt):
     """The Overall score's own record for Make a round's column help, or
     '' — only when this tab's checks are already worked out for the data on
     screen (§9 I6): Make a round never checks Rounds itself."""
-    hit = _cached(opt)
-    if hit is None or hit.get("failed"):
+    checks = checks_for(opt, "trust")
+    if checks is None:
         return ""
-    rec = insights.headline(opt, hit["checks"]).score
+    rec = insights.headline(opt, checks).score
     if rec is None:
         return ""
     return wording.score_record_line(rec.inside, rec.total, rec.mean_miss)
@@ -505,7 +780,9 @@ def _trust(opt, computed, h, yard, repeat=True):
     if flagged is not None:
         st.write(_say(opt, disagreement_text(flagged)))
     st.caption(_say(opt, wording.TRUST_BEFOREHAND))
-    chart = measured_vs_predicted_chart(opt, checks)
+    # While the rest are still being fitted the chart would gain dots: it
+    # waits for them (a part of the tab is drawn once, final).
+    chart = None if computed.get("partial") else measured_vs_predicted_chart(opt, checks)
     if chart is not None:
         with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
             show_chart(chart)
@@ -899,14 +1176,15 @@ def _progress_chart_body(opt):
     st.caption(_say(opt, wording.progress_caption_2(rings)))
 
 
-def _predicted_best(opt, fitted, checks=()):
+def _predicted_best(opt, fitted, checks=(), spinner=True):
     """insights.predicted_best, once per setup_key (the checks follow from
-    the data it covers). A failure is cached as such and shows one line."""
+    the data it covers). A failure is cached as such and shows one line.
+    `spinner` False while the tab's one progress line is showing (V28)."""
     key = insights.setup_key(opt)
     hit = st.session_state.get(BEST_KEY)
     if hit and hit[0] == key:
         return hit[1]
-    with st.spinner(wording.INSIGHTS_WORKING):
+    with (st.spinner(wording.INSIGHTS_WORKING) if spinner else contextlib.nullcontext()):
         try:
             value = insights.predicted_best(opt, fitted, checks)
         except Exception:
@@ -974,7 +1252,7 @@ def _stand(opt, computed, yard):
     if score is None or score.model is None:
         st.caption(_say(opt, wording.BEST_FAILED))
         return None
-    best = _predicted_best(opt, fitted, computed["checks"])
+    best = _predicted_best(opt, fitted, computed["checks"], spinner=not computed.get("partial"))
     if isinstance(best, str):
         st.caption(_say(opt, best))
         return None

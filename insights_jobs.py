@@ -37,15 +37,21 @@ START_SECS = 60
 
 
 def worker_count():
-    """FOODOPT_INSIGHTS_WORKERS when set (0: none), else up to 4 — about
-    400 MB each — leaving two cores for the app itself."""
+    """FOODOPT_INSIGHTS_WORKERS when set (0: none), else up to 6, leaving
+    two cores for the app itself and at least 4 GB of memory per worker
+    (each holds about 400 MB): 6 on a 14-core 48 GB Mac, 4 on a 16 GB
+    laptop, 2 on an 8 GB one."""
     env = os.environ.get("FOODOPT_INSIGHTS_WORKERS")
     if env is not None:
         try:
             return max(0, int(env))
         except ValueError:
             return 0
-    return max(1, min(4, (os.cpu_count() or 2) - 2))
+    try:
+        memory_gb = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2 ** 30
+    except (AttributeError, OSError, ValueError):
+        memory_gb = 8
+    return max(1, min(6, (os.cpu_count() or 2) - 2, int(memory_gb // 4)))
 
 
 # ------------------------------------------------------------------ #
@@ -63,8 +69,9 @@ class Pool:
         self._lock = threading.Lock()
         self._procs = []
         self._ready = threading.Event()
+        self.n = n
         self.broken = False
-        self.last_used = time.monotonic()
+        self.started = self.last_used = time.monotonic()
         env = {**os.environ, "OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         for _ in range(n):
             proc = subprocess.Popen(
@@ -92,6 +99,12 @@ class Pool:
 
     def idle(self):
         return self._queue.empty() and time.monotonic() - self.last_used > IDLE_SECS
+
+    def check_start(self):
+        """Break the pool if no worker finished its imports within
+        START_SECS: a worker that hangs must not leave a screen waiting."""
+        if not self._ready.is_set() and time.monotonic() - self.started > START_SECS:
+            self._break()
 
     def _serve(self, proc):
         try:
@@ -143,25 +156,32 @@ class Pool:
 
 _POOL = None
 _POOL_LOCK = threading.Lock()
+# Set once a pool broke (a worker would not start, or stopped): this app
+# process fits in-process from then on rather than starting workers again.
+_GAVE_UP = False
 
 
 def pool():
     """The app process's Pool, started on first use; None when workers are
-    off (worker_count() is 0) or none could start (the caller then fits in
-    its own process). A pool idle for IDLE_SECS is closed and started
-    again when next needed."""
-    global _POOL
+    off (worker_count() is 0) or they failed in this process (the caller
+    then fits in its own process). A pool idle for IDLE_SECS is closed and
+    started again when next needed."""
+    global _POOL, _GAVE_UP
     with _POOL_LOCK:
-        if _POOL is not None and (_POOL.broken or _POOL.idle()):
-            _POOL.close()
-            _POOL = None
-            _INFLIGHT.clear()
+        if _POOL is not None:
+            _POOL.check_start()
+            if _POOL.broken:
+                _GAVE_UP = True
+            if _POOL.broken or _POOL.idle():
+                _POOL.close()
+                _POOL = None
+                _INFLIGHT.clear()
         n = worker_count()
-        if _POOL is None and n > 0:
+        if _POOL is None and n > 0 and not _GAVE_UP:
             try:
                 _POOL = Pool(n)
             except Exception:
-                return None
+                _GAVE_UP = True
         return _POOL
 
 
@@ -270,10 +290,12 @@ def stage_specs(opt, specs, stage):
     "trust"  — answer 1 and Make a round's track-record line (every Round's
     Overall-score check and the measurements' checks in the verdict's Rounds);
     "stand"  — answers 2 and 3 ("trust" and the current Overall-score model);
+    "now"    — the current models (Make a round's predicted measurements);
     "all"    — everything."""
     window = set(window_rounds(opt)) if stage in ("trust", "stand") else set()
     keep = {
         "column": lambda s: s.name == insights.SCORE,
+        "now": lambda s: s.stage == NOW,
         "trust": lambda s: s.stage != NOW and (s.name == insights.SCORE or s.stage in window),
         "stand": lambda s: s.name == insights.SCORE or (s.stage != NOW and s.stage in window),
         "all": lambda s: True,
@@ -395,6 +417,11 @@ class Job:
                 for f in futs:
                     f.cancel()
                 _INFLIGHT.pop(key, None)
+
+
+def current_job(opt):
+    """The Job for this project's data if one was started, else None."""
+    return _JOBS.get((opt.project_name, insights.data_key(opt)))
 
 
 def job_for(opt, pool, memo, specs=None):

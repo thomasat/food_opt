@@ -17,6 +17,15 @@ from tests.test_insights import _burger
 @pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
+
+
+def test_the_cache_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "0")
+    assert insights_cache.save("Patty", insights_cache.Saved({"b": {"state": {}, "widen": 1.0}},
+                                                             {}, None)) is None
+    assert not os.path.exists(".insights")
+    assert insights_cache.load("Patty").memo == {}
 
 
 def _saved(opt):

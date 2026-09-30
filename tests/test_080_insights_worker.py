@@ -79,10 +79,40 @@ def test_the_pool_answers_lowest_priority_first():
         pool.close()
 
 
-def test_a_pool_that_cannot_start_is_none_and_the_caller_fits_here(monkeypatch):
+def test_with_workers_off_there_is_no_pool(monkeypatch):
     monkeypatch.setattr(insights_jobs, "_POOL", None)
     monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "0")
     assert insights_jobs.pool() is None
+
+
+def test_a_pool_that_broke_is_not_started_again(monkeypatch, tmp_path):
+    bad = tmp_path / "broken_worker.py"
+    bad.write_text("raise SystemExit(3)\n")
+    monkeypatch.setattr(insights_jobs, "WORKER", str(bad))
+    monkeypatch.setattr(insights_jobs, "_POOL", None)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "1")
+    first = insights_jobs.pool()
+    assert not first.wait_ready(60)
+    assert insights_jobs.pool() is None
+    assert insights_jobs.pool() is None
+
+
+def test_a_worker_that_hangs_on_start_breaks_the_pool(monkeypatch, tmp_path):
+    hangs = tmp_path / "hangs_worker.py"
+    hangs.write_text("import time\ntime.sleep(600)\n")
+    monkeypatch.setattr(insights_jobs, "WORKER", str(hangs))
+    monkeypatch.setattr(insights_jobs, "START_SECS", 0.5)
+    monkeypatch.setattr(insights_jobs, "_POOL", None)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "1")
+    pool = insights_jobs.pool()
+    waiting = pool.submit(0, {"id": 1})
+    import time
+    time.sleep(1.0)
+    assert insights_jobs.pool() is None
+    with pytest.raises(RuntimeError):
+        waiting.result(5)
 
 
 def test_a_worker_that_will_not_start_breaks_the_pool(monkeypatch, tmp_path):
@@ -116,4 +146,8 @@ def test_worker_count_follows_the_setting(monkeypatch):
     monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "nonsense")
     assert insights_jobs.worker_count() == 0
     monkeypatch.delenv("FOODOPT_INSIGHTS_WORKERS")
-    assert 1 <= insights_jobs.worker_count() <= 4
+    assert 1 <= insights_jobs.worker_count() <= 6
+    monkeypatch.setattr(insights_jobs.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(insights_jobs.os, "sysconf",
+                        lambda k: {"SC_PHYS_PAGES": 2 * 2 ** 20, "SC_PAGE_SIZE": 4096}[k])
+    assert insights_jobs.worker_count() == 2          # an 8 GB laptop

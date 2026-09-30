@@ -7,14 +7,14 @@ The suggestions themselves still come from the one Overall-score model that
 FoodOptimizer._ask_optimize fits; the models here never reach it."""
 import contextlib
 import contextvars
+import dataclasses
+import functools
 import hashlib
 import itertools
 import json
 import math
 import statistics
 import types
-import dataclasses
-import functools
 from dataclasses import dataclass
 
 import torch
@@ -1918,3 +1918,38 @@ def mixture_predictions(opt, fitted, mix):
     allowed = [p.recipe for p in mix.points if p.recipe is not None]
     preds = iter(predict(opt, score, [opt._encode(r) for r in allowed]))
     return [next(preds) if p.recipe is not None else None for p in mix.points]
+
+
+# ------------------------------------------------------------------ #
+#  0.8.0 speed and simplicity, Plan A: Make a round's track-record line
+#  (spec 2026-09-30 §3; review I16).
+# ------------------------------------------------------------------ #
+
+@dataclass
+class RoundTrack:
+    rough: bool             # the Overall score's recent record says: treat as rough
+    inside: int
+    total: int
+    gap: float | None       # its average miss, when beyond the yardstick; else None
+    see_insights: bool      # the verdict (the measurements) is unreliable
+
+
+def round_track(opt, checks):
+    """Make a round's line under its table, from the Overall score's own
+    record in the verdict's Rounds (review I16): rough when fewer landed
+    inside than 1 in 20 misses explains (binomial tail under 0.10) or the
+    average miss is more than Repeats differ (noise_yardstick); holding
+    otherwise. None — no line — without a record (fewer than
+    SCORE_RECORD_MIN fully measured checks) or when the verdict is early
+    or over-wide."""
+    h = headline(opt, checks)
+    record = h.score
+    if record is None:
+        return None
+    state = verdict_state(opt, h, checks)
+    if state in ("none", "early", "over_wide"):
+        return None
+    beyond = abs(record.mean_miss) > noise_yardstick(opt, checks).value
+    rough = binomial_tail(record.total - record.inside, record.total) < 0.10 or beyond
+    return RoundTrack(rough, record.inside, record.total,
+                      record.mean_miss if beyond else None, state == "unreliable")

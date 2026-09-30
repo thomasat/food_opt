@@ -4694,3 +4694,43 @@ SAMPLE_INTRO_LINE = f"A teaching example: review it, then select {NEXT_MAKE_A_RO
 # Charts on Insights (Plan B Task 5): Compare all's two bar lengths.
 CHANGE_NEAR = "Near what you have tested"
 CHANGE_WHOLE = "Including not tested near here"
+
+
+# ------------------------------------------------------------------ #
+#  0.8.0 speed and simplicity, Plan A (spec 2026-09-30 §1, §3, §10;
+#  review I1, I16, V28). Plan A's own strings; Plan B's are above.
+# ------------------------------------------------------------------ #
+
+def insights_progress(done, total):
+    """Insights' one progress line while the workers fit (V28): Rounds
+    whose checks are all in, of the Rounds to check."""
+    rounds = ROUND_CAP if total == 1 else f"{ROUND_CAP}s"
+    return f"Checking predictions against your results: {done} of {total} {rounds} checked…"
+
+
+# A predicted Overall score not worked out yet (review I1): the column keeps
+# its width and never shows a range that would widen a moment later.
+PREDICTION_PENDING = "…"
+
+
+def round_track_holding(inside, total, see_insights=False):
+    """Make a round's track-record line when the Overall score's recent
+    record holds (spec §3, review I16); 'See Insights.' after an unreliable
+    verdict."""
+    line = (f"Recent {ROUND_CAP}s: {inside} of {total} {OVERALL_SCORE_COLUMN}s landed inside "
+            "their likely range.")
+    return f"{line} See {TAB_INSIGHTS}." if see_insights else line
+
+
+def round_track_rough(inside, total, gap_text=None, below=True, see_insights=False):
+    """The same line when the record is rough (review I16): the average gap
+    when it is beyond how much Repeats differ, else how many landed inside;
+    'See Insights.' after an unreliable verdict."""
+    if gap_text is not None:
+        side = "below" if below else "above"
+        line = (f"Recent {ROUND_CAP}s ran about {points_text(gap_text)} {side} prediction "
+                f"({inside} of {total} inside) — treat these predictions as rough.")
+    else:
+        line = (f"Recent {ROUND_CAP}s: only {inside} of {total} {OVERALL_SCORE_COLUMN}s landed "
+                "inside their likely range — treat these predictions as rough.")
+    return f"{line} See {TAB_INSIGHTS}." if see_insights else line
