@@ -72,9 +72,12 @@ def test_insights_with_no_complete_formulation(six_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0].startswith("Based on 0 scored formulations. "
-                                  "6 more are waiting for Juiciness. "), captions
+    assert captions[0].startswith("6 formulations are waiting for Juiciness. "), captions
     assert wording.insights_gate(0) in captions, captions
+    # "Is it still improving?" is not left empty (final review M-5).
+    texts = [m.value for m in at.tabs[3].markdown]
+    at_q = texts.index(f"**{wording.Q_IMPROVING}**")
+    assert texts[at_q + 1] == wording.NO_COMPLETE_FORMULATION, texts
 
 
 # ---------------------------------------------------------------- Task 6

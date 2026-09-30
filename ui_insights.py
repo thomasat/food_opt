@@ -725,7 +725,11 @@ def _improving(opt):
     answer = insights.improvement(opt, f, spread)
     if answer is not None:
         st.write(_say(opt, improving_text(answer)))
-    if f is not None:
+    if f is None:
+        # Everything recorded still waits: the question is not left empty
+        # (final review M-5), in the words Results uses.
+        st.write(_say(opt, wording.NO_COMPLETE_FORMULATION))
+    else:
         # The answer above already says what these two did.
         second = ("" if answer is not None
                   else wording.BEST_LATEST if f.latest and f.rounds_since == 0

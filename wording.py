@@ -3997,14 +3997,18 @@ def insights_header(n, last_round, waiting=0, names_text="", early=True):
     """'Based on 18 scored formulations, up to Round 6. 2 more are waiting
     for Cook loss. Likely range: …' — a formulation still waiting is not
     counted as scored (0.8.0 review fixes §3.1). `early`: no verdict yet,
-    and the likely range's promise is said as it holds early on (§3.5)."""
+    and the likely range's promise is said as it holds early on (§3.5).
+    With none scored yet, '3 formulations are waiting for Cook loss.' —
+    not "Based on 0 …, 3 more" (final review M-5)."""
+    range_line = LIKELY_RANGE_EARLY if early else LIKELY_RANGE_HEADER
+    verb = "is" if waiting == 1 else "are"
+    if n == 0 and waiting:
+        return (f"{waiting} {FORMULATION}{'s' if waiting != 1 else ''} {verb} "
+                f"{waiting_for(names_text)}. " + range_line)
     tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
-    wait = ""
-    if waiting:
-        verb = "is" if waiting == 1 else "are"
-        wait = f" {waiting} more {verb} {waiting_for(names_text)}."
+    wait = f" {waiting} more {verb} {waiting_for(names_text)}." if waiting else ""
     return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''}{tail}.{wait} "
-            + (LIKELY_RANGE_EARLY if early else LIKELY_RANGE_HEADER))
+            + range_line)
 
 
 LIKELY_RANGE_HEADER = "Likely range: where about 19 in 20 results should land."
