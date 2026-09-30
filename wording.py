@@ -4256,6 +4256,16 @@ def how_checks(values=False):
 
 
 HOW_CHECKS = how_checks()
+
+
+def how_same_process(values=False):
+    """0.8.0 review fixes §9 I13. `values`: a project of process settings
+    alone, which has no ingredients."""
+    what = "suppliers and equipment" if values else "ingredients, suppliers and equipment"
+    return f"Predictions assume your {what} behave as before."
+
+
+HOW_SAME_PROCESS = how_same_process()
 HOW_NO_P = ("There are no p-values or coefficient tables. These predictions have no terms to "
             "test, and the formulations were chosen one round at a time rather than designed "
             "in advance, so such tables would mislead. The checks above measure the same thing "
@@ -4307,7 +4317,7 @@ def path_lines(n, targets=True):
 PREDICTIONS_WORKING = "Preparing the predictions…"
 PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (likely range)"
 PREDICTED_SCORE_HELP = (f"Predicted from the {FORMULATION}s scored so far; about 19 in 20 "
-                        "results land in the likely range.")
+                        "results should land in the likely range.")
 def predictions_round_caption(values=False):
     """`values`: a project of process settings alone, which has no amounts."""
     what = "values" if values else "amounts"
@@ -4317,6 +4327,9 @@ def predictions_round_caption(values=False):
 
 PREDICTIONS_ROUND_CAPTION = predictions_round_caption()
 PREDICTED_MEASUREMENTS = "Predicted measurements"
+# 0.8.0 review fixes §9 I13: the two sets of predictions are learned apart.
+PREDICTED_MEASUREMENTS_CAPTION = ("The Overall score is predicted on its own, so it can "
+                                  "differ a little from what these imply.")
 
 
 def spread_from(best, n):
@@ -4411,6 +4424,15 @@ def best_close(n, score_text):
 
 
 BEST_UNTESTED = "Not tested near here yet — treat it as a guess."
+
+
+def best_luck(n, mean_text, low_text, high_text):
+    """Under the predicted best when it reads below Best so far's measured
+    score (0.8.0 review fixes §3.6)."""
+    return (f"Best so far's score includes some luck; a Repeat of {FORMULATION_CAP} {n} "
+            f"is predicted at {mean_text} (likely {low_text}–{high_text}).")
+
+
 BEST_ROW = "Predicted best"
 BEST_CAPTION = (f"Suggestions on {TAB_BATCH_NAME} also try untested areas; this is the single "
                 f"{FORMULATION} predicted to score highest.")

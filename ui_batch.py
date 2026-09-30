@@ -585,28 +585,32 @@ def _a_suggestion_below_best(opt, preds):
 
 
 def _with_predictions(opt, frame, preds):
-    """The make-these table with the Predicted Overall score column after
-    the amounts and settings, before Note and the Compared-with column. A
-    row already recorded or Not scored shows nothing."""
-    tail = sum(1 for c in (wording.NOTE, opt.compared_with_column())
-               if c in frame.columns)
+    """The make-these table with the Predicted Overall score column straight
+    after Formulation: at 1440 px it was the twelfth column, off screen
+    (0.8.0 review fixes §6). A row already recorded or Not scored shows
+    nothing."""
     cells = [ui_insights.score_text(preds[no][insights.SCORE]) if no in preds else ""
              for no in frame[wording.FORMULATION_CAP]]
     out = frame.copy()
-    out.insert(len(frame.columns) - tail, wording.PREDICTED_SCORE_COLUMN, cells)
+    out.insert(1, wording.PREDICTED_SCORE_COLUMN, cells)
     return out
 
 
 def _predicted_measurements(opt, preds):
+    """Each row's predicted measurements, in Results' order, each with one
+    number of decimals for its prediction and likely range."""
     rows = []
     for no, per in preds.items():
         item = {wording.for_project(opt, wording.FORMULATION_CAP): no}
-        for obj in opt.objectives:
+        for obj in opt.measurements_by_importance():
             p = per.get(obj['name'])
-            item[opt._measurement_column(obj)] = "—" if p is None else ui_insights.value_text(p)
+            item[opt._measurement_column(obj)] = (
+                "—" if p is None
+                else ui_insights.value_text(p, ui_insights.decimals(opt, obj['name'])))
         rows.append(item)
     with st.expander(wording.PREDICTED_MEASUREMENTS):
         st.dataframe(pd.DataFrame(rows), hide_index=True, height=table_height(len(rows)))
+        st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION))
 
 
 def _models_ready(opt):
@@ -757,7 +761,9 @@ def _draw_table(opt, slot, frame):
                            wording.for_project(opt, wording.FORMULATION_CAP)),
                        wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
                            wording.PREDICTED_SCORE_COLUMN,
-                           help=wording.for_project(opt, wording.PREDICTED_SCORE_HELP))},
+                           help=wording.for_project(opt, " ".join(
+                               t for t in (wording.PREDICTED_SCORE_HELP,
+                                           ui_insights.score_record_help(opt)) if t)))},
                    hide_index=True, key="batch_table", height=table_height(len(frame)))
 
 

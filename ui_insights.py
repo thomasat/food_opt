@@ -386,6 +386,19 @@ def render(opt):
         _how(opt, computed)
 
 
+def score_record_help(opt):
+    """The Overall score's own record for Make a round's column help, or
+    '' — only when this tab's checks are already worked out for the data on
+    screen (§9 I6): Make a round never checks Rounds itself."""
+    hit = _cached(opt)
+    if hit is None or hit.get("failed"):
+        return ""
+    rec = insights.headline(opt, hit["checks"]).score
+    if rec is None:
+        return ""
+    return wording.score_record_line(rec.inside, rec.total, rec.mean_miss)
+
+
 def header_text(opt, h):
     """The tab's first line: scored formulations (all their results in),
     the waiting ones apart, and the likely range's promise — its early form
@@ -622,9 +635,14 @@ def score_text(p):
     return f"{_whole(p.mean)} ({range_text(p.low, p.high, _whole)})"
 
 
-def value_text(p):
-    """A measurement prediction, formatted as the rest of the tab."""
-    return f"{_num(p.mean)} ({range_text(p.low, p.high)})"
+def value_text(p, d=None):
+    """A measurement prediction: its mean and likely range with one number
+    of decimals, `d` (decimals(opt, name)); without one, the tab's own
+    `_num` rule for each number."""
+    if d is None:
+        return f"{_num(p.mean)} ({range_text(p.low, p.high)})"
+    fmt = lambda v: f"{v:.{d}f}"
+    return f"{fmt(p.mean)} ({range_text(p.low, p.high, fmt)})"
 
 
 def _num(value):
@@ -799,16 +817,16 @@ def _progress_chart_body(opt):
     st.caption(_say(opt, wording.progress_caption(rings)))
 
 
-def _predicted_best(opt, fitted):
-    """insights.predicted_best, once per setup_key. A failure is cached as
-    such and shows one line."""
+def _predicted_best(opt, fitted, checks=()):
+    """insights.predicted_best, once per setup_key (the checks follow from
+    the data it covers). A failure is cached as such and shows one line."""
     key = insights.setup_key(opt)
     hit = st.session_state.get(BEST_KEY)
     if hit and hit[0] == key:
         return hit[1]
     with st.spinner(wording.INSIGHTS_WORKING):
         try:
-            value = insights.predicted_best(opt, fitted)
+            value = insights.predicted_best(opt, fitted, checks)
         except Exception:
             value = _FAILED
     st.session_state[BEST_KEY] = (key, value)
@@ -832,10 +850,14 @@ def best_frame(opt, best, fitted):
     frame[wording.FORMULATION_CAP] = [wording.BEST_ROW, _say(opt, label)]
     try:
         [own] = insights.predict(opt, fitted[insights.SCORE], [opt._encode(other)])
+        own = insights.widened(fitted[insights.SCORE], own, best.factor)
     except Exception:   # the table stands without the column
         own = None
     if own is not None:
-        frame[wording.PREDICTED_SCORE_COLUMN] = [score_text(best.score), score_text(own)]
+        # Straight after Formulation: at 1440 px the last column was off
+        # screen, and it is the one number the question is about (§6).
+        frame.insert(1, wording.PREDICTED_SCORE_COLUMN,
+                     [score_text(best.score), score_text(own)])
     return frame.rename(columns={wording.FORMULATION_CAP: _say(opt, wording.FORMULATION_CAP)})
 
 
@@ -848,7 +870,7 @@ def _best(opt, computed):
     if score is None or score.model is None:
         st.caption(_say(opt, wording.BEST_FAILED))
         return
-    best = _predicted_best(opt, fitted)
+    best = _predicted_best(opt, fitted, computed["checks"])
     if isinstance(best, str):
         st.caption(_say(opt, best))
         return
@@ -863,6 +885,13 @@ def _best(opt, computed):
     else:
         line += " " + wording.BEST_UNTESTED
     st.write(_say(opt, line))
+    top = opt.best_index()
+    # Best so far's measured score was picked for being the highest, so it
+    # carries some luck; said when the predicted best reads below it (§3.6).
+    if best.repeat is not None and top is not None and p.mean < float(opt.Y_history[top]):
+        r = best.repeat
+        st.write(_say(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
+                                             _whole(r.low), _whole(r.high))))
     try:
         frame = best_frame(opt, best, fitted)
     except Exception:   # one line, never a traceback: the tab still stands
@@ -1405,6 +1434,7 @@ def _how(opt, computed):
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
                      wording.how_checks(values=not opt.has_ingredients()),
+                     wording.how_same_process(values=not opt.has_ingredients()),
                      wording.HOW_NO_P):
             st.markdown(_say(opt, text))
         if computed is None:

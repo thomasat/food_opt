@@ -65,8 +65,8 @@ def test_the_round_table_gains_the_predicted_score_column(warm_round):
     assert not at.exception
     table = _batch_table(at)
     cols = list(table.value.columns)
-    assert cols == [wording.FORMULATION_CAP, "Pea protein (g)", "Methylcellulose (g)",
-                    "Total (g)", wording.PREDICTED_SCORE_COLUMN,
+    assert cols == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
+                    "Pea protein (g)", "Methylcellulose (g)", "Total (g)",
                     wording.compared_with_column(warm_round.best_formulation_no())]
     expected = _expected("burger")
     shown = list(table.value[wording.PREDICTED_SCORE_COLUMN])
@@ -106,11 +106,12 @@ def test_one_caption_and_the_predicted_measurements(warm_round, monkeypatch):
     assert wording.PREDICTED_SCORE_HELP not in captions        # tooltip, not a caption
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
     frame = exp.dataframe[0].value
-    assert list(frame.columns) == [wording.FORMULATION_CAP, "Juiciness (/10)", "Firmness (N)"]
+    # Results' order: Firmness carries the larger Share of score.
+    assert list(frame.columns) == [wording.FORMULATION_CAP, "Firmness (N)", "Juiciness (/10)"]
     expected = _expected("burger")
     for _, row in frame.iterrows():
         p = expected[int(row[wording.FORMULATION_CAP])]["Firmness"]
-        assert row["Firmness (N)"] == ui_insights.value_text(p)
+        assert row["Firmness (N)"] == ui_insights.value_text(p, 1)
 
 
 def test_no_round_caption_when_every_suggestion_is_predicted_above_best(warm_round, monkeypatch):
@@ -568,9 +569,8 @@ def test_section_4_answer_table_and_caption(insights_scored):
     assert answer.startswith(wording.best_answer(f"{p.mean:.0f}", f"{p.low:.0f}", f"{p.high:.0f}"))
     assert wording.BEST_CAPTION in caps
     [frame] = _best_frames(at)
-    assert list(frame.columns) == [wording.FORMULATION_CAP, "Pea protein (g)",
-                                   "Methylcellulose (g)", "Total (g)",
-                                   wording.PREDICTED_SCORE_COLUMN]
+    assert list(frame.columns) == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
+                                   "Pea protein (g)", "Methylcellulose (g)", "Total (g)"]
     labels = list(frame[wording.FORMULATION_CAP])
     assert labels[0] == wording.BEST_ROW
     assert labels[1] in (wording.start_best(opt.best_formulation_no()),
@@ -599,7 +599,7 @@ def test_section_4_rows_show_their_own_predictions(insights_scored, monkeypatch)
 
 
 def _best(monkeypatch, close):
-    def fake(opt, fitted):
+    def fake(opt, fitted, checks=()):
         return insights.PredictedBest(
             dict(opt.recipe_history[0]), insights.Prediction(88.2, 80.4, 95.1),
             close, close if close is not None else opt.best_index())
@@ -630,7 +630,8 @@ def test_section_4_not_tested_near_here(insights_scored, monkeypatch):
 
 
 def test_section_4_shows_the_reason_a_round_could_not_be_made(insights_scored, monkeypatch):
-    monkeypatch.setattr(insights, "predicted_best", lambda opt, fitted: wording.EVERYTHING_IS_FIXED)
+    monkeypatch.setattr(insights, "predicted_best",
+                        lambda opt, fitted, checks=(): wording.EVERYTHING_IS_FIXED)
     at = _open_insights(_app())
     md, caps = _tab_text(at)
     assert wording.EVERYTHING_IS_FIXED in caps
@@ -639,7 +640,7 @@ def test_section_4_shows_the_reason_a_round_could_not_be_made(insights_scored, m
 
 def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypatch):
     calls = []
-    def boom(opt, fitted):
+    def boom(opt, fitted, checks=()):
         calls.append(1)
         raise RuntimeError("no best")
     monkeypatch.setattr(insights, "predicted_best", boom)
@@ -732,7 +733,8 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
 def test_exact_wave_b_strings():
     assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (likely range)"
     assert wording.PREDICTED_SCORE_HELP == (
-        "Predicted from the formulations scored so far; about 19 in 20 results land in the likely range.")
+        "Predicted from the formulations scored so far; about 19 in 20 results should land in "
+        "the likely range.")
     assert wording.PREDICTIONS_ROUND_CAPTION == (
         "Some formulations are chosen to try amounts not tested yet, so their prediction can be "
         "lower than Best so far.")

@@ -1172,11 +1172,40 @@ class PredictedBest:
     score: Prediction
     close: int | None       # index of the nearest formulation when close, else None
     compare: int            # index of the table's second row
+    factor: float = 1.0     # how much the likely ranges here were widened
+    repeat: Prediction | None = None   # Best so far made again, predicted
 
 
-def predicted_best(opt, fitted):
+def score_widen(checks):
+    """How much to widen a likely range of the Overall score picked for
+    being highest: the root-mean-square of the project's own standardised
+    Overall-score misses (fully measured formulations), never below 1; 1
+    with fewer than SCORE_RECORD_MIN of them (0.8.0 review fixes §3.6: the
+    predicted best's range held 82 % of the time, 92 % widened so)."""
+    z = [(c.measured - c.raw_mean) / c.sd for c in checks
+         if c.name == SCORE and c.fully_measured and c.sd and c.raw_mean is not None]
+    if len(z) < SCORE_RECORD_MIN:
+        return 1.0
+    rms = math.sqrt(sum(v * v for v in z) / len(z))
+    return max(1.0, rms) if math.isfinite(rms) else 1.0
+
+
+def widened(fitted, p, factor):
+    """`p` with its likely range widened by `factor` about the model's own
+    mean, then clipped to the Range; the shown mean is unchanged."""
+    if factor == 1.0 or p.sd is None or p.raw_mean is None:
+        return p
+    sd = p.sd * factor
+    clip = lambda v: min(fitted.high, max(fitted.low, v))
+    return Prediction(p.mean, clip(p.raw_mean - Z95 * sd), clip(p.raw_mean + Z95 * sd),
+                      p.raw_mean, sd)
+
+
+def predicted_best(opt, fitted, checks=()):
     """The single formulation the Overall-score model predicts highest,
-    found the way suggestions are made and never written anywhere.
+    found the way suggestions are made and never written anywhere. Its
+    likely range, and Best so far's own predicted repeat, are widened by
+    score_widen(checks).
 
     Returns a PredictedBest, or a one-line reason (str) when `ask` would
     refuse to make a Round. Raises when the search fails or its answer
@@ -1205,11 +1234,17 @@ def predicted_best(opt, fitted):
         if not opt._check_constraints({k: v for k, v in recipe.items()
                                        if not isinstance(v, str)}):
             raise ValueError("the predicted best breaks a limit")
+    factor = score_widen(checks)
     [prediction] = predict(opt, score, [opt._encode(recipe)])
     i, d = nearest(opt, recipe)
     close = i if i is not None and d <= CLOSE_TO_THE_BEST + 1e-9 else None
-    return PredictedBest(recipe, prediction, close,
-                         close if close is not None else opt.best_index())
+    best = opt.best_index()
+    repeat = None
+    if best is not None:
+        [repeat] = predict(opt, score, [opt._encode(start_recipe(opt, best))])
+        repeat = widened(score, repeat, factor)
+    return PredictedBest(recipe, widened(score, prediction, factor), close,
+                         close if close is not None else best, factor, repeat)
 
 
 # ------------------------------------------------------------------ #
