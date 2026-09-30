@@ -41,10 +41,16 @@ class _Stuck:
         return False
 
 
+def _workers(monkeypatch, pool):
+    """Workers on, with `pool` standing in for them (None: none started)."""
+    monkeypatch.setattr(insights_jobs, "workers_on", lambda: pool is not None)
+    monkeypatch.setattr(insights_jobs, "pool", lambda: pool)
+
+
 @pytest.fixture
 def stuck(monkeypatch):
     pool = _Stuck()
-    monkeypatch.setattr(insights_jobs, "pool", lambda: pool)
+    _workers(monkeypatch, pool)
     return pool
 
 
@@ -125,6 +131,17 @@ def test_a_reopened_project_reads_its_cache_and_fits_nothing(five_rounds, monkey
     assert _texts(again) == _texts(first)
 
 
+def test_a_project_with_everything_cached_starts_no_workers(five_rounds, monkeypatch):
+    monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
+    _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)     # fitted here and saved
+    started = []
+    monkeypatch.setattr(insights_jobs, "workers_on", lambda: True)
+    monkeypatch.setattr(insights_jobs, "pool", lambda: started.append(1) or _Stuck())
+    at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
+    assert not at.exception and started == []
+    assert wording.MORE_CHARTS in _texts(at)
+
+
 def test_the_cache_holds_what_this_data_uses_and_no_more(five_rounds, monkeypatch):
     monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
     _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
@@ -177,10 +194,10 @@ def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds):
 
 
 def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatch):
-    monkeypatch.setattr(insights_jobs, "pool", lambda: None)          # no workers: all here
+    _workers(monkeypatch, None)                              # no workers: all here
     done = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     whole = [m.value for m in done.tabs[3].markdown]
-    monkeypatch.setattr(insights_jobs, "pool", lambda: _Stuck())
+    _workers(monkeypatch, _Stuck())
     at = _app(five_rounds.project_name)
     at.run()
     _seed(at, five_rounds, "stand")
@@ -208,7 +225,7 @@ def test_a_failed_worker_falls_back_to_fitting_here(five_rounds, monkeypatch):
             fut = cf.Future()
             fut.set_exception(RuntimeError("the Insights workers stopped"))
             return fut
-    monkeypatch.setattr(insights_jobs, "pool", lambda: _Broken())
+    _workers(monkeypatch, _Broken())
     at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     assert not at.exception
     assert wording.MORE_CHARTS in _texts(at)

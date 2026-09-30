@@ -185,6 +185,13 @@ def pool():
         return _POOL
 
 
+def workers_on():
+    """Whether fits go to worker processes in this app process: workers are
+    not set off (worker_count() > 0) and none has failed here. It starts
+    nothing (pool() does, when there is something to fit)."""
+    return worker_count() > 0 and not _GAVE_UP
+
+
 def pool_started(timeout=START_SECS):
     """pool(), once a worker is ready; None when there is none."""
     p = pool()

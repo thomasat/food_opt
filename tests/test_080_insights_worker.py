@@ -85,6 +85,17 @@ def test_with_workers_off_there_is_no_pool(monkeypatch):
     assert insights_jobs.pool() is None
 
 
+def test_workers_on_follows_the_setting_and_a_failure(monkeypatch):
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "2")
+    assert insights_jobs.workers_on()
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", True)
+    assert not insights_jobs.workers_on()
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "0")
+    assert not insights_jobs.workers_on()
+
+
 def test_a_pool_that_broke_is_not_started_again(monkeypatch, tmp_path):
     bad = tmp_path / "broken_worker.py"
     bad.write_text("raise SystemExit(3)\n")

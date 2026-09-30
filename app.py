@@ -907,20 +907,20 @@ with tab_insights:
     if tab_insights.open:
         ui_insights.render(_opt)
 
-# After the page is drawn, in this same run (review B2): the predicted best,
-# once the Overall score's models are in, so Insights need not wait for it.
+# After the page is drawn, in this same run (review B2): catch up with the
+# workers — the predicted best once the Overall score's models are in, every
+# check once all are — and, while they are still fitting, look again every
+# half second in a fragment of its own, rerunning the page when a part the
+# open tab draws lands (review I15).
 try:
-    ui_insights.warm_best(_opt)
-except Exception:   # Insights works it out when it is opened, as before
+    if tab_insights.open:
+        ui_insights.keep_up(_opt, ("column", "trust", "stand", "all"))
+    elif tab_batch.open and open_rows(_opt):
+        ui_insights.keep_up(_opt, ("column", "trust", "now"))
+    else:
+        ui_insights.keep_up(_opt)
+except Exception:   # the screens work it out when they are opened, as before
     pass
-
-# While the open tab waits for the workers, look again every half second
-# and rerun the page as each part lands (review I15): one poller, for
-# whichever of the two tabs is open.
-if tab_insights.open and _opt.complete_count() >= insights.MIN_ROWS:
-    ui_insights.poll_while_waiting(_opt, ("column", "trust", "stand", "all"))
-elif tab_batch.open and _opt.complete_count() >= insights.MIN_ROWS and open_rows(_opt):
-    ui_insights.poll_while_waiting(_opt, ("column", "trust", "now"))
 
 # A save that failed during this run must be visible now, not after the next
 # click: form submits do not rerun, and the banner above already rendered.

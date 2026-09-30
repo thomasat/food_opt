@@ -297,22 +297,22 @@ def cached_checks(opt):
     return checks_for(opt, "trust") or ()
 
 
-def _computed(opt, bar=None):
+def _computed(opt, bar=None, quiet=False):
     """The fitted models and the Round-by-Round checks, once per data_key.
     `bar`, a slot under the header, shows one progress bar while they are
     worked out; without it (a test, or a caller with no slot) a slot of
-    its own."""
+    its own; `quiet`: none at all (the models are in: nothing is fitted)."""
     hit = _cached(opt)
     if hit is not None:
         return hit
     key = insights.data_key(opt)
-    bar = bar if bar is not None else st.empty()
-    fitted = fitted_models(opt, bar=bar)
+    bar = None if quiet else (bar if bar is not None else st.empty())
+    fitted = fitted_models(opt, working=None) if quiet else fitted_models(opt, bar=bar)
     if fitted is None:
         value = _FAILED
     else:
         rounds = st.session_state.setdefault(ROUNDS_KEY, {})
-        checking = _stepper(opt, bar)
+        checking = None if quiet else _stepper(opt, bar)
         try:
             with insights.memo_in_use(memo(opt)):
                 checks = insights.check_rounds(opt, cache=rounds, checking=checking)
@@ -384,14 +384,14 @@ def start(opt):
     waiting value entered), and nothing when they are running or done.
     Returns the Job while fits are in flight, else None (no workers, too
     few formulations, or everything is in)."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS:
-        return None
-    pool = insights_jobs.pool()
-    if pool is None:
+    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
         return None
     mem, specs = memo(opt), _plan(opt)
     if insights_jobs.ready(specs, mem):
         save(opt)
+        return None
+    pool = insights_jobs.pool()        # started only when there is something to fit
+    if pool is None:
         return None
     job = insights_jobs.job_for(opt, pool, mem, specs)
     if job.poll(mem):
@@ -466,11 +466,11 @@ def save(opt):
 
 
 def warm_best(opt):
-    """app.py, after the page is drawn: the predicted best (a 0.7 s search
-    in this process), as soon as the Overall score's models are in from the
-    workers, so answer 2 need not wait for it. In this script run, never
-    beside ask() (review B2); once per setup_key. Nothing without workers."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS or insights_jobs.pool() is None:
+    """The predicted best (a 0.7 s search in this process), as soon as the
+    Overall score's models are in from the workers, so answer 2 need not
+    wait for it. In a script run of this session, never beside ask()
+    (review B2); once per setup_key. Nothing without workers."""
+    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
         return
     hit = st.session_state.get(BEST_KEY)
     if (hit and hit[0] == insights.setup_key(opt)) or waiting(opt, "column"):
@@ -488,7 +488,7 @@ def fits_here(opt):
     """Whether Make a round's predictions would be fitted in this process
     now: no workers (or they failed) and its models not all in."""
     job = insights_jobs.current_job(opt)
-    if insights_jobs.pool() is not None and not (job is not None and job.failed):
+    if insights_jobs.workers_on() and not (job is not None and job.failed):
         return False
     specs = [s for s in _plan(opt) if s.name == insights.SCORE or s.stage == insights_jobs.NOW]
     return not insights_jobs.ready(specs, memo(opt))
@@ -541,21 +541,47 @@ def _seen(opt, stages):
     return tuple(not waiting(opt, stage) for stage in stages)
 
 
-def poll_while_waiting(opt, stages):
-    """While the open screen waits for the workers (`stages` it draws in
-    parts), look again every POLL_SECS and rerun the page the moment one
-    more part is in: each part is drawn once, final. Nothing when nothing
-    is waited for."""
-    if not stages or opt is None:
+def _catch_up(opt):
+    """Work out here, from the workers' models, what the tab would otherwise
+    work out when it is opened: the predicted best once the Overall score's
+    models are in, then every check once everything is in — conditioning
+    only, about a second in all — and write it beside the project. Only
+    with workers; in a script run of this session, so never beside ask()
+    (review B2)."""
+    if not insights_jobs.workers_on():
         return
-    now = _seen(opt, stages)
-    st.session_state[SEEN_KEY] = now
-    if not all(now):
+    if not waiting(opt, "column"):
+        warm_best(opt)
+    if not waiting(opt, "all") and _cached(opt) is None:
+        _computed(opt, quiet=True)
+        save(opt)
+
+
+def _caught_up(opt):
+    hit = st.session_state.get(BEST_KEY)
+    return (not waiting(opt, "all") and _cached(opt) is not None
+            and bool(hit) and hit[0] == insights.setup_key(opt))
+
+
+def keep_up(opt, stages=()):
+    """app.py, after the page is drawn, on every run with a project open:
+    catch up with the workers now, and while they are still fitting (or
+    something is left to catch up), look again every POLL_SECS in a
+    fragment of its own — which reruns only itself, so no other tab is
+    disturbed — and rerun the page the moment one more part of the open
+    screen (`stages`, the parts it draws) is in: each part is drawn once,
+    final. Nothing without workers."""
+    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
+        return
+    _catch_up(opt)
+    st.session_state[SEEN_KEY] = _seen(opt, stages)
+    if not _caught_up(opt):
         _poller(opt, tuple(stages))
 
 
 @st.fragment(run_every=POLL_SECS)
 def _poller(opt, stages):
+    _catch_up(opt)
     if _seen(opt, stages) != st.session_state.get(SEEN_KEY):
         st.rerun()
 
