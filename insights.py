@@ -544,7 +544,8 @@ def noise_yardstick(opt, checks=(), name=SCORE):
     pooled sd between Repeats of `name`, a disagreeing Repeat left out,
     from YARDSTICK_PAIRS pairs or more and at least REPEAT_SD_SHOWN; else 1
     point for the Overall score (None for a measurement). Every rule that
-    asks "more than Repeats differ?" asks this."""
+    asks "more than Repeats differ?" asks this. The disagreeing Repeat is
+    left out only when `checks` are handed in."""
     flagged = disagreeing_repeat(opt, checks) if checks else None
     spread = repeat_sd(opt, name, None, () if flagged is None else (flagged.row,))
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
@@ -600,6 +601,8 @@ def next_step(opt, checks, standing=None):
     flagged = disagreeing_repeat(opt, checks)
     if flagged is not None:
         return NextStep("repeat", disagreement=flagged)
+    # "none" here is past the gate with no Round checked yet, so it reads
+    # as row 3; the ruling's "none" (row 9) is the no-data gate the caller says.
     if state in ("none", "early", "wide"):
         return NextStep("early")
     answer = improvement(opt, yardstick=yard)
@@ -1469,7 +1472,8 @@ def binding_limits(opt, recipe):
     varying row within BINDING of its span from its Lowest or Highest (the
     Fill to total row, fixed and calculated rows left out), then each
     ingredient limit and property limit within BINDING of its bound (the
-    Formulation total itself left out: every formulation sits at it)."""
+    Formulation total itself and every Exactly limit left out: every
+    formulation sits at it, and a fixed amount is not a limit to widen)."""
     out = []
     fill = opt.balance_row_name()
     for v in opt.varying_variables():
@@ -1485,7 +1489,7 @@ def binding_limits(opt, recipe):
         elif x <= lo + BINDING * span:
             out.append(Binding("lowest", v['name'], v['name']))
     for qc in getattr(opt, 'quantity_constraints', []):
-        if qc.get('source') == 'formulation_total':
+        if qc.get('source') == 'formulation_total' or qc.get('exactly') is not None:
             continue
         total = sum(float(recipe.get(n, 0.0) or 0.0) for n in qc['ingredients'])
         if any(b is not None and abs(total - float(b)) <= BINDING * max(abs(float(b)), _EPS)
@@ -1523,8 +1527,12 @@ def best_standing(opt, best, yardstick):
     measured_top = None if top is None else float(opt.Y_history[top])
     ref = best.repeat.mean if best.repeat is not None else measured_top
     higher = ref is not None and best.score.mean - ref > yardstick
+    # Compared as shown too (review M1): the Repeat in whole points, the
+    # measured score in two decimals, so "luck" never sits beside a Repeat
+    # that reads higher than the score.
     luck = (best.repeat is not None and measured_top is not None
-            and best.repeat.mean < measured_top - yardstick)
+            and best.repeat.mean < measured_top - yardstick
+            and round(best.repeat.mean) < round(measured_top, 2))
     close_no = None if best.close is None else int(opt.formulation_ids[best.close])
     return Standing(best, higher, best.close is not None, close_no,
                     binding_limits(opt, best.recipe), luck)

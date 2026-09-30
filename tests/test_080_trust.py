@@ -9,6 +9,7 @@ import pytest
 
 import insights
 from tests.test_complete_results import _patty
+from tests.test_insights import _burger
 from tests.test_track_record import _with_repeats
 
 
@@ -117,10 +118,41 @@ def test_in_a_group_of_three_each_is_compared_with_the_first():
     assert (d.later, d.earlier) == (6, 1)
 
 
+def test_of_two_disagreeing_repeats_in_one_group_the_larger_is_named():
+    """Rows 4 and 5 both Repeats of row 0, at -7 and +12: both cross 5.54,
+    and the +12 one is named although the -7 one comes first."""
+    opt, checks = _pair(-7.0)
+    _repeat_of(opt, 0, 5)
+    opt.Y_history[5] = opt.Y_history[0] + 12.0
+    checks.append(_check(insights.SCORE, 2, 6, opt.Y_history[5], opt.Y_history[5], 2.0))
+    d = insights.disagreeing_repeat(opt, checks)
+    assert (d.later, d.earlier, d.row) == (6, 1, 5)
+    assert d.diff == pytest.approx(12.0)
+
+
+@pytest.mark.parametrize("gaps", [(-7.0, 12.0), (12.0, -7.0)])
+def test_of_two_disagreeing_repeats_in_two_groups_the_larger_is_named(gaps):
+    """Row 3 a Repeat of row 1 and row 4 a Repeat of row 0, both crossing:
+    whichever group is looked at first, the larger |d| is named."""
+    opt = _patty(rows=6)
+    checks = _values(2)
+    for (src, dst), gap in zip(((1, 3), (0, 4)), gaps):
+        _repeat_of(opt, src, dst)
+        opt.Y_history[dst] = opt.Y_history[src] + gap
+        checks.append(_check(insights.SCORE, 2, dst + 1, opt.Y_history[dst],
+                             opt.Y_history[dst], 2.0))
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d.diff == pytest.approx(12.0)
+    assert (d.later, d.earlier) == ((4, 2) if gaps[0] == 12.0 else (5, 1))
+
+
 def test_the_disagreeing_repeat_is_left_out_of_the_yardstick():
     opt, checks = _pair(-10.0)
     assert insights.noise_yardstick(opt).pairs == 1
     assert insights.noise_yardstick(opt, checks).pairs == 0
+    # A measurement's yardstick leaves it out too (review I5: every rule).
+    assert insights.noise_yardstick(opt, name="Firmness").pairs == 1
+    assert insights.noise_yardstick(opt, checks, name="Firmness").pairs == 0
 
 
 # ------------------------------------------------------------------ #
@@ -161,6 +193,13 @@ def test_over_wide_needs_twenty_all_inside_and_small_misses():
     assert insights.verdict_state(opt, _h(inside=19, total=20), small) == "within"
 
 
+
+def test_a_median_miss_of_exactly_point_four_is_still_over_wide():
+    opt = _patty(rows=6)
+    edge = [_check("Firmness", 2, 100 + k, 0.2, 0.0, 0.5) for k in range(20)]   # |z| = 0.4
+    assert insights.verdict_state(opt, _h(inside=20, total=20), edge) == "over_wide"
+
+
 # ------------------------------------------------------------------ #
 #  next_step (review I2), one test per row of the table
 # ------------------------------------------------------------------ #
@@ -174,24 +213,29 @@ def table(monkeypatch):
     """next_step with its collaborators stood in, so each row is set up
     directly: `set(verdict=…, gap=…, repeat=…, answer=…)`."""
     opt = _patty(rows=6)
-    state = {"verdict": "within", "gap": None, "repeat": None, "answer": None, "yard": 1.0}
+    state = {"verdict": "within", "gap": None, "repeat": None, "answer": None, "yard": 1.0,
+             "given": None, "seen": "not called"}
 
     def headline(o, checks):
         score = None if state["gap"] is None else insights.ScoreRecord(5, 10, state["gap"])
         return insights.Headline("verdict", [2], 10, 10, "holding", score, [])
     monkeypatch.setattr(insights, "headline", headline)
     monkeypatch.setattr(insights, "verdict_state", lambda o, h, c: state["verdict"])
-    monkeypatch.setattr(insights, "noise_yardstick",
-                        lambda o, c=(), name=insights.SCORE:
-                        insights.Yardstick(state["yard"], None, 0, False))
+    def yardstick(o, c=(), name=insights.SCORE):
+        state["given"] = insights.Yardstick(state["yard"], None, 0, False)
+        return state["given"]
+    monkeypatch.setattr(insights, "noise_yardstick", yardstick)
     monkeypatch.setattr(insights, "disagreeing_repeat", lambda o, c, m=None: state["repeat"])
-    monkeypatch.setattr(insights, "improvement",
-                        lambda o, facts=None, spread=None, yardstick=None:
-                        _answer(state["answer"]))
+
+    def improvement(o, facts=None, spread=None, yardstick=None):
+        state["seen"] = yardstick
+        return _answer(state["answer"])
+    monkeypatch.setattr(insights, "improvement", improvement)
 
     def run(standing=None, **kw):
         state.update(kw)
         return insights.next_step(opt, [], standing)
+    run.state = state
     return run
 
 
@@ -243,6 +287,27 @@ def test_row7_yes_is_still_rising(table):
     assert table(_standing(), answer="yes").kind == "rising"
 
 
+def test_rising_is_judged_against_the_same_yardstick(table):
+    """Line 1 and the next step ask improvement() with one yardstick (I5)."""
+    table(_standing(), answer="yes")
+    assert table.state["seen"] is table.state["given"] is not None
+
+
+def test_an_exactly_limit_leaves_row6_to_show(table):
+    """An Exactly limit is never what binds (Task 2 review I-1), so a
+    predicted best at it is "close to the top" with nothing to widen."""
+    opt = _burger(rounds=2)
+    opt.add_quantity_constraint(["Pea", "Oil"], exactly=10.0)
+    top = float(opt.Y_history[opt.best_index()])
+    p = insights.Prediction(top, top - 4, top + 4, top, 2.0)
+    best = insights.PredictedBest(opt.fill_formulas({"Pea": 6.0, "Oil": 4.0}), p, 1,
+                                  opt.best_index(), 1.0, p)
+    standing = insights.best_standing(opt, best, 1.0)
+    assert standing.binding == [] and not standing.higher
+    step = table(standing, answer="not_lately")
+    assert (step.kind, step.binding) == ("close", None)
+
+
 @pytest.mark.parametrize("standing,answer", [
     (_standing(), None),                                   # improvement None
     (_standing(higher=True, tested_near=True), "not_lately"),  # higher but tested near
@@ -283,16 +348,20 @@ def test_details_compare_like_with_like_and_show_the_widening():
     checks = [_check("Firmness", 3, 1, 5.0, 5.0 + d) for d in (0.3, 0.5, 0.7)]
     fitted = {"Firmness": insights.Fitted("Firmness", object(), None, 6, 0, 10, 2.1)}
     [row] = insights.details(opt, checks, fitted)
-    sd = insights.repeat_sd(opt, "Firmness").sd
-    assert row.ratio == pytest.approx(0.5 / (insights.MAD_OF_NORMAL * sd))
+    # Median miss 0.5 over MAD_OF_NORMAL × the pooled sd sqrt(0.26 / 3)
+    # (test_track_record pins that sd): a known number, not the formula.
+    assert row.ratio == pytest.approx(2.5181, abs=1e-4)
     assert (row.widen, row.pairs) == (2.1, 4)
     [bare] = insights.details(opt, checks)
     assert bare.widen is None
+    unfitted = {"Firmness": insights.Fitted("Firmness", None, None, 6, 0, 10, 2.0)}
+    assert insights.details(opt, checks, unfitted)[0].widen is None
 
 
 def test_details_leave_a_disagreeing_repeat_out_of_every_output():
     opt, checks = _pair(-10.0)
     flagged = insights.disagreeing_repeat(opt, checks)
     rows = {r.name: r for r in insights.details(opt, checks, flagged=flagged)}
-    assert rows["Firmness"].pairs == 0
-    assert {r.name: r for r in insights.details(opt, checks)}["Firmness"].pairs == 1
+    assert rows["Firmness"].pairs == 0 and rows[insights.SCORE].pairs == 0
+    kept = {r.name: r for r in insights.details(opt, checks)}
+    assert kept["Firmness"].pairs == 1 and kept[insights.SCORE].pairs == 1
