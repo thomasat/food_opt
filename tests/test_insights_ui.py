@@ -217,6 +217,16 @@ def _app():
     return AppTest.from_file(APP_PATH, default_timeout=180)
 
 
+def _open_how(at):
+    """Method and details is keyed and drawn only while open (BO views fix
+    round 1, T56 I5): open it, as the reader does."""
+    import ui_insights
+    at.session_state[ui_insights.HOW_KEY] = True
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    return at
+
+
 def test_insights_is_the_last_tab(insights_scored):
     at = _app()
     at.run()
@@ -309,7 +319,7 @@ def test_how_section_default_wording(insights_scored):
         insights_scored.tell({"Pea protein": pea, "Methylcellulose": mc},
                              {"Juiciness": 3 + 0.2 * pea, "Firmness": 1 + 0.25 * pea + mc},
                              formulation_no=no, batch_no=4)
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
     [frame] = _details_frames(at)
@@ -318,7 +328,7 @@ def test_how_section_default_wording(insights_scored):
 
 
 def test_how_section_fixed_tiny_wording(insights_fixed_tiny):
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     assert not at.exception
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE_FIXED_TINY in body and wording.HOW_RANGE not in body
@@ -517,14 +527,14 @@ def insights_two_rounds(burger):
 
 
 def test_details_table_empty_says_so(insights_two_rounds):
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     assert not at.exception
     assert wording.DETAILS_NONE in _tab_text(at)[1]
     assert not _details_frames(at)
 
 
 def test_details_table_shows_rows_after_one_checked_round(insights_scored):
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     [frame] = _details_frames(at)
     assert len(frame) == 3                                        # 3 checked each
     assert set(frame[wording.DETAILS_COLUMNS_2[6]]) == {"no Repeats yet"}
@@ -532,7 +542,7 @@ def test_details_table_shows_rows_after_one_checked_round(insights_scored):
 
 
 def test_unchecked_rounds_caption(insights_scored):
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     assert wording.rounds_not_checked([1, 2]) in _tab_text(at)[1]
 
 

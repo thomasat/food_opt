@@ -12,7 +12,7 @@ import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, _submit_button, burger, ferment, scored  # noqa: F401
-from tests.test_insights_ui import _open_insights, _tab_text, insights_scored  # noqa: F401
+from tests.test_insights_ui import _open_how, _open_insights, _tab_text, insights_scored  # noqa: F401
 
 
 def _app():
@@ -636,7 +636,7 @@ def test_question_2_keeps_ingredient_when_nothing_varies(insights_scored, monkey
 
 def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypatch):
     monkeypatch.setattr(insights, "path_choices", lambda opt: [])
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     assert not at.exception
     md, caps = _tab_text(at)
     assert "Effect of one process setting" in [e.label for e in at.tabs[3].expander]

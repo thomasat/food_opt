@@ -15,7 +15,7 @@ from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_complete_results import _patty, _tell
 from tests.test_insights import _burger
-from tests.test_insights_ui import _open_insights, insights_scored  # noqa: F401
+from tests.test_insights_ui import _open_how, _open_insights, insights_scored  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -125,7 +125,7 @@ def test_a_failed_fit_says_so_once_and_keeps_best_so_far_and_the_foot(
 def test_the_set_up_button_goes_to_set_up(insights_scored, monkeypatch):
     moved = _moves(monkeypatch)
     monkeypatch.setattr(insights, "next_step",
-                        lambda opt, checks, standing=None: insights.NextStep(
+                        lambda opt, checks, standing=None, gain=None: insights.NextStep(
                             "close", binding=insights.Binding("highest", "Pea protein",
                                                               "Pea protein")))
     at = _open_insights(_app())
@@ -289,7 +289,7 @@ def test_a_process_only_project_names_settings(tmp_path):
 # ------------------------------------------------------------------ #
 
 def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored):
-    at = _open_insights(_app())
+    at = _open_how(_open_insights(_app()))
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
     said = [c.value for c in how.caption]

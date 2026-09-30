@@ -5221,6 +5221,16 @@ def gain_line(value_text, round_no, threshold_text, above=False, recomputed=Fals
     return line
 
 
+def gain_line_tiny(round_no, threshold_text, recomputed=False):
+    """The Progress line when the figure rounds to 0.00 (T56 m3): said as
+    under 0.01 points, with no plain reading of a machine zero."""
+    line = (f"Expected improvement, {ROUND_CAP} {round_no}: under 0.01 points (model, one "
+            f"{FORMULATION}), under {threshold_text}.")
+    if recomputed:
+        line += " Recomputed from today's records."
+    return line
+
+
 GAIN_UCB = ("Expected improvement: your model settings choose suggestions by an upper "
             "confidence bound, which gives no expected improvement.")
 
@@ -5254,22 +5264,23 @@ LAYER_PICK = "Show"
 LAYER_SCORE = "Predicted score"
 LAYER_SD = "Uncertainty"
 LAYER_GAIN = "Expected gain"
-LAYER_SD_LEGEND = "Model sd (suggestion model, narrower than the 95 % interval)"
+LAYER_SD_LEGEND = "Model sd (narrower than the 95 % interval)"
 LAYER_GAIN_LEGEND = "Expected improvement (points)"
 OVERLAY_NAME = "Predicted above Best so far"
 
 
 def overlay_caption(ref_text):
-    """The outline on the Predicted score layer (review I6)."""
-    return (f"Outlined: {OVERLAY_NAME}, the model mean minus 1.96 × model sd above a Repeat "
-            f"of Best so far as predicted ({ref_text}).")
+    """The outline on the Predicted score layer (review I6; T56 m5)."""
+    return (f"Outlined, {OVERLAY_NAME}: model mean − 1.96 × model sd above {ref_text} points "
+            "(a Repeat of Best so far as predicted), and the predicted score above Best so far "
+            "by more than the noise threshold.")
 
 
-def start_suggested(no):
+def start_suggested(no, edited=False):
     """Start from, for the Uncertainty and Expected gain layers only (review
     I8). Not "not made": _BANNED keeps that for a bowl made and never
-    measured."""
-    return f"{FORMULATION_CAP} {no} (suggested, still to make)"
+    measured. An edited suggestion says so (T56 m8)."""
+    return f"{FORMULATION_CAP} {no} ({'edited' if edited else 'suggested'}, still to make)"
 
 
 def layer_caption(layer, anchor_text):
@@ -5281,7 +5292,7 @@ def layer_caption(layer, anchor_text):
 
 
 def path_layer_caption(layer, anchor_text):
-    what = ("model sd of the suggestion model, narrower than the 95 % interval"
+    what = ("model sd, narrower than the 95 % interval"
             if layer == LAYER_SD
             else "expected improvement of one new formulation (model, points)")
     return f"Line: {what}, from {anchor_text}."

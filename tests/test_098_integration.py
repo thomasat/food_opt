@@ -78,12 +78,14 @@ def test_the_new_screens_say_no_retired_word():
     at.session_state[ui_batch.WHY_KEY] = True
     at.session_state[ui_insights.EACH_KEY] = True
     at.session_state[ui_insights.PROGRESS_KEY] = True
+    at.session_state[ui_insights.HOW_KEY] = True
     said = []
     for tab in (wording.TAB_INSIGHTS, wording.TAB_BATCH):
         _run(at, tab)
         said += [m.value for m in at.markdown] + [c.value for c in at.caption]
+    # T8 review: the audit's "keep in mind", "rough" and "a little" too.
     retired = re.compile(r"\b(likely|On track|though|treat|Barely|Not lately|stands out|"
-                         r"worth|some luck|too few to be sure)\b")
+                         r"worth|some luck|too few to be sure|[Kk]eep in mind|[Rr]ough|[Aa] little)\b")
     assert [t for t in said if retired.search(t)] == []
     assert [t for t in said if any(p.search(t) for p in _BANNED)] == []
 

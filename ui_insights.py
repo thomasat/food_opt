@@ -261,10 +261,17 @@ PATH_LAYER_KEY = "insights_path_layer"
 LAYER_START_KEY = "insights_layer_start"
 PATH_LAYER_CACHE = "_insights_path_layer"
 PROGRESS_KEY = "insights_progress_fold"
+HOW_KEY = "insights_how_fold"
 _LAYERS = (wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN)
 # The "Predicted above Best so far" outline: Okabe-Ito orange, which holds
 # its contrast on white and on Streamlit's dark background (review M14).
-_OUTLINE = "#E69F00"
+_OUTLINE_LIGHT = "#B35C00"     # about 4.6:1 on white (T56 m4)
+_OUTLINE_DARK = "#E69F00"      # on Streamlit's dark background
+
+
+def outline_colour():
+    """The Predicted above Best so far outline for the reader's theme."""
+    return _OUTLINE_DARK if muted() == _MUTED_DARK else _OUTLINE_LIGHT
 
 
 def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
@@ -1040,8 +1047,16 @@ def _change(opt, computed, yard):
         recipe = anchor_recipe(opt, number)
     except Exception:   # no start: the path says it could not be drawn, below
         recipe = None
+    # The answer line, Compare all and the choice's default stay on Best so
+    # far (or Section 2's own Start from) whatever the layer: only the path
+    # and its caption follow the layers' anchor (T56 I3).
+    ranked_no = _start_number(opt) if layered else number
     try:
-        found = insights.tested_near_changes(opt, fitted, recipe)
+        ranked_recipe = recipe if ranked_no == number else anchor_recipe(opt, ranked_no)
+    except Exception:
+        ranked_recipe = None
+    try:
+        found = insights.tested_near_changes(opt, fitted, ranked_recipe)
     except Exception:   # the answer line is left out; the path still draws
         found = insights.NearChanges([], [], False)
     # The box opens on the largest change near what has been tested; after
@@ -1050,7 +1065,7 @@ def _change(opt, computed, yard):
     if found.moved and CHOICE_KEY not in st.session_state:
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
-        _near_answer(opt, found, number == best_no, number, fitted, recipe, yard)
+        _near_answer(opt, found, ranked_no == best_no, ranked_no, fitted, ranked_recipe, yard)
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         if recipe is None:
@@ -1077,8 +1092,11 @@ def _change(opt, computed, yard):
 
 
 def _path_layer(opt, fitted, path, name, number, layer):
-    """A layer's values along the path, once per data, path and layer."""
-    key = (insights.setup_key(opt), name, number, layer)
+    """A layer's values along the path, once per data, path and layer; the
+    anchor's own amounts in the key, so an edited suggestion is not served
+    stale (T56 m11)."""
+    key = (insights.setup_key(opt), name, number, layer,
+           insights._digest(path.recipes[:1] if path.recipes else []))
     hit = st.session_state.get(PATH_LAYER_CACHE)
     if hit and hit[0] == key:
         return hit[1]
@@ -1434,7 +1452,9 @@ def gain_chart(opt, history, model_free=False):
                              alt.Tooltip("gain:Q", title=wording.GAIN_AXIS, format=".2f"),
                              alt.Tooltip("how:N", title=wording.GAIN_STATUS)])
             .properties(height=120))
-    return alt.vconcat(top, bars)
+    # One Round axis for both panels (T56 m1): a Round with no bar keeps
+    # its place.
+    return alt.vconcat(top, bars).resolve_scale(x="shared")
 
 
 def _gain_chart_body(opt):
@@ -1448,12 +1468,17 @@ def _gain_chart_body(opt):
     h = insights.headline(opt, checks)
     trusted = (insights.verdict_state(opt, h, checks) not in ("caution", "unreliable")
                and not _model_guard(opt, computed["fitted"]).fires)
+    if not trusted:
+        # Nothing to add under a caution or unreliable verdict, a no-skill
+        # record or the noise guard: Best so far is charted just above, and
+        # Progress says why the figure is withheld (T56 I4).
+        return
     try:
         with insights.memo_in_use(memo(opt)):
             history = bo_views.round_history(opt)
     except Exception:
         return
-    chart = gain_chart(opt, history, model_free=not trusted)
+    chart = gain_chart(opt, history)
     if chart is None:
         return
     _question(opt, wording.GAIN_HEADING)
@@ -1789,6 +1814,9 @@ def gain_text(opt, computed, yard, standing=None):
     best = opt.best_index()
     measured = (f"{opt.Y_history[best]:.2f}" if bo_views.acquisition(opt) == "qlogei"
                 and best is not None else None)
+    if g.gain < 0.005:
+        # Not "0.00 points … beats … by about 0.00 points" (T56 m3).
+        return wording.gain_line_tiny(g.round, threshold_text(yard), recomputed=not g.exact)
     return wording.gain_line(f"{g.gain:.2f}", g.round, threshold_text(yard),
                              above=g.gain > yard.value, recomputed=not g.exact,
                              measured_text=measured,
@@ -2107,7 +2135,8 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     if df["outline"].any():
         # Predicted above Best so far (review I6, M14): an outline, not a
         # fill, so the colours under it still read.
-        layers.append(alt.Chart(df).mark_circle(filled=False, stroke=_OUTLINE, strokeWidth=1.5,
+        layers.append(alt.Chart(df).mark_circle(filled=False, stroke=outline_colour(),
+                                                strokeWidth=1.5,
                                                 size=big, opacity=1, tooltip=False)
                       .encode(x=x, y=y)
                       .transform_filter(alt.FieldEqualPredicate(field="outline", equal=True)))
@@ -2225,9 +2254,17 @@ def anchor_recipe(opt, number):
 
 
 def anchor_text(opt, number):
+    """The anchor as the caption names it: Best so far by that name (T56
+    m7), a recorded formulation, or a suggestion still to make — "edited"
+    when the user changed it (T56 m8)."""
     ids = [int(x) for x in opt.formulation_ids]
-    return (wording.start_formulation(number) if number in ids
-            else wording.start_suggested(number))
+    best = opt.best_index()
+    if best is not None and number == ids[best]:
+        return wording.start_best(number)
+    if number in ids:
+        return wording.start_formulation(number)
+    row = next((r for r in opt.pending_batch or [] if int(r['formulation']) == number), {})
+    return wording.start_suggested(number, edited=bool(row.get('original_recipe')))
 
 
 def _model_guard(opt, fitted):
@@ -2246,6 +2283,10 @@ def layers_offered(opt, fitted):
     if opt.pending_batch and opt.pending_batch_no is not None:
         if bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
             return (wording.LAYER_SCORE,)
+    if bo_views.acquisition(opt) == "qucb":
+        # qUCB has no expected improvement: its value is an optimistic
+        # score, not a gain (T56 I2).
+        return (wording.LAYER_SCORE, wording.LAYER_SD)
     return _LAYERS
 
 
@@ -2370,12 +2411,27 @@ def _mixture_extra(opt, fitted, mix, preds, layer):
     ref = _repeat_of_best(opt, fitted)
     low = (got.mean - insights.Z95 * got.sd).tolist()
     it = spread(low)
-    ring = [(next(it) > ref) if p.recipe is not None and ref is not None else False
-            for p in mix.points]
+    top = opt.best_index()
+    measured_top = None if top is None else float(opt.Y_history[top])
+    yard = insights.noise_yardstick(opt, checks_for(opt, "trust") or ()).value
+    ring = []
+    for p, pred in zip(mix.points, preds or [None] * len(mix.points)):
+        lo = next(it) if p.recipe is not None else None
+        ring.append(p.recipe is not None and insights.above_best(
+            lo, None if pred is None else pred.mean, ref, measured_top, yard))
     means = [p.mean for p in preds if p is not None]
     half = sorted((insights.Z95 * got.sd).tolist())[len(allowed) // 2]
     return {"outline": ring, "ref": ref,
             "span": (max(means) - min(means)) if means else None, "half": half}
+
+
+def within_noise_line(extra):
+    """Review M7: when the colours span less than the median 1.96 × model
+    sd, one caption says so (the colours are not rescaled); else ''."""
+    span, half = extra.get("span"), extra.get("half")
+    if span is not None and half is not None and span < half:
+        return wording.mixture_within_noise(f"{span:.1f}", f"{half:.1f}")
+    return ""
 
 
 def _start_prediction(opt, fitted, mix, start):
@@ -2433,10 +2489,9 @@ def _mixture(opt, fitted):
         st.caption(_say(opt, wording.mixture_caption(number)))
         if extra.get("outline") and any(extra["outline"]):
             st.caption(_say(opt, wording.overlay_caption(_whole(extra["ref"]))))
-        span, half = extra.get("span"), extra.get("half")
-        if span is not None and half is not None and span < half:
-            # Review M7: a caption, not a rescaled colour.
-            st.caption(_say(opt, wording.mixture_within_noise(f"{span:.1f}", f"{half:.1f}")))
+        line = within_noise_line(extra)
+        if line:
+            st.caption(_say(opt, line))
     for line in ([wording.path_follows(n) for n in mix.follows]
                  + ([wording.mixture_fills(mix.fill_moves)] if mix.fill_moves else [])
                  + [wording.path_not_checked(t, prop) for t, prop in mix.skipped]):
@@ -2476,7 +2531,11 @@ def _how(opt, computed):
     paragraphs, the two method lines that were under the verdict (audit
     V23), then the details table with its window named and a "Likely range
     widened by" column, and the lines that read it."""
-    with st.expander(_say(opt, wording.HOW_WORKED_OUT)):
+    with st.expander(_say(opt, wording.HOW_WORKED_OUT), key=HOW_KEY,
+                     on_change="rerun") as fold:
+        # Keyed and worked out only while open (T56 I5; binding I15).
+        if not fold.open:
+            return
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,

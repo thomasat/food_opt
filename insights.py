@@ -1816,6 +1816,21 @@ def best_standing(opt, best, yardstick):
                     binding_limits(opt, best.recipe), luck)
 
 
+def above_best(low, mean, ref, measured_top, yardstick):
+    """The triangle's "Predicted above Best so far" outline at one point
+    (spec §3.3; T56 I1): its whole interval above Best so far's predicted
+    Repeat (`low`, the model mean − 1.96 × model sd, above `ref`), and
+    best_standing's own rule for the predicted score `mean` — above `ref`
+    by more than the noise threshold, and so as shown against the measured
+    Best so far (whole points against two decimals) — so the outline never
+    marks what Progress calls "none"."""
+    if None in (low, mean, ref):
+        return False
+    if not (low > ref and mean - ref > yardstick):
+        return False
+    return measured_top is None or round(mean) - round(measured_top, 2) > yardstick
+
+
 # ------------------------------------------------------------------ #
 #  Wave C: More charts — three ingredients trading places
 # ------------------------------------------------------------------ #

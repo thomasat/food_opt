@@ -64,6 +64,7 @@ def tabs(tmp_path_factory):
                 out[name] = _open(name)
             out["C try one"] = _open(demo.LINE_C, "insights_try_one")
             out["A try one"] = _open(demo.LINE_A, "insights_try_one")
+            out["A how"] = _open(demo.LINE_A, ui_insights.HOW_KEY)
             yield out
     finally:
         os.chdir(here)
@@ -110,11 +111,12 @@ def test_the_skill_line_sits_under_the_verdict(tabs, name, text):
 def test_no_skill_is_the_next_step_on_line_c(tabs):
     md, _ = _texts(tabs[demo.LINE_C])
     opt = demo.load(demo.LINE_C)
-    assert wording.next_no_skill("−0.47", 16, opt.pending_batch_no, 4) in md
+    assert wording.next_no_skill("−0.47", 16, opt.pending_batch_no, 4,
+                                 rounds=[2, 3, 4, 5]) in md
 
 
 def test_each_output_has_its_skill_in_the_details_table(tabs):
-    how = next(e for e in tabs[demo.LINE_A].tabs[3].expander
+    how = next(e for e in tabs["A how"].tabs[3].expander
                if e.label == wording.HOW_WORKED_OUT)
     [frame] = [d.value for d in how.dataframe if wording.SKILL_COLUMN in d.value.columns]
     cells = dict(zip(frame[wording.DETAILS_COLUMNS_2[0]], frame[wording.SKILL_COLUMN]))
@@ -123,9 +125,11 @@ def test_each_output_has_its_skill_in_the_details_table(tabs):
 
 
 def test_method_and_details_define_the_new_terms(tabs):
-    how = next(e for e in tabs[demo.LINE_A].tabs[3].expander
+    how = next(e for e in tabs["A how"].tabs[3].expander
                if e.label == wording.HOW_WORKED_OUT)
-    said = _all(how)
+    said = [m.value for m in how.markdown] + [c.value for c in how.caption]
+    # T0 review I-1: Line A has a Formulation total.
+    assert wording.how_checks() in said
     for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill(
                      "−0.20", "10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45"),
                  wording.HOW_EXPECTED_IMPROVEMENT, wording.how_roles("3,000")):
@@ -230,6 +234,15 @@ def test_the_guard_says_setting_effects_for_a_process_only_study():
 # ------------------------------------------------------------------ #
 #  Measured against predicted and the other lines with their basis
 # ------------------------------------------------------------------ #
+
+def test_method_and_details_is_drawn_only_while_open(tabs):
+    """T56 I5: keyed, and worked out only while open."""
+    fold = next(e for e in tabs[demo.LINE_A].tabs[3].expander
+                if e.label == wording.HOW_WORKED_OUT)
+    assert not fold.markdown and not fold.caption and not fold.dataframe
+    fold = next(e for e in tabs["A how"].tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    assert fold.markdown and fold.dataframe
+
 
 def test_measured_against_predicted_is_drawn_only_while_open(tabs):
     fold = next(e for e in tabs[demo.LINE_A].tabs[3].expander

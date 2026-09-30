@@ -15,7 +15,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_insights import _burger
-from tests.test_insights_ui import _open_insights, insights_scored  # noqa: F401
+from tests.test_insights_ui import _open_how, _open_insights, insights_scored  # noqa: F401
 from tests.test_insights_wave_b_ui import _batch_table, warm_round  # noqa: F401
 
 
@@ -157,7 +157,7 @@ def test_predicted_measurements_carry_their_caption(warm_round):
 
 
 def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insights_scored):
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    at = _open_how(_open_insights(AppTest.from_file(APP_PATH, default_timeout=180)))
     [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
     assert wording.HOW_SAME_PROCESS in [m.value for m in how.markdown]
     assert wording.HOW_SAME_PROCESS == (

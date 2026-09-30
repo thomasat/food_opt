@@ -109,7 +109,8 @@ def test_the_uncertainty_layer_goes_through_the_first_suggestion():
     assert titles == [wording.LAYER_SD_LEGEND]
     caps = [c.value for c in more.caption]
     assert wording.layer_caption(wording.LAYER_SD, wording.start_suggested(first)) in caps
-    assert ui_insights._start_number(opt) != first               # the score layer's start
+    # The score layer's start is Best so far (T56 I6: was vacuous).
+    assert ui_insights._start_number(opt) == int(opt.formulation_ids[opt.best_index()])
 
 
 def test_the_layer_values_are_the_suggestion_models_own():
@@ -154,23 +155,56 @@ def test_the_score_path_names_its_prediction_as_the_current_models():
 #  The Predicted score layer: the outline and the colour span (I6, M7, M14)
 # ------------------------------------------------------------------ #
 
-def test_the_outline_marks_what_is_predicted_above_best_so_far(monkeypatch):
+@pytest.mark.parametrize("low,mean,ref,top,yard,outlined", [
+    (91.0, 94.0, 90.0, 92.0, 1.0, True),      # whole interval above, clearly higher as shown
+    (89.0, 94.0, 90.0, 92.0, 1.0, False),     # mean above, interval not (T56 I6)
+    (90.5, 90.8, 90.0, 89.0, 1.0, False),     # interval above, gain under the threshold
+    (91.6, 92.4, 90.0, 92.5, 1.0, False),     # as shown: 92 against 92.50 (Timing check)
+    (91.0, 94.0, None, 92.0, 1.0, False),     # no Repeat of Best so far
+])
+def test_the_outline_rule_is_best_standings(low, mean, ref, top, yard, outlined):
+    """T56 I1: the outline marks only what Progress would call higher."""
+    assert insights.above_best(low, mean, ref, top, yard) is outlined
+
+
+def test_the_outline_is_drawn_where_the_rule_holds(monkeypatch):
     opt = _open_round()
-    monkeypatch.setattr(ui_insights, "_repeat_of_best", lambda o, f: -1e9)   # all above
     fitted = insights.fit_all(opt)
     mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"],
                                  insights.start_recipe(opt, opt.best_index()))
     preds = insights.mixture_predictions(opt, fitted, mix)
+    seen = []
+    monkeypatch.setattr(insights, "above_best", lambda *a: seen.append(a) or True)
     extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
     allowed = [p.recipe is not None for p in mix.points]
     assert extra["outline"] == allowed
+    # Called with the display model's own predicted score at each point.
+    assert [a[1] for a in seen] == [p.mean for p in preds if p is not None]
     spec = ui_insights.mixture_chart(opt, mix, preds, 3, None, None, None,
                                      extra["outline"]).to_dict()
-    assert any(l.get("mark", {}).get("stroke") == ui_insights._OUTLINE
+    assert any(l.get("mark", {}).get("stroke") == ui_insights.outline_colour()
                and l["mark"].get("filled") is False for l in _all_layers(spec))
-    monkeypatch.setattr(ui_insights, "_repeat_of_best", lambda o, f: 1e9)    # none above
+    monkeypatch.setattr(insights, "above_best", lambda *a: False)
     extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
     assert not any(extra["outline"])
+
+
+def test_the_timing_check_outlines_nothing_while_progress_says_none():
+    """T56 I1's scenario: Coconut oil / Textured soy protein / Water from
+    Best so far; Progress says no predicted gain beyond the noise
+    threshold, so nothing is outlined."""
+    from tests import demo_projects as demo
+    opt = demo.load(demo.TIMING)
+    fitted = insights.fit_all(opt)
+    checks = insights.check_rounds(opt)
+    best = insights.predicted_best(opt, fitted, checks)
+    yard = insights.noise_yardstick(opt, checks).value
+    assert not insights.best_standing(opt, best, yard).higher
+    start = insights.start_recipe(opt, opt.best_index())
+    mix = insights.mixture_slice(opt, ["Coconut oil", "Textured soy protein", "Water"], start)
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
+    assert extra["outline"] and not any(extra["outline"])
 
 
 def test_the_caption_says_when_colours_are_within_the_models_uncertainty():
@@ -189,6 +223,22 @@ def test_the_caption_says_when_colours_are_within_the_models_uncertainty():
         opt, [p.recipe for p in mix.points if p.recipe is not None]))
     halves = sorted((insights.Z95 * got.sd).tolist())
     assert extra["half"] == pytest.approx(halves[len(halves) // 2])
+
+
+@pytest.mark.parametrize("line,said", [("B", True), ("A", False)])
+def test_the_within_noise_caption_on_the_demo_lines(line, said):
+    """T56 I6: said on Line B (span about 4.1 < 6.8), not on Line A (10.7 >
+    4.0), on each one's default three from Best so far."""
+    from tests import demo_projects as demo
+    opt = demo.load(getattr(demo, f"LINE_{line}"))
+    fitted = insights.fit_all(opt)
+    start = insights.start_recipe(opt, opt.best_index())
+    names = ui_insights._three_default(opt, fitted, insights.mixture_choices(opt), start)
+    mix = insights.mixture_slice(opt, names, start)
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
+    assert (extra["span"] < extra["half"]) is said
+    assert bool(ui_insights.within_noise_line(extra)) is said
 
 
 # ------------------------------------------------------------------ #
@@ -234,11 +284,47 @@ def test_the_fold_shows_the_expected_improvement_by_round():
 
 
 def test_under_the_guard_the_fold_keeps_best_so_far_only(monkeypatch):
+    """T56 I4: no heading, chart or caption for a withheld figure; Best so
+    far is charted once, above."""
     opt = _open_round()
     monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(["noise"]))
     at = _again(_insights(opt, **{ui_insights.PROGRESS_KEY: True}))
-    [_, gain] = _specs(_progress(at))
-    assert not [l for l in _all_layers(gain) if l.get("mark", {}).get("type") == "bar"]
+    fold = _progress(at)
+    assert len(_specs(fold)) == 1
+    assert not any(wording.GAIN_HEADING in m.value for m in fold.markdown)
+    assert wording.GAIN_CHART_CAPTION not in [c.value for c in fold.caption]
+
+
+def test_the_two_panels_share_one_round_axis():
+    """T56 m1: a Round with no bar keeps its place under its Round."""
+    history = [bo_views.RoundGain(1, 80.0, None, None, False, "own"),
+               bo_views.RoundGain(2, 80.0, 81.0, 0.4, True, None)]
+    spec = ui_insights.gain_chart(_burger(rounds=2), history).to_dict()
+    assert spec["resolve"]["scale"]["x"] == "shared"
+
+
+def test_qucb_offers_no_expected_gain_layer():
+    """T56 I2: qUCB's value is an optimistic score, not a gain."""
+    opt = _burger(rounds=4)
+    opt.set_bo_config({"acquisition": "qucb"})
+    ui_batch.ask_alone(opt, n_suggestions=3)
+    assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (
+        wording.LAYER_SCORE, wording.LAYER_SD)
+
+
+def test_try_one_stays_on_best_so_far_under_a_layer():
+    """T56 I3: the path follows the layers' anchor; the answer line and
+    Compare all stay on Best so far."""
+    opt = _open_round()
+    first = ui_insights.suggested_numbers(opt)[0]
+    best_no = int(opt.formulation_ids[opt.best_index()])
+    at = _insights(opt, insights_try_one=True, **{ui_insights.PATH_LAYER_KEY: wording.LAYER_SD})
+    fold = _try_one(at)
+    said = [m.value for m in fold.markdown]
+    assert any(wording.start_best(best_no) in m or "Best so far" in m for m in said), said
+    assert not any(wording.start_suggested(first) in m for m in said)
+    assert wording.path_layer_caption(wording.LAYER_SD, wording.start_suggested(first)) in [
+        c.value for c in fold.caption]
 
 
 def test_a_round_without_an_acquisition_has_no_bar():
