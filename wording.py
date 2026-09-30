@@ -4684,6 +4684,13 @@ def tie_line(new_no, score_text, lead_text, old_no, sd_text=None):
             f"{FORMULATION_CAP} {old_no} — within {within}, so treat them as equal.")
 
 
+def tie_equal(best_no, other_no, score_text):
+    """An exact tie at the top (a lead of 0.00; Plan B parked item): said as
+    a tie, not skipped."""
+    return (f"{FORMULATION_CAP} {best_no} and {FORMULATION_CAP} {other_no} both scored "
+            f"{score_text}, so treat them as equal.")
+
+
 MEASURED_WAITING = "waiting"
 
 

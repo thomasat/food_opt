@@ -195,7 +195,10 @@ def _progress_line(opt):
     # so far against the next highest, by the I5 yardstick. A tie made by a
     # late Cook loss or a correction is said here, not only in the flash.
     ranked = sorted(pool, key=lambda i: float(opt.Y_history[i]), reverse=True)
-    tie = _tie(opt, ranked[1], ranked[0]) if len(ranked) > 1 else ""
+    # Its partner is the next highest DIFFERENT formulation: a Repeat of
+    # Best so far is the same make-up, never a tie (Plan B parked item).
+    others = [i for i in ranked[1:] if not _same_formulation(opt, ranked[0], i)]
+    tie = _tie(opt, others[0], ranked[0]) if others else ""
     if tie:
         return tie
     earlier = [float(opt.Y_history[i]) for i in pool
@@ -219,13 +222,25 @@ def _yardstick(opt):
     return insights.noise_yardstick(opt, ui_insights.cached_checks(opt))
 
 
+def _same_formulation(opt, i, j):
+    """Rows `i` and `j` are one make-up: one a Repeat of the other."""
+    return insights._same(opt, insights.start_recipe(opt, i), insights.start_recipe(opt, j))
+
+
 def _tie(opt, old, new):
     """The tie sentence when Best so far moved from row `old` to row `new`
-    by less than Repeats differ (1 point without 3 pairs), else ''."""
+    by less than Repeats differ (1 point without 3 pairs), else ''. A lead
+    of 0.00 is an exact tie, said as one; a Repeat of the same make-up is
+    never a tie (Plan B parked items)."""
+    if _same_formulation(opt, old, new):
+        return ""
     lead = float(opt.Y_history[new]) - float(opt.Y_history[old])
     yard = _yardstick(opt)
-    if lead <= 0 or lead >= yard.value:
+    if lead < 0 or lead >= yard.value:
         return ""
+    if f"{lead:.2f}" == "0.00":
+        return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
+                                 f"{opt.Y_history[new]:.2f}")
     return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
                             f"{lead:.2f}", int(opt.formulation_ids[old]),
                             f"{yard.value:.1f}" if yard.from_repeats else None)

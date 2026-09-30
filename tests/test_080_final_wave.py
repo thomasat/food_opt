@@ -187,3 +187,66 @@ def test_the_new_words_pass_the_guard():
                  wording.next_rising_open(6, 4), wording.next_see_open(6, 1),
                  wording.next_too_early_open(6, 2)):
         assert not any(p.search(text) for p in _BANNED), text
+
+
+# ------------------------------------------------------------------ #
+#  Plan B parked: the tie line's partner is a different formulation;
+#  an exact tie is said
+# ------------------------------------------------------------------ #
+
+def _three(scores):
+    """Formulations 1-3 (Round 1) at `scores`."""
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=3)
+    for i, y in enumerate(scores):
+        opt.Y_history[i] = y
+    return opt
+
+
+def _repeat_of(opt, no, score, rnd=2):
+    """Formulation 4, a Repeat of `no` (the same make-up), scoring `score`."""
+    from tests.test_complete_results import _recipe, _tell
+    _tell(opt, 4, rnd)
+    opt.recipe_history[3] = dict(opt.recipe_history[no - 1])
+    opt.X_history[3] = list(opt.X_history[no - 1])
+    opt.Y_history[3] = score
+    return opt
+
+
+def test_a_repeat_of_best_so_far_is_never_its_tie_partner():
+    import ui_results
+    opt = _repeat_of(_three([60.0, 70.0, 65.0]), 2, 70.3)
+    line = ui_results._progress_line(opt)
+    assert "treat them as equal" not in line, line          # 65 is 5.3 behind: no tie
+    assert ui_results._move_sentence(opt, 2, 4) == wording.best_moved(2, 4)
+
+
+def test_the_tie_partner_is_the_next_highest_different_formulation():
+    import ui_results
+    opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
+    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3)
+
+
+def test_an_exact_tie_is_said_as_a_tie():
+    import ui_results
+    from tests.test_complete_results import _tell
+    opt = _three([60.0, 70.0, 65.0])
+    _tell(opt, 4, 2)                                     # a different make-up
+    opt.Y_history[3] = 70.0
+    line = ui_results._progress_line(opt)
+    assert line == wording.tie_equal(2, 4, "70.00")
+    assert line == "Formulation 2 and Formulation 4 both scored 70.00, so treat them as equal."
+    assert not any(p.search(line) for p in _BANNED)
+
+
+def test_an_exact_trial_tie_says_trials():
+    assert wording.for_project(_Trials(), wording.tie_equal(2, 4, "70.00")) == (
+        "Trial 2 and Trial 4 both scored 70.00, so treat them as equal.")
+
+
+class _Trials:
+    def has_ingredients(self):
+        return False
+
+    def _process_settings(self):
+        return ["Incubation time"]
