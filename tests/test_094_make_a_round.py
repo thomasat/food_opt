@@ -149,12 +149,20 @@ def test_an_own_formulation_is_labelled_and_valued_alone():
     assert wording.why_row_label(no, own=True) in list(frame[wording.FORMULATION_CAP])
 
 
-def test_the_guard_takes_the_roles_and_the_expected_improvement_away(monkeypatch):
-    """Review I4: when the model is fitting noise the fold keeps its
-    model-free columns and says why."""
+@pytest.mark.parametrize("reasons,state,line", [
+    (["floor"], "within", wording.why_guard_line([wording.GUARD_FLOOR])),
+    (["floor", "skill"], "within", wording.why_guard_line(skill_only=True)),
+    ([], "unreliable", wording.why_guard_line(verdict=True)),
+])
+def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line):
+    """Review I4, fix round 1: the fold keeps its model-free columns and
+    withholds the expected improvement and the roles exactly when Progress
+    withholds its expected improvement, with the same reason."""
     opt = _open_round()
-    monkeypatch.setattr(insights, "noise_guard",
-                        lambda *a, **k: insights.Guard(["floor", "skill"]))
+    monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(reasons))
+    real = insights.verdict_state
+    monkeypatch.setattr(insights, "verdict_state",
+                        lambda *a: state if state != "within" else real(*a))
     at = _app(opt)
     at.session_state[ui_batch.WHY_KEY] = True
     _rerun(at)
@@ -162,8 +170,8 @@ def test_the_guard_takes_the_roles_and_the_expected_improvement_away(monkeypatch
     [frame] = [d.value for d in fold.dataframe]
     assert wording.ROLE not in frame.columns
     assert wording.EXPECTED_IMPROVEMENT not in frame.columns
-    # What it withholds, named (T47 review minor 5).
-    assert wording.why_guard_line([wording.GUARD_FLOOR]) in [c.value for c in fold.caption]
+    assert line in [c.value for c in fold.caption]
+    assert wording.WHY_PENDING not in [c.value for c in fold.caption]
 
 
 def test_a_cold_round_says_why_it_has_no_values():

@@ -79,6 +79,8 @@ def _new_lines():
         W.next_no_skill("−0.47", 16, 6, 4, [2, 3, 4, 5]),
         W.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]),
         W.why_guard_line([W.GUARD_FLOOR]), W.why_guard_line(skill_only=True),
+        W.why_guard_line(verdict=True), W.gain_line_tiny(12, W.beat_by()),
+        W.gain_line_tiny(12, W.beat_by(), recomputed=True), W.start_suggested(23, edited=True),
         W.why_cold(), W.why_cold(True), W.gain_cold(3, values=True),
         W.why_chart_caption("3,000", "qlogei"), W.why_chart_caption("3,000", "qucb"),
         W.mixture_within_noise("4.1", "5.0"), W.GUARD_FLOOR, W.GUARD_NOISE,
@@ -272,6 +274,11 @@ def test_the_new_lines_from_the_rulings():
         "points from formulations it is unsure about. Record the 3 formulations still open in "
         "Round 13 to test them.")
     assert W.next_explore("1.08").endswith("Make the next Round to test them.")
+    # T56 m3: a machine zero is said as under 0.01 points, with no reading.
+    assert W.gain_line_tiny(12, W.beat_by()) == (
+        "Expected improvement, Round 12: under 0.01 points (model, one formulation), under "
+        "the 1-point noise threshold.")
+    assert W.start_suggested(23, edited=True) == "Formulation 23 (edited, still to make)"
     assert "Best so far's measured 90.45" in W.gain_line("0.30", 6, W.beat_by(),
                                                          measured_text="90.45")
     assert W.OPTIMISTIC_SCORE == "Optimistic score (mean + 0.45 × sd)"

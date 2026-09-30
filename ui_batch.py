@@ -1105,12 +1105,16 @@ def _why_these(opt, preds):
         if why.cold:
             st.caption(wording.for_project(opt, wording.why_cold(not opt.has_ingredients())))
             return
-        guard = insights.noise_guard(opt, score, checks)
-        if guard.fires:
-            # What the fold withholds, and why (T47 review minor 5).
+        # Withheld by the rule Progress uses for its expected improvement, and
+        # said with the same reason (T47 review minor 5; fix round 1).
+        reason = ui_insights.withheld(opt, score, checks)
+        hide = reason is not None
+        if hide:
+            guard = insights.noise_guard(opt, score, checks)
             st.caption(wording.for_project(opt, wording.why_guard_line(
-                [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"], guard.skill_only)))
-        frame, value_col = why_frame(opt, why, preds, hide=guard.fires)
+                [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
+                skill_only=reason == "skill", verdict=reason == "verdict")))
+        frame, value_col = why_frame(opt, why, preds, hide=hide)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
                      else wording.EXPECTED_IMPROVEMENT_HELP)
@@ -1123,7 +1127,7 @@ def _why_these(opt, preds):
                          value_col: st.column_config.Column(
                              wording.for_project(opt, value_col),
                              help=wording.for_project(opt, help_text))})
-        if any(r.pending for r in why.rows) and not guard.fires:
+        if any(r.pending for r in why.rows) and not hide:
             st.caption(wording.for_project(opt, wording.WHY_PENDING))
         if not why.exact:
             st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))

@@ -5085,9 +5085,12 @@ def guard_skill_line(settings_only=False):
             "of earlier results.")
 
 
-def why_guard_line(reasons=(), skill_only=False):
-    """The Why fold under the noise guard (review I4; T47 review minor 5):
-    what it withholds, and why."""
+def why_guard_line(reasons=(), skill_only=False, verdict=False):
+    """The Why fold when the model's gains are withheld (review I4; T47
+    review minor 5): what it withholds, and the same reason Progress gives."""
+    if verdict:
+        return ("Expected improvement and roles are not shown: the measurements miss their "
+                "95 % intervals more often than expected.")
     if skill_only:
         return ("Expected improvement and roles are not shown until Round-ahead predictions "
                 "beat the average of earlier results.")

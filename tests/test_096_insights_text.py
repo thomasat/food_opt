@@ -193,6 +193,24 @@ def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
     assert not any(m.startswith("Within these") for m in md)
 
 
+def test_a_machine_zero_reads_under_one_hundredth(monkeypatch):
+    """T56 m3: the Timing check's 3.5e-21, not "0.00 points … beats … by
+    about 0.00 points"."""
+    opt = demo.load(demo.LINE_A)
+    yard = insights.noise_yardstick(opt)
+    monkeypatch.setattr(ui_insights, "latest_gain", lambda *a, **k: bo_views.RoundGain(
+        6, 90.45, None, 3.5e-21, True, None))
+    got = ui_insights.gain_text(opt, {"checks": (), "fitted": {}}, yard)
+    assert got == wording.gain_line_tiny(6, ui_insights.threshold_text(yard))
+
+
+def test_the_layers_name_best_so_far_as_their_anchor():
+    """T56 m7."""
+    opt = demo.load(demo.LINE_A)
+    best_no = int(opt.formulation_ids[opt.best_index()])
+    assert ui_insights.anchor_text(opt, best_no) == wording.start_best(best_no)
+
+
 def test_qucb_has_no_expected_improvement():
     opt = demo.load(demo.LINE_A)
     opt.bo_config = {"acquisition": "qucb"}

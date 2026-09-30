@@ -1769,16 +1769,26 @@ def gain_state(opt, score, checks, fit=True):
     model (insights.Fitted) or None."""
     if bo_views.acquisition(opt) == "qucb":
         return "ucb", None
+    why = withheld(opt, score, checks)
+    if why is not None:
+        return why, None
+    return None, latest_gain(opt, fit)
+
+
+def withheld(opt, score, checks):
+    """Why the model's gains are not reported, or None (review I4): "verdict"
+    (a caution or unreliable verdict), "skill" (no skill), "guard" (the
+    noise guard). Progress's expected improvement and the Why fold's
+    expected improvement and roles follow this one rule (fix round 1)."""
     h = insights.headline(opt, checks)
-    state = insights.verdict_state(opt, h, checks)
-    if state in ("caution", "unreliable"):
-        return "verdict", None
+    if insights.verdict_state(opt, h, checks) in ("caution", "unreliable"):
+        return "verdict"
     guard = insights.noise_guard(opt, score, checks)
     if "skill" in guard.reasons:
-        return "skill", None
+        return "skill"
     if guard.fires:
-        return "guard", None
-    return None, latest_gain(opt, fit)
+        return "guard"
+    return None
 
 
 def shown_gain(opt, score, checks, fit=True):
