@@ -13,6 +13,7 @@ reads as empty. Nothing here leaves the machine or touches the suggestions.
 import dataclasses
 import json
 import os
+import tempfile
 
 import insights
 
@@ -97,9 +98,12 @@ def save(project, saved, folder="."):
                "memo": {k: v for k, v in saved.memo.items() if "state" in v},
                "rounds": {k: [dataclasses.asdict(c) for c in v] for k, v in saved.rounds.items()},
                "best": _best_to_json(saved.best)}
-    tmp = f"{target}.tmp"
+    # A temp file of its own: two tabs of one project may save at once
+    # (review B M-2).
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target),
+                               prefix=os.path.basename(target) + ".", suffix=".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
         os.replace(tmp, target)
     finally:

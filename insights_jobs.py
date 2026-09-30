@@ -30,7 +30,8 @@ import time
 import insights
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "insights_worker.py")
-# Workers stop after this long with nothing to do; the next fit starts them again.
+# Workers stop after this long with nothing to do (the pool's own watch
+# closes it); the next fit starts them again.
 IDLE_SECS = 600
 # How long pool() waits for a worker's imports before giving up on workers.
 START_SECS = 60
@@ -71,6 +72,8 @@ class Pool:
         self._ready = threading.Event()
         self.n = n
         self.broken = False
+        self.closed = False
+        self._running = 0          # requests a worker is fitting now
         self.started = self.last_used = time.monotonic()
         env = {**os.environ, "OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         for _ in range(n):
@@ -80,6 +83,7 @@ class Pool:
                 env=env)
             self._procs.append(proc)
             threading.Thread(target=self._serve, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._watch, daemon=True).start()
 
     def wait_ready(self, timeout):
         """True once a worker has finished its imports; False if none did
@@ -90,7 +94,7 @@ class Pool:
         """A Future of the worker's answer (a dict) to `request`."""
         fut = cf.Future()
         with self._lock:
-            if self.broken:
+            if self.broken or self.closed:
                 fut.set_exception(RuntimeError("the Insights workers stopped"))
                 return fut
             self.last_used = time.monotonic()
@@ -98,7 +102,18 @@ class Pool:
         return fut
 
     def idle(self):
-        return self._queue.empty() and time.monotonic() - self.last_used > IDLE_SECS
+        """Started, nothing queued, nothing being fitted, and nothing asked
+        of it for IDLE_SECS (pool() handing it out counts as being asked)."""
+        return (self._ready.is_set() and self._queue.empty() and not self._running
+                and time.monotonic() - self.last_used > IDLE_SECS)
+
+    def _watch(self):
+        """Close this pool once it has been idle for IDLE_SECS, without
+        waiting for anyone to call pool() (review B I-2): six idle workers
+        hold about 2.4 GB."""
+        while not (self.closed or self.broken):
+            time.sleep(max(0.05, min(5.0, IDLE_SECS / 4)))
+            _close_if_idle(self)
 
     def check_start(self):
         """Break the pool if no worker finished its imports within
@@ -110,6 +125,8 @@ class Pool:
         try:
             if json.loads(proc.stdout.readline() or "{}").get("ready") is not True:
                 raise RuntimeError("the Insights worker did not start")
+            with self._lock:
+                self.last_used = max(self.last_used, time.monotonic())
             self._ready.set()
             while True:
                 _, _, request, fut = self._queue.get()
@@ -117,6 +134,8 @@ class Pool:
                     return
                 if not fut.set_running_or_notify_cancel():
                     continue
+                with self._lock:
+                    self._running += 1
                 try:
                     proc.stdin.write(json.dumps(request) + "\n")
                     proc.stdin.flush()
@@ -127,7 +146,10 @@ class Pool:
                 except BaseException as exc:
                     fut.set_exception(exc)
                     raise
-                self.last_used = time.monotonic()
+                finally:
+                    with self._lock:
+                        self._running -= 1
+                        self.last_used = time.monotonic()
         except Exception:
             self._break()
 
@@ -145,6 +167,8 @@ class Pool:
         self.close()
 
     def close(self):
+        with self._lock:
+            self.closed = True
         for proc in self._procs:
             try:
                 proc.kill()
@@ -167,15 +191,16 @@ _GAVE_UP = False
 def pool():
     """The app process's Pool, started on first use; None when workers are
     off (worker_count() is 0) or they failed in this process (the caller
-    then fits in its own process). A pool idle for IDLE_SECS is closed and
-    started again when next needed."""
+    then fits in its own process). A pool closes itself after IDLE_SECS
+    idle (Pool._watch); the next call starts a new one. A healthy pool is
+    never closed here: handing it out counts as using it."""
     global _POOL, _GAVE_UP
     with _POOL_LOCK:
         if _POOL is not None:
             _POOL.check_start()
             if _POOL.broken:
                 _GAVE_UP = True
-            if _POOL.broken or _POOL.idle():
+            if _POOL.broken or _POOL.closed:
                 _POOL.close()
                 _POOL = None
                 _INFLIGHT.clear()
@@ -185,7 +210,22 @@ def pool():
                 _POOL = Pool(n)
             except Exception:
                 _GAVE_UP = True
+        if _POOL is not None:
+            _POOL.last_used = time.monotonic()
         return _POOL
+
+
+def _close_if_idle(p):
+    """Pool._watch's step: close `p` if it is idle, under pool()'s lock so
+    pool() never hands out a pool that is closing."""
+    global _POOL
+    with _POOL_LOCK:
+        if p.closed or p.broken or not p.idle():
+            return
+        if _POOL is p:
+            _POOL = None
+            _INFLIGHT.clear()
+    p.close()
 
 
 def workers_on():
@@ -378,32 +418,43 @@ class Job:
         self.results = {}           # model key -> memo entry, for every session polling
         self.futures = {}           # model key -> [Future]
         self.failed = False
-        for k, s in enumerate(self.specs):
-            if s.key in memo or s.key in self.futures:
-                continue
-            futs = _INFLIGHT.get(s.key)
-            if futs is None or any(f.cancelled() for f in futs):
-                futs = [pool.submit(k, dict(r, id=f"{s.key}:{j}"))
-                        for j, r in enumerate(_requests(opt, s))]
-                _INFLIGHT[s.key] = futs
-            self.futures[s.key] = futs
+        # Two tabs poll one Job from their own threads (review B M-1).
+        self._lock = threading.RLock()
+        self.top_up(opt, pool, memo)
+
+    def top_up(self, opt, pool, memo):
+        """Send every spec of this state that is in neither `memo`, the
+        results nor the specs in flight (review B I-1): a later caller —
+        a second tab, or the project reopened from disk — may lack models
+        the first caller's memo already had."""
+        with self._lock:
+            for k, s in enumerate(self.specs):
+                if s.key in memo or s.key in self.futures or s.key in self.results:
+                    continue
+                futs = _INFLIGHT.get(s.key)
+                if futs is None or any(f.cancelled() for f in futs):
+                    futs = [pool.submit(k, dict(r, id=f"{s.key}:{j}"))
+                            for j, r in enumerate(_requests(opt, s))]
+                    _INFLIGHT[s.key] = futs
+                self.futures[s.key] = futs
 
     def poll(self, memo):
         """Move every finished spec into `memo` (and self.results); True
         when nothing is left in flight. A spec whose worker failed marks the
         Job failed; the screens then fit what is missing in-process."""
-        for key, futs in list(self.futures.items()):
-            if not all(f.done() for f in futs):
-                continue
-            del self.futures[key]
-            _INFLIGHT.pop(key, None)
-            try:
-                self.results[key] = _entry([f.result() for f in futs])
-            except Exception:
-                self.failed = True
-        for key, entry in self.results.items():
-            memo.setdefault(key, entry)
-        return not self.futures
+        with self._lock:
+            for key, futs in list(self.futures.items()):
+                if not all(f.done() for f in futs):
+                    continue
+                del self.futures[key]
+                _INFLIGHT.pop(key, None)
+                try:
+                    self.results[key] = _entry([f.result() for f in futs])
+                except Exception:
+                    self.failed = True
+            for key, entry in list(self.results.items()):
+                memo.setdefault(key, entry)
+            return not self.futures
 
     def wait(self, memo, timeout=600):
         """poll() until nothing is left in flight (tests, timing)."""
@@ -415,11 +466,12 @@ class Job:
         return self
 
     def cancel_others(self, keep):
-        for key, futs in list(self.futures.items()):
-            if key not in keep:
-                for f in futs:
-                    f.cancel()
-                _INFLIGHT.pop(key, None)
+        with self._lock:
+            for key, futs in list(self.futures.items()):
+                if key not in keep:
+                    for f in futs:
+                        f.cancel()
+                    _INFLIGHT.pop(key, None)
 
 
 def current_job(opt):
@@ -428,8 +480,9 @@ def current_job(opt):
 
 
 def job_for(opt, pool, memo, specs=None):
-    """The Job for this project's data, started on first call; an earlier
-    Job of the same project gives up what the new state does not need."""
+    """The Job for this project's data, started on first call and topped up
+    with what this caller's memo lacks on every later one; an earlier Job of
+    the same project gives up what the new state does not need."""
     key = (opt.project_name, insights.data_key(opt))
     with _JOBS_LOCK:
         job = _JOBS.get(key)
@@ -438,4 +491,6 @@ def job_for(opt, pool, memo, specs=None):
             for old in [k for k in _JOBS if k[0] == opt.project_name]:
                 _JOBS.pop(old).cancel_others({s.key for s in job.specs})
             _JOBS[key] = job
+        elif not job.failed:
+            job.top_up(opt, pool, memo)
         return job

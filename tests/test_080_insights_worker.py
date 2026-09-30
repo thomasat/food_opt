@@ -162,3 +162,59 @@ def test_worker_count_follows_the_setting(monkeypatch):
     monkeypatch.setattr(insights_jobs.os, "sysconf",
                         lambda k: {"SC_PHYS_PAGES": 2 * 2 ** 20, "SC_PAGE_SIZE": 4096}[k])
     assert insights_jobs.worker_count() == 2          # an 8 GB laptop
+    big = lambda k: {"SC_PHYS_PAGES": 16 * 2 ** 20, "SC_PAGE_SIZE": 4096}[k]   # 64 GB
+    monkeypatch.setattr(insights_jobs.os, "sysconf", big)
+    monkeypatch.setattr(insights_jobs.os, "cpu_count", lambda: 4)
+    assert insights_jobs.worker_count() == 2          # cores - 2 (review B M-7)
+    monkeypatch.setattr(insights_jobs.os, "cpu_count", lambda: 16)
+    assert insights_jobs.worker_count() == 6          # never more than 6
+
+
+# ------------------------------------------------------------------ #
+#  Plan A review B I-2, M-8: an idle pool stops by itself; a closed pool
+#  refuses work and is replaced, never given up on
+# ------------------------------------------------------------------ #
+
+def test_an_idle_pool_stops_by_itself(monkeypatch):
+    monkeypatch.setattr(insights_jobs, "IDLE_SECS", 0.5)
+    monkeypatch.setattr(insights_jobs, "_POOL", None)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "2")
+    import time
+    pool = insights_jobs.pool()
+    assert pool.wait_ready(120)
+    procs = list(pool._procs)
+    end = time.monotonic() + 30
+    while any(p.poll() is None for p in procs) and time.monotonic() < end:
+        time.sleep(0.1)                      # no call to pool() here
+    assert all(p.poll() is not None for p in procs)
+    assert insights_jobs._POOL is None
+    assert pool.closed and not pool.broken
+    again = insights_jobs.pool()             # the next fit starts a new one
+    assert again is not None and again is not pool and not insights_jobs._GAVE_UP
+    again.close()
+
+
+def test_a_busy_pool_is_not_stopped_and_pool_hands_out_the_same_one(monkeypatch):
+    monkeypatch.setattr(insights_jobs, "IDLE_SECS", 0.5)
+    monkeypatch.setattr(insights_jobs, "_POOL", None)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "1")
+    import time
+    opt = _burger(rounds=3, noise=0.3)
+    main, _, _ = _requests(opt, "Juiciness")
+    pool = insights_jobs.pool()
+    assert pool.wait_ready(120)
+    for _ in range(4):                       # used every 0.3 s for over a second
+        assert pool.submit(0, main).result(120)["id"]
+        assert insights_jobs.pool() is pool
+        time.sleep(0.3)
+    assert not pool.closed and all(p.poll() is None for p in pool._procs)
+    pool.close()
+
+
+def test_a_closed_pool_refuses_work():
+    pool = insights_jobs.Pool(1)
+    pool.close()
+    with pytest.raises(RuntimeError):
+        pool.submit(0, {"id": 1}).result(5)

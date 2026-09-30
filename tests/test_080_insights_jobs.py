@@ -146,3 +146,45 @@ def test_rounds_done_counts_rounds_whose_checks_are_all_in():
     assert insights_jobs.rounds_done(opt, specs, {}) == (0, len(rounds))
     memo = {s.key: {} for s in specs}
     assert insights_jobs.rounds_done(opt, specs, memo) == (len(rounds), len(rounds))
+
+
+# ------------------------------------------------------------------ #
+#  Plan A review B I-1, M-1: a Job covers what every caller's memo lacks
+# ------------------------------------------------------------------ #
+
+def test_a_shared_job_fits_what_a_later_callers_memo_lacks(pool):
+    """Session 1 already had some models, so its Job left them out; a
+    second memo without them (a second tab, or the project reopened from
+    disk) gets the same Job and must still end up with every model."""
+    opt = _burger(rounds=4, noise=0.4)
+    specs = insights_jobs.plan(opt)
+    first = {}
+    insights_jobs.compute_inline(opt, first, specs[:2])
+    job = insights_jobs.job_for(opt, pool, first)
+    second = {}
+    assert insights_jobs.job_for(opt, pool, second) is job
+    job.wait(second)
+    assert insights_jobs.ready(specs, second)
+    job.wait(first)
+    assert insights_jobs.ready(specs, first)
+
+
+def test_two_tabs_polling_one_job_never_raise(pool):
+    import threading
+    opt = _burger(rounds=5, noise=0.4)
+    memos, errors = [{}, {}], []
+    job = insights_jobs.job_for(opt, pool, memos[0])
+
+    def poll(memo):
+        try:
+            while not job.poll(memo):
+                pass
+        except Exception as exc:
+            errors.append(exc)
+    threads = [threading.Thread(target=poll, args=(m,)) for m in memos]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(300)
+    assert errors == []
+    assert all(insights_jobs.ready(insights_jobs.plan(opt), m) for m in memos)

@@ -103,6 +103,8 @@ def test_failed_fits_are_not_written():
                                  {}, None)
     insights_cache.save("Patty", saved)
     assert list(insights_cache.load("Patty").memo) == ["b"]
+    with open(insights_cache.path("Patty")) as fh:
+        assert list(json.load(fh)["memo"]) == ["b"]          # never on disk (review B M-7)
 
 
 def test_a_failed_search_is_not_written_and_a_refusal_is():
@@ -144,3 +146,28 @@ def test_a_crash_while_writing_leaves_the_old_file(monkeypatch):
     monkeypatch.setattr(json, "dump", real)
     assert insights_cache.load("Patty").memo == {"b": {"state": {}, "widen": 2.0}}
     assert not os.path.exists(insights_cache.path("Patty") + ".tmp")
+    assert glob.glob(".insights/*.tmp") == []
+
+
+def test_two_writers_never_share_a_temp_file(monkeypatch):
+    """Two tabs of one project save on the same tick (review B M-2)."""
+    moved = []
+    real = os.replace
+    monkeypatch.setattr(insights_cache.os, "replace",
+                        lambda src, dst: moved.append(src) or real(src, dst))
+    for widen in (1.0, 2.0):
+        insights_cache.save("Patty", insights_cache.Saved({"b": {"state": {}, "widen": widen}},
+                                                          {}, None))
+    assert len(moved) == 2 and moved[0] != moved[1]
+    here = os.path.abspath(os.path.dirname(insights_cache.path("Patty")))
+    assert all(os.path.abspath(os.path.dirname(m)) == here for m in moved)
+    assert glob.glob(".insights/*.tmp") == []
+
+
+def test_another_version_with_this_salt_reads_as_empty():
+    """Review B M-7: the version check on its own."""
+    os.makedirs(".insights", exist_ok=True)
+    with open(insights_cache.path("Patty"), "w") as fh:
+        json.dump({"version": insights_cache.VERSION + 1, "salt": insights.MODEL_SALT,
+                   "memo": {"b": {"state": {}, "widen": 1.0}}, "rounds": {}, "best": None}, fh)
+    assert insights_cache.load("Patty").memo == {}
