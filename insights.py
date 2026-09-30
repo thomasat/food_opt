@@ -1273,8 +1273,10 @@ def mixture_choices(opt):
 GRID_STEPS = 30          # barycentric step 1/30: 496 points over the whole triangle
 # The grid covers only the amounts each of the three can take (0.8.0 review
 # fixes §5.1): a region that is a fraction f of the triangle is sampled
-# ceil(1/sqrt(f)) times finer, up to this many times, so it keeps about as
-# many points as the whole triangle had.
+# ceil(1/sqrt(f)) times finer, up to this many times, so it keeps roughly
+# as many points as the whole triangle had or more: up to about four times
+# as many, since the ceiling rounds a share just under 1 up to a step twice
+# as fine (Task 2 review, Minor 2).
 MAX_REFINE = 10
 # Why a Mixture has no chart (Mixture.refusal); the screen words each one.
 NO_ROOM = "no_room"            # the three already sit at their Lowest or Highest

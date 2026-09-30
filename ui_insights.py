@@ -930,7 +930,7 @@ THREE_KEY = "insights_three"
 MIXTURE_KEY = "_insights_mixture"
 
 _TRI_H = math.sqrt(3) / 2
-_MIX_SIZE = 380          # px, the longer side of the drawn region: it keeps its shape
+_MIX_SIZE = 380          # px, the longer side of the drawn region plus its pad: it keeps its shape
 _MIX_PAD = 0.12          # of the region's longer side, around it for the labels
 
 # One hue, light to dark, starting a quarter in: the palest blues read as
@@ -1071,13 +1071,15 @@ def mixture_frame(opt, mix, preds):
 
 
 def mixture_chart(opt, mix, preds, number, start_pred=None):
-    """What happens when three ingredients trade places? A triangle of
-    predicted Overall scores: one hue, darker is higher, over the allowed
-    points only; a smaller mark where nothing was tested near; light grey
-    where a limit is broken. Tested formulations are white dots and the
-    start is a grey ring named by its number. No axes: the corners carry
-    the names and each one's own amount there. `start_pred`, the start's
-    own predicted Overall score, goes in the start ring's tooltip."""
+    """What happens when three ingredients trade places? Predicted Overall
+    scores over the part of the triangle the limits allow, zoomed to it
+    (0.8.0 review fixes §5.1): one hue, darker is higher; a smaller mark
+    where nothing was tested near; light grey where a limit is broken.
+    Tested formulations are white dots and the start is a grey ring named
+    by its number. No axes and no whole-triangle outline: each label names
+    an ingredient and its largest amount in the drawn region, written where
+    the region reaches it. `start_pred`, the start's own predicted Overall
+    score, goes in the start ring's tooltip."""
     if not mix.points or not preds:
         return None
     df, cols, unit = mixture_frame(opt, mix, preds)
@@ -1098,8 +1100,10 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
     x = alt.X("X:Q", axis=None, scale=alt.Scale(domain=x_dom, nice=False, zero=False))
     y = alt.Y("Y:Q", axis=None, scale=alt.Scale(domain=y_dom, nice=False, zero=False))
     # A grid point's mark fills about the same share of the gap to its
-    # neighbour however far the region is zoomed: 70 px² at the whole
-    # triangle's 1/30 step in 380 px.
+    # neighbour however far the region is zoomed: 70 px² for a step of
+    # _MIX_SIZE / GRID_BASE px. The pad takes part of _MIX_SIZE, so the
+    # whole triangle is drawn about 306 px wide and its marks are about
+    # 46 px²; a zoomed region's are larger in proportion.
     step_px = px / mix.steps
     big = max(8, round(70 * (step_px / (_MIX_SIZE / GRID_BASE)) ** 2))
     small = max(3, round(big * 16 / 70))
