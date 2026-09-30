@@ -2174,6 +2174,10 @@ def allowed_misses(n):
 # Repeat SD (from YARDSTICK_PAIRS pairs).
 GUARD_FLOOR = 1.05
 GUARD_NOISE = 0.5
+# A kernel whose own lower limit is 0 (an expert's Matern or RBF, gpytorch's
+# Positive()) is judged against this floor on the normalised inputs instead
+# (fix round 1, ledger ruling on T2 I-2: about BoTorch's default 0.025 × 2).
+EXPERT_FLOOR = 0.05
 
 
 @dataclass
@@ -2192,15 +2196,18 @@ class Guard:
 
 
 def _lengthscale_at_floor(gp):
-    """Whether any kernel's smallest correlation length sits within
-    GUARD_FLOOR of that kernel's own lower limit (review I3: read from the
-    module, so an expert's kernel is judged by its own bound)."""
+    """Whether any kernel's smallest correlation length (its actual one,
+    after the constraint's transform) sits within GUARD_FLOOR of that
+    kernel's own lower limit (review I3: read from the module), or of
+    EXPERT_FLOOR when that limit is 0 (fix round 1, T2 I-2)."""
     for module in gp.covar_module.modules():
         constraint = getattr(module, "raw_lengthscale_constraint", None)
         if constraint is None or not hasattr(module, "lengthscale"):
             continue
         low = float(torch.as_tensor(constraint.lower_bound).min())
-        if low > 0 and float(module.lengthscale.detach().min()) <= GUARD_FLOOR * low:
+        if low <= 0:
+            low = EXPERT_FLOOR
+        if float(module.lengthscale.detach().min()) <= GUARD_FLOOR * low:
             return True
     return False
 
@@ -2234,9 +2241,10 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
         except Exception:
             pass
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
-        yard = noise_yardstick(opt, checks, name)
         sd = None if tiny else fitted_noise_sd(gp)
-        if (sd is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
+        # The yardstick only when there is a fitted noise to judge (T2 m-5).
+        yard = None if sd is None else noise_yardstick(opt, checks, name)
+        if (yard is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
                 and sd < GUARD_NOISE * yard.sd):
             reasons.append("noise")
     if name == SCORE:

@@ -247,6 +247,25 @@ def test_a_model_with_skill_keeps_its_next_step(lines):
     assert insights.next_step(opt, checks).kind != "no_skill"
 
 
+@pytest.mark.parametrize("state", ["early", "wide", "none"])
+def test_early_and_wide_come_before_no_skill(lines, monkeypatch, state):
+    """Review T2 I-3: no_skill sits after early/wide — an "early" project is
+    never told its predictions are no better than the average."""
+    opt, checks, _ = lines[demo.LINE_C]
+    monkeypatch.setattr(insights, "verdict_state", lambda *a: state)
+    standing = SimpleNamespace(higher=True, tested_near=False, binding=[])
+    assert insights.next_step(opt, checks, standing).kind == "early"
+
+
+def test_a_disagreeing_repeat_comes_before_no_skill(lines, monkeypatch):
+    """Review T2 I-3: and after the repeat row."""
+    opt, checks, _ = lines[demo.LINE_C]
+    flagged = insights.Disagreement(1, 2, 3.0, 1, 0.5)
+    monkeypatch.setattr(insights, "disagreeing_repeat", lambda *a, **k: flagged)
+    step = insights.next_step(opt, checks)
+    assert step.kind == "repeat" and step.disagreement is flagged
+
+
 def test_the_track_line_carries_no_skill_even_when_coverage_holds(lines):
     opt, checks, _ = lines[demo.LINE_C]
     t = insights.round_track(opt, checks)
@@ -262,6 +281,24 @@ def test_no_skill_is_said_alone_where_coverage_is_not(lines, monkeypatch, state)
     monkeypatch.setattr(insights, "verdict_state", lambda *a: state)
     t = insights.round_track(opt, checks)
     assert t is not None and not t.record and t.no_skill is not None
+
+
+@pytest.mark.parametrize("how", ["no_record", "score_wide"])
+def test_no_skill_is_said_alone_without_a_record_or_with_the_score_wide(lines, monkeypatch, how):
+    """Review T2 m-4: the other two skill-alone paths."""
+    opt, checks, _ = lines[demo.LINE_C]
+    real = insights.headline
+
+    def headline(o, c):
+        h = real(o, c)
+        if how == "no_record":
+            return dataclasses.replace(h, score=None)
+        return dataclasses.replace(h, wide=[insights.SCORE])
+    monkeypatch.setattr(insights, "headline", headline)
+    t = insights.round_track(opt, checks)
+    assert t is not None and not t.record and t.no_skill is not None
+    opt_a, checks_a, _ = lines[demo.LINE_A]
+    assert insights.round_track(opt_a, checks_a) is None
 
 
 @pytest.mark.parametrize("state", ["early", "wide"])
@@ -302,6 +339,38 @@ def test_the_floor_is_the_kernels_own(lines):
     assert not insights._lengthscale_at_floor(score_a.model)
 
 
+def _kernel_gp(kernel):
+    """A fitted-model stand-in with one kernel and no fitted noise."""
+    return SimpleNamespace(covar_module=kernel, likelihood=None)
+
+
+@pytest.mark.parametrize("factor,fires", [(1.04, True), (1.06, False)])
+def test_the_floor_margin_is_five_per_cent_of_the_actual_length(factor, fires):
+    """Review T2 I-3: GUARD_FLOOR's 1.05, on the ACTUAL correlation length
+    of a softplus-constrained kernel (raw and actual differ there)."""
+    from gpytorch.constraints import GreaterThan
+    from gpytorch.kernels import RBFKernel
+    kernel = RBFKernel(ard_num_dims=2, lengthscale_constraint=GreaterThan(0.025))
+    kernel.lengthscale = torch.tensor([[0.025 * factor, 0.5]])
+    assert float(kernel.raw_lengthscale.min()) < 0      # softplus: raw is not the length
+    assert insights._lengthscale_at_floor(_kernel_gp(kernel)) is fires
+
+
+@pytest.mark.parametrize("cfg", [{"kernel": "matern52"}, {"kernel": "matern32"},
+                                 {"kernel": "rbf"}])
+@pytest.mark.parametrize("length,fires", [(0.052, True), (0.053, False), (0.3, False)])
+def test_an_expert_kernel_is_judged_against_an_absolute_floor(cfg, length, fires):
+    """Fix round 1 (ledger ruling on T2 I-2): an expert's Matern or RBF has
+    gpytorch's Positive() bound, 0; trigger (a) then uses 0.05 on the
+    normalised inputs (within GUARD_FLOOR's 5 %)."""
+    from food_bo import _build_covar
+    kernel = _build_covar(cfg, 3)
+    base = kernel.base_kernel
+    assert float(base.raw_lengthscale_constraint.lower_bound) == 0.0
+    base.lengthscale = torch.tensor([[length, 0.4, 0.9]])
+    assert insights._lengthscale_at_floor(_kernel_gp(kernel)) is fires
+
+
 class _Noise:
     """A fitted model stand-in: its noise sd in points, and no kernel."""
 
@@ -324,6 +393,10 @@ def test_the_noise_trigger_needs_three_pairs_and_a_fitted_noise(monkeypatch, lin
     assert insights.noise_guard(opt, fitted, checks).reasons == []
     monkeypatch.setattr(insights, "noise_yardstick", yard(3))
     assert insights.noise_guard(opt, SimpleNamespace(model=_Noise(0.6)), checks).reasons == []
+    # Review T2 m-2: either side of GUARD_NOISE × a yardstick of 1.0.
+    assert insights.noise_guard(opt, SimpleNamespace(model=_Noise(0.49)), checks).reasons == [
+        "noise"]
+    assert insights.noise_guard(opt, SimpleNamespace(model=_Noise(0.51)), checks).reasons == []
     assert insights.noise_guard(
         opt, SimpleNamespace(model=_Noise(0.4, "FixedNoiseGaussianLikelihood")), checks
     ).reasons == []
