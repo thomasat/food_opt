@@ -71,6 +71,45 @@ def test_no_checks_no_chart():
     assert ui_insights.measured_vs_predicted_chart(_patty(rows=0), []) is None
 
 
+def test_checks_only_for_outputs_gone_draw_no_chart():
+    checks = [_check("Crunch", 2, 4, 5.0, 5.0)]         # a measurement since deleted
+    assert ui_insights.measured_vs_predicted_chart(_patty(rows=6), checks) is None
+
+
+def _panel_rows(spec):
+    """A one-panel chart's own rows (not the 1:1 line's)."""
+    return next(rows for rows in spec["datasets"].values() if rows and "latest" in rows[0])
+
+
+def test_the_latest_round_and_the_inside_ones_are_marked_in_the_data():
+    opt = _patty(rows=6)
+    checks = [_check("Firmness", 2, 4, 3.0, 5.0), _check("Firmness", 3, 7, 7.2, 7.0)]
+    spec = ui_insights.measured_vs_predicted_chart(opt, checks).to_dict()
+    rows = _panel_rows(spec)
+    assert [(r[wording.ROUND_CAP], r["latest"], r["inside"]) for r in rows] == [
+        (2, False, False), (3, True, True)]
+
+
+def test_the_tooltips_carry_a_format():
+    opt = _patty(rows=6)
+    [panel] = _panels(ui_insights.measured_vs_predicted_chart(
+        opt, [_check("Firmness", 2, 4, 5.0, 5.0)]))
+    d = ui_insights.decimals(opt, "Firmness")
+    tips = {t["field"]: t.get("format") for t in panel["layer"][1]["encoding"]["tooltip"]}
+    assert tips[wording.FORMULATION_CAP] == "d"
+    assert tips[wording.TRACK_PREDICTED] == tips[wording.TRACK_LOW] == f".{d}f"
+    assert tips[wording.TRACK_MEASURED] == f".{max(1, d)}f"
+
+
+def test_a_clipped_likely_range_is_drawn_clipped():
+    """insights.predict clips a likely range to the measurement's Range; the
+    bar ends where the check says, at the Range's own edge."""
+    opt = _patty(rows=6)
+    check = insights.Check(4, 2, "Firmness", 9.5, 8.5, 10.0, 9.8, True, True, 9.5, 0.6)
+    [row] = _panel_rows(ui_insights.measured_vs_predicted_chart(opt, [check]).to_dict())
+    assert row[wording.TRACK_HIGH] == 10.0
+
+
 # ------------------------------------------------------------------ #
 #  Compare all on the tested-near change (review I8)
 # ------------------------------------------------------------------ #
@@ -86,6 +125,11 @@ def test_the_dark_bar_is_the_tested_near_change_and_the_light_one_the_whole_path
     assert light["encoding"]["y"]["sort"] == ["Oil", "Pea"]
     rows = list(spec["datasets"].values())[0]
     assert [(r["near"], r["whole"]) for r in rows] == [(1.4, 3.0), (0.0, 2.0)]
+    # Pea's start is not tested near: its tooltip says so, never "0.0"
+    # (Task 5 review I-1).
+    assert [r["near_text"] for r in rows] == ["1.4", wording.MIXTURE_UNTESTED]
+    tips = {t["title"]: t["field"] for t in dark["encoding"]["tooltip"]}
+    assert tips[wording.CHANGE_NEAR] == "near_text"
     assert ui_insights.change_chart([]) is None
 
 
@@ -106,6 +150,8 @@ def test_the_progress_chart_fits_the_scores():
     assert score_line["encoding"]["y"]["scale"] == {"zero": False}
     assert best_line["encoding"]["y"]["scale"] == {"zero": False}
     assert score_line["encoding"]["x"]["axis"]["values"] == [1, 2, 3, 4, 5, 6]
+    three = ui_insights.progress_chart(_patty(rows=3)).to_dict()
+    assert three["layer"][0]["encoding"]["x"]["axis"]["values"] == [1, 2, 3]
 
 
 def test_the_progress_caption_says_a_flat_stretch_proves_nothing():

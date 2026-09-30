@@ -144,9 +144,11 @@ def measured_vs_predicted_chart(opt, checks):
             "latest": c.round == latest} for c in mine])
         x = alt.X(f"{predicted}:Q", title=predicted, scale=scale)
         y = alt.Y(f"{measured}:Q", title=measured, scale=scale)
-        tip = [alt.Tooltip(f"{f}:{t}", title=f) for f, t in (
-            (formulation, "Q"), (wording.ROUND_CAP, "N"), (predicted, "Q"), (low, "Q"),
-            (high, "Q"), (measured, "Q"))]
+        fmt = f".{d}f"
+        tip = [alt.Tooltip(f"{f}:{t}", title=f, **({"format": v} if v else {}))
+               for f, t, v in ((formulation, "Q", "d"), (wording.ROUND_CAP, "N", None),
+                               (predicted, "Q", fmt), (low, "Q", fmt), (high, "Q", fmt),
+                               (measured, "Q", f".{max(1, d)}f"))]
         latest_first = alt.FieldEqualPredicate(field="latest", equal=True)
         line = (alt.Chart(pd.DataFrame({"a": domain, "b": domain}))
                 .mark_line(color="gray", strokeDash=[4, 3], strokeWidth=1, tooltip=False)
@@ -164,6 +166,9 @@ def measured_vs_predicted_chart(opt, checks):
             tooltip=tip).transform_filter(alt.FieldEqualPredicate(field="inside", equal=True)))
         panels.append(alt.layer(line, bars, rings, filled)
                       .properties(width=220, height=220, title=_say(opt, panel_label(opt, name))))
+    if not panels:
+        # Checks only for outputs no longer in the project: nothing to draw.
+        return None
     return alt.concat(*panels, columns=3)
 
 
@@ -574,16 +579,19 @@ def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
     """Compare all: one bar per choice, ranked by how much it changes the
     prediction near what has been tested (dark), extended in a lighter
     shade to its change along the whole path (spec 2026-09-30 §2.5, review
-    I8). A choice whose start is not tested near has only the light bar.
+    I8). A choice whose start is not tested near has only the light bar,
+    and its tooltip says so rather than reading 0.0 (Task 5 review I-1).
     `changes`: insights.NearChange, in the order to draw them."""
     if not changes:
         return None
     df = pd.DataFrame([{"name": c.name, "near": round(c.near or 0.0, d),
+                        "near_text": (wording.MIXTURE_UNTESTED if c.near is None
+                                      else f"{c.near:.{d}f}"),
                         "whole": round(c.whole, d)} for c in changes])
     order = [c.name for c in changes]
     y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=0, titleLimit=0))
     tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
-           alt.Tooltip("near:Q", title=wording.CHANGE_NEAR, format=f".{d}f"),
+           alt.Tooltip("near_text:N", title=wording.CHANGE_NEAR),
            alt.Tooltip("whole:Q", title=wording.CHANGE_WHOLE, format=f".{d}f")]
     base = alt.Chart(df)
     light = base.mark_bar(opacity=0.35).encode(x=alt.X("whole:Q", title=axis), y=y, tooltip=tip)
