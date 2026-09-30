@@ -161,7 +161,6 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.TRACK_MEASURED)
     _check(wording.TRACK_LOW)
     _check(wording.TRACK_HIGH)
-    _check(wording.TRACK_INSIDE)
 
     # Final fix wave
     _check(wording.INSIGHTS_FAILED)
@@ -378,10 +377,10 @@ def test_rounds_not_checked_wording():
 
 def test_final_wave_wording():
     assert wording.INSIGHTS_WORKING == "Preparing the insights…"
-    assert wording.HOW_WORKED_OUT == "How these insights are made"
+    assert wording.HOW_WORKED_OUT == "Method and details"
     assert wording.panel_failed("Firmness") == "Could not be predicted for Firmness."
-    assert wording.try_one(True) == "Try one ingredient or process setting"
-    assert wording.try_one(False) == "Try one ingredient"
+    assert wording.try_one(True) == "Effect of one ingredient or process setting"
+    assert wording.try_one(False) == "Effect of one ingredient"
     assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
         "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
     assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
@@ -402,7 +401,7 @@ def test_round_and_tab_words_come_from_constants(monkeypatch):
     src = open(wording.__file__).read()
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
-    assert wording.TAB_BATCH_NAME in wording.HOW_MODELS
+    assert wording.TAB_BATCH_NAME in wording.HOW_WIDENED_SCORE
     for fn in ("TRUST_NONE", "STAND_LATEST", "stand_since", "HOW_MODELS"):
         block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
         assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
@@ -495,7 +494,7 @@ def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd
                         insights.Improvement("yes", 2.0, None, 0))
     at = _open_insights(_app())
     md = " ".join(_tab_text(at)[0])
-    assert ("Repeats of the same formulation" in md) == shown
+    assert ("Repeat SD of the Overall score" in md) == shown
     if shown:
         assert wording.stand_repeats("0.1", 1) in md
 
@@ -535,11 +534,13 @@ def test_unchecked_rounds_caption(insights_scored):
 
 
 def test_how_range_wording_says_the_range_is_widened():
+    """03 §5.7: the interval named, for one new value, its formula and its clipping."""
     assert wording.HOW_RANGE == (
-        "Likely range: where about 19 in 20 results should land, including the variation "
-        "seen between Repeats (a 95 % prediction interval). When earlier predictions missed "
-        "by more than their range allowed, the range is widened to match.")
+        "95 % interval: the model's 95 % prediction interval for one new measured value, "
+        "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
+        "noise, so the interval covers a single result, not the long-run mean. Its ends are "
+        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: about "
+        "19 in 20 new results fall inside.")
     assert wording.HOW_RANGE_FIXED_TINY == (
-        "Likely range: your model settings assume no variation between Repeats, so the range "
-        "comes from how sure the prediction is, widened when earlier predictions missed by "
-        "more than it allowed.")
+        "95 % interval: your model settings fix Repeat noise near zero, so the interval "
+        "reflects model uncertainty only, times the calibration factor.")

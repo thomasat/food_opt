@@ -156,7 +156,8 @@ def test_each_round_fitted_is_named_while_it_is_checked():
 
 
 def test_checking_wording():
-    assert wording.CHECKING == "Checking predictions against your results…"
+    """The one progress line (CHECKING was dead code; 03 §5.7 deleted it)."""
+    assert wording.insights_progress(0, 3).startswith("Checking predictions against your results")
 
 
 # ------------------------------------------------------------------ #

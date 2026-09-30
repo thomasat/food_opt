@@ -112,7 +112,7 @@ def test_one_point_is_the_line_without_repeats(tmp_path, monkeypatch, lead, tie)
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + lead
     said = ui_results._progress_line(opt)
-    assert said.endswith("within 1 point, so treat them as equal.") is tie, said
+    assert said.endswith("within the 1-point noise threshold, so the two are tied.") is tie, said
 
 
 def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monkeypatch):
@@ -169,8 +169,8 @@ def test_a_process_only_tie_says_trial(trial_tie):
     """Task 8 review I-1: the line under Best so far goes through
     for_project."""
     said = _captions(_results(project="ferment"))
-    assert ("Trial 2 scored 60.50, 0.50 above Trial 1 — within 1 point, so treat them "
-            "as equal.") in said, said
+    assert ("Trial 2 scored 60.50, 0.50 above Trial 1: within the 1-point noise threshold, "
+            "so the two are tied.") in said, said
     assert not any("Formulation" in c for c in said), said
 
 
@@ -186,8 +186,8 @@ def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
     at.run()
     assert not at.exception
     flashes = [f.value for f in at.success]
-    assert ("Trial 3 scored 61.00, 0.50 above Trial 2 — within 1 point, so treat them as "
-            "equal. " + wording.COPY_KEPT) in flashes, flashes
+    assert ("Trial 3 scored 61.00, 0.50 above Trial 2: within the 1-point noise threshold, "
+            "so the two are tied. " + wording.COPY_KEPT) in flashes, flashes
     assert not any("Formulation" in f for f in flashes), flashes
 
 
@@ -201,7 +201,7 @@ def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
     opt.Y_history[3] = opt.Y_history[old] + 1.5
     opt.batch_history[3] = 2
     assert ui_results._tie(opt, old, 3).endswith(
-        "within how much Repeats differ (2.0), so treat them as equal.")
+        "within the noise threshold (Repeat SD 2.0 points), so the two are tied.")
 
 
 # ------------------------------------------------------------------ #

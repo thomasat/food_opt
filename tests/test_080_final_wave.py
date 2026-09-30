@@ -32,7 +32,7 @@ def test_the_overall_score_row_shows_both_widenings(monkeypatch):
     score = SimpleNamespace(name=insights.SCORE, widen=1.3)
     firm = SimpleNamespace(name="Firmness", widen=1.3)
     assert ui_insights.widen_cell(opt, score, []) == (
-        "×1.3 · ×2.5 for the predicted best and new formulations")
+        "×1.3, then ×2.5 for the predicted best and new formulations")
     assert ui_insights.widen_cell(opt, firm, []) == "×1.3"
     monkeypatch.setattr(insights, "column_factor", lambda o, c: 1.0)
     assert ui_insights.widen_cell(opt, score, []) == "×1.3"          # nothing on top
@@ -56,7 +56,7 @@ def test_the_how_table_carries_the_factor_the_screens_use():
     cells = dict(zip(table.value[wording.DETAILS_COLUMNS_2[0]],
                      table.value[wording.DETAILS_COLUMNS_2[5]]))
     [score_cell] = [v for k, v in cells.items() if k == wording.OVERALL_SCORE_COLUMN]
-    assert score_cell.endswith(f"· {wording.widen_text(top)} for the predicted best and "
+    assert score_cell.endswith(f", then {wording.widen_text(top)} for the predicted best and "
                                "new formulations")
     captions = [c.value for c in at.tabs[3].caption]
     assert wording.HOW_WIDENED_SCORE in captions
@@ -66,9 +66,11 @@ def test_the_caption_names_only_what_carries_both_widenings():
     """Re-review R-1: the path chart carries the fit's own widening only;
     the caption names what carries both, in plain words."""
     assert wording.HOW_WIDENED_SCORE == (
-        "For the Overall score, the second number is a further widening, from how far "
-        "earlier Rounds' Overall scores missed. The predicted best, Best so far's predicted "
-        "Repeat and the Overall score column on Make a round carry both.")
+        "Overall score, second factor: the root-mean-square of the standardised Round-ahead "
+        "errors of earlier Rounds' Overall scores (at least 5), floored at 1. It corrects for "
+        "choosing formulations by a high predicted score, and it applies on top of the first "
+        "factor to the predicted best, Best so far's predicted Repeat and the Predicted "
+        "Overall score column on Make a round.")
     assert "at the top" not in wording.score_widen_text(1.3, 2.5)
 
 
@@ -106,10 +108,10 @@ def _open(opt, n):
     return opt
 
 
-@pytest.mark.parametrize("kind, start", [("early", "Too early to tell where the top is. "),
-                                         ("rising", "Scores are still rising. "),
-                                         ("see", "")])
-def test_with_a_round_open_the_next_step_is_to_record_it(kind, start):
+@pytest.mark.parametrize("kind, start, end", [
+    ("early", "", " The predictions cannot be judged yet."),
+    ("rising", "Best so far is rising. ", ""), ("see", "", "")])
+def test_with_a_round_open_the_next_step_is_to_record_it(kind, start, end):
     opt = _burger(rounds=3, noise=0.3)
     text, _ = ui_insights.next_step_text(opt, _step(kind))
     assert "Make the next Round" in text or "to see whether" in text
@@ -118,15 +120,16 @@ def test_with_a_round_open_the_next_step_is_to_record_it(kind, start):
     no = opt.pending_batch_no
     tail = (f"Record the 4 formulations still open in Round {no}, then make the next Round."
             if kind != "see" else
-            f"Record the 4 formulations still open in Round {no} to see whether scores rise.")
-    assert text == start + tail
+            f"Record the 4 formulations still open in Round {no} to see whether Best so far "
+            "rises.")
+    assert text == start + tail + end
     assert not any(p.search(text) for p in _BANNED), text
 
 
 def test_one_open_formulation_is_said_in_the_singular():
     opt = _open(_burger(rounds=3, noise=0.3), 1)
     text, _ = ui_insights.next_step_text(opt, _step("rising"))
-    assert text == ("Scores are still rising. Record the formulation still open in "
+    assert text == ("Best so far is rising. Record the formulation still open in "
                     f"Round {opt.pending_batch_no}, then make the next Round.")
 
 
@@ -140,7 +143,7 @@ def test_a_process_only_project_says_trials(ferment_scored):
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("see"))[0])
     assert text == (f"Record the trial still open in Round {opt.pending_batch_no} "
-                    "to see whether scores rise.")
+                    "to see whether Best so far rises.")
 
 
 # ------------------------------------------------------------------ #
@@ -154,10 +157,10 @@ def test_best_failed_says_predicted_best():
 
 def test_one_point_is_said_in_the_singular():
     """M-7."""
-    assert wording.stand_yes("1.0") == "Yes — up 1 point in the last Round."
-    assert wording.stand_yes("3.1") == "Yes — up 3.1 points in the last Round."
-    assert "on average 1 point below prediction" in wording.score_record_line(5, 5, -1.0)
-    assert "on average 1.8 points below prediction" in wording.score_record_line(7, 8, -1.84)
+    assert wording.stand_yes("1.0") == (
+        "Rising: up 1 point in the last Round, above the 1-point noise threshold.")
+    assert wording.stand_yes("3.1").startswith("Rising: up 3.1 points in the last Round")
+    assert "up to 1 miss in 12" in wording.round_track_rough(11, 12, allowed=1)
 
 
 def test_move_to_not_scored_help_counts_the_results():
@@ -170,9 +173,9 @@ def test_move_to_not_scored_help_counts_the_results():
 
 def test_the_holding_line_after_an_unreliable_verdict_is_not_good_news():
     """M-8."""
-    assert wording.round_track_holding(11, 11, True) == (
-        "Recent Rounds: 11 of 11 Overall scores landed inside their likely range; "
-        "the measurements missed more often — see Insights.")
+    assert wording.round_track_holding(11, 11, True, rounds=[3, 4, 5]) == (
+        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval; measured values: "
+        "more misses than expected.")
 
 
 def test_the_results_setup_button_names_process_settings_on_a_process_only_project(
@@ -193,7 +196,7 @@ def test_the_results_setup_button_names_process_settings_on_a_process_only_proje
 
 def test_the_new_words_pass_the_guard():
     for text in (wording.BEST_FAILED, wording.stand_yes("1.0"),
-                 wording.score_record_line(5, 5, -1.0), wording.move_to_not_scored_help(2),
+                 wording.round_track_rough(11, 12, allowed=1), wording.move_to_not_scored_help(2),
                  wording.round_track_holding(11, 11, True),
                  wording.change_setup_from_results(settings_only=True),
                  wording.next_rising_open(6, 4), wording.next_see_open(6, 1),
@@ -256,13 +259,13 @@ def test_an_exact_tie_is_said_as_a_tie():
     opt.Y_history[3] = 70.0
     line = ui_results._progress_line(opt)
     assert line == wording.tie_equal(2, 4, "70.00")
-    assert line == "Formulation 2 and Formulation 4 both scored 70.00, so treat them as equal."
+    assert line == "Formulations 2 and 4 are tied at 70.00."
     assert not any(p.search(line) for p in _BANNED)
 
 
 def test_an_exact_trial_tie_says_trials():
     assert wording.for_project(_Trials(), wording.tie_equal(2, 4, "70.00")) == (
-        "Trial 2 and Trial 4 both scored 70.00, so treat them as equal.")
+        "Trials 2 and 4 are tied at 70.00.")
 
 
 class _Trials:

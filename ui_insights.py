@@ -1976,7 +1976,10 @@ def _how(opt, computed):
             columns[5]: _say(opt, widen_cell(opt, r, checks)),
             columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out),
         } for r in rows]), hide_index=True, height=table_height(len(rows)))
-        top = any(r.name == insights.SCORE and " · " in widen_cell(opt, r, checks)
+        # The Overall-score row carries a second factor when its cell is
+        # more than its own fit's factor (the sentence's words are wording's).
+        top = any(r.name == insights.SCORE and r.widen is not None
+                  and widen_cell(opt, r, checks) != wording.widen_text(r.widen)
                   for r in rows)
         for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
                      wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS):

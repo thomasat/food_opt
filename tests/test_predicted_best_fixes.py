@@ -68,8 +68,8 @@ def test_the_predicted_best_and_its_repeat_are_widened_by_the_record():
 
 def test_best_luck_wording():
     assert wording.best_luck(30, "84", "79", "89") == (
-        "Best so far's score includes some luck; a Repeat of Formulation 30 is predicted "
-        "at 84 (likely 79–89).")
+        "A Repeat of Formulation 30 is predicted at 84 (95 % interval 79–89): regression to "
+        "the mean.")
 
 
 def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch):
@@ -94,7 +94,7 @@ def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch
     assert luck in md
     monkeypatch.setattr(insights, "predicted_best", fake(measured - 0.5))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not [m.value for m in at.tabs[3].markdown if "includes some luck" in m.value]
+    assert not [m.value for m in at.tabs[3].markdown if "regression to the mean" in m.value]
 
 
 # ------------------------------------------------------------------ #
@@ -119,7 +119,11 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     at.run()
     # Insights' own wording for the Overall score's line (answer-key
     # read-through: one wording for one fact); five equal gaps are a bias.
-    line, action = wording.score_gap_line(5, 5, -2.0, "1 point").split(" \u2014 ")
+    # Two ASCII fragments of the line (the help's proto escapes the minus sign).
+    text = wording.score_gap_line(5, 5, -2.0, wording.beat_by())
+    line = "Overall score, same Rounds: 5 of 5 inside their 95 % interval; mean error"
+    action = "and 2 standard errors: new predictions read about 2.0 points high"
+    assert line in text and action in text
     assert line in str(_batch_table(at).proto)
     assert action.rstrip(".") in str(_batch_table(at).proto)
     at.session_state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": _five_score_checks()})
@@ -127,8 +131,8 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     assert line not in str(_batch_table(at).proto)
 
 
-def test_the_help_says_should_land():
-    assert "should land" in wording.PREDICTED_SCORE_HELP
+def test_the_help_says_fall_inside():
+    assert "About 19 in 20 new results fall inside." in wording.PREDICTED_SCORE_HELP
 
 
 # ------------------------------------------------------------------ #
@@ -148,8 +152,8 @@ def test_predicted_measurements_carry_their_caption(warm_round):
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
     assert [c.value for c in exp.caption] == [wording.PREDICTED_MEASUREMENTS_CAPTION]
     assert wording.PREDICTED_MEASUREMENTS_CAPTION == (
-        "The Overall score is predicted on its own, so it can differ a little from what "
-        "these imply.")
+        "The Overall score has its own model, so it can differ slightly from a score "
+        "calculated from these predictions.")
 
 
 def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insights_scored):

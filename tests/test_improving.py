@@ -36,7 +36,8 @@ def test_yes_when_the_latest_round_rose_by_more_than_a_point_without_repeats():
     a = insights.improvement(opt)
     assert (a.state, a.sd) == ("yes", None)
     assert a.rise == pytest.approx(3.1)
-    assert ui_insights.stand_text(a) == "Yes — up 3.1 points in the last Round."
+    assert ui_insights.stand_text(a) == (
+        "Rising: up 3.1 points in the last Round, above the 1-point noise threshold.")
 
 
 def test_barely_when_the_rise_is_within_a_point_without_repeats():
@@ -44,7 +45,7 @@ def test_barely_when_the_rise_is_within_a_point_without_repeats():
     a = insights.improvement(opt)
     assert a.state == "barely"
     assert ui_insights.stand_text(a) == (
-        "Barely — the last rise (0.4 points) is under 1 point.")
+        "Within noise: up 0.4 points in the last Round, under the 1-point noise threshold.")
 
 
 def test_barely_against_the_spread_between_repeats(monkeypatch):
@@ -53,14 +54,15 @@ def test_barely_against_the_spread_between_repeats(monkeypatch):
     a = insights.improvement(opt)
     assert a.state == "barely"
     assert ui_insights.stand_text(a) == (
-        "Barely — the last rise (0.2 points) is smaller than how much Repeats differ (0.3).")
+        "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
+        "0.3 points).")
 
 
 def test_not_lately_after_two_or_more_rounds_without_a_higher_score():
     opt = _rounds([[90.0], [80.0], [85.0], [70.0]])
     a = insights.improvement(opt)
     assert (a.state, a.rounds) == ("not_lately", 3)
-    assert ui_insights.stand_text(a) == "Not lately — no higher score in 3 Rounds."
+    assert ui_insights.stand_text(a) == "Flat: no higher score in 3 Rounds."
 
 
 def test_no_answer_after_one_round_or_one_round_without_a_rise():
@@ -83,9 +85,9 @@ def test_the_rise_is_measured_against_formulations_best_so_far_compares():
 
 def test_the_repeats_line_names_its_pairs():
     assert wording.stand_repeats("0.3", 1) == (
-        "Repeats of the same formulation differ by about 0.3 points (1 pair, too few to be "
-        "sure), so a smaller rise may be chance.")
-    assert "(4 pairs)" in wording.stand_repeats("0.3", 4)
+        "Repeat SD of the Overall score: 0.3 points from 1 pair. The noise threshold stays at "
+        "1 point until 3 pairs.")
+    assert "from 4 pairs; this is the noise threshold" in wording.stand_repeats("0.3", 4)
 
 
 def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_scored):
@@ -105,17 +107,18 @@ def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     tab = at.tabs[3]
     assert [c.value for c in tab.caption].count(wording.insights_gate(2)) == 1
-    assert wording.insights_gate(2) == "The other answers start once 5 formulations are scored. So far: 2."
+    assert wording.insights_gate(2) == (
+        "Prediction check and Next step start at 5 scored formulations. Scored so far: 2.")
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.CHECKING, wording.insights_gate(3),
+    for text in (wording.insights_progress(0, 3), wording.insights_gate(3),
                  wording.stand_repeats("0.3", 2), wording.stand_yes("3.1"),
                  wording.stand_barely("0.2", "0.3"), wording.stand_barely("0.2"),
                  wording.stand_not_lately(3)):
         assert not any(p.search(text) for p in _BANNED), text
-    assert "first visit" not in wording.CHECKING
+    assert "first visit" not in wording.insights_progress(0, 3)
 
 
 # ---------------------------------------------------------------- fix round 1
@@ -142,7 +145,8 @@ def test_a_rise_stays_yes_while_the_next_round_waits():
     _waiting_round(opt, 3, 3)
     a = insights.improvement(opt)
     assert a.state == "yes" and a.rise == pytest.approx(5.0)
-    assert ui_insights.stand_text(a) == "Yes — up 5.0 points in the last Round."
+    assert ui_insights.stand_text(a) == (
+        "Rising: up 5.0 points in the last Round, above the 1-point noise threshold.")
     assert insights.best_facts(opt).latest
 
 
@@ -166,7 +170,7 @@ def test_a_rise_that_rounds_to_one_point_says_its_hundredths():
     a = insights.improvement(opt)
     assert a.state == "barely"
     assert ui_insights.stand_text(a) == (
-        "Barely — the last rise (0.96 points) is under 1 point.")
+        "Within noise: up 0.96 points in the last Round, under the 1-point noise threshold.")
 
 
 def test_a_rise_and_spread_that_round_alike_say_their_hundredths(monkeypatch):
@@ -175,7 +179,8 @@ def test_a_rise_and_spread_that_round_alike_say_their_hundredths(monkeypatch):
     a = insights.improvement(opt)
     assert a.state == "barely"
     assert ui_insights.stand_text(a) == (
-        "Barely — the last rise (0.26 points) is smaller than how much Repeats differ (0.29).")
+        "Within noise: up 0.26 points in the last Round, under the noise threshold (Repeat SD "
+        "0.29 points).")
 
 
 def test_repeats_that_matched_exactly_count_as_no_repeats():
@@ -188,7 +193,7 @@ def test_repeats_that_matched_exactly_count_as_no_repeats():
     a = insights.improvement(opt)
     assert (a.state, a.sd) == ("barely", None)
     assert ui_insights.stand_text(a) == (
-        "Barely — the last rise (0.4 points) is under 1 point.")
+        "Within noise: up 0.4 points in the last Round, under the 1-point noise threshold.")
 
 
 def test_improvement_takes_what_the_tab_already_worked_out(monkeypatch):

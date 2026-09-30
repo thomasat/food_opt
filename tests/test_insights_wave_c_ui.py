@@ -248,10 +248,10 @@ def test_pair_axis_wording():
 
 def test_exact_wave_c_strings_for_the_expander_and_the_pair():
     assert wording.MORE_CHARTS == "More charts"
-    assert wording.Q_PAIR == "Can you have both?"
+    assert wording.Q_PAIR == "Two measurements against each other"
     assert wording.PAIR_CAPTION == (
-        "Each dot is a formulation you measured; lines mark your targets. If no dot sits near "
-        "both targets, the two may pull against each other.")
+        "Measured values, one dot per formulation; lines at the targets. No dot near both "
+        "targets suggests a trade-off.")
 
 
 def test_the_pair_strings_pass_the_word_guards():
@@ -719,10 +719,10 @@ def test_each_label_grows_away_from_the_region(mixture_scored):
 
 
 def test_exact_wave_c_strings_for_the_triangle():
-    assert wording.Q_MIXTURE == "What happens when three ingredients trade places?"
+    assert wording.Q_MIXTURE == "Three ingredients at a fixed sum"
     assert wording.mixture_caption(14) == (
-        "Colour = predicted Overall score as the three amounts trade places; everything else "
-        "as in Formulation 14.")
+        "Colour: predicted Overall score (model mean) as the three amounts vary at a fixed "
+        "sum; all other amounts as in Formulation 14.")
     assert wording.mixture_corner("Coconut oil", "9.4 g") == "Coconut oil 9.4 g"
 
 
@@ -853,8 +853,8 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     md = [m.value for m in more.markdown]
     assert md == [f"**{wording.Q_PAIR}**"]
     caps = [c.value for c in more.caption]
-    assert ("Each dot is a trial you measured; the line marks Acidity's target, and the "
-            "other axis title says which way is better.") in caps
+    assert ("Measured values, one dot per trial; the line marks Acidity's target, and the "
+            "other axis title gives the better direction.") in caps
     [pair] = _charts(more)
     assert {"field": "no", "title": wording.TRIAL_CAP, "type": "quantitative"} in [
         t for layer in pair["layer"] for t in layer["encoding"].get("tooltip", [])]
@@ -1028,11 +1028,11 @@ def _pair_caption_for(opt, a, b):
 def test_the_pair_caption_says_which_lines_are_drawn(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     assert _pair_caption_for(opt, "Firmness", "Cook loss") == (
-        "Each dot is a formulation you measured; the line marks Firmness's target, and the other "
-        "axis title says which way is better.")
+        "Measured values, one dot per formulation; the line marks Firmness's target, and the "
+        "other axis title gives the better direction.")
     assert _pair_caption_for(opt, "Cook loss", "Juiciness") == (
-        "Each dot is a formulation you measured; the axis titles say which way is better. If no "
-        "dot is good on both, the two may pull against each other.")
+        "Measured values, one dot per formulation; the axis titles give the better direction. "
+        "No dot good on both suggests a trade-off.")
     opt.add_objective("Colour", 10, goal="target", target=4, min_val=0, max_val=10)
     assert _pair_caption_for(opt, "Firmness", "Colour") == wording.PAIR_CAPTION
 

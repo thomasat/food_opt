@@ -170,8 +170,9 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     assert trial_help in proto and wording.PREDICTED_SCORE_HELP not in proto
     captions = [c.value for c in at.caption]
     trial_caption = wording.for_project(warm_ferment, wording.predictions_round_caption(values=True))
-    assert trial_caption == ("Some trials are chosen to try values not tested yet, so their "
-                             "prediction can be lower than Best so far.")
+    assert trial_caption == ("Suggestions favour trials the model is unsure about as well "
+                             "as ones it predicts high, so one can be predicted below Best "
+                             "so far.")
     assert captions.count(trial_caption) == 1
     assert wording.PREDICTIONS_ROUND_CAPTION not in captions
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
@@ -473,18 +474,21 @@ def test_the_models_are_shared_with_question_4(warm_round, monkeypatch):
 
 
 def test_how_models_names_both_places():
+    """03 §5.7: the models, the kernel and the training rows named."""
     assert wording.HOW_MODELS == (
-        "Each measurement, and the Overall score, has its own prediction learned from the "
-        "formulations scored so far (a Gaussian process for each). They are used on this tab "
-        "and for the predictions on Make a round; suggestions on Make a round still come from "
-        "the Overall score alone. Because they are learned separately, the Overall score curve "
-        "can differ a little from what the measurement curves imply.")
+        "Models: one Gaussian process per measurement and one for the Overall score, each "
+        "fitted to the formulations that have that value (default kernel: squared exponential, "
+        "one correlation length per varying row; noise fitted). Suggestions use the "
+        "Overall-score model only. It is fitted to the scores themselves, not built from the "
+        "measurement models, so the two can disagree slightly.")
 
 
 def test_every_wave_b_string_passes_the_vocabulary_guard():
     import re
     from tests.test_food_bo import _BANNED
-    also = re.compile(r"\b(optimum|optimal|maximi[sz]e|confidence|probability|the model)\b", re.I)
+    # "the model" is allowed from the BO-views wave on (review I5: the
+    # caption says what the suggestions weigh).
+    also = re.compile(r"\b(optimum|optimal|maximi[sz]e|confidence|probability)\b", re.I)
     for s in (wording.PREDICTIONS_WORKING, wording.PREDICTED_SCORE_COLUMN,
               wording.PREDICTED_SCORE_HELP, wording.PREDICTIONS_ROUND_CAPTION,
               wording.PREDICTED_MEASUREMENTS,
@@ -498,13 +502,14 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
 
 
 def test_exact_wave_b_strings():
-    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (likely range)"
+    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % interval)"
     assert wording.PREDICTED_SCORE_HELP == (
-        "Predicted from the formulations scored so far; about 19 in 20 results should land in "
-        "the likely range.")
+        "Model mean and 95 % prediction interval for one measured Overall score, from a "
+        "Gaussian process fitted to the scored formulations. About 19 in 20 new results fall "
+        "inside.")
     assert wording.PREDICTIONS_ROUND_CAPTION == (
-        "Some formulations are chosen to try amounts not tested yet, so their prediction can be "
-        "lower than Best so far.")
+        "Suggestions favour formulations the model is unsure about as well as ones it "
+        "predicts high, so one can be predicted below Best so far.")
     assert wording.spread_from(False, 9) == "Formulation 9"
 
 
@@ -533,7 +538,7 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     md, caps = _tab_text(at)
     # The three answers and the folds (spec 2026-09-30 §2, review I14).
     assert f"**{wording.Q_STAND}**" in md
-    assert "Try one process setting" in [e.label for e in tab.expander]
+    assert "Effect of one process setting" in [e.label for e in tab.expander]
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
     assert [c for c in caps if c.startswith("Based on 5 scored trials")]
 
@@ -629,10 +634,10 @@ def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypat
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert "Try one process setting" in [e.label for e in at.tabs[3].expander]
+    assert "Effect of one process setting" in [e.label for e in at.tabs[3].expander]
     assert "Nothing to change yet: every process setting is fixed." in caps
     [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
-    checks = next(m.value for m in how.markdown if m.value.startswith("Checks:"))
+    checks = next(m.value for m in how.markdown if m.value.startswith("Round-ahead check:"))
     assert "at the values it was run at" in checks and "amounts" not in checks
     assert "ngredient" not in " ".join(md + caps)
 

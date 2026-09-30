@@ -58,15 +58,17 @@ def test_an_unreliable_verdict_adds_see_insights():
 
 
 def test_the_lines_read_as_the_spec_says():
-    assert wording.round_track_holding(11, 11) == (
-        "Recent Rounds: 11 of 11 Overall scores landed inside their likely range.")
-    assert wording.round_track_rough(6, 12, "5.0") == (
-        "Recent Rounds ran about 5.0 points below prediction (6 of 12 inside) — treat these "
-        "predictions as rough.")
-    assert wording.round_track_rough(6, 12, "1.0", below=False).startswith(
-        "Recent Rounds ran about 1 point above prediction")
-    assert wording.round_track_rough(6, 12, see_insights=True).endswith(
-        "treat these predictions as rough. See Insights.")
+    """Rewritten for the BO-views wave (03 §5.8, review I7)."""
+    assert wording.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
+        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
+    assert wording.round_track_rough(6, 12, "5.0", rounds=[3, 4, 5]) == (
+        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; mean error −5.0 "
+        "points. More misses than 95 % allows.")
+    assert wording.round_track_rough(6, 12, "1.0", below=False).endswith(
+        "mean error +1.0 points. More misses than 95 % allows.")
+    assert wording.round_track_rough(6, 12, see_insights=True, allowed=2).endswith(
+        "95 % intervals allow up to 2 misses in 12; measured values: more misses than "
+        "expected.")
     assert wording.insights_progress(4, 6) == (
         "Checking predictions against your results: 4 of 6 Rounds checked…")
     assert wording.insights_progress(0, 1).endswith("0 of 1 Round checked…")
@@ -95,8 +97,9 @@ def test_a_wide_or_over_wide_verdict_shows_nothing(state, monkeypatch):
 
 def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
     """Review C M-1."""
-    assert wording.round_track_holding(11, 11, True).endswith(" — see Insights.")
-    assert "Insights" not in wording.round_track_holding(11, 11)
+    assert wording.round_track_holding(11, 11, True).endswith(
+        "; measured values: more misses than expected.")
+    assert "measured values" not in wording.round_track_holding(11, 11)
 
 
 def test_no_line_when_the_overall_scores_own_range_is_wide(monkeypatch):

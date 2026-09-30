@@ -92,7 +92,7 @@ def test_nothing_beyond_the_yardstick_stands_out(insights_scored, monkeypatch):
     at = _open_insights(_app())
     said = _said(_fold(at))
     assert said[0] == wording.near_none(False, False)
-    assert "Near what you have tested, no ingredient stands out yet." == said[0]
+    assert "No ingredient has a local effect above the noise threshold." == said[0]
 
 
 def test_a_start_not_tested_near_ranks_nothing(insights_scored, monkeypatch):
@@ -186,9 +186,9 @@ def test_a_process_only_project_says_no_process_setting_stands_out(warm_ferment,
     at = _open_insights(_app())
     assert not at.exception
     fold = _ferment_fold(at, warm_ferment)
-    assert fold.label == "Try one process setting"
+    assert fold.label == "Effect of one process setting"
     assert _said(fold)[0] == wording.for_project(warm_ferment, wording.near_none(True, True))
-    assert _said(fold)[0] == "Near what you have tested, no process setting stands out yet."
+    assert _said(fold)[0] == "No process setting has a local effect above the noise threshold."
 
 
 def test_a_process_only_project_names_the_setting_and_its_values(warm_ferment, monkeypatch):
@@ -198,13 +198,13 @@ def test_a_process_only_project_names_the_setting_and_its_values(warm_ferment, m
     said = _said(_ferment_fold(at, warm_ferment))
     assert said[:2] == [wording.near_line(_SETTINGS[0], "1.4", "Best so far"),
                         wording.near_bigger(values=True)]
-    assert "values not tested yet" in said[1]
+    assert "untested values" in said[1]
     compare = next(e for e in at.tabs[3].expander
                    if e.label == wording.for_project(warm_ferment, wording.compare_all(True, False)))
     assert compare.label == "Compare all process settings"
     assert [c.value for c in compare.caption] == [
         wording.for_project(warm_ferment, wording.change_caption(True))]
-    assert "allowed values" in compare.caption[0].value
+    assert "untested values" in compare.caption[0].value
 
 
 def test_a_process_only_project_with_every_setting_held(warm_ferment, monkeypatch):

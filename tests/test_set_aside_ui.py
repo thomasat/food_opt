@@ -279,4 +279,5 @@ def test_insights_does_not_count_a_not_scored_row_as_scored(one_waiting):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert any(c.startswith("Based on 2 scored formulations,") for c in captions), captions
+    assert any(c.startswith("Based on 2 scored formulations (all results in),")
+               for c in captions), captions

@@ -66,11 +66,10 @@ def test_untested_without_an_open_round_says_the_next_round():
     opt = _patty(rows=6)
     step = SimpleNamespace(kind="untested", gap=None, disagreement=None, binding=None)
     text, _ = ui_insights.next_step_text(opt, step)
-    assert text.endswith("you can include it in the next Round.")
-    assert "add it to the Round" not in text
+    assert "add it to the next Round as your own formulation" in text
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text, _ = ui_insights.next_step_text(opt, step)
-    assert text.endswith("you can also add it to the Round yourself.")
+    assert "add it to the Round as your own formulation" in text
     _clean(text, wording.next_untested(False, open_round=False))
 
 
@@ -107,17 +106,18 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     bias = insights.score_bias(opt, checks)
     assert state == "within" and bias == pytest.approx(-1.5)
     verdict = ui_insights.verdict_text(opt, h, state, bias)
-    assert verdict.startswith("Measurements on track: ")
+    assert verdict.startswith("Measurements, ")
     assert verdict.endswith(" The Overall score, though, ran on average below prediction.")
     line = ui_insights.score_line(opt, checks)
     # Both halves of the rule, in plain words (re-review R3).
-    assert line == ("Overall score: 11 of 11 inside; results ran about 1.5 points below "
-                    "prediction — more than 1 point and steady across these Rounds, so read new "
-                    "predictions as about 1.5 points too high.")
+    assert line == ("Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean "
+                    "error −1.5 points (n = 11). This exceeds the 1-point noise threshold and "
+                    "2 standard errors: new predictions read about 1.5 points high.")
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Recent Rounds: 11 of 11 inside; results ran about 1.5 points below prediction.")
+        "Overall score, the verdict's Rounds: 11 of 11 inside their 95 % interval; mean error "
+        "−1.5 points, so new predictions read about 1.5 points high.")
     _clean(verdict, line, ui_insights.track_text(t))
 
 
@@ -128,8 +128,8 @@ def test_a_noisy_gap_is_not_a_bias_anywhere():
     assert abs(h.score.mean_miss) > 1.0                   # beyond the yardstick...
     assert insights.score_bias(opt, checks) is None        # ...but not clear of noise
     state = insights.verdict_state(opt, h, checks)
-    assert not ui_insights.verdict_text(opt, h, state).startswith("Measurements")
-    assert "too high" not in ui_insights.score_line(opt, checks)
+    assert "though" not in ui_insights.verdict_text(opt, h, state)
+    assert "read about" not in ui_insights.score_line(opt, checks)
     t = insights.round_track(opt, checks)
     assert t is not None and t.gap is None
 
@@ -139,7 +139,7 @@ def test_rough_only_when_too_few_land_inside():
     checks = _values(2) + _scores(2, 6, 3.0, no=500) + _scores(2, 6, -3.0, no=600)
     t = insights.round_track(opt, checks)
     assert t.rough
-    assert "treat these predictions as rough" in ui_insights.track_text(t)
+    assert "more misses than 95 % allows" in ui_insights.track_text(t)
 
 
 def test_make_a_rounds_column_help_reads_as_insights_score_line():
@@ -147,17 +147,18 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
     opt = _patty(rows=6)
     checks = _values(2) + _scores(2, 11, -0.4)
     assert ui_insights.score_line(opt, checks) == (
-        "Overall score: 11 of 11 inside; results ran about 0.4 points below prediction.")
+        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −0.4 "
+        "points (measured minus predicted).")
 
 
 def test_how_says_the_bias_rule_in_plain_words():
     """Re-review R1: the gap is always shown; "too high" or "too low" only
     past the yardstick and steady — and the yardstick's true rule."""
     assert wording.HOW_BIAS == (
-        "The Overall score's line always says how far results ran from prediction on "
-        "average. It says new predictions read too high or too low only when that gap is "
-        "more than how much Repeats differ (1 point unless there are at least 3 Repeat "
-        "pairs) and steady across formulations, not a few large misses.")
+        "Mean error: the average of measured minus predicted Overall score over the "
+        "verdict's Rounds (formulations with all results in, at least 5). It is reported as a "
+        "bias, with advice, only when its size exceeds the noise threshold and 2 standard "
+        "errors of the mean (2 × SD ÷ √n).")
     _clean(wording.HOW_BIAS)
 
 
@@ -168,8 +169,8 @@ def test_though_follows_the_verdict_before_the_width_sentence():
     opt = _patty(rows=6)
     h = insights.Headline("verdict", [2], 10, 10, "holding", None, ["Firmness"])
     text = ui_insights.verdict_text(opt, h, "within", -3.0)
-    assert ("(the app aims for about 19 in 20). The Overall score, though, ran on average "
-            "below prediction. The likely range for Firmness is wide") in text
+    assert ("As expected. The Overall score, though, ran on average below prediction. Wide "
+            "95 % intervals for Firmness") in text
     _clean(text)
 
 
@@ -221,17 +222,17 @@ def test_rising_names_the_outputs_whose_range_is_still_wide(monkeypatch):
     step = insights.next_step(opt, checks, None)
     assert step.kind == "rising" and step.wide == ["Firmness"]
     text, _ = ui_insights.next_step_text(opt, step)
-    assert text == ("Scores are still rising; the likely range for Firmness is still wide. "
+    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
                     "Make the next Round.")
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text, _ = ui_insights.next_step_text(opt, step)
-    assert text == ("Scores are still rising; the likely range for Firmness is still wide. "
+    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
                     f"Record the formulation still open in Round {opt.pending_batch_no}, "
                     "then make the next Round.")
     three = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None,
                             wide=["Firmness", "Juiciness", insights.SCORE])
     text, _ = ui_insights.next_step_text(opt, three)
-    assert "the likely range for Firmness, Juiciness and the Overall score is still wide" in text
+    assert "95 % intervals for Firmness, Juiciness and the Overall score are still wide" in text
     assert "ranges" not in text
     _clean(text)
 

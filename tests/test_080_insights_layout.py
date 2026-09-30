@@ -83,7 +83,7 @@ def test_the_foot_names_the_open_round_and_both_feet_draw_in_one_run(insights_sc
 def test_the_header_is_counts_only(insights_scored):
     at = _open_insights(_app())
     header = at.tabs[3].caption[0].value
-    assert header == "Based on 9 scored formulations, up to Round 3."
+    assert header == "Based on 9 scored formulations (all results in), up to Round 3."
     assert "Likely range" not in header
 
 
@@ -183,9 +183,8 @@ def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
     at = _open_insights(_app())
     assert not at.exception
     line = ui_insights.disagreement_text(d)
-    assert line == ("Formulation 9, a Repeat of Formulation 3, scored 10.6 points lower — more "
-                    "than its likely range allows. Check whether something changed (panel, "
-                    "supplier, equipment).")
+    assert line == ("Formulation 9, a Repeat of Formulation 3, scored 10.6 points lower. "
+                    "Check the panel, suppliers and equipment for a change.")
     assert _md(at).count(line) == 1
 
 
@@ -196,15 +195,17 @@ def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
 def test_best_so_far_reads_two_decimals_as_on_results(insights_scored):
     at = _open_insights(_app())
     f = insights.best_facts(FoodOptimizer("burger"))            # as the app loads it
-    assert any(f"Best so far: {f.score:.2f}, Formulation {f.formulation} (Round {f.round})"
+    assert any(f"Best so far: Overall score {f.score:.2f}, Formulation {f.formulation} "
+               f"(Round {f.round})"
                in m for m in _md(at))
 
 
 def test_the_repeats_line_only_after_a_rise():
     assert ui_insights.stand_text(insights.Improvement("not_lately", None, None, 3)) == (
-        "Not lately — no higher score in 3 Rounds.")
+        "Flat: no higher score in 3 Rounds.")
     assert ui_insights.stand_text(insights.Improvement("barely", 0.2, 1.2, 0)) == (
-        "Barely — the last rise (0.2 points) is smaller than how much Repeats differ (1.2).")
+        "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
+        "1.2 points).")
 
 
 def _standing(higher, close_no=None, close=None):
@@ -219,24 +220,24 @@ def test_the_four_texts_of_line_two():
     one = insights.Yardstick(1.0, None, 0, False)
     repeats = insights.Yardstick(1.2, 1.2, 4, True)
     assert ui_insights.standing_text(opt, _standing(False, 3, 2), repeats) == (
-        "Nothing is predicted to beat it by more than Repeats differ (1.2 points): the "
-        "predicted best is 94 (likely 89–99), close to Formulation 3.")
+        "Predicted best: 94 (95 % interval 89–99), near Formulation 3. Predicted gain over "
+        "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
     assert ui_insights.standing_text(opt, _standing(False), one) == (
-        "Nothing is predicted to beat it by more than 1 point: the predicted best is 94 "
-        "(likely 89–99), not tested near here.")
+        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over "
+        "Best so far: none beyond the 1-point noise threshold.")
     assert ui_insights.standing_text(opt, _standing(True), one) == (
-        "The predicted best is 94 (likely 89–99), not tested near here yet.")
+        "Predicted best: 94 (95 % interval 89–99), in untested amounts.")
     assert ui_insights.standing_text(opt, _standing(True, 3, 2), one) == (
-        f"The predicted best is 94 (likely 89–99), close to Formulation 3 "
-        f"({opt.Y_history[2]:.2f}).")
+        f"Predicted best: 94 (95 % interval 89–99), near Formulation 3 "
+        f"(measured {opt.Y_history[2]:.2f}).")
 
 
 def test_line_three_names_what_the_predicted_best_sits_at():
     items = [insights.Binding("highest", "Pea", "Pea"), insights.Binding("lowest", "Salt", "Salt"),
              insights.Binding("limit", "Fat", "Fat: at most 20 g")]
     assert wording.stand_limits([ui_insights.binding_text(b) for b in items]) == (
-        "The predicted best sits at the Highest of Pea, the Lowest of Salt and the limit "
-        "Fat: at most 20 g.")
+        "Predicted best is at the Highest of Pea, the Lowest of Salt and the limit "
+        "Fat: at most 20 g (active bounds).")
 
 
 # ------------------------------------------------------------------ #
@@ -275,7 +276,7 @@ def test_a_process_only_project_names_settings(tmp_path):
     opt = FoodOptimizer("ferment_x")
     opt.add_process_parameter("Mixing time", 1, 10)
     opt.add_objective("Acidity", 1.0, goal="max", min_val=0, max_val=10, unit="pH")
-    assert ui_insights._try_one_label(opt) == "Try one process setting"
+    assert ui_insights._try_one_label(opt) == "Effect of one process setting"
     text, _ = ui_insights.next_step_text(opt, insights.NextStep("untested"))
     assert "values" in text and "amounts" not in text
 
@@ -295,7 +296,7 @@ def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored)
     frame = how.dataframe[0].value
     assert list(frame.columns) == list(wording.DETAILS_COLUMNS_2)
     assert all(v == "" or v.startswith("×") for v in frame[wording.DETAILS_COLUMNS_2[5]])
-    assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "too few to compare"}
+    assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "under 3 pairs"}
     for line in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
         assert line in said
     # Not under the verdict any more.

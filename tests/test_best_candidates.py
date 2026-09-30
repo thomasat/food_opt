@@ -90,9 +90,10 @@ def test_the_insights_best_line_names_what_it_is_scored_without():
     facts = insights.best_facts(opt)
     assert facts.without == ["Cook loss"]
     line = wording.stand_best("81.00", facts.formulation, facts.round, "Cook loss")
-    assert line == (f"Best so far: 81.00, Formulation {facts.formulation} (Round "
-                    f"{facts.round}) · scored without Cook loss.")
-    assert wording.stand_best("81.00", 14, "4") == "Best so far: 81.00, Formulation 14 (Round 4)."
+    assert line == (f"Best so far: Overall score 81.00, Formulation {facts.formulation} "
+                    f"(Round {facts.round}) · scored without Cook loss.")
+    assert wording.stand_best("81.00", 14, "4") == (
+        "Best so far: Overall score 81.00, Formulation 14 (Round 4).")
 
 
 def test_complete_results_caption_says_dashes_are_not_compared():

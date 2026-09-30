@@ -36,8 +36,8 @@ def test_header_text_leaves_out_waiting_and_set_aside_rows():
     _tell(opt, 8, 3, drop=("Cook loss",))
     opt.set_aside_formulation(8)
     text = ui_insights.header_text(opt)
-    assert text == ("Based on 6 scored formulations, up to Round 2. "
-                    "1 is waiting for Cook loss.")
+    assert text == ("Based on 6 scored formulations (all results in), up to Round 2. "
+                    "1 more is waiting for Cook loss and is not used yet.")
 
 
 def _recorded(opt, complete, waiting):
@@ -61,9 +61,9 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0] == (
-        f"Based on {complete} scored formulations, up to Round 1. "
-        "1 is waiting for Juiciness."), captions
-    gates = [c for c in captions if "start once 5 " in c or c.startswith("Starts once 5 ")]
+        f"Based on {complete} scored formulations (all results in), up to Round 1. "
+        "1 more is waiting for Juiciness and is not used yet."), captions
+    gates = [c for c in captions if "start at 5 scored" in c]
     assert gates == [wording.insights_gate(complete)], captions      # said once (Task 6)
 
 
@@ -83,9 +83,12 @@ def test_a_wide_range_is_named_per_output():
 
 
 def test_the_wide_line_wording():
-    assert wording.WIDE_EVERY == "Each likely range is wide, so this says little yet."
+    assert wording.WIDE_EVERY == (
+        "Every 95 % interval is wide (median half-width over 25 % of the Range): values fall "
+        "inside easily, so this check says little yet.")
     assert wording.wide_line("Cook loss and the Overall score") == (
-        "The likely range for Cook loss and the Overall score is wide, so this says little yet.")
+        "Wide 95 % intervals for Cook loss and the Overall score (median half-width over 25 % "
+        "of the Range): values fall inside easily, so this check says little yet.")
     opt = _burger(rounds=1)
     h = insights.Headline("verdict", [3], 10, 10, "holding", None,
                           ["Firmness", "Juiciness", insights.SCORE])
@@ -113,12 +116,12 @@ def test_the_score_record_needs_five_fully_measured_checks_in_the_headline_round
 
 
 def test_the_score_record_line_says_which_way():
-    assert wording.score_record_line(7, 8, -1.84) == (
-        "Overall score: 7 of 8 inside their likely range; on average 1.8 points below prediction.")
-    assert wording.score_record_line(7, 8, 0.6) == (
-        "Overall score: 7 of 8 inside their likely range; on average 0.6 points above prediction.")
-    assert wording.score_record_line(8, 8, 0.02) == (
-        "Overall score: 8 of 8 inside their likely range; on average as predicted.")
+    """The Overall score's line, with its sign convention (03 §5.2)."""
+    assert wording.score_gap_line(7, 8, -1.84).endswith(
+        "mean error −1.8 points (measured minus predicted).")
+    assert wording.score_gap_line(7, 8, 0.6).endswith(
+        "mean error +0.6 points (measured minus predicted).")
+    assert wording.score_gap_line(8, 8, 0.02).endswith("mean error 0.0 points.")
 
 
 def test_the_headline_carries_the_record_for_its_own_rounds():
@@ -172,15 +175,15 @@ def test_the_ratio_column_bands():
     """The 1.5 band stays (spec 2026-09-30 review M6); under 3 pairs there
     is too little to compare with (review I5)."""
     assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
-    assert wording.repeat_compare(None, 0.0, 3) == "Repeats matched exactly"
-    assert wording.repeat_compare(0.6, 1.0, 3) == "about the same"
-    assert wording.repeat_compare(1.5, 1.0, 3) == "about the same"
-    assert wording.repeat_compare(1.54, 1.0, 3) == "about the same"     # shown as 1.5
-    assert wording.repeat_compare(1.56, 1.0, 3) == "about 1.6× larger"
-    assert wording.repeat_compare(2.04, 1.0, 3) == "about 2× larger"
-    assert wording.repeat_compare(3.46, 1.0, 3) == "about 3.5× larger"
-    assert wording.repeat_compare(3.46, 1.0, 2) == "too few to compare"
-    assert wording.DETAILS_COLUMNS_2[6] == "Typical miss compared with how much Repeats differ"
+    assert wording.repeat_compare(None, 0.0, 3) == "Repeats identical"
+    assert wording.repeat_compare(0.6, 1.0, 3) == "0.6"
+    assert wording.repeat_compare(1.5, 1.0, 3) == "1.5"
+    assert wording.repeat_compare(1.54, 1.0, 3) == "1.5"                # shown as 1.5
+    assert wording.repeat_compare(1.56, 1.0, 3) == "1.6 (lack of fit)"
+    assert wording.repeat_compare(2.04, 1.0, 3) == "2.0 (lack of fit)"
+    assert wording.repeat_compare(3.46, 1.0, 3) == "3.5 (lack of fit)"
+    assert wording.repeat_compare(3.46, 1.0, 2) == "under 3 pairs"
+    assert wording.DETAILS_COLUMNS_2[6] == "Error ÷ Repeat noise"
 
 
 def test_repeats_that_agreed_exactly_are_not_no_repeats():
@@ -194,7 +197,7 @@ def test_repeats_that_agreed_exactly_are_not_no_repeats():
     assert insights.repeat_sd(opt, "Juiciness").sd == 0.0
     [row] = insights.details(opt, [_check("Juiciness", measured=5.0, predicted=5.4)])
     assert row.repeat_sd == 0.0 and row.ratio is None
-    assert wording.repeat_compare(row.ratio, row.repeat_sd, row.pairs) == "Repeats matched exactly"
+    assert wording.repeat_compare(row.ratio, row.repeat_sd, row.pairs) == "Repeats identical"
 
 
 def test_details_compare_the_recipes_once_for_every_output(monkeypatch):
@@ -233,9 +236,11 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
     assert not at.exception
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
-    assert captions[0] == "Based on 9 scored formulations, up to Round 3."
+    assert captions[0] == "Based on 9 scored formulations (all results in), up to Round 3."
     text = " ".join(m.value for m in tab.markdown)
-    assert "holding up" not in text and "R²" not in text
+    # R² is named once, in Method and details, as the statistic not used
+    # (review M6).
+    assert "holding up" not in text and "R²" not in text.replace(wording.HOW_NO_P, "")
 
 
 @pytest.fixture
@@ -272,7 +277,7 @@ def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project)
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     texts = [wording.WIDE_EVERY, wording.wide_line("Cook loss"),
-             wording.score_record_line(7, 8, -1.8), wording.repeat_compare(2.0, 1.0, 3),
+             wording.score_gap_line(7, 8, -1.8), wording.repeat_compare(2.0, 1.0, 3),
              wording.repeat_compare(None, 0.0, 3),
              wording.DETAILS_COLUMNS_2[6]] + [wording.trust_misses(3, [4, 5, 6], 1, 2, many)
                                               for many in (False, True)]

@@ -126,40 +126,50 @@ def test_the_round_sheet_name_is_frozen():
 
 
 def test_exact_texts_from_the_spec():
+    """Rewritten for the BO-views wave (spec 2026-09-30-bo-views §4, review
+    I7): 03-wording-audit.md's texts override the speed spec's §9 B1, M9,
+    I2 and I16 texts."""
     w = wording
     assert w.insights_header_line(24, 6, 1, "Cook loss") == (
-        "Based on 24 scored formulations, up to Round 6. 1 is waiting for Cook loss.")
+        "Based on 24 scored formulations (all results in), up to Round 6. 1 more is waiting "
+        "for Cook loss and is not used yet.")
     assert w.TRUST_WIDE == (
-        "Too early to judge: the likely range is still wide, so almost any result lands inside.")
-    assert w.trust_within(32, 33, [4, 5, 6]) == (
-        "On track: 32 of 33 results from Rounds 4–6 landed inside the likely range given "
-        "beforehand (the app aims for about 19 in 20).")
+        "Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
+        "Range), so nearly any value falls inside.")
+    assert w.trust_within(32, 33, [4, 5, 6], allowed=4) == (
+        "Measurements, Rounds 4–6: 32 of 33 values inside their 95 % interval. As expected: "
+        "95 % intervals allow up to 4 misses in 33.")
     assert w.score_gap_line(11, 11, -1.0) == (
-        "Overall score: 11 of 11 inside; results ran about 1 point below prediction.")
-    assert w.repeat_disagrees(21, 11, "10.6") == (
-        "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower — more than its "
-        "likely range allows. Check whether something changed (panel, supplier, equipment).")
-    assert w.stand_best("90.65", 15, 4) == "Best so far: 90.65, Formulation 15 (Round 4)."
-    assert w.stand_not_higher("Repeats differ (1.2 points)", "90", "86", "94", 18) == (
-        "Nothing is predicted to beat it by more than Repeats differ (1.2 points): the "
-        "predicted best is 90 (likely 86–94), close to Formulation 18.")
+        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −1.0 "
+        "points (measured minus predicted).")
+    assert w.repeat_disagrees(21, 11, "10.6", half_text="7.4") == (
+        "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower. The 95 % "
+        "interval for the difference of two results is ±7.4. Check the panel, suppliers and "
+        "equipment for a change.")
+    assert w.stand_best("90.65", 15, 4) == (
+        "Best so far: Overall score 90.65, Formulation 15 (Round 4).")
+    assert w.stand_not_higher(w.beat_by("1.2"), "90", "86", "94", 18) == (
+        "Predicted best: 90 (95 % interval 86–94), near Formulation 18. Predicted gain over "
+        "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
     assert w.stand_higher("94", "89", "99", 18, "90.12") == (
-        "The predicted best is 94 (likely 89–99), close to Formulation 18 (90.12).")
-    assert w.next_untested() == (
-        "The app predicts a higher score in amounts not tested yet (see “Show its amounts” "
-        "above). Suggestions may try near there; you can also add it to the Round yourself.")
+        "Predicted best: 94 (95 % interval 89–99), near Formulation 18 (measured 90.12).")
+    assert w.next_untested(round_no=6) == (
+        "The predicted best is in untested amounts (Show its amounts, above). To test it "
+        "directly, add it to Round 6 as your own formulation; suggestions can also land near "
+        "it.")
     assert w.path_what(w.path_head_fill("Coconut oil", "Water"),
                        [("8.04 g", "Fat per 100 g")], [("Salt", "1.5 g")]) == (
         "More Coconut oil in place of Water; stops at 8.04 g (Fat per 100 g). "
         "Salt fixed at 1.5 g.")
     assert w.path_key(15, grey=True, targets=True) == (
-        "Grey: not tested near here. Dotted: Formulation 15; dashed: target.")
-    assert w.details_window([2, 3, 4, 5], 3) == (
-        "All Rounds checked (Rounds 2–5); the verdict uses the last 3.")
+        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 15; dashed: "
+        "target.")
+    assert w.details_window([2, 3, 4, 5], 3, [3, 4, 5]) == (
+        "Table: all Rounds checked (Rounds 2–5). Verdict: the last 3 (Rounds 3–5).")
     assert w.overall_score_line(90.45, 100) == "Overall score 90.45 of 100."
     assert w.tie_line(22, "90.65", "0.20", 15, "1.2") == (
-        "Formulation 22 scored 90.65, 0.20 above Formulation 15 — within how much Repeats "
-        "differ (1.2), so treat them as equal.")
+        "Formulation 22 scored 90.65, 0.20 above Formulation 15: within the noise threshold "
+        "(Repeat SD 1.2 points), so the two are tied.")
     assert w.never_coming_warning(19, "Cook loss") == (
         "Cook loss for Formulation 19 will never come? It stays in your records, unscored, "
         "and stops counting on Insights.")
@@ -168,9 +178,8 @@ def test_exact_texts_from_the_spec():
     assert w.START_FROM_BEST_SO_FAR == "Start from Best so far"
 
 
-@pytest.mark.parametrize("pairs,text", [(1, "1 pair, too few to be sure"),
-                                        (2, "2 pairs, too few to be sure"),
-                                        (3, "3 pairs"), (5, "5 pairs")])
+@pytest.mark.parametrize("pairs,text", [(1, "1 pair"), (2, "2 pairs"), (3, "3 pairs"),
+                                        (5, "5 pairs")])
 def test_pairs_one_and_many(pairs, text):
     assert wording.pairs_text(pairs) == text
 
@@ -179,27 +188,28 @@ def test_singular_and_plural_forms():
     """Spec review M7: one helper per form, each right for 1 and 2."""
     w = wording
     assert w.waiting_line(1, "Cook loss") == (
-        "1 formulation is waiting for Cook loss (enter it on Results); suggestions may land "
-        "close to it.")
+        "1 formulation is waiting for Cook loss (enter it on Results). The model has not used "
+        "it yet, so a suggestion may nearly repeat it.")
     assert w.waiting_line(2, "Cook loss and Aroma", many_measurements=True) == (
-        "2 formulations are waiting for Cook loss and Aroma (enter them on Results); "
-        "suggestions may land close to them.")
+        "2 formulations are waiting for Cook loss and Aroma (enter them on Results). The model "
+        "has not used them yet, so a suggestion may nearly repeat them.")
     assert w.waiting_line(2, "") == (
-        "2 formulations are waiting for results (enter them on Results); suggestions may "
-        "land close to them.")
+        "2 formulations are waiting for results (enter them on Results). The model has not "
+        "used them yet, so a suggestion may nearly repeat them.")
     assert "lower" in w.repeat_disagrees(21, 11, "4.0")
     assert "higher" in w.repeat_disagrees(21, 11, "4.0", lower=False)
-    assert w.score_gap_line(6, 12, -5.2, "Repeats differ").endswith(
-        "below prediction — more than Repeats differ and steady across these Rounds, so read "
-        "new predictions as about 5.2 points too high.")
-    assert w.score_gap_line(6, 12, 2.0, "1 point").endswith(
-        "above prediction — more than 1 point and steady across these Rounds, so read new "
-        "predictions as about 2.0 points too low.")
+    assert w.score_gap_line(6, 12, -5.2, w.beat_by("1.3")).endswith(
+        "This exceeds the noise threshold (Repeat SD 1.3 points) and 2 standard errors: new "
+        "predictions read about 5.2 points high.")
+    assert w.score_gap_line(6, 12, 2.0, w.beat_by()).endswith(
+        "This exceeds the 1-point noise threshold and 2 standard errors: new predictions read "
+        "about 2.0 points low.")
     assert w.insights_header_line(0, None, 1, "Aroma") == "1 formulation is waiting for Aroma."
-    assert w.insights_header_line(1, 1) == "Based on 1 scored formulation, up to Round 1."
+    assert w.insights_header_line(1, 1) == (
+        "Based on 1 scored formulation (all results in), up to Round 1.")
     assert w.stand_since(1) == "No higher score in the Round since."
     assert w.stand_since(2) == "No higher score in the 2 Rounds since."
-    assert w.trust_early(1) == "Too early to judge: 1 result checked so far."
+    assert w.trust_early(1) == "Not judged yet: 1 value checked; the verdict needs 10."
     assert w.waiting_list("Cook loss", [22], 6) == "Waiting for Cook loss: Formulation 22 (Round 6)."
     assert w.waiting_list("Cook loss", [21, 22]) == "Waiting for Cook loss: Formulations 21–22."
     assert w.more_label(True, True) == "More · Not scored"

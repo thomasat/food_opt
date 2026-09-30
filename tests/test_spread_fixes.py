@@ -51,7 +51,7 @@ def test_compare_all_ranks_by_the_chosen_measurement(insights_scored, monkeypatc
     box.set_value("Firmness")
     _rerun_on(at, wording.TAB_INSIGHTS)
     changes, (axis, d) = drawn[-1]
-    assert axis == "Change in predicted Firmness (N)" and d == 1
+    assert axis == "Effect on predicted Firmness (N)" and d == 1
     caps = [c.value for c in at.tabs[3].caption]
     assert wording.change_caption(measure="Firmness") in caps
 
@@ -90,8 +90,8 @@ def test_two_ingredients_moved_together_are_named():
                   (7.0, 5.2, 0.9, 190)])
     assert insights.moved_together(opt) == ("Pea", "Oil")
     assert wording.moved_together("Coconut oil", "Beet juice powder") == (
-        "Coconut oil and Beet juice powder have mostly been changed together, so their "
-        "effects are hard to tell apart.")
+        "Coconut oil and Beet juice powder are correlated across the formulations made, so "
+        "their separate effects cannot be told apart.")
 
 
 def test_the_fill_a_setting_and_a_row_that_never_moved_are_left_out():
@@ -134,7 +134,8 @@ def test_untested_runs_cover_each_stretch_without_gaps():
 
 
 def test_the_grey_caption_uses_the_near_rule():
-    assert wording.path_key(9, grey=True) == "Grey: not tested near here. Dotted: Formulation 9."
+    assert wording.path_key(9, grey=True) == (
+        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 9.")
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

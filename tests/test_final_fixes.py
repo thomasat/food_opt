@@ -31,8 +31,8 @@ def test_the_header_names_the_latest_scored_round_while_a_later_one_waits():
         _tell(opt, no, 3, drop=("Cook loss",))
     assert [r for r, _ in insights.scored_rounds(opt)] == [1, 2]
     assert ui_insights.header_text(opt) == (
-        "Based on 6 scored formulations, up to Round 2. "
-        "3 are waiting for Cook loss.")
+        "Based on 6 scored formulations (all results in), up to Round 2. "
+        "3 more are waiting for Cook loss and are not used yet.")
 
 
 def test_the_header_leaves_out_a_round_moved_to_not_scored():
@@ -40,7 +40,8 @@ def test_the_header_leaves_out_a_round_moved_to_not_scored():
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
         opt.set_aside_formulation(no)
-    assert ui_insights.header_text(opt) == "Based on 6 scored formulations, up to Round 2."
+    assert ui_insights.header_text(opt) == (
+        "Based on 6 scored formulations (all results in), up to Round 2.")
 
 
 # ------------------------------------------------------------------ #
@@ -155,8 +156,8 @@ def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting)
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[1].caption]      # Make a round
-    assert ("1 trial is waiting for Aroma (enter it on Results); suggestions may "
-            "land close to it.") in captions, captions
+    assert ("1 trial is waiting for Aroma (enter it on Results). The model has not used it "
+            "yet, so a suggestion may nearly repeat it.") in captions, captions
 
 
 # ------------------------------------------------------------------ #
@@ -326,8 +327,8 @@ def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkey
     assert not at.exception
     md = [m.value for m in at.tabs[3].markdown]
     no = trial_scored.best_formulation_no()
-    assert (f"Best so far's score includes some luck; a Repeat of Trial {no} is "
-            "predicted at 80 (likely 75–85).") in md, md
+    assert (f"A Repeat of Trial {no} is predicted at 80 (95 % interval 75–85): regression "
+            "to the mean.") in md, md
 
 
 def test_the_changed_strings_pass_the_vocabulary_guard():

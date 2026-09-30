@@ -307,7 +307,7 @@ def test_the_waiting_caption_is_still_one_caption():
     _waiting(opt, 7, 3)
     line = _waiting_caption(opt)
     assert line.count("\n") == 0
-    assert line.endswith("suggestions may land close to it.")
+    assert line.endswith("so a suggestion may nearly repeat it.")
 
 
 def test_new_strings_pass_the_vocabulary_guard():

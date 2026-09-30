@@ -513,7 +513,7 @@ def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rou
     md = [m.value for m in at.tabs[3].markdown]
     heads = [md.index(f"**{q}**") for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
     assert heads == sorted(heads)
-    [line_1] = [i for i, m in enumerate(md) if "Best so far: " in m]
+    [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
     assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
     [foot] = [b for b in at.tabs[3].button if b.key == "insights_foot"]
     assert wording.MORE_CHARTS in _texts(at)
@@ -561,7 +561,7 @@ def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick
     assert not at.exception
     assert yards[0] != sd and yards[-1] == sd
     md = [m.value for m in at.tabs[3].markdown]
-    [line_1] = [i for i, m in enumerate(md) if "Best so far: " in m]
+    [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
     assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
 
 
