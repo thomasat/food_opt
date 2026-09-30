@@ -156,6 +156,9 @@ class Pool:
 
 _POOL = None
 _POOL_LOCK = threading.Lock()
+# model key -> [Future] of every spec in flight, shared by every Job that
+# wants it (a result saved while one runs); emptied with the pool.
+_INFLIGHT = {}
 # Set once a pool broke (a worker would not start, or stopped): this app
 # process fits in-process from then on rather than starting workers again.
 _GAVE_UP = False
@@ -190,12 +193,6 @@ def workers_on():
     not set off (worker_count() > 0) and none has failed here. It starts
     nothing (pool() does, when there is something to fit)."""
     return worker_count() > 0 and not _GAVE_UP
-
-
-def pool_started(timeout=START_SECS):
-    """pool(), once a worker is ready; None when there is none."""
-    p = pool()
-    return p if p is not None and p.wait_ready(timeout) else None
 
 
 @atexit.register
@@ -345,7 +342,6 @@ def compute_inline(opt, memo, specs, step=None):
 #  A Job: one project state's specs, in the pool
 # ------------------------------------------------------------------ #
 
-_INFLIGHT = {}      # model key -> [Future]: shared by every Job that wants it
 _JOBS = {}          # (project, insights.data_key) -> Job
 _JOBS_LOCK = threading.Lock()
 

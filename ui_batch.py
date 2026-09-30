@@ -728,9 +728,10 @@ def _batch_table(opt, scale_to, tab_open=False):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
-        # With the models fitted, drawn once with the predictions. Otherwise
-        # drawn now without them; _show_predictions fits and draws it again
-        # in the same place with them, once the rest of the screen is up.
+        # With the models in (or fitted by the workers), drawn once with the
+        # predictions or with "…". Otherwise drawn now with "…";
+        # _show_predictions fits and draws it again in the same place with
+        # them, once the rest of the screen is up.
         preds = None
         if tab_open and opt.complete_count() >= insights.MIN_ROWS and open_rows(opt):
             # "…" until they are worked out (review I1): the column keeps its
@@ -832,11 +833,13 @@ def _draw_table(opt, slot, frame):
 
 
 def _show_predictions(opt, later):
-    """Fit (once per data_key, shared with Insights) and draw the table again
-    in its place with the Predicted Overall score column, then the caption
-    and the expander in the place kept for them under the table. Called
-    last, so a fit never holds up the rest of the screen. A table already
-    drawn with its predictions (the models were fitted) is not drawn again."""
+    """Without workers, fit (once per data_key, shared with Insights) and
+    draw the table again in its place with the Predicted Overall score
+    column; with workers still fitting, leave the "…" for the poller's
+    rerun. Then the track-record line (review I16), the caption and the
+    expander in the place kept for them under the table. Called last, so a
+    fit never holds up the rest of the screen. A table already drawn with
+    its predictions is not drawn again."""
     table_slot, frame, notes, drawn = later
     preds = drawn
     if drawn == _PENDING and _models_ready(opt):

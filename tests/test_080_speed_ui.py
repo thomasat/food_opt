@@ -231,6 +231,28 @@ def test_a_failed_worker_falls_back_to_fitting_here(five_rounds, monkeypatch):
     assert wording.MORE_CHARTS in _texts(at)
 
 
+def test_the_predicted_best_is_searched_once_its_models_are_in_whatever_the_tab(
+        stuck, five_rounds):
+    at = _app(five_rounds.project_name)
+    at.run()
+    assert ui_insights.BEST_KEY not in at.session_state
+    _seed(at, five_rounds, "column")
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert at.session_state[ui_insights.BEST_KEY][0] == insights.setup_key(five_rounds)
+    assert ui_insights.CACHE_KEY not in at.session_state
+
+
+def test_every_check_is_worked_out_after_the_page_once_all_are_in(stuck, five_rounds):
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "all")
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    key, value = at.session_state[ui_insights.CACHE_KEY]
+    assert key == insights.data_key(five_rounds) and value["checks"]
+
+
 # ------------------------------------------------------------------ #
 #  Task 10: Make a round's column (I1) and its track-record line (I16)
 # ------------------------------------------------------------------ #

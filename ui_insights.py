@@ -663,10 +663,10 @@ def _render_filling(opt):
     1 and the foot at once, then answer 1 once every Round's Overall score
     and the verdict's Rounds are in, answers 2 and 3 once the current
     Overall-score model is in too. Each is drawn once, final; the folds
-    wait for everything. app.py's poller reruns the page as parts land."""
-    done, total = insights_jobs.rounds_done(opt, _plan(opt), memo(opt))
-    specs = _plan(opt)
-    fraction = sum(s.key in memo(opt) for s in specs) / max(1, len(specs))
+    wait for everything. keep_up's poller reruns the page as parts land."""
+    specs, mem = _plan(opt), memo(opt)
+    done, total = insights_jobs.rounds_done(opt, specs, mem)
+    fraction = sum(s.key in mem for s in specs) / max(1, len(specs))
     st.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
     checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
     yard = insights.noise_yardstick(opt, checks or ())
@@ -674,7 +674,7 @@ def _render_filling(opt):
     _question(opt, wording.Q_STAND)
     change = None
     if checks is not None and not waiting(opt, "stand"):
-        with insights.memo_in_use(memo(opt)):
+        with insights.memo_in_use(mem):
             score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
         computed = {"fitted": {insights.SCORE: score}, "checks": checks, "partial": True}
         standing = _stand(opt, computed, yard)
@@ -722,8 +722,9 @@ def _try_one_label(opt):
 
 def score_record_help(opt):
     """The Overall score's own record for Make a round's column help, or
-    '' — only when this tab's checks are already worked out for the data on
-    screen (§9 I6): Make a round never checks Rounds itself."""
+    '' — only from checks already worked out for the data on screen, by
+    this tab or from the workers' models (§9 I6): Make a round never fits
+    for it."""
     checks = checks_for(opt, "trust")
     if checks is None:
         return ""
