@@ -4626,7 +4626,9 @@ OVERALL_SCORE_HELP = ("Scores only compare within this project. Change a share, 
 
 
 def tie_line(new_no, score_text, lead_text, old_no, sd_text=None):
-    """A new Best so far that leads by less than Repeats differ (§4 ties)."""
+    """A new Best so far that leads by less than Repeats differ (§4 ties).
+    Says "how much Repeats differ (1.2)" with no "points", as §4 quotes it;
+    beat_by's "Repeats differ (1.2 points)" is §2.3's form. Both on purpose."""
     within = f"how much Repeats differ ({sd_text})" if sd_text else "1 point"
     return (f"{FORMULATION_CAP} {new_no} scored {score_text}, {lead_text} above "
             f"{FORMULATION_CAP} {old_no} — within {within}, so treat them as equal.")
@@ -4667,6 +4669,14 @@ def result_view_waiting(label, names_text):
 # Set up and the sidebar (§5; spec review M16, V4, V18–V21).
 NEXT_MAKE_A_ROUND = f"Next: {TAB_BATCH_NAME}"
 SETUP_FIRST_LINE = "Add your first ingredient in the table, or import them."
+
+
+def setup_first_line(settings_only=False):
+    """A new project's first step (V4). A study of process settings alone
+    never adds an ingredient, so it is not told to (spec review I14)."""
+    if settings_only:
+        return "Add your first process setting in the table, or import them."
+    return SETUP_FIRST_LINE
 MEASUREMENT_GOAL_CAPTION = "Set a goal for each measurement and how much it counts."
 SAMPLE_INTRO_LINE = f"A teaching example: review it, then select {NEXT_MAKE_A_ROUND}."
 

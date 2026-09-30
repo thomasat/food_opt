@@ -1986,7 +1986,8 @@ def render(opt, storage):
     # audit V4); Import is lit beside the grid until there is a row.
     empty = not opt.variables
     if empty:
-        st.caption(wording.SETUP_FIRST_LINE)
+        st.caption(wording.setup_first_line(
+            settings_only=not opt.has_ingredients() and bool(opt._process_settings())))
     elif not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
         st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
                    else wording.SETUP_INTRO))

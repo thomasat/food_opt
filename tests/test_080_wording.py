@@ -73,7 +73,8 @@ def _new_lines():
         w.waiting_list("Cook loss", [21, 22]), w.MOVE_TO_NOT_SCORED_HELP,
         w.never_coming_warning(19, "Cook loss"), w.EDIT_PAST_FOLD,
         w.result_view_waiting("Formulation 22 (Round 6)", "Cook loss"),
-        w.NEXT_MAKE_A_ROUND, w.SETUP_FIRST_LINE, w.MEASUREMENT_GOAL_CAPTION,
+        w.NEXT_MAKE_A_ROUND, w.SETUP_FIRST_LINE, w.setup_first_line(True),
+        w.MEASUREMENT_GOAL_CAPTION,
         w.SAMPLE_INTRO_LINE, w.CHANGE_NEAR, w.CHANGE_WHOLE,
     ]
 
@@ -213,3 +214,6 @@ def test_process_only_forms_name_settings_not_ingredients():
     assert "ingredient" not in w.near_none(settings_only=True)
     assert "values" in w.near_bigger(values=True)
     assert "values" in w.change_caption(values=True)
+    assert "ingredient" not in w.setup_first_line(settings_only=True)
+    assert "process setting" in w.setup_first_line(settings_only=True)
+    assert w.setup_first_line() == w.SETUP_FIRST_LINE
