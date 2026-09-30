@@ -171,3 +171,24 @@ def test_another_version_with_this_salt_reads_as_empty():
         json.dump({"version": insights_cache.VERSION + 1, "salt": insights.MODEL_SALT,
                    "memo": {"b": {"state": {}, "widen": 1.0}}, "rounds": {}, "best": None}, fh)
     assert insights_cache.load("Patty").memo == {}
+
+
+@pytest.mark.parametrize("label", ["deleted", "archived"])
+def test_delete_project_and_start_over_take_the_cache_with_them(label):
+    """Final review M-6 (review B M-3): Delete project and Start over move
+    the project to a Saved copy (archive, copy=False); what Insights worked
+    out for it — measured values and make-ups — goes, and the copy has none
+    until it is opened."""
+    opt = _burger(rounds=3)
+    insights_cache.save(opt.project_name, _saved(opt))
+    assert os.path.exists(insights_cache.path(opt.project_name))
+    copy = LocalStorage().archive(opt.project_name, label, copy=False)
+    assert copy and not os.path.exists(insights_cache.path(opt.project_name))
+    assert not os.path.exists(insights_cache.path(copy))
+
+
+def test_a_saved_copy_made_by_copying_keeps_the_projects_cache():
+    opt = _burger(rounds=3)
+    insights_cache.save(opt.project_name, _saved(opt))
+    LocalStorage().archive(opt.project_name, "pre_edit", copy=True)
+    assert os.path.exists(insights_cache.path(opt.project_name))

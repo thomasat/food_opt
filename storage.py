@@ -160,13 +160,9 @@ class LocalStorage:
                 "program."
             )
         self.__dict__.setdefault("_seen", {}).pop(name, None)
-        # What Insights worked out for the copy, if it was ever opened
-        # (insights_cache.path; spelled out here so this module stays free
-        # of torch): it goes with the copy.
-        try:
-            os.remove(os.path.join(".insights", f"{name}.insights.json"))
-        except OSError:
-            pass
+        # What Insights worked out for the copy, if it was ever opened: it
+        # goes with the copy.
+        self._remove_insights(name)
         return True
 
     def is_stale(self, name):
@@ -191,4 +187,17 @@ class LocalStorage:
         else:
             os.rename(path, self._path(archive_name))
             seen.pop(name, None)
+            # Delete project and Start over: what Insights worked out for the
+            # project (measured values, make-ups) goes with it; the copy
+            # gets its own only if it is ever opened (final review M-6).
+            self._remove_insights(name)
         return archive_name
+
+    @staticmethod
+    def _remove_insights(name):
+        """Take `name`'s Insights cache off the disk (insights_cache.path,
+        spelled out here so this module stays free of torch)."""
+        try:
+            os.remove(os.path.join(".insights", f"{name}.insights.json"))
+        except OSError:
+            pass
