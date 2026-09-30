@@ -190,11 +190,11 @@ def test_singular_and_plural_forms():
     assert "lower" in w.repeat_disagrees(21, 11, "4.0")
     assert "higher" in w.repeat_disagrees(21, 11, "4.0", lower=False)
     assert w.score_gap_line(6, 12, -5.2, "Repeats differ").endswith(
-        "below prediction — more than Repeats differ, so read new predictions as about "
-        "5.2 points too high.")
+        "below prediction — more than Repeats differ and steady across these Rounds, so read "
+        "new predictions as about 5.2 points too high.")
     assert w.score_gap_line(6, 12, 2.0, "1 point").endswith(
-        "above prediction — more than 1 point, so read new predictions as about 2.0 points "
-        "too low.")
+        "above prediction — more than 1 point and steady across these Rounds, so read new "
+        "predictions as about 2.0 points too low.")
     assert w.insights_header_line(0, None, 1, "Aroma") == "1 formulation is waiting for Aroma."
     assert w.insights_header_line(1, 1) == "Based on 1 scored formulation, up to Round 1."
     assert w.stand_since(1) == "No higher score in the Round since."

@@ -108,11 +108,12 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     assert state == "within" and bias == pytest.approx(-1.5)
     verdict = ui_insights.verdict_text(opt, h, state, bias)
     assert verdict.startswith("Measurements on track: ")
-    assert verdict.endswith(" The Overall score, though, ran consistently below prediction.")
+    assert verdict.endswith(" The Overall score, though, ran on average below prediction.")
     line = ui_insights.score_line(opt, checks)
+    # Both halves of the rule, in plain words (re-review R3).
     assert line == ("Overall score: 11 of 11 inside; results ran about 1.5 points below "
-                    "prediction — more than 1 point, so read new predictions as about 1.5 "
-                    "points too high.")
+                    "prediction — more than 1 point and steady across these Rounds, so read new "
+                    "predictions as about 1.5 points too high.")
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
@@ -150,11 +151,36 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
 
 
 def test_how_says_the_bias_rule_in_plain_words():
+    """Re-review R1: the gap is always shown; "too high" or "too low" only
+    past the yardstick and steady — and the yardstick's true rule."""
     assert wording.HOW_BIAS == (
-        "The Overall score is said to run above or below prediction only when its average "
-        "gap is more than how much Repeats differ (1 point without Repeats) and too steady "
-        "across formulations to be chance.")
+        "The Overall score's line always says how far results ran from prediction on "
+        "average. It says new predictions read too high or too low only when that gap is "
+        "more than how much Repeats differ (1 point unless there are at least 3 Repeat "
+        "pairs) and steady across formulations, not a few large misses.")
     _clean(wording.HOW_BIAS)
+
+
+def test_though_follows_the_verdict_before_the_width_sentence():
+    """Re-review R2 (Line C): "…(the app aims for about 19 in 20). The
+    Overall score, though, ran on average below prediction." then the
+    width sentence."""
+    opt = _patty(rows=6)
+    h = insights.Headline("verdict", [2], 10, 10, "holding", None, ["Firmness"])
+    text = ui_insights.verdict_text(opt, h, "within", -3.0)
+    assert ("(the app aims for about 19 in 20). The Overall score, though, ran on average "
+            "below prediction. The likely range for Firmness is wide") in text
+    _clean(text)
+
+
+def test_a_custom_fields_own_name_is_kept_as_typed():
+    """Re-review R6: only the scope is said in the project's words."""
+    trials = SimpleNamespace(has_ingredients=lambda: False,
+                             _process_settings=lambda: ["Incubation time"])
+    assert wording.custom_record_option("Formulation lead", "formulation", trials) == (
+        "Formulation lead · Each trial")
+    assert wording.custom_record_option("Formulation lead", "formulation") == (
+        "Formulation lead · Each formulation")
 
 
 # ------------------------------------------------------------------ #

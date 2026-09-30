@@ -888,11 +888,12 @@ def verdict_text(opt, h, state, bias=None):
         line = wording.trust_over_wide(h.total, h.rounds)
     else:
         line = wording.trust_within(h.inside, h.total, h.rounds, measurements=bias is not None)
-    wide = _wide(opt, h)
-    line = f"{line} {wide}" if wide else line
+    # "though" straight after the verdict it qualifies, then the width
+    # sentence (re-review R2).
     if bias is not None and state in ("within", "over_wide"):
         line += wording.bias_tail(below=bias < 0)
-    return line
+    wide = _wide(opt, h)
+    return f"{line} {wide}" if wide else line
 
 
 def _beyond(gap, yard):

@@ -3668,8 +3668,11 @@ CUSTOM_ROUND_LABEL = "Round for additional records"
 CUSTOM_IMPORT_FOUND = "Additional records found. Review the entries below before saving."
 CUSTOM_SAVED = "Additional records saved."
 
-def custom_record_option(name, scope):
-    return f"{name} · {CUSTOM_SCOPE_NAMES[scope]}"
+def custom_record_option(name, scope, opt=None):
+    """'Operator · Each formulation': the scope in the project's words (with
+    `opt`), the user's own field name exactly as typed (re-review R6)."""
+    scope_text = CUSTOM_SCOPE_NAMES[scope]
+    return f"{name} · {scope_text if opt is None else for_project(opt, scope_text)}"
 
 RECORD_SCOPE_LABELS = {
     'vendor': "Vendor · Each ingredient · Ingredients table",
@@ -4258,13 +4261,14 @@ def trust_within(inside, total, rounds, measurements=False):
 def bias_tail(below=True):
     """After the verdict when the Overall score runs off prediction: the
     line under it gives the numbers."""
-    return (f" The {OVERALL_SCORE_COLUMN}, though, ran consistently "
+    return (f" The {OVERALL_SCORE_COLUMN}, though, ran on average "
             f"{'below' if below else 'above'} prediction.")
 
 
-HOW_BIAS = (f"The {OVERALL_SCORE_COLUMN} is said to run above or below prediction only when "
-            "its average gap is more than how much Repeats differ (1 point without Repeats) "
-            f"and too steady across {FORMULATION}s to be chance.")
+HOW_BIAS = (f"The {OVERALL_SCORE_COLUMN}'s line always says how far results ran from "
+            "prediction on average. It says new predictions read too high or too low only when "
+            "that gap is more than how much Repeats differ (1 point unless there are at least "
+            f"3 Repeat pairs) and steady across {FORMULATION}s, not a few large misses.")
 
 
 def trust_over_wide(total, rounds):
@@ -4303,9 +4307,10 @@ def score_gap_line(inside, total, gap, beyond=""):
     line = (f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside; results ran about "
             f"{points_text(size)} {side} prediction")
     if beyond:
+        # Both halves of the rule that makes it a bias (re-review R3).
         way = "high" if gap < 0 else "low"
-        line += (f" — more than {beyond}, so read new predictions as about "
-                 f"{points_text(size)} too {way}")
+        line += (f" — more than {beyond} and steady across these {ROUND_CAP}s, so read new "
+                 f"predictions as about {points_text(size)} too {way}")
     return line + "."
 
 

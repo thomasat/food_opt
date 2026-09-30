@@ -1301,8 +1301,8 @@ def _also_record(opt):
 
     st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
                    format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
-                       else wording.for_project(opt, wording.custom_record_option(
-                               by_id[field]['name'], by_id[field]['scope']))),
+                       else wording.custom_record_option(
+                               by_id[field]['name'], by_id[field]['scope'], opt)),
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
     if opt.records("lot"):
         st.caption(wording.LOT_LOCATION_HELP)
