@@ -76,7 +76,7 @@ def test_insights_with_no_complete_formulation(six_waiting):
     assert wording.insights_gate(0) in captions, captions
     # "Where do you stand?" is not left empty (final review M-5).
     texts = [m.value for m in at.tabs[3].markdown]
-    at_q = texts.index(f"**{wording.Q_STAND}**")
+    at_q = texts.index(f"##### {wording.Q_STAND}")
     assert texts[at_q + 1] == wording.NO_COMPLETE_FORMULATION, texts
 
 

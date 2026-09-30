@@ -439,7 +439,7 @@ def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypa
 def test_section_4_gate(scored):          # 2 formulations with all their results
     at = _open_insights(_app())
     md, caps = _tab_text(at)
-    assert f"**{wording.Q_NEXT}**" not in md               # under 5: the gate line instead
+    assert f"##### {wording.Q_NEXT}" not in md               # under 5: the gate line instead
     assert caps.count(wording.insights_gate(2)) == 1
 
 
@@ -542,7 +542,7 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
     md, caps = _tab_text(at)
     # The three answers and the folds (spec 2026-09-30 §2, review I14).
-    assert f"**{wording.Q_STAND}**" in md
+    assert f"##### {wording.Q_STAND}" in md
     assert "Effect of one process setting" in [e.label for e in tab.expander]
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
     assert [c for c in caps if c.startswith("Based on 5 scored trials")]

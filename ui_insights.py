@@ -8,6 +8,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+import bo_views
 import insights
 import insights_cache
 import insights_jobs
@@ -669,7 +670,10 @@ def _say(opt, text):
 
 
 def _question(opt, text):
-    st.markdown(f"**{_say(opt, text)}**")
+    """A section's noun heading, drawn as a real heading (03 §4): readers
+    of JMP and Design-Expert scan headings for the analysis they know, and
+    a screen reader lists them."""
+    st.markdown(f"##### {_say(opt, text)}")
 
 
 def render(opt):
@@ -856,8 +860,29 @@ def score_line(opt, checks, h=None, yard=None):
         return ""
     yard = insights.noise_yardstick(opt, checks) if yard is None else yard
     bias = insights.score_bias(opt, checks, h, yard)
-    beyond = "" if bias is None else ("Repeats differ" if yard.from_repeats else "1 point")
-    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, beyond)
+    beyond = "" if bias is None else threshold_text(yard)
+    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, beyond,
+                                  n=h.score.total)
+
+
+def threshold_text(yard):
+    """The noise threshold's one name (03 §3 rule 3): the Repeat SD from 3
+    pairs, else the fixed 1 point."""
+    return wording.beat_by(f"{yard.value:.1f}" if yard.from_repeats else None)
+
+
+def skill_value(value):
+    """A skill, two decimals, a true minus sign: '0.36', '−0.47'."""
+    return wording.signed(value, 2).lstrip("+")
+
+
+def skill_text(opt, checks):
+    """The Overall score's skill line (spec 2026-09-30-bo-views §2.1;
+    review I1, I2), or '' below 10 checks."""
+    fact = insights.skill(opt, checks)
+    if fact is None:
+        return ""
+    return wording.skill_line(skill_value(fact.value), fact.n, fact.rounds, fact.state)
 
 
 def header_text(opt, h=None):
@@ -892,29 +917,28 @@ def _wide_names(names):
                         for n in names]) if names else ""
 
 
-def verdict_text(opt, h, state, bias=None):
-    """"Can you trust the predictions?" in one line per state (§2.2,
-    review I6, M9); some outputs wide adds the wide line. `bias`: the
-    Overall score's gap when it is a bias (insights.score_bias): the verdict
-    then never opens with an unqualified "On track" (answer-key
-    read-through)."""
+def verdict_text(opt, h, state, bias=None, checks=()):
+    """Prediction check in one line per state (§2.2, review I6, M9; 03
+    §5.2): the measurements' values inside their 95 % intervals with the
+    miss count the rule allows; some outputs wide adds the wide line. The
+    verdict names the measurements, and the Overall score's line under it
+    says its mean error, so nothing is added for a bias (`bias` is kept for
+    callers). `checks`: for the over-wide rule's basis."""
     if state == "none":
         return wording.TRUST_NONE
     if state == "early":
         return wording.trust_early(h.total)
     if state == "wide":
         return wording.TRUST_WIDE
+    allowed = insights.allowed_misses(h.total)
     if state in ("caution", "unreliable"):
         line = wording.trust_misses(len(h.rounds), h.rounds, h.inside, h.total,
-                                    many=state == "unreliable")
+                                    many=state == "unreliable", allowed=allowed)
     elif state == "over_wide":
-        line = wording.trust_over_wide(h.total, h.rounds)
+        line = wording.trust_over_wide(h.total, h.rounds,
+                                       insights.median_z(h, checks) if checks else None)
     else:
-        line = wording.trust_within(h.inside, h.total, h.rounds, measurements=bias is not None)
-    # "though" straight after the verdict it qualifies, then the width
-    # sentence (re-review R2).
-    if bias is not None and state in ("within", "over_wide"):
-        line += wording.bias_tail(below=bias < 0)
+        line = wording.trust_within(h.inside, h.total, h.rounds, allowed=allowed)
     wide = _wide(opt, h)
     return f"{line} {wide}" if wide else line
 
@@ -930,7 +954,8 @@ def _beyond(gap, yard):
 
 
 def disagreement_text(d):
-    return wording.repeat_disagrees(d.later, d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0)
+    return wording.repeat_disagrees(d.later, d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0,
+                                    half_text=None if d.limit is None else f"{d.limit:.1f}")
 
 
 def _trust(opt, computed, h, yard, repeat=True):
@@ -938,19 +963,30 @@ def _trust(opt, computed, h, yard, repeat=True):
     disagreeing Repeat (`repeat`), one line on how, and measured against
     predicted in its fold."""
     checks = computed["checks"]
-    bias = insights.score_bias(opt, checks, h, yard)
-    st.write(_say(opt, verdict_text(opt, h, insights.verdict_state(opt, h, checks), bias)))
+    state = insights.verdict_state(opt, h, checks)
+    st.write(_say(opt, verdict_text(opt, h, state, checks=checks)))
     if h.score is not None:
         st.write(_say(opt, score_line(opt, checks, h, yard)))
+    # Skill, the Overall score's own fact under the verdict (review I1): in
+    # every state past the gate but "none".
+    skill = skill_text(opt, checks) if state != "none" else ""
+    if skill:
+        st.write(_say(opt, skill))
     flagged = insights.disagreeing_repeat(opt, checks) if repeat else None
     if flagged is not None:
         st.write(_say(opt, disagreement_text(flagged)))
     st.caption(_say(opt, wording.TRUST_BEFOREHAND))
     # While the rest are still being fitted the chart would gain dots: it
-    # waits for them (a part of the tab is drawn once, final).
-    chart = None if computed.get("partial") else measured_vs_predicted_chart(opt, checks)
-    if chart is not None:
-        with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
+    # waits for them (a part of the tab is drawn once, final). Keyed, so a
+    # link can open it (E1, EACH_KEY); drawn only while open (04 §5).
+    if computed.get("partial") or not checks:
+        return
+    with st.expander(_say(opt, wording.SHOW_PREDICTIONS), key=EACH_KEY,
+                     on_change="rerun") as each:
+        if not each.open:
+            return
+        chart = measured_vs_predicted_chart(opt, checks)
+        if chart is not None:
             show_chart(chart)
             st.caption(_say(opt, wording.MVP_CAPTION))
 
@@ -1063,7 +1099,14 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard):
         return
     top = moved[0]
     standing = [c for c in moved if c.near is not None and c.near > yard.value]
-    if not found.start_tested:
+    # The noise guard (spec 2026-09-30-bo-views §2.3, review I3, I4): no
+    # effect is ranked, nor the Compare all bars drawn, while the Overall-
+    # score model is likely fitting noise. The lines that need no model
+    # (held in place, correlated) stay.
+    guard = _guard(opt, fitted)
+    if guard.fires:
+        st.write(_say(opt, guard_text(guard, settings_only)))
+    elif not found.start_tested:
         st.write(_say(opt, wording.near_start_untested(start)))
     elif not standing:
         st.write(_say(opt, wording.near_none(settings_only, insights.has_setting_choice(opt))))
@@ -1080,13 +1123,34 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard):
             st.write(_say(opt, wording.near_bigger(values=insights.is_setting(opt, top.name))))
     if found.held:
         st.caption(_say(opt, wording.held_line(start, found.held)))
-    together = insights.moved_together(opt)
+    together = insights.correlated_pair(opt)
     if together:
-        st.caption(_say(opt, wording.moved_together(*together)))
-    if len(moved) > 1:
+        a, b, r = together
+        st.caption(_say(opt, wording.moved_together(a, b, f"{r:.2f}")))
+    if len(moved) > 1 and not guard.fires:
         with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
                                                        not settings_only))):
             _compare_all(opt, moved, settings_only, fitted, recipe)
+
+
+_GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
+
+
+def _guard(opt, fitted, name=insights.SCORE):
+    """insights.noise_guard for the display model of `name`, with the
+    checks already worked out for this data (none: skill is not judged)."""
+    fitted = fitted or {}
+    return insights.noise_guard(opt, fitted.get(name), checks_for(opt, "trust") or (), name)
+
+
+def guard_text(guard, settings_only=False):
+    """The guard's one line, naming its trigger (review I3): "fitting
+    noise" for the correlation length or the fitted noise; trigger (c)
+    alone reads "not reported until…"."""
+    if guard.skill_only:
+        return wording.guard_skill_line(settings_only)
+    return wording.guard_line([_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
+                              settings_only)
 
 
 def _compare_all(opt, moved, settings_only, fitted, recipe):
@@ -1112,6 +1176,11 @@ def _compare_all(opt, moved, settings_only, fitted, recipe):
         obj = next(o for o in opt.objectives if o['name'] == on)
         label = on
         axis, d = wording.change_axis(on, obj.get('unit') or ""), decimals(opt, on)
+        # A measurement's own model, its own guard (review I3 scope).
+        guard = _guard(opt, fitted, on)
+        if guard.fires:
+            st.caption(_say(opt, guard_text(guard, settings_only)))
+            return
     chart = change_chart(ranked, axis, d)
     if chart is None:
         # No bars, so nothing for the caption to explain (Task 8 review,
@@ -1218,6 +1287,11 @@ def _path_captions(opt, path, number, fitted, near=None):
     near = insights.tested_near(opt, path) if near is None else near
     lines.append(wording.path_key(number, grey=not all(near),
                                   targets=bool(_target_rows(opt, path_panels(opt)))))
+    # The noise guard (review I3): the path still draws; its bends are not
+    # to be read as effects.
+    guard = _guard(opt, fitted)
+    if guard.fires:
+        lines.append(wording.PATH_GUARD_SKILL if guard.skill_only else wording.PATH_GUARD)
     return lines
 
 
@@ -1231,9 +1305,10 @@ def stand_text(answer):
     threshold = 1.0 if answer.sd is None else answer.sd
     d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
     rise = f"{answer.rise:.{d}f}"
+    sd = None if answer.sd is None else f"{answer.sd:.{d}f}"
     if answer.state == "yes":
-        return wording.stand_yes(rise)
-    return wording.stand_barely(rise, None if answer.sd is None else f"{answer.sd:.{d}f}")
+        return wording.stand_yes(rise, wording.beat_by(sd))
+    return wording.stand_barely(rise, sd)
 
 
 def _stand_first(opt, yard):
@@ -1408,12 +1483,20 @@ def standing_text(opt, standing, yard):
     predicted Repeat, in whole points, in one of four texts."""
     p = standing.best.score
     mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
+    by = threshold_text(yard)
+    values = not opt.has_ingredients()
     if standing.higher:
         close = standing.best.close
+        best = opt.best_index()
+        ref = (standing.best.repeat.mean if standing.best.repeat is not None
+               else None if best is None else float(opt.Y_history[best]))
+        # The predicted gain the rule used (03 §5.3): over a Repeat of Best
+        # so far as predicted.
+        gain = None if ref is None else wording.signed(p.mean - ref)
         return wording.stand_higher(mean, low, high, standing.close_no,
-                                    "" if close is None else f"{opt.Y_history[close]:.2f}")
-    by = wording.beat_by(f"{yard.value:.1f}" if yard.from_repeats else None)
-    return wording.stand_not_higher(by, mean, low, high, standing.close_no)
+                                    "" if close is None else f"{opt.Y_history[close]:.2f}",
+                                    gain_text=gain, by_text=by, values=values)
+    return wording.stand_not_higher(by, mean, low, high, standing.close_no, values=values)
 
 
 def _stand(opt, computed, yard, spinner=True):
@@ -1443,7 +1526,13 @@ def _stand(opt, computed, yard, spinner=True):
     if standing.luck and best.repeat is not None and top is not None:
         r = best.repeat
         st.write(_say(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
-                                             _whole(r.low), _whole(r.high))))
+                                             _whole(r.low), _whole(r.high),
+                                             f"{opt.Y_history[top]:.2f}")))
+    # Expected improvement by Round (spec 2026-09-30-bo-views §3.2; review
+    # I5, M8): its line here, its chart in the Progress chart fold.
+    line = gain_text(opt, computed, yard)
+    if line:
+        st.write(_say(opt, line))
     if standing.higher and not standing.tested_near:
         with st.expander(_say(opt, wording.show_its_amounts(not opt.has_ingredients()))):
             try:
@@ -1459,24 +1548,65 @@ def _stand(opt, computed, yard, spinner=True):
     return standing
 
 
-def next_step_text(opt, step):
+def gain_text(opt, computed, yard):
+    """§3.2's line (review I5): the expected improvement the open Round's
+    first suggestion was chosen for, else the last Round's, named with its
+    Round and compared with the noise threshold; withheld, saying why,
+    under a caution or unreliable verdict, a no-skill record or the noise
+    guard (review I4). '' for a Round of the user's own formulations."""
+    checks = computed.get("checks") or ()
+    if bo_views.acquisition(opt) == "qucb":
+        return wording.GAIN_UCB
+    h = insights.headline(opt, checks)
+    state = insights.verdict_state(opt, h, checks)
+    guard = insights.noise_guard(opt, computed["fitted"].get(insights.SCORE), checks)
+    if state in ("caution", "unreliable"):
+        return wording.gain_unreliable(wording.GAIN_REASON_VERDICT)
+    if "skill" in guard.reasons:
+        return wording.gain_unreliable(wording.GAIN_REASON_SKILL)
+    if guard.fires:
+        return wording.gain_unreliable(wording.GAIN_REASON_GUARD)
+    try:
+        with insights.memo_in_use(memo(opt)):
+            g = bo_views.latest_gain(opt)
+    except Exception:
+        return ""
+    if g is None or g.why_none == "own":
+        return ""
+    if g.why_none == "cold":
+        return wording.gain_cold(g.round)
+    best = opt.best_index()
+    measured = (f"{opt.Y_history[best]:.2f}" if bo_views.acquisition(opt) == "qlogei"
+                and best is not None else None)
+    return wording.gain_line(f"{g.gain:.2f}", g.round, threshold_text(yard),
+                             above=g.gain > yard.value, recomputed=not g.exact,
+                             measured_text=measured)
+
+
+def next_step_text(opt, step, rounds=None):
     """(sentence, Set up button label or None) for insights.next_step's
-    answer (§2.4, review I2, I3, I14, M17)."""
+    answer (§2.4, review I2, I3, I14, M17; BO views I1). `rounds`: the
+    verdict's Rounds, named in the bias and misses rows (03 §5.4)."""
     values = not opt.has_ingredients()
     settings_only = not insights.has_ingredient_choice(opt)
     # A Round still open: record it first, as the foot says (final review M-1).
     left = len(open_rows(opt)) if opt.pending_batch else 0
     no = opt.pending_batch_no
     if step.kind == "bias":
-        return wording.next_bias(f"{abs(step.gap):.1f}", below=step.gap < 0), None
+        return wording.next_bias(f"{abs(step.gap):.1f}", below=step.gap < 0,
+                                 rounds=rounds), None
     if step.kind == "misses":
-        return wording.NEXT_MISSES, None
+        return wording.next_misses(rounds), None
     if step.kind == "repeat":
         return disagreement_text(step.disagreement), None
     if step.kind == "early":
         return (wording.next_too_early_open(no, left) if left else wording.NEXT_TOO_EARLY), None
+    if step.kind == "no_skill":
+        return wording.next_no_skill(skill_value(step.skill.value), step.skill.n, no,
+                                     left), None
     if step.kind == "untested":
-        return wording.next_untested(values, open_round=bool(opt.pending_batch)), None
+        return wording.next_untested(values, open_round=bool(opt.pending_batch),
+                                     round_no=no), None
     if step.kind == "close":
         b = step.binding
         if b is None:
@@ -1494,8 +1624,12 @@ def next_step_text(opt, step):
 
 
 def _next_step(opt, step):
-    """Answer 3: one sentence. Returns the Set up button's label, or None."""
-    text, change = next_step_text(opt, step)
+    """Answer 3: one sentence, naming the verdict's Rounds where it says a
+    bias or misses (from the checks already worked out). Returns the Set up
+    button's label, or None."""
+    checks = checks_for(opt, "trust")
+    rounds = insights.headline(opt, checks).rounds if checks else None
+    text, change = next_step_text(opt, step, rounds)
     st.write(_say(opt, text))
     return change
 
@@ -1971,13 +2105,13 @@ def _how(opt, computed):
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
                      wording.how_checks(values=not opt.has_ingredients()),
+                     wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD,
                      wording.how_same_process(values=not opt.has_ingredients()),
                      wording.HOW_NO_P):
             st.markdown(_say(opt, text))
         if computed is None:
             return
         checks = computed["checks"]
-        st.caption(_say(opt, wording.PREDICTIONS_CAPTION))
         skipped = insights.rounds_not_checked(opt)
         if skipped and checks:
             st.caption(_say(opt, wording.rounds_not_checked(skipped)))
@@ -1988,7 +2122,7 @@ def _how(opt, computed):
             return
         h = insights.headline(opt, checks)
         st.caption(_say(opt, wording.details_window(insights._ordered_rounds(checks),
-                                                    len(h.rounds))))
+                                                    len(h.rounds), h.rounds)))
         columns = wording.DETAILS_COLUMNS_2
         st.dataframe(pd.DataFrame([{
             columns[0]: panel_label(opt, r.name),
@@ -1998,6 +2132,8 @@ def _how(opt, computed):
             columns[4]: _num(r.typical_miss),
             columns[5]: _say(opt, widen_cell(opt, r, checks)),
             columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out),
+            # Each output's own skill (spec 2026-09-30-bo-views §2.1, I2).
+            wording.SKILL_COLUMN: skill_cell(opt, checks, r.name),
         } for r in rows]), hide_index=True, height=table_height(len(rows)))
         # The Overall-score row carries a second factor when its cell is
         # more than its own fit's factor (the sentence's words are wording's).
@@ -2005,9 +2141,19 @@ def _how(opt, computed):
                   and widen_cell(opt, r, checks) != wording.widen_text(r.widen)
                   for r in rows)
         for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
-                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS):
+                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS,
+                     wording.how_skill(skill_value(insights.NO_SKILL)),
+                     wording.HOW_EXPECTED_IMPROVEMENT,
+                     wording.how_roles(f"{bo_views.POOL_SIZE:,}")):
             if text:
                 st.caption(_say(opt, text))
+
+
+def skill_cell(opt, checks, name):
+    """The details table's Skill cell: '0.36 (n = 15)', or 'under 10 values'."""
+    fact = insights.skill(opt, checks, name)
+    return (wording.SKILL_UNDER_TEN if fact is None
+            else wording.skill_cell(skill_value(fact.value), fact.n))
 
 
 def widen_cell(opt, r, checks):

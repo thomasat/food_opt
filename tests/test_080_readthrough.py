@@ -69,7 +69,7 @@ def test_untested_without_an_open_round_says_the_next_round():
     assert "add it to the next Round as your own formulation" in text
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text, _ = ui_insights.next_step_text(opt, step)
-    assert "add it to the Round as your own formulation" in text
+    assert f"add it to Round {opt.pending_batch_no} as your own formulation" in text
     _clean(text, wording.next_untested(False, open_round=False))
 
 
@@ -106,8 +106,9 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     bias = insights.score_bias(opt, checks)
     assert state == "within" and bias == pytest.approx(-1.5)
     verdict = ui_insights.verdict_text(opt, h, state, bias)
-    assert verdict.startswith("Measurements, ")
-    assert verdict.endswith(" The Overall score, though, ran on average below prediction.")
+    # The bias is said once, on the Overall score's own line (03 §5.2: no
+    # "though" tail on the verdict).
+    assert verdict.startswith("Measurements, ") and "though" not in verdict
     line = ui_insights.score_line(opt, checks)
     # Both halves of the rule, in plain words (re-review R3).
     assert line == ("Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean "
@@ -162,15 +163,16 @@ def test_how_says_the_bias_rule_in_plain_words():
     _clean(wording.HOW_BIAS)
 
 
-def test_though_follows_the_verdict_before_the_width_sentence():
-    """Re-review R2 (Line C): "…(the app aims for about 19 in 20). The
-    Overall score, though, ran on average below prediction." then the
-    width sentence."""
+def test_the_width_sentence_follows_the_verdict():
+    """Re-review R2, as the BO-views wave words it (03 §5.2): the verdict
+    with its miss count, then the width sentence; the Overall score's bias
+    is its own line, never a "though" here."""
     opt = _patty(rows=6)
     h = insights.Headline("verdict", [2], 10, 10, "holding", None, ["Firmness"])
     text = ui_insights.verdict_text(opt, h, "within", -3.0)
-    assert ("As expected. The Overall score, though, ran on average below prediction. Wide "
-            "95 % intervals for Firmness") in text
+    assert text == (wording.trust_within(10, 10, [2], allowed=1) + " "
+                    + wording.wide_line("Firmness"))
+    assert "though" not in text
     _clean(text)
 
 

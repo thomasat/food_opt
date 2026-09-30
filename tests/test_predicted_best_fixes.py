@@ -90,7 +90,7 @@ def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     md = [m.value for m in at.tabs[3].markdown]
     luck = wording.best_luck(insights_scored.best_formulation_no(), f"{repeat:.0f}",
-                             f"{repeat - 5:.0f}", f"{repeat + 5:.0f}")
+                             f"{repeat - 5:.0f}", f"{repeat + 5:.0f}", f"{measured:.2f}")
     assert luck in md
     monkeypatch.setattr(insights, "predicted_best", fake(measured - 0.5))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))

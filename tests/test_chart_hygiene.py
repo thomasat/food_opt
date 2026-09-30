@@ -84,6 +84,10 @@ def test_the_path_tooltip_reads_amount_and_prediction_with_its_range():
 
 def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     at = _open_insights(_app())
+    # Measured against predicted is drawn only while open (BO views, 04 §5).
+    at.session_state[ui_insights.EACH_KEY] = True
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
     tab = at.tabs[3]
     shown = next(e for e in tab.expander if e.label == wording.SHOW_PREDICTIONS)
     assert [c.value for c in shown.caption] == [wording.MVP_CAPTION]

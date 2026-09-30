@@ -79,13 +79,13 @@ def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scor
     assert labels.index(wording.MORE_CHARTS) == labels.index(wording.HOW_WORKED_OUT) - 1
     assert _more(at).proto.expanded is False
     md, _ = _tab_text(at)
-    assert md.index(f"**{wording.Q_NEXT}**") < md.index(f"**{wording.Q_PAIR}**")
+    assert md.index(f"##### {wording.Q_NEXT}") < md.index(f"##### {wording.Q_PAIR}")
 
 
 def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
     at = _open_insights(_app())
     more = _more(at)
-    assert [m.value for m in more.markdown][0] == f"**{wording.Q_PAIR}**"
+    assert [m.value for m in more.markdown][0] == f"##### {wording.Q_PAIR}"
     [box] = more.multiselect
     assert box.label == wording.PAIR_PICK
     assert box.value == ["Firmness", "Juiciness"]          # Share 1.5 before 1.0
@@ -327,7 +327,7 @@ def test_the_triangle_heading_picks_and_caption(mixture_scored):
     assert not at.exception
     more = _more(at)
     md = [m.value for m in more.markdown]
-    assert md.index(f"**{wording.Q_PAIR}**") < md.index(f"**{wording.Q_MIXTURE}**")
+    assert md.index(f"##### {wording.Q_PAIR}") < md.index(f"##### {wording.Q_MIXTURE}")
     boxes = {b.label: b for b in more.multiselect}
     three = boxes[wording.MIXTURE_PICK]
     assert three.options == ["Pea protein", "Oil", "Starch", "Water"]
@@ -804,7 +804,7 @@ def test_more_charts_lists_its_two_questions_in_order(mixture_scored):
     predicted, under "Show each prediction", says the same."""
     at = _open_insights(_app())
     md = [m.value for m in _more(at).markdown]
-    assert md == [f"**{q}**" for q in (wording.Q_PAIR, wording.Q_MIXTURE)]
+    assert md == [f"##### {q}" for q in (wording.Q_PAIR, wording.Q_MIXTURE)]
 
 
 def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
@@ -851,7 +851,7 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     assert not [t for t in said if "ormulation" in t], [t for t in said if "ormulation" in t]
     assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
     md = [m.value for m in more.markdown]
-    assert md == [f"**{wording.Q_PAIR}**"]
+    assert md == [f"##### {wording.Q_PAIR}"]
     caps = [c.value for c in more.caption]
     assert ("Measured values, one dot per trial; the line marks Acidity's target, and the "
             "other axis title gives the better direction.") in caps

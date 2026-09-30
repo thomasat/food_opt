@@ -137,8 +137,8 @@ def test_more_charts_has_no_misses_chart(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
     more = next(e for e in at.tabs[3].expander if e.label == wording.MORE_CHARTS)
-    assert [m.value for m in more.markdown] == [f"**{wording.Q_PAIR}**",
-                                                 f"**{wording.Q_MIXTURE}**"]
+    assert [m.value for m in more.markdown] == [f"##### {wording.Q_PAIR}",
+                                                 f"##### {wording.Q_MIXTURE}"]
     assert not hasattr(insights, "misses") and not hasattr(ui_insights, "misses_chart")
 
 

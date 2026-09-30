@@ -312,7 +312,7 @@ def test_how_section_default_wording(insights_scored):
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
     [frame] = _details_frames(at)
-    assert list(frame.columns) == list(wording.DETAILS_COLUMNS_2)
+    assert list(frame.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]
     assert frame.iloc[-1][wording.DETAILS_COLUMNS_2[0]] == wording.OVERALL_SCORE_COLUMN
 
 
@@ -428,7 +428,7 @@ def _details_frames(at):
     """The details table in "How these insights are made". Question 4's
     table (wave B) is drawn above it, so it is found by its columns."""
     return [d.value for d in at.tabs[3].dataframe
-            if list(d.value.columns) == list(wording.DETAILS_COLUMNS_2)]
+            if list(d.value.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]]
 
 
 def _tab_text(at):
@@ -493,7 +493,8 @@ def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd
                         lambda opt, facts=None, spread=None, yardstick=None:
                         insights.Improvement("yes", 2.0, None, 0))
     at = _open_insights(_app())
-    md = " ".join(_tab_text(at)[0])
+    # Method and details defines the noise threshold in the same words.
+    md = " ".join(_tab_text(at)[0]).replace(wording.HOW_NOISE_THRESHOLD, "")
     assert ("Repeat SD of the Overall score" in md) == shown
     if shown:
         assert wording.stand_repeats("0.1", 1) in md

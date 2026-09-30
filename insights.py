@@ -715,6 +715,7 @@ class Disagreement:
     earlier: int            # the Formulation number it repeats
     diff: float             # later minus earlier, Overall score
     row: int                # the later one's row: left out of every Repeat spread
+    limit: float | None = None  # √2 × the half-width it broke (03 §2 #13), points
 
 
 def disagreeing_repeat(opt, checks, matches=None):
@@ -743,7 +744,8 @@ def disagreeing_repeat(opt, checks, matches=None):
             d = float(opt.Y_history[i]) - float(opt.Y_history[first])
             if abs(d) > math.sqrt(2) * half and (best is None or abs(d) > abs(best.diff)):
                 best = Disagreement(int(opt.formulation_ids[i]),
-                                    int(opt.formulation_ids[first]), d, i)
+                                    int(opt.formulation_ids[first]), d, i,
+                                    math.sqrt(2) * half)
     return best
 
 
@@ -774,12 +776,21 @@ def verdict_state(opt, h, checks):
     names = {c.name for c in window}
     if names and names <= set(h.wide or []):
         return "wide"
-    z = [abs((c.measured - c.raw_mean) / c.sd) for c in window
-         if c.name != SCORE and c.sd and c.raw_mean is not None]
-    if (h.inside == h.total and h.total >= OVER_WIDE_MIN and z
-            and statistics.median(z) <= OVER_WIDE_Z):
+    z = median_z(h, checks)
+    if (h.inside == h.total and h.total >= OVER_WIDE_MIN and z is not None
+            and z <= OVER_WIDE_Z):
         return "over_wide"
     return "within"
+
+
+def median_z(h, checks):
+    """The median |standardised error| of the measurements in the
+    verdict's Rounds (0.67 when the 95 % intervals are right), or None:
+    the over-wide rule's basis, said with it (03 §5.2)."""
+    window = [c for c in checks if c.round in h.rounds]
+    z = [abs((c.measured - c.raw_mean) / c.sd) for c in window
+         if c.name != SCORE and c.sd and c.raw_mean is not None]
+    return statistics.median(z) if z else None
 
 
 @dataclass
@@ -1383,11 +1394,18 @@ def near_tie(moved):
 
 
 def moved_together(opt):
-    """(a, b) — the two varying ingredients whose amounts across the fully
-    measured formulations are most closely correlated, when |r| is at least
-    TOGETHER — or None (§4.3, §9 minor 16). The Fill to total row, a row a
-    calculation works out and the process settings are left out, and so is
-    a row whose amount never varied."""
+    """(a, b) of correlated_pair, or None (the 0.8.0 callers' form)."""
+    pair = correlated_pair(opt)
+    return None if pair is None else pair[:2]
+
+
+def correlated_pair(opt):
+    """(a, b, r) — the two varying ingredients whose amounts across the
+    fully measured formulations are most closely correlated, when |r| is at
+    least TOGETHER, and that |r| (said with it, 03 §5.5) — or None (§4.3,
+    §9 minor 16). The Fill to total row, a row a calculation works out and
+    the process settings are left out, and so is a row whose amount never
+    varied."""
     fill = opt.balance_row_name()
     span = {v['name']: float(v['bounds'][1]) - float(v['bounds'][0])
             for v in opt.varying_variables()
@@ -1403,7 +1421,7 @@ def moved_together(opt):
         r = abs(statistics.correlation(cols[a], cols[b]))
         if r >= TOGETHER - 1e-12 and (best is None or r > best[0] + 1e-12):
             best = (r, a, b)
-    return None if best is None else (best[1], best[2])
+    return None if best is None else (best[1], best[2], best[0])
 
 
 def best_refusal(opt):

@@ -195,7 +195,7 @@ def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_r
     total = insights_jobs.rounds_done(five_rounds, insights_jobs.plan(five_rounds), {})[1]
     assert bar.proto.text == wording.insights_progress(0, total)
     texts = " ".join(_texts(at))
-    assert f"**{wording.Q_STAND}**" in texts and "Best so far" in texts
+    assert f"##### {wording.Q_STAND}" in texts and "Best so far" in texts
     for later in (wording.Q_TRUST, wording.Q_NEXT, wording.MORE_CHARTS):
         assert later not in texts
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
@@ -209,7 +209,7 @@ def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     texts = " ".join(_texts(at))
-    assert f"**{wording.Q_TRUST}**" in texts
+    assert f"##### {wording.Q_TRUST}" in texts
     assert wording.Q_NEXT not in texts and wording.SHOW_PREDICTIONS not in texts
     assert len(at.tabs[3].get("progress")) == 1
 
@@ -222,7 +222,7 @@ def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, 
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     texts = " ".join(_texts(at))
-    assert f"**{wording.Q_TRUST}**" in texts and f"**{wording.Q_NEXT}**" in texts
+    assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
     assert wording.MORE_CHARTS not in texts
     assert spins == []                  # the predicted best's search has no spinner of its own
 
@@ -239,7 +239,7 @@ def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatc
     at.run()
     part = [m.value for m in at.tabs[3].markdown]
     answers = part[:part.index(wording.HOW_MODELS)]        # up to the folds, which wait
-    assert f"**{wording.Q_NEXT}**" in answers
+    assert f"##### {wording.Q_NEXT}" in answers
     assert answers == whole[:len(answers)]
 
 
@@ -463,7 +463,7 @@ def test_answer_1_waits_when_a_verdict_rounds_fit_failed(stuck, five_rounds):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
-    assert f"**{wording.Q_TRUST}**" not in _texts(at)
+    assert f"##### {wording.Q_TRUST}" not in _texts(at)
 
 
 # ------------------------------------------------------------------ #
@@ -511,10 +511,10 @@ def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rou
     assert "foot" not in after
     # Then filled in, in screen order, each once.
     md = [m.value for m in at.tabs[3].markdown]
-    heads = [md.index(f"**{q}**") for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
+    heads = [md.index(f"##### {q}") for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
     assert heads == sorted(heads)
     [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
-    assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
+    assert line_1 == md.index(f"##### {wording.Q_STAND}") + 1
     [foot] = [b for b in at.tabs[3].button if b.key == "insights_foot"]
     assert wording.MORE_CHARTS in _texts(at)
 
@@ -536,7 +536,7 @@ def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(
     before, _ = _drawn_first(log)
     assert before == ["render", "header", "line 1", "foot"]
     texts = " ".join(_texts(at))
-    assert f"**{wording.Q_TRUST}**" in texts and f"**{wording.Q_NEXT}**" in texts
+    assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
 
 
 def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick(
@@ -562,7 +562,7 @@ def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick
     assert yards[0] != sd and yards[-1] == sd
     md = [m.value for m in at.tabs[3].markdown]
     [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
-    assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
+    assert line_1 == md.index(f"##### {wording.Q_STAND}") + 1
 
 
 # ------------------------------------------------------------------ #

@@ -53,11 +53,11 @@ def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypat
     at = _open_insights(_app())
     assert not at.exception
     md = _md(at)
-    heads = [f"**{q}**" for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
+    heads = [f"##### {q}" for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
     assert [md.index(h) for h in heads] == sorted(md.index(h) for h in heads)
     for gone in ("Did the predictions come true?", "Is it still improving?",
                  "Which formulation is predicted to score highest?"):
-        assert f"**{gone}**" not in md
+        assert f"##### {gone}" not in md
     folds = [e.label for e in at.tabs[3].expander
              if e.label in (wording.try_one(False), wording.MORE_CHARTS, wording.HOW_WORKED_OUT)]
     assert folds == [wording.try_one(False), wording.MORE_CHARTS, wording.HOW_WORKED_OUT]
@@ -93,7 +93,7 @@ def test_the_gate_is_header_best_so_far_the_gate_line_and_the_foot(tmp_path):
     at = _tab(opt.project_name)
     assert not at.exception
     md = _md(at)
-    assert md[0] == f"**{wording.Q_STAND}**" and md[1].startswith("Best so far: ")
+    assert md[0] == f"##### {wording.Q_STAND}" and md[1].startswith("Best so far: ")
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0] == ui_insights.header_text(opt)
     assert wording.insights_gate(3) in captions
@@ -151,10 +151,10 @@ def _h(state="verdict", inside=32, total=33, rounds=(4, 5, 6), wide=()):
     ("none", wording.TRUST_NONE),
     ("early", wording.trust_early(33)),
     ("wide", wording.TRUST_WIDE),
-    ("within", wording.trust_within(32, 33, [4, 5, 6])),
+    ("within", wording.trust_within(32, 33, [4, 5, 6], allowed=3)),
     ("over_wide", wording.trust_over_wide(33, [4, 5, 6])),
-    ("caution", wording.trust_misses(3, [4, 5, 6], 32, 33)),
-    ("unreliable", wording.trust_misses(3, [4, 5, 6], 32, 33, many=True)),
+    ("caution", wording.trust_misses(3, [4, 5, 6], 32, 33, allowed=3)),
+    ("unreliable", wording.trust_misses(3, [4, 5, 6], 32, 33, many=True, allowed=3)),
 ])
 def test_one_verdict_per_state(state, text):
     opt = _patty(rows=6)
@@ -164,7 +164,7 @@ def test_one_verdict_per_state(state, text):
 def test_some_outputs_wide_adds_the_wide_line():
     opt = _patty(rows=6)
     text = ui_insights.verdict_text(opt, _h(wide=["Cook loss"]), "within")
-    assert text == (wording.trust_within(32, 33, [4, 5, 6]) + " "
+    assert text == (wording.trust_within(32, 33, [4, 5, 6], allowed=3) + " "
                     + wording.wide_line("Cook loss"))
 
 
@@ -225,11 +225,14 @@ def test_the_four_texts_of_line_two():
     assert ui_insights.standing_text(opt, _standing(False), one) == (
         "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over "
         "Best so far: none beyond the 1-point noise threshold.")
+    gain = wording.signed(94.4 - opt.Y_history[opt.best_index()])
     assert ui_insights.standing_text(opt, _standing(True), one) == (
-        "Predicted best: 94 (95 % interval 89–99), in untested amounts.")
+        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over a "
+        f"Repeat of Best so far: {gain} points, above the 1-point noise threshold.")
     assert ui_insights.standing_text(opt, _standing(True, 3, 2), one) == (
         f"Predicted best: 94 (95 % interval 89–99), near Formulation 3 "
-        f"(measured {opt.Y_history[2]:.2f}).")
+        f"(measured {opt.Y_history[2]:.2f}). Predicted gain over a Repeat of Best so far: "
+        f"{gain} points, above the 1-point noise threshold.")
 
 
 def test_line_three_names_what_the_predicted_best_sits_at():
@@ -290,11 +293,11 @@ def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored)
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
     said = [c.value for c in how.caption]
-    assert wording.PREDICTIONS_CAPTION in said
+    assert wording.PREDICTIONS_CAPTION not in said          # it restated how_checks (03)
     assert wording.rounds_not_checked([1, 2]) in said
-    assert wording.details_window([3], 1) in said
+    assert wording.details_window([3], 1, [3]) in said
     frame = how.dataframe[0].value
-    assert list(frame.columns) == list(wording.DETAILS_COLUMNS_2)
+    assert list(frame.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]
     assert all(v == "" or v.startswith("×") for v in frame[wording.DETAILS_COLUMNS_2[5]])
     assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "under 3 pairs"}
     for line in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):

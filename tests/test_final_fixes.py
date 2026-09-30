@@ -327,8 +327,10 @@ def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkey
     assert not at.exception
     md = [m.value for m in at.tabs[3].markdown]
     no = trial_scored.best_formulation_no()
-    assert (f"A Repeat of Trial {no} is predicted at 80 (95 % interval 75–85): regression "
-            "to the mean.") in md, md
+    shown = FoodOptimizer(trial_scored.project_name)       # the app's own reading
+    assert (f"A Repeat of Trial {no} is predicted at 80 (95 % interval 75–85), below its "
+            f"measured {shown.Y_history[shown.best_index()]:.2f}: regression to the "
+            "mean.") in md, md
 
 
 def test_the_changed_strings_pass_the_vocabulary_guard():

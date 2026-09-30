@@ -93,7 +93,7 @@ def test_the_repeats_line_names_its_pairs():
 def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     md = [m.value for m in at.tabs[3].markdown]
-    i = md.index(f"**{wording.Q_STAND}**")
+    i = md.index(f"##### {wording.Q_STAND}")
     answer = insights.improvement(insights_scored,
                                   yardstick=insights.noise_yardstick(insights_scored))
     if answer is not None:
