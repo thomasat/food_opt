@@ -263,3 +263,70 @@ def test_one_fold_for_past_formulations_and_no_second_door(scored):
     assert wording.EDIT_PAST_FOLD in labels
     assert "Edit past formulations" not in labels
     assert "Correct a recorded formulation" not in [b.label for b in at.tabs[2].button]
+
+
+# ------------------------------------------------------------------ #
+#  Plan B parked: every Results flash in the project's own words
+# ------------------------------------------------------------------ #
+
+def _click(at, label):
+    """The button reading `label`, in either form."""
+    ours = [b for b in at.button if b.label == label]
+    if not ours:
+        ours = [b for b in at.button if b.label.replace("Trial", "Formulation")
+                .replace("trial", "formulation") == label]
+    ours[0].click()
+    at.run()
+    return at
+
+
+def _no_formulation(at):
+    said = [s.value for s in at.success] + [w.value for w in at.warning]
+    assert not any("ormulation" in s for s in said), said
+    return said
+
+
+def test_an_unchanged_correction_says_trial(trial_tie):
+    at = _results(project="ferment")
+    at.selectbox(key="correct_formulation").set_value(1)
+    at.run()
+    _click(at, wording.SAVE_CORRECTION_BUTTON)
+    assert not at.exception
+    assert "Trial 1 is unchanged." in _no_formulation(at)
+
+
+def test_a_deleted_trial_says_trial(trial_tie):
+    at = _results(project="ferment")
+    at.multiselect(key="delete_formulations").set_value([1])
+    at.run()
+    _click(at, wording.delete_formulation_button(1))
+    _click(at, wording.YES_DELETE)
+    assert not at.exception
+    said = _no_formulation(at)
+    assert any(s.startswith("Trial 1 deleted.") for s in said), said
+
+
+def test_a_typed_past_trial_says_trial(trial_tie):
+    at = _results(project="ferment")
+    at.number_input(key="past_Incubation temperature").set_value(36.0)
+    at.number_input(key="past_Incubation time").set_value(9.0)
+    at.number_input(key="past_m_Aroma").set_value(5.0)
+    at.run()
+    _click(at, wording.ADD_THIS_FORMULATION)
+    assert not at.exception
+    assert "Trial 4 recorded." in _no_formulation(at)
+
+
+def test_imported_trials_say_trials(trial_tie):
+    import pandas as pd
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "ferment"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
+    at.session_state["_import_rows"] = pd.DataFrame({
+        "Incubation temperature": [36.0, 38.0], "Incubation time": [9.0, 10.0],
+        "Aroma": [5.0, 5.5]})
+    at.run()
+    _click(at, wording.IMPORT_ALL_ROWS_BUTTON)
+    assert not at.exception
+    assert "Recorded 2 trials." in _no_formulation(at)

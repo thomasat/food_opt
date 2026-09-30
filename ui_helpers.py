@@ -460,7 +460,7 @@ def drain_clears(fresh=None):
 
 def best_formulation_no(opt):
     """The number of the best formulation, or None. Three tabs name it —
-    `Start from the best so far`, the biggest-changes line and every 'Best
+    `Start from Best so far`, the biggest-changes line and every 'Best
     moved' sentence — and they must all mean the same formulation."""
     return opt.best_formulation_no()
 

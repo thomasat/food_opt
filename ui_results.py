@@ -920,7 +920,7 @@ def _save_correction(opt, storage, pending):
                     != str(pending.get("recorded_note") or "").strip())
     if not changes and not amount_changes and not note_changed:
         # Nothing to write, so nothing to copy first, and nothing to claim.
-        flash("success", wording.formulation_unchanged(choice))
+        flash("success", wording.for_project(opt, wording.formulation_unchanged(choice)))
         st.rerun()
     before = best_formulation_no(opt)
     # A correction overwrites a reading nobody can retype from memory, so the
@@ -961,7 +961,7 @@ def _save_correction(opt, storage, pending):
                             for name in amount_changes) if c]
     flash("success", wording.for_project(opt, " ".join(sentences)))
     for caution in cautions:
-        flash("warning", caution)
+        flash("warning", wording.for_project(opt, caution))
     # The correction is done, so the row closes itself exactly as Close
     # closes it. Left open, its lit Save correction stayed the one coloured
     # thing on the tab and the foot had no next action to offer.
@@ -1164,7 +1164,7 @@ def _delete_formulations(opt, storage):
     if not opt.pending_batch:
         clear_scale_total()
         st.session_state.pop("_results_upload", None)
-    flash("success", done)
+    flash("success", wording.for_project(opt, done))
     st.rerun()
 
 
@@ -1244,9 +1244,9 @@ def _add_typed_past(opt, ordered):
     for obj in ordered:
         park_clear(_past_measurement_key(obj['name']), None)
     park_clear("past_note", wording.IMPORTED_NOTE)
-    flash("success", wording.formulation_added(number))
+    flash("success", wording.for_project(opt, wording.formulation_added(number)))
     for caution in cautions:
-        flash("warning", caution)
+        flash("warning", wording.for_project(opt, caution))
     st.rerun()
 
 
@@ -1395,9 +1395,9 @@ def _import(opt):
     if nothing_measured:
         said += wording.rows_with_nothing_measured(
             plural(nothing_measured, wording.ROW), nothing_measured > 1)
-    flash("success", said)
+    flash("success", wording.for_project(opt, said))
     for caution in cautions:
-        flash("warning", caution)
+        flash("warning", wording.for_project(opt, caution))
     st.rerun()
 
 
