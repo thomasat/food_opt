@@ -76,10 +76,13 @@ def test_nothing_is_said_below_ten_checks_or_with_nothing_to_divide_by(monkeypat
     assert insights.skill(flat, [_check(6 + k, 2, 50.0, 49.0) for k in range(10)]) is None
 
 
-@pytest.mark.parametrize("miss,value,state", [(12.0, -0.18, "no_skill"),
-                                               (10.5, 0.10, "small"), (1.0, 0.99, "skill")])
+@pytest.mark.parametrize("miss,value,state", [(13.0, -0.385, "no_skill"),
+                                               (12.0, -0.18, "unclear"),
+                                               (10.5, 0.10, "unclear"), (1.0, 0.99, "skill")])
 def test_the_three_states(monkeypatch, miss, value, state):
-    """Review I2: ≤ 0, 0-0.2, ≥ 0.2; errors pooled over the checks. The
+    """Fix round 1 (ledger ruling on T2 I-1): at or below the cut c_n (−0.2
+    at every n the gate measured), no better; below 0.2, not clearly
+    better; 0.2 or more, better; errors pooled over the checks. The
     earlier rows average 50; results 60 and 62 (squared errors of the
     average: 122 on average); every prediction `miss` below its result."""
     monkeypatch.setattr(insights, "measured", lambda opt, name, i: opt.Y_history[i])
@@ -88,7 +91,44 @@ def test_the_three_states(monkeypatch, miss, value, state):
               for k in range(10)]
     fact = insights.skill(opt, checks)
     assert fact.value == pytest.approx(value, abs=0.01)
-    assert fact.state == state and fact.n == 10
+    assert fact.state == state and fact.n == 10 and fact.cut == pytest.approx(-0.2)
+
+
+@pytest.mark.parametrize("n", [10, 11, 12, 16, 20, 30, 55])
+def test_the_state_boundaries(n):
+    """Review T2 m-2: the cut itself reads no better, just above it not
+    clearly better, 0.19 not clearly better, 0.2 and 0.21 better."""
+    cut = insights.skill_cut(n)
+    assert cut == pytest.approx(-0.2)
+    assert insights._skill_state(cut, n) == "no_skill"
+    assert insights._skill_state(cut + 1e-9, n) == "unclear"
+    assert insights._skill_state(0.0, n) == "unclear"
+    assert insights._skill_state(0.19, n) == "unclear"
+    assert insights._skill_state(0.2, n) == "skill"
+    assert insights._skill_state(0.21, n) == "skill"
+
+
+def test_the_cut_follows_the_gate_table(monkeypatch):
+    """c_n is the gate's 10th percentile at the largest tabulated n at or
+    below n, capped at SKILL_CUT_MAX: a gate that measured lower moves it."""
+    monkeypatch.setattr(insights, "SKILL_GATE_Q10", {10: -0.35, 12: -0.25, 20: 0.1})
+    assert insights.skill_cut(10) == pytest.approx(-0.35)
+    assert insights.skill_cut(11) == pytest.approx(-0.35)
+    assert insights.skill_cut(12) == pytest.approx(-0.25)
+    assert insights.skill_cut(19) == pytest.approx(-0.25)
+    assert insights.skill_cut(40) == pytest.approx(-0.2)
+
+
+def test_n_counts_the_checks_pooled(monkeypatch):
+    """Review T2 m-3: a check whose Round has no baseline is not pooled,
+    and not counted."""
+    monkeypatch.setattr(insights, "measured", lambda opt, name, i: opt.Y_history[i])
+    opt = _opt([50.0] * 5 + [60.0, 62.0] * 5)
+    checks = [_check(6 + k, 2, 60.0 + 2 * (k % 2), 59.0 + 2 * (k % 2)) for k in range(10)]
+    lost = [_check(1, 1, 50.0, 50.0)]      # Round 1 has no rows before it
+    fact = insights.skill(opt, checks + lost)
+    assert fact.n == 10 and fact.rounds == [2]
+    assert insights.skill(opt, checks[:9] + lost) is None
 
 
 def test_only_fully_measured_overall_scores_count(monkeypatch):
@@ -120,39 +160,69 @@ def _truth(r):
             "Colour": 2 + 6 * b - 1.5 * b * b + 1.0 * p}
 
 
-def _expected_score(opt, recipe, noise, draws=100):
-    t, rng, scores = _truth(recipe), random.Random(0), []
-    for _ in range(draws):
-        scores.append(opt._compute_utility({
-            o['name']: min(o['max_val'], max(o['min_val'], t[o['name']] + rng.gauss(
-                0, noise * (o['max_val'] - o['min_val'])))) for o in opt.objectives}))
-    return statistics.mean(scores)
+def _gate_windows(reps=20, seed=2, ns=tuple(insights.SKILL_GATE_Q10)):
+    """Fix round 1 (ledger ruling on T2 I-1; the T2 review's p3): a correct
+    model with finite data — its Round-ahead prediction is the true expected
+    score plus an error whose sd is its own claimed uncertainty (the check's
+    predictive sd² less the score's noise variance) — on the 24 "good"
+    simulated projects, every window of n consecutive checks, `reps` draws.
+    {n: [skill of each window whose true (expected) skill is 0.2 or more]}."""
+    def draws(opt, recipe, noise, k=200):
+        t, rng, out = _truth(recipe), random.Random(0), []
+        for _ in range(k):
+            out.append(opt._compute_utility({
+                o['name']: min(o['max_val'], max(o['min_val'], t[o['name']] + rng.gauss(
+                    0, noise * (o['max_val'] - o['min_val'])))) for o in opt.objectives}))
+        return statistics.mean(out), statistics.stdev(out)
 
-
-def test_the_plan_gate_keeps_the_no_skill_cut_at_zero():
-    """Review I2's gate: a correct model (the expected score) on the 24
-    "good" simulated projects' own measured scores, every window of 10, 12
-    and 20 consecutive checks. At or below 0 in fewer than 1 window in 10
-    at every n, so NO_SKILL stays 0 (measured: 3.7 %, 4.0 %, 2.3 %)."""
-    assert insights.NO_SKILL == 0.0
     paths = {p.stem: p for p in sim.projects()}
-    windows = {10: [], 12: [], 20: []}
+    projects = []
     for entry in sim.fixture()["projects"]:
         if entry["meta"]["scen"] != "good":
             continue
         opt, meta = sim.load(paths[entry["project"]])
         ids = [int(x) for x in opt.formulation_ids]
-        checks = [dataclasses.replace(c, predicted=_expected_score(
-                      opt, opt.recipe_history[ids.index(c.formulation)], meta["noise"]))
-                  for c in sim.checks_of(entry)
-                  if c.name == insights.SCORE and c.fully_measured]
-        for n, got in windows.items():
-            for start in range(len(checks) - n + 1):
-                got.append(insights.skill(opt, checks[start:start + n]).value)
-    rates = {n: sum(v <= insights.NO_SKILL for v in got) / len(got)
-             for n, got in windows.items()}
-    assert rates == pytest.approx({10: 0.037, 12: 0.040, 20: 0.023}, abs=0.005)
-    assert all(rate < 0.10 for rate in rates.values())
+        first = dict(insights.round_order(opt))
+        rows = []
+        for c in sim.checks_of(entry):
+            if c.name != insights.SCORE or not c.fully_measured:
+                continue
+            mu, noise = draws(opt, opt.recipe_history[ids.index(c.formulation)], meta["noise"])
+            seen = [insights.measured(opt, insights.SCORE, i) for i in range(first[c.round])]
+            seen = [v for v in seen if v is not None]
+            epi = max(0.0, (c.sd or 0) ** 2 - noise ** 2) ** 0.5
+            rows.append((c, mu, noise, epi, sum(seen) / len(seen)))
+        projects.append((opt, rows))
+    rng, out = random.Random(seed), {n: [] for n in ns}
+    for _ in range(reps):
+        for opt, rows in projects:
+            checks = [dataclasses.replace(c, predicted=mu + rng.gauss(0, epi))
+                      for c, mu, _, epi, _ in rows]
+            for n in ns:
+                for s in range(len(rows) - n + 1):
+                    w = rows[s:s + n]
+                    true = 1 - (sum(e ** 2 + z ** 2 for _, _, z, e, _ in w)
+                                / sum((mu - b) ** 2 + z ** 2 for _, mu, z, _, b in w))
+                    if true >= 0.2:
+                        out[n].append(insights.skill(opt, checks[s:s + n]).value)
+    return out
+
+
+def test_the_gate_sets_the_no_skill_cut():
+    """The ruling's gate: c_n = the 10th percentile of that correct model's
+    skill over windows with true skill ≥ 0.2, never above −0.2. Measured:
+    0.00, 0.03, 0.11, 0.25, 0.32, 0.45 at n = 10, 12, 15, 20, 25, 30, all
+    above −0.2, so the cut is −0.2 at every n; there, a correct model is
+    called "no better" in fewer than 1 window in 10 (about 7 % at 10)."""
+    windows = _gate_windows()
+    q10 = {n: statistics.quantiles(v, n=10)[0] for n, v in windows.items()}
+    assert q10 == pytest.approx(insights.SKILL_GATE_Q10, abs=0.01)
+    for n, got in windows.items():
+        cut = insights.skill_cut(n)
+        assert cut == min(insights.SKILL_GATE_Q10[n], -0.2)
+        assert sum(v <= cut for v in got) / len(got) < 0.10
+    # The demo lines keep their reading under the cut (ledger ruling).
+    assert -1.23 <= insights.skill_cut(16) and -0.47 <= insights.skill_cut(16)
 
 
 # ------------------------------------------------------------------ #

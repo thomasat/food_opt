@@ -71,9 +71,9 @@ def _new_lines():
     """One call of every builder, and every constant, §§1-5 add."""
     return [
         W.skill_line("0.36", 15, [2, 3, 4, 5, 6], "skill"),
-        W.skill_line("0.12", 12, [2, 3], "small"),
+        W.skill_line("0.12", 12, [2, 3], "unclear"),
         W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill"), W.skill_cell("0.36", 15),
-        W.SKILL_UNDER_TEN, W.how_skill(), W.how_skill("0.05"), W.next_no_skill("−0.47", 16),
+        W.SKILL_UNDER_TEN, W.how_skill(), W.how_skill("−0.25", "10: 0.00, 12: 0.03"), W.next_no_skill("−0.47", 16),
         W.next_no_skill("−0.47", 16, 6, 4), W.round_track_no_skill("−0.47", 16),
         W.mixture_within_noise("4.1", "5.0"), W.GUARD_FLOOR, W.GUARD_NOISE,
         W.guard_line([W.GUARD_FLOOR]), W.guard_line([W.GUARD_FLOOR, W.GUARD_NOISE], True),
@@ -196,11 +196,18 @@ def test_exact_texts_from_the_audit():
 def test_the_new_lines_from_the_rulings():
     """Review I2 (skill states), I3 (guard lines), I5 (expected improvement)."""
     assert W.skill_line("0.36", 15, [2, 3, 4, 5, 6], "skill") == (
-        "Overall score, Rounds 2–6: skill 0.36 (n = 15), better than the average.")
+        "Overall score, Rounds 2–6: skill 0.36 (n = 15), better than the average of earlier "
+        "results.")
     assert W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill").endswith(
-        "no better than the average of earlier results.")
-    assert W.skill_line("0.12", 12, [2, 3], "small").endswith(
-        "better than the average by a small margin.")
+        ", no better than the average of earlier results.")
+    # Fix round 1 (ledger ruling on T2 I-1): between the cut and 0.2.
+    assert W.skill_line("0.12", 12, [2, 3], "unclear").endswith(
+        ", not clearly better than the average of earlier results.")
+    assert W.how_skill("−0.20", "10: 0.00, 12: 0.03").endswith(
+        "At or below −0.20: no better than the average; below 0.20: not clearly better; "
+        "0.20 or more: better. The cut is the lower of −0.20 and the 10th percentile of a "
+        "correct model's skill in simulation where its true skill is 0.20 or more, by n: "
+        "10: 0.00, 12: 0.03.")
     assert W.guard_line([W.GUARD_FLOOR]) == (
         "The model is fitting noise in these results (the model's correlation length is at its "
         "lower limit), so ingredient effects are not reported.")

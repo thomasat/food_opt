@@ -4969,18 +4969,19 @@ BEST_NO_AMOUNTS = ("There is no predicted best: no amounts meet every limit toge
 # ------------------------------------------------------------------ #
 
 # §2.1 (review I1, I2): Round-ahead skill of the Overall score, a fact of
-# its own under the verdict. States: "no_skill" (at or below the cut),
-# "small" (below SKILL_SMALL), "skill".
+# its own under the verdict. States (fix round 1, ledger ruling on T2 I-1):
+# "no_skill" (at or below the cut c_n), "unclear" (between the cut and 0.2,
+# shown with no advice), "skill" (0.2 or more).
 _SKILL_READING = {
     "no_skill": "no better than the average of earlier results",
-    "small": "better than the average by a small margin",
-    "skill": "better than the average",
+    "unclear": "not clearly better than the average of earlier results",
+    "skill": "better than the average of earlier results",
 }
 
 
 def skill_line(value_text, n, rounds, state):
     """'Overall score, Rounds 2–6: skill 0.36 (n = 15), better than the
-    average.' (review I2: always skill, n and Rounds)."""
+    average of earlier results.' (review I2: always skill, n and Rounds)."""
     return (f"{OVERALL_SCORE_COLUMN}, {rounds_span(rounds)}: skill {value_text} (n = {n}), "
             f"{_SKILL_READING[state]}.")
 
@@ -4993,14 +4994,22 @@ def skill_cell(value_text, n):
 SKILL_UNDER_TEN = "under 10 values"
 
 
-def how_skill(cut_text="0"):
-    """Method and details (review I2, M6): the statistic, its baseline, its
-    pooling, its minimum n and the cut the no-skill state uses."""
-    return ("Skill: 1 − (sum of squared Round-ahead errors) ÷ (sum of squared errors of the "
-            f"average of the {FORMULATION}s recorded before each {ROUND_CAP}), pooled over every "
-            f"{ROUND_CAP} checked ({FORMULATION}s with all results in for the Overall score). "
-            "1: exact; 0: no better than that average. Shown from 10 values. At or below "
-            f"{cut_text} it reads no better than the average.")
+def how_skill(cut_text="−0.20", gate_text=""):
+    """Method and details (review I2, M6; fix round 1): the statistic, its
+    baseline, its pooling, its minimum n, the three readings and the cut
+    the no-skill state uses, with the simulation gate's values by n
+    (`gate_text`)."""
+    line = ("Skill: 1 − (sum of squared Round-ahead errors) ÷ (sum of squared errors of the "
+            f"average Overall score of the {FORMULATION}s recorded before each {ROUND_CAP}), "
+            f"pooled over every {ROUND_CAP} checked ({FORMULATION}s with all results in for the "
+            "Overall score). 1: exact; 0: no better than that average. Shown from 10 values. "
+            f"At or below {cut_text}: no better than the average; below 0.20: not clearly "
+            "better; 0.20 or more: better.")
+    if gate_text:
+        line += (f" The cut is the lower of {cut_text} and the 10th percentile of a correct "
+                 "model's skill in simulation where its true skill is 0.20 or more, by n: "
+                 f"{gate_text}.")
+    return line
 
 
 def next_no_skill(value_text, n, no=None, left=0):

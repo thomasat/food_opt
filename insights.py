@@ -2040,7 +2040,7 @@ class RoundTrack:
     gap: float | None       # its average miss when it is a bias (bias_gap); else None
     see_insights: bool      # the verdict (the measurements) is unreliable
     # BO views (review I1): the Overall score's skill when it is at or below
-    # NO_SKILL (a warning, for E2 and E3), the verdict's Rounds, and whether
+    # its no-skill cut (a warning, for E2 and E3), the verdict's Rounds, and whether
     # the coverage part is said (False: the skill part alone).
     no_skill: object = None
     rounds: list = dataclasses.field(default_factory=list)
@@ -2056,7 +2056,7 @@ def round_track(opt, checks):
     SCORE_RECORD_MIN fully measured checks), when the verdict is early,
     wide ("Not judged yet" on Insights, review C I-5) or over-wide, and
     when the Overall score's own range is wide (final review I-1).
-    BO views (review I1): a skill at or below NO_SKILL sets `no_skill` and
+    BO views (review I1): a skill at or below its cut sets `no_skill` and
     is said even when coverage holds; where the coverage part would not be
     said (no record, over-wide, the Overall score wide) the line carries
     the skill alone (`record` False). Never while early or wide."""
@@ -2069,7 +2069,7 @@ def round_track(opt, checks):
     no_skill = fact if fact is not None and fact.state == "no_skill" else None
     # Insights says the Overall score's own interval is wide (final review
     # I-1), or the intervals are wider than needed: no "12 of 12 inside"
-    # beside that. A skill at or below NO_SKILL is still said (review I1).
+    # beside that. A skill at or below its cut is still said (review I1).
     said = (record is not None and state != "over_wide" and SCORE not in (h.wide or []))
     if not said:
         if no_skill is None:
@@ -2090,13 +2090,26 @@ def round_track(opt, checks):
 
 # Skill is said from this many checks (review I2): below it, nothing.
 SKILL_MIN = 10
-# At or below NO_SKILL: "no better than the average of earlier results".
-# The review's plan gate (I2) keeps it at 0: a correct model on the 48
-# simulated projects is at or below 0 in fewer than 1 window in 10 at 10,
-# 12 and 20 checks (tests/test_092_skill.py pins the rates).
-NO_SKILL = 0.0
-# Below SKILL_SMALL: "better than the average by a small margin".
+# The no-skill cut c_n (fix round 1, ledger ruling on T2 I-1): the 10th
+# percentile of a correct model's skill over windows of n checks whose true
+# skill is 0.2 or more — a finite-data model whose Round-ahead errors match
+# its own claimed uncertainty, on the 24 "good" simulated projects
+# (tests/test_092_skill.py runs this gate and pins the table) — never above
+# SKILL_CUT_MAX. At or below the cut: "no better than the average of earlier
+# results" (the no-skill Next step, the guard's trigger (c), the track line);
+# between the cut and SKILL_SMALL: "not clearly better than the average"
+# (shown, no advice); SKILL_SMALL or more: "better than the average".
+SKILL_GATE_Q10 = {10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45}
+SKILL_CUT_MAX = -0.2
 SKILL_SMALL = 0.2
+
+
+def skill_cut(n):
+    """c_n for a skill over `n` checks: the gate's 10th percentile at the
+    largest tabulated n at or below it (the percentile rises with n, so
+    this errs towards fewer no-skill warnings), capped at SKILL_CUT_MAX."""
+    at = max((k for k in SKILL_GATE_Q10 if k <= n), default=min(SKILL_GATE_Q10))
+    return min(SKILL_GATE_Q10[at], SKILL_CUT_MAX)
 
 
 @dataclass
@@ -2104,11 +2117,12 @@ class SkillFact:
     value: float
     n: int              # checks pooled
     rounds: list        # the Rounds they came from, in order
-    state: str          # "no_skill", "small" or "skill"
+    state: str          # "no_skill", "unclear" or "skill"
+    cut: float = SKILL_CUT_MAX   # skill_cut(n), the no-skill cut it was judged by
 
 
-def _skill_state(value):
-    return ("no_skill" if value <= NO_SKILL else "small" if value < SKILL_SMALL
+def _skill_state(value, n=SKILL_MIN):
+    return ("no_skill" if value <= skill_cut(n) else "unclear" if value < SKILL_SMALL
             else "skill")
 
 
@@ -2127,6 +2141,7 @@ def skill(opt, checks, name=SCORE):
     first = dict(round_order(opt))
     base = {}
     model = mean = 0.0
+    pooled = []
     for c in mine:
         if c.round not in base:
             seen = [measured(opt, name, i) for i in range(first.get(c.round, 0))]
@@ -2134,12 +2149,15 @@ def skill(opt, checks, name=SCORE):
             base[c.round] = sum(seen) / len(seen) if seen else None
         if base[c.round] is None:
             continue
+        pooled.append(c)
         model += (c.measured - c.predicted) ** 2
         mean += (c.measured - base[c.round]) ** 2
-    if mean <= 0:
+    # n is the checks actually pooled (review T2 m-3).
+    if len(pooled) < SKILL_MIN or mean <= 0:
         return None
     value = 1.0 - model / mean
-    return SkillFact(value, len(mine), _ordered_rounds(mine), _skill_state(value))
+    n = len(pooled)
+    return SkillFact(value, n, _ordered_rounds(pooled), _skill_state(value, n), skill_cut(n))
 
 
 def allowed_misses(n):
@@ -2205,7 +2223,7 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
     I3): (a) its correlation length at its lower limit; (b) its fitted
     noise sd below GUARD_NOISE × the Repeat SD of `name`, from
     YARDSTICK_PAIRS pairs or more, never under fixed_tiny; (c) for the
-    Overall score only, Round-ahead skill at or below NO_SKILL (`fact`:
+    Overall score only, Round-ahead skill at or below its cut (`fact`:
     skill() when the caller has it). `fitted`: insights.Fitted, or None."""
     reasons = []
     gp = getattr(fitted, "model", None)

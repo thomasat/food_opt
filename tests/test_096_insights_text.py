@@ -96,7 +96,8 @@ def test_the_verdict_says_its_miss_count(tabs):
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("name,text", [
-    (demo.LINE_A, "Overall score, Rounds 2–5: skill 0.36 (n = 15), better than the average."),
+    (demo.LINE_A, "Overall score, Rounds 2–5: skill 0.36 (n = 15), better than the average of "
+                  "earlier results."),
     (demo.LINE_C, "Overall score, Rounds 2–5: skill −0.47 (n = 16), no better than the "
                   "average of earlier results."),
 ])
@@ -125,7 +126,8 @@ def test_method_and_details_define_the_new_terms(tabs):
     how = next(e for e in tabs[demo.LINE_A].tabs[3].expander
                if e.label == wording.HOW_WORKED_OUT)
     said = _all(how)
-    for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill("0.00"),
+    for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill(
+                     "−0.20", "10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45"),
                  wording.HOW_EXPECTED_IMPROVEMENT, wording.how_roles("3,000")):
         assert text in said, text
     assert wording.details_window([2, 3, 4, 5], 3, [3, 4, 5]) in said
