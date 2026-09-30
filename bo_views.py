@@ -1,0 +1,603 @@
+"""The numbers behind the views that explain the search (spec
+2026-09-30-bo-views §3; review B4, I5, I9, I10, I11, I12, M4, M5, M10).
+
+The suggestion model's acquisition, rebuilt on the display side without
+touching ask(): the same training rows (insights.xy, the rows ask() learns
+from), the same builder, the same default fit and the Round's own seed, then
+opt._build_acqf, built fresh for every evaluation (optimize_acqf changes the
+object it is given, 02 M5). A Round whose generation was recorded (ui_batch
+records it at the Generate call site) and whose rows still match is rebuilt
+exactly; any other Round is recomputed from today's records with the
+display model of the same rows, and says so.
+
+Every in-process step holds insights.RNG_LOCK inside a forked torch RNG, so
+nothing here can move a suggestion; a worker (insights_worker, kind "acq")
+answers the same numbers from JSON. No screen text lives here."""
+import collections
+import contextlib
+import dataclasses
+import math
+import random
+from dataclasses import dataclass
+
+import botorch
+import gpytorch
+import torch
+from botorch.fit import fit_gpytorch_mll
+from botorch.models.transforms.input import Warp
+from botorch.utils.sampling import get_polytope_samples
+from botorch.utils.transforms import normalize
+from gpytorch.mlls import ExactMarginalLogLikelihood
+
+import insights
+import insights_jobs
+import wording
+from food_bo import COLD_START_RUNS, ROUND_FIELD, FoodOptimizer, LinearForm
+
+# The pool of allowed formulations (review I9): hit-and-run over the
+# normalised continuous columns, seed 0, 3,000 points, thinning 10. With
+# fewer than POOL_MIN points no percentile and no role is said.
+POOL_SIZE = 3000
+POOL_SEED = 0
+POOL_THINNING = 10
+POOL_MIN = 500
+# Every evaluation runs in chunks of this many points (review M10).
+CHUNK = 256
+# The role rule (02 §4.3, review M5): percentiles among the pool.
+EXPLORE_SD = 75.0
+REFINE_MEAN = 90.0
+REFINE_SD = 50.0
+# How long a screen waits for a worker before working it out here.
+WORKER_SECS = 60
+# The outputs kept in this process (review B4: outputs, not models).
+_CACHE = collections.OrderedDict()
+_CACHE_SIZE = 64
+_VERSIONS = (torch.__version__, gpytorch.__version__, botorch.__version__)
+
+
+def acquisition(opt):
+    """'qlognei' (the default), 'qlogei' or 'qucb': what _build_acqf builds."""
+    return (getattr(opt, "bo_config", None) or {}).get("acquisition", "qlognei")
+
+
+# ------------------------------------------------------------------ #
+#  Which rows, which seed: the generation record (review B4)
+# ------------------------------------------------------------------ #
+
+def _complete_rows(opt, before=None):
+    n = len(opt.Y_history) if before is None else before
+    return [i for i in range(n) if opt.fully_measured(i)]
+
+
+def generation_key(opt, rows):
+    """What a rebuild of a Round depends on: the rows as the suggestion
+    model learns them (insights.xy), their scores, the model settings and
+    robust. A record whose key still matches is rebuilt exactly."""
+    X, Y = insights.xy(opt, insights.SCORE, rows)
+    return insights._digest({"X": X.tolist(), "Y": Y.tolist(),
+                             "cfg": getattr(opt, "bo_config", None),
+                             "robust": bool(getattr(opt, "robust", False))})
+
+
+def generation_record(opt, n):
+    """The record the Generate call site keeps (review B4), made just
+    before ask(n): the seed ask() will use (next_formulation_no), the
+    formulation numbers of the rows it learns from, n, the regime, and the
+    key of those rows."""
+    rows = _complete_rows(opt)
+    warm = opt.complete_count() >= COLD_START_RUNS
+    return {"seed": int(opt.next_formulation_no),
+            "rows": [int(opt.formulation_ids[i]) for i in rows], "n": int(n),
+            "regime": "warm" if warm else "cold",
+            "key": generation_key(opt, rows) if warm else ""}
+
+
+@dataclass
+class Generation:
+    round: int
+    seed: int
+    rows: list          # positions of the rows the Round was (or is taken as) learned from
+    regime: str         # "warm" or "cold"
+    exact: bool         # the record is there and its rows still match
+
+
+def _round_numbers(opt, r):
+    """Every Formulation number Round `r` issued: recorded, Not scored, and
+    still open."""
+    numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history) if b == r]
+    numbers += [int(s['formulation']) for s in getattr(opt, "skipped", []) or []
+                if s.get(ROUND_FIELD) == r]
+    if r == opt.pending_batch_no:
+        numbers += [int(row['formulation']) for row in opt.pending_batch or []]
+    return numbers
+
+
+def generation(opt, r):
+    """How Round `r` was generated: its record when there is one (exact
+    when its rows still match, review B4), else taken from today's records
+    — the seed its lowest Formulation number, the rows the fully measured
+    ones recorded before it (02 §3)."""
+    record = (getattr(opt, "round_generation", None) or {}).get(r)
+    ids = [int(x) for x in opt.formulation_ids]
+    if record is not None:
+        rows = [ids.index(n) for n in record["rows"] if n in ids]
+        exact = (len(rows) == len(record["rows"]) and record["regime"] == "warm"
+                 and all(opt.fully_measured(i) for i in rows)
+                 and record.get("key") == generation_key(opt, rows))
+        return Generation(r, int(record["seed"]), rows, record["regime"], exact)
+    first = [i for i, b in enumerate(opt.batch_history) if b == r]
+    rows = _complete_rows(opt, first[0] if first else None)
+    numbers = _round_numbers(opt, r)
+    seed = min(numbers) if numbers else int(opt.next_formulation_no)
+    regime = "warm" if len(rows) >= COLD_START_RUNS else "cold"
+    return Generation(r, seed, rows, regime, False)
+
+
+# ------------------------------------------------------------------ #
+#  The rebuilt model and its acquisition
+# ------------------------------------------------------------------ #
+
+@dataclass
+class Rebuilt:
+    gen: Generation
+    gp: object
+    X: object           # the training rows, normalised
+    Y: object
+    rng: object         # torch's RNG state where ask() built its acquisition
+    cfg: object
+    exact: bool
+
+
+def fit_default(cfg, X, Y, robust, seed):
+    """(gp, RNG state) as _ask_optimize makes them: torch seeded with the
+    Round's seed, the project's builder, Warp when robust, botorch's default
+    fit (not insights.FIT_OPTIONS). Call inside a forked RNG."""
+    torch.manual_seed(int(seed))
+    dim = X.shape[-1]
+    input_tf = Warp(d=dim, indices=list(range(dim))) if robust else None
+    gp = FoodOptimizer._build_gp(_Settings(cfg), X, Y, dim, input_tf)
+    fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+    return gp, torch.get_rng_state()
+
+
+class _Settings:
+    """What _build_gp and _build_acqf read of a project: its settings."""
+
+    def __init__(self, cfg):
+        self.bo_config = cfg
+
+
+def build_acqf(cfg, gp, X, Y, rng, pending=None):
+    """A fresh acquisition, with the RNG where ask() had it (its sampler
+    and qLogNEI's pruning draw from it), and `pending` as X_pending (the
+    Round's earlier picks, review I12). Call inside a forked RNG."""
+    torch.set_rng_state(rng)
+    acqf = FoodOptimizer._build_acqf(_Settings(cfg), gp, X, Y)
+    if pending is not None:
+        acqf.set_X_pending(pending)
+    return acqf
+
+
+def rebuild(opt, gen, fitted=None):
+    """The suggestion model of Round `gen`: fitted again on its rows with
+    its seed when the generation is exact; otherwise the display model of
+    the same rows (`fitted`, insights.fit's, from the memo when it is
+    there: no new fit, review I10), labelled recomputed. None for a cold
+    Round (no acquisition, review I12) or too few rows."""
+    if gen.regime != "warm" or len(gen.rows) < insights.MIN_ROWS:
+        return None
+    X, Y = insights.xy(opt, insights.SCORE, gen.rows)
+    cfg = getattr(opt, "bo_config", None)
+    with insights.RNG_LOCK, torch.random.fork_rng():
+        if gen.exact:
+            gp, rng = fit_default(cfg, X, Y, bool(getattr(opt, "robust", False)), gen.seed)
+        else:
+            if fitted is None:
+                fitted = insights.fit(opt, insights.SCORE, gen.rows)
+            gp = fitted.model
+            if gp is None:
+                return None
+            torch.manual_seed(int(gen.seed))
+            rng = torch.get_rng_state()
+    gp.eval()
+    return Rebuilt(gen, gp, X, Y, rng, cfg, gen.exact)
+
+
+def _values(cfg, raw):
+    """An acquisition's value in points: expected improvement for the two
+    log forms (their log is never shown, review I5), the optimistic score
+    itself for qUCB."""
+    kind = (cfg or {}).get("acquisition", "qlognei")
+    return raw if kind == "qucb" else raw.exp()
+
+
+def evaluate_here(model, P, pending=None):
+    """(mean, sd, value) of the suggestion model at normalised points P:
+    the model's own mean and sd (no Repeat noise, no calibration) and the
+    acquisition in points, in CHUNK-point pieces, the acquisition built
+    fresh (review M10)."""
+    means, sds, values = [], [], []
+    with insights.RNG_LOCK, torch.random.fork_rng(), torch.no_grad():
+        acqf = build_acqf(model.cfg, model.gp, model.X, model.Y, model.rng, pending)
+        for k in range(0, P.shape[0], CHUNK):
+            part = P[k:k + CHUNK]
+            post = model.gp.posterior(part)
+            means.append(post.mean.reshape(-1))
+            sds.append(post.variance.clamp_min(0.0).sqrt().reshape(-1))
+            values.append(acqf(part.unsqueeze(1)).reshape(-1))
+    return (torch.cat(means), torch.cat(sds), _values(model.cfg, torch.cat(values)))
+
+
+def answer(request):
+    """insights_worker's "acq" kind (review I10): fit on X, Y with the
+    seed and the default fit, build the acquisition fresh, and answer the
+    mean, the sd and the value at every point."""
+    tensor = lambda key: torch.tensor(request[key], dtype=torch.double)
+    X, Y, P = tensor("X"), tensor("Y"), tensor("points")
+    pending = tensor("pending") if request.get("pending") else None
+    with torch.random.fork_rng():
+        gp, rng = fit_default(request["cfg"], X, Y, bool(request["robust"]), request["seed"])
+    gp.eval()
+    model = Rebuilt(None, gp, X, Y, rng, request["cfg"], True)
+    mean, sd, value = evaluate_here(model, P, pending)
+    return {"mean": mean.tolist(), "sd": sd.tolist(), "value": value.tolist()}
+
+
+@dataclass
+class Values:
+    mean: object        # tensor: the suggestion model's mean, points
+    sd: object          # its own sd (narrower than the 95 % interval)
+    value: object       # expected improvement (or qUCB's optimistic score), points
+    exact: bool
+
+
+def _key(opt, model, P, pending):
+    """Review I11: everything an output depends on."""
+    return insights._digest({
+        "X": model.X.tolist(), "Y": model.Y.tolist(), "seed": model.gen.seed,
+        "exact": model.exact, "cfg": model.cfg,
+        "robust": bool(getattr(opt, "robust", False)),
+        "model": None if model.exact else insights.hyper_state(model.gp),
+        "P": P.tolist(), "pending": None if pending is None else pending.tolist(),
+        "pool": [POOL_SEED, POOL_SIZE], "versions": _VERSIONS})
+
+
+def evaluate(opt, model, P, pending=None):
+    """Values at normalised points P, from the cache when this exact
+    question was answered before; an exact model's are worked out by a
+    worker when the workers are on (review I10), else here. A worker that
+    fails leaves it to this process."""
+    key = _key(opt, model, P, pending)
+    if key in _CACHE:
+        _CACHE.move_to_end(key)
+        return _CACHE[key]
+    got = None
+    if model.exact and insights_jobs.workers_on():
+        reply = insights_jobs.ask_workers(dict(
+            kind="acq", cfg=model.cfg, X=model.X.tolist(), Y=model.Y.tolist(),
+            robust=bool(getattr(opt, "robust", False)), seed=model.gen.seed,
+            points=P.tolist(), pending=None if pending is None else pending.tolist()),
+            WORKER_SECS)
+        if reply is not None and "value" in reply:
+            got = Values(*(torch.tensor(reply[k], dtype=torch.double)
+                           for k in ("mean", "sd", "value")), True)
+    if got is None:
+        got = Values(*evaluate_here(model, P, pending), model.exact)
+    _CACHE[key] = got
+    while len(_CACHE) > _CACHE_SIZE:
+        _CACHE.popitem(last=False)
+    return got
+
+
+def points(opt, recipes):
+    """Recipes (at the Formulation total) as normalised points."""
+    return normalize(torch.tensor([opt._encode(r) for r in recipes], dtype=torch.double),
+                     opt._get_bounds())
+
+
+# ------------------------------------------------------------------ #
+#  The allowed formulations, sampled evenly (review I9)
+# ------------------------------------------------------------------ #
+
+def _total_equality(opt):
+    """The Formulation total's band as one equality (sum = the total), and
+    the band's two inequalities it replaces; None when the total is not a
+    constraint on the search (no total, or a Fill to total row makes every
+    formulation add up by construction)."""
+    qc = next((q for q in getattr(opt, "quantity_constraints", [])
+               if q.get('source') == 'formulation_total'), None)
+    if qc is None or not opt.has_formulation_total():
+        return None
+    known = {v['name'] for v in opt.variables if v['type'] == 'continuous'}
+    form = LinearForm()
+    for name in qc['ingredients']:
+        if name in known:
+            form = form + opt._linear_form(name)
+    idx, coeffs, offset = opt._form_over_columns(form, opt._search_columns())
+    if not idx:
+        return None
+    t_idx = torch.tensor(idx, dtype=torch.long)
+    t_coeffs = torch.tensor(coeffs, dtype=torch.double)
+    band = [(t_idx, t_coeffs, qc['min'] - offset) if qc['min'] is not None else None,
+            (t_idx, -t_coeffs, -(qc['max'] - offset)) if qc['max'] is not None else None]
+    return (t_idx, t_coeffs, float(opt.formulation_total) - offset), band
+
+
+def _same(a, b):
+    return (a is not None and b is not None and torch.equal(a[0], b[0])
+            and torch.allclose(a[1], b[1]) and math.isclose(float(a[2]), float(b[2]),
+                                                             rel_tol=0, abs_tol=1e-9))
+
+
+def _categorical_columns(opt):
+    out, col = [], 0
+    for var in opt.variables:
+        if opt.has_formula(var):
+            continue
+        if var['type'] == 'continuous':
+            col += 1
+        elif var['type'] == 'categorical':
+            out.append(list(range(col, col + len(var['options']))))
+            col += len(var['options'])
+    return out
+
+
+def pool_key(opt):
+    """What the pool depends on: the rows, their frame, the limits and the
+    total (not the results)."""
+    return insights._digest({
+        "variables": opt.variables, "bounds": opt._get_bounds().tolist(),
+        "limits": opt.constraints, "amounts": getattr(opt, "quantity_constraints", []),
+        "total": getattr(opt, "formulation_total", None),
+        "properties": opt.ingredient_properties, "premixes": opt.premixes,
+        "fixed": opt._get_fixed_features(), "seed": POOL_SEED, "n": POOL_SIZE})
+
+
+def feasible_pool(opt):
+    """POOL_SIZE allowed formulations, normalised (review I9): hit-and-run
+    over the continuous columns inside every limit, the total an equality,
+    the fixed rows pinned; a categorical row's option drawn uniformly (fixed
+    seed). None when the limits leave no room or the sampler fails."""
+    key = ("pool", pool_key(opt))
+    if key in _CACHE:
+        return _CACHE[key]
+    bounds = opt._get_bounds()
+    dim = bounds.shape[1]
+    try:
+        with opt._premixes_for_generation():
+            ineq = list(opt._get_botorch_constraints())
+            total = _total_equality(opt)
+        eq = []
+        if total is not None:
+            equality, band = total
+            ineq = [c for c in ineq if not any(_same(c, b) for b in band)]
+            eq.append(equality)
+        for col, z in opt._get_fixed_features().items():
+            eq.append((torch.tensor([col]), torch.tensor([1.0], dtype=torch.double), float(z)))
+        groups = _categorical_columns(opt)
+        for group in groups:
+            for col in group:
+                eq.append((torch.tensor([col]), torch.tensor([1.0], dtype=torch.double), 0.0))
+        with insights.RNG_LOCK, torch.random.fork_rng():
+            P = get_polytope_samples(
+                POOL_SIZE, torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+                inequality_constraints=ineq or None, equality_constraints=eq or None,
+                seed=POOL_SEED, n_thinning=POOL_THINNING)
+        rng = random.Random(POOL_SEED)
+        for group in groups:
+            for k in range(P.shape[0]):
+                P[k, group] = 0.0
+                P[k, rng.choice(group)] = 1.0
+        P = P.clamp(0.0, 1.0)
+    except Exception:
+        P = None
+    _CACHE[key] = P
+    return P
+
+
+def percentile(values, v):
+    """The share of `values` at or below `v`, in per cent."""
+    return 100.0 * float((values <= v).double().mean())
+
+
+def role(mean_pct, sd_pct):
+    """02 §4.3's position rule (review M5): 'explores' when the model's sd
+    is at or above its 75th percentile among the pool; 'refines' when the
+    mean is at or above the 90th and the sd at or below the 50th;
+    'balanced' otherwise."""
+    if sd_pct >= EXPLORE_SD:
+        return "explores"
+    if mean_pct >= REFINE_MEAN and sd_pct <= REFINE_SD:
+        return "refines"
+    return "balanced"
+
+
+# ------------------------------------------------------------------ #
+#  §3.1 Why these suggestions (Make a round, a Round open)
+# ------------------------------------------------------------------ #
+
+@dataclass
+class WhyRow:
+    formulation: int
+    own: bool           # a formulation of the user's own
+    edited: bool
+    pick: int | None    # its place among the Round's picks (1 = first); None for own
+    mean: float
+    sd: float
+    value: float        # expected improvement (qUCB: optimistic score), points
+    pending: bool       # valued with the earlier picks counted (picks 2+)
+    nearest: int | None
+    differences: list   # [(name, difference in its own unit, unit)], the two largest
+    role: str | None
+
+
+@dataclass
+class Why:
+    kind: str           # acquisition(opt)
+    exact: bool
+    cold: bool          # no model yet: one line instead (review I12)
+    rows: list          # [WhyRow]
+    pool_mean: object   # tensors over the pool, or None
+    pool_sd: object
+    tested_mean: object
+    tested_sd: object
+    reference: float | None   # the highest predicted score among tested formulations
+
+
+def _differences(opt, recipe, other, k=2):
+    """The `k` largest differences of `recipe` from `other` (both at the
+    Formulation total), largest share of its span first, in each row's
+    own unit (review M4)."""
+    out = []
+    for v in opt.varying_variables():
+        if v.get('type') != 'continuous':
+            continue
+        lo, hi = (float(b) for b in v['bounds'])
+        d = float(recipe.get(v['name'], 0.0) or 0.0) - float(other.get(v['name'], 0.0) or 0.0)
+        if hi > lo and abs(d) > 1e-9:
+            out.append((abs(d) / (hi - lo), v['name'], d, opt.unit_of(v['name'])))
+    out.sort(key=lambda t: -t[0])
+    return [(name, d, unit) for _, name, d, unit in out[:k]]
+
+
+def why(opt, fitted=None):
+    """The open Round's rows valued by the acquisition that chose them
+    (review I12): pick 1 exact (q = 1); picks 2+ with the earlier picks as
+    X_pending; the user's own and edited rows at their amounts as they
+    stand, marked. Positions among the pool give the role. None without an
+    open Round."""
+    r = opt.pending_batch_no
+    if not opt.pending_batch or r is None:
+        return None
+    gen = generation(opt, r)
+    kind = acquisition(opt)
+    if gen.regime != "warm":
+        return Why(kind, False, True, [], None, None, None, None, None)
+    model = rebuild(opt, gen, fitted)
+    if model is None:
+        return Why(kind, False, True, [], None, None, None, None, None)
+    rows = list(opt.pending_batch)
+    recipes = [insights.at_total(opt, row['recipe']) for row in rows]
+    firsts = [insights.at_total(opt, row.get('original_recipe') or row['recipe'])
+              for row in rows]
+    own = [bool(row.get('note')) and not row.get('original_recipe') for row in rows]
+    P = points(opt, recipes)
+    alone = evaluate(opt, model, P)
+    picks = [k for k in range(len(rows)) if not own[k]]
+    pool = feasible_pool(opt)
+    pool_values = evaluate(opt, model, pool) if pool is not None else None
+    tested = evaluate(opt, model, model.X)
+    out = []
+    for k, row in enumerate(rows):
+        pick = picks.index(k) + 1 if k in picks else None
+        value = float(alone.value[k])
+        if pick is not None and pick > 1:
+            earlier = points(opt, [firsts[j] for j in picks[:pick - 1]])
+            value = float(evaluate(opt, model, P[k:k + 1], pending=earlier).value[0])
+        i, _ = insights.nearest(opt, recipes[k])
+        near = None if i is None else int(opt.formulation_ids[i])
+        diffs = [] if i is None else _differences(opt, recipes[k], insights.start_recipe(opt, i))
+        who = None
+        if pool_values is not None and pool.shape[0] >= POOL_MIN:
+            who = role(percentile(pool_values.mean, float(alone.mean[k])),
+                       percentile(pool_values.sd, float(alone.sd[k])))
+        out.append(WhyRow(int(row['formulation']), own[k], bool(row.get('original_recipe')),
+                          pick, float(alone.mean[k]), float(alone.sd[k]), value,
+                          pick is not None and pick > 1, near, diffs, who))
+    return Why(kind, model.exact, False, out,
+               None if pool_values is None else pool_values.mean,
+               None if pool_values is None else pool_values.sd,
+               tested.mean, tested.sd, float(tested.mean.max()))
+
+
+# ------------------------------------------------------------------ #
+#  §3.2 Expected improvement by Round (Insights, Progress)
+# ------------------------------------------------------------------ #
+
+@dataclass
+class RoundGain:
+    round: int
+    best_measured: float | None     # Best so far among the rows recorded before it
+    highest: float | None           # highest predicted mean over the pool
+    gain: float | None              # the first pick's expected improvement; None: no bar
+    exact: bool
+    why_none: str | None            # "cold", "own" or None
+
+
+def _first_pick(opt, r):
+    """The Round's first generated row, at the total: the open Round's
+    first row without a note of its own, else the recorded row with the
+    lowest number among those without one (an edited row counts). None
+    for a Round of the user's own rows only."""
+    if r == opt.pending_batch_no and opt.pending_batch:
+        for row in opt.pending_batch:
+            if not row.get('note') or row.get('original_recipe'):
+                return insights.at_total(opt, row.get('original_recipe') or row['recipe'])
+    made = [(int(n), i) for i, (n, b) in enumerate(zip(opt.formulation_ids, opt.batch_history))
+            if b == r and (not opt.notes_history[i]
+                           or opt.notes_history[i] == wording.EDITED_FORMULATION)]
+    if not made:
+        return None
+    return insights.start_recipe(opt, min(made)[1])
+
+
+def round_gain(opt, r, fitted=None, highest=True):
+    """RoundGain for Round `r`: the expected improvement its first pick was
+    chosen for (exact from its record, else recomputed with the display
+    model of the rows before it), the highest predicted mean over the pool
+    (`highest` False: not worked out, the pool left alone) and Best so far
+    before it. `fitted`: the display model of those rows, when the caller
+    has it."""
+    gen = generation(opt, r)
+    before = [i for i in gen.rows if i in set(opt.best_candidates())]
+    best = max((float(opt.Y_history[i]) for i in before), default=None)
+    if gen.regime != "warm":
+        return RoundGain(r, best, None, None, False, "cold")
+    pick = _first_pick(opt, r)
+    if pick is None:
+        return RoundGain(r, best, None, None, False, "own")
+    model = rebuild(opt, gen, fitted)
+    if model is None:
+        return RoundGain(r, best, None, None, False, "cold")
+    value = float(evaluate(opt, model, points(opt, [pick])).value[0])
+    pool = feasible_pool(opt) if highest else None
+    top = None if pool is None else float(evaluate(opt, model, pool).mean.max())
+    return RoundGain(r, best, top, value, model.exact, None)
+
+
+def round_history(opt, models=None):
+    """round_gain for every Round made after MIN_ROWS rows, in order.
+    `models`: {Round: the display model of the rows before it} (the
+    Round-ahead check's own Overall-score model), so a recomputed Round
+    costs no new fit (review I10)."""
+    models = models or {}
+    out = []
+    for r, first in insights.round_order(opt):
+        if first < insights.MIN_ROWS:
+            continue
+        out.append(round_gain(opt, r, models.get(r)))
+    if opt.pending_batch_no is not None and opt.pending_batch and all(
+            g.round != opt.pending_batch_no for g in out):
+        out.append(round_gain(opt, opt.pending_batch_no, models.get(opt.pending_batch_no)))
+    return out
+
+
+def latest_gain(opt, fitted=None):
+    """§3.2's line (review I5): the open Round's figure, else the last
+    Round made, with its number; the pool is not needed for it. None
+    without a Round."""
+    r = opt.pending_batch_no if opt.pending_batch else None
+    if r is None:
+        order = insights.round_order(opt)
+        r = order[-1][0] if order else None
+    return None if r is None else round_gain(opt, r, fitted, highest=False)
+
+
+@contextlib.contextmanager
+def fresh():
+    """Tests: empty the output cache before and after."""
+    _CACHE.clear()
+    try:
+        yield
+    finally:
+        _CACHE.clear()

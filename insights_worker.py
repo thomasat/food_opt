@@ -13,6 +13,9 @@ are done. A request is
         -> {"id": ..., "state": insights.hyper_state(gp)}
     {"id": ..., "kind": "fold", "cfg": ..., "X", "Y", "Xt", "Yt"}
         -> {"id": ..., "z": insights.fold_z(...)}
+    {"id": ..., "kind": "acq", "cfg", "X", "Y", "robust", "seed", "points", "pending"}
+        -> {"id": ..., "mean": [...], "sd": [...], "value": [...]} (bo_views.answer:
+           the suggestion model's acquisition, rebuilt, spec 2026-09-30-bo-views §3.4)
 and a fit that fails answers {"id": ..., "error": "..."}.
 {"id": ..., "kind": "ping"} answers the worker's torch threads and pid. The worker exits
 when stdin closes, which is also what happens when the app goes away."""
@@ -31,6 +34,9 @@ def answer(request):
     tensor = lambda key: torch.tensor(request[key], dtype=torch.double)
     build = insights.builder(request["cfg"])
     try:
+        if request["kind"] == "acq":
+            import bo_views
+            return {"id": request["id"], **bo_views.answer(request)}
         if request["kind"] == "main":
             gp = insights.fit_xy(build, tensor("X"), tensor("Y"))
             return {"id": request["id"], "state": insights.hyper_state(gp)}

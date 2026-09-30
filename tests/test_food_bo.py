@@ -4156,7 +4156,10 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         "custom_records.py",
                         # The Insights tab (0.8.0): its computation names
                         # the reasons a path stops, so both are swept.
-                        "insights.py", "ui_insights.py"]
+                        "insights.py", "ui_insights.py",
+                        # The BO views' numbers (0.8.0 BO views): no screen
+                        # text, and the sweep keeps it that way.
+                        "bo_views.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]

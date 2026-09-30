@@ -21,7 +21,9 @@ def bundle_list():
 
 def test_the_bundle_carries_the_insights_modules():
     files = bundle_list()
-    for f in ("insights_jobs.py", "insights_cache.py", "insights_worker.py"):
+    for f in ("insights_jobs.py", "insights_cache.py", "insights_worker.py",
+              # The worker's "acq" kind imports it (spec 2026-09-30-bo-views §3.4).
+              "bo_views.py"):
         assert f in files
 
 

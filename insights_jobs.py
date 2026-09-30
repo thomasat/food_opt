@@ -512,3 +512,19 @@ def job_for(opt, pool, memo, specs=None):
         elif not job.failed:
             job.top_up(opt, pool, memo)
         return job
+
+
+def ask_workers(request, timeout=60):
+    """One request answered by the pool, waited for (the BO views'
+    acquisition, kind "acq", spec 2026-09-30-bo-views §3.4, review I10): the
+    worker's answer, or None when there are no workers, they failed, or
+    the answer took longer than `timeout` seconds — the caller then works
+    it out in its own process. Sent ahead of the background fits: a screen
+    is waiting for it."""
+    p = pool()
+    if p is None:
+        return None
+    try:
+        return p.submit(-1, dict(request, id="acq")).result(timeout)
+    except Exception:
+        return None
