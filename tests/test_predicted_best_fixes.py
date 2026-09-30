@@ -117,8 +117,11 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     key = insights.data_key(FoodOptimizer("burger"))
     at.session_state[ui_insights.CACHE_KEY] = (key, {"fitted": {}, "checks": _five_score_checks()})
     at.run()
-    line = wording.score_record_line(5, 5, -2.0)
+    # Insights' own wording for the Overall score's line (answer-key
+    # read-through: one wording for one fact); five equal gaps are a bias.
+    line, action = wording.score_gap_line(5, 5, -2.0, "1 point").split(" \u2014 ")
     assert line in str(_batch_table(at).proto)
+    assert action.rstrip(".") in str(_batch_table(at).proto)
     at.session_state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": _five_score_checks()})
     at.run()
     assert line not in str(_batch_table(at).proto)

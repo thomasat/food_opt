@@ -4242,9 +4242,24 @@ def insights_header_line(n, last_round, waiting=0, names_text=""):
 Q_TRUST = "Can you trust the predictions?"
 
 
-def trust_within(inside, total, rounds):
-    return (f"On track: {inside} of {total} results from {rounds_span(rounds)} landed inside "
+def trust_within(inside, total, rounds, measurements=False):
+    """`measurements`: the Overall score ran off prediction (a bias), so
+    "On track" is said of the measurements only (answer-key read-through)."""
+    opener = "Measurements on track" if measurements else "On track"
+    return (f"{opener}: {inside} of {total} results from {rounds_span(rounds)} landed inside "
             "the likely range given beforehand (the app aims for about 19 in 20).")
+
+
+def bias_tail(below=True):
+    """After the verdict when the Overall score runs off prediction: the
+    line under it gives the numbers."""
+    return (f" The {OVERALL_SCORE_COLUMN}, though, ran consistently "
+            f"{'below' if below else 'above'} prediction.")
+
+
+HOW_BIAS = (f"The {OVERALL_SCORE_COLUMN} is said to run above or below prediction only when "
+            "its average gap is more than how much Repeats differ (1 point without Repeats) "
+            f"and too steady across {FORMULATION}s to be chance.")
 
 
 def trust_over_wide(total, rounds):
@@ -4781,6 +4796,17 @@ def round_track_holding(inside, total, see_insights=False):
     M-8)."""
     line = (f"Recent {ROUND_CAP}s: {inside} of {total} {OVERALL_SCORE_COLUMN}s landed inside "
             "their likely range")
+    if see_insights:
+        return f"{line}; the measurements missed more often — see {TAB_INSIGHTS}."
+    return f"{line}."
+
+
+def round_track_bias(inside, total, gap_text, below=True, see_insights=False):
+    """Make a round's line when the Overall score's record holds but runs off
+    prediction: Insights' own sentence (answer-key read-through)."""
+    side = "below" if below else "above"
+    line = (f"Recent {ROUND_CAP}s: {inside} of {total} inside; results ran about "
+            f"{points_text(gap_text)} {side} prediction")
     if see_insights:
         return f"{line}; the measurements missed more often — see {TAB_INSIGHTS}."
     return f"{line}."

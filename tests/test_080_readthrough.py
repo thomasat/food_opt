@@ -72,3 +72,86 @@ def test_untested_without_an_open_round_says_the_next_round():
     text, _ = ui_insights.next_step_text(opt, step)
     assert text.endswith("you can also add it to the Round yourself.")
     _clean(text, wording.next_untested(False, open_round=False))
+
+
+# ------------------------------------------------------------------ #
+#  2, 6. One bias rule for Insights and Make a round: beyond the
+#        yardstick AND clear of noise (|gap| > 2 sd / sqrt(n))
+# ------------------------------------------------------------------ #
+
+from tests.test_080_round_track import _scores  # noqa: E402
+from tests.test_080_trust import _check, _values  # noqa: E402
+
+
+def _noisy(rnd, misses, no=700):
+    return [_check(insights.SCORE, rnd, no + k, 50.0 + m, 50.0, 3.0)
+            for k, m in enumerate(misses)]
+
+
+def test_the_bias_rule_needs_the_yardstick_and_a_gap_clear_of_noise():
+    rec = insights.ScoreRecord(11, 11, -1.1, 1.36)            # Line A after Round 6
+    assert insights.bias_gap(rec, 1.0) == pytest.approx(-1.1)   # 2 x 1.36 / sqrt(11) = 0.82
+    assert insights.bias_gap(insights.ScoreRecord(11, 11, -1.1, 3.0), 1.0) is None   # 1.81
+    assert insights.bias_gap(insights.ScoreRecord(11, 11, -0.9, 0.1), 1.0) is None   # yardstick
+    assert insights.bias_gap(None, 1.0) is None
+
+
+def test_a_steady_gap_is_said_the_same_way_on_both_screens():
+    """Line A after Round 6 / Line C: every Overall score inside, a steady
+    gap beyond the yardstick. Insights qualifies "On track"; Make a round
+    says the gap, not "rough"."""
+    opt = _patty(rows=6)
+    checks = _values(2) + _scores(2, 11, -1.5)
+    h = insights.headline(opt, checks)
+    state = insights.verdict_state(opt, h, checks)
+    bias = insights.score_bias(opt, checks)
+    assert state == "within" and bias == pytest.approx(-1.5)
+    verdict = ui_insights.verdict_text(opt, h, state, bias)
+    assert verdict.startswith("Measurements on track: ")
+    assert verdict.endswith(" The Overall score, though, ran consistently below prediction.")
+    line = ui_insights.score_line(opt, checks)
+    assert line == ("Overall score: 11 of 11 inside; results ran about 1.5 points below "
+                    "prediction — more than 1 point, so read new predictions as about 1.5 "
+                    "points too high.")
+    t = insights.round_track(opt, checks)
+    assert not t.rough and t.gap == pytest.approx(-1.5)
+    assert ui_insights.track_text(t) == (
+        "Recent Rounds: 11 of 11 inside; results ran about 1.5 points below prediction.")
+    _clean(verdict, line, ui_insights.track_text(t))
+
+
+def test_a_noisy_gap_is_not_a_bias_anywhere():
+    opt = _patty(rows=6)
+    checks = _values(2) + _noisy(2, [2.0, -5.0, 1.5, -4.5, 2.5, -5.5, 1.0, -4.0, 2.0, -3.0, 1.0])
+    h = insights.headline(opt, checks)
+    assert abs(h.score.mean_miss) > 1.0                   # beyond the yardstick...
+    assert insights.score_bias(opt, checks) is None        # ...but not clear of noise
+    state = insights.verdict_state(opt, h, checks)
+    assert not ui_insights.verdict_text(opt, h, state).startswith("Measurements")
+    assert "too high" not in ui_insights.score_line(opt, checks)
+    t = insights.round_track(opt, checks)
+    assert t is not None and t.gap is None
+
+
+def test_rough_only_when_too_few_land_inside():
+    opt = _patty(rows=6)
+    checks = _values(2) + _scores(2, 6, 3.0, no=500) + _scores(2, 6, -3.0, no=600)
+    t = insights.round_track(opt, checks)
+    assert t.rough
+    assert "treat these predictions as rough" in ui_insights.track_text(t)
+
+
+def test_make_a_rounds_column_help_reads_as_insights_score_line():
+    """6: one wording for one fact (spec §0.3)."""
+    opt = _patty(rows=6)
+    checks = _values(2) + _scores(2, 11, -0.4)
+    assert ui_insights.score_line(opt, checks) == (
+        "Overall score: 11 of 11 inside; results ran about 0.4 points below prediction.")
+
+
+def test_how_says_the_bias_rule_in_plain_words():
+    assert wording.HOW_BIAS == (
+        "The Overall score is said to run above or below prediction only when its average "
+        "gap is more than how much Repeats differ (1 point without Repeats) and too steady "
+        "across formulations to be chance.")
+    _clean(wording.HOW_BIAS)

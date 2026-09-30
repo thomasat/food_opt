@@ -536,13 +536,20 @@ def track_line(opt):
     if checks is None:
         return ""
     t = insights.round_track(opt, checks)
-    if t is None:
-        return ""
-    if not t.rough:
-        return wording.round_track_holding(t.inside, t.total, t.see_insights)
+    return "" if t is None else track_text(t)
+
+
+def track_text(t):
+    """The line for insights.round_track's answer: rough only when too few
+    landed inside; a bias in Insights' own words; holding otherwise."""
     gap = None if t.gap is None else f"{abs(t.gap):.1f}"
-    return wording.round_track_rough(t.inside, t.total, gap, below=(t.gap or 0) < 0,
-                                     see_insights=t.see_insights)
+    below = (t.gap or 0) < 0
+    if t.rough:
+        return wording.round_track_rough(t.inside, t.total, gap, below=below,
+                                         see_insights=t.see_insights)
+    if gap is not None:
+        return wording.round_track_bias(t.inside, t.total, gap, below, t.see_insights)
+    return wording.round_track_holding(t.inside, t.total, t.see_insights)
 
 
 def _seen(opt, stages):
@@ -814,10 +821,20 @@ def score_record_help(opt):
     checks = checks_for(opt, "trust")
     if checks is None:
         return ""
-    rec = insights.headline(opt, checks).score
-    if rec is None:
+    return score_line(opt, checks)
+
+
+def score_line(opt, checks, h=None, yard=None):
+    """The Overall score's line, in one wording for Insights' answer 1 and
+    Make a round's column help (spec §0.3): what to do only when the gap is
+    a bias by the shared rule (insights.bias_gap). '' without a record."""
+    h = insights.headline(opt, checks) if h is None else h
+    if h.score is None:
         return ""
-    return wording.score_record_line(rec.inside, rec.total, rec.mean_miss)
+    yard = insights.noise_yardstick(opt, checks) if yard is None else yard
+    bias = insights.score_bias(opt, checks, h, yard)
+    beyond = "" if bias is None else ("Repeats differ" if yard.from_repeats else "1 point")
+    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, beyond)
 
 
 def header_text(opt, h=None):
@@ -847,9 +864,12 @@ def _wide(opt, h):
     return wording.wide_line(number_list(names))
 
 
-def verdict_text(opt, h, state):
+def verdict_text(opt, h, state, bias=None):
     """"Can you trust the predictions?" in one line per state (§2.2,
-    review I6, M9); some outputs wide adds the wide line."""
+    review I6, M9); some outputs wide adds the wide line. `bias`: the
+    Overall score's gap when it is a bias (insights.score_bias): the verdict
+    then never opens with an unqualified "On track" (answer-key
+    read-through)."""
     if state == "none":
         return wording.TRUST_NONE
     if state == "early":
@@ -862,14 +882,19 @@ def verdict_text(opt, h, state):
     elif state == "over_wide":
         line = wording.trust_over_wide(h.total, h.rounds)
     else:
-        line = wording.trust_within(h.inside, h.total, h.rounds)
+        line = wording.trust_within(h.inside, h.total, h.rounds, measurements=bias is not None)
     wide = _wide(opt, h)
-    return f"{line} {wide}" if wide else line
+    line = f"{line} {wide}" if wide else line
+    if bias is not None and state in ("within", "over_wide"):
+        line += wording.bias_tail(below=bias < 0)
+    return line
 
 
 def _beyond(gap, yard):
     """What the Overall score's average gap is more than, when it is (review
-    I5): "Repeats differ" from 3 pairs, else "1 point"; '' within."""
+    I5): "Repeats differ" from 3 pairs, else "1 point"; '' within. The
+    screens now say a bias only by insights.bias_gap (score_line); this
+    is kept for the answer-key scripts that call it."""
     if yard.value is None or abs(gap) <= yard.value:
         return ""
     return "Repeats differ" if yard.from_repeats else "1 point"
@@ -884,11 +909,10 @@ def _trust(opt, computed, h, yard, repeat=True):
     disagreeing Repeat (`repeat`), one line on how, and measured against
     predicted in its fold."""
     checks = computed["checks"]
-    st.write(_say(opt, verdict_text(opt, h, insights.verdict_state(opt, h, checks))))
+    bias = insights.score_bias(opt, checks, h, yard)
+    st.write(_say(opt, verdict_text(opt, h, insights.verdict_state(opt, h, checks), bias)))
     if h.score is not None:
-        st.write(_say(opt, wording.score_gap_line(h.score.inside, h.score.total,
-                                                  h.score.mean_miss,
-                                                  _beyond(h.score.mean_miss, yard))))
+        st.write(_say(opt, score_line(opt, checks, h, yard)))
     flagged = insights.disagreeing_repeat(opt, checks) if repeat else None
     if flagged is not None:
         st.write(_say(opt, disagreement_text(flagged)))
@@ -1949,7 +1973,7 @@ def _how(opt, computed):
         top = any(r.name == insights.SCORE and " · " in widen_cell(opt, r, checks)
                   for r in rows)
         for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
-                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
+                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS):
             if text:
                 st.caption(_say(opt, text))
 

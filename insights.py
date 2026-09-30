@@ -520,6 +520,7 @@ class ScoreRecord:
     inside: int
     total: int
     mean_miss: float        # measured minus predicted, on average: < 0 is below
+    gap_sd: float | None = None   # the spread of those gaps (sample sd); None for one
 
 
 SCORE_RECORD_MIN = 5
@@ -579,8 +580,30 @@ def score_record(checks, rounds):
     mine = [c for c in checks if c.name == SCORE and c.round in rounds and c.fully_measured]
     if len(mine) < SCORE_RECORD_MIN:
         return None
-    return ScoreRecord(sum(c.inside for c in mine), len(mine),
-                       sum(c.measured - c.predicted for c in mine) / len(mine))
+    gaps = [c.measured - c.predicted for c in mine]
+    return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps),
+                       statistics.stdev(gaps) if len(gaps) > 1 else None)
+
+
+def bias_gap(record, yardstick):
+    """The Overall score's average gap when it is a bias worth saying, else
+    None (answer-key read-through: one rule for Insights and Make a round).
+    It must be more than `yardstick` (how much Repeats differ, 1 point
+    without them) AND clear of noise: more than 2 x sd / sqrt(n) of the
+    gaps themselves, so a few large misses either way are not a bias."""
+    if record is None or yardstick is None or abs(record.mean_miss) <= yardstick:
+        return None
+    if record.gap_sd is not None and abs(record.mean_miss) <= (
+            2 * record.gap_sd / math.sqrt(record.total)):
+        return None
+    return record.mean_miss
+
+
+def score_bias(opt, checks, h=None, yard=None):
+    """bias_gap for the Overall score's record in the verdict's Rounds."""
+    h = headline(opt, checks) if h is None else h
+    yard = noise_yardstick(opt, checks) if yard is None else yard
+    return bias_gap(h.score, yard.value)
 
 
 def wide_ranges(opt, checks):
@@ -767,8 +790,8 @@ def next_step(opt, checks, standing=None):
     state = verdict_state(opt, h, checks)
     yard = noise_yardstick(opt, checks)
     if state == "unreliable":
-        gap = None if h.score is None else h.score.mean_miss
-        if gap is not None and abs(gap) > yard.value:
+        gap = score_bias(opt, checks, h, yard)
+        if gap is not None:
             return NextStep("bias", gap=gap)
         return NextStep("misses")
     flagged = disagreeing_repeat(opt, checks)
@@ -1974,19 +1997,19 @@ def mixture_predictions(opt, fitted, mix):
 
 @dataclass
 class RoundTrack:
-    rough: bool             # the Overall score's recent record says: treat as rough
+    rough: bool             # fewer landed inside than 1 in 20 misses explains
     inside: int
     total: int
-    gap: float | None       # its average miss, when beyond the yardstick; else None
+    gap: float | None       # its average miss when it is a bias (bias_gap); else None
     see_insights: bool      # the verdict (the measurements) is unreliable
 
 
 def round_track(opt, checks):
     """Make a round's line under its table, from the Overall score's own
-    record in the verdict's Rounds (review I16): rough when fewer landed
-    inside than 1 in 20 misses explains (binomial tail under 0.10) or the
-    average miss is more than Repeats differ (noise_yardstick); holding
-    otherwise. None — no line — without a record (fewer than
+    record in the verdict's Rounds (review I16): rough only when fewer
+    landed inside than 1 in 20 misses explains (binomial tail under 0.10);
+    the gap when it is a bias by Insights' own rule (bias_gap), so the two
+    screens say one thing (answer-key read-through); holding otherwise. None — no line — without a record (fewer than
     SCORE_RECORD_MIN fully measured checks), when the verdict is early,
     wide ("Too early to judge" on Insights, review C I-5) or over-wide, and
     when the Overall score's own range is wide (final review I-1)."""
@@ -2002,7 +2025,6 @@ def round_track(opt, checks):
         # says little yet: no "12 of 12 landed inside" beside it (final
         # review I-1).
         return None
-    beyond = abs(record.mean_miss) > noise_yardstick(opt, checks).value
-    rough = binomial_tail(record.total - record.inside, record.total) < 0.10 or beyond
-    return RoundTrack(rough, record.inside, record.total,
-                      record.mean_miss if beyond else None, state == "unreliable")
+    rough = binomial_tail(record.total - record.inside, record.total) < 0.10
+    return RoundTrack(rough, record.inside, record.total, score_bias(opt, checks, h),
+                      state == "unreliable")

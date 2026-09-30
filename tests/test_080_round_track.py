@@ -36,10 +36,12 @@ def test_a_record_that_holds():
     assert (t.rough, t.inside, t.total, t.gap, t.see_insights) == (False, 11, 11, None, False)
 
 
-def test_an_average_miss_beyond_one_point_is_rough_and_says_how_much():
+def test_an_average_miss_beyond_one_point_says_how_much_and_is_not_rough():
+    """Answer-key read-through: "rough" only when too few land inside; a
+    steady gap beyond the yardstick is said as Insights says it."""
     opt = _patty(rows=6)
     t = insights.round_track(opt, _values(2) + _scores(2, 12, -1.5))   # all inside, 1.5 below
-    assert t.rough and t.gap == pytest.approx(-1.5) and t.inside == 12
+    assert not t.rough and t.gap == pytest.approx(-1.5) and t.inside == 12
 
 
 def test_many_outside_is_rough_even_without_a_gap():
