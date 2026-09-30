@@ -1411,6 +1411,9 @@ def next_step_text(opt, step):
     answer (§2.4, review I2, I3, I14, M17)."""
     values = not opt.has_ingredients()
     settings_only = not insights.has_ingredient_choice(opt)
+    # A Round still open: record it first, as the foot says (final review M-1).
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    no = opt.pending_batch_no
     if step.kind == "bias":
         return wording.next_bias(f"{abs(step.gap):.1f}", below=step.gap < 0), None
     if step.kind == "misses":
@@ -1418,7 +1421,7 @@ def next_step_text(opt, step):
     if step.kind == "repeat":
         return disagreement_text(step.disagreement), None
     if step.kind == "early":
-        return wording.NEXT_TOO_EARLY, None
+        return (wording.next_too_early_open(no, left) if left else wording.NEXT_TOO_EARLY), None
     if step.kind == "untested":
         return wording.next_untested(values), None
     if step.kind == "close":
@@ -1433,8 +1436,8 @@ def next_step_text(opt, step):
         return (wording.next_close_to_top(change, settings_only),
                 wording.change_on_setup(b.name, highest=b.kind == "highest"))
     if step.kind == "rising":
-        return wording.NEXT_RISING, None
-    return wording.NEXT_SEE, None
+        return (wording.next_rising_open(no, left) if left else wording.NEXT_RISING), None
+    return (wording.next_see_open(no, left) if left else wording.NEXT_SEE), None
 
 
 def _next_step(opt, step):

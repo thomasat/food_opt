@@ -4424,6 +4424,26 @@ NEXT_RISING = f"Scores are still rising. Make the next {ROUND_CAP}."
 NEXT_SEE = f"Make the next {ROUND_CAP} to see whether scores rise."
 
 
+def record_open_round(no, n):
+    """'Record the 4 formulations still open in Round 6' — "What to do next"
+    while a Round is open, as the foot under it says (final review M-1)."""
+    what = f"the {FORMULATION}" if n == 1 else f"the {n} {FORMULATION}s"
+    return f"Record {what} still open in {ROUND_CAP} {no}"
+
+
+def next_too_early_open(no, n):
+    return (f"Too early to tell where the top is. {record_open_round(no, n)}, "
+            f"then make the next {ROUND_CAP}.")
+
+
+def next_rising_open(no, n):
+    return f"Scores are still rising. {record_open_round(no, n)}, then make the next {ROUND_CAP}."
+
+
+def next_see_open(no, n):
+    return f"{record_open_round(no, n)} to see whether scores rise."
+
+
 def change_on_setup(name, highest=True):
     return f"Change {name}'s {'Highest' if highest else 'Lowest'} on Set up"
 

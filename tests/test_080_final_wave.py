@@ -13,6 +13,7 @@ import wording
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
 from tests.test_insights import _burger
+from tests.test_insights_wave_c_ui import ferment_scored  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -77,3 +78,54 @@ def test_the_predicted_best_is_widened_as_the_column_is_mid_round():
     best = insights.predicted_best(opt, fitted, checks)
     assert best.factor == insights.column_factor(opt, checks)
     assert best.factor != insights.score_widen(checks)
+
+
+# ------------------------------------------------------------------ #
+#  Final review M-1: "What to do next" while a Round is open says to
+#  record it first, as the foot under it does
+# ------------------------------------------------------------------ #
+
+def _step(kind):
+    return SimpleNamespace(kind=kind, gap=None, disagreement=None, binding=None)
+
+
+def _open(opt, n):
+    opt.set_pending_batch([{"Pea protein": 12.0 + k, "Methylcellulose": 1.0} for k in range(n)])
+    return opt
+
+
+@pytest.mark.parametrize("kind, start", [("early", "Too early to tell where the top is. "),
+                                         ("rising", "Scores are still rising. "),
+                                         ("see", "")])
+def test_with_a_round_open_the_next_step_is_to_record_it(kind, start):
+    opt = _burger(rounds=3, noise=0.3)
+    text, _ = ui_insights.next_step_text(opt, _step(kind))
+    assert "Make the next Round" in text or "to see whether" in text
+    _open(opt, 4)
+    text, _ = ui_insights.next_step_text(opt, _step(kind))
+    no = opt.pending_batch_no
+    tail = (f"Record the 4 formulations still open in Round {no}, then make the next Round."
+            if kind != "see" else
+            f"Record the 4 formulations still open in Round {no} to see whether scores rise.")
+    assert text == start + tail
+    assert not any(p.search(text) for p in _BANNED), text
+
+
+def test_one_open_formulation_is_said_in_the_singular():
+    opt = _open(_burger(rounds=3, noise=0.3), 1)
+    text, _ = ui_insights.next_step_text(opt, _step("rising"))
+    assert text == ("Scores are still rising. Record the formulation still open in "
+                    f"Round {opt.pending_batch_no}, then make the next Round.")
+
+
+def test_a_process_only_project_says_trials(ferment_scored):
+    """The Trial form (for_project), plural and singular."""
+    opt = ferment_scored
+    opt.set_pending_batch([{n: v for n, v in r.items()} for r in opt.recipe_history[:2]])
+    text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("rising"))[0])
+    assert f"Record the 2 trials still open in Round {opt.pending_batch_no}" in text
+    assert "ormulation" not in text
+    opt.set_pending_batch([dict(opt.recipe_history[0])])
+    text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("see"))[0])
+    assert text == (f"Record the trial still open in Round {opt.pending_batch_no} "
+                    "to see whether scores rise.")
