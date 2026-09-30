@@ -247,7 +247,7 @@ def test_line_three_names_what_the_predicted_best_sits_at():
     (insights.NextStep("bias", gap=-5.0), wording.next_bias("5.0", True), None),
     (insights.NextStep("misses"), wording.NEXT_MISSES, None),
     (insights.NextStep("early"), wording.NEXT_TOO_EARLY, None),
-    (insights.NextStep("untested"), wording.next_untested(), None),
+    (insights.NextStep("untested"), wording.next_untested(open_round=False), None),
     (insights.NextStep("close"), wording.next_close_to_top(), None),
     (insights.NextStep("close", binding=insights.Binding("highest", "Oil", "Oil")),
      wording.next_close_to_top(wording.raise_highest("Oil")), "Change Oil's Highest on Set up"),

@@ -4397,11 +4397,15 @@ NEXT_MISSES = ("Recent results missed their likely range more often than expecte
 NEXT_TOO_EARLY = f"Too early to tell where the top is. Make the next {ROUND_CAP}."
 
 
-def next_untested(values=False):
+def next_untested(values=False, open_round=True):
+    """With a Round open the predicted best can be added to it; without
+    one, to the next (answer-key read-through)."""
     what = "values" if values else "amounts"
+    where = (f"also add it to the {ROUND_CAP} yourself" if open_round
+             else f"include it in the next {ROUND_CAP}")
     return (f"The app predicts a higher score in {what} not tested yet (see "
             f"“{show_its_amounts(values)}” above). Suggestions may try near there; you can "
-            f"also add it to the {ROUND_CAP} yourself.")
+            f"{where}.")
 
 
 def raise_highest(name):

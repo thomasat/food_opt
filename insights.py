@@ -1720,11 +1720,18 @@ class Standing:
 def best_standing(opt, best, yardstick):
     """The predicted best against Best so far (review I7): like with like,
     its mean against Best so far's predicted Repeat (the measured score
-    when there is none), judged by `yardstick` (points)."""
+    when there is none), judged by `yardstick` (points) — and, as shown,
+    above Best so far's measured score by more than the yardstick too."""
     top = opt.best_index()
     measured_top = None if top is None else float(opt.Y_history[top])
     ref = best.repeat.mean if best.repeat is not None else measured_top
-    higher = ref is not None and best.score.mean - ref > yardstick
+    # "Higher" must also hold on the numbers shown (answer-key read-through,
+    # Timing check): the predicted best in whole points above Best so far's
+    # measured score in two decimals by more than the yardstick, so neither
+    # line 2 nor "What to do next" calls 92 higher than 92.50.
+    shown = (measured_top is None
+             or round(best.score.mean) - round(measured_top, 2) > yardstick)
+    higher = ref is not None and best.score.mean - ref > yardstick and shown
     # Compared as shown too (review M1): the Repeat in whole points, the
     # measured score in two decimals, so "luck" never sits beside a Repeat
     # that reads higher than the score.

@@ -241,12 +241,16 @@ def test_no_luck_when_the_repeat_reads_no_lower_than_the_score_shown():
 
 def test_the_measured_score_is_not_the_comparison():
     """Best so far's measured score carries luck; its predicted Repeat does
-    not. A predicted best 1.5 above the Repeat but below the measured score
-    is still clearly higher than what a Repeat would score."""
+    not, so the predicted best is judged against the Repeat (review I7).
+    But "higher" must also hold on the numbers shown (answer-key
+    read-through): a predicted best 1.5 above the Repeat yet below the
+    measured score is not called higher; 1.5 above both is."""
     opt = _burger(rounds=2)
     top = float(opt.Y_history[opt.best_index()])
     s = insights.best_standing(opt, _best(opt, top - 1.0, top - 2.5), 1.0)
-    assert s.higher and s.luck
+    assert not s.higher and s.luck
+    s = insights.best_standing(opt, _best(opt, top + 1.6, top + 0.1), 1.0)
+    assert s.higher
 
 
 def test_close_to_a_tested_formulation_is_named():

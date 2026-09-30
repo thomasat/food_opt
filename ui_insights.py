@@ -1423,7 +1423,7 @@ def next_step_text(opt, step):
     if step.kind == "early":
         return (wording.next_too_early_open(no, left) if left else wording.NEXT_TOO_EARLY), None
     if step.kind == "untested":
-        return wording.next_untested(values), None
+        return wording.next_untested(values, open_round=bool(opt.pending_batch)), None
     if step.kind == "close":
         b = step.binding
         if b is None:
