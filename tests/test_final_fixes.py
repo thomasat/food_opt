@@ -182,3 +182,16 @@ def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting)
     assert ("1 trial is waiting for Aroma and is not used for suggestions yet. "
             "Enter its results on Results. Suggestions don't know about it yet "
             "and may be close to it.") in captions, captions
+
+
+# ------------------------------------------------------------------ #
+#  M-2 the luck line compares the numbers as they are shown
+# ------------------------------------------------------------------ #
+
+def test_the_luck_line_compares_the_shown_numbers():
+    # "Predicted to score highest: 83" beside "Best so far: 82.7": no luck.
+    assert not ui_insights.shows_luck(82.6, 82.7)
+    assert not ui_insights.shows_luck(82.66, 82.66)      # 83 against 82.7
+    assert not ui_insights.shows_luck(82.0, 81.96)       # 82 against 82.0
+    assert ui_insights.shows_luck(81.4, 82.7)            # 81 against 82.7
+    assert ui_insights.shows_luck(82.4, 82.7)            # 82 against 82.7

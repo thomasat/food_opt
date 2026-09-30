@@ -867,6 +867,13 @@ def best_frame(opt, best, fitted):
     return frame.rename(columns={wording.FORMULATION_CAP: _say(opt, wording.FORMULATION_CAP)})
 
 
+def shows_luck(predicted, measured):
+    """True when the predicted best, as shown (a whole number), reads below
+    Best so far's score as shown (one decimal): the luck line never sits
+    beside a prediction that reads at or above it (final review M-2)."""
+    return float(_whole(predicted)) < float(f"{measured:.1f}")
+
+
 def _best(opt, computed):
     """Question 4's answer, under its heading."""
     fitted = None if computed is None else computed["fitted"]
@@ -894,7 +901,8 @@ def _best(opt, computed):
     top = opt.best_index()
     # Best so far's measured score was picked for being the highest, so it
     # carries some luck; said when the predicted best reads below it (§3.6).
-    if best.repeat is not None and top is not None and p.mean < float(opt.Y_history[top]):
+    if (best.repeat is not None and top is not None
+            and shows_luck(p.mean, float(opt.Y_history[top]))):
         r = best.repeat
         st.write(_say(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
                                              _whole(r.low), _whole(r.high))))
