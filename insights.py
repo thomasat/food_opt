@@ -6,11 +6,15 @@ a forked torch RNG so the next suggestion is exactly what it would have been.
 The suggestions themselves still come from the one Overall-score model that
 FoodOptimizer._ask_optimize fits; the models here never reach it."""
 import contextlib
+import contextvars
 import hashlib
 import itertools
 import json
 import math
 import statistics
+import types
+import dataclasses
+import functools
 from dataclasses import dataclass
 
 import torch
@@ -21,7 +25,7 @@ from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
 import wording
-from food_bo import CLOSE_TO_THE_BEST, number_list
+from food_bo import CLOSE_TO_THE_BEST, FoodOptimizer, number_list
 
 SCORE = "__overall_score__"
 MIN_ROWS = 5
@@ -88,18 +92,95 @@ def _range_of(opt, name):
     raise KeyError(name)
 
 
-def _fit_gp(opt, name, rows):
-    """One GP on `rows` (all measured), with the optimizer's own builder so
-    an expert's model settings apply. Raises if the fit fails."""
-    bounds = opt._get_bounds()
+# 0.8.0 speed (spec 2026-09-30 §10.4): the scipy options of every display
+# fit here, never the suggestion model's. scipy's default ftol is 2.2e-9;
+# 1e-6 takes 2.8-3.3x fewer steps on a 10-row project with Round-ahead
+# coverage 90.8 / 88.8 % against 90.9 / 88.6 % (perf.md §2.2).
+FIT_OPTIONS = {"ftol": 1e-6}
+# Part of every model_key: bump it whenever a change here could change a
+# fitted model's numbers, and a saved fit from before is never used again.
+MODEL_SALT = "0.8.0-speed-1"
+# The fitted models a caller keeps (insights_jobs, the saved cache): model_key
+# -> {"state": hyper_state(gp), "widen": float} or {"error": str}. Set with
+# memo_in_use(); None: every fit is made fresh, as before.
+_MEMO = contextvars.ContextVar("insights_memo", default=None)
+
+
+@contextlib.contextmanager
+def memo_in_use(memo):
+    """Within the block, fit() takes a model from `memo` when its key is
+    there (conditioning only, no optimising) and puts every model it fits
+    into it. Per thread: another session's script run never sees it."""
+    token = _MEMO.set(memo)
+    try:
+        yield memo
+    finally:
+        _MEMO.reset(token)
+
+
+def builder(cfg):
+    """FoodOptimizer._build_gp for a project whose expert model settings
+    are `cfg` (None: the default model), without the project: what an
+    insights_worker builds with. In this process fits use opt._build_gp,
+    the same method."""
+    return functools.partial(FoodOptimizer._build_gp, types.SimpleNamespace(bo_config=cfg))
+
+
+def fit_xy(build, X, Y):
+    """One display GP on normalised X (n x d) and Y (n x 1), made by
+    `build` (opt._build_gp, or builder(cfg) in a worker, so an expert's
+    model settings apply) and fitted with FIT_OPTIONS under the fixed seed.
+    The one fit both this process and insights_worker make, so the two
+    give the same numbers. Raises if the fit fails."""
     with _isolated():
-        X = normalize(torch.tensor([opt.X_history[i] for i in rows],
-                                   dtype=torch.double), bounds)
-        Y = torch.tensor([measured(opt, name, i) for i in rows],
-                         dtype=torch.double).unsqueeze(-1)
-        gp = opt._build_gp(X, Y, bounds.shape[1], None)
-        fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+        gp = build(X, Y, X.shape[-1], None)
+        fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp),
+                         optimizer_kwargs={"options": dict(FIT_OPTIONS)})
     return gp
+
+
+def xy(opt, name, rows):
+    """(X, Y) of `rows` for `name`: the encoded make-ups normalised to the
+    rows' Lowest-Highest, and the measured values as a column."""
+    X = normalize(torch.tensor([opt.X_history[i] for i in rows], dtype=torch.double),
+                  opt._get_bounds())
+    Y = torch.tensor([measured(opt, name, i) for i in rows],
+                     dtype=torch.double).unsqueeze(-1)
+    return X, Y
+
+
+def _fit_gp(opt, name, rows):
+    """One GP on `rows` (all measured). Raises if the fit fails."""
+    X, Y = xy(opt, name, rows)
+    return fit_xy(opt._build_gp, X, Y)
+
+
+def hyper_state(gp):
+    """A fitted GP's parameters and buffers as plain numbers:
+    {name: [dtype, nested list]}. JSON data, never a pickled object."""
+    return {k: [str(v.dtype).removeprefix("torch."), v.detach().tolist()]
+            for k, v in gp.state_dict().items()}
+
+
+def rebuild(opt, name, rows, state):
+    """The GP fit() made on `rows`, from its hyper_state: built on the same
+    rows by the same builder and conditioned, with nothing optimised."""
+    X, Y = xy(opt, name, rows)
+    with _isolated():
+        gp = opt._build_gp(X, Y, X.shape[-1], None)
+        gp.load_state_dict({k: torch.tensor(v, dtype=getattr(torch, d))
+                            for k, (d, v) in state.items()})
+        gp.eval()
+    return gp
+
+
+def model_key(opt, name, use):
+    """Everything one display model and its widening depend on: the model
+    settings, the output, each training row (make-up and results), the
+    folds, the fit options and MODEL_SALT."""
+    return _digest({"salt": MODEL_SALT, "settings": _digest(_model_settings(opt)),
+                    "name": name, "rows": [_row_key(opt, i) for i in use],
+                    "folds": FOLDS, "fit": FIT_OPTIONS})
 
 
 def fit(opt, name, rows):
@@ -107,58 +188,92 @@ def fit(opt, name, rows):
     use = [i for i in rows if measured(opt, name, i) is not None]
     if len(use) < MIN_ROWS:
         return Fitted(name, None, None, len(use), lo, hi)
+    memo = _MEMO.get()
+    key = None if memo is None else model_key(opt, name, use)
+    hit = None if memo is None else memo.get(key)
+    if hit is not None:
+        if hit.get("error") is not None:
+            return Fitted(name, None, hit["error"], len(use), lo, hi)
+        try:
+            return Fitted(name, rebuild(opt, name, use, hit["state"]), None, len(use),
+                          lo, hi, float(hit["widen"]))
+        except Exception:   # a damaged entry: fitted again below
+            pass
     try:
         gp = _fit_gp(opt, name, use)
     except Exception as exc:   # one model failing must not take the tab down
-        return Fitted(name, None, str(exc) or type(exc).__name__, len(use), lo, hi)
-    return Fitted(name, gp, None, len(use), lo, hi, _widen(opt, name, use))
+        error = str(exc) or type(exc).__name__
+        if memo is not None:
+            memo[key] = {"error": error}
+        return Fitted(name, None, error, len(use), lo, hi)
+    widen = _widen(opt, name, use)
+    if memo is not None:
+        memo[key] = {"state": hyper_state(gp), "widen": widen}
+    return Fitted(name, gp, None, len(use), lo, hi, widen)
 
 
 FOLDS = 5
 
 
-def _cv_z(opt, name, use):
-    """Standardised misses (y - mean) / sd of each row when it was held
-    out: rows go to FOLDS folds by row order, and the model is fitted again
-    (hyperparameters too) on the other folds, then predicts the held-out
-    fold with the variation between Repeats included. A fold whose fit
-    fails is skipped. Only `use` is ever seen, so a Round-ahead check stays
-    honest."""
-    bounds = opt._get_bounds()
-    z = []
+def folds(n):
+    """[(kept, held)] positions of n rows: row k goes to fold k % FOLDS; a
+    fold with nothing held is left out."""
+    out = []
     for k in range(FOLDS):
-        held = [i for n, i in enumerate(use) if n % FOLDS == k]
-        if not held:
-            continue
+        held = [p for p in range(n) if p % FOLDS == k]
+        if held:
+            out.append(([p for p in range(n) if p % FOLDS != k], held))
+    return out
+
+
+def held_z(gp, Xt, Yt):
+    """The standardised misses (y - mean) / sd of held-out rows (Xt, Yt)
+    under `gp`, with the variation between Repeats included."""
+    with torch.no_grad(), _isolated():
+        post = gp.posterior(Xt, observation_noise=True)
+        mean = post.mean.reshape(-1).tolist()
+        sd = post.variance.clamp_min(0.0).sqrt().reshape(-1).tolist()
+    return [(y - m) / s for y, m, s in zip(Yt.reshape(-1).tolist(), mean, sd) if s > 0]
+
+
+def fold_z(build, X, Y, Xt, Yt):
+    """held_z of one fold under a model fitted (hyperparameters too) on
+    (X, Y): what an insights_worker answers. Raises if the fit fails."""
+    return held_z(fit_xy(build, X, Y), Xt, Yt)
+
+
+def _cv_z(opt, name, use):
+    """Standardised misses of each row when it was held out: rows go to
+    FOLDS folds by row order (folds()), and each fold is predicted by a
+    model fitted on the others. A fold whose fit fails is skipped. Only
+    `use` is ever seen, so a Round-ahead check stays honest."""
+    z = []
+    for kept, held in folds(len(use)):
         try:
-            gp = _fit_gp(opt, name, [i for n, i in enumerate(use) if n % FOLDS != k])
-            with torch.no_grad(), _isolated():
-                X = normalize(torch.tensor([opt.X_history[i] for i in held],
-                                           dtype=torch.double), bounds)
-                post = gp.posterior(X, observation_noise=True)
-                mean = post.mean.reshape(-1).tolist()
-                sd = post.variance.clamp_min(0.0).sqrt().reshape(-1).tolist()
+            gp = _fit_gp(opt, name, [use[p] for p in kept])
+            z.extend(held_z(gp, *xy(opt, name, [use[p] for p in held])))
         except Exception:
             continue
-        for i, m, s in zip(held, mean, sd):
-            if s > 0:
-                z.append((measured(opt, name, i) - m) / s)
     return z
 
 
+def widen_from(z):
+    """The root-mean-square of cross-validated misses, never below 1."""
+    c = math.sqrt(sum(v * v for v in z) / len(z)) if z else 1.0
+    return max(1.0, c) if math.isfinite(c) else 1.0
+
+
 def _widen(opt, name, use):
-    """How much to widen this model's likely range: the root-mean-square
-    of its cross-validated misses, never below 1. With few rows the fitted
-    noise comes out too small and the range too narrow (Round-ahead
-    coverage near 78 % at realistic noise); refitting on each fold sees
-    that, where the same-rows leave-one-out did not. Only widens; with no
-    usable fold the range stays as fitted."""
+    """How much to widen this model's likely range: widen_from its
+    cross-validated misses. With few rows the fitted noise comes out too
+    small and the range too narrow (Round-ahead coverage near 78 % at
+    realistic noise); refitting on each fold sees that, where the same-rows
+    leave-one-out did not. Only widens; with no usable fold the range stays
+    as fitted."""
     try:
-        z = _cv_z(opt, name, use)
-        c = math.sqrt(sum(v * v for v in z) / len(z)) if z else 1.0
+        return widen_from(_cv_z(opt, name, use))
     except Exception:
         return 1.0
-    return max(1.0, c) if math.isfinite(c) else 1.0
 
 
 def predict(opt, fitted, X_rows):
@@ -245,6 +360,10 @@ class Check:
     fully_measured: bool
     raw_mean: float | None = None   # Prediction.raw_mean / .sd: the verdict's |z|
     sd: float | None = None
+    # How much the likely range [low, high] was widened on top of sd (the
+    # Overall score's before-the-fact widening, spec 2026-09-30 §9 I1); a
+    # miss in standard deviations is still (measured - raw_mean) / sd.
+    widen: float = 1.0
 
 
 def _row_key(opt, i):
@@ -293,39 +412,77 @@ def _check_round(opt, r, first, names):
     return checks
 
 
-def check_rounds(opt, cache=None, checking=None):
+def check_rounds(opt, cache=None, checking=None, only=None):
     """Each Round's formulations predicted from the rows recorded before
-    it, Round by Round.
+    it, Round by Round, the Overall score's likely range then widened by
+    nest_score_widen (spec 2026-09-30 §9 I1).
 
     `cache`, a dict the caller keeps between calls, holds each Round's
-    checks under its round_keys key: a Round whose key is there is not
-    fitted again, and on the way out the dict holds this project's Rounds
-    alone. Every fit runs in its own `_isolated()` with the same seed, so a
-    Round's checks come out the same whichever other Rounds are fitted with
-    it: kept or fresh, the answer is identical.
+    checks under its round_keys key, before that widening: a Round whose key
+    is there is not fitted again, and on the way out the dict holds this
+    project's Rounds alone. Every fit runs in its own `_isolated()` with the
+    same seed, so a Round's checks come out the same whichever other Rounds
+    are fitted with it: kept or fresh, the answer is identical.
 
     `checking(r, last)`, when given, is entered around each Round actually
-    fitted (one that could be checked), for the screen's progress line."""
+    fitted (one that could be checked), for the screen's progress line.
+
+    `only`, a set of (Round, output name) pairs, works out those checks
+    alone, for a screen filling in while the rest are still being fitted; a
+    partial answer is never written to `cache`. The Overall score's
+    widening is final only when `only` holds every Round's Overall score."""
     names = [n for n, _, _ in outputs(opt)]
     order = round_order(opt)
     keys = round_keys(opt) if cache is not None else {}
     checks = []
     for r, first in order:
+        wanted = names if only is None else [n for n in names if (r, n) in only]
+        if not wanted:
+            continue
         key = keys.get(r)
         if key is not None and key in cache:
-            checks.extend(cache[key])
+            checks.extend(c for c in cache[key] if c.name in wanted)
             continue
         line = (checking(r, order[-1][0]) if checking is not None and first >= MIN_ROWS
                 else contextlib.nullcontext())
         with line:
-            found = _check_round(opt, r, first, names)
-        if cache is not None:
+            found = _check_round(opt, r, first, wanted)
+        if cache is not None and only is None:
             cache[key] = found
         checks.extend(found)
-    if cache is not None:
+    if cache is not None and only is None:
         for gone in set(cache) - set(keys.values()):
             del cache[gone]
-    return checks
+    return nest_score_widen(opt, checks)
+
+
+def nest_score_widen(opt, checks):
+    """`checks` with each Round's Overall-score checks widened by
+    score_widen of the checks of the Rounds before it, and nothing else
+    changed (spec 2026-09-30 §9 I1). Make a round widens its Overall-score
+    column by score_widen of every check so far, so the check that later
+    judges that Round counts the range that was on screen, and stays
+    before the fact: no Round's widening has seen that Round's results.
+    The range is widened about the model's own mean, then clipped to 0 and
+    the ceiling; `inside` follows the widened range."""
+    top = float(opt.utility_ceiling())
+    rounds = _ordered_rounds([c for c in checks if c.name == SCORE])
+    out, earlier = [], []
+    factor = {}
+    for r in rounds:
+        factor[r] = score_widen(earlier)
+        earlier.extend(c for c in checks if c.name == SCORE and c.round == r)
+    for c in checks:
+        f = factor.get(c.round, 1.0) if c.name == SCORE else 1.0
+        if f == 1.0 or c.sd is None or c.raw_mean is None:
+            out.append(c)
+            continue
+        half = Z95 * c.sd * f
+        low = min(top, max(0.0, c.raw_mean - half))
+        high = min(top, max(0.0, c.raw_mean + half))
+        out.append(dataclasses.replace(c, low=low, high=high,
+                                       inside=low <= c.measured <= high, widen=f))
+    return out
 
 
 def rounds_not_checked(opt):
@@ -531,7 +688,8 @@ def disagreeing_repeat(opt, checks, matches=None):
             c = ahead.get(int(opt.formulation_ids[i]))
             if c is None:
                 continue
-            half = Z95 * c.sd if c.sd else (c.high - c.low) / 2
+            # The half-width shown for that check, its I1 widening included.
+            half = Z95 * c.sd * c.widen if c.sd else (c.high - c.low) / 2
             d = float(opt.Y_history[i]) - float(opt.Y_history[first])
             if abs(d) > math.sqrt(2) * half and (best is None or abs(d) > abs(best.diff)):
                 best = Disagreement(int(opt.formulation_ids[i]),
