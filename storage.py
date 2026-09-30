@@ -160,6 +160,13 @@ class LocalStorage:
                 "program."
             )
         self.__dict__.setdefault("_seen", {}).pop(name, None)
+        # What Insights worked out for the copy, if it was ever opened
+        # (insights_cache.path; spelled out here so this module stays free
+        # of torch): it goes with the copy.
+        try:
+            os.remove(os.path.join(".insights", f"{name}.insights.json"))
+        except OSError:
+            pass
         return True
 
     def is_stale(self, name):
