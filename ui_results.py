@@ -222,10 +222,11 @@ def _best(opt):
                else wording.result_heading(number, batch))
     st.subheader(wording.for_project(opt, heading))
     if is_best:
-        st.caption(wording.RESULT_BEST_HELP_WITHOUT if opt.best_scored_without()
-                   else wording.RESULT_BEST_HELP)
+        st.caption(wording.for_project(opt, wording.RESULT_BEST_HELP_WITHOUT
+                                       if opt.best_scored_without()
+                                       else wording.RESULT_BEST_HELP))
         if opt.awaited_rows():
-            st.caption(wording.RESULT_BEST_COMPLETE_ONLY)
+            st.caption(wording.for_project(opt, wording.RESULT_BEST_COMPLETE_ONLY))
         line = _progress_line(opt)
         if line:
             st.caption(line)

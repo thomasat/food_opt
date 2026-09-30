@@ -1,11 +1,14 @@
 """0.8.0 review fixes, the final wave: the whole-branch review's items
 (final-review.md I-1..I-3, M-1..M-5) and the parked minors."""
 import pytest
+from streamlit.testing.v1 import AppTest
 
 import insights
 import ui_insights
 import wording
+from tests.test_app_ui import APP_PATH
 from tests.test_complete_results import _patty, _tell
+from tests.test_set_aside_ui import trial_waiting  # noqa: F401  (fixture)
 
 
 @pytest.fixture(autouse=True)
@@ -59,3 +62,32 @@ def test_header_text_with_every_formulation_waiting():
         _tell(opt, no, 1, drop=("Cook loss",))
     assert ui_insights.header_text(opt, None).startswith(
         "3 formulations are waiting for Cook loss. ")
+
+
+# ------------------------------------------------------------------ #
+#  I-2 Best so far's help in a process-only project
+# ------------------------------------------------------------------ #
+
+def test_best_so_far_help_names_trials_in_a_process_only_project(trial_waiting):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[2].caption]      # Results
+    assert ("Best so far has the highest overall score among trials with every "
+            "measurement, for your current measurements and targets.") in captions, captions
+    assert "Only trials with all their results are compared." in captions, captions
+    assert not any("formulation" in c.lower() for c in captions), captions
+
+
+def test_best_so_far_help_without_every_measurement_names_trials(trial_waiting):
+    trial_waiting.add_objective("Colour", 1.0, goal="max", min_val=0, max_val=10)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[2].caption]      # Results
+    assert wording.for_project(trial_waiting, wording.RESULT_BEST_HELP_WITHOUT) in captions
+    assert not any("formulation" in c.lower() for c in captions), captions
