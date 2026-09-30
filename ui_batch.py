@@ -246,7 +246,7 @@ def _incomplete(missing):
     # 2026-09-30 §3, audit V3).
     lit = not confirmation_open()
     if st.button(wording.BACK_TO_SETUP, key="back_to_setup",
-                 type="primary" if lit else "secondary") and lit:
+                 type="primary" if lit else "secondary", disabled=not lit):
         go_to_tab(TAB_SETUP)
 
 
@@ -347,7 +347,7 @@ def _own_recipe(opt):
     return recipe
 
 
-# What `Start from the best so far` typed into the boxes, and which
+# What `Start from Best so far` typed into the boxes, and which
 # formulation it came from. Kept so the form can say, before Add, that the
 # app's own numbers sit outside today's allowed amounts — and so that being
 # told off for them afterwards is not the first the reader hears of it.
@@ -420,8 +420,8 @@ def _add_own(opt):
 def _own_formulation(opt):
     """`Add a formulation of your own`: the formulation the scientist wants to
     try, added to the batch beside the generated ones. It replaced the Repeat
-    checkbox, which could only ever repeat the best one — `Start from the best
-    so far` does that in one click and leaves the amounts editable.
+    checkbox, which could only ever repeat the best one — `Start from Best so
+    far` does that in one click and leaves the amounts editable.
 
     Both buttons are secondary. One button per tab is the coloured one:
     Generate before a batch is open, Save results once it is.
@@ -514,8 +514,8 @@ def _worked_out_boxes(opt):
 
 
 def _prefilled_unchanged(opt):
-    """True while the boxes still hold exactly what Start from the best so
-    far typed into them. A number the reader has since changed is theirs,
+    """True while the boxes still hold exactly what Start from Best so far
+    typed into them. A number the reader has since changed is theirs,
     and the caution on the way in belongs to it."""
     prefilled = st.session_state.get(_PREFILLED_AMOUNTS)
     if not prefilled:
@@ -911,7 +911,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
     # One line, and it follows the box: the file a tick produces has no
     # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
-    # names are behind the button's "?".
+    # names are behind the button's "?", which follows the box too.
     st.caption(wording.for_project(opt, wording.workbook_line(print_pack)))
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
@@ -922,7 +922,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
         type="primary" if lit else "secondary",
         use_container_width=True,
         on_click=_sheets_are_out,
-        help=wording.for_project(opt, wording.WORKBOOK_TABS_HELP),
+        help=wording.for_project(opt, wording.workbook_tabs_help(print_pack)),
     )
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
@@ -1432,7 +1432,7 @@ def render(opt, storage, tab_open=False):
     Every step below the table reserves its position in a container; the
     question is asked first, then the slots are filled.
 
-    And `Add to this batch` and `Start from the best so far` both end in
+    And `Add to this batch` and `Start from Best so far` both end in
     st.rerun(), while Streamlit discards the session-state entry of every
     widget the run did not create — so an expander that reruns before the
     result grid exists took every measurement, note and Not-made tick

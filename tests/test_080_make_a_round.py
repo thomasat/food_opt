@@ -72,6 +72,8 @@ def test_the_round_table_on_screen_has_compared_with_second(four):
     frame = at.tabs[1].dataframe[0].value
     assert list(frame.columns)[:3] == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
                                        four.compared_with_column()]
+    # The screen names two of the three changes (review M14).
+    assert frame[four.compared_with_column()].iloc[0].count(",") == 1
 
 
 # ------------------------------------------------------------------ #
@@ -89,6 +91,22 @@ def test_a_likely_range_over_three_quarters_of_the_range_is_too_uncertain():
     assert cells["Juiciness"].iloc[0] == "5.0 (3.0–7.0)" and tips["Juiciness"].iloc[0] == ""
     assert cells["Cook loss"].iloc[0] != wording.TOO_UNCERTAIN
     assert cells.shape == tips.shape and list(cells.columns) == list(tips.columns)
+
+
+def test_a_too_uncertain_cell_keeps_its_numbers_in_the_tooltip(four, monkeypatch):
+    """On screen, not only in the frame: the cell says "too uncertain yet"
+    and its tooltip carries the numbers (planning ruling 6)."""
+    no = four.pending_batch[0]['formulation']
+    wide = {no: {insights.SCORE: insights.Prediction(5.0, 3.0, 7.0),
+                 "Firmness": insights.Prediction(5.0, 1.0, 9.0)}}     # 8 of 10
+    monkeypatch.setattr(ui_batch, "_round_predictions", lambda opt: wide)
+    at = _on_batch(_app())
+    assert not at.exception
+    [fold] = [e for e in at.tabs[1].expander if e.label == wording.PREDICTED_MEASUREMENTS]
+    table = fold.table[0]
+    column = four._measurement_column(four.objectives[0])
+    assert table.value[column].iloc[0] == wording.TOO_UNCERTAIN
+    assert 'content: "5.0 (1.0–9.0)"' in table.proto.arrow_data.styler.styles
 
 
 # ------------------------------------------------------------------ #
@@ -118,6 +136,19 @@ def test_the_more_label_says_not_scored_and_the_draft_is_kept(open_batch):
     assert wording.more_label(True) in labels
     assert FoodOptimizer("burger").result_drafts[1]["not_scored"] is True
     assert at.text_input(key="f1_note").value == "burnt"
+
+
+def test_the_more_fold_opens_on_the_not_scored_tick(open_batch):
+    """Review M11: a tick with no note still opens the fold, so the greyed
+    boxes above it have a visible reason."""
+    at = _app()
+    at.run()
+    at.checkbox(key="f1_leave_out").check()
+    at.run()
+    assert not at.exception
+    fold = next(e for e in at.tabs[1].expander if e.label == wording.more_label(True))
+    assert fold.proto.expanded
+    assert not next(e for e in at.tabs[1].expander if e.label == wording.MORE).proto.expanded
 
 
 def test_a_note_alone_shows_in_the_label(open_batch):
@@ -152,6 +183,30 @@ def test_one_workbook_line_that_follows_the_box(open_batch):
     assert wording.workbook_line(True) in [c.value for c in at.tabs[1].caption]
 
 
+def test_the_download_help_follows_the_box(open_batch):
+    """Review I-2 (Task 3): ticked, the file has no Round overview,
+    Preparation or Results sheet, so the "?" must not say it has."""
+    import io
+    from openpyxl import load_workbook
+    def download_help():
+        return next(b for b in at.tabs[1].get("download_button")
+                    if "download_batch_sheets" in b.proto.id).proto.help
+    at = _app()
+    at.run()
+    assert download_help() == wording.WORKBOOK_TABS_HELP
+    at.checkbox(key="workbook_print_pack").check()
+    at.run()
+    help_text = download_help()
+    assert help_text == wording.workbook_tabs_help(True)
+    assert not help_text.startswith("The workbook has three sheets")
+    # What it says is what the file holds.
+    book = load_workbook(io.BytesIO(open_batch.workbook_bytes(
+        open_batch.pending_batch, print_pack=True)))
+    sheets = [ws.title for ws in book.worksheets if ws.sheet_state == "visible"]
+    assert wording.RESULTS_SHEET not in sheets and wording.OVERVIEW_SHEET not in sheets
+    assert wording.batch_sheet_name(open_batch.pending_batch_no) in sheets
+
+
 def test_the_edit_formulations_captions_are_gone(open_batch):
     open_batch.set_records("actual", True)
     at = _app()
@@ -166,6 +221,8 @@ def test_lot_numbers_are_in_a_fold(open_batch):
     at = _app()
     at.run()
     assert wording.LOT_ENTRY_HEADING in [e.label for e in at.tabs[1].expander]
+    assert not next(e for e in at.tabs[1].expander
+                    if e.label == wording.LOT_ENTRY_HEADING).proto.expanded     # V14
     assert f"**{wording.LOT_ENTRY_HEADING}**" not in [m.value for m in at.tabs[1].markdown]
 
 

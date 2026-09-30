@@ -4596,6 +4596,16 @@ def workbook_line(print_pack=False):
 
 WORKBOOK_TABS_HELP = ("The workbook has three sheets: Round overview, Preparation and Results. "
                       "Tick “Include individual formulation pages” for one printable page each.")
+
+
+def workbook_tabs_help(print_pack=False):
+    """The download's "?", which follows the box as workbook_line does: the
+    file a tick produces has no Round overview, Preparation or Results sheet."""
+    if print_pack:
+        return (f"The workbook has one {ROUND_CAP} sheet and one printable page per "
+                f"{FORMULATION}. Without the tick it has three sheets: {OVERVIEW_SHEET}, "
+                f"{PREPARATION_SHEET} and {RESULTS_SHEET}.")
+    return WORKBOOK_TABS_HELP
 RECORD_RESULTS_LINE = ("One number per measurement; the panel mean where a panel rated it. "
                        "Leave blank if the result isn't in yet; you can add it later on Results.")
 NOT_SCORED_TICK_HELP = f"Tick only if this {FORMULATION} failed and will never be scored."

@@ -64,6 +64,7 @@ def _new_lines():
         w.TOO_UNCERTAIN, w.START_FROM_BEST_SO_FAR, w.HOW_CHOSEN_2, w.still_covering(5),
         w.waiting_line(1, "Cook loss"), w.waiting_line(2, "Cook loss and Aroma", True),
         w.waiting_line(3, ""), w.workbook_line(), w.workbook_line(True), w.WORKBOOK_TABS_HELP,
+        w.workbook_tabs_help(True),
         w.RECORD_RESULTS_LINE, w.NOT_SCORED_TICK_HELP, w.more_label(), w.more_label(True),
         w.more_label(False, True),
         w.BEST_RULE, w.BEST_RULE_WITHOUT, w.overall_score_line(90.45, 100),

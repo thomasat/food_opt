@@ -1665,8 +1665,9 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     from ui_setup import HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    # Spec 2026-09-30 §3 (review M2): "cover", not "spread out". The How it
-    # works bullet follows in the words sweep (Task 9).
+    # Spec 2026-09-30 §3 (review M2): "cover", not "spread out", in the
+    # caption and in the How it works bullet alike.
+    assert wording.HOW_CHOSEN_2 in HOW_IT_WORKS
     assert wording.HOW_CHOSEN_2 == (
         "Until five formulations have results, new ones cover the allowed "
         "amounts. After that, each Round aims closer to your targets."), wording.HOW_CHOSEN_2
