@@ -256,7 +256,7 @@ def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
     if hit and hit[0] == key:
         return hit[1]
     if bar is not None:
-        bar.progress(0.0, text=_say(opt, wording.CHECKING))
+        bar.progress(0.0, text=_say(opt, wording.insights_progress(0, len(_checked(opt)))))
     quiet = bar is not None or working is None
     with (contextlib.nullcontext() if quiet else st.spinner(working)), \
             insights.memo_in_use(memo(opt)):
@@ -269,15 +269,22 @@ def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
     return value
 
 
+def _checked(opt):
+    """The Rounds that get a check, in order: the count on the one line."""
+    return [r for r, first in insights.round_order(opt) if first >= insights.MIN_ROWS]
+
+
 def _stepper(opt, bar):
     """check_rounds' `checking`: moves the one progress bar on as each Round
-    is checked (0.8.0 review fixes §6, §9 I11)."""
-    order = [r for r, _ in insights.round_order(opt)]
+    is checked (0.8.0 review fixes §6, §9 I11), with the count the workers'
+    line shows (Plan A review C I-1): "3 of 9 Rounds checked…"."""
+    order = _checked(opt)
 
     @contextlib.contextmanager
     def checking(r, last):
-        bar.progress(min(1.0, (order.index(r) + 1) / (len(order) + 1)),
-                     text=_say(opt, wording.CHECKING))
+        done = order.index(r) if r in order else 0
+        bar.progress(min(1.0, (done + 1) / (len(order) + 1)),
+                     text=_say(opt, wording.insights_progress(done, len(order))))
         yield
     return checking
 
@@ -473,7 +480,7 @@ def warm_best(opt):
     if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
         return
     hit = st.session_state.get(BEST_KEY)
-    if (hit and hit[0] == insights.setup_key(opt)) or waiting(opt, "column"):
+    if (hit and hit[0] == insights.setup_key(opt)) or not _in_memo(opt, "column"):
         return
     checks = _partial_checks(opt, "column")
     with insights.memo_in_use(memo(opt)):
@@ -542,26 +549,32 @@ def _seen(opt, stages):
     return tuple(not waiting(opt, stage) for stage in stages)
 
 
+def _in_memo(opt, stage):
+    """Whether every model `stage` needs is in the memo — fitted, not merely
+    no longer waited for (a failed pool stops the waiting too)."""
+    return insights_jobs.ready(insights_jobs.stage_specs(opt, _plan(opt), stage), memo(opt))
+
+
 def _catch_up(opt):
     """Work out here, from the workers' models, what the tab would otherwise
     work out when it is opened: the predicted best once the Overall score's
-    models are in, then every check once everything is in — conditioning
-    only, about a second in all — and write it beside the project. Only
-    with workers; in a script run of this session, so never beside ask()
-    (review B2)."""
+    models are in the memo, then every check once all of them are —
+    conditioning only, about a second in all — and write it beside the
+    project. Never a fit: when the workers fail, what is missing is fitted
+    by the screen that shows it, behind its own indicator (Plan A review C
+    I-1). Only with workers; in a script run of this session."""
     if not insights_jobs.workers_on():
         return
-    if not waiting(opt, "column"):
+    if _in_memo(opt, "column"):
         warm_best(opt)
-    if not waiting(opt, "all") and _cached(opt) is None:
+    if _in_memo(opt, "all") and _cached(opt) is None:
         _computed(opt, quiet=True)
         save(opt)
 
 
-def _caught_up(opt):
-    hit = st.session_state.get(BEST_KEY)
-    return (not waiting(opt, "all") and _cached(opt) is not None
-            and bool(hit) and hit[0] == insights.setup_key(opt))
+def _in_flight(opt):
+    """Whether the workers are still fitting this project's data."""
+    return start(opt) is not None
 
 
 def keep_up(opt, stages=()):
@@ -572,17 +585,27 @@ def keep_up(opt, stages=()):
     disturbed — and rerun the page the moment one more part of the open
     screen (`stages`, the parts it draws) is in: each part is drawn once,
     final. Nothing without workers."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
+    if opt is None or opt.complete_count() < insights.MIN_ROWS:
+        return
+    drawn = st.session_state.pop(SEEN_KEY, None)
+    if not insights_jobs.workers_on():
+        # The workers were given up on while the page was drawn with a part
+        # still waiting for them: draw it again, fitted here behind the
+        # screen's own indicator (Plan A review C I-1). Once: drawing()
+        # marks nothing without workers.
+        if drawn is not None and not all(drawn):
+            st.rerun()
         return
     _catch_up(opt)
-    drawn, now = st.session_state.get(SEEN_KEY), _seen(opt, stages)
+    now = _seen(opt, stages)
     st.session_state[SEEN_KEY] = now
     if drawn is not None and len(drawn) == len(now) and drawn != now:
         # A part landed while the page was being drawn (drawing() marked
-        # what it was drawn from): the screen shows it in one more run
-        # instead of keeping the older state until the next click.
+        # what it was drawn from), or the workers failed and it is now
+        # fitted here: one more run shows it instead of keeping the older
+        # state until the next click.
         st.rerun()
-    if not _caught_up(opt):
+    if _in_flight(opt):
         _poller(opt, tuple(stages))
 
 
@@ -596,10 +619,18 @@ def drawing(opt, stages=()):
     st.session_state[SEEN_KEY] = _seen(opt, stages)
 
 
+def _poll_step(opt, stages):
+    """One look by the poller: catch up, then whether to rerun the page —
+    when a part of the open screen landed, or when nothing is in flight any
+    more, so the fragment (which only a full run stops calling) stops and
+    no screen polls once everything is in (Plan A review C I-3)."""
+    _catch_up(opt)
+    return not _in_flight(opt) or _seen(opt, stages) != st.session_state.get(SEEN_KEY)
+
+
 @st.fragment(run_every=POLL_SECS)
 def _poller(opt, stages):
-    _catch_up(opt)
-    if _seen(opt, stages) != st.session_state.get(SEEN_KEY):
+    if _poll_step(opt, stages):
         st.rerun()
 
 
@@ -664,10 +695,11 @@ def render(opt):
         _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below)
         _how(opt, None)
         return
+    cold = _cached(opt) is None
     computed = _computed(opt, bar)
-    bar.empty()
     if computed.get("failed"):
         # The model answers come off; one line says so, where the bar was.
+        bar.empty()
         bar.caption(_say(opt, wording.INSIGHTS_FAILED))
         _how(opt, None)
         return
@@ -676,7 +708,10 @@ def render(opt):
     yard = insights.noise_yardstick(opt, checks)
     _restate(opt, lines, first_yard, yard)
     with rest:
-        standing = _stand(opt, computed, yard)
+        # The bar, when it showed, stays up through the predicted best's
+        # search: one indicator per wait (V28, Plan A review C M-2).
+        standing = _stand(opt, computed, yard, spinner=not cold)
+    bar.empty()
     with nxt:
         _question(opt, wording.Q_NEXT)
         step = insights.next_step(opt, checks, standing)
@@ -1328,7 +1363,7 @@ def standing_text(opt, standing, yard):
     return wording.stand_not_higher(by, mean, low, high, standing.close_no)
 
 
-def _stand(opt, computed, yard):
+def _stand(opt, computed, yard, spinner=True):
     """Answer 2 after line 1 (render draws that first, §2.3, review I15):
     the predicted best against Best so far (line 2), what it sits at (line
     3), the luck line, and its amounts in a fold only when it is clearly
@@ -1339,7 +1374,8 @@ def _stand(opt, computed, yard):
     if score is None or score.model is None:
         st.caption(_say(opt, wording.BEST_FAILED))
         return None
-    best = _predicted_best(opt, fitted, computed["checks"], spinner=not computed.get("partial"))
+    best = _predicted_best(opt, fitted, computed["checks"],
+                           spinner=spinner and not computed.get("partial"))
     if isinstance(best, str):
         st.caption(_say(opt, best))
         return None

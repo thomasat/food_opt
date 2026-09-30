@@ -80,6 +80,37 @@ def _texts(at):
             + [e.label for e in tab.expander])
 
 
+def _spinners(monkeypatch):
+    """Every st.spinner entered from now on (AppTest drops a spinner once
+    its block exits, so the element tree cannot tell; review C I-4)."""
+    import streamlit as st
+    seen = []
+    real = st.spinner
+
+    def spinner(text="", *a, **k):
+        # The triangle in the collapsed "More charts" fold has a spinner of
+        # its own for its own work, once it is drawn: not a wait of the tab.
+        import inspect
+        if not any(f.function == "_mixture_cached" for f in inspect.stack()):
+            seen.append(text)
+        return real(text, *a, **k)
+    monkeypatch.setattr(st, "spinner", spinner)
+    return seen
+
+
+def _bars(monkeypatch):
+    """Every progress bar's text from now on."""
+    from streamlit.delta_generator import DeltaGenerator
+    texts = []
+    real = DeltaGenerator.progress
+
+    def progress(self, value, text=None, **k):
+        texts.append(text)
+        return real(self, value, text=text, **k)
+    monkeypatch.setattr(DeltaGenerator, "progress", progress)
+    return texts
+
+
 def _seed(at, opt, stage):
     """This session's memo holding exactly what `stage` needs."""
     memo = {}
@@ -155,7 +186,9 @@ def test_the_cache_holds_what_this_data_uses_and_no_more(five_rounds, monkeypatc
 #  Task 9: the tab fills in part by part, behind one progress line
 # ------------------------------------------------------------------ #
 
-def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_rounds):
+def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_rounds,
+                                                                     monkeypatch):
+    spins = _spinners(monkeypatch)
     at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     assert not at.exception
     [bar] = at.tabs[3].get("progress")
@@ -166,7 +199,7 @@ def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_r
     for later in (wording.Q_TRUST, wording.Q_NEXT, wording.MORE_CHARTS):
         assert later not in texts
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
-    assert at.tabs[3].get("spinner") == []
+    assert spins == []
 
 
 def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
@@ -181,16 +214,17 @@ def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
     assert len(at.tabs[3].get("progress")) == 1
 
 
-def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds):
+def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, monkeypatch):
     at = _app(five_rounds.project_name)
     at.run()
     _seed(at, five_rounds, "stand")
+    spins = _spinners(monkeypatch)
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     texts = " ".join(_texts(at))
     assert f"**{wording.Q_TRUST}**" in texts and f"**{wording.Q_NEXT}**" in texts
     assert wording.MORE_CHARTS not in texts
-    assert at.tabs[3].get("spinner") == []
+    assert spins == []                  # the predicted best's search has no spinner of its own
 
 
 def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatch):
@@ -275,6 +309,161 @@ def test_a_part_that_lands_while_the_page_is_drawn_is_drawn_by_one_more_run(
     assert not at.exception and landed
     assert wording.MORE_CHARTS in _texts(at)
     assert at.tabs[3].get("progress") == []
+
+
+# ------------------------------------------------------------------ #
+#  Plan A review C I-1, I-3, I-4: workers that fail hand the tab to the
+#  in-process path with its one counted bar, nothing is fitted quietly
+#  on another tab, and the poller stops once nothing is in flight
+# ------------------------------------------------------------------ #
+
+def _fits(monkeypatch, where=None):
+    """(name, rows) of every model fitted from now on; `where`, a list
+    whose last item says what is running, tags each fit."""
+    got = []
+    real = insights._fit_gp
+
+    def fit_gp(opt, name, rows):
+        got.append((name, len(rows), where[-1] if where else None))
+        return real(opt, name, rows)
+    monkeypatch.setattr(insights, "_fit_gp", fit_gp)
+    return got
+
+
+def test_workers_that_fail_mid_fill_fit_nothing_quietly_on_another_tab(
+        stuck, five_rounds, monkeypatch):
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "column")
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()                                             # filling, workers fitting
+    insights_jobs.current_job(five_rounds).failed = True    # a worker died
+    fits = _fits(monkeypatch)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    assert fits == []                                    # nothing fitted on Results
+
+
+def test_workers_that_fail_mid_fill_hand_insights_to_the_counted_bar(
+        stuck, five_rounds, monkeypatch):
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "column")
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    insights_jobs.current_job(five_rounds).failed = True
+    where = ["page"]
+    real = ui_insights._catch_up
+
+    def catch_up(opt):
+        where.append("catch-up")
+        try:
+            real(opt)
+        finally:
+            where.pop()
+    monkeypatch.setattr(ui_insights, "_catch_up", catch_up)
+    fits = _fits(monkeypatch, where)
+    bars, spins = _bars(monkeypatch), _spinners(monkeypatch)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    assert wording.MORE_CHARTS in _texts(at)             # the whole tab, fitted here
+    assert fits and not [f for f in fits if f[2] == "catch-up"]
+    total = insights_jobs.rounds_done(five_rounds, insights_jobs.plan(five_rounds), {})[1]
+    assert bars and all(t is not None and t.startswith("Checking predictions against your "
+                                                       "results: ") and t.endswith(
+        f"of {total} Rounds checked…") for t in bars)
+    assert spins == []                                   # one indicator (review C M-2)
+
+
+def test_workers_that_stop_while_the_page_is_drawn_rerun_it_once(stuck, five_rounds,
+                                                                 monkeypatch):
+    """Review C I-1's rarer variant: the workers are given up on between
+    the filling draw and keep_up; the page is drawn again, here."""
+    at = _app(five_rounds.project_name)
+    at.run()
+    real = ui_insights._fill_in
+    stopped = []
+
+    def fill_in(*a, **k):
+        real(*a, **k)
+        if not stopped:
+            stopped.append(1)
+            monkeypatch.setattr(insights_jobs, "_GAVE_UP", True)
+            monkeypatch.setattr(insights_jobs, "workers_on", lambda: False)
+    monkeypatch.setattr(ui_insights, "_fill_in", fill_in)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception and stopped
+    assert wording.MORE_CHARTS in _texts(at)
+
+
+def test_the_poller_polls_while_fits_are_in_flight_and_stops_once_they_are_in(
+        stuck, five_rounds, monkeypatch):
+    """Review C I-3, I-4: the poller's own step says "rerun" once nothing
+    is in flight, whichever tab is open, so its fragment stops; a full run
+    with nothing in flight starts no poller."""
+    steps = []
+
+    def poller(opt, stages):
+        steps.append(ui_insights._poll_step(opt, stages))
+        if len(steps) == 1:                              # then everything lands
+            insights_jobs.compute_inline(opt, ui_insights.memo(opt), insights_jobs.plan(opt))
+            steps.append(ui_insights._poll_step(opt, stages))
+    monkeypatch.setattr(ui_insights, "_poller", poller)
+    at = _app(five_rounds.project_name)
+    at.run()                                             # Results: stages ()
+    assert steps == [False, True]
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert steps == [False, True]                        # nothing in flight: no poller
+
+
+def test_make_a_round_never_fits_for_the_track_line(five_rounds, monkeypatch):
+    """Review C I-4: without workers and with Insights never opened, Make a
+    round fits its column's models (the current ones and every Round's
+    Overall-score check) and nothing for the track line: no measurement
+    Round check, and no line."""
+    _with_open_round(five_rounds)
+    calls = []
+    real = insights.check_rounds
+
+    def check_rounds(opt, *a, **k):
+        calls.append(k.get("only"))
+        return real(opt, *a, **k)
+    monkeypatch.setattr(insights, "check_rounds", check_rounds)
+    models = []
+    real_fit = insights.fit
+
+    def fit(opt, name, rows):
+        models.append((name, len(rows)))
+        return real_fit(opt, name, rows)
+    monkeypatch.setattr(insights, "fit", fit)
+    at = _open(_app(five_rounds.project_name), wording.TAB_BATCH)
+    assert not at.exception
+    every = len(five_rounds.Y_history)
+    assert models and all(name == insights.SCORE or rows == every for name, rows in models)
+    assert calls and all(only is not None and {n for _, n in only} == {insights.SCORE}
+                         for only in calls)
+    assert not [c.value for c in at.tabs[1].caption if c.value.startswith("Recent Rounds")]
+
+
+def test_answer_1_waits_when_a_verdict_rounds_fit_failed(stuck, five_rounds):
+    """Review C I-4: the settled guard. A measurement check in the
+    verdict's Rounds failed, so the Rounds the verdict reads may not be the
+    planned ones: answer 1 waits for everything."""
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "trust")
+    memo = at.session_state[ui_insights.MEMO_KEY][1]
+    specs = insights_jobs.stage_specs(five_rounds, insights_jobs.plan(five_rounds), "trust")
+    window = next(s for s in specs if s.name != insights.SCORE and s.stage != insights_jobs.NOW)
+    memo[window.key] = {"error": "no fit"}
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    assert f"**{wording.Q_TRUST}**" not in _texts(at)
 
 
 # ------------------------------------------------------------------ #

@@ -862,7 +862,7 @@ def _show_predictions(opt, later):
     with notes:
         line = ui_insights.track_line(opt)
         if line:
-            st.caption(line)
+            st.caption(wording.for_project(opt, line))
         if _a_suggestion_below_best(opt, preds):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
                 values=not opt.has_ingredients())))

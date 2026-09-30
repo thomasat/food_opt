@@ -196,10 +196,12 @@ def test_one_progress_bar_while_the_models_and_rounds_are_worked_out(insights_sc
     # The fit, then Round 3 (6 rows before it), rising, one line throughout.
     assert [v for v, _ in steps] == sorted(v for v, _ in steps)
     assert len(steps) == 2 and steps[0][0] == 0.0
-    assert {t for _, t in steps} == {wording.CHECKING}
+    # One line with its count, as the workers' line reads (Plan A review C I-1).
+    assert [t for _, t in steps] == [wording.insights_progress(0, 1)] * 2
     assert not [t for t in spins if t.startswith("Checking")]
-    # Only question 4's own search keeps a spinner, under its heading.
-    assert spins.count(wording.INSIGHTS_WORKING) == 1
+    # The predicted best's search runs under the same bar: no second
+    # indicator after it (V28, Plan A review C M-2).
+    assert spins.count(wording.INSIGHTS_WORKING) == 0
     assert ui_insights.ROUNDS_KEY in at.session_state
     steps.clear()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
@@ -211,7 +213,9 @@ def test_the_bar_reads_the_same_on_a_process_only_project(ferment_scored, monkey
     steps, _ = _progress_steps(monkeypatch)
     at = _open_insights(_app())
     assert not at.exception
-    assert {t for _, t in steps} == {wording.CHECKING}
+    assert [t for _, t in steps] == [wording.insights_progress(0, 2),
+                                     wording.insights_progress(0, 2),
+                                     wording.insights_progress(1, 2)]
     assert len(steps) == 3                                  # the fit, Rounds 3 and 4
 
 

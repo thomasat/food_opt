@@ -886,7 +886,9 @@ def _insights_stages():
     if tab_insights.open:
         return ("column", "trust", "stand", "all")
     if tab_batch.open and open_rows(_opt):
-        return ("column", "trust", "now")
+        # "all" too: after a failed fit in the verdict's Rounds the track
+        # line waits for everything (Plan A review C M-3).
+        return ("column", "trust", "now", "all")
     return ()
 
 
