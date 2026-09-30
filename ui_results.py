@@ -195,10 +195,8 @@ def _progress_line(opt):
     # so far against the next highest, by the I5 yardstick. A tie made by a
     # late Cook loss or a correction is said here, not only in the flash.
     ranked = sorted(pool, key=lambda i: float(opt.Y_history[i]), reverse=True)
-    # Its partner is the next highest DIFFERENT formulation: a Repeat of
-    # Best so far is the same make-up, never a tie (Plan B parked item).
-    others = [i for i in ranked[1:] if not _same_formulation(opt, ranked[0], i)]
-    tie = _tie(opt, others[0], ranked[0]) if others else ""
+    partner = _tie_partner(opt, ranked[0])
+    tie = _tie(opt, partner, ranked[0]) if partner is not None else ""
     if tie:
         return tie
     earlier = [float(opt.Y_history[i]) for i in pool
@@ -220,6 +218,15 @@ def _yardstick(opt):
     2026-09-30 review I5, M18): the checks Insights has already worked out
     leave a disagreeing Repeat out; Results never checks Rounds itself."""
     return insights.noise_yardstick(opt, ui_insights.cached_checks(opt))
+
+
+def _tie_partner(opt, best):
+    """The row Best so far (row `best`) is compared with for a tie: the next
+    highest DIFFERENT formulation — a Repeat of it is the same make-up,
+    never a tie (Plan B parked item). The line and the flash both ask
+    here, so they never disagree (re-review R-2). None without one."""
+    ranked = sorted(opt.best_candidates(), key=lambda i: float(opt.Y_history[i]), reverse=True)
+    return next((i for i in ranked if i != best and not _same_formulation(opt, best, i)), None)
 
 
 def _same_formulation(opt, i, j):
@@ -256,7 +263,8 @@ def _move_sentence(opt, before, after):
     old, new = opt.index_of_formulation(before), opt.index_of_formulation(after)
     if old is None or new is None:
         return move
-    return _tie(opt, old, new) or move
+    partner = _tie_partner(opt, new)
+    return (_tie(opt, partner, new) if partner is not None else "") or move
 
 
 def _best(opt):

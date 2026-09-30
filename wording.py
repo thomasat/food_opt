@@ -4577,15 +4577,16 @@ HOW_WIDENED = ("Likely range widened by: how much each likely range was widened 
 
 def score_widen_text(own, top):
     """The Overall-score row of the details table (ruling M5, final review
-    I-2): its own fit's widening, then the one every Overall-score range on
-    screen carries on top of it — '×1.3 · ×2.5 at the top'."""
-    return f"{widen_text(own)} · {widen_text(top)} at the top"
+    I-2, re-review R-1): its own fit's widening, then the further one the
+    predicted best and new formulations carry —
+    '×1.3 · ×2.5 for the predicted best and new formulations'."""
+    return f"{widen_text(own)} · {widen_text(top)} for the predicted best and new {FORMULATION}s"
 
 
-HOW_WIDENED_SCORE = (f"For the {OVERALL_SCORE_COLUMN}, the second number is the widening added "
-                     f"at the top from how far earlier {ROUND_CAP}s' {OVERALL_SCORE_COLUMN}s "
-                     "missed; every likely range for it on this tab and on "
-                     f"{TAB_BATCH_NAME} carries both.")
+HOW_WIDENED_SCORE = (f"For the {OVERALL_SCORE_COLUMN}, the second number is a further widening, "
+                     f"from how far earlier {ROUND_CAP}s' {OVERALL_SCORE_COLUMN}s missed. The "
+                     "predicted best, Best so far's predicted Repeat and the "
+                     f"{OVERALL_SCORE_COLUMN} column on {TAB_BATCH_NAME} carry both.")
 HOW_REPEATS_COMPARED = ("The last column compares the typical miss with the typical difference "
                         "between a formulation and its Repeat, so “about the same” means the "
                         "predictions miss by no more than Repeats differ.")

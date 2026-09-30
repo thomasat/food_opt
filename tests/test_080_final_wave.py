@@ -31,7 +31,8 @@ def test_the_overall_score_row_shows_both_widenings(monkeypatch):
     monkeypatch.setattr(insights, "column_factor", lambda o, c: 2.5)
     score = SimpleNamespace(name=insights.SCORE, widen=1.3)
     firm = SimpleNamespace(name="Firmness", widen=1.3)
-    assert ui_insights.widen_cell(opt, score, []) == "×1.3 · ×2.5 at the top"
+    assert ui_insights.widen_cell(opt, score, []) == (
+        "×1.3 · ×2.5 for the predicted best and new formulations")
     assert ui_insights.widen_cell(opt, firm, []) == "×1.3"
     monkeypatch.setattr(insights, "column_factor", lambda o, c: 1.0)
     assert ui_insights.widen_cell(opt, score, []) == "×1.3"          # nothing on top
@@ -55,9 +56,20 @@ def test_the_how_table_carries_the_factor_the_screens_use():
     cells = dict(zip(table.value[wording.DETAILS_COLUMNS_2[0]],
                      table.value[wording.DETAILS_COLUMNS_2[5]]))
     [score_cell] = [v for k, v in cells.items() if k == wording.OVERALL_SCORE_COLUMN]
-    assert score_cell.endswith(f"· {wording.widen_text(top)} at the top")
+    assert score_cell.endswith(f"· {wording.widen_text(top)} for the predicted best and "
+                               "new formulations")
     captions = [c.value for c in at.tabs[3].caption]
     assert wording.HOW_WIDENED_SCORE in captions
+
+
+def test_the_caption_names_only_what_carries_both_widenings():
+    """Re-review R-1: the path chart carries the fit's own widening only;
+    the caption names what carries both, in plain words."""
+    assert wording.HOW_WIDENED_SCORE == (
+        "For the Overall score, the second number is a further widening, from how far "
+        "earlier Rounds' Overall scores missed. The predicted best, Best so far's predicted "
+        "Repeat and the Overall score column on Make a round carry both.")
+    assert "at the top" not in wording.score_widen_text(1.3, 2.5)
 
 
 def test_the_widening_words_pass_the_guard():
@@ -225,6 +237,15 @@ def test_the_tie_partner_is_the_next_highest_different_formulation():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
     assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3)
+
+
+def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
+    """Re-review R-2: the flash uses the line's partner, the next highest
+    different formulation — never the Repeat's own original."""
+    import ui_results
+    opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
+    line = ui_results._progress_line(opt)
+    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3)
 
 
 def test_an_exact_tie_is_said_as_a_tie():

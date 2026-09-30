@@ -1943,10 +1943,10 @@ def _how(opt, computed):
             columns[2]: r.inside,
             columns[3]: f"± {_num(r.half_width)}",
             columns[4]: _num(r.typical_miss),
-            columns[5]: widen_cell(opt, r, checks),
+            columns[5]: _say(opt, widen_cell(opt, r, checks)),
             columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs),
         } for r in rows]), hide_index=True, height=table_height(len(rows)))
-        top = any(r.name == insights.SCORE and widen_cell(opt, r, checks).endswith("at the top")
+        top = any(r.name == insights.SCORE and " · " in widen_cell(opt, r, checks)
                   for r in rows)
         for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
                      wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
