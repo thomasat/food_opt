@@ -156,8 +156,10 @@ def fit_xy(build, X, Y):
 
 def xy(opt, name, rows):
     """(X, Y) of `rows` for `name`: the encoded make-ups normalised to the
-    rows' Lowest-Highest, and the measured values as a column."""
-    X = normalize(torch.tensor([opt.X_history[i] for i in rows], dtype=torch.double),
+    rows' Lowest-Highest, and the measured values as a column. The make-ups
+    are model_X's: a formulation made off the Formulation total is learned
+    at the total, as the suggestions learn it (spec 2026-09-30-bo-views §1)."""
+    X = normalize(torch.tensor(opt.model_X(rows), dtype=torch.double),
                   opt._get_bounds())
     Y = torch.tensor([measured(opt, name, i) for i in rows],
                      dtype=torch.double).unsqueeze(-1)
@@ -322,7 +324,10 @@ def _model_settings(opt):
     (their Ranges, goals and shares, so the Overall score too), an expert's
     model settings, and the rows' Lowest-Highest and encoding."""
     return {"objectives": opt.objectives, "cfg": getattr(opt, "bo_config", None),
-            "bounds": opt._get_bounds().tolist()}
+            "bounds": opt._get_bounds().tolist(),
+            # model_X places a row made off the total at the total: a new
+            # total moves those rows (review I11).
+            "total": getattr(opt, "formulation_total", None)}
 
 
 def data_key(opt):
@@ -382,11 +387,12 @@ class Check:
 
 
 def _row_key(opt, i):
-    """One recorded row as a Round-ahead check sees it: its encoded make-up,
-    its Overall score, its results and its Formulation number (which
-    decides the measurements that apply to it)."""
+    """One recorded row as a Round-ahead check sees it: its make-up as the
+    models learn it (model_X, review I11), its Overall score, its results
+    and its Formulation number (which decides the measurements that apply
+    to it)."""
     at = lambda seq: seq[i] if i < len(seq) else None
-    return _digest([opt.X_history[i], opt.Y_history[i], at(opt.results_history),
+    return _digest([opt.model_X([i])[0], opt.Y_history[i], at(opt.results_history),
                     at(opt.formulation_ids), opt.is_set_aside(i)])
 
 
@@ -415,7 +421,9 @@ def _check_round(opt, r, first, names):
             continue
         rows = [i for i in targets if measured(opt, name, i) is not None]
         try:
-            preds = predict(opt, fitted, [opt.X_history[i] for i in rows])
+            # At the make-ups the models learn (model_X): a Round made at
+            # another batch size is predicted where it was made.
+            preds = predict(opt, fitted, opt.model_X(rows))
         except Exception:   # like a failed fit: no checks for this pair
             continue
         for i, p in zip(rows, preds):
@@ -850,14 +858,12 @@ def has_setting_choice(opt):
 def at_total(opt, recipe):
     """A formulation's make-up at the project's Formulation total: a row
     made to another batch size is brought back to the total, so a
-    prediction or a comparison never moves with the Batch size box."""
+    prediction or a comparison never moves with the Batch size box. The
+    same rule (off_total, 1 %) as the models' own inputs, model_X (spec
+    2026-09-30-bo-views §1, review B1)."""
     recipe = dict(recipe)
-    if opt.has_formulation_total():
-        total = float(opt.formulation_total)
-        own = opt.ingredient_total(recipe)
-        tolerance = total * opt.FORMULATION_TOTAL_TOLERANCE
-        if own > 0 and abs(own - total) > tolerance:
-            return opt.scaled_recipe(recipe, scale_to=total)
+    if opt.off_total(recipe):
+        return opt.scaled_recipe(recipe, scale_to=float(opt.formulation_total))
     return opt.fill_formulas(recipe)
 
 

@@ -1514,6 +1514,33 @@ def _build_covar(cfg, dim):
     return ScaleKernel(base)
 
 
+def _generated_totals_from(raw):
+    """batch_generated_totals from a saved file: {round: {formulation: sum}},
+    anything malformed left out."""
+    out = {}
+    for k, row in (raw or {}).items() if isinstance(raw, dict) else ():
+        try:
+            out[int(k)] = {int(n): float(t) for n, t in (row or {}).items()}
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return out
+
+
+def _generation_records_from(raw):
+    """round_generation from a saved file: {round: record}, anything
+    malformed left out."""
+    out = {}
+    for k, record in (raw or {}).items() if isinstance(raw, dict) else ():
+        try:
+            out[int(k)] = {"seed": int(record["seed"]),
+                           "rows": [int(n) for n in record["rows"]],
+                           "n": int(record["n"]), "regime": str(record["regime"]),
+                           "key": str(record.get("key") or "")}
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue
+    return out
+
+
 class FoodOptimizer:
     CLASS_VERSION = 17  # bump when adding methods/attrs to force session refresh
 
@@ -1522,6 +1549,11 @@ class FoodOptimizer:
     # continuous search can be held to exactly; half a percent is narrower
     # than any bench scale and wide enough that the search always has room.
     FORMULATION_TOTAL_TOLERANCE = 0.005
+    # 0.8.0 BO views (spec 2026-09-30-bo-views §1, review B1): a recorded
+    # formulation whose ingredients add up to more than this share off the
+    # Formulation total is learned AT the total. Twice the band, so a row
+    # the snap left at the band's edge (a float of 99.4999999) never counts.
+    MODEL_TOTAL_MARGIN = 2 * FORMULATION_TOTAL_TOLERANCE
 
     # How many space-filling points the opening looks at before it gives up
     # and asks the model. A batch that cannot be filled from the first pool
@@ -1610,6 +1642,13 @@ class FoodOptimizer:
         # was lost the moment the batch closed.
         self.pending_batch_total = None
         self.batch_totals = {}        # batch number -> the total it was made to
+        # 0.8.0 BO views, display metadata only (review B1, B4): the sum
+        # each formulation of a Round had before the Batch size box first
+        # re-sized it (round -> {formulation: sum}), and how each Round was
+        # generated (round -> {"seed", "rows", "n", "regime", "key"}).
+        # Neither is read by ask().
+        self.batch_generated_totals = {}
+        self.round_generation = {}
         # Lot numbers written on the sheets and read back: round number ->
         # {ingredient: the lot it was weighed from}. Empty until a sheet
         # comes back carrying them.
@@ -7233,7 +7272,11 @@ class FoodOptimizer:
                                               for recipe in self.recipe_history):
                     lo, hi = min(lo, float(absent)), max(hi, float(absent))
                 if hi <= lo:
-                    seen = [float(row[col]) for row in self.X_history
+                    # The rows as the models learn them (review B1): a
+                    # formulation made to another batch size is placed at
+                    # the Formulation total here too.
+                    seen = [float(row[col])
+                            for row in self.model_X(range(len(self.X_history)))
                             if col < len(row)]
                     lo, hi = min([lo] + seen), max([hi] + seen)
                     # A floor, not just "wider than zero": a history that
@@ -7677,13 +7720,95 @@ class FoodOptimizer:
                    for rec in candidates)
         return [rec for rec in snapped if rec is not None]
 
+    # ------------------------------------------------------------------ #
+    #  0.8.0 BO views (spec 2026-09-30-bo-views §1; review B1, M2): what
+    #  every model learns a recorded formulation as. One rule, shared by the
+    #  suggestions and Insights; the stored amounts are never changed.
+    # ------------------------------------------------------------------ #
+
+    def off_total(self, recipe):
+        """Whether `recipe`'s ingredients add up to more than
+        MODEL_TOTAL_MARGIN off the Formulation total. False without a
+        total (not rescaled in this wave: review B1) and for a formulation
+        that adds up to nothing."""
+        if not self.has_formulation_total():
+            return False
+        total = float(self.formulation_total)
+        own = self.ingredient_total({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)})
+        return own > 0 and abs(own - total) > self.MODEL_TOTAL_MARGIN * total
+
+    def _recorded_ingredient_total(self, index):
+        """ingredient_total(_recorded_recipe(index)) without decoding the
+        row: the ingredient columns of X_history plus the recorded formula
+        rows. None when a formula row was not recorded (then the row is
+        decoded after all)."""
+        vector = self.X_history[index]
+        recorded = (self.recipe_history[index]
+                    if index < len(self.recipe_history) else {})
+        total, col = 0.0, 0
+        for var in self.variables:
+            ingredient = var.get('category', 'ingredient') == 'ingredient'
+            if self.has_formula(var):
+                if ingredient:
+                    value = recorded.get(var['name'])
+                    if value is None:
+                        return None
+                    total += float(value)
+                continue
+            if var['type'] == 'continuous':
+                if ingredient:
+                    total += float(vector[col])
+                col += 1
+            elif var['type'] == 'categorical':
+                col += len(var['options'])
+        return total
+
+    def _row_off_total(self, index):
+        if not self.has_formulation_total():
+            return False
+        own = self._recorded_ingredient_total(index)
+        if own is None:
+            return self.off_total(self._recorded_recipe(index))
+        total = float(self.formulation_total)
+        return own > 0 and abs(own - total) > self.MODEL_TOTAL_MARGIN * total
+
+    def model_recipe(self, index):
+        """What the models learn formulation `index` as: its recorded
+        amounts (_recorded_recipe, so a setting added later reads its
+        absent value, review M2), brought to the Formulation total when
+        they are off it (off_total). The factor comes from scaled_recipe
+        (_scale_factor), never total ÷ batch size, so a formula row with a
+        constant lands on the total too. A categorical row's choice is kept
+        as it is. Process settings are never scaled."""
+        recipe = self._recorded_recipe(index)
+        if not self.off_total(recipe):
+            return recipe
+        words = {k: v for k, v in recipe.items() if isinstance(v, str)}
+        scaled = self.scaled_recipe({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)},
+                                    scale_to=float(self.formulation_total))
+        scaled.update(words)
+        return scaled
+
+    def model_X(self, rows):
+        """The encoded rows every model trains on (the one door, review
+        B1): X_history's own row for a formulation on the total (so every
+        project with no off-total row is bit-identical), the encoded
+        model_recipe for one made off it."""
+        return [self._encode(self.model_recipe(i)) if self._row_off_total(i)
+                else self.X_history[i] for i in rows]
+
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
         torch.manual_seed(self._ask_seed())
 
         waiting = set(self.waiting_rows())
         if not waiting:
-            train_X = torch.tensor(self.X_history, dtype=torch.double)
+            # model_X: a row made off the Formulation total is learned at
+            # the total (review B1); every other row is X_history's own.
+            train_X = torch.tensor(self.model_X(range(len(self.X_history))),
+                                   dtype=torch.double)
             train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
         else:
             # Only formulations with all their results: a missing
@@ -7691,8 +7816,7 @@ class FoodOptimizer:
             # learn the formulation as a bad one. qLogNEI's baseline and
             # qLogEI's best follow from these tensors.
             keep = [i for i in range(len(self.X_history)) if i not in waiting]
-            train_X = torch.tensor([self.X_history[i] for i in keep],
-                                   dtype=torch.double)
+            train_X = torch.tensor(self.model_X(keep), dtype=torch.double)
             train_Y = torch.tensor([self.Y_history[i] for i in keep],
                                    dtype=torch.double).unsqueeze(-1)
         train_X_norm = normalize(train_X, bounds_tensor)
@@ -8015,7 +8139,8 @@ class FoodOptimizer:
         lots = getattr(self, 'lots', None)
         if not isinstance(lots, dict):
             lots = self.lots = {}
-        if not totals and not lots:
+        if (not totals and not lots and not self._generated_totals()
+                and not self.generation_records()):
             return
         live = {int(b) for b in self.batch_history if b is not None}
         live |= {int(s[ROUND_FIELD]) for s in self.skipped
@@ -8026,6 +8151,9 @@ class FoodOptimizer:
             del totals[no]
         for no in [n for n in lots if int(n) not in live]:
             del lots[no]
+        for records in (self._generated_totals(), self.generation_records()):
+            for no in [n for n in records if int(n) not in live]:
+                del records[no]
 
     def last_batch_no(self):
         """The highest batch number in the recorded history. Left-out
@@ -8145,6 +8273,28 @@ class FoodOptimizer:
         if self.pending_batch_created is None:
             self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
 
+    def _generated_totals(self):
+        """batch_generated_totals, created for a session object made before
+        it was stored."""
+        made = getattr(self, 'batch_generated_totals', None)
+        if not isinstance(made, dict):
+            made = self.batch_generated_totals = {}
+        return made
+
+    def generation_records(self):
+        """round_generation, created for a session object made before it
+        was stored: {round: record} (review B4)."""
+        records = getattr(self, 'round_generation', None)
+        if not isinstance(records, dict):
+            records = self.round_generation = {}
+        return records
+
+    def record_generation(self, round_no, record):
+        """Keep how Round `round_no` was generated (review B4): display
+        metadata, written at the Generate call site, never by ask()."""
+        self.generation_records()[int(round_no)] = dict(record)
+        self.save()
+
     def _batch_totals(self):
         """The totals by batch number, created for a session object made
         before they were stored."""
@@ -8262,6 +8412,15 @@ class FoodOptimizer:
             size = None
         rows = self._batch_rows(self.pending_batch)
         if size is not None:
+            # What each formulation added up to before the box first
+            # re-sized it (review B1): metadata only, so a later wave can
+            # learn a project with no Formulation total at its own size.
+            made = self._generated_totals()
+            no = int(self.pending_batch_no)
+            if no not in made:
+                made[no] = {int(row['formulation']): self.ingredient_total(
+                    {k: v for k, v in row['recipe'].items() if not isinstance(v, str)})
+                    for row in rows}
             rows = [self._batch_row(row['formulation'],
                                     self.scaled_recipe(row['recipe'], size),
                                     row.get('note'))
@@ -12306,6 +12465,12 @@ class FoodOptimizer:
             # was made as generated, which is not the same as no record.
             'batch_totals': {str(k): (None if v is None else float(v))
                              for k, v in self._batch_totals().items()},
+            # 0.8.0 BO views: display metadata (review B1, B4).
+            'batch_generated_totals': {
+                str(k): {str(n): float(t) for n, t in (v or {}).items()}
+                for k, v in self._generated_totals().items()},
+            'round_generation': {str(k): dict(v)
+                                 for k, v in self.generation_records().items()},
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
             'bench_records': getattr(self, 'bench_records', {}),
@@ -12761,6 +12926,11 @@ class FoodOptimizer:
                              in (state.get('batch_totals') or {}).items()}
         self.lots = {int(k): {str(i): str(v) for i, v in (row or {}).items()}
                      for k, row in (state.get('lots') or {}).items()}
+        # Display metadata (review B1, B4): a damaged entry is dropped, never
+        # a reason to refuse the copy.
+        self.batch_generated_totals = _generated_totals_from(
+            state.get('batch_generated_totals'))
+        self.round_generation = _generation_records_from(state.get('round_generation'))
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 

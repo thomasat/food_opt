@@ -379,11 +379,14 @@ def _start_from_best(opt, best_no):
     """Fill the boxes from the best formulation so far, and say in the note
     what the row is. Assigning the keys here would raise — the boxes already
     exist on this run — so the values are parked and land before they are
-    drawn on the next one."""
+    drawn on the next one. The amounts are at the Formulation total
+    (insights.start_recipe), the ones the model learned it at: a Best so
+    far made to a 500 g batch size opens at 100 g, not at 500 (spec
+    2026-09-30-bo-views §1, review M1)."""
     index = opt.index_of_formulation(best_no)
     if index is None:
         return
-    recipe = opt.recipe_history[index]
+    recipe = insights.start_recipe(opt, index)
     prefilled = {}
     for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount

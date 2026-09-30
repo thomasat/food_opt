@@ -348,8 +348,9 @@ def _best(opt):
     # came from was printed to a total, the bench weighed out those numbers
     # instead, and they are the ones to hand back — scaled by the same rule
     # the sheets used, and with the total named in the heading so the two
-    # cannot be confused. `Start from Best so far` still opens at the
-    # recorded amounts: those are the ones the model was told about.
+    # cannot be confused. `Start from Best so far` opens at the amounts at
+    # the Formulation total: those are the ones the models learn it at (spec
+    # 2026-09-30-bo-views §1, review M1).
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
     # The row as the sheet carried it: a formulation of the user's own — the
