@@ -1538,7 +1538,7 @@ def predicted_best(opt, fitted, checks=()):
     """The single formulation the Overall-score model predicts highest,
     found the way suggestions are made and never written anywhere. Its
     likely range, and Best so far's own predicted repeat, are widened by
-    score_widen(checks).
+    column_factor(opt, checks), as Make a round's column is.
 
     Returns a PredictedBest, or a one-line reason (str) when `ask` would
     refuse to make a Round or no amounts meet the limits together. Raises
@@ -1571,7 +1571,9 @@ def predicted_best(opt, fitted, checks=()):
         if not opt._check_constraints({k: v for k, v in recipe.items()
                                        if not isinstance(v, str)}):
             raise ValueError("the predicted best breaks a limit")
-    factor = score_widen(checks)
+    # The factor Make a round's column uses, so the same make-up reads the
+    # same range on both screens mid-Round (final review M-2).
+    factor = column_factor(opt, checks)
     [prediction] = predict(opt, score, [opt._encode(recipe)])
     i, d = nearest(opt, recipe)
     close = i if i is not None and d <= CLOSE_TO_THE_BEST + 1e-9 else None

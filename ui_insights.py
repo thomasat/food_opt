@@ -1940,8 +1940,26 @@ def _how(opt, computed):
             columns[2]: r.inside,
             columns[3]: f"± {_num(r.half_width)}",
             columns[4]: _num(r.typical_miss),
-            columns[5]: "" if r.widen is None else wording.widen_text(r.widen),
+            columns[5]: widen_cell(opt, r, checks),
             columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs),
         } for r in rows]), hide_index=True, height=table_height(len(rows)))
-        for text in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
-            st.caption(_say(opt, text))
+        top = any(r.name == insights.SCORE and widen_cell(opt, r, checks).endswith("at the top")
+                  for r in rows)
+        for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
+                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
+            if text:
+                st.caption(_say(opt, text))
+
+
+def widen_cell(opt, r, checks):
+    """A details row's "Likely range widened by" cell: the current fit's
+    widening, and for the Overall score also the widening every range on
+    screen carries on top of it (insights.column_factor; ruling M5, final
+    review I-2) when that is more than ×1.0."""
+    if r.widen is None:
+        return ""
+    if r.name == insights.SCORE:
+        top = insights.column_factor(opt, checks)
+        if wording.widen_text(top) != wording.widen_text(1.0):
+            return wording.score_widen_text(r.widen, top)
+    return wording.widen_text(r.widen)
