@@ -12793,6 +12793,7 @@ class FoodOptimizer:
                               for i, r in enumerate(self.results_history)]
         else:
             self.Y_history = state.get('Y_history', [])
+        self.set_aside = self._live_set_aside()   # a stale number in a hand-edited file
 
         # A successful import means the in-memory state is valid again, so a
         # restore-from-backup clears any earlier damaged-file error.

@@ -239,3 +239,27 @@ def test_correcting_a_set_aside_formulation_flashes_not_scored(one_waiting):
     note = next(s.value for s in at.success if "corrected" in s.value)
     assert note == ("Formulation 4 corrected · Not scored · Juiciness not measured. "
                     + wording.COPY_KEPT), note
+
+
+# ------------------------------------------------------------------ #
+#  Task 3 N-1 a stale set_aside number in a file is pruned on import
+# ------------------------------------------------------------------ #
+
+def test_import_prunes_a_stale_set_aside_number():
+    """A hand-edited file names Formulation 3, which has all its results.
+    Left in memory, blanking one of 3's values later flagged it Not scored
+    instead of waiting."""
+    import json
+    opt = _patty(rows=6)
+    _tell(opt, 7, 3, drop=("Cook loss",))
+    opt.set_aside_formulation(7)
+    state = json.loads(json.dumps(opt.export_json()))
+    state['set_aside'] = [3, 7]
+    other = FoodOptimizer("hand_edited")
+    other.import_json(state)
+    assert other.set_aside == [7]
+    i = other.index_of_formulation(3)
+    other.edit_result(i, {k: v for k, v in other.results_history[i].items()
+                          if k != "Cook loss"})
+    assert not other.is_set_aside(i)
+    assert i in other.awaited_rows()
