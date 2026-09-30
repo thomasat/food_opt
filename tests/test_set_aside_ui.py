@@ -29,12 +29,13 @@ def test_a_waiting_formulation_offers_its_missing_value_first(one_waiting):
     assert "Overall score waiting for Juiciness." in [c.value for c in at.caption]
     box = at.number_input(key="missing_4_Juiciness")
     assert box.value is None
+    # Save is grey until a value is typed, and the foot stays the lit one
+    # (spec 2026-09-30 §4, review I11, M12).
     save = _submit_button(at, "Save Juiciness")
-    assert save.proto.type == "primary"
+    assert save.proto.type == "secondary" and not save.disabled
     move = _submit_button(at, "Move to Not scored")
     assert move.proto.type == "secondary"
-    # One lit button: the foot steps aside while the panel is on screen.
-    assert _submit_button(at, wording.START_NEXT_BATCH).proto.type == "secondary"
+    assert _submit_button(at, wording.START_NEXT_BATCH).proto.type == "primary"
     assert not [b for b in at.button if b.label.startswith("Score without")]
 
 
@@ -69,7 +70,7 @@ def test_move_to_not_scored_asks_first_and_keeps_the_row(one_waiting):
     at = _results(4)
     _submit_button(at, "Move to Not scored").click()
     at.run()
-    assert [w.value for w in at.warning] == [wording.move_to_not_scored_warning(4)]
+    assert [w.value for w in at.warning] == [wording.never_coming_warning(4, "Juiciness")]
     assert FoodOptimizer("burger").set_aside == []
     _submit_button(at, wording.YES_CONTINUE).click()
     at.run()
@@ -81,7 +82,8 @@ def test_move_to_not_scored_asks_first_and_keeps_the_row(one_waiting):
     at.selectbox(key="result_view_burger").set_value(4)
     at.run()
     assert "Not scored · Juiciness not measured." in [c.value for c in at.caption]
-    assert _submit_button(at, "Save Juiciness").proto.type == "primary"
+    # Grey until a value is typed (spec 2026-09-30 review M12).
+    assert _submit_button(at, "Save Juiciness").proto.type == "secondary"
     assert _submit_button(at, wording.WAIT_AGAIN).proto.type == "secondary"
     assert not [b for b in at.button if b.label == "Move to Not scored"]
 
@@ -164,7 +166,7 @@ def test_an_open_correction_keeps_the_one_lit_button(one_waiting):
     """Review I-1: a correction opened below a waiting formulation. Its Save
     is the one lit button; the panel's Save steps back to secondary."""
     at = _results(4)
-    assert _tab_primaries(at, 2) == ["Save Juiciness"], _tab_primaries(at, 2)
+    assert _tab_primaries(at, 2) == [wording.START_NEXT_BATCH], _tab_primaries(at, 2)
     at.selectbox(key="correct_formulation").set_value(1)
     at.run()
     assert not at.exception
@@ -200,7 +202,8 @@ def test_a_process_only_project_says_trial_throughout(trial_waiting):
     _submit_button(at, "Move to Not scored").click()
     at.run()
     assert [w.value for w in at.warning] == [
-        "Move Trial 2 to Not scored? Its partial results will stop counting on Insights."]
+        "Aroma for Trial 2 will never come? It stays in your records, unscored, and stops "
+        "counting on Insights."]
     _submit_button(at, wording.YES_CONTINUE).click()
     at.run()
     assert "Trial 2 moved to Not scored." in _successes(at), _successes(at)

@@ -75,9 +75,8 @@ def test_best_so_far_help_names_trials_in_a_process_only_project(trial_waiting):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[2].caption]      # Results
-    assert ("Best so far has the highest overall score among trials with every "
-            "measurement, for your current measurements and targets.") in captions, captions
-    assert "Only trials with all their results are compared." in captions, captions
+    assert ("Best so far: the highest Overall score among trials with a result for "
+            "every measurement.") in captions, captions
     assert not any("formulation" in c.lower() for c in captions), captions
 
 
@@ -89,7 +88,7 @@ def test_best_so_far_help_without_every_measurement_names_trials(trial_waiting):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[2].caption]      # Results
-    assert wording.for_project(trial_waiting, wording.RESULT_BEST_HELP_WITHOUT) in captions
+    assert wording.for_project(trial_waiting, wording.BEST_RULE_WITHOUT) in captions
     assert not any("formulation" in c.lower() for c in captions), captions
 
 

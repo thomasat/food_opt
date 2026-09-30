@@ -150,7 +150,7 @@ def disarm(key):
 
 
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
-                   disabled=False, preserve=False, primary=False):
+                   disabled=False, preserve=False, primary=False, help=None):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -166,6 +166,8 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     drawn into its reserved slot. Streamlit discards the session-state entry
     of every widget a run did not create, so without it the Cancel empties
     the sheet the user has already half-recorded.
+
+    `help` is the trigger's "?" (spec 2026-09-30 §4: Move to Not scored).
 
     `primary` colours the trigger. Every confirmation in the app is reached
     from a grey button — the coloured one is the Yes it leads to — except
@@ -188,7 +190,7 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
                   and st.session_state.get(pending_key))
     lit = primary and not (arming or up_already)
     if st.button(button_label, key=btn_key, disabled=disabled,
-                 type="primary" if lit else "secondary"):
+                 type="primary" if lit else "secondary", help=help):
         # One at a time. A click that arrives while another confirmation is
         # armed — a second click in the same frame, or a click already in
         # flight against a button this frame draws greyed — is ignored rather

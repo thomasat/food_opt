@@ -10,7 +10,9 @@ confirmation that keeps a copy first and says so — once, in the confirmation.
 import pandas as pd
 import streamlit as st
 
+import insights
 import storage as storage_backend
+import ui_insights
 import wording
 import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
@@ -139,9 +141,13 @@ def _selected_formulation(opt):
         index = opt.index_of_formulation(number)
         skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
         batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
-        labels[choice] = wording.for_project(opt, wording.result_view_option(
+        label = wording.result_view_option(
             number, batch, best=choice == BEST_CHOICE,
-            unscored=index is None or opt.is_set_aside(index)))
+            unscored=index is None or opt.is_set_aside(index))
+        # A formulation still waiting says what for (spec 2026-09-30 §4).
+        if index is not None and not opt.is_set_aside(index) and not opt.fully_measured(index):
+            label = wording.result_view_waiting(label, number_list(opt.waiting_on(index)))
+        labels[choice] = wording.for_project(opt, label)
 
     chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
                           format_func=labels.__getitem__, key=key,
@@ -152,7 +158,7 @@ def _selected_formulation(opt):
 def _unscored_details(opt, number):
     row = next(r for r in opt.skipped if int(r['formulation']) == number)
     batch = row.get(ROUND_FIELD)
-    st.subheader(wording.for_project(opt, wording.result_heading(number, batch)))
+    # The box above names it (spec 2026-09-30 §4, review I12).
     st.info(wording.for_project(opt, wording.RESULT_UNSCORED_HELP))
     reason = wording.note_reason(row.get('note'))
     if reason:
@@ -195,41 +201,96 @@ def _progress_line(opt):
     best_now = max(float(opt.Y_history[i]) for i in pool)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
-        return wording.batch_recorded_progress(last, best_before, best_now)
+        now = max(pool, key=lambda i: float(opt.Y_history[i]))
+        old = max((i for i in pool if opt.batch_history[i] != last),
+                  key=lambda i: float(opt.Y_history[i]))
+        tie = _tie(opt, old, now)
+        return tie or wording.batch_recorded_progress(last, best_before, best_now)
     return wording.batch_recorded_no_improvement(last)
 
 
+def _yardstick(opt):
+    """How much Repeats differ, for Results' own before/after rule (spec
+    2026-09-30 review I5, M18): the checks Insights has already worked out
+    leave a disagreeing Repeat out; Results never checks Rounds itself."""
+    return insights.noise_yardstick(opt, ui_insights.cached_checks(opt))
+
+
+def _tie(opt, old, new):
+    """The tie sentence when Best so far moved from row `old` to row `new`
+    by less than Repeats differ (1 point without 3 pairs), else ''."""
+    lead = float(opt.Y_history[new]) - float(opt.Y_history[old])
+    yard = _yardstick(opt)
+    if lead <= 0 or lead >= yard.value:
+        return ""
+    return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
+                            f"{lead:.2f}", int(opt.formulation_ids[old]),
+                            f"{yard.value:.1f}" if yard.from_repeats else None)
+
+
+def _move_sentence(opt, before, after):
+    """best_move_sentence, or the tie sentence when the new Best so far
+    leads by less than Repeats differ (§4 ties): the flash says what the
+    line under Best so far says."""
+    move = best_move_sentence(before, after)
+    if not move:
+        return ""
+    old, new = opt.index_of_formulation(before), opt.index_of_formulation(after)
+    if old is None or new is None:
+        return move
+    return _tie(opt, old, new) or move
+
+
 def _best(opt):
-    """Details for the selected formulation, defaulting to the best. Returns
-    (said_partial, missing): said_partial is True when it has already
-    said what a partial score cannot be compared with, so the table below
-    does not say the same sentence again on the same screen; missing is the
+    """Details for the selected formulation, defaulting to the best. The box
+    names it, so there is no heading (spec 2026-09-30 §4, review I12); its
+    Overall score is the first line under the box. Returns (said_partial,
+    missing, settled): said_partial is True when it has already said what a
+    dash means, so the table below does not say it again; missing is the
     reserved slot for the missing-values panel of a formulation that waits
-    or was moved to Not scored, or None, which render() fills last."""
+    or was moved to Not scored, or None, which render() fills last;
+    settled is True when the formulation on screen has all its results."""
     if opt.Y_history and opt.best_index() is None:
         # Nothing has all its results, so there is no best to name.
         st.caption(wording.for_project(opt, wording.NO_COMPLETE_FORMULATION))
     number = _selected_formulation(opt)
     if number is None:
-        return False, None
+        return False, None, False
     index = opt.index_of_formulation(number)
     if index is None:
         _unscored_details(opt, number)
-        return False, None
+        return False, None, False
     batch = opt.batch_history[index]
     is_best = index == opt.best_index()
-    heading = (wording.best_so_far_heading(number, batch) if is_best
-               else wording.result_heading(number, batch))
-    st.subheader(wording.for_project(opt, heading))
+    ceiling = opt.utility_ceiling()
+    # A formulation still waiting shows what it waits for, never the lowered
+    # number — named exactly as the All formulations row names it.
+    waiting = opt.waiting_on(index) if not opt.fully_measured(index) else None
+    # A dash is a measurement it is scored without; a waiting cell reads
+    # "waiting" (audit V9): the dash caption only when a dash is on screen.
+    partial = bool(opt.not_expected(index))
+    missing = None
+    if waiting is not None:
+        st.caption(wording.not_scored_missing(number_list(waiting)) + "."
+                   if opt.is_set_aside(index)
+                   else wording.overall_score_waiting(number_list(waiting)))
+    elif ceiling > 0:
+        # With every measurement deleted the ceiling is 0, and "Overall
+        # score 0.00 of 0" is a sentence about nothing.
+        st.caption(wording.overall_score_line(float(opt.Y_history[index]), ceiling,
+                                              number_list(opt.not_expected(index))),
+                   help=wording.OVERALL_SCORE_HELP)
     if is_best:
-        st.caption(wording.for_project(opt, wording.RESULT_BEST_HELP_WITHOUT
+        # One rule line (audit V8, review I10), then what the last Round
+        # did, then what is still waiting.
+        st.caption(wording.for_project(opt, wording.BEST_RULE_WITHOUT
                                        if opt.best_scored_without()
-                                       else wording.RESULT_BEST_HELP))
-        if opt.awaited_rows():
-            st.caption(wording.for_project(opt, wording.RESULT_BEST_COMPLETE_ONLY))
+                                       else wording.BEST_RULE))
         line = _progress_line(opt)
         if line:
             st.caption(line)
+        for text in _waiting_lines(opt):
+            st.caption(wording.for_project(opt, text))
 
     details = opt.closeness_details(index)
     if details:
@@ -249,7 +310,7 @@ def _best(opt):
     # came from was printed to a total, the bench weighed out those numbers
     # instead, and they are the ones to hand back — scaled by the same rule
     # the sheets used, and with the total named in the heading so the two
-    # cannot be confused. `Start from the best so far` still opens at the
+    # cannot be confused. `Start from Best so far` still opens at the
     # recorded amounts: those are the ones the model was told about.
     total = (opt.recorded_total(batch)
              if opt.one_amount_unit() is not None else None)
@@ -265,13 +326,7 @@ def _best(opt):
     # reader reading two different tables of the same ingredients.
     _amount_table(opt, shown)
     # The amounts above are the ones the bench weighed out, so the same lines
-    # tab 2 shows under the box belong under the table that shows them: it
-    # is the total, not the formulation, that pushed them out — and a row
-    # that does not add up to the total says so rather than being rewritten.
-    # `sized` is what a round the Batch size box re-sized carries: under a
-    # project default the row was never rewritten, so without it this table
-    # is checked against nothing and the caution tab 2 shows goes missing
-    # on the screen the round is read back on.
+    # tab 2 shows under the box belong under the table that shows them.
     for caution in (opt.scaled_cautions([row], total, total is not None)
                     + opt.total_mismatch_lines([row], total)):
         st.caption(caution)
@@ -281,34 +336,29 @@ def _best(opt):
               if not float(recipe.get(name, 0.0))]
     if unused:
         st.caption(wording.NOT_USED_PREFIX + ", ".join(unused))
-    ceiling = opt.utility_ceiling()
-    # A formulation still waiting shows what it waits for, never the lowered
-    # number — named exactly as the All formulations row names it.
-    waiting = opt.waiting_on(index) if not opt.fully_measured(index) else None
-    partial = waiting is not None or bool(opt.not_expected(index))
-    # What the ceiling MEANS is said once, under the measurements grid on
-    # Set up ("A formulation that hits every goal scores 100."). Repeating it
-    # here read as a claim about the formulation on screen — false whenever
-    # it is off target, and flatly contradictory beside the missing ones.
-    #
-    # With every measurement deleted the ceiling is 0, and "Overall score
-    # 0.00 of 0.00" is a sentence about nothing; the banner at the top of
-    # the tab already says what to do about it.
-    missing = None
     if waiting is not None:
-        st.caption(wording.not_scored_missing(number_list(waiting)) + "."
-                   if opt.is_set_aside(index)
-                   else wording.overall_score_waiting(number_list(waiting)))
         # Reserved here, drawn last by render(): a confirmation armed in
-        # Edit past formulations below must grey these on the same run.
+        # the fold below must grey these on the same run.
         missing = {"number": number, "names": waiting, "slot": st.container()}
-    elif ceiling > 0:
-        st.caption(wording.overall_score_caption(
-            float(opt.Y_history[index]), ceiling,
-            number_list(opt.not_expected(index))))
     if partial:
         st.caption(_complete_results_caption(opt))
-    return partial, missing
+    return partial, missing, waiting is None
+
+
+def _waiting_lines(opt):
+    """'Waiting for Cook loss: Formulation 22 (Round 6).' — one line per
+    set of measurements the waiting formulations lack (spec 2026-09-30 §4,
+    review M7). A formulation moved to Not scored is not waiting."""
+    groups = {}
+    for i in opt.awaited_rows():
+        groups.setdefault(tuple(opt.waiting_on(i)), []).append(i)
+    lines = []
+    for names, rows in groups.items():
+        numbers = [int(opt.formulation_ids[i]) for i in rows]
+        lines.append(wording.waiting_list(number_list(names), numbers,
+                                          opt.batch_history[rows[0]] if len(rows) == 1
+                                          else None))
+    return lines
 
 
 def _complete_results_caption(opt):
@@ -340,9 +390,13 @@ def _missing_panel(opt, number, names, correcting=False):
         objs = {o['name']: o for o in opt.objectives}
         typed = _measurement_boxes([objs[n] for n in names if n in objs],
                                    lambda name: _missing_key(number, name))
+        entered = any(v is not None for v in typed.values())
+        # Enabled always (spec 2026-09-30 review M12): a box commits on
+        # blur, so a Save disabled until then would swallow the first click.
+        # Lit only once a value is typed; an empty click says what to do.
         if st.button(wording.save_missing(number_list(names)),
                      key=f"save_missing_{number}",
-                     type="primary" if lit and not correcting else "secondary",
+                     type="primary" if lit and entered and not correcting else "secondary",
                      disabled=not lit) and lit:
             _save_missing(opt, number, typed)
     key = f"set_aside_{number}"
@@ -356,8 +410,10 @@ def _missing_panel(opt, number, names, correcting=False):
                 st.rerun()
         return
     if confirm_action(key, wording.MOVE_TO_NOT_SCORED,
-                      wording.for_project(opt, wording.move_to_not_scored_warning(number)),
-                      disabled=other_confirmation(key)):
+                      wording.for_project(opt, wording.never_coming_warning(
+                          number, number_list(names))),
+                      disabled=other_confirmation(key),
+                      help=wording.MOVE_TO_NOT_SCORED_HELP):
         opt.set_aside_formulation(number)
         if saved_ok(opt):
             flash("success", wording.for_project(opt, wording.moved_to_not_scored(number)))
@@ -390,7 +446,7 @@ def _save_missing(opt, number, typed):
         sentences = [wording.saved_not_scored(number, number_list(opt.waiting_on(index)))]
     else:
         sentences = [wording.formulation_scored(number, waiting_text(opt, index))]
-    move = best_move_sentence(before, best_formulation_no(opt))
+    move = _move_sentence(opt, before, best_formulation_no(opt))
     if move:
         sentences.append(move)
     flash("success", wording.for_project(opt, " ".join(sentences)))
@@ -460,11 +516,6 @@ def _table_style(opt, frame):
     return styler
 
 
-# Set by the button beside All formulations, read once by the fold the
-# correction control lives in.
-OPEN_CORRECTION = "_open_correction"
-
-
 def _all_formulations(opt, said_partial=False):
     st.markdown(wording.for_project(opt, wording.ALL_FORMULATIONS_HEADING))
     o1, o2 = st.columns([2, 1])
@@ -481,10 +532,9 @@ def _all_formulations(opt, said_partial=False):
                          wording.for_project(opt, wording.FORMULATION_CAP))},
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
-    # The overall-score column of food_bo's history_frame, named once in
-    # wording so the frame and the screen cannot drift apart.
-    if not said_partial and (opt.waiting_rows() or any(
-            opt.not_expected(i) for i in range(len(opt.Y_history)))):
+    # What a dash means, only while a dash is in the table (audit V9): a
+    # waiting cell is not one.
+    if not said_partial and any(opt.not_expected(i) for i in range(len(opt.Y_history))):
         st.caption(_complete_results_caption(opt))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
@@ -496,21 +546,6 @@ def _all_formulations(opt, said_partial=False):
                            opt.project_name),
                        mime=WORKBOOK_MIME, key="download_formulations",
                        help=wording.DOWNLOAD_ALL_FORMULATIONS_HELP)
-    # Beside the table the wrong number is read in, because that is where
-    # the reader is standing when they find it. Its slot is reserved here
-    # and drawn last (_open_correction_button), as Change setup's is.
-    return st.container()
-
-
-def _open_correction_button(opt):
-    """`Correct a formulation`, drawn into its reserved slot once every
-    confirmation on the tab has had its say: greyed and ignored while one is
-    open. The fold it opens was drawn already this run, so it reruns."""
-    lit = not confirmation_open()
-    if st.button(wording.for_project(opt, wording.CORRECT_A_RESULT_BUTTON),
-                 key="open_correction", disabled=not lit) and lit:
-        st.session_state[OPEN_CORRECTION] = True
-        st.rerun()
 
 
 def _correct_amount_key(no, name):
@@ -889,7 +924,7 @@ def _save_correction(opt, storage, pending):
                      choice, number_list(opt.waiting_on(index)))
                  if opt.is_set_aside(index)
                  else wording.formulation_corrected(choice, waiting_text(opt, index))]
-    move = best_move_sentence(before, after)
+    move = _move_sentence(opt, before, after)
     if move:
         sentences.append(move)
     sentences.append(COPY_KEPT)
@@ -944,7 +979,7 @@ def _save_score(opt, storage, pending):
     index = opt.index_of_formulation(choice)
     sentences = [wording.formulation_scored(
         choice, None if index is None else waiting_text(opt, index))]
-    move = best_move_sentence(before, best_formulation_no(opt))
+    move = _move_sentence(opt, before, best_formulation_no(opt))
     if move:
         sentences.append(move)
     # The row left `skipped` for good and a copy was kept first, so this says
@@ -964,7 +999,7 @@ def _foot_label(opt):
     return wording.START_NEXT_BATCH
 
 
-def _foot(opt, correcting=False):
+def _foot(opt, correcting=False, typed=False):
     label = _foot_label(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; the next batch can wait a click.
@@ -972,10 +1007,15 @@ def _foot(opt, correcting=False):
     #
     # And a project that cannot make a batch — every measurement deleted, say
     # — must not offer a lit button to a tab holding a greyed Generate.
+    #
+    # A waiting or Not scored formulation on screen never disables it (spec
+    # 2026-09-30 §4, review I11): it stays the lit one until a value is
+    # typed into that formulation's box (`typed`), then grey but enabled.
     ready, _ = readiness(opt)
-    lit = ready and not confirmation_open() and not correcting
+    enabled = ready and not confirmation_open() and not correcting
+    lit = enabled and not typed
     if st.button(label, type="primary" if lit else "secondary",
-                 disabled=not lit, key="foot_batch") and lit:
+                 disabled=not enabled, key="foot_batch") and enabled:
         go_to_tab(TAB_BATCH)
 
 
@@ -1344,8 +1384,8 @@ def _edit_past(opt, storage):
     enter work done before the project existed hid inside the third."""
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
-    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FORMULATIONS_EXPANDER),
-                     expanded=bool(st.session_state.pop(OPEN_CORRECTION, False))):
+    # Named for all three things it holds (spec 2026-09-30 §9 I13).
+    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FOLD)):
         # The heading follows the pick: with a not-scored row picked, the
         # section is writing that row's FIRST result, and "Correct" named
         # something there was nothing of yet.
@@ -1395,7 +1435,7 @@ def render(opt, storage):
         return
     if not opt.objectives:
         st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
-    said_partial, missing = _best(opt)
+    said_partial, missing, settled = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the
     # one way back to Set up is right here, not several sections down. Its
@@ -1404,7 +1444,7 @@ def render(opt, storage):
     # greys this button on the same run.
     change_setup = st.container()
     st.divider()
-    open_correction = _all_formulations(opt, said_partial)
+    _all_formulations(opt, said_partial)
     custom_records.history(opt)
     st.divider()
     # The foot keeps its place on screen but is drawn last, so it can see a
@@ -1416,14 +1456,17 @@ def render(opt, storage):
     # The Progress chart moved to Insights (0.8.0), under "Is it still improving?".
     pending = _edit_past(opt, storage)
     with change_setup:
+        # Not beside a formulation still waiting or Not scored: its missing
+        # value is the way on, not Set up (spec 2026-09-30 §4).
         lit = not confirmation_open()
-        if st.button(wording.CHANGE_SETUP_FROM_RESULTS_BUTTON,
-                     key="change_setup_from_results", disabled=not lit) and lit:
+        if settled and st.button(wording.CHANGE_SETUP_FROM_RESULTS_BUTTON,
+                                 key="change_setup_from_results", disabled=not lit) and lit:
             go_to_tab(TAB_SETUP)
     with foot:
-        # A formulation's own Save for its missing values is the lit button
-        # while it is on screen (spec 0.8.0 review fixes §9 B2).
-        _foot(opt, pending is not None or bool(missing and missing['names']))
+        typed = missing is not None and any(
+            st.session_state.get(_missing_key(missing['number'], n)) is not None
+            for n in missing['names'])
+        _foot(opt, pending is not None, typed)
     if pending is not None:
         with pending['slot']:
             _save_correction(opt, storage, pending)
@@ -1433,5 +1476,3 @@ def render(opt, storage):
         with missing['slot']:
             _missing_panel(opt, missing['number'], missing['names'],
                            correcting=pending is not None)
-    with open_correction:
-        _open_correction_button(opt)

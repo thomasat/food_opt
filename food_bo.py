@@ -3121,10 +3121,13 @@ class FoodOptimizer:
                              'measured': "—", 'off_by': "—"})
                 continue
             if raw is None:
-                rows.append({'name': name, 'goal': goal,
-                             'measured': wording.NOT_MEASURED,
-                             'off_by': (wording.NOT_MEASURED if is_target
-                                        else "—")})
+                # A result still to come reads "waiting"; one that will never
+                # come (moved to Not scored) reads "not measured" (spec
+                # 2026-09-30 §4).
+                word = (wording.NOT_MEASURED if self.is_set_aside(index)
+                        else wording.MEASURED_WAITING)
+                rows.append({'name': name, 'goal': goal, 'measured': word,
+                             'off_by': word if is_target else "—"})
                 continue
             val = float(raw)
             measured = join_unit(f"{val:g}", unit)

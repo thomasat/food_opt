@@ -2481,7 +2481,7 @@ def test_results_empty_state_offers_the_first_trial_and_the_import(burger):
     at.run()
     assert any(m.value == "No results yet." for m in at.markdown), \
         [m.value for m in at.markdown]
-    assert any(e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER
+    assert any(e.label == wording.EDIT_PAST_FOLD
                for e in at.expander), [e.label for e in at.expander]
     button = _submit_button(at, wording.MAKE_YOUR_FIRST_BATCH_BUTTON)
     assert button.proto.type == "primary"
@@ -2497,7 +2497,7 @@ def test_edit_past_formulations_holds_the_three_parts(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     labels = [e.label for e in at.expander]
-    assert wording.EDIT_PAST_FORMULATIONS_EXPANDER in labels, labels
+    assert wording.EDIT_PAST_FOLD in labels, labels
     marks = [m.value for m in at.markdown]
     for heading in (wording.CORRECT_A_FORMULATION_HEADING,
                     wording.DELETE_FORMULATIONS_HEADING,
@@ -2653,8 +2653,9 @@ def test_a_typed_past_measurement_outside_its_range_is_refused(burger):
 def test_best_heading_off_by_table_and_score_caption(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(h.value == wording.best_so_far_heading(2, 1)
-               for h in at.subheader), [h.value for h in at.subheader]
+    # No heading under the box (spec 2026-09-30 §4): the rule line says it.
+    assert not at.tabs[2].subheader
+    assert wording.BEST_RULE in [c.value for c in at.tabs[2].caption]
     off_by = next(d.value for d in at.dataframe if "Off by" in d.value.columns)
     assert list(off_by["Measurement"]) == ["Firmness", "Juiciness (/10)"]
     assert off_by["Off by"].iloc[0] == "2 N too high"
@@ -2663,12 +2664,9 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # The best here is 2 N off target, so a caption saying "every
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
-    # on Set up. The whole caption, word for word:
-    assert any(c.value == ("Overall score 88.00 of 100. Scores only "
-                           "compare within this project. Change a share, a "
-                           "goal or a range and every score is "
-                           "recalculated.")
-               for c in at.caption), [c.value for c in at.caption]
+    # on Set up. One line, the rest behind its "?" (spec 2026-09-30 §4, V10):
+    score = next(c for c in at.tabs[2].caption if c.value == "Overall score 88.00 of 100.")
+    assert score.proto.help == wording.OVERALL_SCORE_HELP
 
 
 def test_not_used_lists_ingredients_only(scored):
@@ -2928,7 +2926,7 @@ def test_results_collapsed_sections_are_the_spec_list(scored):
     labels = [e.label for e in at.expander]
     # One section holds every way the record is fixed after the fact. The
     # Progress chart moved to Insights (0.8.0).
-    for label in (wording.EDIT_PAST_FORMULATIONS_EXPANDER,):
+    for label in (wording.EDIT_PAST_FOLD,):
         assert label in labels, labels
     assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
 
@@ -4686,8 +4684,8 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     at.run()
     assert not at.exception
     assert at.session_state["main_tab"] == wording.TAB_RESULTS
-    assert any(h.value == wording.for_project(ferment, wording.best_so_far_heading(1, 1))
-               for h in at.subheader), [h.value for h in at.subheader]
+    assert wording.for_project(ferment, wording.BEST_RULE) in [
+        c.value for c in at.tabs[2].caption]
     table = next(t.value for t in at.table
                  if "Ingredient or process setting" in t.value.columns)
     shown = dict(zip(table["Ingredient or process setting"], table["Amount"]))
@@ -4922,11 +4920,10 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
     # The missing measurement is NAMED, never the lowered number.
     assert any(c.value == "Overall score waiting for Juiciness."
                for c in at.caption), [c.value for c in at.caption]
-    # ...and one line under it says when a formulation counts, in the same
-    # words as under the All formulations table: a waiting formulation is
-    # not taught to the model until its results are in.
-    assert any(c.value == wording.COMPLETE_RESULTS_CAPTION
-               for c in at.caption), [c.value for c in at.caption]
+    # ...and no dash caption: a waiting cell reads "waiting", not "—"
+    # (spec 2026-09-30 §4, audit V9).
+    assert not any(c.value == wording.COMPLETE_RESULTS_CAPTION
+                   for c in at.caption), [c.value for c in at.caption]
 
 
 def test_there_is_only_one_unit_column_per_grid(burger):
@@ -6822,17 +6819,20 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     assert sentence == ("A formulation counts once all its results are in; "
                         "“—” means it is scored without that "
                         "measurement, so it is not compared for Best so far."), sentence
-    assert sum(1 for c in at.caption if c.value == sentence) == 1, \
+    # Only while a dash is on screen (spec 2026-09-30 §4, audit V9).
+    assert sum(1 for c in at.caption if c.value == sentence) == 0, \
         [c.value for c in at.caption]
     # With a complete best above it, the table is the one that says it.
     burger.tell({"Pea protein": 12.0, "Methylcellulose": 1.5},
                 {"Firmness": 6.0, "Juiciness": 7.0}, formulation_no=2,
                 batch_no=1)
+    burger.add_objective("Aroma", 1.0, goal="max", min_val=0, max_val=10)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert sum(1 for c in at.caption if c.value == sentence) == 1, \
-        [c.value for c in at.caption]
+    said = [c.value for c in at.caption]
+    assert sum(1 for c in said if c.startswith("A formulation counts once all its results "
+                                               "are in; “—” means")) == 1, said
 
 
 def test_the_correct_picker_offers_not_scored_formulations(scored):

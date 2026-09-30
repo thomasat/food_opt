@@ -94,10 +94,11 @@ def test_the_table_says_what_a_waiting_formulation_waits_for(one_waiting):
     assert not at.exception
     assert _overall(at)[4] == "waiting for Juiciness"
     captions = [c.value for c in at.caption]
-    assert sum(c == wording.COMPLETE_RESULTS_CAPTION for c in captions) == 1, captions
-    assert wording.RESULT_BEST_COMPLETE_ONLY in captions
-    assert wording.RESULT_BEST_COMPLETE_ONLY == \
-        "Only formulations with all their results are compared."
+    # A waiting cell is no dash, so the dash caption stays off (spec
+    # 2026-09-30 §4, audit V9); the one rule line says what is compared.
+    assert wording.COMPLETE_RESULTS_CAPTION not in captions, captions
+    assert "Only formulations with all their results are compared." not in captions
+    assert wording.BEST_RULE in captions
     assert not any("contribute zero" in c for c in captions)
 
 
@@ -224,19 +225,6 @@ def _arm_delete(at):
     assert any(w.value.startswith("Delete Formulation 1?") for w in at.warning)
 
 
-def test_the_correction_door_steps_aside_while_a_confirmation_is_open(one_waiting):
-    at = _app(wording.TAB_RESULTS)
-    _arm_delete(at)
-    button = _submit_button(at, wording.CORRECT_A_RESULT_BUTTON)
-    assert button.disabled
-    button.click()
-    at.run()
-    assert not at.exception
-    fold = next(e for e in at.expander
-                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
-    assert not fold.proto.expanded
-
-
 def test_the_caption_says_what_a_dash_means():
     """Review #2: the dash is a measurement it is scored without."""
     assert wording.COMPLETE_RESULTS_CAPTION == (
@@ -266,8 +254,8 @@ def test_just_after_a_measurement_is_added_the_caption_fits_the_star(scored):
     captions = [c.value for c in at.caption]
     assert wording.complete_results_caption(compared=False) in captions, captions
     assert wording.COMPLETE_RESULTS_CAPTION not in captions, captions
-    assert wording.RESULT_BEST_HELP_WITHOUT in captions, captions
-    assert wording.RESULT_BEST_HELP not in captions, captions
+    assert wording.BEST_RULE_WITHOUT in captions, captions
+    assert wording.BEST_RULE not in captions, captions
 
 
 def test_a_formulation_with_all_its_results_says_nothing_more(scored):

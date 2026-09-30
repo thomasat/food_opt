@@ -2424,10 +2424,9 @@ class TestUnitsAndImportance:
         assert [r["name"] for r in rows] == ["Firmness", "Juiciness"]
         assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
                            "measured": "8 N", "off_by": "2 N too high"}
-        # "measured", not "scored": the column is headed Measured, and a
-        # panel rating is one kind of measurement among several.
-        assert rows[1]["measured"] == "not measured"
-        assert rows[1]["off_by"] == "not measured"
+        # A result still to come reads "waiting" (spec 2026-09-30 §4).
+        assert rows[1]["measured"] == wording.MEASURED_WAITING
+        assert rows[1]["off_by"] == wording.MEASURED_WAITING
 
     def test_closeness_details_leaves_off_by_blank_for_higher_and_lower(self, tmp_path, monkeypatch):
         """A 'higher is better' measurement has no target, so an off-by number
