@@ -261,8 +261,10 @@ def ask_alone(opt, **kwargs):
 
     The Round's generation is recorded here too (spec 2026-09-30-bo-views
     §3.4, review B4): the seed, the rows and the regime ask() is about to
-    use, so "Why these suggestions" can rebuild its acquisition exactly.
-    Display metadata only, written after ask() has made the Round; a
+    use, so "Why these suggestions" can rebuild its acquisition exactly,
+    and — once ask() has returned — the formulation numbers it issued, in
+    order, so a pick is known by its number and never by its Note (T3
+    I-2). Display metadata only, written after ask() has made the Round; a
     failure to record it never stops Generate."""
     with insights.RNG_LOCK:
         try:
@@ -272,6 +274,7 @@ def ask_alone(opt, **kwargs):
         out = opt.ask(**kwargs)
     if record is not None and opt.pending_batch_no is not None:
         try:
+            record["picks"] = [int(row['formulation']) for row in opt.pending_batch or []]
             opt.record_generation(opt.pending_batch_no, record)
         except Exception:
             pass
@@ -1040,13 +1043,15 @@ def why_chart(opt, why):
     x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
     y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
     formulation = wording.for_project(opt, wording.FORMULATION_CAP)
+    rule = ([] if why.reference is None else [
+        alt.Chart(pd.DataFrame({"ref": [why.reference]}))
+        .mark_rule(strokeDash=[4, 3], color="gray", tooltip=False).encode(x="ref:Q")])
     layers = [
         alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
         .encode(x=x, y=y),
         alt.Chart(tested).mark_point(size=40, color="gray", filled=False, tooltip=False)
         .encode(x=x, y=y),
-        alt.Chart(pd.DataFrame({"ref": [why.reference]}))
-        .mark_rule(strokeDash=[4, 3], color="gray", tooltip=False).encode(x="ref:Q"),
+        *rule,
         alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)
         .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=formulation),
                                    alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,

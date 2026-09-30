@@ -10,14 +10,18 @@ records it at the Generate call site) and whose rows still match is rebuilt
 exactly; any other Round is recomputed from today's records with the
 display model of the same rows, and says so.
 
-Every in-process step holds insights.RNG_LOCK inside a forked torch RNG, so
-nothing here can move a suggestion; a worker (insights_worker, kind "acq")
-answers the same numbers from JSON. No screen text lives here."""
+Every step holds insights.RNG_LOCK inside a forked torch RNG, so nothing
+here can move a suggestion. The model is fitted once in this process and
+every question is answered here with it (fix round 1, T3 I-3): sending it to
+a worker only fitted it again, and could start the pool. A worker (kind
+"acq", `answer`) still gives the same numbers from JSON for a caller that
+has not fitted. No screen text lives here."""
 import collections
 import contextlib
 import dataclasses
 import math
 import random
+import threading
 from dataclasses import dataclass
 
 import botorch
@@ -30,7 +34,6 @@ from botorch.utils.transforms import normalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
 import insights
-import insights_jobs
 import wording
 from food_bo import COLD_START_RUNS, ROUND_FIELD, FoodOptimizer, LinearForm
 
@@ -47,11 +50,11 @@ CHUNK = 256
 EXPLORE_SD = 75.0
 REFINE_MEAN = 90.0
 REFINE_SD = 50.0
-# How long a screen waits for a worker before working it out here.
-WORKER_SECS = 60
-# The outputs kept in this process (review B4: outputs, not models).
+# The outputs kept in this process (review B4: outputs, not models),
+# shared by every session's script thread (T3 M-3: under a lock).
 _CACHE = collections.OrderedDict()
 _CACHE_SIZE = 64
+_CACHE_LOCK = threading.Lock()
 _VERSIONS = (torch.__version__, gpytorch.__version__, botorch.__version__)
 
 
@@ -83,7 +86,8 @@ def generation_record(opt, n):
     """The record the Generate call site keeps (review B4), made just
     before ask(n): the seed ask() will use (next_formulation_no), the
     formulation numbers of the rows it learns from, n, the regime, and the
-    key of those rows."""
+    key of those rows. The call site adds "picks" after ask() returns: the
+    formulation numbers ask() issued, in order (T3 I-2)."""
     rows = _complete_rows(opt)
     warm = opt.complete_count() >= COLD_START_RUNS
     return {"seed": int(opt.next_formulation_no),
@@ -99,6 +103,8 @@ class Generation:
     rows: list          # positions of the rows the Round was (or is taken as) learned from
     regime: str         # "warm" or "cold"
     exact: bool         # the record is there and its rows still match
+    picks: list = dataclasses.field(default_factory=list)   # numbers ask() issued, in
+                        # order (T3 I-2); [] without a record that has them
 
 
 def _round_numbers(opt, r):
@@ -124,7 +130,8 @@ def generation(opt, r):
         exact = (len(rows) == len(record["rows"]) and record["regime"] == "warm"
                  and all(opt.fully_measured(i) for i in rows)
                  and record.get("key") == generation_key(opt, rows))
-        return Generation(r, int(record["seed"]), rows, record["regime"], exact)
+        return Generation(r, int(record["seed"]), rows, record["regime"], exact,
+                          [int(n) for n in record.get("picks") or []])
     first = [i for i, b in enumerate(opt.batch_history) if b == r]
     rows = _complete_rows(opt, first[0] if first else None)
     numbers = _round_numbers(opt, r)
@@ -182,10 +189,14 @@ def rebuild(opt, gen, fitted=None):
     """The suggestion model of Round `gen`: fitted again on its rows with
     its seed when the generation is exact; otherwise the display model of
     the same rows (`fitted`, insights.fit's, from the memo when it is
-    there: no new fit, review I10), labelled recomputed. None for a cold
-    Round (no acquisition, review I12) or too few rows."""
+    there: no new fit, review I10), labelled recomputed. A `fitted` made on
+    another number of rows is not used (T3 M-6). Callers hold a memo
+    (insights.memo_in_use), so a recomputed Round costs no fit (T3 M-2).
+    None for a cold Round (no acquisition, review I12) or too few rows."""
     if gen.regime != "warm" or len(gen.rows) < insights.MIN_ROWS:
         return None
+    if fitted is not None and getattr(fitted, "n_rows", None) != len(gen.rows):
+        fitted = None
     X, Y = insights.xy(opt, insights.SCORE, gen.rows)
     cfg = getattr(opt, "bo_config", None)
     with insights.RNG_LOCK, torch.random.fork_rng():
@@ -209,6 +220,15 @@ def _values(cfg, raw):
     itself for qUCB."""
     kind = (cfg or {}).get("acquisition", "qlognei")
     return raw if kind == "qucb" else raw.exp()
+
+
+def joint_value(model, B):
+    """The acquisition of the whole set B (q x d) at once, in points, no
+    pending: what qLogEI's picks 2+ are measured from (T3 I-1)."""
+    with insights.RNG_LOCK, torch.random.fork_rng(), torch.no_grad():
+        acqf = build_acqf(model.cfg, model.gp, model.X, model.Y, model.rng)
+        raw = acqf(B.unsqueeze(0)).reshape(-1)
+    return float(_values(model.cfg, raw)[0])
 
 
 def evaluate_here(model, P, pending=None):
@@ -264,29 +284,24 @@ def _key(opt, model, P, pending):
 
 def evaluate(opt, model, P, pending=None):
     """Values at normalised points P, from the cache when this exact
-    question was answered before; an exact model's are worked out by a
-    worker when the workers are on (review I10), else here. A worker that
-    fails leaves it to this process."""
+    question was answered before, else worked out here with the model
+    already fitted (T3 I-3: never sent to a worker, never starting one)."""
     key = _key(opt, model, P, pending)
-    if key in _CACHE:
-        _CACHE.move_to_end(key)
-        return _CACHE[key]
-    got = None
-    if model.exact and insights_jobs.workers_on():
-        reply = insights_jobs.ask_workers(dict(
-            kind="acq", cfg=model.cfg, X=model.X.tolist(), Y=model.Y.tolist(),
-            robust=bool(getattr(opt, "robust", False)), seed=model.gen.seed,
-            points=P.tolist(), pending=None if pending is None else pending.tolist()),
-            WORKER_SECS)
-        if reply is not None and "value" in reply:
-            got = Values(*(torch.tensor(reply[k], dtype=torch.double)
-                           for k in ("mean", "sd", "value")), True)
-    if got is None:
-        got = Values(*evaluate_here(model, P, pending), model.exact)
-    _CACHE[key] = got
-    while len(_CACHE) > _CACHE_SIZE:
-        _CACHE.popitem(last=False)
+    with _CACHE_LOCK:
+        if key in _CACHE:
+            _CACHE.move_to_end(key)
+            return _CACHE[key]
+    got = Values(*evaluate_here(model, P, pending), model.exact)
+    _remember(key, got)
     return got
+
+
+def _remember(key, value):
+    with _CACHE_LOCK:
+        _CACHE[key] = value
+        _CACHE.move_to_end(key)
+        while len(_CACHE) > _CACHE_SIZE:
+            _CACHE.popitem(last=False)
 
 
 def points(opt, recipes):
@@ -344,13 +359,15 @@ def _categorical_columns(opt):
 
 def pool_key(opt):
     """What the pool depends on: the rows, their frame, the limits and the
-    total (not the results)."""
+    total (not the results), and the open Round and its Not scored rows,
+    which decide which pre-mix make-up is used (T3 M-4)."""
     return insights._digest({
         "variables": opt.variables, "bounds": opt._get_bounds().tolist(),
         "limits": opt.constraints, "amounts": getattr(opt, "quantity_constraints", []),
         "total": getattr(opt, "formulation_total", None),
         "properties": opt.ingredient_properties, "premixes": opt.premixes,
-        "fixed": opt._get_fixed_features(), "seed": POOL_SEED, "n": POOL_SIZE})
+        "fixed": opt._get_fixed_features(), "round": opt.pending_batch_no,
+        "skipped": getattr(opt, "skipped", None), "seed": POOL_SEED, "n": POOL_SIZE})
 
 
 def feasible_pool(opt):
@@ -359,8 +376,10 @@ def feasible_pool(opt):
     the fixed rows pinned; a categorical row's option drawn uniformly (fixed
     seed). None when the limits leave no room or the sampler fails."""
     key = ("pool", pool_key(opt))
-    if key in _CACHE:
-        return _CACHE[key]
+    with _CACHE_LOCK:
+        if key in _CACHE:
+            _CACHE.move_to_end(key)      # T3 M-3: kept while it is in use
+            return _CACHE[key]
     bounds = opt._get_bounds()
     dim = bounds.shape[1]
     try:
@@ -391,8 +410,17 @@ def feasible_pool(opt):
         P = P.clamp(0.0, 1.0)
     except Exception:
         P = None
-    _CACHE[key] = P
+    _remember(key, P)
     return P
+
+
+def pool_points(P):
+    """How many distinct allowed formulations the pool holds (rounded to
+    1e-6): hit-and-run returns POOL_SIZE rows or fails, but a (nearly)
+    degenerate region gives the same point again and again (T3 M-1)."""
+    if P is None:
+        return 0
+    return int(torch.unique(torch.round(P * 1e6), dim=0).shape[0])
 
 
 def percentile(values, v):
@@ -441,7 +469,9 @@ class Why:
     pool_sd: object
     tested_mean: object
     tested_sd: object
-    reference: float | None   # the highest predicted score among tested formulations
+    reference: float | None   # what the acquisition measures from (T3 M-7): qLogNEI, the
+                              # highest predicted score among tested formulations; qLogEI,
+                              # the highest measured score; qUCB, None
 
 
 def _differences(opt, recipe, other, k=2):
@@ -460,12 +490,42 @@ def _differences(opt, recipe, other, k=2):
     return [(name, d, unit) for _, name, d, unit in out[:k]]
 
 
+def _issued(opt, number):
+    """The make-up ask() issued as formulation `number`, at the total: the
+    open Round's row as generated, else its recorded or Not scored row."""
+    for row in opt.pending_batch or []:
+        if int(row['formulation']) == number:
+            return insights.at_total(opt, row.get('original_recipe') or row['recipe'])
+    ids = [int(x) for x in opt.formulation_ids]
+    if number in ids:
+        return insights.start_recipe(opt, ids.index(number))
+    for row in getattr(opt, "skipped", []) or []:
+        if int(row['formulation']) == number and row.get('recipe'):
+            return insights.at_total(opt, row['recipe'])
+    return None
+
+
+def _picks(opt, gen, rows):
+    """(own flags, pick numbers in the order ask() issued them): from the
+    generation record's "picks" (T3 I-2), else — a Round made before they
+    were kept — the rows without a note of their own (an edited row
+    counts)."""
+    if gen.picks:
+        issued = [n for n in gen.picks]
+        own = [int(row['formulation']) not in issued for row in rows]
+        return own, issued
+    own = [bool(row.get('note')) and not row.get('original_recipe') for row in rows]
+    return own, [int(row['formulation']) for row, mine in zip(rows, own) if not mine]
+
+
 def why(opt, fitted=None):
     """The open Round's rows valued by the acquisition that chose them
-    (review I12): pick 1 exact (q = 1); picks 2+ with the earlier picks as
-    X_pending; the user's own and edited rows at their amounts as they
-    stand, marked. Positions among the pool give the role. None without an
-    open Round."""
+    (review I12): pick 1 exact (q = 1); picks 2+ with the earlier picks
+    counted — qLogNEI's improvement over the tested and earlier picks, the
+    increment qLogEI's joint value gains from this pick (T3 I-1); qUCB has
+    no such form, so every row shows its own optimistic score. The user's
+    own and edited rows at their amounts as they stand, marked. Positions
+    among the pool give the role. None without an open Round."""
     r = opt.pending_batch_no
     if not opt.pending_batch or r is None:
         return None
@@ -478,36 +538,44 @@ def why(opt, fitted=None):
         return Why(kind, False, True, [], None, None, None, None, None)
     rows = list(opt.pending_batch)
     recipes = [insights.at_total(opt, row['recipe']) for row in rows]
-    firsts = [insights.at_total(opt, row.get('original_recipe') or row['recipe'])
-              for row in rows]
-    own = [bool(row.get('note')) and not row.get('original_recipe') for row in rows]
+    own, issued = _picks(opt, gen, rows)
     P = points(opt, recipes)
     alone = evaluate(opt, model, P)
-    picks = [k for k in range(len(rows)) if not own[k]]
     pool = feasible_pool(opt)
     pool_values = evaluate(opt, model, pool) if pool is not None else None
     tested = evaluate(opt, model, model.X)
     out = []
     for k, row in enumerate(rows):
-        pick = picks.index(k) + 1 if k in picks else None
+        no = int(row['formulation'])
+        pick = issued.index(no) + 1 if not own[k] and no in issued else None
         value = float(alone.value[k])
-        if pick is not None and pick > 1:
-            earlier = points(opt, [firsts[j] for j in picks[:pick - 1]])
-            value = float(evaluate(opt, model, P[k:k + 1], pending=earlier).value[0])
+        pending = pick is not None and pick > 1 and kind != "qucb"
+        if pending:
+            earlier = [_issued(opt, n) for n in issued[:pick - 1]]
+            earlier = points(opt, [e for e in earlier if e is not None])
+            if earlier.shape[0] == 0:
+                pending = False
+            elif kind == "qlogei":
+                joint = float(evaluate(opt, model, P[k:k + 1], pending=earlier).value[0])
+                value = max(0.0, joint - joint_value(model, earlier))
+            else:
+                value = float(evaluate(opt, model, P[k:k + 1], pending=earlier).value[0])
         i, _ = insights.nearest(opt, recipes[k])
         near = None if i is None else int(opt.formulation_ids[i])
         diffs = [] if i is None else _differences(opt, recipes[k], insights.start_recipe(opt, i))
         who = None
-        if pool_values is not None and pool.shape[0] >= POOL_MIN:
+        if pool_values is not None and pool_points(pool) >= POOL_MIN:
             who = role(percentile(pool_values.mean, float(alone.mean[k])),
                        percentile(pool_values.sd, float(alone.sd[k])))
-        out.append(WhyRow(int(row['formulation']), own[k], bool(row.get('original_recipe')),
+        out.append(WhyRow(no, own[k], bool(row.get('original_recipe')) and not own[k],
                           pick, float(alone.mean[k]), float(alone.sd[k]), value,
-                          pick is not None and pick > 1, near, diffs, who))
+                          pending, near, diffs, who))
+    reference = (None if kind == "qucb" else float(model.Y.max()) if kind == "qlogei"
+                 else float(tested.mean.max()))
     return Why(kind, model.exact, False, out,
                None if pool_values is None else pool_values.mean,
                None if pool_values is None else pool_values.sd,
-               tested.mean, tested.sd, float(tested.mean.max()))
+               tested.mean, tested.sd, reference)
 
 
 # ------------------------------------------------------------------ #
@@ -524,11 +592,15 @@ class RoundGain:
     why_none: str | None            # "cold", "own" or None
 
 
-def _first_pick(opt, r):
-    """The Round's first generated row, at the total: the open Round's
-    first row without a note of its own, else the recorded row with the
-    lowest number among those without one (an edited row counts). None
+def _first_pick(opt, r, gen=None):
+    """The Round's first generated row, at the total: the first number ask()
+    issued, from the generation record (T3 I-2); without one, the open
+    Round's first row without a note of its own, else the recorded row with
+    the lowest number among those without one (an edited row counts). None
     for a Round of the user's own rows only."""
+    gen = generation(opt, r) if gen is None else gen
+    if gen.picks:
+        return _issued(opt, gen.picks[0])
     if r == opt.pending_batch_no and opt.pending_batch:
         for row in opt.pending_batch:
             if not row.get('note') or row.get('original_recipe'):
@@ -549,11 +621,12 @@ def round_gain(opt, r, fitted=None, highest=True):
     before it. `fitted`: the display model of those rows, when the caller
     has it."""
     gen = generation(opt, r)
-    before = [i for i in gen.rows if i in set(opt.best_candidates())]
+    candidates = set(opt.best_candidates())            # T3 M-8: once, not per row
+    before = [i for i in gen.rows if i in candidates]
     best = max((float(opt.Y_history[i]) for i in before), default=None)
     if gen.regime != "warm":
         return RoundGain(r, best, None, None, False, "cold")
-    pick = _first_pick(opt, r)
+    pick = _first_pick(opt, r, gen)
     if pick is None:
         return RoundGain(r, best, None, None, False, "own")
     model = rebuild(opt, gen, fitted)

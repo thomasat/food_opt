@@ -5084,7 +5084,7 @@ OPTIMISTIC_SCORE_HELP = ("Your model settings choose suggestions by an upper con
                          "bound: the model mean plus 0.45 × model sd. It is not the upper end "
                          "of the 95 % interval.")
 PENDING_MARK = "·"
-WHY_PENDING = ("· Picks after the first: the value with the earlier picks of this Round counted, "
+WHY_PENDING = ("· Picks after the first: what each adds to the earlier picks of this Round, "
                "as they were chosen.")
 WHY_COLD = "Chosen to cover the allowed amounts; no model yet."
 WHY_FAILED = "These values could not be worked out."

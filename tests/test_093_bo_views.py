@@ -71,6 +71,7 @@ def _ask_and_capture(opt, n, P):
     with insights.RNG_LOCK:
         out = opt.ask(n)
     del opt._build_acqf
+    record["picks"] = [int(row["formulation"]) for row in opt.pending_batch]
     opt.round_generation = {opt.pending_batch_no: record}
     return out, seen["value"]
 
@@ -238,12 +239,17 @@ def test_why_these_suggestions_on_line_a():
     assert [got[n].pick for n in (22, 23, 24, 25)] == [1, 2, 3, 4]
     assert [got[n].pending for n in (22, 23, 24, 25)] == [False, True, True, True]
     assert got[22].value == pytest.approx(0.117, abs=0.01)
+    # T3 I-4: picks 2-4 with the earlier picks as X_pending (02's 0.058,
+    # 0.048, 0.030), not their own q = 1 values (0.081, 0.058, 0.051).
+    assert [got[n].value for n in (23, 24, 25)] == pytest.approx([0.058, 0.049, 0.034],
+                                                                  abs=0.01)
+    assert got[23].value < 0.07
     assert [got[n].role for n in (22, 23, 24, 25)] == ["refines", "refines", "balanced",
                                                         "balanced"]
     assert got[22].nearest == 18
     name, diff, unit = got[22].differences[0]
     assert unit == "g" and name in {v["name"] for v in demo.load(demo.LINE_A).variables}
-    assert w.reference == pytest.approx(90.2, abs=0.1)
+    assert w.reference == pytest.approx(90.2, abs=0.1)     # the best tested mean (qLogNEI)
     assert w.pool_mean.shape == (bo_views.POOL_SIZE,)
 
 
@@ -272,30 +278,22 @@ def test_a_round_of_the_users_own_formulations_has_no_bar():
     assert bo_views.round_gain(opt, opt.pending_batch_no).why_none == "own"
 
 
-def test_an_exact_model_goes_to_the_workers_when_they_are_on(monkeypatch):
-    """Review I10: the acquisition grid runs in a worker; its answer is the
-    one this process would give (to 1e-9) and is kept like any other."""
+def test_the_why_fold_never_starts_or_waits_for_the_workers(monkeypatch):
+    """T3 I-3: the exact model is fitted once here and every question is
+    answered with it; with the workers on, nothing is sent and the pool is
+    never started."""
     opt = _project("pool")
-    _ask_and_capture(opt, 2, _grid(8))
-    model = bo_views.rebuild(opt, bo_views.generation(opt, opt.pending_batch_no))
-    pool = insights_jobs.Pool(1)
-    try:
-        assert pool.wait_ready(120)
-        monkeypatch.setattr(insights_jobs, "workers_on", lambda: True)
-        monkeypatch.setattr(insights_jobs, "pool", lambda: pool)
-        here = []
-        real = bo_views.evaluate_here
-        monkeypatch.setattr(bo_views, "evaluate_here",
-                            lambda *a, **k: here.append(1) or real(*a, **k))
-        P = _grid(16)
-        got = bo_views.evaluate(opt, model, P)
-        assert here == [] and got.exact
-        monkeypatch.setattr(bo_views, "evaluate_here", real)
-        want = bo_views.evaluate_here(model, P)
-        for a, b in zip((got.mean, got.sd, got.value), want):
-            assert torch.allclose(a, b, rtol=0, atol=1e-9)
-    finally:
-        pool.close()
+    _ask_and_capture(opt, 3, _grid(8))
+    monkeypatch.setattr(insights_jobs, "workers_on", lambda: True)
+    started = []
+    monkeypatch.setattr(insights_jobs, "pool", lambda: started.append(1))
+    monkeypatch.setattr(insights_jobs, "ask_workers", lambda *a, **k: started.append(2))
+    fits = []
+    real = bo_views.fit_default
+    monkeypatch.setattr(bo_views, "fit_default", lambda *a, **k: fits.append(1) or real(*a, **k))
+    w = bo_views.why(opt)
+    assert w.exact and len(w.rows) == 3
+    assert started == [] and fits == [1]
 
 
 def test_a_round_recorded_one_sheet_at_a_time_stays_exact():
@@ -311,3 +309,166 @@ def test_a_round_recorded_one_sheet_at_a_time_stays_exact():
     assert gen.exact and len(gen.rows) == 7
     w = bo_views.why(opt)
     assert w.exact and [r.pick for r in w.rows] == [1, 2, 3]
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 1 (T3 review I-1, I-2, M-1, M-4, M-5, M-6, M-7)
+# ------------------------------------------------------------------ #
+
+def test_qlogei_picks_after_the_first_show_what_they_add():
+    """T3 I-1: qLogEI puts X_pending into the q-batch, so its value with
+    the earlier picks is the SET's; a pick's own is the increment
+    value({earlier, x}) − value({earlier})."""
+    opt = _project("qlogei_picks", {"acquisition": "qlogei"}, rows=9)
+    _ask_and_capture(opt, 3, _grid(8))
+    w = bo_views.why(opt)
+    model = bo_views.rebuild(opt, bo_views.generation(opt, opt.pending_batch_no))
+    recipes = [insights.at_total(opt, r["recipe"]) for r in opt.pending_batch]
+    P = bo_views.points(opt, recipes)
+    assert [r.pending for r in w.rows] == [False, True, True]
+    for k in (1, 2):
+        # botorch's own joint value of {x} ∪ X_pending, minus {earlier}'s.
+        joint = float(bo_views.evaluate_here(model, P[k:k + 1], P[:k])[2][0])
+        before = bo_views.joint_value(model, P[:k])
+        assert w.rows[k].value == pytest.approx(max(0.0, joint - before), abs=1e-9)
+        assert w.rows[k].value < joint - 1e-6      # never the set's own value
+    assert w.reference == pytest.approx(float(model.Y.max()))   # best_f, measured (M-7)
+
+
+def test_qucb_rows_show_their_own_optimistic_score():
+    """T3 I-1: qUCB has no conditional form; every row its q = 1 value,
+    no "·", and no reference line (M-7)."""
+    opt = _project("qucb_picks", {"acquisition": "qucb"}, rows=9)
+    _ask_and_capture(opt, 3, _grid(8))
+    w = bo_views.why(opt)
+    model = bo_views.rebuild(opt, bo_views.generation(opt, opt.pending_batch_no))
+    P = bo_views.points(opt, [insights.at_total(opt, r["recipe"]) for r in opt.pending_batch])
+    mean, sd, value = bo_views.evaluate_here(model, P)
+    assert [r.pending for r in w.rows] == [False, False, False]
+    assert [r.value for r in w.rows] == pytest.approx(value.tolist(), abs=1e-12)
+    assert [r.value for r in w.rows] == pytest.approx(
+        (mean + 0.2 ** 0.5 * sd).tolist(), abs=0.05)
+    assert w.reference is None
+
+
+def test_generate_records_the_numbers_ask_issued():
+    """T3 I-2: the Generate call site keeps the picks, in order, and they
+    survive a save."""
+    import ui_batch
+    opt = _project("picks_recorded")
+    ui_batch.ask_alone(opt, n_suggestions=3)
+    record = opt.round_generation[opt.pending_batch_no]
+    assert record["picks"] == [int(r["formulation"]) for r in opt.pending_batch]
+    again = FoodOptimizer("picks_recorded")
+    assert again.round_generation[opt.pending_batch_no]["picks"] == record["picks"]
+
+
+def test_a_note_on_a_pick_never_makes_it_the_users_own():
+    """T3 I-2: a Note typed on pick 1 at Save results. Once the Round is
+    closed, its first pick is still pick 1 (not pick 2 at q = 1)."""
+    opt = _project("noted", rows=9)
+    _ask_and_capture(opt, 3, _grid(8))
+    no = opt.pending_batch_no
+    want = bo_views.round_gain(opt, no).gain
+    second = next(r for r in bo_views.why(opt).rows if r.pick == 2)
+    model = bo_views.rebuild(opt, bo_views.generation(opt, no))
+    alone = bo_views.evaluate(opt, model, bo_views.points(opt, [insights.at_total(
+        opt, opt.pending_batch[1]["recipe"])])).value[0]
+    assert abs(float(alone) - want) > 1e-2 and second.formulation == opt.pending_batch[1][
+        "formulation"]
+    for k, row in enumerate(list(opt.pending_batch)):
+        opt.tell(row["recipe"], _truth(row["recipe"]), formulation_no=row["formulation"],
+                 batch_no=no, note="slightly dry" if k == 0 else "")
+    opt.set_pending_batch(None)
+    got = bo_views.round_gain(opt, no)
+    # As recorded (amounts rounded at tell), still pick 1's value.
+    assert got.why_none is None and got.gain == pytest.approx(want, abs=1e-3)
+
+
+def test_an_edited_own_formulation_stays_the_users_own():
+    """T3 I-2: editing an own row gives it original_recipe; it is still the
+    user's own, not a suggestion "·", and never an earlier pick."""
+    opt = _project("own_edited", rows=9)
+    _ask_and_capture(opt, 2, _grid(8))
+    own_no = opt.add_to_pending_batch({"Pea": 6.0, "Oil": 4.0}, note="Own formulation")
+    opt.edit_pending_formulations({own_no: {"Pea": 6.5, "Oil": 4.0}})
+    assert next(r for r in opt.pending_batch if r["formulation"] == own_no).get(
+        "original_recipe")
+    w = bo_views.why(opt)
+    got = {r.formulation: r for r in w.rows}
+    assert got[own_no].own and got[own_no].pick is None and not got[own_no].pending
+    assert not got[own_no].edited
+    assert [got[n].pick for n in opt.round_generation[opt.pending_batch_no]["picks"]] == [1, 2]
+
+
+def test_a_pick_moved_to_not_scored_keeps_the_others_places():
+    """T3 M-5: pick 1 moved to Not scored; the Round's first pick is still
+    pick 1 (from the record), and in the open Round pick 2 is still pick 2,
+    valued with pick 1 counted."""
+    opt = _project("skipped_pick", rows=9)
+    _ask_and_capture(opt, 3, _grid(8))
+    no = opt.pending_batch_no
+    want = bo_views.round_gain(opt, no).gain
+    first, *rest = list(opt.pending_batch)
+    opt.record_skipped(first["formulation"], no, first["recipe"])
+    w = bo_views.why(opt)
+    got = {r.formulation: r for r in w.rows}
+    assert [got[r["formulation"]].pick for r in rest] == [2, 3]
+    assert all(got[r["formulation"]].pending for r in rest)
+    for row in rest:
+        opt.tell(row["recipe"], _truth(row["recipe"]), formulation_no=row["formulation"],
+                 batch_no=no)
+    opt.set_pending_batch(None)
+    assert bo_views.round_gain(opt, no).gain == pytest.approx(want, abs=1e-3)
+
+
+def test_a_degenerate_pool_says_no_roles():
+    """T3 M-1: hit-and-run returns POOL_SIZE rows or fails; what counts is
+    how many distinct formulations it holds."""
+    P = torch.rand(10, 3, dtype=torch.double).repeat(300, 1)
+    assert P.shape[0] == bo_views.POOL_SIZE
+    assert bo_views.pool_points(P) == 10 < bo_views.POOL_MIN
+    assert bo_views.pool_points(None) == 0
+
+
+def test_the_why_fold_gives_no_roles_from_a_degenerate_pool(monkeypatch):
+    """T3 M-1: the rows of the pool are there, the formulations are not."""
+    opt = _project("degenerate", rows=9)
+    _ask_and_capture(opt, 2, _grid(8))
+    one = bo_views.points(opt, [insights.at_total(opt, opt.pending_batch[0]["recipe"])])
+    monkeypatch.setattr(bo_views, "feasible_pool", lambda o: one.repeat(bo_views.POOL_SIZE, 1))
+    assert [r.role for r in bo_views.why(opt).rows] == [None, None]
+
+
+def test_the_pool_key_follows_the_open_round_and_its_not_scored_rows():
+    """T3 M-4: they decide which pre-mix make-up the pool is sampled with."""
+    opt = _project("pool_key")
+    before = bo_views.pool_key(opt)
+    opt.ask(2)
+    opened = bo_views.pool_key(opt)
+    assert opened != before
+    first = opt.pending_batch[0]
+    opt.record_skipped(first["formulation"], opt.pending_batch_no, first["recipe"])
+    assert bo_views.pool_key(opt) != opened
+
+
+def test_the_pool_stays_cached_while_it_is_used():
+    """T3 M-3: a hit moves the pool to the newest end of the cache."""
+    opt = _no_fill()
+    P = bo_views.feasible_pool(opt)
+    for k in range(bo_views._CACHE_SIZE - 1):
+        bo_views._remember(("x", k), k)
+        assert bo_views.feasible_pool(opt) is P
+    bo_views._remember(("x", "last"), 0)
+    assert ("pool", bo_views.pool_key(opt)) in bo_views._CACHE
+
+
+def test_a_display_model_of_other_rows_is_not_used():
+    """T3 M-6: a recomputed Round never takes a model fitted on another
+    number of rows."""
+    opt = _project("wrong_rows", rows=9)
+    gen = bo_views.generation(opt, 3)
+    wrong = insights.fit(opt, insights.SCORE, list(range(9)))
+    assert wrong.n_rows != len(gen.rows)
+    model = bo_views.rebuild(opt, gen, wrong)
+    assert model.gp is not wrong.model and model.X.shape[0] == len(gen.rows)

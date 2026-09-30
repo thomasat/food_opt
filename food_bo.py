@@ -1538,6 +1538,9 @@ def _generation_records_from(raw):
                            "rows": [int(n) for n in record["rows"]],
                            "n": int(record["n"]), "regime": str(record["regime"]),
                            "key": str(record.get("key") or "")}
+            # The numbers ask() issued (T3 I-2), kept when there are any.
+            if record.get("picks"):
+                out[int(k)]["picks"] = [int(n) for n in record["picks"]]
         # int(float('inf')) raises OverflowError: a damaged entry, dropped,
         # never a reason to refuse the copy (T1 review M1).
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
