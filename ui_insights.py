@@ -386,7 +386,7 @@ def render(opt):
     _foot(opt, change)
     # The folds, collapsed (§2.5), each with a key of its own.
     with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one"):
-        _change(opt, computed)
+        _change(opt, computed, yard)
     _more_charts(opt, computed)
     _how(opt, computed)
 
@@ -519,7 +519,7 @@ def _keep_if_offered(key, options):
         del st.session_state[key]
 
 
-def _change(opt, computed):
+def _change(opt, computed, yard):
     """"Try one ingredient or process setting" (§2.5): its first line ranks
     the choices near what has been tested (review I8), then the two boxes,
     the path and its two captions."""
@@ -555,8 +555,7 @@ def _change(opt, computed):
     if found.moved and CHOICE_KEY not in st.session_state:
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
-        _near_answer(opt, found, number == best_no, number, fitted, recipe,
-                     insights.noise_yardstick(opt, computed["checks"]))
+        _near_answer(opt, found, number == best_no, number, fitted, recipe, yard)
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
@@ -599,8 +598,8 @@ def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
     return alt.layer(light, dark).properties(height=28 * len(changes) + 20)
 
 
-# Under a tenth of a point every spread reads "0.0" or "0.1": no choice
-# moves the prediction by more than SPREAD_FLAT's 0.1 points.
+# The whole path's change must beat the tested-near one by more than this
+# (a tenth of a point, the precision shown) before near_bigger is said.
 _FLAT = 0.1
 
 

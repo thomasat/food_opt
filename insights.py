@@ -243,7 +243,7 @@ class Check:
     measured: float
     inside: bool
     fully_measured: bool
-    raw_mean: float | None = None   # Prediction.raw_mean / .sd: for the misses chart
+    raw_mean: float | None = None   # Prediction.raw_mean / .sd: the verdict's |z|
     sd: float | None = None
 
 

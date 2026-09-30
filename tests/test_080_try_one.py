@@ -12,6 +12,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_insights_ui import _open_insights, insights_scored  # noqa: F401
+from tests.test_insights_wave_b_ui import ferment, mixed_scored, warm_ferment  # noqa: F401
 from tests.test_insights_wave_c_ui import mixture_scored  # noqa: F401
 
 
@@ -30,8 +31,9 @@ def _changes(monkeypatch, *rows, held=(), start_tested=True, yard=1.0):
                         insights.Yardstick(yard, None, 0, False))
 
 
-def _fold(at):
-    return next(e for e in at.tabs[3].expander if e.label == wording.try_one(False))
+def _fold(at, label=None):
+    label = wording.try_one(False) if label is None else label
+    return next(e for e in at.tabs[3].expander if e.label == label)
 
 
 def _said(fold):
@@ -60,6 +62,28 @@ def test_two_nearly_tied_are_named_together(insights_scored, monkeypatch):
     at = _open_insights(_app())
     assert _said(_fold(at))[0] == wording.near_two("Pea protein", "Methylcellulose", "1.5",
                                                    "1.3", "Best so far")
+
+
+def test_a_tie_is_read_on_the_tested_near_change(insights_scored, monkeypatch):
+    """Only the tested-near changes tie (1.3 of 1.5): named together."""
+    _changes(monkeypatch, ("Pea protein", 1.5, 6.0), ("Methylcellulose", 1.3, 1.3))
+    at = _open_insights(_app())
+    assert _said(_fold(at))[0] == wording.near_two("Pea protein", "Methylcellulose", "1.5",
+                                                   "1.3", "Best so far")
+
+
+def test_whole_path_changes_that_tie_are_no_tie(insights_scored, monkeypatch):
+    """The whole-path changes tie (1.4 of 1.5), the tested-near ones do not."""
+    _changes(monkeypatch, ("Pea protein", 1.5, 1.5), ("Methylcellulose", 0.5, 1.4))
+    at = _open_insights(_app())
+    assert _said(_fold(at))[0] == wording.near_line("Pea protein", "1.5", "Best so far")
+
+
+def test_stands_out_is_judged_by_the_yardstick(insights_scored, monkeypatch):
+    """Repeats differ by 2 points: a 1.4-point change does not stand out."""
+    _changes(monkeypatch, ("Pea protein", 1.4, 1.5), ("Methylcellulose", 0.3, 0.4), yard=2.0)
+    at = _open_insights(_app())
+    assert _said(_fold(at))[0] == wording.near_none(False, False)
 
 
 def test_nothing_beyond_the_yardstick_stands_out(insights_scored, monkeypatch):
@@ -144,3 +168,61 @@ def test_another_start_is_named(insights_scored, monkeypatch):
     at.run()
     no = at.tabs[3].selectbox(key=ui_insights.START_KEY).value
     assert _said(_fold(at))[0] == wording.near_line("Pea protein", "1.4", f"Formulation {no}")
+
+
+# ------------------------------------------------------------------ #
+#  A process-only study and a mixed one (review I14, Task 7 review I-2)
+# ------------------------------------------------------------------ #
+
+_SETTINGS = ("Incubation temperature", "Incubation time")
+
+
+def _ferment_fold(at, opt):
+    return _fold(at, wording.for_project(opt, wording.try_one(True, False)))
+
+
+def test_a_process_only_project_says_no_process_setting_stands_out(warm_ferment, monkeypatch):
+    _changes(monkeypatch, (_SETTINGS[0], 0.6, 3.0), (_SETTINGS[1], 0.2, 0.9))
+    at = _open_insights(_app())
+    assert not at.exception
+    fold = _ferment_fold(at, warm_ferment)
+    assert fold.label == "Try one process setting"
+    assert _said(fold)[0] == wording.for_project(warm_ferment, wording.near_none(True, True))
+    assert _said(fold)[0] == "Near what you have tested, no process setting stands out yet."
+
+
+def test_a_process_only_project_names_the_setting_and_its_values(warm_ferment, monkeypatch):
+    _changes(monkeypatch, (_SETTINGS[0], 1.4, 5.0), (_SETTINGS[1], 0.3, 0.4))
+    at = _open_insights(_app())
+    assert not at.exception
+    said = _said(_ferment_fold(at, warm_ferment))
+    assert said[:2] == [wording.near_line(_SETTINGS[0], "1.4", "Best so far"),
+                        wording.near_bigger(values=True)]
+    assert "values not tested yet" in said[1]
+    compare = next(e for e in at.tabs[3].expander
+                   if e.label == wording.for_project(warm_ferment, wording.compare_all(True, False)))
+    assert compare.label == "Compare all process settings"
+    assert [c.value for c in compare.caption] == [
+        wording.for_project(warm_ferment, wording.change_caption(True))]
+    assert "allowed values" in compare.caption[0].value
+
+
+def test_a_process_only_project_with_every_setting_held(warm_ferment, monkeypatch):
+    _changes(monkeypatch, held=list(_SETTINGS))
+    at = _open_insights(_app())
+    assert not at.exception
+    assert _said(_ferment_fold(at, warm_ferment))[0] == wording.for_project(
+        warm_ferment, wording.held_all("Best so far", True))
+
+
+@pytest.mark.parametrize("top,values", [("Mixing time", True), ("Pea protein", False)])
+def test_values_for_a_setting_and_amounts_for_an_ingredient(mixed_scored, monkeypatch,
+                                                            top, values):
+    other = "Methylcellulose"
+    _changes(monkeypatch, (top, 1.4, 5.0), (other, 0.3, 0.4))
+    at = _open_insights(_app())
+    assert not at.exception
+    said = _said(_fold(at, wording.try_one(True, True)))
+    assert said[:2] == [wording.near_line(top, "1.4", "Best so far"),
+                        wording.near_bigger(values=values)]
+    assert ("values" if values else "amounts") in said[1]

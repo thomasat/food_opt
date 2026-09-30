@@ -372,19 +372,17 @@ def test_score_and_value_text():
 #  Task 3: which ingredients matter most
 # ------------------------------------------------------------------ #
 
-def _spreads(monkeypatch, *pairs, held=()):
-    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads(
-        [insights.Spread(n, s) for n, s in pairs], list(held)))
-
-
-def test_a_failed_spread_leaves_the_path(insights_scored, monkeypatch):
-    def boom(*a):
-        raise RuntimeError("no spread")
-    monkeypatch.setattr(insights, "spreads", boom)
+def test_a_failed_ranking_leaves_the_path(insights_scored, monkeypatch):
+    """tested_near_changes failing drops the fold's first line; the path
+    and its captions still draw (ui_insights._change's fallback)."""
+    def boom(*a, **k):
+        raise RuntimeError("no ranking")
+    monkeypatch.setattr(insights, "tested_near_changes", boom)
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert not [m for m in md if m.startswith("Across its allowed amounts")]
+    assert not [m for m in md if m.startswith(("Near what you have tested",
+                                                "Nothing has been tested near"))]
     assert [c for c in caps if c.startswith("More Pea protein")]
 
 
