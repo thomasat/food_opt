@@ -70,7 +70,7 @@ class Pool:
             proc = subprocess.Popen(
                 [python or sys.executable, WORKER], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
-                cwd=os.path.dirname(WORKER), env=env)
+                env=env)
             self._procs.append(proc)
             threading.Thread(target=self._serve, args=(proc,), daemon=True).start()
 
