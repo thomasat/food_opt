@@ -4734,3 +4734,16 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
         line = (f"Recent {ROUND_CAP}s: only {inside} of {total} {OVERALL_SCORE_COLUMN}s landed "
                 "inside their likely range — treat these predictions as rough.")
     return f"{line} See {TAB_INSIGHTS}." if see_insights else line
+
+
+# Answer 2 when no amounts meet every limit together, so there is nothing
+# to search (plan-a-report open question 2): said, never "could not be
+# worked out". Generate stops at the same place.
+def best_needs_batch_size(name):
+    """The row calculated as = rest has no default batch size to fill."""
+    return (f"There is no predicted best: {name} is calculated as = rest, and there is "
+            f"no {FORMULATION_TOTAL_NOUN} for it to fill. Set one in {MORE_SETTINGS_EXPANDER}.")
+
+
+BEST_NO_AMOUNTS = ("There is no predicted best: no amounts meet every limit together. "
+                   "Check the limits on Set up.")

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import torch
 from botorch.acquisition import PosteriorMean
+from botorch.exceptions.errors import InfeasibilityError
 from botorch.fit import fit_gpytorch_mll
 from botorch.optim import optimize_acqf
 from botorch.utils.transforms import normalize, unnormalize
@@ -1500,6 +1501,17 @@ def widened(fitted, p, factor):
                       p.raw_mean, sd)
 
 
+def no_amounts_reason(opt):
+    """Answer 2's line when no amounts meet the project's limits together
+    (the search's polytope is empty; ask() stops at the same place): a row
+    calculated as = rest with no default batch size to fill — its floor
+    then reads 0 - every other amount >= 0 — else the limits in general."""
+    rest = opt._balance_row()
+    if rest is not None and not opt.has_formulation_total():
+        return wording.best_needs_batch_size(rest['name'])
+    return wording.BEST_NO_AMOUNTS
+
+
 def predicted_best(opt, fitted, checks=()):
     """The single formulation the Overall-score model predicts highest,
     found the way suggestions are made and never written anywhere. Its
@@ -1507,8 +1519,9 @@ def predicted_best(opt, fitted, checks=()):
     score_widen(checks).
 
     Returns a PredictedBest, or a one-line reason (str) when `ask` would
-    refuse to make a Round. Raises when the search fails or its answer
-    breaks a limit; the caller shows one line."""
+    refuse to make a Round or no amounts meet the limits together. Raises
+    when the search fails or its answer breaks a limit; the caller shows
+    one line."""
     reason = best_refusal(opt)
     if reason:
         return reason
@@ -1517,13 +1530,16 @@ def predicted_best(opt, fitted, checks=()):
     dim = bounds.shape[1]
     with opt._premixes_for_generation():
         with _isolated():
-            candidate, _ = optimize_acqf(
-                acq_function=PosteriorMean(score.model),
-                bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
-                q=1, num_restarts=10, raw_samples=512,
-                inequality_constraints=opt._get_botorch_constraints(),
-                fixed_features=opt._get_fixed_features() or None,
-            )
+            try:
+                candidate, _ = optimize_acqf(
+                    acq_function=PosteriorMean(score.model),
+                    bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+                    q=1, num_restarts=10, raw_samples=512,
+                    inequality_constraints=opt._get_botorch_constraints(),
+                    fixed_features=opt._get_fixed_features() or None,
+                )
+            except InfeasibilityError:
+                return no_amounts_reason(opt)
         recipe = opt._decode(unnormalize(candidate[0], bounds).detach().numpy().flatten())
         if opt.has_formulation_total():
             recipe = opt._snapped_if_it_still_fits(recipe)
