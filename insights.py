@@ -1413,6 +1413,151 @@ def predicted_best(opt, fitted, checks=()):
 
 
 # ------------------------------------------------------------------ #
+#  0.8.0 speed and simplicity, Plan B: where you stand, and which
+#  ingredient changes the prediction most near what you have tested (spec
+#  2026-09-30 §2.3, §2.5; review I7, I8). The yardstick is handed in: a
+#  number, noise_yardstick(...).value, so nothing here needs the checks.
+# ------------------------------------------------------------------ #
+
+@dataclass
+class NearChange:
+    name: str
+    near: float | None      # highest minus lowest mean over the tested-near stretch that
+                            # holds the start; None when the start is not tested near
+    whole: float            # the same over the whole path
+
+
+@dataclass
+class NearChanges:
+    moved: list             # [NearChange], largest tested-near change first
+    held: list              # names the limits keep in place from this start (see HELD)
+    start_tested: bool      # the start itself is tested near
+
+
+def _run_around(near, k):
+    """The indices of the unbroken run of tested-near points holding point
+    `k`, or [] when `k` itself is not tested near."""
+    if not near[k]:
+        return []
+    lo = hi = k
+    while lo > 0 and near[lo - 1]:
+        lo -= 1
+    while hi < len(near) - 1 and near[hi + 1]:
+        hi += 1
+    return list(range(lo, hi + 1))
+
+
+def tested_near_changes(opt, fitted, start, name=SCORE):
+    """How far each path choice moves the predicted `name` from `start`,
+    near what has been tested (review I8): highest minus lowest mean over
+    the stretch of its path, around the start, that tested_near marks; the
+    whole path's change beside it. Largest tested-near change first (ties
+    and choices with none keep path_choices order after them). Like
+    spreads, a choice the limits box in is `held` and a path that cannot be
+    drawn is left out; with no model for `name` there is nothing to say."""
+    model = fitted.get(name)
+    if model is None or model.model is None:
+        return NearChanges([], [], False)
+    moved, held, start_tested = [], [], False
+    for choice in path_choices(opt):
+        path = build_path(opt, choice, start)
+        if path.start_breaks or not path.recipes:
+            continue
+        lo, hi = (float(b) for b in _var(opt, choice)['bounds'])
+        if path.amounts[-1] - path.amounts[0] < HELD * (hi - lo):
+            held.append(choice)
+            continue
+        means = [p.mean for p in predict(opt, model, [opt._encode(r) for r in path.recipes])]
+        near = tested_near(opt, path)
+        k = min(range(len(path.amounts)), key=lambda j: abs(path.amounts[j] - path.start_amount))
+        run = _run_around(near, k)
+        start_tested = start_tested or bool(run)
+        moved.append(NearChange(
+            choice, (max(means[j] for j in run) - min(means[j] for j in run)) if run else None,
+            max(means) - min(means)))
+    moved.sort(key=lambda c: (c.near is None, -(c.near or 0.0)))
+    return NearChanges(moved, held, start_tested)
+
+
+@dataclass
+class Binding:
+    kind: str               # "highest", "lowest" or "limit"
+    name: str               # the row's name; for a limit, its metric or its rows
+    text: str               # the row's name, or the limit as Set up words it
+
+
+# A row or a limit within this share of its own span (a limit: of its bound)
+# counts as reached (review I7).
+BINDING = 0.01
+
+
+def binding_limits(opt, recipe):
+    """What the formulation `recipe` sits at (review I7, Line 3): each
+    varying row within BINDING of its span from its Lowest or Highest (the
+    Fill to total row, fixed and calculated rows left out), then each
+    ingredient limit and property limit within BINDING of its bound (the
+    Formulation total itself left out: every formulation sits at it)."""
+    out = []
+    fill = opt.balance_row_name()
+    for v in opt.varying_variables():
+        if v.get('type') != 'continuous' or v['name'] == fill:
+            continue
+        lo, hi = (float(b) for b in v['bounds'])
+        span = hi - lo
+        if span <= 0:
+            continue
+        x = float(recipe.get(v['name'], lo) or 0.0)
+        if x >= hi - BINDING * span:
+            out.append(Binding("highest", v['name'], v['name']))
+        elif x <= lo + BINDING * span:
+            out.append(Binding("lowest", v['name'], v['name']))
+    for qc in getattr(opt, 'quantity_constraints', []):
+        if qc.get('source') == 'formulation_total':
+            continue
+        total = sum(float(recipe.get(n, 0.0) or 0.0) for n in qc['ingredients'])
+        if any(b is not None and abs(total - float(b)) <= BINDING * max(abs(float(b)), _EPS)
+               for b in (qc['min'], qc['max'])):
+            out.append(Binding("limit", " + ".join(qc['ingredients']), opt.limit_text(qc)))
+    amount = max(opt.ingredient_total(recipe), _EPS)
+    numeric = _numeric(recipe)
+    for c in opt.constraints:
+        if opt.ingredients_without_property(c['metric']):
+            continue
+        if any(b is not None and abs(opt._property_residual(numeric, c['metric'], b))
+               <= BINDING * max(abs(float(b)), _EPS) * amount
+               for b in (c['min'], c['max'])):
+            out.append(Binding("limit", c['metric'], opt.property_limit_text(c)))
+    return out
+
+
+@dataclass
+class Standing:
+    best: PredictedBest
+    higher: bool            # the predicted best beats Best so far's predicted Repeat by
+                            # more than the yardstick
+    tested_near: bool       # a scored formulation lies within CLOSE_TO_THE_BEST of it
+    close_no: int | None    # that formulation's number
+    binding: list           # [Binding] at the predicted best
+    luck: bool              # Best so far's measured score beats its own predicted Repeat
+                            # by more than the yardstick
+
+
+def best_standing(opt, best, yardstick):
+    """The predicted best against Best so far (review I7): like with like,
+    its mean against Best so far's predicted Repeat (the measured score
+    when there is none), judged by `yardstick` (points)."""
+    top = opt.best_index()
+    measured_top = None if top is None else float(opt.Y_history[top])
+    ref = best.repeat.mean if best.repeat is not None else measured_top
+    higher = ref is not None and best.score.mean - ref > yardstick
+    luck = (best.repeat is not None and measured_top is not None
+            and best.repeat.mean < measured_top - yardstick)
+    close_no = None if best.close is None else int(opt.formulation_ids[best.close])
+    return Standing(best, higher, best.close is not None, close_no,
+                    binding_limits(opt, best.recipe), luck)
+
+
+# ------------------------------------------------------------------ #
 #  Wave C: More charts — three ingredients trading places
 # ------------------------------------------------------------------ #
 
