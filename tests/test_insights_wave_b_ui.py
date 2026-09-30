@@ -65,9 +65,10 @@ def test_the_round_table_gains_the_predicted_score_column(warm_round):
     assert not at.exception
     table = _batch_table(at)
     cols = list(table.value.columns)
+    # Compared with third, on screen only (spec 2026-09-30 §3, review M14).
     assert cols == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
-                    "Pea protein (g)", "Methylcellulose (g)", "Total (g)",
-                    wording.compared_with_column(warm_round.best_formulation_no())]
+                    wording.compared_with_column(warm_round.best_formulation_no()),
+                    "Pea protein (g)", "Methylcellulose (g)", "Total (g)"]
     expected = _expected("burger")
     shown = list(table.value[wording.PREDICTED_SCORE_COLUMN])
     numbers = list(table.value[wording.FORMULATION_CAP])
@@ -105,7 +106,7 @@ def test_one_caption_and_the_predicted_measurements(warm_round, monkeypatch):
     assert captions.count(wording.PREDICTIONS_ROUND_CAPTION) == 1
     assert wording.PREDICTED_SCORE_HELP not in captions        # tooltip, not a caption
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    frame = exp.dataframe[0].value
+    frame = exp.table[0].value
     # Results' order: Firmness carries the larger Share of score.
     assert list(frame.columns) == [wording.FORMULATION_CAP, "Firmness (N)", "Juiciness (/10)"]
     expected = _expected("burger")
@@ -174,7 +175,7 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     assert captions.count(trial_caption) == 1
     assert wording.PREDICTIONS_ROUND_CAPTION not in captions
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    frame = exp.dataframe[0].value
+    frame = exp.table[0].value
     assert list(frame.columns) == [wording.TRIAL_CAP, "Acidity (pH)"]
 
 
@@ -190,7 +191,7 @@ def test_a_measurement_with_too_few_values_shows_a_dash(warm_round, monkeypatch)
     at.run()
     assert not at.exception
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    frame = exp.dataframe[0].value
+    frame = exp.table[0].value
     assert set(frame["Juiciness (/10)"]) == {"—"}
     assert "—" not in set(frame["Firmness (N)"])
 
@@ -231,7 +232,7 @@ def test_recorded_and_not_scored_rows_show_nothing(warm_round):
     cells = dict(zip(table[wording.FORMULATION_CAP], table[wording.PREDICTED_SCORE_COLUMN]))
     assert cells[a] == "" and cells[b] == "" and cells[c] != ""
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    assert list(exp.dataframe[0].value[wording.FORMULATION_CAP]) == [c]
+    assert list(exp.table[0].value[wording.FORMULATION_CAP]) == [c]
 
 
 def test_the_round_tab_closed_fits_nothing(warm_round, monkeypatch):

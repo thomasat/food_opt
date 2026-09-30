@@ -1636,7 +1636,8 @@ def test_batch_tab_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
     generate = _submit_button(at, "Generate formulations")
     back = _submit_button(at, "Back to Set up")
     assert generate.disabled and generate.proto.type == "secondary"
-    assert back.proto.type == "secondary"
+    # The one button that works is the lit one (spec 2026-09-30 §3, V3).
+    assert back.proto.type == "primary"
     assert any(c.value == "Add at least one measurement." for c in at.caption)
 
 
@@ -1664,12 +1665,12 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     from ui_setup import HOW_IT_WORKS
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert wording.HOW_CHOSEN == (
-        "Until five formulations have results, new ones are spread out to "
-        "cover the allowed amounts. After that, each round aims closer to "
-        "your targets."), wording.HOW_CHOSEN
-    assert wording.HOW_CHOSEN in HOW_IT_WORKS, HOW_IT_WORKS
-    assert any(c.value == wording.HOW_CHOSEN for c in at.caption), \
+    # Spec 2026-09-30 §3 (review M2): "cover", not "spread out". The How it
+    # works bullet follows in the words sweep (Task 9).
+    assert wording.HOW_CHOSEN_2 == (
+        "Until five formulations have results, new ones cover the allowed "
+        "amounts. After that, each Round aims closer to your targets."), wording.HOW_CHOSEN_2
+    assert any(c.value == wording.HOW_CHOSEN_2 for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -1766,7 +1767,7 @@ def test_start_from_the_best_prefills_and_notes_the_repeat(burger):
     at.session_state["_loaded_project"] = "burger"
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    _submit_button(at, wording.START_FROM_BEST).click()
+    _submit_button(at, wording.START_FROM_BEST_SO_FAR).click()
     at.run()
     assert not at.exception
     assert at.session_state["own_Pea protein"] == 10.0
@@ -1987,8 +1988,8 @@ def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(ope
     assert (labels.index("Firmness (N) · Target 6 N")
             < labels.index("Juiciness (/10) · Target 7"))
     assert any(c.value == ("One number per measurement; the panel mean where "
-                           "a panel rated it. Leave blank if it was not "
-                           "measured.") for c in at.caption), \
+                           "a panel rated it. Leave blank if the result isn't "
+                           "in yet; you can add it later on Results.") for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -2311,11 +2312,11 @@ def test_a_confirmation_greys_both_add_your_own_buttons(burger):
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     assert not _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
-    assert not _submit_button(at, wording.START_FROM_BEST).disabled
+    assert not _submit_button(at, wording.START_FROM_BEST_SO_FAR).disabled
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _submit_button(at, wording.ADD_TO_THIS_BATCH).disabled
-    assert _submit_button(at, wording.START_FROM_BEST).disabled
+    assert _submit_button(at, wording.START_FROM_BEST_SO_FAR).disabled
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -2415,7 +2416,7 @@ def test_start_from_the_best_keeps_the_typed_results(scored_open_batch):
     at.number_input(key="f4_Firmness").set_value(5.0)
     at.text_input(key="f4_note").set_value("second try")
     at.run()
-    _submit_button(at, wording.START_FROM_BEST).click()
+    _submit_button(at, wording.START_FROM_BEST_SO_FAR).click()
     at.run()
     assert not at.exception
     assert at.session_state["f4_Firmness"] == 5.0
@@ -4862,7 +4863,7 @@ def test_leaving_a_formulation_out_keeps_the_note_box_open(open_batch):
     assert not note.disabled
     tick = next(c for c in at.checkbox if c.key == "f1_leave_out")
     assert tick.label == "Not scored"
-    assert tick.help == wording.NOT_SCORED_HELP
+    assert tick.help == wording.NOT_SCORED_TICK_HELP
     # The measurement boxes still grey out: a left-out formulation has no
     # results, and only the note it leaves behind.
     assert next(n for n in at.number_input if n.key == "f1_Firmness").disabled
@@ -7935,7 +7936,7 @@ def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    _submit_button(at, wording.START_FROM_BEST).click()
+    _submit_button(at, wording.START_FROM_BEST_SO_FAR).click()
     at.run()
     assert not at.exception
     assert at.session_state["own_Pea protein"] == 10.0
@@ -7956,7 +7957,7 @@ def test_start_from_the_best_says_its_own_amounts_are_outside(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    _submit_button(at, wording.START_FROM_BEST).click()
+    _submit_button(at, wording.START_FROM_BEST_SO_FAR).click()
     at.run()
     assert not at.exception
     assert at.session_state["own_Pea protein"] == 22.0
@@ -8232,13 +8233,13 @@ def test_the_closeness_formulas_are_the_block_below(burger):
     assert "how much your measurements vary" in joined
 
 
-def test_the_getting_started_caption_is_the_bullet_word_for_word(burger):
-    """The same fact cannot be two sentences, and it cannot be two captions
-    either: one line covers both sides of the fifth formulation."""
+def test_the_getting_started_caption_shows_only_before_five(burger):
+    """One line, and only while it is news: before five formulations have
+    results (spec 2026-09-30 §3, audit V16)."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    line = wording.HOW_IT_WORKS[2]
+    line = wording.HOW_CHOSEN_2
     assert any(c.value == line for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
     for i in range(5):
@@ -8247,7 +8248,7 @@ def test_the_getting_started_caption_is_the_bullet_word_for_word(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    assert any(c.value == line for c in at.tabs[1].caption), \
+    assert not any(c.value == line for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 
 
@@ -9109,7 +9110,9 @@ def test_each_formulation_says_what_it_is_trying(burger):
     at.run()
     assert not at.exception
     table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(table.columns)[-1] == "Compared with Formulation 1"
+    # Straight after Formulation on screen (spec 2026-09-30 §3), after the
+    # predicted column when there is one; the sheet keeps its own order.
+    assert "Compared with Formulation 1" in list(table.columns)[1:3]
     line = "Close to the best · Pea protein +1.00 g"
     assert table["Compared with Formulation 1"].iloc[0] == line
     # On paper there is no column header to read the cell against, so the
@@ -9922,12 +9925,15 @@ def test_the_round_tab_reads_in_one_order(open_batch):
     assert _tab_outline(at, 1) == [
         wording.make_these(1, 2),
         wording.STEP_MAKE_HEADING,
-        f"**{wording.LOT_ENTRY_HEADING}**",
+        wording.LOT_ENTRY_HEADING,
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
-        # One heading per row of the round, inside step 3.
+        # One heading per row of the round, inside step 3, each with its
+        # own More fold (spec 2026-09-30 §3, V11).
         wording.formulation_heading(1),
+        wording.MORE,
         wording.formulation_heading(2),
+        wording.MORE,
         wording.ADD_OWN_EXPANDER,
         wording.UPLOAD_EXPANDER,
     ], _tab_outline(at, 1)
@@ -9948,7 +9954,8 @@ def test_the_round_tab_records_then_offers_the_two_folded_doors(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     tab = at.tabs[1]
-    folds = [e for e in tab.expander]
+    folds = [e for e in tab.expander
+             if e.label not in (wording.LOT_ENTRY_HEADING, wording.MORE)]
     assert [e.label for e in folds] == [wording.ADD_OWN_EXPANDER,
                                         wording.UPLOAD_EXPANDER]
     assert not any(e.proto.expanded for e in folds)
@@ -10253,8 +10260,10 @@ def test_round_table_is_read_only_until_edit_is_requested(worked_out):
     assert not at.exception
     tab = at.tabs[1]
     assert list(tab.get("data_editor")) == []
-    assert any(c.value == wording.EDIT_FORMULATIONS_HINT
-              for c in tab.caption), [c.value for c in tab.caption]
+    # The Edit formulations button says it; the caption beside it went
+    # (spec 2026-09-30 §3, V13).
+    assert not any(c.value.startswith("To change amounts or process settings in this table")
+                   for c in tab.caption), [c.value for c in tab.caption]
 
 
 # ------------------------------------------------------------------ #

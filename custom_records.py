@@ -277,7 +277,18 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
     if (not fields(opt) and not opt.records('lot')) or round_no is None:
         return
     if opt.records('lot'):
-        st.markdown(f"**{wording.LOT_ENTRY_HEADING}**")
+        # In a fold of its own (spec 2026-09-30 §3, audit V14): it was open
+        # by default under every Round's table.
+        _lots(opt, round_no, prefix)
+    if not fields(opt):
+        return
+    _custom_fields(opt, round_no, formulation_numbers, prefix)
+
+
+def _lots(opt, round_no, prefix):
+    import streamlit as st
+    from ui_helpers import saved_ok
+    with st.expander(wording.LOT_ENTRY_HEADING):
         st.caption(wording.LOT_ENTRY_HELP)
         stored_lots = opt.lots.get(int(round_no), {})
         lot_frame = pd.DataFrame([{wording.CUSTOM_INGREDIENT_LABEL: n, wording.LOT_COLUMN: stored_lots.get(n, '')}
@@ -294,8 +305,11 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
                 opt.store_lots(round_no, updates)
                 if saved_ok(opt):
                     st.rerun()
-    if not fields(opt):
-        return
+
+
+def _custom_fields(opt, round_no, formulation_numbers, prefix):
+    import streamlit as st
+    from ui_helpers import saved_ok
     with st.expander(wording.CUSTOM_RECORDS_HEADING):
         st.caption(wording.CUSTOM_AUTOSAVE_HELP)
         for scope, subjects in [('formulation', list(map(str, formulation_numbers))),

@@ -242,7 +242,11 @@ def _any_value_typed(opt):
 def _incomplete(missing):
     st.button(wording.GENERATE_FORMULATIONS_DISABLED, disabled=True, key="generate")
     st.caption(missing)
-    if st.button(wording.BACK_TO_SETUP, key="back_to_setup"):
+    # The one button here that does something, so it is the lit one (spec
+    # 2026-09-30 §3, audit V3).
+    lit = not confirmation_open()
+    if st.button(wording.BACK_TO_SETUP, key="back_to_setup",
+                 type="primary" if lit else "secondary") and lit:
         go_to_tab(TAB_SETUP)
 
 
@@ -287,30 +291,31 @@ def _no_batch(opt):
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
-    # One line for both sides of the fifth formulation, word for word the
-    # How it works bullet. Two captions for the two halves of one rule left
-    # a reader who had only seen one of them thinking there were two.
-    st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
+    # Only while it is news: before five formulations have results (spec
+    # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
+    if opt.complete_count() < COLD_START_RUNS:
+        st.caption(wording.for_project(opt, wording.HOW_CHOSEN_2))
     line = _waiting_caption(opt)
     if line:
         st.caption(line)
 
 
 def _waiting_caption(opt):
-    """'2 formulations are waiting for Cook loss…' while any is, plus why
-    the suggestions are still spread out when that is the reason. The
-    measurement is named only when every waiting formulation waits for the
-    same ones; otherwise 'waiting for results'. In the project's own
-    words: trials in a project of process settings alone (final review
-    M-1)."""
+    """One line while any formulation waits (spec 2026-09-30 §3, audit
+    V17): '2 formulations are waiting for Cook loss (enter it on Results);
+    suggestions may land close to them.', plus why the suggestions still
+    cover the allowed amounts when that is the reason. The measurement is
+    named only when every waiting formulation waits for the same ones;
+    otherwise 'waiting for results'. In the project's own words: trials in
+    a project of process settings alone (final review M-1)."""
     waiting = opt.awaited_rows()
     if not waiting:
         return ""
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
-    names = number_list(next(iter(sets))) if len(sets) == 1 else ""
-    line = wording.waiting_generate_caption(len(waiting), names)
+    one = next(iter(sets)) if len(sets) == 1 else ()
+    line = wording.waiting_line(len(waiting), number_list(one), len(one) > 1)
     if opt.complete_count() < COLD_START_RUNS <= len(opt.Y_history):
-        line += " " + wording.still_spread_out(COLD_START_RUNS)
+        line += " " + wording.still_covering(COLD_START_RUNS)
     return wording.for_project(opt, line)
 
 
@@ -461,7 +466,7 @@ def _own_formulation(opt):
         else:
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(wording.START_FROM_BEST, key="start_from_best",
+                if st.button(wording.START_FROM_BEST_SO_FAR, key="start_from_best",
                              disabled=blocked, use_container_width=True):
                     _start_from_best(opt, best_no)
             with c2:
@@ -598,20 +603,45 @@ def _with_predictions(opt, frame, preds):
     return out
 
 
-def _predicted_measurements(opt, preds):
-    """Each row's predicted measurements, in Results' order, each with one
-    number of decimals for its prediction and likely range."""
-    rows = []
+# A predicted measurement whose likely range covers more than this share of
+# the measurement's Range says little yet (spec 2026-09-30 §3). Insights'
+# WIDE is a half-width over a quarter of the Range (a width over a half);
+# "How these insights are made" states both (review M10).
+TOO_UNCERTAIN = 0.75
+
+
+def _measurement_cells(opt, preds):
+    """(cells, tips), two frames of one shape: each row's predicted
+    measurements in Results' order, one number of decimals each; a likely
+    range wider than TOO_UNCERTAIN of the Range reads "too uncertain yet",
+    and its numbers go in `tips` ("" everywhere else)."""
+    rows, tips = [], []
+    formulation = wording.for_project(opt, wording.FORMULATION_CAP)
     for no, per in preds.items():
-        item = {wording.for_project(opt, wording.FORMULATION_CAP): no}
+        item, tip = {formulation: no}, {formulation: ""}
         for obj in opt.measurements_by_importance():
+            column = opt._measurement_column(obj)
             p = per.get(obj['name'])
-            item[opt._measurement_column(obj)] = (
-                "—" if p is None
-                else ui_insights.value_text(p, ui_insights.decimals(opt, obj['name'])))
+            if p is None:
+                item[column], tip[column] = "—", ""
+                continue
+            text = ui_insights.value_text(p, ui_insights.decimals(opt, obj['name']))
+            span = float(obj['max_val']) - float(obj['min_val'])
+            if span > 0 and p.high - p.low > TOO_UNCERTAIN * span:
+                item[column], tip[column] = wording.TOO_UNCERTAIN, text
+            else:
+                item[column], tip[column] = text, ""
         rows.append(item)
+        tips.append(tip)
+    return pd.DataFrame(rows), pd.DataFrame(tips)
+
+
+def _predicted_measurements(opt, preds):
+    """Each row's predicted measurements, under their fold. A static table,
+    so a "too uncertain yet" cell keeps its numbers in its tooltip."""
+    cells, tips = _measurement_cells(opt, preds)
     with st.expander(wording.PREDICTED_MEASUREMENTS):
-        st.dataframe(pd.DataFrame(rows), hide_index=True, height=table_height(len(rows)))
+        st.table(cells.style.set_tooltips(tips).hide(axis="index"))
         st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION))
 
 
@@ -673,8 +703,9 @@ def _batch_table(opt, scale_to, tab_open=False):
     so the column does not blink on every rerun.
     """
     near_copies = _near_copy_prefixes(opt, opt.pending_batch)
-    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to,
-                            near_copies=near_copies)
+    frame = _compared_second(opt, opt.batch_frame(opt.pending_batch, scale_to=scale_to,
+                                                  near_copies=near_copies,
+                                                  max_changes=_SCREEN_CHANGES))
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
     if not editing:
@@ -682,7 +713,6 @@ def _batch_table(opt, scale_to, tab_open=False):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
-        st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
         # With the models fitted, drawn once with the predictions. Otherwise
         # drawn now without them; _show_predictions fits and draws it again
         # in the same place with them, once the rest of the screen is up.
@@ -740,20 +770,33 @@ def _batch_table(opt, scale_to, tab_open=False):
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
-    # Planned edits and actual bench corrections are distinct actions.
-    if not editing and opt.records("actual"):
-        st.caption(wording.for_project(opt, wording.FORMULATION_CORRECTIONS_CAPTION))
     # The what-is-it-trying column is not drawn during the cold start (every
     # cell under it repeated its own header); this is the line that says what
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
-        st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
+        st.caption(wording.for_project(opt, wording.HOW_CHOSEN_2))
     # Last, after the lines about the table's amounts: kept for what the new
     # column means for a row predicted below Best so far, then the
     # per-measurement predictions one click away.
     if editing:
         return True, None
     return False, (table_slot, frame, st.container(), preds)
+
+
+# How many changes the screen's Compared with names (spec 2026-09-30 §3): the
+# two largest, amounts first. The sheet keeps its own, longer list.
+_SCREEN_CHANGES = 2
+
+
+def _compared_second(opt, frame):
+    """The Compared with column straight after Formulation, on screen only
+    (spec 2026-09-30 §3, review M14): once the predicted column goes in
+    after Formulation, it is the third. The sheet's order is batch_frame's."""
+    trying = opt.compared_with_column()
+    if trying not in frame.columns:
+        return frame
+    rest = [c for c in frame.columns if c != trying]
+    return frame[rest[:1] + [trying] + rest[1:]]
 
 
 def _draw_table(opt, slot, frame):
@@ -866,11 +909,10 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # step aside while a confirmation is waiting for an answer.
     lit = not _any_value_typed(opt) and not confirmation_open()
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
-    st.caption(wording.WORKBOOK_WORKFLOW_CAPTION)
-    # The caption follows the box: the file a tick produces has no sheet
-    # called Results, and the line above it went on naming one.
-    st.caption(wording.PRINT_PACK_WORKBOOK_CAPTION if print_pack
-               else wording.COMPACT_WORKBOOK_CAPTION)
+    # One line, and it follows the box: the file a tick produces has no
+    # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
+    # names are behind the button's "?".
+    st.caption(wording.for_project(opt, wording.workbook_line(print_pack)))
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
         data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
@@ -880,6 +922,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
         type="primary" if lit else "secondary",
         use_container_width=True,
         on_click=_sheets_are_out,
+        help=wording.for_project(opt, wording.WORKBOOK_TABS_HELP),
     )
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
@@ -963,7 +1006,7 @@ def _record_results(opt):
             st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
             st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
         st.session_state['_result_draft_seed'] = seed
-    st.caption(wording.RECORD_RESULTS_CAPTION)
+    st.caption(wording.RECORD_RESULTS_LINE)
     left_out, entered, partly = set(), 0, 0
 
     for row in rows:
@@ -1009,13 +1052,19 @@ def _record_results(opt):
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
-        # Never disabled: why a formulation was not scored is the only
-        # record of what went wrong, and a Note that greys out on the tick
-        # can only be typed by someone who knew to type it first.
-        st.text_input(wording.NOTE, key=f"f{number}_note")
-        # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
-                    help=wording.NOT_SCORED_HELP)
+        # Note and Not scored behind one "More" per formulation (spec
+        # 2026-09-30 §3, audit V11): the boxes the user came to fill come
+        # first. The label says what is set inside, and the fold opens when
+        # Not scored is ticked or a note was typed here (review M11).
+        note = str(st.session_state.get(f"f{number}_note") or "").strip()
+        with st.expander(wording.more_label(skip, bool(note)),
+                         expanded=skip or note not in ("", str(row.get('note') or "").strip())):
+            # Never disabled: why a formulation was not scored is the only
+            # record of what went wrong, and a Note that greys out on the
+            # tick can only be typed by someone who knew to type it first.
+            st.text_input(wording.NOTE, key=f"f{number}_note")
+            st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
+                        help=wording.NOT_SCORED_TICK_HELP)
         if not skip:
             # Complete means EVERY measurement has a number. One of three
             # typed is not a third of a result, and counting it as complete

@@ -3206,7 +3206,7 @@ class FoodOptimizer:
             return None
         return self._best_recipe_index()
 
-    def vs_best_text(self, recipe, n=3, scale_to=None):
+    def vs_best_text(self, recipe, n=3, scale_to=None, max_changes=None):
         """What this formulation changes from the best one so far: the `n`
         largest amount changes among the ingredients, largest first, then the
         SETTINGS_SHOWN largest among the process settings — the settings have
@@ -3222,7 +3222,11 @@ class FoodOptimizer:
 
         `scale_to` rewrites this formulation AND the best one to that total
         before the two are compared, so a change read beside a scaled table
-        is the difference between two numbers the screen actually shows."""
+        is the difference between two numbers the screen actually shows.
+
+        `max_changes` keeps only the first that many, amounts first (spec
+        2026-09-30 §3, review M14): the screen's table passes 2; the sheet
+        never passes it."""
         best = self._best_recipe_index()
         if best is None:
             return ""
@@ -3239,6 +3243,8 @@ class FoodOptimizer:
             for name, delta
             in self._variable_deltas(mine, ref, 'process')[:SETTINGS_SHOWN]
         ]
+        if max_changes is not None:
+            parts = parts[:max_changes]
         return ", ".join(parts)
 
     def suggestion_kind(self, recipe):
@@ -3279,7 +3285,8 @@ class FoodOptimizer:
             return wording.COMPARED_WITH_ALLOWED
         return wording.compared_with_column(self.best_formulation_no())
 
-    def compared_with_text(self, recipe, scale_to=None, own=False, prefix=""):
+    def compared_with_text(self, recipe, scale_to=None, own=False, prefix="",
+                           max_changes=None):
         """One cell of the batch table, and the same line on the sheet: what
         kind of formulation this is, and the amounts that carry it.
 
@@ -3298,14 +3305,17 @@ class FoodOptimizer:
         of the cell, screen-only: every caller writing to the workbook (the
         formulation sheet) leaves it at "", so what is printed never carries
         it — only ui_batch's on-screen table passes one, for a suggestion
-        near a formulation still waiting for results."""
+        near a formulation still waiting for results.
+
+        `max_changes` (screen only, like `prefix`): vs_best_text's."""
         if own:
             return prefix + wording.compared_with_cell(
                 wording.OWN_FORMULATION_KIND,
-                self.vs_best_text(recipe, scale_to=scale_to))
+                self.vs_best_text(recipe, scale_to=scale_to, max_changes=max_changes))
         kind = self.suggestion_kind(recipe)
         changes = ("" if kind == wording.SUGGESTION_SPREAD
-                   else self.vs_best_text(recipe, scale_to=scale_to))
+                   else self.vs_best_text(recipe, scale_to=scale_to,
+                                          max_changes=max_changes))
         return prefix + wording.compared_with_cell(kind, changes)
 
     def ingredient_total(self, recipe):
@@ -3785,7 +3795,7 @@ class FoodOptimizer:
                                 ascending=[True, False, True])
         return df[columns].reset_index(drop=True)
 
-    def batch_frame(self, batch, scale_to=None, near_copies=None):
+    def batch_frame(self, batch, scale_to=None, near_copies=None, max_changes=None):
         """The open batch as the make-these table: one row per formulation, one
         column per ingredient and setting carrying its own unit, and the total
         of the ingredients — one number while they share a unit, `340.00 g ·
@@ -3795,7 +3805,9 @@ class FoodOptimizer:
         `near_copies` (Minor 15, 2026-09-29 review) is {formulation number:
         prefix text}, off by default: nothing here writes to the workbook,
         so a caller that never passes it — every one but ui_batch's own
-        on-screen table — gets exactly today's cell, unchanged."""
+        on-screen table — gets exactly today's cell, unchanged.
+        `max_changes` is the same kind of argument: the on-screen table's
+        Compared with names at most that many changes (spec 2026-09-30 §3)."""
         total_col = self.total_column()
         # The total closes the amounts you weigh out, so it sits with them,
         # before the settings you dial in — the order the sheet is filled in.
@@ -3844,7 +3856,8 @@ class FoodOptimizer:
                 prefix = ("" if own or not near_copies
                           else near_copies.get(row['formulation'], ""))
                 item[trying] = self.compared_with_text(
-                    row['recipe'], scale_to=scale_to, own=own, prefix=prefix)
+                    row['recipe'], scale_to=scale_to, own=own, prefix=prefix,
+                    max_changes=max_changes)
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name'], mark=True)

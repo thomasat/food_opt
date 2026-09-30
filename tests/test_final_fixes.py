@@ -179,9 +179,8 @@ def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting)
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[1].caption]      # Make a round
-    assert ("1 trial is waiting for Aroma and is not used for suggestions yet. "
-            "Enter its results on Results. Suggestions don't know about it yet "
-            "and may be close to it.") in captions, captions
+    assert ("1 trial is waiting for Aroma (enter it on Results); suggestions may "
+            "land close to it.") in captions, captions
 
 
 # ------------------------------------------------------------------ #

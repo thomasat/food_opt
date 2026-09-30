@@ -63,7 +63,7 @@ def test_results_with_no_complete_formulation_names_no_best(all_waiting):
 def test_make_a_round_with_no_complete_formulation_offers_no_best(all_waiting):
     at = _app(wording.TAB_BATCH)
     assert not at.exception
-    assert wording.START_FROM_BEST not in [b.label for b in at.button]
+    assert wording.START_FROM_BEST_SO_FAR not in [b.label for b in at.button]
 
 
 def test_insights_with_no_complete_formulation(six_waiting):
@@ -176,19 +176,16 @@ def test_make_a_round_says_nothing_while_nothing_waits(scored):
 
 def test_make_a_round_names_one_waiting_formulation(one_waiting):
     at = _app(wording.TAB_BATCH)
-    assert ("1 formulation is waiting for Juiciness and is not used for "
-            "suggestions yet. Enter its results on Results. Suggestions "
-            "don't know about it yet and may be close to it."
+    assert ("1 formulation is waiting for Juiciness (enter it on Results); "
+            "suggestions may land close to it."
             ) in _generate_captions(at)
 
 
 def test_make_a_round_counts_several_and_says_why_it_is_still_spread_out(six_waiting):
     at = _app(wording.TAB_BATCH)
-    assert ("6 formulations are waiting for Juiciness and are not used for "
-            "suggestions yet. Enter their results on Results. Suggestions "
-            "don't know about these yet and may be close to them. "
-            "Suggestions stay spread out until 5 formulations have all "
-            "their results."
+    assert ("6 formulations are waiting for Juiciness (enter it on Results); "
+            "suggestions may land close to them. Suggestions keep covering the "
+            "allowed amounts until 5 formulations have all their results."
             ) in _generate_captions(at), _generate_captions(at)
 
 
@@ -313,7 +310,6 @@ def test_make_a_round_names_no_measurement_when_the_waiting_differ(burger):
     burger.tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
                 {"Juiciness": 7.0}, formulation_no=2, batch_no=1)
     at = _app(wording.TAB_BATCH)
-    assert ("2 formulations are waiting for results and are not used for "
-            "suggestions yet. Enter their results on Results. Suggestions "
-            "don't know about these yet and may be close to them."
+    assert ("2 formulations are waiting for results (enter them on Results); "
+            "suggestions may land close to them."
             ) in _generate_captions(at), _generate_captions(at)
