@@ -263,3 +263,68 @@ def test_import_prunes_a_stale_set_aside_number():
                           if k != "Cook loss"})
     assert not other.is_set_aside(i)
     assert i in other.awaited_rows()
+
+
+# ------------------------------------------------------------------ #
+#  Task 8 parked minors: compare-all, spread_two, "varied"
+# ------------------------------------------------------------------ #
+
+from tests.test_insights_ui import _open_insights, insights_scored  # noqa: E402,F401
+from tests.test_insights_wave_c_ui import _rerun_on  # noqa: E402
+from tests.test_spread_fixes import _three  # noqa: E402
+
+
+def test_a_row_that_only_carries_float_noise_did_not_vary():
+    """Salt stays at 1 g but for noise of 1e-7 (an Excel round-trip),
+    rising with Pea: it is not named as moved together with Pea."""
+    opt = _three([(4.0, 5.0, 1.0, 150), (5.0, 2.0, 1.0 + 1e-7, 160),
+                  (6.0, 6.0, 1.0 + 2e-7, 170), (7.0, 3.0, 1.0 + 3e-7, 180)])
+    assert insights.moved_together(opt) is None
+
+
+def test_compare_all_ranks_by_the_measurement_it_was_given(insights_scored, monkeypatch):
+    """The bars under "Firmness" are Firmness's own spreads (Task 8 review
+    Minor 3): passing the Overall score instead would fail here."""
+    calls = []
+    real_spreads = insights.spreads
+
+    def spy(opt, fitted, start, name=insights.SCORE):
+        found = real_spreads(opt, fitted, start, name)
+        calls.append((name, found))
+        return found
+    monkeypatch.setattr(insights, "spreads", spy)
+    drawn = []
+    real_chart = ui_insights.spread_chart
+    monkeypatch.setattr(ui_insights, "spread_chart",
+                        lambda s, *a: drawn.append(s) or real_chart(s, *a))
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert not at.exception
+    firmness = [found.moved for name, found in calls if name == "Firmness"]
+    assert firmness and drawn[-1] == firmness[-1]
+    score = [found.moved for name, found in calls if name == insights.SCORE]
+    assert [s.spread for s in firmness[-1]] != [s.spread for s in score[-1]]
+
+
+def test_compare_all_says_no_caption_without_a_chart(insights_scored, monkeypatch):
+    real_spreads = insights.spreads
+    monkeypatch.setattr(
+        insights, "spreads", lambda opt, fitted, start, name=insights.SCORE:
+        insights.Spreads([], []) if name == "Firmness"
+        else real_spreads(opt, fitted, start, name))
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
+    _rerun_on(at, wording.TAB_INSIGHTS)
+    assert not at.exception
+    caps = [c.value for c in at.tabs[3].caption]
+    assert wording.spread_caption(measure="Firmness") not in caps, caps
+
+
+def test_two_named_spreads_say_where_they_are_measured_from():
+    assert wording.spread_two("Coconut oil", "Beet juice powder", "8.8", "7.9",
+                              "Best so far") == (
+        "Coconut oil and Beet juice powder change the predicted Overall score the most "
+        "(spreads of 8.8 and 7.9 points, from Best so far).")
+    assert wording.spread_two("Pea", "Oil", "5.0", "4.5", "Formulation 9").endswith(
+        "(spreads of 5.0 and 4.5 points, from Formulation 9).")

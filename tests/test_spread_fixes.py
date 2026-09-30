@@ -67,9 +67,10 @@ def test_two_are_named_when_the_second_is_within_20_percent():
     assert insights.near_tie([S("Oil", 10.0), S("Beet", 7.9)]) is None
     assert insights.near_tie([S("Oil", 10.0), S("Beet", 8.0)]) is not None   # exactly 80 %
     assert insights.near_tie([S("Oil", 10.0)]) is None
-    assert wording.spread_two("Coconut oil", "Beet juice powder", "8.8", "7.9") == (
+    assert wording.spread_two("Coconut oil", "Beet juice powder", "8.8", "7.9",
+                              "Best so far") == (
         "Coconut oil and Beet juice powder change the predicted Overall score the most "
-        "(spreads of 8.8 and 7.9).")
+        "(spreads of 8.8 and 7.9 points, from Best so far).")
 
 
 def test_the_answer_names_two_on_screen(insights_scored, monkeypatch):
@@ -78,7 +79,8 @@ def test_the_answer_names_two_on_screen(insights_scored, monkeypatch):
                                           insights.Spread("Methylcellulose", 4.5)], []))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     md = [m.value for m in at.tabs[3].markdown]
-    assert wording.spread_two("Pea protein", "Methylcellulose", "5.0", "4.5") in md
+    assert wording.spread_two("Pea protein", "Methylcellulose", "5.0", "4.5",
+                              "Best so far") in md
 
 
 # ------------------------------------------------------------------ #
@@ -151,7 +153,7 @@ def test_the_grey_caption_uses_the_near_rule():
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.spread_two("A", "B", "1.0", "0.9"), wording.moved_together("A", "B"),
+    for text in (wording.spread_two("A", "B", "1.0", "0.9", "Formulation 9"), wording.moved_together("A", "B"),
                  wording.SPREAD_ON, wording.spread_axis("N"), wording.PATH_GREY,
                  wording.spread_caption(measure="Firmness")):
         assert not any(p.search(text) for p in _BANNED), text

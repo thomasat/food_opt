@@ -575,7 +575,8 @@ def _spread_answer(opt, found, from_best, number, fitted=None, recipe=None):
         st.write(_say(opt, wording.spread_flat(settings_only)))
     elif tie:
         st.write(_say(opt, wording.spread_two(tie[0].name, tie[1].name,
-                                              f"{tie[0].spread:.1f}", f"{tie[1].spread:.1f}")))
+                                              f"{tie[0].spread:.1f}", f"{tie[1].spread:.1f}",
+                                              start)))
     else:
         top = moved[0]
         st.write(_say(opt, wording.spread_line(top.name, f"{top.spread:.1f}", start,
@@ -613,8 +614,11 @@ def _compare_all(opt, moved, settings_only, fitted, recipe):
         obj = next(o for o in opt.objectives if o['name'] == on)
         axis, d = wording.spread_axis(obj.get('unit')), decimals(opt, on)
     chart = spread_chart(ranked, axis, d)
-    if chart is not None:
-        show_chart(chart)
+    if chart is None:
+        # No bars, so nothing for the caption to explain (Task 8 review,
+        # Minor 4).
+        return
+    show_chart(chart)
     label = wording.OVERALL_SCORE_COLUMN if on == insights.SCORE else on
     st.caption(_say(opt, wording.spread_caption(values=settings_only, measure=label)))
 

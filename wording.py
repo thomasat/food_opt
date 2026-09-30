@@ -4412,10 +4412,11 @@ def spread_axis(unit=""):
     return f"Spread ({unit})" if unit else "Spread"
 
 
-def spread_two(first, second, first_text, second_text):
-    """The answer when the top two spreads are within 20 % (§4.2)."""
+def spread_two(first, second, first_text, second_text, start_text):
+    """The answer when the top two spreads are within 20 % (§4.2), in
+    points and from the same start as spread_line (Task 8 review, Minor 5)."""
     return (f"{first} and {second} change the predicted {OVERALL_SCORE_COLUMN} the most "
-            f"(spreads of {first_text} and {second_text}).")
+            f"(spreads of {first_text} and {second_text} points, from {start_text}).")
 
 
 def moved_together(first, second):

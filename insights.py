@@ -1018,6 +1018,10 @@ def spreads(opt, fitted, start, name=SCORE):
 NEAR_TIE = 0.8
 # Amounts that moved together this closely are named (§4.3).
 TOGETHER = 0.8
+# A row whose amounts span less than this share of its Lowest-Highest never
+# varied: float noise from a spreadsheet round-trip or a unit conversion
+# is not a change anybody made (Task 8 review, Minor 2).
+VARIED = 1e-6
 
 
 def near_tie(moved):
@@ -1034,14 +1038,15 @@ def moved_together(opt):
     calculation works out and the process settings are left out, and so is
     a row whose amount never varied."""
     fill = opt.balance_row_name()
-    names = [v['name'] for v in opt.varying_variables()
-             if _is_ingredient(v) and v.get('type') == 'continuous'
-             and v['name'] != fill and not opt.has_formula(v)]
+    span = {v['name']: float(v['bounds'][1]) - float(v['bounds'][0])
+            for v in opt.varying_variables()
+            if _is_ingredient(v) and v.get('type') == 'continuous'
+            and v['name'] != fill and not opt.has_formula(v)}
     rows = [start_recipe(opt, i) for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
     if len(rows) < 3:
         return None
-    cols = {n: [float(r.get(n, 0.0) or 0.0) for r in rows] for n in names}
-    cols = {n: v for n, v in cols.items() if max(v) - min(v) > _EPS}
+    cols = {n: [float(r.get(n, 0.0) or 0.0) for r in rows] for n in span}
+    cols = {n: v for n, v in cols.items() if max(v) - min(v) > max(VARIED * span[n], _EPS)}
     best = None
     for a, b in itertools.combinations(list(cols), 2):
         r = abs(statistics.correlation(cols[a], cols[b]))
