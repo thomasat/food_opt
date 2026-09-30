@@ -328,3 +328,72 @@ def test_two_named_spreads_say_where_they_are_measured_from():
         "(spreads of 8.8 and 7.9 points, from Best so far).")
     assert wording.spread_two("Pea", "Oil", "5.0", "4.5", "Formulation 9").endswith(
         "(spreads of 5.0 and 4.5 points, from Formulation 9).")
+
+
+# ------------------------------------------------------------------ #
+#  Task 7 M1 / M3 a widened range on screen; the luck line in a Trial
+# ------------------------------------------------------------------ #
+
+def test_question_4_shows_the_widened_range_end_to_end(insights_scored, monkeypatch):
+    """With a widening factor of 2, the compared row's likely range on
+    screen is its own prediction widened by 2; and the checks _best hands
+    predicted_best are the tab's own Round-by-Round checks."""
+    from tests.test_insights_wave_b_ui import _best_frames
+    seen = []
+
+    def fake(opt, fitted, checks=()):
+        seen.append(list(checks))
+        return insights.PredictedBest(
+            dict(opt.recipe_history[0]), insights.Prediction(88.2, 80.4, 95.1),
+            None, opt.best_index(), 2.0)
+    monkeypatch.setattr(insights, "predicted_best", fake)
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    assert not at.exception
+    opt = FoodOptimizer("burger")
+    assert seen and seen[-1] == insights.check_rounds(opt) and seen[-1]
+    fitted = insights.fit_all(opt)[insights.SCORE]
+    [own] = insights.predict(opt, fitted,
+                             [opt._encode(insights.start_recipe(opt, opt.best_index()))])
+    wide = insights.widened(fitted, own, 2.0)
+    assert (wide.low, wide.high) != (own.low, own.high)
+    [frame] = _best_frames(at)
+    assert list(frame[wording.PREDICTED_SCORE_COLUMN])[1] == ui_insights.score_text(wide)
+
+
+@pytest.fixture
+def trial_scored(tmp_path, monkeypatch):
+    """Six trials of two process settings over two Rounds, all scored."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ferment")
+    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+    opt.add_objective("Acidity", 1.0, goal="target", target=4.5,
+                      min_val=3.0, max_val=7.0, unit="pH")
+    opt.add_objective("Aroma", 1.0, goal="max", min_val=0, max_val=10)
+    pts = [(37, 8), (33, 12), (40, 6), (35, 10), (31, 14), (38, 9)]
+    for k, (t, h) in enumerate(pts, start=1):
+        opt.tell({"Incubation temperature": float(t), "Incubation time": float(h)},
+                 {"Acidity": 4.0 + (t - 30) / 20, "Aroma": 3 + h / 3},
+                 formulation_no=k, batch_no=(k - 1) // 3 + 1)
+    return opt
+
+
+def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkeypatch):
+    top = trial_scored.best_index()
+    measured = float(trial_scored.Y_history[top])
+
+    def fake(opt, fitted, checks=()):
+        return insights.PredictedBest(
+            dict(opt.recipe_history[0]),
+            insights.Prediction(measured - 5, measured - 10, measured),
+            None, opt.best_index(), 1.0, insights.Prediction(80.2, 75.4, 85.1))
+    monkeypatch.setattr(insights, "predicted_best", fake)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    md = [m.value for m in at.tabs[3].markdown]
+    no = trial_scored.best_formulation_no()
+    assert (f"Best so far's score includes some luck; a Repeat of Trial {no} is "
+            "predicted at 80 (likely 75–85).") in md, md
