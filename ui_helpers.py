@@ -5,6 +5,7 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import json
 import re
 from datetime import datetime
 
@@ -258,22 +259,74 @@ def preserve_tab_forms():
             park_clear(key, st.session_state[key])
 
 
+# Where a move between tabs lands (spec 2026-09-30-bo-views §5; 04 §5):
+# "top", or the key of a container on the tab moved to. app.py scrolls there
+# once, after the tabs are drawn, and forgets it.
+SCROLL_KEY = "_scroll_to"
+# The data_key Insights was last opened with (app.py): Make a round's E3
+# link is not offered again until the data changes (04 §3, ping-pong).
+INSIGHTS_OPENED_KEY = "_insights_opened"
+
+
 def go_to_tab(label):
-    """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from eight handlers only: Next: make a batch,
-    Back to set up, Save results, Save uploaded results, Start the next
-    batch, Change a measurement or an ingredient, Change the total, and
-    opening a project. A set-up edit, Generate, a correction or a plain
-    rerun must never call it, and neither must a handler whose write
-    failed.
+    """Move to another tab and rerun, landing at its top. This is the ONLY
+    way a flow changes tabs, and it is called from eight handlers only:
+    Next: make a batch, Back to set up, Save results, Save uploaded
+    results, Start the next batch, Change a measurement or an ingredient,
+    Change the total, and opening a project. A set-up edit, Generate, a
+    correction or a plain rerun must never call it, and neither must a
+    handler whose write failed. Links the user clicks may open Insights
+    (ask_tab); no flow moves there on its own.
 
     The move is deferred: the tabs widget already exists on this run, so
     assigning its key now would raise, and a write the frontend never asked
     for is ignored anyway. We park the target in "_pending_tab" and rerun;
     app.py drains it into "main_tab" BEFORE st.tabs renders, which is the one
-    moment the widget takes a value from session state."""
+    moment the widget takes a value from session state. A move made by the
+    app used to land where the last tab was scrolled (after Save results,
+    ~1,400 px down: 04 §1), so it now asks app.py to scroll to the top."""
     st.session_state["_pending_tab"] = label
+    st.session_state[SCROLL_KEY] = "top"
     st.rerun()
+
+
+def ask_tab(label, section="top", fold=None):
+    """on_click of a link to another tab (spec 2026-09-30-bo-views §5; 04
+    §5): the move, where to land (`section`: "top" or a container's key)
+    and a fold to open (`fold`: a keyed expander's key; set before it is
+    drawn, it opens). A callback, not go_to_tab's st.rerun(): it runs
+    before the script, so no half-typed form on the tab left is lost."""
+    st.session_state["_pending_tab"] = label
+    st.session_state[SCROLL_KEY] = section
+    if fold:
+        st.session_state[fold] = True
+
+
+def scroll_script(section, nonce):
+    """The one-shot script app.py runs after the tabs are drawn (04 §5):
+    scroll the page to its top, or bring the container keyed `section`
+    into view, retrying for two seconds while Insights fills in. `nonce`
+    makes each run's script new, so the browser runs it again."""
+    target = "" if section == "top" else f".st-key-{section}"
+    return f"""<script>/* {nonce} */
+(function go(n) {{
+  const sel = {json.dumps(target)};
+  const el = sel && (document.querySelector(sel)
+                     || window.parent.document.querySelector(sel));
+  const main = document.querySelector('[data-testid="stMain"]')
+               || window.parent.document.querySelector('[data-testid="stMain"]');
+  if (el) el.scrollIntoView({{block: "start"}});
+  else if (!sel && main) main.scrollTop = 0;
+  if (sel && !el && n > 0) setTimeout(() => go(n - 1), 100);
+}})(20);</script>"""
+
+
+def link(label, target, section="top", fold=None, key=None):
+    """The one form a link to another tab takes (04 §3): a text-style
+    (tertiary) button, never primary, so the screen's one lit button stays
+    lit; greyed while a confirmation is armed, as every other button is."""
+    return st.button(label, type="tertiary", key=key, disabled=confirmation_open(),
+                     on_click=ask_tab, args=(target, section, fold))
 
 
 def open_rows(opt):

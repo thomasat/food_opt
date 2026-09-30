@@ -245,6 +245,12 @@ CHOICE_KEY = "insights_choice"
 START_KEY = "insights_start"
 # What "Compare all" ranks by: the Overall score or one measurement (§4.1).
 SPREAD_KEY = "insights_spread_on"
+# Where a link lands on this tab (spec 2026-09-30-bo-views §5; 04 §5): the
+# Prediction check (the top), Progress with Next step under it, and the
+# Measured against predicted fold, which a link opens by setting its key.
+TRUST_SECTION = "insights_trust"
+STAND_SECTION = "insights_stand"
+EACH_KEY = "insights_each"
 
 
 def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
@@ -686,15 +692,18 @@ def render(opt):
     # review I-1): the progress line's place, answer 1's, line 1, the
     # places of lines 2-3 and of answer 3, the foot, the Set up button's.
     bar = st.empty()
-    trust = st.container()
-    _question(opt, wording.Q_STAND)
-    first_yard = insights.noise_yardstick(opt)
-    lines = st.empty()
-    with lines.container():
-        facts = _stand_lines(opt, first_yard)
-    if facts is not None:
-        _progress_fold(opt)
-    rest = st.container()
+    # Keyed, so a link from another tab can land on them (04 §5).
+    trust = st.container(key=TRUST_SECTION)
+    stand = st.container(key=STAND_SECTION)
+    with stand:
+        _question(opt, wording.Q_STAND)
+        first_yard = insights.noise_yardstick(opt)
+        lines = st.empty()
+        with lines.container():
+            facts = _stand_lines(opt, first_yard)
+        if facts is not None:
+            _progress_fold(opt)
+        rest = st.container()
     nxt = st.container()
     _foot(opt)
     below = st.container()

@@ -24,6 +24,7 @@ if "_imports_warmed" not in st.session_state:
 import json                                   # noqa: E402
 import os                                     # noqa: E402
 import re as _re                              # noqa: E402
+import time                                   # noqa: E402
 from datetime import datetime, timedelta                 # noqa: E402
 
 import pandas as pd                           # noqa: E402
@@ -39,7 +40,8 @@ from food_bo import (                         # noqa: E402
     ingredients_template_workbook,
 )
 from ui_helpers import (                      # noqa: E402
-    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
+    ARMED_KEY, INSIGHTS_OPENED_KEY, SCROLL_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP,
+    clear_selection, scroll_script,
     confirm_action, confirmation_open, drain_clears,
     flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
@@ -151,6 +153,9 @@ def _reset_project_session():
               "_results_upload", "_results_file_mark", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
+              # Where the next move lands, and the data Insights was last
+              # opened with (spec 2026-09-30-bo-views §5).
+              SCROLL_KEY, INSIGHTS_OPENED_KEY,
               # The Method box: a project's own text, and one left behind
               # would be written over the next project's on its first save.
               ui_setup._METHOD_BOX,
@@ -870,7 +875,9 @@ if "_pending_tab" in st.session_state:
 drain_clears({"var_unit": _opt.amount_unit})
 
 # Insights is the fourth tab and not numbered: it is a view of the loop, not
-# a step in it. No flow moves the user there and landing_tab never names it.
+# a step in it. No flow moves the user there and landing_tab never names it;
+# links the user clicks may open it (ui_helpers.link, spec
+# 2026-09-30-bo-views §5).
 tab_setup, tab_batch, tab_results, tab_insights = st.tabs(
     [TAB_SETUP, TAB_BATCH, TAB_RESULTS, wording.TAB_INSIGHTS],
     key="main_tab", on_change="rerun")
@@ -889,6 +896,11 @@ def _insights_stages():
         # "all" too: after a failed fit in the verdict's Rounds the track
         # line waits for everything (Plan A review C M-3).
         return ("column", "trust", "now", "all")
+    if tab_batch.open:
+        # The Generate screen's status line (E3, 04 §3) reads the checks and
+        # the predicted best from what is worked out: they arrive through
+        # the poller, never by fitting here.
+        return ("trust", "stand")
     return ()
 
 
@@ -918,6 +930,16 @@ with tab_insights:
     # project that never opens the tab never pays for them.
     if tab_insights.open:
         ui_insights.render(_opt)
+        # Make a round's E3 link is not offered again for this data (04 §3).
+        st.session_state[INSIGHTS_OPENED_KEY] = insights.data_key(_opt)
+
+# Where a move between tabs lands (ui_helpers.SCROLL_KEY; 04 §5): once,
+# after every tab is drawn, in one slot at the foot, so no element is ever
+# added above the tabs. The script runs in the page (st.html runs it
+# unsandboxed) and retries while Insights fills in.
+_scroll_to = st.session_state.pop(SCROLL_KEY, None)
+if _scroll_to:
+    st.html(scroll_script(_scroll_to, time.time_ns()), unsafe_allow_javascript=True)
 
 # After the page is drawn, in this same run (review B2): catch up with the
 # workers — the predicted best once the Overall score's models are in, every

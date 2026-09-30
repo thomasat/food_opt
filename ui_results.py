@@ -21,7 +21,7 @@ from ui_helpers import (
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
-    entry_label, go_to_tab, number_list, open_rows, other_confirmation,
+    entry_label, go_to_tab, link, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, take_clear, waiting_text,
@@ -197,6 +197,21 @@ def _number(cell):
         return None
 
 
+def _round_link(opt):
+    """E1 (spec 2026-09-30-bo-views §5; 04 §3): after Save results, with no
+    Round open and the last Round checkable, one text-style link to
+    Insights' Prediction check with Measured against predicted open. A rule
+    that needs no fit (rounds_not_checked), so it never waits; gone once
+    the next Round is generated."""
+    last = opt.last_batch_no()
+    if (opt.pending_batch or last is None
+            or last in insights.rounds_not_checked(opt)
+            or last not in {r for r, _ in insights.round_order(opt)}):
+        return
+    link(wording.for_project(opt, wording.round_measured_against_predicted(last)),
+         wording.TAB_INSIGHTS, fold=ui_insights.EACH_KEY, key="link_round_checked")
+
+
 def _progress_line(opt):
     last = opt.last_batch_no()   # counts a batch nobody managed to make
     # The formulations Best so far compares, and only those.
@@ -327,6 +342,7 @@ def _best(opt):
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
+        _round_link(opt)
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 
