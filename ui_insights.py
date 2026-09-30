@@ -481,15 +481,14 @@ def _change(opt, computed):
     if not choices:
         st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
         return
-    # None while no formulation has all its results: then there is no best
-    # to start from, and the box offers the newest first.
+    # render asks this only once MIN_ROWS formulations are scored, so there
+    # is always a Best so far to start from (Task 5: its None fallback went).
     best = opt.best_index()
     ids = [int(x) for x in opt.formulation_ids]
-    best_no = None if best is None else ids[best]
+    best_no = ids[best]
     # By Formulation number, not list position: a deletion on Results shifts
     # positions, and the box must keep naming the formulation it named.
-    starts = (([] if best is None else [best_no])
-              + [ids[i] for i in reversed(range(len(ids))) if i != best])
+    starts = [best_no] + [ids[i] for i in reversed(range(len(ids))) if i != best]
     _keep_if_offered(CHOICE_KEY, choices)
     _keep_if_offered(START_KEY, starts)
     answer = st.container()
