@@ -35,6 +35,10 @@ WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "insights_work
 IDLE_SECS = 600
 # How long pool() waits for a worker's imports before giving up on workers.
 START_SECS = 60
+# How long one request (a main fit or a fold fit) may run before its worker
+# is taken to have hung and is stopped (re-review N-1). The slowest measured
+# fit, 120 rows x 6 measurements, takes a few seconds: this is generous.
+REQUEST_SECS = 120
 
 
 def worker_count():
@@ -74,6 +78,7 @@ class Pool:
         self.broken = False
         self.closed = False
         self._running = 0          # requests a worker is fitting now
+        self._since = {}           # worker process -> when its request started
         self.started = self.last_used = time.monotonic()
         env = {**os.environ, "OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         for _ in range(n):
@@ -110,9 +115,20 @@ class Pool:
     def _watch(self):
         """Close this pool once it has been idle for IDLE_SECS, without
         waiting for anyone to call pool() (review B I-2): six idle workers
-        hold about 2.4 GB."""
+        hold about 2.4 GB. And stop a worker whose request has run past
+        REQUEST_SECS (re-review N-1): its reader then fails what was
+        waiting and breaks the pool, and the screens fit here behind their
+        own indicator instead of waiting for ever."""
         while not (self.closed or self.broken):
-            time.sleep(max(0.05, min(5.0, IDLE_SECS / 4)))
+            time.sleep(max(0.05, min(5.0, IDLE_SECS / 4, REQUEST_SECS / 4)))
+            now = time.monotonic()
+            with self._lock:
+                hung = [p for p, t in self._since.items() if now - t > REQUEST_SECS]
+            for proc in hung:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             _close_if_idle(self)
 
     def check_start(self):
@@ -136,6 +152,7 @@ class Pool:
                     continue
                 with self._lock:
                     self._running += 1
+                    self._since[proc] = time.monotonic()
                 try:
                     proc.stdin.write(json.dumps(request) + "\n")
                     proc.stdin.flush()
@@ -149,6 +166,7 @@ class Pool:
                 finally:
                     with self._lock:
                         self._running -= 1
+                        self._since.pop(proc, None)
                         self.last_used = time.monotonic()
         except Exception:
             self._break()

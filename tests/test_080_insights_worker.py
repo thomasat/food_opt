@@ -218,3 +218,39 @@ def test_a_closed_pool_refuses_work():
     pool.close()
     with pytest.raises(RuntimeError):
         pool.submit(0, {"id": 1}).result(5)
+
+
+def test_a_worker_that_hangs_mid_fit_is_stopped_and_the_pool_gives_way(monkeypatch, tmp_path):
+    """Re-review N-1: a request running past REQUEST_SECS kills its worker;
+    what was waiting fails, the pool breaks, and the screens fall back to
+    fitting here behind their own indicator."""
+    hangs = tmp_path / "hangs_mid_fit.py"
+    hangs.write_text("import json, sys, time\nprint(json.dumps({'ready': True}), flush=True)\n"
+                     "sys.stdin.readline()\ntime.sleep(600)\n")
+    monkeypatch.setattr(insights_jobs, "WORKER", str(hangs))
+    monkeypatch.setattr(insights_jobs, "REQUEST_SECS", 0.5)
+    import time
+    pool = insights_jobs.Pool(1)
+    assert pool.wait_ready(60)
+    [proc] = pool._procs
+    fut = pool.submit(0, {"id": 1})
+    with pytest.raises(Exception):
+        fut.result(30)
+    end = time.monotonic() + 10
+    while proc.poll() is None and time.monotonic() < end:
+        time.sleep(0.05)
+    assert proc.poll() is not None
+    assert pool.broken
+
+
+def test_a_slow_fit_within_the_limit_is_left_alone(monkeypatch):
+    monkeypatch.setattr(insights_jobs, "REQUEST_SECS", 60)
+    opt = _burger(rounds=3, noise=0.3)
+    main, _, _ = _requests(opt, "Juiciness")
+    pool = insights_jobs.Pool(1)
+    try:
+        assert pool.wait_ready(120)
+        assert "state" in pool.submit(0, main).result(120)
+        assert not pool.broken
+    finally:
+        pool.close()
