@@ -116,7 +116,7 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Overall score, the verdict's Rounds: 11 of 11 inside their 95 % interval; mean error "
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error "
         "−1.5 points, so new predictions read about 1.5 points high.")
     _clean(verdict, line, ui_insights.track_text(t))
 
@@ -139,7 +139,7 @@ def test_rough_only_when_too_few_land_inside():
     checks = _values(2) + _scores(2, 6, 3.0, no=500) + _scores(2, 6, -3.0, no=600)
     t = insights.round_track(opt, checks)
     assert t.rough
-    assert "more misses than 95 % allows" in ui_insights.track_text(t)
+    assert "95 % intervals allow up to 2 misses in 12" in ui_insights.track_text(t)
 
 
 def test_make_a_rounds_column_help_reads_as_insights_score_line():

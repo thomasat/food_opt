@@ -547,15 +547,29 @@ def track_line(opt):
 
 def track_text(t):
     """The line for insights.round_track's answer: rough only when too few
-    landed inside; a bias in Insights' own words; holding otherwise."""
+    landed inside; a bias in Insights' own words; holding otherwise — each
+    naming its Rounds (03 §5.8). A skill at or below the no-skill cut is
+    said after it, or alone where the coverage part is not said (spec
+    2026-09-30-bo-views §2.1, review I1)."""
+    skill = ""
+    if t.no_skill is not None:
+        skill = wording.round_track_no_skill(
+            wording.signed(t.no_skill.value, 2).lstrip("+"), t.no_skill.n)
+    if not t.record:
+        return skill.strip()
     gap = None if t.gap is None else f"{abs(t.gap):.1f}"
     below = (t.gap or 0) < 0
+    rounds = t.rounds or None
     if t.rough:
-        return wording.round_track_rough(t.inside, t.total, gap, below=below,
-                                         see_insights=t.see_insights)
-    if gap is not None:
-        return wording.round_track_bias(t.inside, t.total, gap, below, t.see_insights)
-    return wording.round_track_holding(t.inside, t.total, t.see_insights)
+        line = wording.round_track_rough(t.inside, t.total, gap, below=below,
+                                         see_insights=t.see_insights, rounds=rounds,
+                                         allowed=insights.allowed_misses(t.total))
+    elif gap is not None:
+        line = wording.round_track_bias(t.inside, t.total, gap, below, t.see_insights,
+                                        rounds=rounds)
+    else:
+        line = wording.round_track_holding(t.inside, t.total, t.see_insights, rounds=rounds)
+    return line + skill
 
 
 def _seen(opt, stages):

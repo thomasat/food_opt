@@ -79,7 +79,11 @@ def test_the_round_table_gains_the_predicted_score_column(warm_round):
 def test_the_column_explains_itself_in_its_tooltip(warm_round):
     at = _app()
     at.run()
-    assert wording.PREDICTED_SCORE_HELP in str(_batch_table(at).proto)
+    # With its basis (BO views, 03 §5.8): the scored formulations it rests on.
+    opt = FoodOptimizer("burger")
+    assert (f"fitted to the {opt.complete_count()} scored formulations"
+            in str(_batch_table(at).proto))
+    assert "About 19 in 20 new results fall inside." in str(_batch_table(at).proto)
 
 
 def _scores(monkeypatch, below=()):
@@ -165,9 +169,10 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     table = _ferment_table(at)
     assert wording.PREDICTED_SCORE_COLUMN in table.value.columns
     proto = str(table.proto)
-    trial_help = wording.for_project(warm_ferment, wording.PREDICTED_SCORE_HELP)
+    trial_help = wording.for_project(
+        warm_ferment, wording.predicted_score_help(warm_ferment.complete_count()))
     assert "trial" in trial_help and "formulation" not in trial_help
-    assert trial_help in proto and wording.PREDICTED_SCORE_HELP not in proto
+    assert "fitted to the 5 scored trials" in proto and "formulation" not in trial_help
     captions = [c.value for c in at.caption]
     trial_caption = wording.for_project(warm_ferment, wording.predictions_round_caption(values=True))
     assert trial_caption == ("Suggestions favour trials the model is unsure about as well "

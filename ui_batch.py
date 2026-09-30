@@ -29,8 +29,11 @@ from ui_helpers import (
     table_height, typed_batch_size, unit_after_number,
 )
 from food_bo import COLD_START_RUNS
+import altair as alt
+import bo_views
 import insights
 import ui_insights
+from ui_helpers import INSIGHTS_OPENED_KEY, link
 
 # The batch table's own formatter, under the name tests and older code import.
 _amount_format = amount_format
@@ -254,9 +257,25 @@ def ask_alone(opt, **kwargs):
     """opt.ask(**kwargs) holding insights.RNG_LOCK: no other tab's Insights
     step can touch torch's global RNG while a Round is being made (review
     B2; Plan A review B I-3). The lock is taken here, at the call site,
-    never inside ask()."""
+    never inside ask().
+
+    The Round's generation is recorded here too (spec 2026-09-30-bo-views
+    §3.4, review B4): the seed, the rows and the regime ask() is about to
+    use, so "Why these suggestions" can rebuild its acquisition exactly.
+    Display metadata only, written after ask() has made the Round; a
+    failure to record it never stops Generate."""
     with insights.RNG_LOCK:
-        return opt.ask(**kwargs)
+        try:
+            record = bo_views.generation_record(opt, kwargs.get("n_suggestions", 1))
+        except Exception:
+            record = None
+        out = opt.ask(**kwargs)
+    if record is not None and opt.pending_batch_no is not None:
+        try:
+            opt.record_generation(opt.pending_batch_no, record)
+        except Exception:
+            pass
+    return out
 
 
 def _generate(opt, n, batch_no=None, discarded=None):
@@ -293,6 +312,7 @@ def _no_batch(opt):
     how_many = st.number_input(wording.for_project(opt, wording.FORMULATIONS_TO_GENERATE), min_value=1,
                                max_value=10, step=1, key="how_many")
     n = int(how_many)
+    _next_step_line(opt)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
@@ -307,6 +327,52 @@ def _no_batch(opt):
     line = _waiting_caption(opt)
     if line:
         st.caption(line)
+
+
+# Next step's kinds that are something other than "make the next Round"
+# (04 §3; review I1, M12): E3 says them above Generate.
+_E3_KINDS = ("close", "untested", "bias", "misses", "repeat", "no_skill")
+
+
+def _cached_step(opt):
+    """Insights' Next step from what is already worked out for this data
+    (the checks, and the predicted best when it is in), or None. Never a
+    fit, never a wait (review I10)."""
+    if opt.complete_count() < insights.MIN_ROWS:
+        return None
+    checks = ui_insights.checks_for(opt, "trust")
+    if not checks:
+        return None
+    standing = None
+    hit = st.session_state.get(ui_insights.BEST_KEY)
+    if hit and hit[0] == insights.setup_key(opt) and isinstance(hit[1], insights.PredictedBest):
+        standing = insights.best_standing(opt, hit[1], insights.noise_yardstick(opt, checks).value)
+    return insights.next_step(opt, checks, standing)
+
+
+def _next_step_line(opt):
+    """E3 (spec 2026-09-30-bo-views §5; 04 §3): above Generate, when
+    Insights' Next step is something other than making the next Round, its
+    own first sentence, then one text-style link — "Next step" to Progress
+    for a predicted best that is higher or boxed in, "Prediction check" to
+    the top otherwise — unless Insights was opened since the data last
+    changed. Generate stays the one lit button."""
+    step = _cached_step(opt)
+    if step is None or step.kind not in _E3_KINDS:
+        return
+    if step.kind == "no_skill":
+        # The same sentence Insights says (its builder is Insights' own).
+        text = wording.next_no_skill(wording.signed(step.skill.value, 2).lstrip("+"),
+                                     step.skill.n)
+    else:
+        text, _ = ui_insights.next_step_text(opt, step)
+    st.caption(wording.for_project(opt, wording.first_sentence(text)))
+    if st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
+        return
+    higher = step.kind in ("close", "untested")
+    link(wording.LINK_NEXT_STEP if higher else wording.LINK_PREDICTION_CHECK,
+         wording.TAB_INSIGHTS, section=ui_insights.STAND_SECTION if higher else "top",
+         key="link_next")
 
 
 def _waiting_caption(opt):
@@ -831,6 +897,17 @@ def _compared_second(opt, frame):
     return frame[rest[:1] + [trying] + rest[1:]]
 
 
+def _score_help(opt):
+    """The Predicted Overall score column's "?" with its basis (03 §5.8):
+    the scored formulations it was fitted to and, once the checks are
+    worked out, the Round-ahead widening it carries."""
+    checks = ui_insights.checks_for(opt, "column")
+    factor = None if not checks else insights.column_factor(opt, checks)
+    widened = factor is not None and f"{factor:.2f}" != "1.00"
+    return wording.predicted_score_help(opt.complete_count(),
+                                        f"{factor:.2f}" if widened else None)
+
+
 def _draw_table(opt, slot, frame):
     slot.dataframe(frame.style.format(_amount_format(opt, frame)),
                    column_config={
@@ -839,7 +916,7 @@ def _draw_table(opt, slot, frame):
                        wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
                            wording.PREDICTED_SCORE_COLUMN,
                            help=wording.for_project(opt, " ".join(
-                               t for t in (wording.PREDICTED_SCORE_HELP,
+                               t for t in (_score_help(opt),
                                            ui_insights.score_record_help(opt)) if t)))},
                    hide_index=True, key="batch_table", height=table_height(len(frame)))
 
@@ -863,14 +940,173 @@ def _show_predictions(opt, later):
     if not preds or preds == _PENDING:
         return
     with notes:
-        line = ui_insights.track_line(opt)
-        if line:
-            st.caption(wording.for_project(opt, line))
+        t = _track(opt)
+        if t is not None:
+            st.caption(wording.for_project(opt, ui_insights.track_text(t)))
+            if _warns(t):
+                # E2 (04 §3, review I1, I7): the one link on this screen.
+                link(wording.LINK_PREDICTION_CHECK, wording.TAB_INSIGHTS, key="link_trust")
         if _a_suggestion_below_best(opt, preds):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
                 values=not opt.has_ingredients())))
         if not ui_insights.waiting(opt, "now"):
             _predicted_measurements(opt, preds)
+        _why_these(opt, preds)
+
+
+def _track(opt):
+    """insights.round_track from checks already worked out, else None
+    (Make a round never fits for its line)."""
+    checks = ui_insights.checks_for(opt, "trust")
+    return None if checks is None else insights.round_track(opt, checks)
+
+
+def _warns(t):
+    """Whether the track line is a warning (04 E2; review I1): rough, a
+    bias, the measurements' verdict unreliable, or no skill."""
+    return bool(t.rough or t.gap is not None or t.see_insights or t.no_skill is not None)
+
+
+# ------------------------------------------------------------------ #
+#  Why these suggestions (spec 2026-09-30-bo-views §3.1; review I4, I5,
+#  I9, I12, M4, M5, M9, M15): a fold under the Round table, collapsed and
+#  worked out only once opened.
+# ------------------------------------------------------------------ #
+
+WHY_KEY = "why_these"
+_ROLE_WORDS = {"refines": wording.ROLE_REFINES, "balanced": wording.ROLE_BALANCED,
+               "explores": wording.ROLE_EXPLORES}
+
+
+def _why_models(opt):
+    """(the current Overall-score model, the checks) for the guard, from
+    what Make a round's column already has."""
+    got = ui_insights.column_models(opt)
+    models = (got or (None, None))[0] or {}
+    return models.get(insights.SCORE), ui_insights.checks_for(opt, "trust") or ()
+
+
+def _signed_amount(value, unit):
+    return join_unit(wording.signed(value, 2), unit) if unit else wording.signed(value, 2)
+
+
+def why_frame(opt, why, preds, hide=False):
+    """One row per formulation of the open Round (review I12): its
+    predicted Overall score with its 95 % interval (the table's own
+    column), the suggestion model's sd, its expected improvement in
+    points — "·" when valued with the earlier picks counted — the nearest
+    tested formulation, the two largest differences from it in each row's
+    own unit (M4) and the role (M5). `hide` (the noise guard, review I4)
+    leaves out the expected improvement and the role."""
+    value_col = (wording.OPTIMISTIC_SCORE if why.kind == "qucb"
+                 else wording.EXPECTED_IMPROVEMENT)
+    rows = []
+    for r in why.rows:
+        p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
+        item = {
+            wording.FORMULATION_CAP: wording.why_row_label(r.formulation, r.own, r.edited),
+            wording.PREDICTED_SCORE_COLUMN: "" if p is None else ui_insights.score_text(p),
+            wording.MODEL_SD: f"{r.sd:.2f}",
+        }
+        if not hide:
+            item[value_col] = f"{r.value:.2f}" + (f" {wording.PENDING_MARK}" if r.pending else "")
+        item[wording.NEAREST_TESTED] = ("" if r.nearest is None
+                                        else wording.start_formulation(r.nearest))
+        item[wording.LARGEST_DIFFERENCES] = ", ".join(
+            wording.why_difference(name, _signed_amount(d, unit)) for name, d, unit in r.differences)
+        if not hide:
+            item[wording.ROLE] = "" if r.role is None else _ROLE_WORDS[r.role]
+        rows.append(item)
+    return pd.DataFrame(rows), value_col
+
+
+def why_chart(opt, why):
+    """The explore-exploit map (01 #2, 02 §4.3): every sampled allowed
+    formulation as a grey dot, predicted Overall score (the suggestion
+    model's mean) across, its sd up; tested formulations as rings; this
+    Round's rows labelled; a dashed line at the highest predicted score
+    among tested formulations, what expected improvement is measured from.
+    None without a pool."""
+    if why.pool_mean is None:
+        return None
+    pool = pd.DataFrame({"mean": why.pool_mean.tolist(), "sd": why.pool_sd.tolist()})
+    tested = pd.DataFrame({"mean": why.tested_mean.tolist(), "sd": why.tested_sd.tolist()})
+    mine = pd.DataFrame([{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)}
+                         for r in why.rows])
+    x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
+    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
+    formulation = wording.for_project(opt, wording.FORMULATION_CAP)
+    layers = [
+        alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
+        .encode(x=x, y=y),
+        alt.Chart(tested).mark_point(size=40, color="gray", filled=False, tooltip=False)
+        .encode(x=x, y=y),
+        alt.Chart(pd.DataFrame({"ref": [why.reference]}))
+        .mark_rule(strokeDash=[4, 3], color="gray", tooltip=False).encode(x="ref:Q"),
+        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)
+        .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=formulation),
+                                   alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,
+                                               format=".1f"),
+                                   alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]),
+        alt.Chart(mine).mark_text(dy=-12, color=ui_insights.muted(), tooltip=False)
+        .encode(x=x, y=y, text="no:N"),
+    ]
+    return alt.layer(*layers).properties(height=280)
+
+
+def _why_these(opt, preds):
+    """The fold (review M15): collapsed, nothing near the lit button, and
+    nothing worked out until it is opened (binding I15)."""
+    with st.expander(wording.for_project(opt, wording.WHY_THESE), key=WHY_KEY,
+                     on_change="rerun") as fold:
+        if not fold.open:
+            return
+        score, checks = _why_models(opt)
+        with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
+            try:
+                why = bo_views.why(opt, None)
+            except Exception:
+                why = None
+        if why is None:
+            st.caption(wording.for_project(opt, wording.WHY_FAILED))
+            return
+        if why.cold:
+            st.caption(wording.for_project(opt, wording.WHY_COLD))
+            return
+        guard = insights.noise_guard(opt, score, checks)
+        settings_only = not opt.has_ingredients()
+        if guard.fires:
+            st.caption(wording.for_project(opt, wording.guard_skill_line(settings_only)
+                                           if guard.skill_only else wording.guard_line(
+                                               [_GUARD_WORDS[r] for r in guard.reasons
+                                                if r != "skill"], settings_only)))
+        frame, value_col = why_frame(opt, why, preds, hide=guard.fires)
+        help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
+                     else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
+                     else wording.EXPECTED_IMPROVEMENT_HELP)
+        st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
+                     column_config={
+                         wording.FORMULATION_CAP: st.column_config.Column(
+                             wording.for_project(opt, wording.FORMULATION_CAP)),
+                         wording.MODEL_SD: st.column_config.Column(
+                             wording.MODEL_SD, help=wording.MODEL_SD_HELP),
+                         value_col: st.column_config.Column(
+                             wording.for_project(opt, value_col),
+                             help=wording.for_project(opt, help_text))})
+        if any(r.pending for r in why.rows) and not guard.fires:
+            st.caption(wording.for_project(opt, wording.WHY_PENDING))
+        if not why.exact:
+            st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))
+        chart = why_chart(opt, why)
+        if chart is None:
+            st.caption(wording.for_project(opt, wording.why_no_roles(0)))
+            return
+        ui_insights.show_chart(chart)
+        st.caption(wording.for_project(opt, wording.why_chart_caption(
+            f"{len(why.pool_mean):,}")))
+
+
+_GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):

@@ -611,11 +611,9 @@ def test_the_track_line_sits_under_the_table_once_the_checks_are_in(five_rounds)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     t = insights.round_track(five_rounds, insights.check_rounds(five_rounds))
-    line = (wording.round_track_holding(t.inside, t.total, t.see_insights) if not t.rough else
-            wording.round_track_rough(t.inside, t.total,
-                                      None if t.gap is None else f"{abs(t.gap):.1f}",
-                                      (t.gap or 0) < 0, t.see_insights))
-    assert line in [c.value for c in at.tabs[1].caption]
+    # Said by ui_insights.track_text, with its Rounds (BO views, 03 §5.8).
+    assert ui_insights.track_text(t) in [c.value for c in at.tabs[1].caption]
+    assert f"Overall score, {wording.rounds_span(t.rounds)}: " in ui_insights.track_text(t)
 
 
 def test_values_typed_on_make_a_round_survive_the_column_filling_in(stuck, five_rounds):
