@@ -3,7 +3,6 @@ charts without a key get one, the path chart's y axes are not forced to 0,
 measurements come in Results' order, and chart text is readable in both
 themes (spec 2026-09-29 §6). The action menu and the Altair Progress chart
 are built separately ($PRIV)."""
-import math
 
 import pytest
 

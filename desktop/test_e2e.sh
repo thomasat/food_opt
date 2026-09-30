@@ -411,13 +411,14 @@ assert wording.ADD_OWN_EXPANDER in expander_labels, expander_labels
 assert not any(c.label and c.label.startswith("Repeat") for c in at.checkbox), \
     [c.label for c in at.checkbox]
 
-# Tab 3 - Results: one "Edit past formulations" expander replaces the three
-# retired controls; none of their old labels survive anywhere on the tab.
+# Tab 3 - Results: one "Correct, delete or add past formulations" fold
+# replaces the three retired controls; none of their old labels survive
+# anywhere on the tab.
 at.session_state["main_tab"] = wording.TAB_RESULTS
 at.run()
 assert not at.exception, at.exception
 expander_labels = [e.label for e in at.expander]
-assert wording.EDIT_PAST_FORMULATIONS_EXPANDER in expander_labels, expander_labels
+assert wording.EDIT_PAST_FOLD in expander_labels, expander_labels
 retired = ("Correct a result", "Delete a batch or a formulation",
            "Delete the last batch", "Import past formulations from a CSV")
 seen = (expander_labels + [b.label for b in at.button]
@@ -638,7 +639,9 @@ assert water.iloc[0][wording.HIGHEST_LABEL] == "", \
 captions = [c.value for c in at.caption]
 assert any(c.startswith("Remaining water is calculated to bring the total to")
            for c in captions), captions
-assert wording.RULE_HINT in captions, captions
+# RULE_HINT is gone (audit V19): the one calculation cue left on the tab
+# is the Edit calculation line under the grid.
+assert wording.CALCULATION_EDIT_HINT in captions, captions
 
 # More settings - Limits: one Kind picker choosing the shape of the limit,
 # and because the sample has a default batch size the "Write it as" choice
