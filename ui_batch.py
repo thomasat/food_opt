@@ -300,7 +300,9 @@ def _waiting_caption(opt):
     """'2 formulations are waiting for Cook loss…' while any is, plus why
     the suggestions are still spread out when that is the reason. The
     measurement is named only when every waiting formulation waits for the
-    same ones; otherwise 'waiting for results'."""
+    same ones; otherwise 'waiting for results'. In the project's own
+    words: trials in a project of process settings alone (final review
+    M-1)."""
     waiting = opt.awaited_rows()
     if not waiting:
         return ""
@@ -309,7 +311,7 @@ def _waiting_caption(opt):
     line = wording.waiting_generate_caption(len(waiting), names)
     if opt.complete_count() < COLD_START_RUNS <= len(opt.Y_history):
         line += " " + wording.still_spread_out(COLD_START_RUNS)
-    return line
+    return wording.for_project(opt, line)
 
 
 def _own_key(name):

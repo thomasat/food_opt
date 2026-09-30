@@ -178,7 +178,7 @@ def test_make_a_round_names_one_waiting_formulation(one_waiting):
     at = _app(wording.TAB_BATCH)
     assert ("1 formulation is waiting for Juiciness and is not used for "
             "suggestions yet. Enter its results on Results. Suggestions "
-            "don't know about these yet and may be close to them."
+            "don't know about it yet and may be close to it."
             ) in _generate_captions(at)
 
 

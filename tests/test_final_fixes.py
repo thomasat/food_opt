@@ -155,3 +155,30 @@ def test_the_missing_value_boxes_are_parked_empty_on_a_project_switch():
     correct_amount_ (final review I-3)."""
     import ui_results
     assert ui_results._missing_key(4, "Juiciness").startswith(_reset_prefixes())
+
+
+# ------------------------------------------------------------------ #
+#  M-1 Make a round's waiting caption: singular, and trials
+# ------------------------------------------------------------------ #
+
+def test_the_waiting_caption_agrees_in_number():
+    assert wording.waiting_generate_caption(1, "Cook loss") == (
+        "1 formulation is waiting for Cook loss and is not used for "
+        "suggestions yet. Enter its results on Results. Suggestions don't "
+        "know about it yet and may be close to it.")
+    assert wording.waiting_generate_caption(2, "Cook loss") == (
+        "2 formulations are waiting for Cook loss and are not used for "
+        "suggestions yet. Enter their results on Results. Suggestions don't "
+        "know about these yet and may be close to them.")
+
+
+def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[1].caption]      # Make a round
+    assert ("1 trial is waiting for Aroma and is not used for suggestions yet. "
+            "Enter its results on Results. Suggestions don't know about it yet "
+            "and may be close to it.") in captions, captions

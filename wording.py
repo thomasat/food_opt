@@ -1945,14 +1945,15 @@ def formulation_has_all_results(no):
 def waiting_generate_caption(n, names_text):
     """Under Generate while formulations wait for results. Minor 15
     (2026-09-29 review): says the suggestions do not know about them yet,
-    since one may be flagged on the table as nearly repeating one."""
-    tail = (" Suggestions don't know about these yet and may be close to "
-            "them.")
+    since one may be flagged on the table as nearly repeating one. "it"
+    for one, "these … them" for several (final review M-1)."""
     if n == 1:
         return (f"1 {FORMULATION} is {waiting_for(names_text)} and is not "
-                f"used for suggestions yet. Enter its results on Results.{tail}")
+                "used for suggestions yet. Enter its results on Results. "
+                "Suggestions don't know about it yet and may be close to it.")
     return (f"{n} {FORMULATION}s are {waiting_for(names_text)} and are not "
-            f"used for suggestions yet. Enter their results on Results.{tail}")
+            "used for suggestions yet. Enter their results on Results. "
+            "Suggestions don't know about these yet and may be close to them.")
 
 
 def still_spread_out(k):

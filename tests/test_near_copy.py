@@ -307,7 +307,7 @@ def test_the_waiting_caption_says_suggestions_may_be_close():
     assert line == (
         "1 formulation is waiting for Cook loss and is not used for "
         "suggestions yet. Enter its results on Results. Suggestions don't "
-        "know about these yet and may be close to them.")
+        "know about it yet and may be close to it.")
 
 
 def test_the_waiting_caption_is_still_one_caption():
@@ -315,8 +315,8 @@ def test_the_waiting_caption_is_still_one_caption():
     _waiting(opt, 7, 3)
     line = _waiting_caption(opt)
     assert line.count("\n") == 0
-    assert "Suggestions don't know about these yet and may be close to " \
-        "them." in line
+    assert "Suggestions don't know about it yet and may be close to " \
+        "it." in line
 
 
 def test_new_strings_pass_the_vocabulary_guard():
