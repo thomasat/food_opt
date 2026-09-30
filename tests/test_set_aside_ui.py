@@ -72,7 +72,7 @@ def test_move_to_not_scored_asks_first_and_keeps_the_row(one_waiting):
     at.run()
     assert [w.value for w in at.warning] == [wording.never_coming_warning(4, "Juiciness")]
     assert FoodOptimizer("burger").set_aside == []
-    _submit_button(at, wording.YES_CONTINUE).click()
+    at.button(key="set_aside_4__yes").click()   # the Yes, by key: it shares the label
     at.run()
     assert not at.exception
     assert "Formulation 4 moved to Not scored." in [s.value for s in at.success]
@@ -204,7 +204,7 @@ def test_a_process_only_project_says_trial_throughout(trial_waiting):
     assert [w.value for w in at.warning] == [
         "Aroma for Trial 2 will never come? It stays in your records, unscored, and stops "
         "counting on Insights."]
-    _submit_button(at, wording.YES_CONTINUE).click()
+    at.button(key="set_aside_2__yes").click()   # the Yes, by key: it shares the label
     at.run()
     assert "Trial 2 moved to Not scored." in _successes(at), _successes(at)
     at.selectbox(key="result_view_ferment").set_value(2)
@@ -238,7 +238,7 @@ def test_a_row_with_nothing_to_enter_offers_no_save(one_waiting):
     assert not [n for n in at.number_input if (n.key or "").startswith("missing_4_")]
     _submit_button(at, "Move to Not scored").click()
     at.run()
-    _submit_button(at, wording.YES_CONTINUE).click()
+    at.button(key="set_aside_4__yes").click()   # the Yes, by key: it shares the label
     at.run()
     assert not at.exception
     at.selectbox(key="result_view_burger").set_value(4)

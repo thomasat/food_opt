@@ -1,7 +1,7 @@
 """Tab 3 · Results: the best formulation, every formulation, and one
-collapsed section — `Edit past formulations` — for every way the record is
-fixed after the fact: a correction, a deletion, and a formulation made before
-this project existed, typed in or read off a CSV.
+collapsed section — `Correct, delete or add past formulations` — for every
+way the record is fixed after the fact: a correction, a deletion, and a
+formulation made before this project existed, typed in or read off a CSV.
 
 The one coloured button is at the foot: `Start the next round`, or `Back to
 Round N` while a round is still unrecorded. Everything destructive is behind a
@@ -191,6 +191,13 @@ def _progress_line(opt):
     pool = opt.best_candidates()
     if last is None or not pool:
         return ""
+    # Results' own before/after rule, whatever the Round (review M18): Best
+    # so far against the next highest, by the I5 yardstick. A tie made by a
+    # late Cook loss or a correction is said here, not only in the flash.
+    ranked = sorted(pool, key=lambda i: float(opt.Y_history[i]), reverse=True)
+    tie = _tie(opt, ranked[1], ranked[0]) if len(ranked) > 1 else ""
+    if tie:
+        return tie
     earlier = [float(opt.Y_history[i]) for i in pool
                if opt.batch_history[i] != last]
     if not earlier:
@@ -201,11 +208,7 @@ def _progress_line(opt):
     best_now = max(float(opt.Y_history[i]) for i in pool)
     best_before = max(earlier)
     if best_now > best_before + 1e-9:
-        now = max(pool, key=lambda i: float(opt.Y_history[i]))
-        old = max((i for i in pool if opt.batch_history[i] != last),
-                  key=lambda i: float(opt.Y_history[i]))
-        tie = _tie(opt, old, now)
-        return tie or wording.batch_recorded_progress(last, best_before, best_now)
+        return wording.batch_recorded_progress(last, best_before, best_now)
     return wording.batch_recorded_no_improvement(last)
 
 
@@ -288,7 +291,7 @@ def _best(opt):
                                        else wording.BEST_RULE))
         line = _progress_line(opt)
         if line:
-            st.caption(line)
+            st.caption(wording.for_project(opt, line))
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 
@@ -380,10 +383,11 @@ def _missing_panel(opt, number, names, correcting=False):
     confirmation, or Wait for its results again. Greyed and ignored while
     another confirmation is open.
 
-    `correcting`: a correction is open in Edit past formulations, and its
-    Save correction is the one lit button on the tab; this Save stays
-    usable, in grey. With nothing to name (every measurement the row was
-    measured on deleted) there is nothing to type, so no boxes and no Save."""
+    `correcting`: a correction is open in Correct, delete or add past
+    formulations, and its Save correction is the one lit button on the tab;
+    this Save stays usable, in grey. With nothing to name (every measurement
+    the row was measured on deleted) there is nothing to type, so no boxes
+    and no Save."""
     index = opt.index_of_formulation(number)
     lit = not confirmation_open()
     if names:
@@ -412,6 +416,7 @@ def _missing_panel(opt, number, names, correcting=False):
     if confirm_action(key, wording.MOVE_TO_NOT_SCORED,
                       wording.for_project(opt, wording.never_coming_warning(
                           number, number_list(names))),
+                      confirm_label=wording.MOVE_TO_NOT_SCORED,   # spec §4, review I9
                       disabled=other_confirmation(key),
                       help=wording.MOVE_TO_NOT_SCORED_HELP):
         opt.set_aside_formulation(number)
@@ -443,14 +448,22 @@ def _save_missing(opt, number, typed):
     for name in typed:
         st.session_state.pop(_missing_key(number, name), None)
     if opt.is_set_aside(index):
-        sentences = [wording.saved_not_scored(number, number_list(opt.waiting_on(index)))]
+        first = wording.saved_not_scored(number, number_list(opt.waiting_on(index)))
     else:
-        sentences = [wording.formulation_scored(number, waiting_text(opt, index))]
-    move = _move_sentence(opt, before, best_formulation_no(opt))
-    if move:
-        sentences.append(move)
+        first = wording.formulation_scored(number, waiting_text(opt, index))
+    sentences = _scored_then_move(number, first,
+                                  _move_sentence(opt, before, best_formulation_no(opt)))
     flash("success", wording.for_project(opt, " ".join(sentences)))
     st.rerun()
+
+
+def _scored_then_move(number, first, move):
+    """The flash's sentences after a result arrives: `first`, then what
+    Best so far did. A tie already says "Formulation 4 scored 70.50, …",
+    so it replaces "Formulation 4 scored." rather than repeating it."""
+    if move.startswith(f"{wording.FORMULATION_CAP} {number} scored "):
+        return [move]
+    return [first, move] if move else [first]
 
 
 def _amount_format(opt, frame):
@@ -977,15 +990,13 @@ def _save_score(opt, storage, pending):
     if not saved_ok(opt):
         return
     index = opt.index_of_formulation(choice)
-    sentences = [wording.formulation_scored(
-        choice, None if index is None else waiting_text(opt, index))]
-    move = _move_sentence(opt, before, best_formulation_no(opt))
-    if move:
-        sentences.append(move)
+    sentences = _scored_then_move(choice, wording.formulation_scored(
+        choice, None if index is None else waiting_text(opt, index)),
+        _move_sentence(opt, before, best_formulation_no(opt)))
     # The row left `skipped` for good and a copy was kept first, so this says
     # so in the same sentence every correction ends with.
     sentences.append(COPY_KEPT)
-    flash("success", " ".join(sentences))
+    flash("success", wording.for_project(opt, " ".join(sentences)))
     _close_correction(opt, choice)
     st.rerun()
 
@@ -1376,9 +1387,9 @@ def _import(opt):
 
 
 def _edit_past(opt, storage):
-    """`Edit past formulations`: one collapsed section for every way the
-    record is fixed after the fact. Returns the open correction, or None —
-    the foot above it reads that and steps aside.
+    """`Correct, delete or add past formulations`: one collapsed section for
+    every way the record is fixed after the fact. Returns the open
+    correction, or None — the foot above it reads that and steps aside.
 
     The three parts were three controls of their own, and the only way to
     enter work done before the project existed hid inside the third."""

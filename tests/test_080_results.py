@@ -36,10 +36,11 @@ def _captions(at):
 # ------------------------------------------------------------------ #
 
 def test_no_heading_repeats_the_box(one_waiting):
-    at = _results()
-    assert [h.value for h in at.tabs[2].subheader] == []
-    at = _results(1)
-    assert [h.value for h in at.tabs[2].subheader] == []
+    # Best so far, another scored one, a Not scored one (its own details
+    # path) and a waiting one.
+    for select in (None, 1, 3, 4):
+        at = _results(select)
+        assert [h.value for h in at.tabs[2].subheader] == [], select
 
 
 def test_the_score_is_the_first_line_under_the_box_with_its_help(scored):
@@ -53,7 +54,7 @@ def test_the_score_is_the_first_line_under_the_box_with_its_help(scored):
 
 def test_one_rule_line_and_the_other_two_are_gone(scored):
     said = _captions(_results())
-    assert wording.BEST_RULE in said
+    assert said.count(wording.BEST_RULE) == 1
     # The three old rule captions, by their text: Task 9 deletes the names.
     assert not any(c.startswith(("Best so far has the highest overall score",
                                  "Only formulations with all their results"))
@@ -101,6 +102,93 @@ def test_a_lead_beyond_the_yardstick_is_a_move(tmp_path, monkeypatch):
     assert ui_results._progress_line(opt).startswith("Round 2 recorded · Best")
     assert ui_results._move_sentence(opt, int(opt.formulation_ids[old]), 4) == (
         wording.best_moved(int(opt.formulation_ids[old]), 4))
+
+
+@pytest.mark.parametrize("lead, tie", [(0.95, True), (1.05, False)])
+def test_one_point_is_the_line_without_repeats(tmp_path, monkeypatch, lead, tie):
+    monkeypatch.chdir(tmp_path)
+    opt = _patty(rows=3)
+    _tell(opt, 4, 2)
+    old = max(range(3), key=lambda i: opt.Y_history[i])
+    opt.Y_history[3] = opt.Y_history[old] + lead
+    said = ui_results._progress_line(opt)
+    assert said.endswith("within 1 point, so treat them as equal.") is tie, said
+
+
+def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monkeypatch):
+    """Review M18 (Task 8 I-3): Formulation 1 scores 70.00 in Round 1,
+    Formulation 2 in Round 1 waits for Juiciness, Formulation 3 in Round 2
+    scores lower. Juiciness for 2 makes it Best so far at 70.50: the flash
+    and the lasting line both say it is a tie, not "Best unchanged"."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("late")
+    opt.add_ingredient("Pea", 0, 10)
+    opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+    opt.add_objective("Juiciness", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Pea": 1.0}, {"Firmness": 7.0, "Juiciness": 7.0}, formulation_no=1, batch_no=1)
+    opt.tell({"Pea": 2.0}, {"Firmness": 7.1}, formulation_no=2, batch_no=1)
+    opt.tell({"Pea": 3.0}, {"Firmness": 5.0, "Juiciness": 5.0}, formulation_no=3, batch_no=2)
+    at = _results(2, project="late")
+    at.number_input(key="missing_2_Juiciness").set_value(7.0)
+    at.run()
+    _submit_button(at, "Save Juiciness").click()
+    at.run()
+    assert not at.exception
+    tie = wording.tie_line(2, "70.50", "0.50", 1)
+    flashes = [f.value for f in at.success]
+    # Said once: the tie already says Formulation 2 scored (review M-1).
+    assert tie in flashes, flashes
+    assert not any("Formulation 2 scored." in f for f in flashes), flashes
+    # The box is back on Best so far, and the line under it says the tie.
+    assert FoodOptimizer("late").best_formulation_no() == 2
+    said = _captions(at)
+    assert tie in said, said
+    assert wording.batch_recorded_no_improvement(2) not in said
+    # ...and still says it on the next visit, with the flash long gone.
+    assert tie in _captions(_results(project="late"))
+
+
+@pytest.fixture
+def trial_tie(tmp_path, monkeypatch):
+    """Process settings alone: Trial 1 (Round 1) and Trial 2 (Round 2) half
+    a point apart, Trial 3 Not scored."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ferment")
+    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+    opt.add_objective("Aroma", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"Incubation temperature": 37.0, "Incubation time": 8.0},
+             {"Aroma": 6.0}, formulation_no=1, batch_no=1)
+    opt.tell({"Incubation temperature": 33.0, "Incubation time": 12.0},
+             {"Aroma": 6.05}, formulation_no=2, batch_no=2)
+    opt.record_skipped(3, 2, {"Incubation temperature": 40.0, "Incubation time": 6.0})
+    return opt
+
+
+def test_a_process_only_tie_says_trial(trial_tie):
+    """Task 8 review I-1: the line under Best so far goes through
+    for_project."""
+    said = _captions(_results(project="ferment"))
+    assert ("Trial 2 scored 60.50, 0.50 above Trial 1 — within 1 point, so treat them "
+            "as equal.") in said, said
+    assert not any("Formulation" in c for c in said), said
+
+
+def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
+    """Task 8 review I-1: the flash after scoring a Not scored row from the
+    fold goes through for_project too, tie and all."""
+    at = _results(project="ferment")
+    at.selectbox(key="correct_formulation").set_value(3)
+    at.run()
+    at.number_input(key="correct_3_Aroma").set_value(6.1)
+    at.run()
+    _submit_button(at, wording.SAVE_RESULT_BUTTON).click()
+    at.run()
+    assert not at.exception
+    flashes = [f.value for f in at.success]
+    assert ("Trial 3 scored 61.00, 0.50 above Trial 2 — within 1 point, so treat them as "
+            "equal. " + wording.COPY_KEPT) in flashes, flashes
+    assert not any("Formulation" in f for f in flashes), flashes
 
 
 def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
@@ -162,6 +250,11 @@ def test_move_to_not_scored_says_what_it_does(one_waiting):
     at.run()
     assert [w.value for w in at.warning] == [wording.never_coming_warning(4, "Juiciness")]
     assert "suggestions" not in at.warning[0].value              # review I9
+    # The Yes names the act, as every other destructive confirmation does.
+    yes = at.button(key="set_aside_4__yes")
+    assert yes.label == wording.MOVE_TO_NOT_SCORED == "Move to Not scored"
+    assert yes.proto.type == "primary"
+    assert wording.YES_CONTINUE not in [b.label for b in at.tabs[2].button]
 
 
 def test_one_fold_for_past_formulations_and_no_second_door(scored):
