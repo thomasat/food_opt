@@ -117,4 +117,7 @@ def test_no_line_when_the_overall_scores_own_range_is_wide(monkeypatch):
     # The fixture's stand-in project has no Repeats: the 1-point yardstick.
     monkeypatch.setattr(insights, "noise_yardstick",
                         lambda *a, **k: insights.Yardstick(1.0, None, 0, False))
+    # The stand-in has no rows to take a skill baseline from (BO views:
+    # skill is pinned in test_092_skill.py).
+    monkeypatch.setattr(insights, "skill", lambda *a, **k: None)
     assert insights.round_track(opt, checks) is None

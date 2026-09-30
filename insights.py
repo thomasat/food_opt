@@ -784,12 +784,13 @@ def verdict_state(opt, h, checks):
 
 @dataclass
 class NextStep:
-    kind: str       # "bias", "misses", "repeat", "early", "untested", "close",
-                    # "rising" or "see"
+    kind: str       # "bias", "misses", "repeat", "early", "no_skill", "untested",
+                    # "close", "rising" or "see"
     gap: float | None = None                    # "bias": the Overall score's average miss
     disagreement: Disagreement | None = None    # "repeat"
     binding: object = None                      # "close": what binds the predicted best
     wide: list = dataclasses.field(default_factory=list)   # "rising": outputs still wide
+    skill: object = None                        # "no_skill": the SkillFact (BO views, I1)
 
 
 def next_step(opt, checks, standing=None):
@@ -814,6 +815,11 @@ def next_step(opt, checks, standing=None):
     # as row 3; the ruling's "none" (row 9) is the no-data gate the caller says.
     if state in ("none", "early", "wide"):
         return NextStep("early")
+    # BO views (review I1): before untested and close, which both rest on
+    # the model's predicted best.
+    fact = skill(opt, checks)
+    if fact is not None and fact.state == "no_skill":
+        return NextStep("no_skill", skill=fact)
     answer = improvement(opt, yardstick=yard)
     if standing is not None:
         if standing.higher and not standing.tested_near:
@@ -2015,6 +2021,12 @@ class RoundTrack:
     total: int
     gap: float | None       # its average miss when it is a bias (bias_gap); else None
     see_insights: bool      # the verdict (the measurements) is unreliable
+    # BO views (review I1): the Overall score's skill when it is at or below
+    # NO_SKILL (a warning, for E2 and E3), the verdict's Rounds, and whether
+    # the coverage part is said (False: the skill part alone).
+    no_skill: object = None
+    rounds: list = dataclasses.field(default_factory=list)
+    record: bool = True
 
 
 def round_track(opt, checks):
@@ -2024,20 +2036,175 @@ def round_track(opt, checks):
     the gap when it is a bias by Insights' own rule (bias_gap), so the two
     screens say one thing (answer-key read-through); holding otherwise. None — no line — without a record (fewer than
     SCORE_RECORD_MIN fully measured checks), when the verdict is early,
-    wide ("Too early to judge" on Insights, review C I-5) or over-wide, and
-    when the Overall score's own range is wide (final review I-1)."""
+    wide ("Not judged yet" on Insights, review C I-5) or over-wide, and
+    when the Overall score's own range is wide (final review I-1).
+    BO views (review I1): a skill at or below NO_SKILL sets `no_skill` and
+    is said even when coverage holds; where the coverage part would not be
+    said (no record, over-wide, the Overall score wide) the line carries
+    the skill alone (`record` False). Never while early or wide."""
     h = headline(opt, checks)
     record = h.score
-    if record is None:
-        return None
     state = verdict_state(opt, h, checks)
-    if state in ("none", "early", "wide", "over_wide"):
+    if state in ("none", "early", "wide"):
         return None
-    if SCORE in (h.wide or []):
-        # Insights says the Overall score's own likely range is wide, so
-        # says little yet: no "12 of 12 landed inside" beside it (final
-        # review I-1).
-        return None
+    fact = skill(opt, checks)
+    no_skill = fact if fact is not None and fact.state == "no_skill" else None
+    # Insights says the Overall score's own interval is wide (final review
+    # I-1), or the intervals are wider than needed: no "12 of 12 inside"
+    # beside that. A skill at or below NO_SKILL is still said (review I1).
+    said = (record is not None and state != "over_wide" and SCORE not in (h.wide or []))
+    if not said:
+        if no_skill is None:
+            return None
+        return RoundTrack(False, 0, 0, None, state == "unreliable", no_skill,
+                          list(h.rounds), record=False)
     rough = binomial_tail(record.total - record.inside, record.total) < 0.10
     return RoundTrack(rough, record.inside, record.total, score_bias(opt, checks, h),
-                      state == "unreliable")
+                      state == "unreliable", no_skill, list(h.rounds))
+
+
+# ------------------------------------------------------------------ #
+#  0.8.0 BO views (spec 2026-09-30-bo-views §2; review B3, I1-I4): is the
+#  model predicting? Round-ahead skill against the average of the rows
+#  recorded before each Round, and a display-side guard that stops the tab
+#  from stating noise as ingredient effects. Nothing here reaches ask().
+# ------------------------------------------------------------------ #
+
+# Skill is said from this many checks (review I2): below it, nothing.
+SKILL_MIN = 10
+# At or below NO_SKILL: "no better than the average of earlier results".
+# The review's plan gate (I2) keeps it at 0: a correct model on the 48
+# simulated projects is at or below 0 in fewer than 1 window in 10 at 10,
+# 12 and 20 checks (tests/test_092_skill.py pins the rates).
+NO_SKILL = 0.0
+# Below SKILL_SMALL: "better than the average by a small margin".
+SKILL_SMALL = 0.2
+
+
+@dataclass
+class SkillFact:
+    value: float
+    n: int              # checks pooled
+    rounds: list        # the Rounds they came from, in order
+    state: str          # "no_skill", "small" or "skill"
+
+
+def _skill_state(value):
+    return ("no_skill" if value <= NO_SKILL else "small" if value < SKILL_SMALL
+            else "skill")
+
+
+def skill(opt, checks, name=SCORE):
+    """Round-ahead skill of `name` over every Round checked (review B3):
+    1 − Σ(measured − predicted)² ÷ Σ(measured − baseline)², the squared
+    errors pooled over the checks (review I2), the baseline of each check
+    the mean of `name` over the rows recorded before its Round (the rows
+    its model learned from). For the Overall score only formulations with
+    all their results count. None with fewer than SKILL_MIN checks or when
+    every check sits exactly on its baseline (nothing to divide by)."""
+    mine = [c for c in checks
+            if c.name == name and (name != SCORE or c.fully_measured)]
+    if len(mine) < SKILL_MIN:
+        return None
+    first = dict(round_order(opt))
+    base = {}
+    model = mean = 0.0
+    for c in mine:
+        if c.round not in base:
+            seen = [measured(opt, name, i) for i in range(first.get(c.round, 0))]
+            seen = [v for v in seen if v is not None]
+            base[c.round] = sum(seen) / len(seen) if seen else None
+        if base[c.round] is None:
+            continue
+        model += (c.measured - c.predicted) ** 2
+        mean += (c.measured - base[c.round]) ** 2
+    if mean <= 0:
+        return None
+    value = 1.0 - model / mean
+    return SkillFact(value, len(mine), _ordered_rounds(mine), _skill_state(value))
+
+
+def allowed_misses(n):
+    """The most misses out of `n` values the verdict still calls As
+    expected (03 §8): the largest m with binomial_tail(m, n) ≥ 0.10."""
+    m = 0
+    while m < n and binomial_tail(m + 1, n) >= 0.10:
+        m += 1
+    return m
+
+
+# The guard's triggers (review I3): the correlation length within this
+# factor of its lower limit; the fitted noise below this share of the
+# Repeat SD (from YARDSTICK_PAIRS pairs).
+GUARD_FLOOR = 1.05
+GUARD_NOISE = 0.5
+
+
+@dataclass
+class Guard:
+    reasons: list       # "floor", "noise", "skill", in that order
+
+    @property
+    def fires(self):
+        return bool(self.reasons)
+
+    @property
+    def skill_only(self):
+        """Trigger (c) alone: said as "not reported until…", never as
+        "fitting noise" (review I3)."""
+        return self.reasons == ["skill"]
+
+
+def _lengthscale_at_floor(gp):
+    """Whether any kernel's smallest correlation length sits within
+    GUARD_FLOOR of that kernel's own lower limit (review I3: read from the
+    module, so an expert's kernel is judged by its own bound)."""
+    for module in gp.covar_module.modules():
+        constraint = getattr(module, "raw_lengthscale_constraint", None)
+        if constraint is None or not hasattr(module, "lengthscale"):
+            continue
+        low = float(torch.as_tensor(constraint.lower_bound).min())
+        if low > 0 and float(module.lengthscale.detach().min()) <= GUARD_FLOOR * low:
+            return True
+    return False
+
+
+def fitted_noise_sd(gp):
+    """The display model's fitted noise as an sd in the output's own units
+    (review I3): √noise × the training Y's sd (Standardize(m=1)). None when
+    the noise is not fitted (Custom model settings, fixed_tiny)."""
+    likelihood = getattr(gp, "likelihood", None)
+    noise = getattr(likelihood, "noise", None)
+    if noise is None or likelihood.__class__.__name__.startswith("Fixed"):
+        return None
+    tf = getattr(gp, "outcome_transform", None)
+    scale = float(tf.stdvs.reshape(-1)[0]) if tf is not None and hasattr(tf, "stdvs") else 1.0
+    return math.sqrt(max(0.0, float(noise.detach().reshape(-1)[0]))) * scale
+
+
+def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
+    """Whether the display model of `name` is likely fitting noise (review
+    I3): (a) its correlation length at its lower limit; (b) its fitted
+    noise sd below GUARD_NOISE × the Repeat SD of `name`, from
+    YARDSTICK_PAIRS pairs or more, never under fixed_tiny; (c) for the
+    Overall score only, Round-ahead skill at or below NO_SKILL (`fact`:
+    skill() when the caller has it). `fitted`: insights.Fitted, or None."""
+    reasons = []
+    gp = getattr(fitted, "model", None)
+    if gp is not None:
+        try:
+            if _lengthscale_at_floor(gp):
+                reasons.append("floor")
+        except Exception:
+            pass
+        tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
+        yard = noise_yardstick(opt, checks, name)
+        sd = None if tiny else fitted_noise_sd(gp)
+        if (sd is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
+                and sd < GUARD_NOISE * yard.sd):
+            reasons.append("noise")
+    if name == SCORE:
+        fact = skill(opt, checks) if fact is None else fact
+        if fact is not None and fact.state == "no_skill":
+            reasons.append("skill")
+    return Guard(reasons)
