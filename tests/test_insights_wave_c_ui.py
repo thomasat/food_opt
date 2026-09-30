@@ -821,8 +821,7 @@ def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
 @pytest.fixture
 def ferment_scored(tmp_path, monkeypatch):
     """Process settings alone, two measurements, twelve trials over four
-    Rounds with their results: both of its charts ("Can you have both?" and
-    "How far did each prediction miss?") pass their gates."""
+    Rounds with their results: "Can you have both?" passes its gate."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("ferment")
     opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
