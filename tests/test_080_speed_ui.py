@@ -254,6 +254,105 @@ def test_every_check_is_worked_out_after_the_page_once_all_are_in(stuck, five_ro
 
 
 # ------------------------------------------------------------------ #
+#  Plan B Task 6 review I-1 (review I15's order): the header, line 1 and
+#  the foot are drawn before anything is fitted or worked out
+# ------------------------------------------------------------------ #
+
+def _draw_log(monkeypatch):
+    """What the Insights tab draws and works out, in order, from the
+    moment render starts."""
+    log = []
+
+    def logged(module, name, event):
+        real = getattr(module, name)
+
+        def wrapper(*a, **k):
+            log.append(event)
+            return real(*a, **k)
+        monkeypatch.setattr(module, name, wrapper)
+    logged(ui_insights, "render", "render")
+    logged(ui_insights, "header_text", "header")
+    logged(ui_insights, "_stand_lines", "line 1")
+    logged(ui_insights, "_foot", "foot")
+    for name in ("fit_all", "check_rounds", "predicted_best", "_fit_gp"):
+        logged(insights, name, "compute")
+    return log
+
+
+def _drawn_first(log):
+    tab = log[log.index("render"):]
+    first = tab.index("compute")
+    return tab[:first], tab[first:]
+
+
+def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rounds, monkeypatch):
+    """No workers, nothing cached: the tab fits in this process."""
+    at = _app(five_rounds.project_name)
+    at.run()
+    log = _draw_log(monkeypatch)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    before, after = _drawn_first(log)
+    assert before == ["render", "header", "line 1", "foot"]
+    assert "foot" not in after
+    # Then filled in, in screen order, each once.
+    md = [m.value for m in at.tabs[3].markdown]
+    heads = [md.index(f"**{q}**") for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
+    assert heads == sorted(heads)
+    [line_1] = [i for i, m in enumerate(md) if "Best so far: " in m]
+    assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
+    [foot] = [b for b in at.tabs[3].button if b.key == "insights_foot"]
+    assert wording.MORE_CHARTS in _texts(at)
+
+
+def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(
+        stuck, five_rounds, monkeypatch):
+    """Workers still fitting, answers 2-3's models in: the partial checks
+    and the predicted best are worked out here only after the foot."""
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "stand")
+    for key in (ui_insights.PARTIAL_KEY, ui_insights.BEST_KEY):
+        if key in at.session_state:
+            del at.session_state[key]
+    log = _draw_log(monkeypatch)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    before, _ = _drawn_first(log)
+    assert before == ["render", "header", "line 1", "foot"]
+    texts = " ".join(_texts(at))
+    assert f"**{wording.Q_TRUST}**" in texts and f"**{wording.Q_NEXT}**" in texts
+
+
+def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick(
+        five_rounds, monkeypatch):
+    """Line 1 goes up with the yardstick known before the checks; when the
+    checks leave a disagreeing Repeat out of it, line 1 is replaced, never
+    repeated."""
+    real = insights.noise_yardstick
+    sd = insights.Yardstick(2.5, 2.5, 3, True)
+
+    def yardstick(opt, checks=(), name=insights.SCORE):
+        return sd if checks and name == insights.SCORE else real(opt, checks, name)
+    monkeypatch.setattr(insights, "noise_yardstick", yardstick)
+    at = _app(five_rounds.project_name)
+    at.run()
+    yards = []
+    lines = ui_insights._stand_lines
+    monkeypatch.setattr(ui_insights, "_stand_lines",
+                        lambda opt, yard: yards.append(yard) or lines(opt, yard))
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    assert yards[0] != sd and yards[-1] == sd
+    md = [m.value for m in at.tabs[3].markdown]
+    [line_1] = [i for i, m in enumerate(md) if "Best so far: " in m]
+    assert line_1 == md.index(f"**{wording.Q_STAND}**") + 1
+
+
+# ------------------------------------------------------------------ #
 #  Task 10: Make a round's column (I1) and its track-record line (I16)
 # ------------------------------------------------------------------ #
 

@@ -602,7 +602,13 @@ def render(opt):
     trust the predictions?", "Where do you stand?", "What to do next" — the
     foot button, then three folds. At the gate (fewer than MIN_ROWS
     scored), after a failed fit and with nothing scored, the header (or
-    one line), Best so far and the foot (review M8)."""
+    one line), Best so far and the foot (review M8).
+
+    Drawn at once, before anything is fitted or worked out (review I15):
+    the header, "Where do you stand?" line 1 and the foot. The verdict,
+    lines 2-3 and "What to do next" fill their places as they are ready —
+    here in this run when the tab fits in this process, part by part
+    behind one progress line while the workers are still fitting."""
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
         st.caption(_say(opt, wording.INSIGHTS_NONE))
@@ -620,35 +626,51 @@ def render(opt):
         _foot(opt)
         _how(opt, None)
         return
-    if waiting(opt, "all"):
-        _render_filling(opt)
-        return
+    filling = waiting(opt, "all")
+    # The page in screen order, before any fit (review I15, Plan B Task 6
+    # review I-1): the progress line's place, answer 1's, line 1, the
+    # places of lines 2-3 and of answer 3, the foot, the Set up button's.
     bar = st.empty()
+    trust = st.container()
+    _question(opt, wording.Q_STAND)
+    first_yard = insights.noise_yardstick(opt)
+    lines = st.empty()
+    with lines.container():
+        facts = _stand_lines(opt, first_yard)
+    if facts is not None:
+        _progress_fold(opt)
+    rest = st.container()
+    nxt = st.container()
+    _foot(opt)
+    below = st.container()
+    if filling:
+        _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below)
+        _how(opt, None)
+        return
     computed = _computed(opt, bar)
     bar.empty()
     if computed.get("failed"):
         # The model answers come off; one line says so, where the bar was.
         bar.caption(_say(opt, wording.INSIGHTS_FAILED))
-        _question(opt, wording.Q_STAND)
-        _stand_first(opt, insights.noise_yardstick(opt))
-        _foot(opt)
         _how(opt, None)
         return
     checks = computed["checks"]
     h = insights.headline(opt, checks)
     yard = insights.noise_yardstick(opt, checks)
-    trust = st.container()
-    _question(opt, wording.Q_STAND)
-    standing = _stand(opt, computed, yard)
-    _question(opt, wording.Q_NEXT)
-    step = insights.next_step(opt, checks, standing)
-    change = _next_step(opt, step)
+    _restate(opt, lines, first_yard, yard)
+    with rest:
+        standing = _stand(opt, computed, yard)
+    with nxt:
+        _question(opt, wording.Q_NEXT)
+        step = insights.next_step(opt, checks, standing)
+        change = _next_step(opt, step)
     with trust:
         _question(opt, wording.Q_TRUST)
         # The disagreeing Repeat is said once: here, unless "What to do
         # next" already says it.
         _trust(opt, computed, h, yard, repeat=step.kind != "repeat")
-    _foot(opt, change)
+    with below:
+        _setup_button(change)
     # The folds, collapsed (§2.5), each with a key of its own.
     with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one"):
         _change(opt, computed, yard)
@@ -657,46 +679,53 @@ def render(opt):
     save(opt)
 
 
-def _render_filling(opt):
+def _restate(opt, lines, first_yard, yard):
+    """Line 1 again, in its place, when the checks changed the yardstick it
+    was drawn with (a disagreeing Repeat is left out of the Repeat spread)."""
+    if yard != first_yard:
+        with lines.container():
+            _stand_lines(opt, yard)
+
+
+def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
     """The tab while the workers are still fitting (spec 2026-09-30 §10.3,
-    review I15): one progress line with a count, "Where do you stand?" line
-    1 and the foot at once, then answer 1 once every Round's Overall score
-    and the verdict's Rounds are in, answers 2 and 3 once the current
-    Overall-score model is in too. Each is drawn once, final; the folds
-    wait for everything. keep_up's poller reruns the page as parts land."""
+    review I15), into the places render drew: one progress line with a
+    count, then answer 1 once every Round's Overall score and the verdict's
+    Rounds are in, answers 2 and 3 once the current Overall-score model is
+    in too. Each is drawn once, final; the folds wait for everything.
+    keep_up's poller reruns the page as parts land."""
     specs, mem = _plan(opt), memo(opt)
     done, total = insights_jobs.rounds_done(opt, specs, mem)
     fraction = sum(s.key in mem for s in specs) / max(1, len(specs))
-    st.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
+    bar.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
     checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
-    yard = insights.noise_yardstick(opt, checks or ())
-    trust = st.container()
-    _question(opt, wording.Q_STAND)
-    change = None
-    if checks is not None and not waiting(opt, "stand"):
+    if checks is None:
+        return
+    yard = insights.noise_yardstick(opt, checks)
+    _restate(opt, lines, first_yard, yard)
+    step = insights.next_step(opt, checks, None)
+    if not waiting(opt, "stand"):
         with insights.memo_in_use(mem):
             score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
         computed = {"fitted": {insights.SCORE: score}, "checks": checks, "partial": True}
-        standing = _stand(opt, computed, yard)
-        _question(opt, wording.Q_NEXT)
-        change = _next_step(opt, insights.next_step(opt, checks, standing))
-    else:
-        _stand_first(opt, yard)
-    if checks is not None:
-        with trust:
-            _question(opt, wording.Q_TRUST)
-            step = insights.next_step(opt, checks, None)
-            _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
-                   yard, repeat=step.kind != "repeat")
-    _foot(opt, change)
-    _how(opt, None)
+        with rest:
+            standing = _stand(opt, computed, yard)
+        with nxt:
+            _question(opt, wording.Q_NEXT)
+            step = insights.next_step(opt, checks, standing)
+            change = _next_step(opt, step)
+        with below:
+            _setup_button(change)
+    with trust:
+        _question(opt, wording.Q_TRUST)
+        _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
+               yard, repeat=step.kind != "repeat")
 
 
-def _foot(opt, change=None):
+def _foot(opt):
     """The foot Results uses, in its words and by its rule, with a key of its
     own (spec 2026-09-30 §2.4, review M13): back to the open Round, else
-    the next one. `change`: (label, ...) of the secondary Set up button
-    "What to do next" asked for, drawn under the foot, or None."""
+    the next one. Needs no model: drawn before anything is worked out."""
     if opt.pending_batch:
         label = wording.back_to_batch_label(opt.pending_batch_no, len(open_rows(opt)))
     else:
@@ -706,6 +735,11 @@ def _foot(opt, change=None):
     if st.button(label, type="primary" if lit else "secondary", disabled=not lit,
                  key="insights_foot") and lit:
         go_to_tab(TAB_BATCH)
+
+
+def _setup_button(change):
+    """The secondary Set up button "What to do next" asked for (its label),
+    under the foot; nothing for None."""
     if change and st.button(change, key="insights_change_setup",
                             disabled=confirmation_open()):
         go_to_tab(TAB_SETUP)
@@ -1098,15 +1132,27 @@ def stand_text(answer):
 
 
 def _stand_first(opt, yard):
-    """"Where do you stand?" line 1 (§2.3): the answer, Best so far to two
-    decimals as Results shows it (review M1), and the Repeats line only
-    after a rise (audit V24). Needs no model: drawn at the gate too."""
+    """"Where do you stand?" line 1 (§2.3) and the Progress chart's fold.
+    Needs no model: drawn at the gate too."""
+    if _stand_lines(opt, yard) is not None:
+        _progress_fold(opt)
+
+
+def _progress_fold(opt):
+    with st.expander(_say(opt, wording.SHOW_PROGRESS)):
+        _progress_chart_body(opt)
+
+
+def _stand_lines(opt, yard):
+    """Line 1's text (§2.3): the answer, Best so far to two decimals as
+    Results shows it (review M1), and the Repeats line only after a rise
+    (audit V24). Returns insights.best_facts (None: nothing is scored)."""
     f = insights.best_facts(opt)
-    answer = insights.improvement(opt, f, yardstick=yard)
     if f is None:
         # Everything recorded still waits, in the words Results uses.
         st.write(_say(opt, wording.NO_COMPLETE_FORMULATION))
-        return answer
+        return None
+    answer = insights.improvement(opt, f, yardstick=yard)
     second = ("" if answer is not None
               else wording.STAND_LATEST if f.latest and f.rounds_since == 0
               else wording.stand_since(f.rounds_since) if f.rounds_since else "")
@@ -1116,9 +1162,7 @@ def _stand_first(opt, yard):
     if (answer is not None and answer.state in ("yes", "barely")
             and yard.sd is not None and yard.sd >= insights.REPEAT_SD_SHOWN):
         st.write(_say(opt, wording.stand_repeats(f"{yard.sd:.1f}", yard.pairs)))
-    with st.expander(_say(opt, wording.SHOW_PROGRESS)):
-        _progress_chart_body(opt)
-    return answer
+    return f
 
 
 def progress_frame(opt):
@@ -1268,12 +1312,11 @@ def standing_text(opt, standing, yard):
 
 
 def _stand(opt, computed, yard):
-    """Answer 2 (§2.3): line 1, then the predicted best against Best so
-    far (line 2), what it sits at (line 3), the luck line, and its amounts
-    in a fold only when it is clearly higher and not tested near. Returns
-    the insights.Standing, or None when the predicted best could not be
-    worked out (one line says why)."""
-    _stand_first(opt, yard)
+    """Answer 2 after line 1 (render draws that first, §2.3, review I15):
+    the predicted best against Best so far (line 2), what it sits at (line
+    3), the luck line, and its amounts in a fold only when it is clearly
+    higher and not tested near. Returns the insights.Standing, or None when
+    the predicted best could not be worked out (one line says why)."""
     fitted = computed["fitted"]
     score = fitted.get(insights.SCORE)
     if score is None or score.model is None:
