@@ -47,9 +47,9 @@ def test_the_two_water_rows_say_what_calculates_them(page):
     said = captions(page)
     assert any(c.startswith('Remaining water is calculated to bring the total '
                             'to the 100 g default batch size') for c in said), said
-    # The one line that says how to write a calculation is under the grid
-    # whether or not a row has one.
-    assert any(c.startswith('To calculate a row from the others') for c in said), said
+    # One Calculation line, the Edit calculation one (spec 2026-09-30 §5,
+    # audit V19): the second one under the grid went.
+    assert not any(c.startswith('To calculate a row from the others') for c in said), said
 
 
 def test_a_calculation_the_project_cannot_take_is_refused_and_discarded(page):

@@ -359,6 +359,48 @@ def _safety_copies(opt):
         _delete_old_copies(ordered[_COPIES_RETAIN_NEWEST:])
 
 
+def _saved_copies(opt):
+    """Save a copy, the copies the app kept, and Open a saved copy: inside
+    Manage project since 0.8.0 (spec 2026-09-30 §5)."""
+    st.markdown(wording.SAVED_COPIES_HEADING)
+    st.caption(wording.SAVED_COPIES_CAPTION)
+
+    if getattr(opt, "load_error", None):
+        # Never offer a "copy" of a project that failed to load — it
+        # would be an empty file wearing the project's name.
+        st.caption(wording.COPY_UNAVAILABLE)
+    else:
+        _copy_name = (f"{opt.project_name} copy "
+                      f"{datetime.now():%Y-%m-%d}.json")
+        st.download_button(
+            wording.SAVE_A_COPY,
+            data=json.dumps(opt.export_json(), indent=2),
+            file_name=_copy_name,
+            mime="application/json",
+            # A download is the one action in the app that leaves no
+            # mark: the reader clicked and nothing moved. The click sets
+            # a flag and the line below shows on the next run, because
+            # this one has already handed the browser the file.
+            on_click=lambda name=_copy_name: st.session_state.__setitem__(
+                "_copy_downloaded", name),
+        )
+        _downloaded = st.session_state.pop("_copy_downloaded", None)
+        if _downloaded:
+            st.caption(wording.copy_downloaded(_downloaded))
+
+    _safety_copies(opt)
+
+    # Any file name: what is inside decides, not the extension.
+    uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
+    st.caption(wording.OPEN_SAVED_COPY_CAPTION)
+    if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
+        try:
+            st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
+        except ValueError:
+            st.session_state.pop("_restore_candidate", None)
+            st.error(wording.COPY_UNREADABLE)
+
+
 # How many of the app's own copies stand on the sidebar itself.
 _COPIES_SHOWN = 1
 _COPIES_RETAIN_NEWEST = 3
@@ -522,15 +564,6 @@ with st.sidebar:
         # still be coloured on the very run that puts a "Yes, reset" beside it.
         _open_slot = st.container()
 
-    # On a first run the welcome panel already offers the sample, so the
-    # sidebar shows it only once at least one project exists.
-    if existing_projects and os.path.exists(_SAMPLE_CSV):
-        if st.button(
-            wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
-            help=wording.TRY_SAMPLE_HELP,
-        ):
-            _open_sample_project()
-
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
         opt = None
@@ -563,44 +596,78 @@ with st.sidebar:
             if _saved is not None:
                 st.caption(saved_line(_saved))
 
-        st.markdown(wording.SAVED_COPIES_HEADING)
-        st.caption(wording.SAVED_COPIES_CAPTION)
+        with st.expander(wording.MANAGE_PROJECT):
+            # Saved copies and the sample, in the one fold (spec 2026-09-30
+            # §5, audit V21): the sidebar itself is the projects, the
+            # project's name and when it was saved.
+            _saved_copies(opt)
+            if os.path.exists(_SAMPLE_CSV):
+                if st.button(
+                    wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
+                    help=wording.TRY_SAMPLE_HELP,
+                ):
+                    _open_sample_project()
+            st.divider()
+            if confirm_action(
+                "hard_reset", wording.START_OVER_LABEL,
+                (wording.start_over_warning(opt.project_name)
+                 if not _held(opt) else
+                 wording.start_over_warning(
+                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                confirm_label=wording.YES_START_OVER,
+                disabled=other_confirmation("hard_reset"),
+                preserve=True,
+            ):
+                _target = opt.project_name
+                try:
+                    archived = STORAGE.archive(_target, "archived", copy=False)
+                except storage_backend.StorageError as e:
+                    st.error(str(e))
+                else:
+                    # Archiving renames the file away, so the emptied project
+                    # has to be written back under its own name. Without this
+                    # the project vanished from Open project, the sidebar
+                    # still named it, and Open lit up over a project that was
+                    # no longer on disk.
+                    _fresh = FoodOptimizer(_target, storage=STORAGE)
+                    _fresh.save()
+                    if _fresh.save_error:
+                        st.error(_fresh.save_error)
+                    else:
+                        if archived:
+                            flash("info", wording.copy_saved_as(archived))
+                        _reset_project_session()
+                        st.session_state["_loaded_project"] = _target
+                        st.session_state["_land_on_open"] = True
+                        st.rerun()
 
-        if getattr(opt, "load_error", None):
-            # Never offer a "copy" of a project that failed to load — it
-            # would be an empty file wearing the project's name.
-            st.caption(wording.COPY_UNAVAILABLE)
-        else:
-            _copy_name = (f"{opt.project_name} copy "
-                          f"{datetime.now():%Y-%m-%d}.json")
-            st.download_button(
-                wording.SAVE_A_COPY,
-                data=json.dumps(opt.export_json(), indent=2),
-                file_name=_copy_name,
-                mime="application/json",
-                # A download is the one action in the app that leaves no
-                # mark: the reader clicked and nothing moved. The click sets
-                # a flag and the line below shows on the next run, because
-                # this one has already handed the browser the file.
-                on_click=lambda name=_copy_name: st.session_state.__setitem__(
-                    "_copy_downloaded", name),
-            )
-            _downloaded = st.session_state.pop("_copy_downloaded", None)
-            if _downloaded:
-                st.caption(wording.copy_downloaded(_downloaded))
+            # Same shape as Start this project over, but the project leaves the
+            # list. The
+            # file is renamed to an archive copy, never erased.
+            if confirm_action(
+                "delete_project", wording.DELETE_PROJECT_LABEL,
+                (wording.delete_project_warning(opt.project_name)
+                 if not _held(opt) else
+                 wording.delete_project_warning(
+                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                confirm_label=wording.YES_DELETE_IT,
+                disabled=other_confirmation("delete_project"),
+                preserve=True,
+            ):
+                _target = opt.project_name
+                try:
+                    archived = STORAGE.archive(_target, "deleted", copy=False)
+                except storage_backend.StorageError as e:
+                    st.error(str(e))
+                else:
+                    flash("info", wording.project_deleted_flash(_target, archived))
+                    _reset_project_session()
+                    st.session_state.pop("_loaded_project", None)
+                    clear_selection("project_select")   # parked: see above
+                    st.rerun()
 
-        _safety_copies(opt)
-
-        # Any file name: what is inside decides, not the extension.
-        uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
-        st.caption(wording.OPEN_SAVED_COPY_CAPTION)
-        if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
-            try:
-                st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
-            except ValueError:
-                st.session_state.pop("_restore_candidate", None)
-                st.error(wording.COPY_UNREADABLE)
-
+        # After the fold, so a copy just checked in it shows its question at
+        # once, outside the fold where it cannot be missed.
         candidate = st.session_state.get("_restore_candidate")
         if candidate is not None:
             try:
@@ -678,65 +745,6 @@ with st.sidebar:
                         # forms on them would come back empty.
                         preserve_tab_forms()
                         st.rerun()
-
-        with st.expander(wording.MANAGE_PROJECT):
-            if confirm_action(
-                "hard_reset", wording.START_OVER_LABEL,
-                (wording.start_over_warning(opt.project_name)
-                 if not _held(opt) else
-                 wording.start_over_warning(
-                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
-                confirm_label=wording.YES_START_OVER,
-                disabled=other_confirmation("hard_reset"),
-                preserve=True,
-            ):
-                _target = opt.project_name
-                try:
-                    archived = STORAGE.archive(_target, "archived", copy=False)
-                except storage_backend.StorageError as e:
-                    st.error(str(e))
-                else:
-                    # Archiving renames the file away, so the emptied project
-                    # has to be written back under its own name. Without this
-                    # the project vanished from Open project, the sidebar
-                    # still named it, and Open lit up over a project that was
-                    # no longer on disk.
-                    _fresh = FoodOptimizer(_target, storage=STORAGE)
-                    _fresh.save()
-                    if _fresh.save_error:
-                        st.error(_fresh.save_error)
-                    else:
-                        if archived:
-                            flash("info", wording.copy_saved_as(archived))
-                        _reset_project_session()
-                        st.session_state["_loaded_project"] = _target
-                        st.session_state["_land_on_open"] = True
-                        st.rerun()
-
-            # Same shape as Start this project over, but the project leaves the
-            # list. The
-            # file is renamed to an archive copy, never erased.
-            if confirm_action(
-                "delete_project", wording.DELETE_PROJECT_LABEL,
-                (wording.delete_project_warning(opt.project_name)
-                 if not _held(opt) else
-                 wording.delete_project_warning(
-                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
-                confirm_label=wording.YES_DELETE_IT,
-                disabled=other_confirmation("delete_project"),
-                preserve=True,
-            ):
-                _target = opt.project_name
-                try:
-                    archived = STORAGE.archive(_target, "deleted", copy=False)
-                except storage_backend.StorageError as e:
-                    st.error(str(e))
-                else:
-                    flash("info", wording.project_deleted_flash(_target, archived))
-                    _reset_project_session()
-                    st.session_state.pop("_loaded_project", None)
-                    clear_selection("project_select")   # parked: see above
-                    st.rerun()
 
 
     if existing_projects:

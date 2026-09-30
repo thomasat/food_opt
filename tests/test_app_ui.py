@@ -486,7 +486,7 @@ def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, mon
     opt = FoodOptimizer("Sample project")
     assert opt.targets_source == wording.SAMPLE_TARGETS_SOURCE
     captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_TAB1_DESCRIPTION in captions
+    assert wording.SAMPLE_INTRO_LINE in captions
     assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
             in [m.value for m in at.tabs[0].markdown])
 
@@ -504,7 +504,7 @@ def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monke
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+    assert wording.SAMPLE_INTRO_LINE not in captions
     # The targets_source caption is unrelated to X_history and stays.
     assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
             in [m.value for m in at.tabs[0].markdown])
@@ -527,7 +527,7 @@ def test_the_sample_welcome_is_gone_once_a_formulation_is_not_scored(
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+    assert wording.SAMPLE_INTRO_LINE not in captions
 
 
 def test_the_welcome_never_shows_on_a_project_of_the_users_own(burger):
@@ -539,7 +539,7 @@ def test_the_welcome_never_shows_on_a_project_of_the_users_own(burger):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_TAB1_DESCRIPTION not in captions
+    assert wording.SAMPLE_INTRO_LINE not in captions
 
 
 def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
@@ -595,7 +595,7 @@ def test_the_targets_source_save_is_never_the_lit_button(burger):
     at.run()
     _submit_button(at, wording.ADD_TARGETS_SOURCE_BUTTON).click()
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND], \
         _tab_primaries(at, 0)
     assert not _submit_button(at, "Save").disabled
 
@@ -1169,7 +1169,7 @@ def test_continue_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
     opt.add_ingredient("Water", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    button = _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON)
+    button = _submit_button(at, wording.NEXT_MAKE_A_ROUND)
     assert button.disabled
     assert button.proto.type == "secondary"
     assert any(c.value == "Add at least one measurement." for c in at.caption), \
@@ -1179,7 +1179,7 @@ def test_continue_is_grey_and_names_what_is_missing(tmp_path, monkeypatch):
 def test_continue_is_lit_and_moves_to_the_trial_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    button = _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON)
+    button = _submit_button(at, wording.NEXT_MAKE_A_ROUND)
     assert not button.disabled and button.proto.type == "primary"
     button.click()
     at.run()
@@ -1190,7 +1190,7 @@ def test_continue_is_lit_and_moves_to_the_trial_tab(burger):
 def test_set_up_has_exactly_one_coloured_button(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], _tab_primaries(at, 0)
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND], _tab_primaries(at, 0)
 
 
 def test_an_armed_confirmation_takes_the_colour_off_continue(burger):
@@ -1205,7 +1205,7 @@ def test_an_armed_confirmation_takes_the_colour_off_continue(burger):
     _grid_edits(at, MEAS_GRID, **edits)
     at.run()
     assert _tab_primaries(at, 0) == ["Yes, delete"], _tab_primaries(at, 0)
-    assert _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert _submit_button(at, wording.NEXT_MAKE_A_ROUND).disabled
     _submit_button(at, "Cancel").click()
     _grid_edits(at, MEAS_GRID, **edits)
     at.run()
@@ -3843,7 +3843,7 @@ def test_save_changes_is_the_lit_action_while_a_grid_has_an_edit_in_it(burger):
     _grid_edits(at, MEAS_GRID, edited={0: {wording.SHARE_COLUMN: 70.0}})
     at.run()
     assert _tab_primaries(at, 0) == ["Save changes"], _tab_primaries(at, 0)
-    assert _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert _submit_button(at, wording.NEXT_MAKE_A_ROUND).disabled
 
 
 def test_only_the_topmost_unsaved_grid_lights_its_save(burger):
@@ -4620,7 +4620,8 @@ def test_a_project_of_settings_alone_is_complete_and_lights_continue(ferment):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert _tab_primaries(at, 0) == ["Generate trials"]
+    # Set up's foot says where it goes (spec 2026-09-30 §5, review M16).
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
     assert not any(c.value.startswith("Add at least one") for c in at.caption), \
         [c.value for c in at.caption]
 
@@ -4668,7 +4669,7 @@ def test_a_settings_only_project_goes_round_the_whole_loop(ferment):
     """Generate, record two formulations, save, and read the best back."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Generate trials").click()
+    _submit_button(at, wording.NEXT_MAKE_A_ROUND).click()
     at.run()
     at.number_input(key="how_many").set_value(2)
     at.run()
@@ -5098,13 +5099,13 @@ def test_a_checked_backup_is_an_armed_confirmation(scored):
             if b.proto.type == "primary"] == ["Yes, replace"]
     assert _tab_primaries(at, 0) == [], _tab_primaries(at, 0)
     assert _tab_primaries(at, 2) == [], _tab_primaries(at, 2)
-    assert _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert _submit_button(at, wording.NEXT_MAKE_A_ROUND).disabled
     # Cancel puts everything back.
     _submit_button(at.sidebar, "Cancel").click()
     at.run()
     at.run()
     assert "_restore_candidate" not in at.session_state
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
 
 
 def test_the_restore_warning_counts_every_formulation_and_names_settings(scored):
@@ -5577,7 +5578,7 @@ def test_saving_the_grid_changes_the_allowed_amounts_and_says_so(burger):
     # Saved, so there is nothing left to save: the buttons go and the foot
     # takes the colour back.
     assert wording.SAVE_CHANGES_BUTTON not in _labels(at), _labels(at)
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
 
 
 def test_saving_the_grid_retires_the_open_round_with_the_notice(burger):
@@ -5988,7 +5989,7 @@ def test_a_deletion_leaves_the_tab_exactly_one_lit_button(burger):
     below it, which is the one thing this tab promises never to do."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
     _grid_edits(at, ING_GRID, deleted=[1])
     at.run()
     # An edit in hand: Save changes is the lit one and the foot demotes.
@@ -6105,8 +6106,8 @@ def test_discard_while_the_question_is_up_takes_the_question_down(burger):
     assert "Yes, delete" not in _labels(at), _labels(at)
     # The foot has its colour back, and nothing anywhere is greyed behind a
     # question that is not on screen.
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
-    assert not _submit_button(at, wording.NEXT_MAKE_BATCH_BUTTON).disabled
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
+    assert not _submit_button(at, wording.NEXT_MAKE_A_ROUND).disabled
     assert len(FoodOptimizer("burger").variables) == 2
 
 
@@ -6143,7 +6144,7 @@ def test_the_edit_taken_away_entirely_takes_the_question_down(burger):
     assert "Yes, delete" in _labels(at)
     at.run()                      # the grid comes back empty of edits
     assert _any_armed(at) is None, _any_armed(at)
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
 
 
 def test_each_grid_remembers_its_own_armed_deletion(burger):
@@ -6337,11 +6338,9 @@ def _assert_captions_read_once(at):
     # The two grid captions are each one sentence longer than the rest: a
     # grid has to say where a new row is typed and what makes a row fixed,
     # and neither has a control of its own to say it any more.
-    # RULE_HINT is the fourth: it has to name the column, show a
-    # calculation and name Fill to total, and it is the only line under the
-    # grid a reader with no calculation yet has to learn from.
-    long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION,
-                 wording.MEASUREMENT_GRID_CAPTION, wording.RULE_HINT}
+    # The measurements caption is one short line since 0.8.0 (spec
+    # 2026-09-30 §5), and RULE_HINT is gone (audit V19).
+    long_ones = {wording.INGREDIENT_GRID_CAPTION, wording.LIMITS_CAPTION}
     assert all(len(c) <= 100 for c in captions if c not in long_ones), \
         [c for c in captions if len(c) > 100 and c not in long_ones]
 
@@ -6365,7 +6364,7 @@ def test_the_tab_reads_in_one_order(burger):
         wording.INGREDIENT_LIMITS_EXPANDER,
         wording.ADVANCED_EXPANDER,
     ], _tab_outline(at, 0)
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
 
 
 def test_more_settings_holds_the_four_optional_things_in_order(burger):
@@ -6538,10 +6537,10 @@ def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
     burger.add_property("Cost")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON]
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
     _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND], \
         _tab_primaries(at, 0)
     # ...and the line that says nothing is written while typing is still
     # there, so an edit in hand is not a silent one.
@@ -7244,9 +7243,8 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
                                "the 250 g default batch size: between ")
                for line in said), said
     assert not any("100 g default batch size" in line for line in said), said
-    # ...and the one line that says how to write a calculation is under the
-    # grid whether or not a row has one.
-    assert said[-1] == wording.RULE_HINT or wording.RULE_HINT in said, said
+    # The second Calculation line is gone (spec 2026-09-30 §5, audit V19).
+    assert not any(line.startswith("To calculate a row from the others") for line in said), said
 
 
 def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
@@ -7259,15 +7257,16 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     help_fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.RULE_GUIDE_LABEL)
     assert not any(e.label == wording.RULE_GUIDE_LABEL for e in at.expander)
     assert wording.RULE_GUIDE in [m.value for m in at.markdown]
-    # The hint is under the grid, not folded behind the help button.
-    assert wording.RULE_HINT not in [c.value for c in help_fold.caption]
-    assert wording.RULE_HINT in [c.value for c in at.caption]
+    # One Calculation line under the grid, the Edit calculation one (spec
+    # 2026-09-30 §5, audit V19).
+    assert not any(c.value.startswith("To calculate a row from the others") for c in at.caption)
+    assert wording.CALCULATION_EDIT_HINT in [c.value for c in at.caption]
     burger.set_formulation_total(20)
     burger.set_formula("Methylcellulose", "= rest")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     said = _tab1_captions(at)
-    assert wording.RULE_HINT in [c.value for c in at.caption]
+    assert not any(c.value.startswith("To calculate a row from the others") for c in at.caption)
     assert any(c.startswith("Methylcellulose is calculated to bring the total "
                             "to the 20 g default batch size: ")
                for c in said), said
@@ -9814,7 +9813,7 @@ def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
     assert any(s.value == wording.sample_project_rebuilt(
         wording.SAMPLE_PROJECT_NAME)
                for s in at.success), [s.value for s in at.success]
-    assert wording.SAMPLE_TAB1_DESCRIPTION in [c.value for c in at.tabs[0].caption]
+    assert wording.SAMPLE_INTRO_LINE in [c.value for c in at.tabs[0].caption]
 
 
 def test_a_sample_with_a_result_is_opened_exactly_as_it_stands(
@@ -10019,7 +10018,7 @@ def test_one_lit_button_per_tab_while_the_targets_note_is_open(burger):
     at.run()
     _submit_button(at, wording.ADD_TARGETS_SOURCE_BUTTON).click()
     at.run()
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND], \
         _tab_primaries(at, 0)
     # ...and with a grid mid-edit under it, the Save above wins and the
     # note's Save is still grey.
@@ -10059,7 +10058,7 @@ def test_moving_the_property_picker_takes_the_question_down(burger):
     at.selectbox(key="prop_delete").select("Fat per 100 g")
     at.run()
     assert not at.warning, [w.value for w in at.warning]
-    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_BATCH_BUTTON], \
+    assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND], \
         _tab_primaries(at, 0)
     assert FoodOptimizer("burger").properties() == ["Cost", "Fat per 100 g"]
 

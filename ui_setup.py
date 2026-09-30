@@ -43,7 +43,7 @@ from ui_helpers import (
     go_to_tab, note_premix_grids, number_list, other_confirmation, park_clear,
     park_grid, parked_grid, plural, premix_errors_key, premix_grid_key,
     premix_save_key,
-    parked_grid_key, preserve_tab_forms, readiness, rekey_grid, reset_grids,
+    open_rows, parked_grid_key, preserve_tab_forms, readiness, rekey_grid, reset_grids,
     saved_ok, table_height, typed_batch_size, unpark_grid,
 )
 
@@ -1361,7 +1361,9 @@ def _measurements(opt, storage):
     grid above does.
     """
     st.subheader(wording.MEASUREMENTS_HEADER)
-    st.caption(wording.MEASUREMENT_GRID_CAPTION)
+    # One line (spec 2026-09-30 §5, audit V18); the rest is behind each
+    # column's "?".
+    st.caption(wording.MEASUREMENT_GOAL_CAPTION)
     st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.measurement_grid_frame()
     opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
@@ -1392,8 +1394,6 @@ def _measurements(opt, storage):
         _save_measurements(opt, storage, edited, lit=not _ingredients_pending())
     else:
         _disarm_grid_deletion(MEAS_SAVE_KEY)
-    if opt.objectives:
-        st.caption(opt.score_function_line())
     return pending
 
 
@@ -1914,6 +1914,10 @@ def _advanced(opt):
                        + ", ".join(f"{k}: {v}" for k, v in current.items())))
 
         with st.popover(wording.SCORING_DETAILS_CHECKBOX):
+            # The formula line moved here from under the measurements grid
+            # (spec 2026-09-30 §5, audit V18).
+            if opt.objectives:
+                st.caption(opt.score_function_line())
             st.markdown(wording.HOW_CLOSENESS_HEADING)
             st.markdown("\n".join("- " + line for line in HOW_CLOSENESS))
 
@@ -1953,6 +1957,15 @@ def _more_settings(opt, storage):
             _properties(opt, storage)
 
 
+def _foot_label(opt):
+    """Where the foot goes, said as it is (spec 2026-09-30 §5, audit V5,
+    review M16): back to the open Round, the way Results says it, or on to
+    Make a round. It never generates anything itself."""
+    if opt.pending_batch:
+        return wording.back_to_batch_label(opt.pending_batch_no, len(open_rows(opt)))
+    return wording.NEXT_MAKE_A_ROUND
+
+
 def _foot(opt, pending=False):
     ready, missing = readiness(opt, here=True)
     # While a confirmation is armed, its "Yes" is the one coloured button and
@@ -1960,7 +1973,7 @@ def _foot(opt, pending=False):
     # unsaved grid is the same case: its `Save changes` is the lit one, and
     # Continue would leave the tab and throw the edit away.
     lit = ready and not confirmation_open() and not pending
-    if st.button(wording.for_project(opt, wording.NEXT_MAKE_BATCH_BUTTON),
+    if st.button(wording.for_project(opt, _foot_label(opt)),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="continue_to_batch") and lit:
         go_to_tab(TAB_BATCH)
@@ -1969,17 +1982,22 @@ def _foot(opt, pending=False):
 
 
 def render(opt, storage):
-    if not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
+    # A new project's one top line says the first step (spec 2026-09-30 §5,
+    # audit V4); Import is lit beside the grid until there is a row.
+    empty = not opt.variables
+    if empty:
+        st.caption(wording.SETUP_FIRST_LINE)
+    elif not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
         st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
                    else wording.SETUP_INTRO))
-    # The sample's own welcome, directly under the tab's title: gone the
-    # moment any formulation exists, scored or not — a batch whose one row
-    # was ticked Not scored has still been made, and "Next: make a round"
-    # would be wrong about it.
-    if (not opt.X_history and not opt.skipped
-            and opt.project_name == wording.SAMPLE_PROJECT_NAME):
-        st.caption(wording.for_project(opt, wording.SAMPLE_TAB1_DESCRIPTION))
-    if opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
+    # The sample's own welcome, one line (audit V20), directly under the
+    # tab's title: gone the moment any formulation exists, scored or not —
+    # a batch whose one row was ticked Not scored has still been made.
+    fresh_sample = (not opt.X_history and not opt.skipped
+                    and opt.project_name == wording.SAMPLE_PROJECT_NAME)
+    if fresh_sample:
+        st.caption(wording.for_project(opt, wording.SAMPLE_INTRO_LINE))
+    elif opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
         st.caption(wording.TEACHING_EXAMPLE_CAPTION)
     pending, captions = _variables(opt, storage)
     st.divider()
@@ -1996,10 +2014,10 @@ def render(opt, storage):
         # Every calculated row says what its calculation comes to, in
         # numbers, at the size those numbers are read against; then the one
         # line that says how to write one, whether or not any row has.
+        # The one Calculation line is the grid's own (audit V19): the
+        # second one here said it again.
         for line in opt.worked_out_captions():
             st.caption(line)
-        if opt.has_ingredients():
-            st.caption(wording.RULE_HINT)
         help_col, import_col = st.columns(2)
         with help_col:
             if opt.has_ingredients():
@@ -2008,7 +2026,9 @@ def render(opt, storage):
                     with st.expander(wording.CALCULATION_SYNTAX_LABEL):
                         st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         with import_col:
-            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True):
+            lit = empty and not confirmation_open() and not pending
+            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True,
+                            type="primary" if lit else "secondary"):
                 _upload_ingredients(opt)
     _advanced(opt)
     st.divider()

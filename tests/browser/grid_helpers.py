@@ -32,7 +32,7 @@ def ensure_round(p):
                      exact=True).count():
         return
     tab(p, SET_UP_TAB)
-    click(p, "Generate formulations")
+    click(p, "Next: Make a round")          # Set up's foot (spec 2026-09-30 §5)
     generate = next(x for x in labels(p)
                     if x.startswith("Generate") and "different" not in x)
     click(p, generate, wait=10)
