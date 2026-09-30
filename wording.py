@@ -5030,21 +5030,31 @@ def how_skill(cut_text="−0.20", gate_text=""):
     return line
 
 
-def next_no_skill(value_text, n, no=None, left=0):
+def _skill_basis(value_text, n, rounds=None):
+    """'skill −0.47, n = 16, Rounds 2–5' (review I2: always its Rounds, T47
+    review I-3: they are not the verdict's)."""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    return f"skill {value_text}, n = {n}{where}"
+
+
+def next_no_skill(value_text, n, no=None, left=0, rounds=None):
     """Next step row `no_skill` (review I1): the Overall score's Round-ahead
     predictions are no better than the average of earlier results."""
     head = (f"{OVERALL_SCORE_COLUMN} predictions are no better than the average of earlier "
-            f"results (skill {value_text}, n = {n}): the predicted best and the suggestions' "
-            "expected improvement are not informative yet.")
+            f"results ({_skill_basis(value_text, n, rounds)}): the predicted best and the "
+            "suggestions' expected improvement are not informative yet.")
     tail = (f"{record_open_round(no, left)}, then make the next {ROUND_CAP}." if left
             else f"Make the next {ROUND_CAP}.")
     return f"{head} {tail}"
 
 
-def round_track_no_skill(value_text, n):
+def round_track_no_skill(value_text, n, rounds=None):
     """Appended to Make a round's track line when `no_skill` is set (review
-    I1): shown even when coverage holds."""
-    return f" Skill {value_text} (n = {n}): no better than the average of earlier results."
+    I1): shown even when coverage holds, with its own Rounds (T47 review
+    I-3: every Round checked, not the verdict's)."""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    return (f" Skill {value_text} (n = {n}{where}): no better than the average of earlier "
+            "results.")
 
 
 # §2.2 (review M7): the triangle's colours against the model's own
@@ -5073,6 +5083,16 @@ def guard_skill_line(settings_only=False):
     what = "Setting" if settings_only else "Ingredient"
     return (f"{what} effects are not reported until Round-ahead predictions beat the average "
             "of earlier results.")
+
+
+def why_guard_line(reasons=(), skill_only=False):
+    """The Why fold under the noise guard (review I4; T47 review minor 5):
+    what it withholds, and why."""
+    if skill_only:
+        return ("Expected improvement and roles are not shown until Round-ahead predictions "
+                "beat the average of earlier results.")
+    return ("Expected improvement and roles are not shown: the model is fitting noise in these "
+            f"results ({'; '.join(reasons)}).")
 
 
 PATH_GUARD = "The curve's bends are not reliable: the model is fitting noise in these results."
@@ -5104,7 +5124,13 @@ OPTIMISTIC_SCORE_HELP = ("Your model settings choose suggestions by an upper con
 PENDING_MARK = "·"
 WHY_PENDING = ("· Picks after the first: what each adds to the earlier picks of this Round, "
                "as they were chosen.")
-WHY_COLD = "Chosen to cover the allowed amounts; no model yet."
+def why_cold(values=False):
+    """A Round chosen before there was a model (review I12); a project of
+    process settings alone has values, not amounts (T0 review M-8)."""
+    return f"Chosen to cover the allowed {'values' if values else 'amounts'}; no model yet."
+
+
+WHY_COLD = why_cold()
 WHY_FAILED = "These values could not be calculated."
 WHY_WORKING = "Calculating why these were suggested…"
 
@@ -5121,11 +5147,18 @@ def why_difference(name, diff_text):
     return f"{name} {diff_text}"
 
 
-def why_chart_caption(n):
-    """One line (review M9); the second fact is in the Model sd help."""
-    return (f"Grey: {n} allowed {FORMULATION}s sampled evenly, predicted Overall score (across) "
-            "against model sd (up). Labelled: this Round's suggestions. Dashed line: the "
-            f"highest predicted score among tested {FORMULATION}s.")
+def why_chart_caption(n, kind="qlognei"):
+    """One line (review M9; T47 review minor 4): what each mark is, the
+    rings included, and the dashed line as the acquisition's own reference
+    — none for qUCB. The second fact is in the Model sd help."""
+    line = (f"Predicted Overall score (across) against model sd (up): grey dots, {n} allowed "
+            f"{FORMULATION}s sampled evenly; grey rings, tested {FORMULATION}s; labelled, this "
+            f"{ROUND_CAP}'s suggestions")
+    if kind == "qlogei":
+        return f"{line}; dashed line, Best so far's measured score."
+    if kind == "qucb":
+        return f"{line}."
+    return f"{line}; dashed line, the highest predicted score among tested {FORMULATION}s."
 
 
 def why_no_roles(n):
@@ -5192,9 +5225,9 @@ GAIN_UCB = ("Expected improvement: your model settings choose suggestions by an 
             "confidence bound, which gives no expected improvement.")
 
 
-def gain_cold(round_no):
-    return (f"{ROUND_CAP} {round_no} was chosen to cover the allowed amounts: no expected "
-            "improvement yet.")
+def gain_cold(round_no, values=False):
+    return (f"{ROUND_CAP} {round_no} was chosen to cover the allowed "
+            f"{'values' if values else 'amounts'}: no expected improvement yet.")
 
 
 def gain_unreliable(reason):

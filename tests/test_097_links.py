@@ -138,6 +138,10 @@ def test_e1_asks_whether_the_last_round_came_out_as_predicted():
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     assert at.session_state[ui_insights.EACH_KEY] is True
     assert any("scrollTop = 0" in s for s in _scripts(at))
+    # T47 review I-2: the fold is drawn open — its content is there (it is
+    # worked out only while open).
+    fold = next(e for e in at.tabs[3].expander if e.label == wording.SHOW_PREDICTIONS)
+    assert [c.value for c in fold.caption] == [wording.MVP_CAPTION]
 
 
 def test_e1_is_gone_while_a_round_is_open():
@@ -153,9 +157,30 @@ def test_e1_waits_for_a_checkable_round():
     assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
-def test_e1_says_trial_in_a_process_only_project():
-    """The label goes through for_project; it names no formulation."""
-    assert "ormulation" not in wording.round_measured_against_predicted(3)
+def test_e1_in_a_process_only_project():
+    """T47 review minor 3: E1 drawn in a study of process settings alone;
+    its label names no formulation."""
+    from tests.test_094_make_a_round import _ferment
+    opt = _ferment()
+    opt.ask(2)
+    for row in list(opt.pending_batch):
+        opt.tell(row["recipe"], {"Acidity": 5.0}, formulation_no=row["formulation"],
+                 batch_no=opt.pending_batch_no)
+    opt.set_pending_batch(None)
+    [e1] = _links(_app(opt, wording.TAB_RESULTS))
+    assert e1.label == wording.round_measured_against_predicted(2)
+    assert "ormulation" not in e1.label
+
+
+def test_opening_a_project_lands_at_the_top():
+    """T47 review minor 7: opening a project is a move too."""
+    opt = _burger(rounds=4)
+    at = AppTest.from_file(APP_PATH, default_timeout=240)
+    at.session_state["_loaded_project"] = opt.project_name
+    at.session_state["_land_on_open"] = True
+    at.run()
+    assert not at.exception
+    assert any("scrollTop = 0" in s for s in _scripts(at))
 
 
 def test_the_tab_and_link_rules_in_the_source():

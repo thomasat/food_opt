@@ -861,6 +861,8 @@ if getattr(_opt, "pending_batch", None):
 # opening a project.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
+    # Opening a project lands at the top of its tab too (T47 review minor 7).
+    st.session_state[SCROLL_KEY] = "top"
 
 # A move asked for on the previous run by go_to_tab. Both this and the landing
 # rule above must land BEFORE st.tabs: the widget reads its key from session

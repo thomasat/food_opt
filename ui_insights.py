@@ -557,8 +557,8 @@ def track_text(t):
     2026-09-30-bo-views §2.1, review I1)."""
     skill = ""
     if t.no_skill is not None:
-        skill = wording.round_track_no_skill(
-            wording.signed(t.no_skill.value, 2).lstrip("+"), t.no_skill.n)
+        skill = wording.round_track_no_skill(skill_value(t.no_skill.value), t.no_skill.n,
+                                             t.no_skill.rounds)
     if not t.record:
         return skill.strip()
     gap = None if t.gap is None else f"{abs(t.gap):.1f}"
@@ -1785,7 +1785,7 @@ def gain_text(opt, computed, yard, standing=None):
     if g is None or g.why_none == "own":
         return ""
     if g.why_none == "cold":
-        return wording.gain_cold(g.round)
+        return wording.gain_cold(g.round, values=not opt.has_ingredients())
     best = opt.best_index()
     measured = (f"{opt.Y_history[best]:.2f}" if bo_views.acquisition(opt) == "qlogei"
                 and best is not None else None)
@@ -1815,7 +1815,7 @@ def next_step_text(opt, step, rounds=None):
         return (wording.next_too_early_open(no, left) if left else wording.NEXT_TOO_EARLY), None
     if step.kind == "no_skill":
         return wording.next_no_skill(skill_value(step.skill.value), step.skill.n, no,
-                                     left), None
+                                     left, rounds=step.skill.rounds), None
     if step.kind == "untested":
         return wording.next_untested(values, open_round=bool(opt.pending_batch),
                                      round_no=no), None

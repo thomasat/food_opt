@@ -63,12 +63,20 @@ def _fold(at):
 # ------------------------------------------------------------------ #
 
 def test_generate_records_how_the_round_was_made():
-    opt = _open_round()
+    """T47 review minor 2: one row still waiting for a result is not among
+    the rows ask() learns from, so it is not in the record either."""
+    opt = _burger(rounds=4)
+    last = len(opt.Y_history) - 1
+    waiting = int(opt.formulation_ids[last])
+    opt.results_history[last] = {k: v for k, v in list(opt.results_history[last].items())[:1]}
+    assert not opt.fully_measured(last)
+    ui_batch.ask_alone(opt, n_suggestions=3)
     again = FoodOptimizer(opt.project_name)
     record = again.round_generation[again.pending_batch_no]
     assert record["regime"] == "warm" and record["n"] == 3
     assert record["seed"] == min(r["formulation"] for r in again.pending_batch)
-    assert record["rows"] == [int(n) for n in again.formulation_ids]
+    assert record["rows"] == [int(n) for n in again.formulation_ids if int(n) != waiting]
+    assert record["picks"] == [r["formulation"] for r in again.pending_batch]
     assert bo_views.generation(again, again.pending_batch_no).exact
 
 
@@ -109,10 +117,11 @@ def test_the_opened_fold_explains_each_row():
     _rerun(at)
     fold = _fold(at)
     [frame] = [d.value for d in fold.dataframe]
+    # Role straight after Formulation: on screen at 1366 px (T47 minor 6).
     assert list(frame.columns) == [
-        wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN, wording.MODEL_SD,
-        wording.EXPECTED_IMPROVEMENT, wording.NEAREST_TESTED, wording.LARGEST_DIFFERENCES,
-        wording.ROLE]
+        wording.FORMULATION_CAP, wording.ROLE, wording.PREDICTED_SCORE_COLUMN,
+        wording.MODEL_SD, wording.EXPECTED_IMPROVEMENT, wording.NEAREST_TESTED,
+        wording.LARGEST_DIFFERENCES]
     numbers = [r["formulation"] for r in opt.pending_batch]
     assert list(frame[wording.FORMULATION_CAP]) == [f"Formulation {n}" for n in numbers]
     ei = list(frame[wording.EXPECTED_IMPROVEMENT])
@@ -124,7 +133,7 @@ def test_the_opened_fold_explains_each_row():
     captions = [c.value for c in fold.caption]
     assert wording.WHY_PENDING in captions
     assert wording.WHY_RECOMPUTED not in captions                        # exact
-    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}") in captions
+    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}", "qlognei") in captions
     [chart] = [c for c in fold.children.values() if getattr(c, "type", "") == "vega_lite_chart"]
     spec = json.loads(chart.proto.spec)
     assert spec["usermeta"] == {"embedOptions": {"actions": False}}      # private
@@ -153,7 +162,8 @@ def test_the_guard_takes_the_roles_and_the_expected_improvement_away(monkeypatch
     [frame] = [d.value for d in fold.dataframe]
     assert wording.ROLE not in frame.columns
     assert wording.EXPECTED_IMPROVEMENT not in frame.columns
-    assert wording.guard_line([wording.GUARD_FLOOR]) in [c.value for c in fold.caption]
+    # What it withholds, named (T47 review minor 5).
+    assert wording.why_guard_line([wording.GUARD_FLOOR]) in [c.value for c in fold.caption]
 
 
 def test_a_cold_round_says_why_it_has_no_values():
@@ -185,9 +195,12 @@ def _track(no_skill=None, rough=False, gap=None, see=False, record=True):
 def test_the_track_line_says_no_skill_after_the_record():
     text = ui_insights.track_text(_track(no_skill=-0.47))
     assert text == (wording.round_track_holding(11, 12, rounds=[3, 4, 5])
-                    + wording.round_track_no_skill("−0.47", 16))
+                    + wording.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]))
+    # T47 review I-3: the skill names its own Rounds, not the verdict's.
+    assert text.endswith(" Skill −0.47 (n = 16, Rounds 2–5): no better than the average of "
+                         "earlier results.")
     alone = ui_insights.track_text(_track(no_skill=-0.47, record=False))
-    assert alone == wording.round_track_no_skill("−0.47", 16).strip()
+    assert alone == wording.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]).strip()
 
 
 @pytest.mark.parametrize("t,warns", [(_track(), False), (_track(rough=True), True),
@@ -254,8 +267,9 @@ def test_e3_says_no_skill(monkeypatch):
     fact = insights.SkillFact(-0.47, 16, [2, 3, 4], "no_skill")
     at = _generate_screen(opt, monkeypatch, insights.NextStep("no_skill", skill=fact))
     assert [b.label for b in _links(at)] == [wording.LINK_PREDICTION_CHECK]
-    assert wording.first_sentence(wording.next_no_skill("−0.47", 16)) in [
-        c.value for c in at.tabs[1].caption]
+    said = wording.first_sentence(wording.next_no_skill("−0.47", 16, rounds=[2, 3, 4]))
+    assert "(skill −0.47, n = 16, Rounds 2–4)" in said        # T47 review I-3
+    assert said in [c.value for c in at.tabs[1].caption]
 
 
 @pytest.mark.parametrize("kind", ["rising", "see", "early"])
@@ -335,9 +349,7 @@ def test_a_regenerated_round_is_recorded_again_and_stays_exact():
     assert bo_views.why(opt).exact
 
 
-def test_a_process_only_study_explains_its_trials():
-    """No ingredients and no Formulation total: the fold speaks of trials
-    and settings, and the pool is the settings' own box."""
+def _ferment():
     opt = FoodOptimizer("ferment_why")
     opt.add_process_parameter("Mixing time", 1, 10, unit="min")
     opt.add_process_parameter("Temperature", 20, 40, unit="°C")
@@ -345,12 +357,62 @@ def test_a_process_only_study_explains_its_trials():
     for k in range(6):
         opt.tell({"Mixing time": 1 + 1.5 * k, "Temperature": 20 + (7 * k) % 20},
                  {"Acidity": 3 + 0.5 * k - 0.02 * k * k}, formulation_no=k + 1, batch_no=1)
+    return opt
+
+
+def test_a_process_only_study_explains_its_trials():
+    """No ingredients and no Formulation total: the fold speaks of trials
+    and settings, and the pool is the settings' own box. T47 review I-1:
+    the cells themselves, as the fold draws them, say "Trial"."""
+    opt = _ferment()
     ui_batch.ask_alone(opt, n_suggestions=2)
     w = bo_views.why(opt)
     assert not w.cold and len(w.rows) == 2 and w.pool_mean is not None
     frame, _ = ui_batch.why_frame(opt, w, None)
-    labels = [wording.for_project(opt, t) for t in frame[wording.FORMULATION_CAP]]
-    assert all(t.startswith("Trial ") for t in labels)
+    assert all(t.startswith("Trial ") for t in frame[wording.FORMULATION_CAP])
+    assert all(t.startswith("Trial ") for t in frame[wording.NEAREST_TESTED] if t)
     units = {u for r in w.rows for _, _, u in r.differences}
     assert units <= {"min", "°C"}
     assert "trial" in wording.for_project(opt, wording.why_chart_caption("3,000"))
+    at = _app(opt)
+    at.session_state[ui_batch.WHY_KEY] = True
+    _rerun(at)
+    [drawn] = [d.value for d in _fold(at).dataframe]
+    assert all(t.startswith("Trial ") for t in drawn[wording.FORMULATION_CAP])
+    assert all(t.startswith("Trial ") for t in drawn[wording.NEAREST_TESTED] if t)
+
+
+@pytest.mark.parametrize("kind,tail", [
+    ("qlognei", "; dashed line, the highest predicted score among tested formulations."),
+    ("qlogei", "; dashed line, Best so far's measured score."),
+    ("qucb", "labelled, this Round's suggestions.")])
+def test_the_map_caption_is_one_line_naming_every_mark(kind, tail):
+    """T47 review minor 4: one sentence; the grey rings named; the dashed
+    line is the acquisition's own reference (none for qUCB)."""
+    line = wording.why_chart_caption("3,000", kind)
+    assert line.endswith(tail) and line.count(". ") == 0
+    assert "grey rings, tested formulations" in line
+
+
+def test_the_cold_line_says_values_in_a_process_only_study():
+    """T0 review M-8."""
+    assert wording.why_cold(True) == "Chosen to cover the allowed values; no model yet."
+    assert wording.gain_cold(2, values=True).endswith("the allowed values: no expected "
+                                                      "improvement yet.")
+
+
+def test_e3_sits_under_generate(monkeypatch):
+    """T47 review minor 8: a line that lands once the checks are in never
+    moves the lit button."""
+    opt = _burger(rounds=4)
+    at = _generate_screen(opt, monkeypatch, insights.NextStep("close"))
+    order = []
+
+    def walk(node):
+        for child in getattr(node, "children", {}).values():
+            key = getattr(child, "key", None) if hasattr(child, "proto") else None
+            if key in ("generate", "link_next"):
+                order.append(key)
+            walk(child)
+    walk(at.tabs[1])
+    assert order == ["generate", "link_next"]

@@ -315,7 +315,6 @@ def _no_batch(opt):
     how_many = st.number_input(wording.for_project(opt, wording.FORMULATIONS_TO_GENERATE), min_value=1,
                                max_value=10, step=1, key="how_many")
     n = int(how_many)
-    _next_step_line(opt)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
@@ -323,6 +322,10 @@ def _no_batch(opt):
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
+    # Under Generate, never above it (T47 review minor 8): a line that
+    # lands once the checks are in must not move the lit button under
+    # the pointer.
+    _next_step_line(opt)
     # Only while it is news: before five formulations have results (spec
     # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
     if opt.complete_count() < COLD_START_RUNS:
@@ -384,12 +387,9 @@ def _next_step_line(opt):
     step = _cached_step(opt)
     if step is None or step.kind not in _E3_KINDS:
         return
-    if step.kind == "no_skill":
-        # The same sentence Insights says (its builder is Insights' own).
-        text = wording.next_no_skill(wording.signed(step.skill.value, 2).lstrip("+"),
-                                     step.skill.n)
-    else:
-        text, _ = ui_insights.next_step_text(opt, step)
+    # The same sentence Insights says (its builder is Insights' own), the
+    # skill with its own Rounds (T47 review I-3).
+    text, _ = ui_insights.next_step_text(opt, step)
     st.caption(wording.for_project(opt, wording.first_sentence(text)))
     if st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
         return
@@ -1019,31 +1019,33 @@ def _signed_amount(value, unit):
 
 
 def why_frame(opt, why, preds, hide=False):
-    """One row per formulation of the open Round (review I12): its
-    predicted Overall score with its 95 % interval (the table's own
-    column), the suggestion model's sd, its expected improvement in
-    points — "·" when valued with the earlier picks counted — the nearest
-    tested formulation, the two largest differences from it in each row's
-    own unit (M4) and the role (M5). `hide` (the noise guard, review I4)
-    leaves out the expected improvement and the role."""
+    """One row per formulation of the open Round (review I12): its role
+    (M5) straight after its number, so it is on screen at 1366 px (T47
+    review minor 6), its predicted Overall score with its 95 % interval
+    (the table's own column), the suggestion model's sd, its expected
+    improvement in points — "·" when valued with the earlier picks counted
+    — the nearest tested formulation and the two largest differences from
+    it in each row's own unit (M4). `hide` (the noise guard, review I4)
+    leaves out the expected improvement and the role. Every cell in the
+    project's own words (T47 review I-1: "Trial" in a process-only study)."""
     value_col = (wording.OPTIMISTIC_SCORE if why.kind == "qucb"
                  else wording.EXPECTED_IMPROVEMENT)
+    say = lambda text: wording.for_project(opt, text)
     rows = []
     for r in why.rows:
         p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
-        item = {
-            wording.FORMULATION_CAP: wording.why_row_label(r.formulation, r.own, r.edited),
-            wording.PREDICTED_SCORE_COLUMN: "" if p is None else ui_insights.score_text(p),
-            wording.MODEL_SD: f"{r.sd:.2f}",
-        }
+        item = {wording.FORMULATION_CAP: say(wording.why_row_label(r.formulation, r.own,
+                                                                   r.edited))}
+        if not hide:
+            item[wording.ROLE] = "" if r.role is None else _ROLE_WORDS[r.role]
+        item[wording.PREDICTED_SCORE_COLUMN] = "" if p is None else ui_insights.score_text(p)
+        item[wording.MODEL_SD] = f"{r.sd:.2f}"
         if not hide:
             item[value_col] = f"{r.value:.2f}" + (f" {wording.PENDING_MARK}" if r.pending else "")
         item[wording.NEAREST_TESTED] = ("" if r.nearest is None
-                                        else wording.start_formulation(r.nearest))
+                                        else say(wording.start_formulation(r.nearest)))
         item[wording.LARGEST_DIFFERENCES] = ", ".join(
             wording.why_difference(name, _signed_amount(d, unit)) for name, d, unit in r.differences)
-        if not hide:
-            item[wording.ROLE] = "" if r.role is None else _ROLE_WORDS[r.role]
         rows.append(item)
     return pd.DataFrame(rows), value_col
 
@@ -1101,15 +1103,13 @@ def _why_these(opt, preds):
             st.caption(wording.for_project(opt, wording.WHY_FAILED))
             return
         if why.cold:
-            st.caption(wording.for_project(opt, wording.WHY_COLD))
+            st.caption(wording.for_project(opt, wording.why_cold(not opt.has_ingredients())))
             return
         guard = insights.noise_guard(opt, score, checks)
-        settings_only = not opt.has_ingredients()
         if guard.fires:
-            st.caption(wording.for_project(opt, wording.guard_skill_line(settings_only)
-                                           if guard.skill_only else wording.guard_line(
-                                               [_GUARD_WORDS[r] for r in guard.reasons
-                                                if r != "skill"], settings_only)))
+            # What the fold withholds, and why (T47 review minor 5).
+            st.caption(wording.for_project(opt, wording.why_guard_line(
+                [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"], guard.skill_only)))
         frame, value_col = why_frame(opt, why, preds, hide=guard.fires)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
@@ -1133,7 +1133,7 @@ def _why_these(opt, preds):
             return
         ui_insights.show_chart(chart)
         st.caption(wording.for_project(opt, wording.why_chart_caption(
-            f"{len(why.pool_mean):,}")))
+            f"{len(why.pool_mean):,}", why.kind)))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
