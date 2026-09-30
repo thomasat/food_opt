@@ -4740,9 +4740,11 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
 # to search (plan-a-report open question 2): said, never "could not be
 # worked out". Generate stops at the same place.
 def best_needs_batch_size(name):
-    """The row calculated as = rest has no default batch size to fill."""
-    return (f"There is no predicted best: {name} is calculated as = rest, and there is "
-            f"no {FORMULATION_TOTAL_NOUN} for it to fill. Set one in {MORE_SETTINGS_EXPANDER}.")
+    """The Fill to total row has no default batch size to fill (review C
+    I-2: "= rest" is the stored spelling, never said out loud)."""
+    return (f"There is no predicted best: {name} is set to {FILL_TO_TOTAL}, and there is "
+            f"no {FORMULATION_TOTAL_NOUN} for it to fill. Set the {FORMULATION_TOTAL_NOUN} "
+            f"on Set up, under {MORE_SETTINGS_EXPANDER}.")
 
 
 BEST_NO_AMOUNTS = ("There is no predicted best: no amounts meet every limit together. "

@@ -73,3 +73,14 @@ def test_on_the_tab_answer_2_says_why(tmp_path):
 def test_the_new_lines_pass_the_vocabulary_guard():
     lines = [wording.best_needs_batch_size("Water"), wording.BEST_NO_AMOUNTS]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
+
+
+def test_the_batch_size_line_says_fill_to_total_and_where_to_set_it():
+    """Review C I-2: "= rest" is the stored spelling, never said out loud;
+    the line names the setting and the tab it is on."""
+    line = wording.best_needs_batch_size("Water")
+    assert line == ("There is no predicted best: Water is set to Fill to total, and there is "
+                    "no default batch size for it to fill. Set the default batch size on "
+                    "Set up, under Preparation and records.")
+    assert "= rest" not in line and "rest" not in line.split()
+    assert "\n" not in line

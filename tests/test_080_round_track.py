@@ -77,3 +77,21 @@ def test_plan_a_strings_pass_the_vocabulary_guard():
              wording.round_track_rough(6, 12, "1.0", False, True),
              wording.round_track_rough(6, 12)]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
+
+
+@pytest.mark.parametrize("state", ["wide", "over_wide"])
+def test_a_wide_or_over_wide_verdict_shows_nothing(state, monkeypatch):
+    """Review C I-5: Insights says "Too early to judge" (wide) or that the
+    range was wider than it needed to be (over-wide); Make a round must not
+    offer "11 of 11 landed inside" beside it."""
+    opt = _patty(rows=6)
+    checks = _values(2) + _scores(2, 11, 0.2)
+    assert insights.round_track(opt, checks) is not None            # a record that holds
+    monkeypatch.setattr(insights, "verdict_state", lambda *a: state)
+    assert insights.round_track(opt, checks) is None
+
+
+def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
+    """Review C M-1."""
+    assert wording.round_track_holding(11, 11, True).endswith(" See Insights.")
+    assert not wording.round_track_holding(11, 11).endswith("See Insights.")
