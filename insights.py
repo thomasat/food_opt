@@ -630,6 +630,7 @@ class DetailRow:
     ratio: float | None         # typical miss / (MAD_OF_NORMAL * repeat_sd)
     widen: float | None = None  # the current fit's widening; None without a model
     pairs: int = 0              # pairs of Repeats repeat_sd rests on
+    left_out: int = 0           # pairs left out because a Repeat disagreed
 
 
 # The median absolute value of a standard normal: a typical miss (a median)
@@ -661,6 +662,8 @@ def details(opt, checks, fitted=None, flagged=None):
             matches = _matches(opt, [i for i in range(len(opt.Y_history))
                                      if opt.fully_measured(i)])
         spread = repeat_sd(opt, name, matches, () if flagged is None else (flagged.row,))
+        left_out = (0 if flagged is None
+                    else repeat_sd(opt, name, matches).pairs - spread.pairs)
         sd = spread.sd
         f = (fitted or {}).get(name)
         rows.append(DetailRow(
@@ -668,7 +671,8 @@ def details(opt, checks, fitted=None, flagged=None):
             statistics.median((c.high - c.low) / 2 for c in mine), miss,
             # sd 0: the Repeats agreed exactly, and there is no ratio.
             sd, None if not sd else miss / (MAD_OF_NORMAL * sd),
-            f.widen if f is not None and f.model is not None else None, spread.pairs))
+            f.widen if f is not None and f.model is not None else None, spread.pairs,
+            left_out))
     return rows
 
 

@@ -155,3 +155,24 @@ def test_how_says_the_bias_rule_in_plain_words():
         "gap is more than how much Repeats differ (1 point without Repeats) and too steady "
         "across formulations to be chance.")
     _clean(wording.HOW_BIAS)
+
+
+# ------------------------------------------------------------------ #
+#  3. Repeats left out because they disagreed are said as left out
+#     (Line B: "no Repeats yet" under a named Repeat)
+# ------------------------------------------------------------------ #
+
+def test_a_pair_left_out_is_said_as_left_out():
+    from tests.test_080_trust import _pair
+    opt, checks = _pair(-10.0)
+    flagged = insights.disagreeing_repeat(opt, checks)
+    rows = {r.name: r for r in insights.details(opt, checks, flagged=flagged)}
+    for r in rows.values():
+        assert (r.pairs, r.left_out) == (0, 1)
+        assert wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out) == (
+            "1 pair left out (it disagreed)")
+    kept = {r.name: r for r in insights.details(opt, checks)}
+    assert all(r.left_out == 0 for r in kept.values())
+    assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
+    assert wording.repeat_compare(None, None, 0, 2) == "2 pairs left out (they disagreed)"
+    _clean(wording.repeat_compare(None, None, 0, 1), wording.repeat_compare(None, None, 0, 2))

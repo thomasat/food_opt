@@ -4615,10 +4615,15 @@ HOW_THRESHOLDS = ("A likely range counts as wide when its typical half-width is 
                   "than three quarters of the Range.")
 
 
-def repeat_compare(ratio, sd=None, pairs=0):
+def repeat_compare(ratio, sd=None, pairs=0, left_out=0):
     """The details table's last column (spec review I5, M6): under 3 pairs
-    there is too little to compare with."""
+    there is too little to compare with. Pairs left out because a Repeat
+    disagreed are said as left out, never as "no Repeats yet" (answer-key
+    read-through, Line B)."""
     if not pairs:
+        if left_out:
+            return ("1 pair left out (it disagreed)" if left_out == 1
+                    else f"{left_out} pairs left out (they disagreed)")
         return "no Repeats yet"
     if pairs < 3:
         return "too few to compare"

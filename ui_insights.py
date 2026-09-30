@@ -1968,7 +1968,7 @@ def _how(opt, computed):
             columns[3]: f"± {_num(r.half_width)}",
             columns[4]: _num(r.typical_miss),
             columns[5]: _say(opt, widen_cell(opt, r, checks)),
-            columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs),
+            columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out),
         } for r in rows]), hide_index=True, height=table_height(len(rows)))
         top = any(r.name == insights.SCORE and " · " in widen_cell(opt, r, checks)
                   for r in rows)
