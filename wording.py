@@ -3987,9 +3987,10 @@ INSIGHTS_WORKING = "Preparing the insights…"
 INSIGHTS_FAILED = "Insights could not be prepared for this project."
 
 
-def checking_round(r, last):
-    """The spinner line while one Round's predictions are checked."""
-    return f"Checking {ROUND_CAP} {r} of {last}…"
+# The one progress bar's line while the models are fitted and each Round is
+# checked (0.8.0 review fixes §6, §9 I11: not "first visit only", which
+# was untrue after new results or a restart).
+CHECKING = "Checking predictions against your results…"
 
 
 def insights_header(n, last_round, waiting=0, names_text="", early=True):
@@ -4012,7 +4013,15 @@ LIKELY_RANGE_EARLY = ("Likely range: where about 19 in 20 results should land on
 
 
 def insights_gate(n):
-    return f"Starts once 5 {FORMULATION}s are scored. So far: {n}."
+    """Said once on the tab, under "Is it still improving?", while fewer
+    than 5 formulations are scored (0.8.0 review fixes §6)."""
+    return f"The other answers start once 5 {FORMULATION}s are scored. So far: {n}."
+
+
+def best_gate(n):
+    """Under question 4 alone, when enough formulations are recorded but
+    fewer than 5 have all their results."""
+    return f"Starts once 5 {FORMULATION}s have all their results. So far: {n}."
 
 
 Q_PREDICTIONS = "Did the predictions come true?"
@@ -4204,9 +4213,26 @@ def best_since(k):
             else f"No higher score in the {k} {ROUND}s since.")
 
 
-def repeats_line(spread_text):
-    return (f"Repeats of the same formulation differed by up to {spread_text} points, "
+def repeats_line(sd_text, pairs):
+    """How much Repeats vary, and how many pairs that rests on (§9 I9)."""
+    rests = "1 pair" if pairs == 1 else f"{pairs} pairs"
+    return (f"Repeats of the same formulation vary by about {sd_text} points ({rests}), "
             "so a smaller rise may be chance.")
+
+
+def improving_yes(rise_text):
+    return f"Yes — up {rise_text} points in the last {ROUND}."
+
+
+def improving_barely(rise_text, sd_text=None):
+    if sd_text is None:
+        return f"Barely — the last rise ({rise_text} points) is under 1 point."
+    return (f"Barely — the last rise ({rise_text} points) is smaller than the spread "
+            f"between Repeats ({sd_text}).")
+
+
+def improving_not_lately(k):
+    return f"Not lately — no higher score in {k} {ROUND}s."
 
 
 SHOW_PROGRESS = "Show progress chart"

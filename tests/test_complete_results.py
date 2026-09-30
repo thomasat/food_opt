@@ -578,7 +578,7 @@ def test_repeat_spread_leaves_out_a_rescaled_repeat():
     _tell(opt, 2, 1)
     opt.recipe_history[1] = dict(opt.recipe_history[0])
     opt.X_history[1] = list(opt.X_history[0])
-    assert insights.repeat_spread(opt) is None
+    assert insights.repeat_sd(opt, insights.SCORE).sd is None
 
 
 def test_every_new_string_passes_the_vocabulary_guard():

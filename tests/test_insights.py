@@ -534,13 +534,14 @@ def test_best_facts_for_an_import():
     assert f.round is None and f.rounds_since == 1 and not f.latest
 
 
-def test_repeat_spread():
+def test_repeat_sd_of_one_pair():
     opt = _burger(rounds=2, per_round=3)
-    assert insights.repeat_spread(opt) is None
+    assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(None, 0)
     same = opt._recorded_recipe(0)
     opt.tell(same, {"Firmness": 3.0, "Juiciness": 1.0}, formulation_no=80, batch_no=3)
-    spread = insights.repeat_spread(opt)
-    assert spread == pytest.approx(abs(opt.Y_history[0] - opt.Y_history[-1]))
+    spread = insights.repeat_sd(opt, insights.SCORE)
+    assert spread.sd == pytest.approx(abs(opt.Y_history[0] - opt.Y_history[-1]) / 2 ** 0.5)
+    assert spread.pairs == 1
 
 
 def test_repeat_tolerance_is_half_a_percent_of_the_span():
@@ -549,16 +550,16 @@ def test_repeat_tolerance_is_half_a_percent_of_the_span():
     near = opt.fill_formulas({"Pea": r["Pea"] + 0.004 * 4, "Oil": r["Oil"]})   # 0.4 % of 4 g
     far = opt.fill_formulas({"Pea": r["Pea"] + 0.02 * 4, "Oil": r["Oil"]})     # 2 %
     opt.tell(near, {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=81, batch_no=2)
-    assert insights.repeat_spread(opt) is not None
+    assert insights.repeat_sd(opt, insights.SCORE).pairs == 1
     opt2 = _burger(rounds=1, per_round=1)
     opt2.tell(far, {"Firmness": 1.0, "Juiciness": 1.0}, formulation_no=82, batch_no=2)
-    assert insights.repeat_spread(opt2) is None
+    assert insights.repeat_sd(opt2, insights.SCORE).pairs == 0
 
 
-def test_repeat_spread_is_pairwise_not_anchor_groups():
-    # RULING (fix round 1, finding 1): repeat_spread must compare every PAIR
-    # independently, not chain each new row only against an existing group's
-    # first member. Pea's span is 4-8 g (4 g), tolerance = 0.005 * 4 = 0.02 g.
+def test_repeat_groups_join_a_chain_of_pairs():
+    # RULING (fix round 1, finding 1), kept for repeat_groups: every PAIR is
+    # compared independently, not each new row against a group's first
+    # member only. Pea's span is 4-8 g (4 g), tolerance = 0.005 * 4 = 0.02 g.
     # Row 0 (the recorded start) and row 1 (+0.015 g) match (diff 0.015 g).
     # Row 1 and row 2 (+0.030 g from row 0, i.e. +0.015 g from row 1) also
     # match (diff 0.015 g). Row 0 and row 2 do NOT match (diff 0.030 g).
@@ -579,7 +580,11 @@ def test_repeat_spread_is_pairwise_not_anchor_groups():
     y0, y1, y2 = opt.Y_history[0], opt.Y_history[1], opt.Y_history[2]
     assert y0 == pytest.approx(y1)                 # rows 0 and 1: same result, no spread
     assert abs(y1 - y2) > abs(y0 - y1)              # the missed pair has the real spread
-    assert insights.repeat_spread(opt) == pytest.approx(abs(y1 - y2))
+    assert insights.repeat_groups(opt, [0, 1, 2]) == [[0, 1, 2]]
+    ys = [y0, y1, y2]
+    mean = sum(ys) / 3
+    assert insights.repeat_sd(opt, insights.SCORE).sd == pytest.approx(
+        (sum((y - mean) ** 2 for y in ys) / 2) ** 0.5)
 
 
 def test_same_fixed_row_requires_exact_match():
@@ -587,7 +592,7 @@ def test_same_fixed_row_requires_exact_match():
     # Lowest equals its Highest, so the usual "0.5 % of the span" rule would
     # divide by zero) -- decided via opt.is_fixed rather than re-deriving
     # "hi == lo" locally. `insights._same` is exercised directly because
-    # `repeat_spread`'s own pipeline (via `start_recipe` -> `_recorded_recipe`
+    # `repeat_groups`' own pipeline (via `start_recipe` -> `_recorded_recipe`
     # -> decode) always snaps a fixed row back to its one allowed amount, so
     # two real formulations could never actually disagree on it -- there is
     # no way to reach this branch with a "slightly different" value through
@@ -638,7 +643,7 @@ def test_a_partly_measured_repeat_gives_no_spread():
     opt = _burger(rounds=2, per_round=3)
     opt.tell(opt._recorded_recipe(0), {"Juiciness": 1.0}, formulation_no=80, batch_no=3)
     assert not opt.fully_measured(len(opt.Y_history) - 1)
-    assert insights.repeat_spread(opt) is None
+    assert insights.repeat_sd(opt, insights.SCORE).sd is None
 
 
 def test_a_fully_measured_repeat_beside_a_partial_one():
@@ -646,8 +651,8 @@ def test_a_fully_measured_repeat_beside_a_partial_one():
     same = opt._recorded_recipe(0)
     opt.tell(same, {"Juiciness": 1.0}, formulation_no=80, batch_no=3)
     opt.tell(same, {"Firmness": 3.0, "Juiciness": 1.0}, formulation_no=81, batch_no=3)
-    assert insights.repeat_spread(opt) == pytest.approx(
-        abs(opt.Y_history[0] - opt.Y_history[-1]))
+    assert insights.repeat_sd(opt, insights.SCORE).sd == pytest.approx(
+        abs(opt.Y_history[0] - opt.Y_history[-1]) / 2 ** 0.5)
 
 
 def test_a_failed_prediction_is_treated_like_a_failed_fit(monkeypatch):

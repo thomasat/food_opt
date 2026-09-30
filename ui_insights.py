@@ -1,5 +1,6 @@
 """The Insights tab. Builders here return Altair charts from computed facts
 and never call Streamlit; render() at the bottom is the only Streamlit code."""
+import contextlib
 import itertools
 import math
 
@@ -230,14 +231,17 @@ CHOICE_KEY = "insights_choice"
 START_KEY = "insights_start"
 
 
-def fitted_models(opt, working=wording.INSIGHTS_WORKING):
+def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
     """insights.fit_all for this project's data, fitted once per data_key.
-    None when the fit failed."""
+    None when the fit failed. With `bar` (Insights' one progress bar) the
+    fit is its first step instead of a spinner of its own."""
     key = insights.data_key(opt)
     hit = st.session_state.get(FITTED_KEY)
     if hit and hit[0] == key:
         return hit[1]
-    with st.spinner(working):
+    if bar is not None:
+        bar.progress(0.0, text=_say(opt, wording.CHECKING))
+    with (contextlib.nullcontext() if bar is not None else st.spinner(working)):
         try:
             # Through the module attribute, so a test can stand in for the fit.
             value = insights.fit_all(opt)
@@ -247,17 +251,35 @@ def fitted_models(opt, working=wording.INSIGHTS_WORKING):
     return value
 
 
-def _computed(opt):
+def _stepper(opt, bar):
+    """check_rounds' `checking`: moves the one progress bar on as each Round
+    is checked (0.8.0 review fixes §6, §9 I11)."""
+    order = [r for r, _ in insights.round_order(opt)]
+
+    @contextlib.contextmanager
+    def checking(r, last):
+        bar.progress(min(1.0, (order.index(r) + 1) / (len(order) + 1)),
+                     text=_say(opt, wording.CHECKING))
+        yield
+    return checking
+
+
+def _computed(opt, bar=None):
+    """The fitted models and the Round-by-Round checks, once per data_key.
+    `bar`, a slot under the header, shows one progress bar while they are
+    worked out; without it (a test, or a caller with no slot) a slot of
+    its own."""
     key = insights.data_key(opt)
     hit = st.session_state.get(CACHE_KEY)
     if hit and hit[0] == key:
         return hit[1]
-    fitted = fitted_models(opt)
+    bar = bar if bar is not None else st.empty()
+    fitted = fitted_models(opt, bar=bar)
     if fitted is None:
         value = _FAILED
     else:
         rounds = st.session_state.setdefault(ROUNDS_KEY, {})
-        checking = lambda r, last: st.spinner(_say(opt, wording.checking_round(r, last)))
+        checking = _stepper(opt, bar)
         try:
             value = {"fitted": fitted,
                      "checks": insights.check_rounds(opt, cache=rounds, checking=checking)}
@@ -283,6 +305,17 @@ def _question(opt, text):
     st.markdown(f"**{_say(opt, text)}**")
 
 
+def _section(opt, text):
+    """A question's heading, drawn now, and the slot its answer fills once
+    the models are ready. Both sit in one st.empty(), so a failed fit can
+    take the question off the tab again."""
+    slot = st.empty()
+    box = slot.container()
+    with box:
+        _question(opt, text)
+    return slot, box
+
+
 def render(opt):
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
@@ -292,27 +325,52 @@ def render(opt):
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    # The header's range sentence depends on whether there is a verdict, so
-    # its slot is filled once the checks are known.
+    # The header goes up at once in its early form, so it is not blank while
+    # the models are worked out (review M-2); its range sentence depends on
+    # whether there is a verdict, so it is written again once the checks
+    # are known.
     header = st.empty()
-    computed = _computed(opt) if n >= insights.MIN_ROWS else None
-    failed = computed is not None and computed.get("failed")
-    header.caption(_say(opt, header_text(opt, None if computed is None or failed
-                                         else insights.headline(opt, computed["checks"]))))
-    if failed:
-        st.caption(_say(opt, wording.INSIGHTS_FAILED))
-        computed = None
-    else:
-        _predictions(opt, computed, n)
-        _change(opt, computed, n)
+    header.caption(_say(opt, header_text(opt, None)))
+    if n < insights.MIN_ROWS:
+        # Only "Is it still improving?" can be answered yet, and the other
+        # three wait for one line, said once (0.8.0 review fixes §6).
+        _improving(opt)
+        st.caption(_say(opt, wording.insights_gate(n)))
+        _how(opt, None)
+        return
+    bar = st.empty()
+    # The four headings go up at once and "Is it still improving?", which
+    # needs no model, is answered at once; the rest fill in when the models
+    # are ready (§6, §9 I11).
+    q1 = _section(opt, wording.Q_PREDICTIONS)
+    q2 = _section(opt, _q_change(opt))
     _improving(opt)
-    # After "Is it still improving?", before "How these insights are made".
-    # With the models failed, INSIGHTS_FAILED above already said so once.
-    if not failed:
+    q4 = _section(opt, wording.Q_BEST)
+    rest = st.container()
+    computed = _computed(opt, bar)
+    bar.empty()
+    if computed.get("failed"):
+        # The three model questions come off; one line says so, where the
+        # bar was. The header keeps its early form.
+        for slot, _ in (q1, q2, q4):
+            slot.empty()
+        bar.caption(_say(opt, wording.INSIGHTS_FAILED))
+        with rest:
+            _how(opt, None)
+        return
+    # One headline per run, for the header and question 1 (review M-3).
+    h = insights.headline(opt, computed["checks"])
+    header.caption(_say(opt, header_text(opt, h)))
+    with q1[1]:
+        _predictions(opt, computed, h)
+    with q2[1]:
+        _change(opt, computed)
+    with q4[1]:
         _best(opt, computed)
+    with rest:
         # Wave C: after question 4, before "How these insights are made".
         _more_charts(opt, computed)
-    _how(opt, computed)
+        _how(opt, computed)
 
 
 def header_text(opt, h):
@@ -341,13 +399,9 @@ def _wide(opt, h):
     return wording.wide_line(number_list(names))
 
 
-def _predictions(opt, computed, n):
-    _question(opt, wording.Q_PREDICTIONS)
-    if computed is None:
-        st.caption(_say(opt, wording.insights_gate(n)))
-        return
+def _predictions(opt, computed, h):
+    """Question 1's answer, under its heading. `h`: render's one headline."""
     checks = computed["checks"]
-    h = insights.headline(opt, checks)
     if h.state == "none":
         st.write(_say(opt, wording.PREDICTIONS_NONE))
     elif h.state == "early":
@@ -383,16 +437,19 @@ def _keep_if_offered(key, options):
         del st.session_state[key]
 
 
-def _change(opt, computed, n):
-    choices = insights.path_choices(opt)
+def _q_change(opt):
+    """Question 2's heading."""
     # With nothing varying at all, an ingredient project still asks about
     # an ingredient (there is no process setting to name instead).
-    _question(opt, wording.q_change(insights.has_setting_choice(opt),
-                                    insights.has_ingredient_choice(opt)
-                                    or (not choices and opt.has_ingredients())))
-    if computed is None:
-        st.caption(_say(opt, wording.insights_gate(n)))
-        return
+    choices = insights.path_choices(opt)
+    return wording.q_change(insights.has_setting_choice(opt),
+                            insights.has_ingredient_choice(opt)
+                            or (not choices and opt.has_ingredients()))
+
+
+def _change(opt, computed):
+    """Question 2's answer, under its heading."""
+    choices = insights.path_choices(opt)
     if not choices:
         st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
         return
@@ -592,18 +649,33 @@ def _path_captions(opt, path, number, fitted):
 def _improving(opt):
     _question(opt, wording.Q_IMPROVING)
     f = insights.best_facts(opt)
+    answer = insights.improvement(opt)
+    if answer is not None:
+        st.write(_say(opt, improving_text(answer)))
     if f is not None:
-        second = (wording.BEST_LATEST if f.latest and f.rounds_since == 0
+        # The answer above already says what these two did.
+        second = ("" if answer is not None
+                  else wording.BEST_LATEST if f.latest and f.rounds_since == 0
                   else wording.best_since(f.rounds_since) if f.rounds_since else "")
         st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round,
                                              number_list(f.without))
                       + (" " + second if second else "")))
-    spread = insights.repeat_spread(opt)
+    spread = insights.repeat_sd(opt, insights.SCORE)
     # A spread that would read 0 says nothing about chance.
-    if spread is not None and spread >= 0.05:
-        st.write(_say(opt, wording.repeats_line(_num(spread))))
+    if spread.sd is not None and spread.sd >= 0.05:
+        st.write(_say(opt, wording.repeats_line(f"{spread.sd:.1f}", spread.pairs)))
     with st.expander(_say(opt, wording.SHOW_PROGRESS)):
         _progress_chart_body(opt)
+
+
+def improving_text(answer):
+    """The computed answer to "Is it still improving?" (§3.7, §9 I9)."""
+    if answer.state == "yes":
+        return wording.improving_yes(f"{answer.rise:.1f}")
+    if answer.state == "barely":
+        return wording.improving_barely(
+            f"{answer.rise:.1f}", None if answer.sd is None else f"{answer.sd:.1f}")
+    return wording.improving_not_lately(answer.rounds)
 
 
 def progress_frame(opt):
@@ -711,12 +783,12 @@ def best_frame(opt, best, fitted):
 
 
 def _best(opt, computed):
-    _question(opt, wording.Q_BEST)
+    """Question 4's answer, under its heading."""
     fitted = None if computed is None else computed["fitted"]
     score = None if fitted is None else fitted.get(insights.SCORE)
     if (opt.complete_count() < insights.MIN_ROWS or score is None
             or score.model is None):
-        st.caption(_say(opt, wording.insights_gate(opt.complete_count())))
+        st.caption(_say(opt, wording.best_gate(opt.complete_count())))
         return
     best = _predicted_best(opt, fitted)
     if isinstance(best, str):

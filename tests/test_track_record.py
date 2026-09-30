@@ -85,8 +85,8 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     assert captions[0].startswith(
         f"Based on {complete} scored formulations, up to Round 2. "
         "1 more is waiting for Juiciness. "), captions
-    gates = [c for c in captions if c.startswith("Starts once 5 ")]
-    assert gates == [wording.insights_gate(complete)] * 3, captions   # sections 1, 2 and 4
+    gates = [c for c in captions if "start once 5 " in c or c.startswith("Starts once 5 ")]
+    assert gates == [wording.insights_gate(complete)], captions      # said once (Task 6)
 
 
 # ------------------------------------------------------------------ #

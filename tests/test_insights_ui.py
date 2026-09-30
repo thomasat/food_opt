@@ -230,7 +230,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.BEST_LATEST)
     _check(wording.best_since(1))
     _check(wording.best_since(3))
-    _check(wording.repeats_line("2.5"))
+    _check(wording.repeats_line("2.5", 1))
     _check(wording.SHOW_PROGRESS)
     _check(wording.HOW_WORKED_OUT)
     _check(wording.HOW_MODELS)
@@ -376,8 +376,10 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     assert not at.exception
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
-    assert captions.count(wording.insights_gate(2)) == 3       # sections 1, 2 and 4
+    assert captions.count(wording.insights_gate(2)) == 1       # once on the tab
     assert any(m.value.startswith("Best so far:") for m in tab.markdown)   # section 3 shows
+    md = " ".join(m.value for m in tab.markdown)
+    assert wording.Q_PREDICTIONS not in md and wording.Q_BEST not in md
 
 
 def test_how_section_default_wording(insights_scored):
@@ -562,14 +564,15 @@ def test_question_2_names_process_settings_only_when_there_are_some(insights_sco
     assert wording.q_change(False) in body and wording.q_change(True) not in body
 
 
-@pytest.mark.parametrize("spread, shown", [(0.04, False), (0.0, False), (0.06, True)])
-def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, spread, shown):
-    monkeypatch.setattr(insights, "repeat_spread", lambda opt: spread)
+@pytest.mark.parametrize("sd, shown", [(0.04, False), (0.0, False), (0.06, True)])
+def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd, shown):
+    monkeypatch.setattr(insights, "repeat_sd",
+                        lambda opt, name: insights.RepeatSpread(sd, 1))
     at = _open_insights(_app())
     md = " ".join(_tab_text(at)[0])
     assert ("Repeats of the same formulation" in md) == shown
     if shown:
-        assert wording.repeats_line("0.06") in md
+        assert wording.repeats_line("0.1", 1) in md
 
 
 @pytest.fixture

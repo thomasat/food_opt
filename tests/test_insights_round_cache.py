@@ -155,8 +155,8 @@ def test_each_round_fitted_is_named_while_it_is_checked():
     assert named == []                                      # nothing fitted, nothing named
 
 
-def test_checking_round_wording():
-    assert wording.checking_round(3, 8) == "Checking Round 3 of 8…"
+def test_checking_wording():
+    assert wording.CHECKING == "Checking predictions against your results…"
 
 
 # ------------------------------------------------------------------ #
@@ -169,35 +169,50 @@ from tests.test_app_ui import _submit_button, burger  # noqa: E402,F401
 from tests.test_insights_wave_c_ui import ferment_scored  # noqa: E402,F401
 
 
-def _spinner_lines(monkeypatch):
-    lines = []
-    real = st.spinner
-    def spy(text="", *a, **k):
-        lines.append(text)
-        return real(text, *a, **k)
-    monkeypatch.setattr(st, "spinner", spy)
-    return lines
+def _progress_steps(monkeypatch):
+    """Every (value, text) the one progress bar is set to, and every
+    spinner line, across the runs that follow."""
+    from streamlit.delta_generator import DeltaGenerator
+    steps, spins = [], []
+    real_progress, real_spinner = DeltaGenerator.progress, st.spinner
+
+    def progress(self, value, text=None, **k):
+        steps.append((value, text))
+        return real_progress(self, value, text=text, **k)
+
+    def spinner(text="", *a, **k):
+        spins.append(text)
+        return real_spinner(text, *a, **k)
+    monkeypatch.setattr(DeltaGenerator, "progress", progress)
+    monkeypatch.setattr(st, "spinner", spinner)
+    return steps, spins
 
 
-def test_the_spinner_names_each_round_it_checks(insights_scored, monkeypatch):
-    lines = _spinner_lines(monkeypatch)
+def test_one_progress_bar_while_the_models_and_rounds_are_worked_out(insights_scored,
+                                                                      monkeypatch):
+    steps, spins = _progress_steps(monkeypatch)
     at = _open_insights(_app())
     assert not at.exception
-    assert wording.INSIGHTS_WORKING in lines                # the current models' fit
-    assert wording.checking_round(3, 3) in lines            # 6 rows before Round 3
+    # The fit, then Round 3 (6 rows before it), rising, one line throughout.
+    assert [v for v, _ in steps] == sorted(v for v, _ in steps)
+    assert len(steps) == 2 and steps[0][0] == 0.0
+    assert {t for _, t in steps} == {wording.CHECKING}
+    assert not [t for t in spins if t.startswith("Checking")]
+    # Only question 4's own search keeps a spinner, under its heading.
+    assert spins.count(wording.INSIGHTS_WORKING) <= 1
     assert ui_insights.ROUNDS_KEY in at.session_state
-    lines.clear()
+    steps.clear()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert not [t for t in lines if t.startswith("Checking")]
+    assert steps == []                                      # kept: nothing to show
 
 
-def test_the_spinner_reads_the_same_on_a_process_only_project(ferment_scored, monkeypatch):
-    lines = _spinner_lines(monkeypatch)
+def test_the_bar_reads_the_same_on_a_process_only_project(ferment_scored, monkeypatch):
+    steps, _ = _progress_steps(monkeypatch)
     at = _open_insights(_app())
     assert not at.exception
-    checking = [t for t in lines if t.startswith("Checking")]
-    assert checking == [wording.checking_round(r, 4) for r in (3, 4)]
+    assert {t for _, t in steps} == {wording.CHECKING}
+    assert len(steps) == 3                                  # the fit, Rounds 3 and 4
 
 
 def test_the_round_checks_are_dropped_on_project_switch(insights_scored):

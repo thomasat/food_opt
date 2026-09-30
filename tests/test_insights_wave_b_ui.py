@@ -655,8 +655,8 @@ def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypa
 def test_section_4_gate(scored):          # 2 formulations with all their results
     at = _open_insights(_app())
     md, caps = _tab_text(at)
-    assert f"**{wording.Q_BEST}**" in md
-    assert caps.count(wording.insights_gate(2)) == 3      # sections 1, 2 and 4
+    assert f"**{wording.Q_BEST}**" not in md               # under 5: one line instead
+    assert caps.count(wording.insights_gate(2)) == 1
 
 
 def test_a_limit_edit_works_out_the_best_again(insights_scored, monkeypatch):

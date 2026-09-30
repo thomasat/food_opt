@@ -79,7 +79,7 @@ def test_repeats_and_nearest_compare_only_the_same_formulations():
     # Formulation 4 made again as a Repeat of exempt Formulation 1.
     opt.recipe_history[3] = dict(opt.recipe_history[0])
     opt.X_history[3] = list(opt.X_history[0])
-    assert insights.repeat_spread(opt) is None
+    assert insights.repeat_sd(opt, insights.SCORE).sd is None
     i, _ = insights.nearest(opt, insights.start_recipe(opt, 0))
     assert i in opt.best_candidates()
 

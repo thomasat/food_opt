@@ -746,6 +746,42 @@ def best_facts(opt):
                      len(since), latest, opt.best_scored_without())
 
 
+@dataclass
+class Improvement:
+    state: str              # "yes", "barely" or "not_lately"
+    rise: float | None      # the latest Round's best minus the Best so far before it
+    sd: float | None        # the Overall score's spread between Repeats
+    rounds: int             # Rounds since Best so far ("not_lately")
+
+
+def improvement(opt):
+    """The answer to "Is it still improving?" (0.8.0 review fixes §3.7,
+    §9 I9), or None when there is nothing to say yet.
+
+    - Not lately: no higher score in the last 2 or more Rounds.
+    - When Best so far came from the latest Round, the rise is its score
+      minus the Best so far before that Round: Barely when it is no more
+      than the Overall score's spread between Repeats (1 point without
+      Repeats), Yes when it is more.
+    - Anything else (one Round only, or no higher score in just the
+      Round since): None, and Best so far's own line says it."""
+    f = best_facts(opt)
+    if f is None:
+        return None
+    sd = repeat_sd(opt, SCORE).sd
+    if f.rounds_since >= 2:
+        return Improvement("not_lately", None, sd, f.rounds_since)
+    if f.rounds_since or not f.latest:
+        return None
+    earlier = [float(opt.Y_history[i]) for i in opt.best_candidates()
+               if opt.batch_history[i] != f.round]
+    if not earlier:
+        return None
+    rise = f.score - max(earlier)
+    threshold = sd if sd is not None else 1.0
+    return Improvement("yes" if rise > threshold else "barely", rise, sd, 0)
+
+
 def _same(opt, a, b):
     for v in opt.variables:
         if opt.has_formula(v):
@@ -760,30 +796,6 @@ def _same(opt, a, b):
         if abs(float(x or 0.0) - float(y or 0.0)) > tol + 1e-12:
             return False
     return True
-
-
-def repeat_spread(opt):
-    """The largest |Overall score difference| between any two formulations
-    that `_same` calls a match, both among opt.best_candidates(): a missing
-    measurement counts as 0 in the Overall score, so a partly measured
-    repeat would read as a spread nobody saw at the bench, and a score
-    rescaled without a measurement is not on the others' footing.
-
-    Pairwise, not anchor groups: `_same`'s per-row tolerance is not
-    transitive (a chain of small steps can drift past it end to end), so
-    comparing each new row only against one earlier "anchor" row can miss a
-    matching pair -- and the largest spread -- entirely. Every pair of
-    formulations is compared independently instead."""
-    rows = opt.best_candidates()
-    recipes = {i: start_recipe(opt, i) for i in rows}
-    best = None
-    for a, i in enumerate(rows):
-        for j in rows[a + 1:]:
-            if _same(opt, recipes[i], recipes[j]):
-                spread = abs(opt.Y_history[i] - opt.Y_history[j])
-                if best is None or spread > best:
-                    best = spread
-    return best
 
 
 @dataclass
