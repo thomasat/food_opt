@@ -23,10 +23,28 @@ def entries():
 
 
 def test_the_fixture_was_made_by_this_fit(entries):
-    """A change to the fit that did not bump MODEL_SALT, or a salt bump
-    without `python -m tests.coverage_sim`, fails here first."""
+    """The fixture carries this MODEL_SALT: a salt bump without
+    `python -m tests.coverage_sim` fails here. A change to the fit without
+    a salt bump is caught only when it moves the smallest project's checks
+    (test_one_project_worked_out_again_matches_the_fixture) or any
+    project's (the slow rerun)."""
     assert sim.fixture()["salt"] == insights.MODEL_SALT
     assert len(entries) == len(sim.projects()) == 48
+
+
+# The fixture and coverage() are deterministic, so the counts are pinned
+# exactly (review A I-1): a widening that looks at a Round's own checks or
+# later ones (hindsight, which I1 forbids) only raises coverage, and would
+# pass every lower bound below. A fixture regenerated with a MODEL_SALT
+# bump updates these on purpose.
+PINNED = {"measured": (4271, 4702), "score_raw": (1406, 1584), "score": (1463, 1584),
+          "window_measured": (1394, 1497), "window_score_raw": (468, 504),
+          "window_score": (484, 504)}
+
+
+def test_coverage_is_exactly_the_before_the_fact_figure(entries):
+    cov = sim.coverage(entries)
+    assert {k: (round(share * n), n) for k, (share, n) in cov.items()} == PINNED
 
 
 def test_coverage_at_the_verdict_window_is_at_least_92_percent(entries):

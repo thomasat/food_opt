@@ -132,6 +132,28 @@ def test_model_key_follows_rows_settings_and_salt(monkeypatch):
     assert insights.model_key(opt, "Firmness", rows) != key
 
 
+def test_model_key_follows_each_setting_a_fit_depends_on(monkeypatch):
+    """Review A M-2: the model settings, a row's Lowest/Highest, the fit
+    options and the folds each change the key."""
+    opt = _burger(rounds=3)
+    rows = _rows(opt)
+    key = insights.model_key(opt, "Firmness", rows)
+    opt.bo_config = {"noise": "low"}
+    assert insights.model_key(opt, "Firmness", rows) != key
+    opt.bo_config = None
+    assert insights.model_key(opt, "Firmness", rows) == key
+    var = next(v for v in opt.variables if v["type"] == "continuous")
+    lo, hi = var["bounds"]
+    var["bounds"] = (lo, hi + 1.0)
+    assert insights.model_key(opt, "Firmness", rows) != key
+    var["bounds"] = (lo, hi)
+    monkeypatch.setattr(insights, "FIT_OPTIONS", {"ftol": 1e-7})
+    assert insights.model_key(opt, "Firmness", rows) != key
+    monkeypatch.undo()
+    monkeypatch.setattr(insights, "FOLDS", 4)
+    assert insights.model_key(opt, "Firmness", rows) != key
+
+
 def test_expert_model_settings_rebuild_from_the_memo():
     opt = _burger(rounds=3, noise=0.3)
     opt.bo_config = {"noise": "fixed_tiny"}

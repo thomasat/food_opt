@@ -120,3 +120,17 @@ def test_a_disagreeing_repeat_is_judged_on_the_range_shown():
     assert insights.disagreeing_repeat(opt, checks) is not None
     wide = dataclasses.replace(shown, widen=2.0)                # × 2: 11.09 > 10
     assert insights.disagreeing_repeat(opt, _values(2) + [wide]) is None
+
+
+def test_make_a_rounds_factor_leaves_out_the_open_rounds_own_checks():
+    """Review A M-3: with the open Round partly recorded, its recorded rows
+    are checked already; the column for the rest is widened as that Round's
+    check will be — by the Rounds before it only."""
+    opt = _burger(rounds=5, noise=0.6)
+    checks = insights.check_rounds(opt)
+    opt.pending_batch_no = 5                 # Round 5 still open, its rows recorded
+    earlier = [c for c in checks if c.round != 5]
+    assert insights.column_factor(opt, checks) == insights.score_widen(earlier)
+    assert insights.column_factor(opt, checks) != insights.score_widen(checks)
+    opt.pending_batch_no = 6                 # a new Round: every check counts
+    assert insights.column_factor(opt, checks) == insights.score_widen(checks)

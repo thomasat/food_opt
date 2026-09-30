@@ -113,6 +113,7 @@ def _range_of(opt, name):
 FIT_OPTIONS = {"ftol": 1e-6}
 # Part of every model_key: bump it whenever a change here could change a
 # fitted model's numbers, and a saved fit from before is never used again.
+# That includes a torch, gpytorch or botorch upgrade (review A M-6).
 MODEL_SALT = "0.8.0-speed-1"
 # The fitted models a caller keeps (insights_jobs, the saved cache): model_key
 # -> {"state": hyper_state(gp), "widen": float} or {"error": str}. Set with
@@ -1487,6 +1488,14 @@ class PredictedBest:
     compare: int            # index of the table's second row
     factor: float = 1.0     # how much the likely ranges here were widened
     repeat: Prediction | None = None   # Best so far made again, predicted
+
+
+def column_factor(opt, checks):
+    """Make a round's Overall-score widening (review I1, A M-3): score_widen
+    of every check except the open Round's own, so the column for its
+    rows still to be made is widened as that Round's check will be, by the
+    Rounds before it only."""
+    return score_widen([c for c in checks if c.round != opt.pending_batch_no])
 
 
 def score_widen(checks):

@@ -497,8 +497,9 @@ def fits_here(opt):
 def column_models(opt):
     """(models, factor) for Make a round's predicted columns (review I1):
     the current models that are in — the Overall score's at least; None
-    when its fit failed — and score_widen of every Round's Overall-score
-    check, so the range shown is the one that Round's check will judge.
+    when its fit failed — and insights.column_factor of the Rounds'
+    Overall-score checks, so the range shown is the one that Round's check
+    will judge.
     None while the workers are still fitting those: the column shows "…".
     Without workers they are fitted here, with no spinner of their own
     (the "…" is the one indicator)."""
@@ -518,7 +519,7 @@ def column_models(opt):
                       if n in ready}
     else:
         models = fitted_models(opt, working=None)
-    return models, insights.score_widen(checks)
+    return models, insights.column_factor(opt, checks)
 
 
 def track_line(opt):
