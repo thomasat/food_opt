@@ -7141,6 +7141,8 @@ def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    # Drawn only while its fold is open (BO views, binding I15).
+    at.session_state["insights_progress_fold"] = True
     at.run()
     assert any(c.value == wording.progress_caption_2()
                for c in at.tabs[3].caption), [c.value for c in at.caption]

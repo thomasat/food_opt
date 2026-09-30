@@ -207,6 +207,12 @@ def _vega_specs(at):
 
 def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_scored):
     at = _open_insights(_app())
+    # Measured against predicted and the Progress chart are drawn only while
+    # open (BO views, binding I15): open both.
+    at.session_state[ui_insights.EACH_KEY] = True
+    at.session_state[ui_insights.PROGRESS_KEY] = True
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
     assert not at.exception
     specs = _vega_specs(at)
     # One per drawn chart: predictions, path, pair, mixture and misses at

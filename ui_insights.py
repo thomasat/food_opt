@@ -205,8 +205,9 @@ def path_chart(opt, path, preds, near=None):
     # Not from 0 either: the effect the question asks about filled a tenth
     # of a 0-100 panel (0.8.0 review fixes §6).
     y = alt.Y("low:Q", title=None, scale=alt.Scale(zero=False))
+    # The current model's prediction, not a Round-ahead one (03 §5.2).
     tip = [alt.Tooltip("amount:N", title=path.name),
-           alt.Tooltip("predicted:N", title=_say(opt, wording.TRACK_PREDICTED))]
+           alt.Tooltip("predicted:N", title=_say(opt, wording.PREDICTED))]
     band = (alt.Chart().mark_area(opacity=_BAND, tooltip=False)
             .encode(x=x, y=y, y2="high:Q")
             .transform_filter(_only("curve")))
@@ -252,6 +253,18 @@ SPREAD_KEY = "insights_spread_on"
 TRUST_SECTION = "insights_trust"
 STAND_SECTION = "insights_stand"
 EACH_KEY = "insights_each"
+# BO views §3.3 (review I6, I8, M14): the layer each chart shows, the start
+# the Uncertainty and Expected gain layers use (a suggestion may be one),
+# their worked-out values, and whether the Progress chart fold is open.
+LAYER_KEY = "insights_layer"
+PATH_LAYER_KEY = "insights_path_layer"
+LAYER_START_KEY = "insights_layer_start"
+PATH_LAYER_CACHE = "_insights_path_layer"
+PROGRESS_KEY = "insights_progress_fold"
+_LAYERS = (wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN)
+# The "Predicted above Best so far" outline: Okabe-Ito orange, which holds
+# its contrast on white and on Streamlit's dark background (review M14).
+_OUTLINE = "#E69F00"
 
 
 def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
@@ -1011,23 +1024,34 @@ def _change(opt, computed, yard):
     best = opt.best_index()
     ids = [int(x) for x in opt.formulation_ids]
     best_no = ids[best]
+    fitted = computed["fitted"]
+    # BO views §3.3 (review I6, I8): the path's layer; the Uncertainty and
+    # Expected gain layers may start from a suggestion still to make, and
+    # open on the open Round's first one.
+    layer = _layer_pick(opt, fitted, PATH_LAYER_KEY)
+    layered = layer != wording.LAYER_SCORE
     # By Formulation number, not list position: a deletion on Results shifts
     # positions, and the box must keep naming the formulation it named.
     starts = [best_no] + [ids[i] for i in reversed(range(len(ids))) if i != best]
+    if layered:
+        starts = suggested_numbers(opt) + starts
+    start_key = LAYER_START_KEY if layered else START_KEY
     _keep_if_offered(CHOICE_KEY, choices)
-    _keep_if_offered(START_KEY, starts)
+    _keep_if_offered(start_key, starts)
     answer = st.container()
     left, right = st.columns(2)
     number = right.selectbox(
-        _say(opt, wording.START_FROM), starts, key=START_KEY,
+        _say(opt, wording.START_FROM), starts, key=start_key,
         format_func=lambda no: _say(opt, wording.start_best(no) if no == best_no
-                                    else wording.start_formulation(no)))
-    fitted = computed["fitted"]
+                                    else anchor_text(opt, no)))
     try:
-        recipe = insights.start_recipe(opt, ids.index(number))
+        recipe = anchor_recipe(opt, number)
+    except Exception:   # no start: the path says it could not be drawn, below
+        recipe = None
+    try:
         found = insights.tested_near_changes(opt, fitted, recipe)
     except Exception:   # the answer line is left out; the path still draws
-        recipe, found = None, insights.NearChanges([], [], False)
+        found = insights.NearChanges([], [], False)
     # The box opens on the largest change near what has been tested; after
     # that it keeps the reader's own choice (_keep_if_offered drops it only
     # when it is no longer offered).
@@ -1037,13 +1061,20 @@ def _change(opt, computed, yard):
         _near_answer(opt, found, number == best_no, number, fitted, recipe, yard)
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
-        path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
+        if recipe is None:
+            raise ValueError("no start")
+        path = insights.build_path(opt, name, recipe)
         if path.start_breaks:
             st.caption(_say(opt, wording.path_start_breaks(number, path.start_breaks)))
             return
         near = insights.tested_near(opt, path)
-        chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path), near)
         lines = _path_captions(opt, path, number, fitted, near)
+        if layered:
+            chart = path_layer_chart(opt, path, _path_layer(opt, fitted, path, name, number,
+                                                            layer), near, layer)
+            lines = lines[:1] + [wording.path_layer_caption(layer, anchor_text(opt, number))]
+        else:
+            chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path), near)
     except Exception:   # one path failing must not take the tab down
         st.caption(_say(opt, wording.panel_failed(name)))
         return
@@ -1051,6 +1082,46 @@ def _change(opt, computed, yard):
         show_chart(chart)
     for line in lines:
         st.caption(_say(opt, line))
+
+
+def _path_layer(opt, fitted, path, name, number, layer):
+    """A layer's values along the path, once per data, path and layer."""
+    key = (insights.setup_key(opt), name, number, layer)
+    hit = st.session_state.get(PATH_LAYER_CACHE)
+    if hit and hit[0] == key:
+        return hit[1]
+    with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
+        value = layer_values(opt, fitted, path.recipes, layer)
+    st.session_state[PATH_LAYER_CACHE] = (key, value)
+    return value
+
+
+def path_layer_chart(opt, path, values, near, layer):
+    """The path under the Uncertainty or Expected gain layer (spec §3.3):
+    one panel, the suggestion model's sd or its expected improvement in
+    points along the path, grey where nothing was tested near, the start
+    dotted."""
+    if not values or not path.amounts:
+        return None
+    title = wording.LAYER_SD_LEGEND if layer == wording.LAYER_SD else wording.LAYER_GAIN_LEGEND
+    x_title = f"{path.name} ({path.unit})" if path.unit else path.name
+    rows = [{"mark": "curve", "x": t, "v": v, "amount": _amount(t, path.unit)}
+            for t, v in zip(path.amounts, values)]
+    rows.append({"mark": "start", "x": path.start_amount})
+    rows += [{"mark": "grey", "x": lo, "x2": hi} for lo, hi in insights.untested_runs(path, near)]
+    df = pd.DataFrame(rows)
+    x = alt.X("x:Q", title=x_title, scale=alt.Scale(zero=False, nice=False))
+    layers = [alt.Chart(df).mark_line().encode(
+                  x=x, y=alt.Y("v:Q", title=_say(opt, title)),
+                  tooltip=[alt.Tooltip("amount:N", title=path.name),
+                           alt.Tooltip("v:Q", title=_say(opt, title), format=".2f")])
+              .transform_filter(_only("curve")),
+              alt.Chart(df).mark_rule(strokeDash=[2, 2], tooltip=False).encode(x="x:Q")
+              .transform_filter(_only("start"))]
+    if any(r["mark"] == "grey" for r in rows):
+        layers.insert(0, alt.Chart(df).mark_rect(opacity=_GREY, color="gray", tooltip=False)
+                      .encode(x="x:Q", x2="x2:Q").transform_filter(_only("grey")))
+    return alt.layer(*layers).properties(height=200)
 
 
 def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
@@ -1319,8 +1390,83 @@ def _stand_first(opt, yard):
 
 
 def _progress_fold(opt):
-    with st.expander(_say(opt, wording.SHOW_PROGRESS)):
+    """The Progress chart fold (review M8): Best so far by formulation, then
+    Expected improvement by Round — worked out only once the fold is open
+    (binding I15), and only from what the tab has worked out already."""
+    with st.expander(_say(opt, wording.SHOW_PROGRESS), key=PROGRESS_KEY,
+                     on_change="rerun") as fold:
+        if not fold.open:
+            return
         _progress_chart_body(opt)
+        _gain_chart_body(opt)
+
+
+def gain_frame(history):
+    """One row per Round with an expected improvement or a Best so far."""
+    return pd.DataFrame([{
+        "round": g.round, "best": g.best_measured, "highest": g.highest, "gain": g.gain,
+        "how": wording.GAIN_EXACT if g.exact else wording.GAIN_RECOMPUTED}
+        for g in history])
+
+
+def gain_chart(opt, history, model_free=False):
+    """§3.2's chart (02 §4.4, review M11): two panels on one Round axis.
+    Top, Best so far (measured) and the highest predicted mean over the
+    allowed formulations; below, a bar for the expected improvement each
+    Round's first suggestion was chosen for (none for a cold, own-only or
+    imported Round). `model_free` (the guard or an unreliable verdict,
+    review I4): Best so far alone."""
+    df = gain_frame(history)
+    if df.empty:
+        return None
+    rnd = _say(opt, wording.ROUND_CAP)
+    x = alt.X("round:O", title=rnd)
+    lines = df.melt(id_vars=["round"], value_vars=["best"] if model_free else ["best", "highest"],
+                    var_name="series", value_name="value").dropna()
+    names = {"best": wording.GAIN_BEST_MEASURED, "highest": wording.GAIN_HIGHEST_PREDICTED}
+    lines["series"] = lines["series"].map(names)
+    top = (alt.Chart(lines).mark_line(point=True)
+           .encode(x=x, y=alt.Y("value:Q", title=wording.OVERALL_SCORE_COLUMN,
+                                scale=alt.Scale(zero=False)),
+                   color=alt.Color("series:N", title=None, legend=alt.Legend(labelLimit=0)),
+                   tooltip=[alt.Tooltip("round:O", title=rnd),
+                            alt.Tooltip("series:N", title=wording.OVERALL_SCORE_COLUMN),
+                            alt.Tooltip("value:Q", title=wording.OVERALL_SCORE_COLUMN,
+                                        format=".1f")])
+           .properties(height=150))
+    if model_free:
+        return top
+    bars = (alt.Chart(df.dropna(subset=["gain"])).mark_bar()
+            .encode(x=x, y=alt.Y("gain:Q", title=wording.GAIN_AXIS),
+                    tooltip=[alt.Tooltip("round:O", title=rnd),
+                             alt.Tooltip("gain:Q", title=wording.GAIN_AXIS, format=".2f"),
+                             alt.Tooltip("how:N", title=wording.GAIN_STATUS)])
+            .properties(height=120))
+    return alt.vconcat(top, bars)
+
+
+def _gain_chart_body(opt):
+    """Expected improvement by Round in the Progress chart fold: from the
+    checks and models already worked out (the memo's Round-ahead models, so
+    a recomputed Round costs no fit, review I10); nothing before they are."""
+    computed = _cached(opt)
+    if computed is None or computed.get("failed") or bo_views.acquisition(opt) == "qucb":
+        return
+    checks = computed["checks"]
+    h = insights.headline(opt, checks)
+    trusted = (insights.verdict_state(opt, h, checks) not in ("caution", "unreliable")
+               and not _model_guard(opt, computed["fitted"]).fires)
+    try:
+        with insights.memo_in_use(memo(opt)):
+            history = bo_views.round_history(opt)
+    except Exception:
+        return
+    chart = gain_chart(opt, history, model_free=not trusted)
+    if chart is None:
+        return
+    _question(opt, wording.GAIN_HEADING)
+    show_chart(chart)
+    st.caption(_say(opt, wording.GAIN_CHART_CAPTION))
 
 
 def _stand_lines(opt, yard):
@@ -1765,27 +1911,35 @@ def _mixture_kinds(opt):
                                    wording.MIXTURE_BLOCKED)]
 
 
-def mixture_frame(opt, mix, preds):
+def mixture_frame(opt, mix, preds, values=None, outline=None):
     """One row per grid point: its place on the page, what it is (tested
-    near here, not tested near here, not allowed) and its tooltip."""
+    near here, not tested near here, not allowed) and its tooltip.
+    `values` (a layer's number at each point, None where blocked) replaces
+    the predicted score as the colour; `outline` marks the points Predicted
+    above Best so far (BO views §3.3)."""
     unit = mix.units[0] if len(set(mix.units)) == 1 else ""
     cols = [opt._amount_column(n) for n in mix.names]
     tested, untested, blocked = _mixture_kinds(opt)
     rows = []
-    for p, pred in zip(mix.points, preds or [None] * len(mix.points)):
+    values = values or [None] * len(mix.points)
+    outline = outline or [False] * len(mix.points)
+    for p, pred, v, ring in zip(mix.points, preds or [None] * len(mix.points), values, outline):
         X, Y = _xy(p.x)
         state = blocked if p.broken else tested if p.tested else untested
-        row = {"X": X, "Y": Y, "state": state,
-               "score": None if pred is None else pred.mean,
+        score = None if pred is None else pred.mean
+        text = "" if pred is None else score_text(pred)
+        if v is not None:
+            score, text = v, f"{v:.2f}"
+        row = {"X": X, "Y": Y, "state": state, "score": score,
                "a0": round(p.amounts[0], 2), "a1": round(p.amounts[1], 2),
                "a2": round(p.amounts[2], 2), "sum": round(sum(p.amounts), 2),
-               "pred": "" if pred is None else score_text(pred),
-               "why": p.broken or ""}
+               "pred": text, "why": p.broken or "", "outline": bool(ring)}
         rows.append(row)
     return pd.DataFrame(rows), cols, unit
 
 
-def mixture_chart(opt, mix, preds, number, start_pred=None):
+def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=None,
+                  outline=None):
     """What happens when three ingredients trade places? Predicted Overall
     scores over the part of the triangle the limits allow, zoomed to it
     (0.8.0 review fixes §5.1): one hue, darker is higher; a smaller mark
@@ -1797,10 +1951,12 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
     score, goes in the start ring's tooltip."""
     if not mix.points or not preds:
         return None
-    df, cols, unit = mixture_frame(opt, mix, preds)
+    df, cols, unit = mixture_frame(opt, mix, preds, values, outline)
     kinds = _mixture_kinds(opt)
     formulation = _say(opt, wording.FORMULATION_CAP)
-    predicted = _say(opt, wording.PREDICTED_SCORE_COLUMN)
+    predicted = _say(opt, {wording.LAYER_SD: wording.LAYER_SD_LEGEND,
+                           wording.LAYER_GAIN: wording.LAYER_GAIN_LEGEND}.get(
+                               layer, wording.PREDICTED_SCORE_COLUMN))
     allowed = df[df["state"] != kinds[2]]["score"]
     lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
     # Zoomed to the drawn region (0.8.0 review fixes §5.1): the domains are
@@ -1880,6 +2036,13 @@ def mixture_chart(opt, mix, preds, number, start_pred=None):
             .mark_text(align=row["align"], baseline="middle", color=muted(), tooltip=False)
             .encode(x=x, y=y, text="t:N") for row in places]
     layers = [grey, grid, state_legend]
+    if df["outline"].any():
+        # Predicted above Best so far (review I6, M14): an outline, not a
+        # fill, so the colours under it still read.
+        layers.append(alt.Chart(df).mark_circle(filled=False, stroke=_OUTLINE, strokeWidth=1.5,
+                                                size=big, opacity=1, tooltip=False)
+                      .encode(x=x, y=y)
+                      .transform_filter(alt.FieldEqualPredicate(field="outline", equal=True)))
     if mix.dots:
         dots = pd.DataFrame([{**dict(zip(("X", "Y"), _xy(d.x))), "no": d.formulation}
                              for d in mix.dots])
@@ -1957,14 +2120,102 @@ def _pair(opt):
     return True
 
 
-def _start_number(opt):
-    """Section 2's Start from, else Best so far, else the newest."""
+def _start_number(opt, layered=False):
+    """Section 2's Start from, else Best so far, else the newest. For the
+    Uncertainty and Expected gain layers (review I8): the layers' own
+    Start from, else the open Round's first suggestion still to make."""
     ids = [int(x) for x in opt.formulation_ids]
+    if layered:
+        offered = suggested_numbers(opt)
+        chosen = st.session_state.get(LAYER_START_KEY)
+        if chosen in ids or chosen in offered:
+            return chosen
+        if offered:
+            return offered[0]
     chosen = st.session_state.get(START_KEY)
     if chosen in ids:
         return chosen
     best = opt.best_index()
     return ids[best] if best is not None else ids[-1]
+
+
+def suggested_numbers(opt):
+    """The open Round's generated rows still to make, in order (review I8:
+    a start for the layers only)."""
+    return [int(r['formulation']) for r in open_rows(opt)
+            if not r.get('note') or r.get('original_recipe')]
+
+
+def anchor_recipe(opt, number):
+    """A start's make-up at the Formulation total: a recorded formulation's
+    (start_recipe) or a suggestion's still to make."""
+    ids = [int(x) for x in opt.formulation_ids]
+    if number in ids:
+        return insights.start_recipe(opt, ids.index(number))
+    row = next(r for r in opt.pending_batch or [] if int(r['formulation']) == number)
+    return insights.at_total(opt, row['recipe'])
+
+
+def anchor_text(opt, number):
+    ids = [int(x) for x in opt.formulation_ids]
+    return (wording.start_formulation(number) if number in ids
+            else wording.start_suggested(number))
+
+
+def _model_guard(opt, fitted):
+    """The noise guard of the Overall-score display model (review I3), from
+    the checks already worked out: what the charts' model layers obey."""
+    score = (fitted or {}).get(insights.SCORE)
+    return insights.noise_guard(opt, score, checks_for(opt, "trust") or ())
+
+
+def layers_offered(opt, fitted):
+    """The three layers (review I6), or the Predicted score layer alone:
+    while the noise guard fires (review I4), and without a model yet."""
+    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    if len(rows) < insights.MIN_ROWS or _model_guard(opt, fitted).fires:
+        return (wording.LAYER_SCORE,)
+    if opt.pending_batch and opt.pending_batch_no is not None:
+        if bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
+            return (wording.LAYER_SCORE,)
+    return _LAYERS
+
+
+def _layer_pick(opt, fitted, key):
+    """The one radio (review I6): Predicted score, Uncertainty, Expected
+    gain. Not drawn when only the first is offered."""
+    offered = layers_offered(opt, fitted)
+    if len(offered) == 1:
+        return wording.LAYER_SCORE
+    _keep_if_offered(key, offered)
+    return st.radio(_say(opt, wording.LAYER_PICK), offered, key=key, horizontal=True)
+
+
+def layer_model(opt, fitted):
+    """The suggestion model the layers show (spec §3.3): the open Round's,
+    rebuilt (bo_views.generation); with no Round open, the one the next
+    Generate would fit (today's rows, the next seed). The display model of
+    the same rows stands in when the generation is not exact."""
+    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    if opt.pending_batch and opt.pending_batch_no is not None:
+        gen = bo_views.generation(opt, opt.pending_batch_no)
+    else:
+        gen = bo_views.Generation(None, int(opt.next_formulation_no), rows,
+                                  "warm" if len(rows) >= insights.MIN_ROWS else "cold", False)
+    score = (fitted or {}).get(insights.SCORE)
+    with insights.memo_in_use(memo(opt)):
+        return bo_views.rebuild(opt, gen, score if gen.rows == rows else None)
+
+
+def layer_values(opt, fitted, recipes, layer):
+    """The layer's number at each recipe (points at the Formulation total):
+    the suggestion model's sd, or its acquisition in points; None without
+    a model."""
+    model = layer_model(opt, fitted)
+    if model is None or not recipes:
+        return None
+    got = bo_views.evaluate(opt, model, bo_views.points(opt, recipes))
+    return (got.sd if layer == wording.LAYER_SD else got.value).tolist()
 
 
 # How many combinations _three_default tries before it settles for the
@@ -1997,20 +2248,66 @@ def _three_default(opt, fitted, offered, start):
     return best if best is not None else order[:3]
 
 
-def _mixture_cached(opt, fitted, names, number, start):
-    key = (insights.setup_key(opt), tuple(names), number)
+def _mixture_cached(opt, fitted, names, number, start, layer=wording.LAYER_SCORE):
+    """(mix, predictions, the start's own prediction, extra) once per setup,
+    three, start and layer. `extra`: the layer's values; for the Predicted
+    score layer, the Predicted above Best so far outline and the colour
+    span against the model's own uncertainty (review I6, M7)."""
+    key = (insights.setup_key(opt), tuple(names), number, layer)
     hit = st.session_state.get(MIXTURE_KEY)
     if hit and hit[0] == key:
         return hit[1]
     with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
         try:
             mix = insights.mixture_slice(opt, names, start)
-            value = (mix, insights.mixture_predictions(opt, fitted, mix),
-                     _start_prediction(opt, fitted, mix, start))
+            preds = insights.mixture_predictions(opt, fitted, mix)
+            value = (mix, preds, _start_prediction(opt, fitted, mix, start),
+                     _mixture_extra(opt, fitted, mix, preds, layer))
         except Exception:
             value = _FAILED
     st.session_state[MIXTURE_KEY] = (key, value)
     return value
+
+
+def _repeat_of_best(opt, fitted):
+    """Best so far's predicted Repeat (binding speed-spec I7): the predicted
+    best's when it is worked out, else the display model's at its amounts."""
+    hit = st.session_state.get(BEST_KEY)
+    if hit and hit[0] == insights.setup_key(opt) and isinstance(hit[1], insights.PredictedBest) \
+            and hit[1].repeat is not None:
+        return hit[1].repeat.mean
+    best = opt.best_index()
+    if best is None:
+        return None
+    [p] = insights.predict(opt, fitted[insights.SCORE],
+                           [opt._encode(insights.start_recipe(opt, best))])
+    return p.mean
+
+
+def _mixture_extra(opt, fitted, mix, preds, layer):
+    """What the chart needs beyond the predictions, per point (None where
+    blocked): a layer's values; or, on the Predicted score layer, the
+    outline (the model's mean − 1.96 × its own sd above Best so far's
+    predicted Repeat) and (colour span, median 1.96 × model sd) for the
+    §2.2 caption. {} when the suggestion model cannot be rebuilt."""
+    allowed = [p.recipe for p in mix.points if p.recipe is not None]
+    model = layer_model(opt, fitted)
+    if model is None or not allowed:
+        return {}
+    got = bo_views.evaluate(opt, model, bo_views.points(opt, allowed))
+    spread = lambda seq: iter(seq)
+    if layer != wording.LAYER_SCORE:
+        it = spread((got.sd if layer == wording.LAYER_SD else got.value).tolist())
+        return {"values": [next(it) if p.recipe is not None else None for p in mix.points]}
+    ref = _repeat_of_best(opt, fitted)
+    low = (got.mean - insights.Z95 * got.sd).tolist()
+    it = spread(low)
+    ring = [(next(it) > ref) if p.recipe is not None and ref is not None else False
+            for p in mix.points]
+    means = [p.mean for p in preds if p is not None]
+    half = sorted((insights.Z95 * got.sd).tolist())[len(allowed) // 2]
+    return {"outline": ring, "ref": ref,
+            "span": (max(means) - min(means)) if means else None, "half": half}
 
 
 def _start_prediction(opt, fitted, mix, start):
@@ -2031,9 +2328,10 @@ def _mixture(opt, fitted):
     if len(offered) < 3 or score is None or score.model is None:
         return False
     _question(opt, wording.Q_MIXTURE)
-    number = _start_number(opt)
-    ids = [int(x) for x in opt.formulation_ids]
-    start = insights.start_recipe(opt, ids.index(number))
+    layer = _layer_pick(opt, fitted, LAYER_KEY)
+    layered = layer != wording.LAYER_SCORE
+    number = _start_number(opt, layered)
+    start = anchor_recipe(opt, number)
     _keep_all_offered(THREE_KEY, offered)
     if THREE_KEY not in st.session_state:
         st.session_state[THREE_KEY] = _three_default(opt, fitted, offered, start)
@@ -2042,11 +2340,11 @@ def _mixture(opt, fitted):
     if len(picked) != 3:
         st.caption(_say(opt, wording.PICK_THREE))
         return True
-    got = _mixture_cached(opt, fitted, picked, number, start)
+    got = _mixture_cached(opt, fitted, picked, number, start, layer)
     if got is _FAILED:
         st.caption(_say(opt, wording.panel_failed(wording.OVERALL_SCORE_COLUMN)))
         return True
-    mix, preds, own = got
+    mix, preds, own, extra = got
     if mix.refusal == insights.NO_ROOM:
         st.caption(_say(opt, wording.mixture_no_room(number)))
         return True
@@ -2057,10 +2355,20 @@ def _mixture(opt, fitted):
     if mix.start_breaks:
         st.caption(_say(opt, wording.path_start_breaks(number, mix.start_breaks)))
         return True
-    chart = mixture_chart(opt, mix, preds, number, own)
+    chart = mixture_chart(opt, mix, preds, number, own, layer if layered else None,
+                          extra.get("values"), extra.get("outline"))
     if chart is not None:
         show_chart(chart, width="content")
-    st.caption(_say(opt, wording.mixture_caption(number)))
+    if layered:
+        st.caption(_say(opt, wording.layer_caption(layer, anchor_text(opt, number))))
+    else:
+        st.caption(_say(opt, wording.mixture_caption(number)))
+        if extra.get("outline") and any(extra["outline"]):
+            st.caption(_say(opt, wording.overlay_caption(_whole(extra["ref"]))))
+        span, half = extra.get("span"), extra.get("half")
+        if span is not None and half is not None and span < half:
+            # Review M7: a caption, not a rescaled colour.
+            st.caption(_say(opt, wording.mixture_within_noise(f"{span:.1f}", f"{half:.1f}")))
     for line in ([wording.path_follows(n) for n in mix.follows]
                  + ([wording.mixture_fills(mix.fill_moves)] if mix.fill_moves else [])
                  + [wording.path_not_checked(t, prop) for t, prop in mix.skipped]):

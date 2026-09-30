@@ -960,7 +960,7 @@ def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
     assert _triangles(_more(at))
-    mix, preds, got = at.session_state[ui_insights.MIXTURE_KEY][1]
+    mix, preds, got, _ = at.session_state[ui_insights.MIXTURE_KEY][1]
     opt = mixture_scored
     fitted = at.session_state[ui_insights.FITTED_KEY][1]
     start = insights.start_recipe(opt, opt.best_index())

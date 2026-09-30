@@ -252,7 +252,9 @@ def test_progress_chart_moved_from_results(insights_scored):
     labels = [e.label for e in at.expander]
     assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
     assert not any(c.value == wording.progress_caption_2() for c in at.caption)
-    at = _open_insights(_app())
+    at = _app()
+    at.session_state[ui_insights.PROGRESS_KEY] = True     # drawn only while open
+    at = _open_insights(at)
     assert any(c.value == wording.progress_caption_2() for c in at.tabs[3].caption)
 
 
@@ -458,7 +460,8 @@ def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, 
     def boom(*a, **k):
         import inspect
         caller = inspect.stack()[1].function
-        if caller == "_change":
+        # anchor_recipe: _change's own door to a start (BO views §3.3).
+        if caller in ("_change", "anchor_recipe"):
             raise RuntimeError("no path")
         return real(*a, **k)
     monkeypatch.setattr(insights, where, boom)
