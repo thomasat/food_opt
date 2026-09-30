@@ -293,7 +293,6 @@ def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored)
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
     said = [c.value for c in how.caption]
-    assert wording.PREDICTIONS_CAPTION not in said          # it restated how_checks (03)
     assert wording.rounds_not_checked([1, 2]) in said
     assert wording.details_window([3], 1, [3]) in said
     frame = how.dataframe[0].value
@@ -302,9 +301,9 @@ def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored)
     assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "under 3 pairs"}
     for line in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
         assert line in said
-    # Not under the verdict any more.
-    trust = [c.value for c in at.tabs[3].caption if c.value not in said]
-    assert wording.PREDICTIONS_CAPTION not in trust
+    # PREDICTIONS_CAPTION restated how_checks and is gone (03 §5.7; BO views
+    # Task 8).
+    assert not hasattr(wording, "PREDICTIONS_CAPTION")
 
 
 # ------------------------------------------------------------------ #

@@ -3932,7 +3932,6 @@ def wide_line(names_text):
             "Range): values fall inside easily, so this check says little yet.")
 
 
-PREDICTIONS_CAPTION = "Each Round is checked against what the formulations recorded before it predicted."
 SHOW_PREDICTIONS = "Measured against predicted"
 INGREDIENT_OR_SETTING = "Ingredient or process setting"
 START_FROM = "Start from"
@@ -4291,13 +4290,6 @@ def trust_within(inside, total, rounds, measurements=False, allowed=None):
     line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
             "95 % interval. As expected")
     return f"{line}: {_allow(allowed, total)}." if allowed is not None else f"{line}."
-
-
-def bias_tail(below=True):
-    """After the verdict when the Overall score runs off prediction: the
-    line under it gives the numbers."""
-    return (f" The {OVERALL_SCORE_COLUMN}, though, ran on average "
-            f"{'below' if below else 'above'} prediction.")
 
 
 HOW_BIAS = ("Mean error: the average of measured minus predicted Overall score over the "

@@ -136,7 +136,6 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.insights_gate(3))
     _check(wording.rounds_span(["3"]))
     _check(wording.rounds_span(["3", "4", "5"]))
-    _check(wording.PREDICTIONS_CAPTION)
     _check(wording.SHOW_PREDICTIONS)
     _check(wording.INGREDIENT_OR_SETTING)
     _check(wording.START_FROM)

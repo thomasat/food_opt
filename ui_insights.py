@@ -549,16 +549,6 @@ def column_models(opt):
     return models, insights.column_factor(opt, checks)
 
 
-def track_line(opt):
-    """Make a round's track-record line (spec §3, review I16), or '' —
-    from checks already worked out, never fitted for."""
-    checks = checks_for(opt, "trust")
-    if checks is None:
-        return ""
-    t = insights.round_track(opt, checks)
-    return "" if t is None else track_text(t)
-
-
 def track_text(t):
     """The line for insights.round_track's answer: rough only when too few
     landed inside; a bias in Insights' own words; holding otherwise — each
