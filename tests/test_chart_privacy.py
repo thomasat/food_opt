@@ -101,7 +101,7 @@ def _every_chart(opt):
 
     charts = [ui_insights.progress_chart(opt)]
 
-    track = ui_insights.track_chart(opt, checks)
+    track = ui_insights.measured_vs_predicted_chart(opt, checks)
     if track is not None:
         charts.append(track)
 
@@ -111,9 +111,9 @@ def _every_chart(opt):
     if path_chart is not None:
         charts.append(path_chart)
 
-    spread = insights.spreads(opt, fitted, start)
-    if spread.moved:
-        charts.append(ui_insights.spread_chart(spread.moved))
+    changes = insights.tested_near_changes(opt, fitted, start)
+    if changes.moved:
+        charts.append(ui_insights.change_chart(changes.moved))
 
     pair_names = insights.pair_choices(opt)
     if len(pair_names) >= 2:
@@ -129,11 +129,6 @@ def _every_chart(opt):
             preds = insights.mixture_predictions(opt, fitted, mix)
             charts.append(ui_insights.mixture_chart(opt, mix, preds, ids[best]))
 
-    found = insights.misses(checks)
-    misses = ui_insights.misses_chart(opt, found)
-    if misses is not None:
-        charts.append(misses)
-
     return charts
 
 
@@ -141,7 +136,8 @@ def test_every_chart_builder_in_the_file_gets_the_privacy_wrapper(mixture_scored
     charts = _every_chart(mixture_scored)
     # Guards against every builder failing silently and the loop testing
     # nothing: this project's docstring promises "enough for all three
-    # charts" plus the Progress, predictions and path charts.
+    # charts" (two since the misses chart went) plus the Progress,
+    # predictions, path and Compare all charts.
     assert len(charts) >= 6, len(charts)
     for chart in charts:
         spec = ui_insights._private(chart).to_dict()

@@ -283,16 +283,16 @@ def test_compare_all_ranks_by_the_measurement_it_was_given(insights_scored, monk
     """The bars under "Firmness" are Firmness's own spreads (Task 8 review
     Minor 3): passing the Overall score instead would fail here."""
     calls = []
-    real_spreads = insights.spreads
+    real_changes = insights.tested_near_changes
 
     def spy(opt, fitted, start, name=insights.SCORE):
-        found = real_spreads(opt, fitted, start, name)
+        found = real_changes(opt, fitted, start, name)
         calls.append((name, found))
         return found
-    monkeypatch.setattr(insights, "spreads", spy)
+    monkeypatch.setattr(insights, "tested_near_changes", spy)
     drawn = []
-    real_chart = ui_insights.spread_chart
-    monkeypatch.setattr(ui_insights, "spread_chart",
+    real_chart = ui_insights.change_chart
+    monkeypatch.setattr(ui_insights, "change_chart",
                         lambda s, *a: drawn.append(s) or real_chart(s, *a))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
@@ -301,7 +301,7 @@ def test_compare_all_ranks_by_the_measurement_it_was_given(insights_scored, monk
     firmness = [found.moved for name, found in calls if name == "Firmness"]
     assert firmness and drawn[-1] == firmness[-1]
     score = [found.moved for name, found in calls if name == insights.SCORE]
-    assert [s.spread for s in firmness[-1]] != [s.spread for s in score[-1]]
+    assert [s.whole for s in firmness[-1]] != [s.whole for s in score[-1]]
 
 
 def test_compare_all_says_no_caption_without_a_chart(insights_scored, monkeypatch):

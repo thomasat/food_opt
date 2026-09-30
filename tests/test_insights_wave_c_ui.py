@@ -739,73 +739,8 @@ def test_the_triangle_strings_pass_the_word_guards():
 #  Task 5: "How far did each prediction miss?"
 # ------------------------------------------------------------------ #
 
-def test_the_misses_chart_heading_and_caption(mixture_scored):
-    at = _open_insights(_app())
-    more = _more(at)
-    md = [m.value for m in more.markdown]
-    assert md[-1] == f"**{wording.Q_MISSES}**"
-    assert [c.value for c in more.caption][-1] == wording.MISSES_CAPTION
-
-
-def test_no_misses_chart_before_ten_measurement_checks(insights_scored):
-    at = _open_insights(_app())                      # 6 measurement checks
-    assert f"**{wording.Q_MISSES}**" not in [m.value for m in _more(at).markdown]
-
-
 def _checks(opt):
     return insights.check_rounds(opt)
-
-
-def test_misses_chart_band_zero_and_filled_inside(mixture_scored):
-    opt = mixture_scored
-    found = insights.misses(_checks(opt))
-    spec = ui_insights.misses_chart(opt, found).to_dict()
-    layers = spec["spec"]["layer"]
-    rect = next(l for l in layers if l["mark"]["type"] == "rect")
-    assert rect["encoding"]["y"]["field"] == "lo" and rect["encoding"]["y2"]["field"] == "hi"
-    rows = next(iter(spec["datasets"].values()))
-    bands = [r for r in rows if r["mark"] == "band"]
-    assert bands and all(r["lo"] == -insights.Z95 and r["hi"] == insights.Z95 and r["zero"] == 0
-                         for r in bands)
-    label = next(l for l in layers if l["mark"]["type"] == "text")
-    assert label["encoding"]["text"] == {"value": wording.MISSES_BAND}
-    filled = [l for l in layers if l["mark"].get("filled")]
-    assert filled[0]["transform"][-1] == {"filter": {"field": "inside", "equal": True}}
-    misses = [r for r in rows if r["mark"] == "miss"]
-    assert [r["inside"] for r in misses] == [abs(m.z) <= insights.Z95 for m in sorted(
-        found, key=lambda m: (ui_insights.track_panels(opt).index(m.name), m.round, m.formulation))]
-
-
-def test_misses_chart_shares_one_y_axis_and_puts_round_on_x(mixture_scored):
-    opt = mixture_scored
-    spec = ui_insights.misses_chart(opt, insights.misses(_checks(opt))).to_dict()
-    assert "resolve" not in spec
-    ring = next(l for l in spec["spec"]["layer"] if l["mark"]["type"] == "point")
-    assert ring["encoding"]["x"]["type"] == "ordinal"
-    assert ring["encoding"]["x"]["field"] == wording.ROUND_CAP
-    assert ring["encoding"]["xOffset"]["field"] == "slot"
-    assert ring["encoding"]["y"]["title"] == wording.MISSES_AXIS
-    assert spec["columns"] == 3
-
-
-def test_formulations_of_one_round_sit_side_by_side_in_number_order():
-    opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
-                              "measurements_by_importance": lambda self: self.objectives,
-                              "_measurement_column": lambda self, o: "Firmness (N)",
-                              "has_ingredients": lambda self: True})()
-    found = [insights.Miss(9, 3, "Firmness", 0.5, True), insights.Miss(7, 3, "Firmness", -1.0, True),
-             insights.Miss(8, 3, "Firmness", 2.5, False), insights.Miss(10, 4, "Firmness", 0.1, True)]
-    spec = ui_insights.misses_chart(opt_like, found).to_dict()
-    rows = [r for r in next(iter(spec["datasets"].values())) if r["mark"] == "miss"]
-    assert [(r[wording.FORMULATION_CAP], r["slot"]) for r in rows] == [(7, 0), (8, 1), (9, 2), (10, 0)]
-
-
-def test_exact_wave_c_strings_for_the_misses():
-    assert wording.Q_MISSES == "How far did each prediction miss?"
-    assert wording.MISSES_CAPTION == (
-        "How far each prediction missed, measured in standard deviations of its likely range; "
-        "about 19 in 20 land inside the band. A drift over the Rounds means the predictions run "
-        "consistently high or low.")
 
 
 def test_the_misses_strings_pass_the_word_guards():
@@ -869,24 +804,23 @@ def test_the_triangle_opens_on_the_real_moved_spreads(mixture_scored):
     assert three.value == want
 
 
-def test_more_charts_lists_its_three_questions_in_order(mixture_scored):
+def test_more_charts_lists_its_two_questions_in_order(mixture_scored):
+    """The misses chart went (spec 2026-09-30 §2.5): measured against
+    predicted, under "Show each prediction", says the same."""
     at = _open_insights(_app())
     md = [m.value for m in _more(at).markdown]
-    assert md == [f"**{q}**" for q in (wording.Q_PAIR, wording.Q_MIXTURE, wording.Q_MISSES)]
+    assert md == [f"**{q}**" for q in (wording.Q_PAIR, wording.Q_MIXTURE)]
 
 
 def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
-    """The expander's gate is the OR of its three charts' own gates."""
+    """The expander's gate is the OR of its two charts' own gates."""
     opt = type("O", (), {"complete_count": lambda self: insights.MIN_ROWS})()
     fitted = {insights.SCORE: type("F", (), {"model": object()})()}
-    for pair, three, misses, offered in ((0, 0, False, False), (2, 0, False, True),
-                                         (1, 3, False, True), (1, 0, True, True),
-                                         (1, 2, False, False)):
+    for pair, three, offered in ((0, 0, False), (2, 0, True), (1, 3, True), (1, 2, False)):
         opt.objectives = [{"name": f"M{k}"} for k in range(pair)]
         monkeypatch.setattr(insights, "mixture_choices", lambda o, n=three: ["x"] * n)
-        monkeypatch.setattr(insights, "misses_ready", lambda c, r=misses: r)
         assert ui_insights.more_charts_offered(
-            opt, {"fitted": fitted, "checks": []}) is offered, (pair, three, misses)
+            opt, {"fitted": fitted, "checks": []}) is offered, (pair, three)
 
 
 @pytest.fixture
@@ -923,15 +857,13 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     assert not [t for t in said if "ormulation" in t], [t for t in said if "ormulation" in t]
     assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
     md = [m.value for m in more.markdown]
-    assert md == [f"**{wording.Q_PAIR}**", f"**{wording.Q_MISSES}**"]
+    assert md == [f"**{wording.Q_PAIR}**"]
     caps = [c.value for c in more.caption]
     assert ("Each dot is a trial you measured; the line marks Acidity's target, and the "
             "other axis title says which way is better.") in caps
-    assert wording.MISSES_CAPTION in caps
-    pair, misses = _charts(more)
+    [pair] = _charts(more)
     assert {"field": "no", "title": wording.TRIAL_CAP, "type": "quantitative"} in [
         t for layer in pair["layer"] for t in layer["encoding"].get("tooltip", [])]
-    assert wording.TRIAL_CAP in json.dumps(misses["spec"]["layer"][3]["encoding"]["tooltip"])
 
 
 def test_no_trial_has_both_values_reads_trial(ferment_scored, monkeypatch):
@@ -953,8 +885,7 @@ def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, mo
                  wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
                  wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,
-                 wording.pair_caption(["Firmness"]), wording.PAIR_BEST, wording.Q_MISSES,
-                 wording.MISSES_CAPTION, wording.MISSES_BAND, wording.MISSES_AXIS):
+                 wording.pair_caption(["Firmness"]), wording.PAIR_BEST):
         assert line in said, line
 
 
@@ -1094,20 +1025,6 @@ def test_the_default_three_search_is_capped(mixture_scored, monkeypatch):
     got = ui_insights._three_default(opt, {}, offered, {})
     assert got == offered[:3]
     assert len(calls) == ui_insights._THREE_TRIES == 20
-
-
-def test_the_misses_chart_fills_by_its_own_band_not_by_the_check():
-    """A value outside a narrowed Range can make Check.inside and |z| ≤ 1.96
-    disagree; the chart's filled dots follow its own band."""
-    opt_like = type("O", (), {"objectives": [{"name": "Firmness", "unit": "N"}],
-                              "measurements_by_importance": lambda self: self.objectives,
-                              "_measurement_column": lambda self, o: "Firmness (N)",
-                              "has_ingredients": lambda self: True})()
-    found = [insights.Miss(7, 3, "Firmness", 2.5, True), insights.Miss(8, 3, "Firmness", 0.5, False),
-             insights.Miss(9, 3, "Firmness", -1.9, False)]
-    spec = ui_insights.misses_chart(opt_like, found).to_dict()
-    rows = [r for r in next(iter(spec["datasets"].values())) if r["mark"] == "miss"]
-    assert [r["inside"] for r in rows] == [False, True, True]
 
 
 def _pair_caption_for(opt, a, b):

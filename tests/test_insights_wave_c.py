@@ -66,36 +66,6 @@ def _check(name="Firmness", measured=5.2, raw_mean=5.0, sd=0.5, inside=True, rnd
     return insights.Check(no, rnd, name, 5.0, 4.0, 6.0, measured, inside, True, raw_mean, sd)
 
 
-def test_a_miss_is_measured_minus_the_unclipped_mean_over_the_sd():
-    opt = _burger(rounds=4, noise=0.3)
-    checks = insights.check_rounds(opt)
-    found = insights.misses(checks)
-    assert len(found) == len(checks)
-    for c, m in zip(checks, found):
-        assert (m.formulation, m.round, m.name, m.inside) == (c.formulation, c.round, c.name, c.inside)
-        assert m.z == pytest.approx((c.measured - c.raw_mean) / c.sd)
-
-
-def test_a_miss_at_the_top_of_the_range_is_not_inflated():
-    """Mean 9.5, sd 1, Range top 10: the clipped band is 7.54–10, whose half
-    width over 1.96 would read as sd 0.63 and inflate the miss by 60 %."""
-    c = insights.Check(1, 3, "Firmness", 9.5, 7.54, 10.0, 10.5, False, True, 9.5, 1.0)
-    [m] = insights.misses([c])
-    assert m.z == pytest.approx(1.0)
-
-
-def test_a_check_without_an_sd_is_left_out():
-    assert insights.misses([_check(sd=0.0), _check(sd=None), _check(raw_mean=None)]) == []
-
-
-def test_the_misses_gate_counts_measurement_checks_only():
-    score = [_check(name=insights.SCORE, no=k) for k in range(5)]
-    nine = [_check(no=k) for k in range(9)]
-    assert not insights.misses_ready(score + nine)
-    assert insights.misses_ready(score + nine + [_check(no=99)])
-    assert insights.MISSES_GATE == 10
-
-
 # ------------------------------------------------------------------ #
 #  Task 1c: two measurements against each other
 # ------------------------------------------------------------------ #
@@ -137,10 +107,8 @@ def test_a_value_outside_the_range_is_kept():
     assert p.a == 12.5
 
 
-def test_the_pair_and_the_misses_leave_the_project_and_rng_untouched():
+def test_the_pair_leaves_the_project_and_rng_untouched():
     opt = _burger(rounds=4, noise=0.3)
-    checks = insights.check_rounds(opt)
     state, rng = _state(opt), torch.get_rng_state().clone()
     insights.pair_points(opt, "Firmness", "Juiciness")
-    insights.misses(checks)
     assert _state(opt) == state and torch.equal(torch.get_rng_state(), rng)

@@ -41,8 +41,8 @@ def test_spreads_by_a_measurement_use_that_measurements_predictions():
 
 def test_compare_all_ranks_by_the_chosen_measurement(insights_scored, monkeypatch):
     drawn = []
-    real = ui_insights.spread_chart
-    monkeypatch.setattr(ui_insights, "spread_chart",
+    real = ui_insights.change_chart
+    monkeypatch.setattr(ui_insights, "change_chart",
                         lambda s, *a: drawn.append((s, a)) or real(s, *a))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     box = at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY)
@@ -50,10 +50,10 @@ def test_compare_all_ranks_by_the_chosen_measurement(insights_scored, monkeypatc
     assert box.options[1:] == ["Firmness (N)", "Juiciness (/10)"]     # Results' order
     box.set_value("Firmness")
     _rerun_on(at, wording.TAB_INSIGHTS)
-    spreads, (axis, d) = drawn[-1]
-    assert axis == "Spread (N)" and d == 1
+    changes, (axis, d) = drawn[-1]
+    assert axis == "Change in predicted Firmness (N)" and d == 1
     caps = [c.value for c in at.tabs[3].caption]
-    assert wording.spread_caption(measure="Firmness") in caps
+    assert wording.change_caption(measure="Firmness") in caps
 
 
 # ------------------------------------------------------------------ #
@@ -71,16 +71,6 @@ def test_two_are_named_when_the_second_is_within_20_percent():
                               "Best so far") == (
         "Coconut oil and Beet juice powder change the predicted Overall score the most "
         "(spreads of 8.8 and 7.9 points, from Best so far).")
-
-
-def test_the_answer_names_two_on_screen(insights_scored, monkeypatch):
-    monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start, name=insights.SCORE:
-                        insights.Spreads([insights.Spread("Pea protein", 5.0),
-                                          insights.Spread("Methylcellulose", 4.5)], []))
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    md = [m.value for m in at.tabs[3].markdown]
-    assert wording.spread_two("Pea protein", "Methylcellulose", "5.0", "4.5",
-                              "Best so far") in md
 
 
 # ------------------------------------------------------------------ #

@@ -25,6 +25,8 @@ def _isolate_cwd(tmp_path, monkeypatch):
 # ------------------------------------------------------------------ #
 
 def _layers(spec):
+    if "concat" in spec:            # measured against predicted: one panel per output
+        return [layer for panel in spec["concat"] for layer in _layers(panel)]
     spec = spec.get("spec", spec)
     return spec.get("layer", [spec])
 
@@ -48,12 +50,11 @@ def test_every_layer_of_every_chart_has_a_titled_tooltip_or_none(mixture_scored)
     path = insights.build_path(opt, "Oil", start)
     mix, preds = _mix_parts(opt)
     points = insights.pair_points(opt, "Firmness", "Juiciness")
-    for chart in (ui_insights.track_chart(opt, checks),
+    for chart in (ui_insights.measured_vs_predicted_chart(opt, checks),
                   ui_insights.path_chart(opt, path, insights.path_predictions(opt, fitted, path)),
-                  ui_insights.spread_chart(insights.spreads(opt, fitted, start).moved),
+                  ui_insights.change_chart(insights.tested_near_changes(opt, fitted, start).moved),
                   ui_insights.pair_chart(opt, "Firmness", "Juiciness", points),
-                  ui_insights.mixture_chart(opt, mix, preds, 7),
-                  ui_insights.misses_chart(opt, insights.misses(checks))):
+                  ui_insights.mixture_chart(opt, mix, preds, 7)):
         _assert_tooltips_clean(chart.to_dict())
 
 
@@ -88,7 +89,8 @@ def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     shown = next(e for e in tab.expander if e.label == wording.SHOW_PREDICTIONS)
     assert [c.value for c in shown.caption] == [wording.MVP_CAPTION]
     best = mixture_scored.best_formulation_no()
-    assert wording.path_lines(best, True) in [c.value for c in tab.caption]
+    assert any(c.value.endswith(f"Dotted: Formulation {best}; dashed: target.")
+               for c in tab.caption)
     assert wording.track_caption(False) == (
         "Bar = likely range, predicted before the Round; filled dot = landed inside, "
         "ring = outside.")

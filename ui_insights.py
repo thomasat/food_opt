@@ -586,7 +586,9 @@ def _q_change(opt):
 
 
 def _change(opt, computed):
-    """Question 2's answer, under its heading."""
+    """"Try one ingredient or process setting" (§2.5): its first line ranks
+    the choices near what has been tested (review I8), then the two boxes,
+    the path and its two captions."""
     choices = insights.path_choices(opt)
     if not choices:
         st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
@@ -610,15 +612,17 @@ def _change(opt, computed):
     fitted = computed["fitted"]
     try:
         recipe = insights.start_recipe(opt, ids.index(number))
-        found = insights.spreads(opt, fitted, recipe)
+        found = insights.tested_near_changes(opt, fitted, recipe)
     except Exception:   # the answer line is left out; the path still draws
-        recipe, found = None, insights.Spreads([], [])
-    # The box opens on the largest spread; after that it keeps the reader's
-    # own choice (_keep_if_offered drops it only when it is no longer offered).
+        recipe, found = None, insights.NearChanges([], [], False)
+    # The box opens on the largest change near what has been tested; after
+    # that it keeps the reader's own choice (_keep_if_offered drops it only
+    # when it is no longer offered).
     if found.moved and CHOICE_KEY not in st.session_state:
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
-        _spread_answer(opt, found, number == best_no, number, fitted, recipe)
+        _near_answer(opt, found, number == best_no, number, fitted, recipe,
+                     insights.noise_yardstick(opt, computed["checks"]))
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
@@ -685,12 +689,12 @@ def spread_chart(spreads, axis=wording.SPREAD_AXIS, d=1):
 _FLAT = 0.1
 
 
-def _spread_answer(opt, found, from_best, number, fitted=None, recipe=None):
-    """The one line above the boxes — naming two when they are nearly tied —
-    a caption naming any choice the limits hold in place, one naming two
-    ingredients that moved together, and the compare expander, which ranks
-    by the Overall score or a measurement. Nothing when no path could be
-    drawn or there is no Overall-score model yet."""
+def _near_answer(opt, found, from_best, number, fitted, recipe, yard):
+    """The fold's first line (§2.5, review I8): the choice that changes the
+    predicted Overall score most near what has been tested — two when they
+    are nearly tied — only when that change is more than Repeats differ
+    (the yardstick); a line naming any choice the limits hold in place, one
+    naming two ingredients moved together, and the Compare all fold."""
     start = wording.spread_from(from_best, number)
     # With no ingredient to change, every choice is a process setting: it
     # has values, not amounts, and the lines name process settings alone.
@@ -700,35 +704,40 @@ def _spread_answer(opt, found, from_best, number, fitted=None, recipe=None):
         if found.held:
             st.write(_say(opt, wording.held_all(start, settings_only)))
         return
-    flat = all(s.spread < _FLAT for s in moved)
-    tie = None if flat else insights.near_tie(moved)
-    if flat:
-        st.write(_say(opt, wording.spread_flat(settings_only)))
-    elif tie:
-        st.write(_say(opt, wording.spread_two(tie[0].name, tie[1].name,
-                                              f"{tie[0].spread:.1f}", f"{tie[1].spread:.1f}",
-                                              start)))
+    top = moved[0]
+    standing = [c for c in moved if c.near is not None and c.near > yard.value]
+    if not found.start_tested:
+        st.write(_say(opt, wording.near_start_untested(start)))
+    elif not standing:
+        st.write(_say(opt, wording.near_none(settings_only, insights.has_setting_choice(opt))))
     else:
-        top = moved[0]
-        st.write(_say(opt, wording.spread_line(top.name, f"{top.spread:.1f}", start,
-                                               only=len(moved) == 1,
-                                               values=insights.is_setting(opt, top.name))))
+        second = moved[1] if len(moved) > 1 else None
+        if (second is not None and second.near is not None
+                and second.near >= insights.NEAR_TIE * top.near):
+            st.write(_say(opt, wording.near_two(top.name, second.name, f"{top.near:.1f}",
+                                                f"{second.near:.1f}", start)))
+        else:
+            st.write(_say(opt, wording.near_line(top.name, f"{top.near:.1f}", start,
+                                                 only=len(moved) == 1)))
+        if top.whole > top.near + _FLAT:
+            st.write(_say(opt, wording.near_bigger(values=insights.is_setting(opt, top.name))))
     if found.held:
         st.caption(_say(opt, wording.held_line(start, found.held)))
-    together = None if flat else insights.moved_together(opt)
+    together = insights.moved_together(opt)
     if together:
         st.caption(_say(opt, wording.moved_together(*together)))
-    if not flat and len(moved) > 1:
+    if len(moved) > 1:
         with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
                                                        not settings_only))):
             _compare_all(opt, moved, settings_only, fitted, recipe)
 
 
 def _compare_all(opt, moved, settings_only, fitted, recipe):
-    """The ranking, by the Overall score (the answer's own spreads) or by
-    the measurement chosen beside it: its spreads come from that
+    """The ranking, by the Overall score (the answer's own changes) or by
+    the measurement chosen beside it: its changes come from that
     measurement's own predictions, so the ranking agrees with its panel
-    below (0.8.0 review fixes §4.1)."""
+    (0.8.0 review fixes §4.1). Each bar is the change near what has been
+    tested, extended in a lighter shade to the whole path (review I8)."""
     fitted = fitted or {}
     options = [insights.SCORE] + ([] if recipe is None else [
         o['name'] for o in opt.measurements_by_importance()
@@ -736,22 +745,23 @@ def _compare_all(opt, moved, settings_only, fitted, recipe):
     _keep_if_offered(SPREAD_KEY, options)
     on = st.selectbox(_say(opt, wording.SPREAD_ON), options, key=SPREAD_KEY,
                       format_func=lambda n: _say(opt, panel_label(opt, n)))
-    ranked, axis, d = moved, wording.SPREAD_AXIS, 1
+    ranked, axis, d = moved, wording.CHANGE_AXIS, 1
+    label = wording.OVERALL_SCORE_COLUMN
     if on != insights.SCORE:
         try:
-            ranked = insights.spreads(opt, fitted, recipe, on).moved
+            ranked = insights.tested_near_changes(opt, fitted, recipe, on).moved
         except Exception:
             ranked = []
         obj = next(o for o in opt.objectives if o['name'] == on)
-        axis, d = wording.spread_axis(obj.get('unit')), decimals(opt, on)
-    chart = spread_chart(ranked, axis, d)
+        label = on
+        axis, d = wording.change_axis(on, obj.get('unit') or ""), decimals(opt, on)
+    chart = change_chart(ranked, axis, d)
     if chart is None:
         # No bars, so nothing for the caption to explain (Task 8 review,
         # Minor 4).
         return
     show_chart(chart)
-    label = wording.OVERALL_SCORE_COLUMN if on == insights.SCORE else on
-    st.caption(_say(opt, wording.spread_caption(values=settings_only, measure=label)))
+    st.caption(_say(opt, wording.change_caption(values=settings_only, measure=label)))
 
 
 def _whole(value):
@@ -816,25 +826,28 @@ def _shared_decimals(values):
     return min(2, decimals)
 
 
-def _path_captions(opt, path, number, fitted, near=None):
-    lines = []
+def _path_head(opt, path):
     if path.mode == "fill":
-        lines.append(wording.path_fill(path.name, path.fill_name, number))
-    elif path.mode == "proportional":
-        lines.append(wording.path_proportional(
-            path.name, opt.batch_total_text(opt.formulation_total)))
-    elif path.mode == "process":
-        lines.append(wording.path_process(path.name, number, opt.has_ingredients()))
-    else:
-        lines.append(wording.path_free(path.name, number))
-    for end in (path.low_end, path.high_end):
-        if end.reason:
-            lines.append(wording.path_stops(_amount(end.amount, path.unit), end.reason))
+        return wording.path_head_fill(path.name, path.fill_name)
+    if path.mode == "proportional":
+        return wording.path_head_proportional(path.name,
+                                              opt.batch_total_text(opt.formulation_total))
+    if path.mode == "process":
+        return wording.path_head_process(path.name)
+    return wording.path_head_free(path.name)
+
+
+def _path_captions(opt, path, number, fitted, near=None):
+    """The path's two captions (§2.5, expert "Merge"): what moves, where it
+    stops and what is fixed; then the key. The rarer lines (outside
+    today's Lowest-Highest, calculations, unchecked limits, a missing
+    panel) come between them."""
+    stops = [(_amount(end.amount, path.unit), end.reason)
+             for end in (path.low_end, path.high_end) if end.reason]
+    fixed = [(n, _amount(a, u)) for n, a, u in path.fixed]
+    lines = [wording.path_what(_path_head(opt, path), stops, fixed)]
     if path.outside:
         lines.append(wording.path_outside(number, _amount(path.start_amount, path.unit)))
-    if path.fixed:
-        lines.append(wording.path_fixed(", ".join(
-            f"{n} {_amount(a, u)}" for n, a, u in path.fixed)))
     lines += [wording.path_follows(n) for n in path.follows]
     lines += [wording.path_not_checked(t, prop) for t, prop in path.skipped]
     for name in path_panels(opt):
@@ -846,9 +859,8 @@ def _path_captions(opt, path, number, fitted, near=None):
         elif f.model is None:
             lines.append(wording.panel_missing(panel_label(opt, name)))
     near = insights.tested_near(opt, path) if near is None else near
-    if not all(near):
-        lines.append(wording.path_grey(values=path.mode == "process"))
-    lines.append(wording.path_lines(number, bool(_target_rows(opt, path_panels(opt)))))
+    lines.append(wording.path_key(number, grey=not all(near),
+                                  targets=bool(_target_rows(opt, path_panels(opt)))))
     return lines
 
 
@@ -1440,59 +1452,6 @@ def _corner_places(mix, pad, text):
     return rows
 
 
-def misses_chart(opt, found):
-    """How far did each prediction miss? One panel per measurement plus the
-    Overall score, all on one y axis in standard deviations: a grey band
-    for the likely range (±1.96), a zero line, a ring for every miss and a
-    filled dot for one inside the band (|z| ≤ 1.96), as in "Show each
-    prediction". Round on x; formulations of one Round sit side by side in
-    Formulation-number order."""
-    if not found:
-        return None
-    names = [n for n in track_panels(opt) if any(m.name == n for m in found)]
-    order = [_say(opt, panel_label(opt, n)) for n in names]
-    formulation, rnd = _say(opt, wording.FORMULATION_CAP), _say(opt, wording.ROUND_CAP)
-    miss = _say(opt, wording.MISSES_AXIS)
-    rows = []
-    for name in names:
-        mine = sorted((m for m in found if m.name == name), key=lambda m: (m.round, m.formulation))
-        slot = {}
-        for m in mine:
-            k = slot[m.round] = slot.get(m.round, -1) + 1
-            rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "miss",
-                         rnd: m.round, "slot": k, formulation: m.formulation,
-                         miss: round(m.z, 2), "inside": abs(m.z) <= insights.Z95})
-        rows.append({"panel": _say(opt, panel_label(opt, name)), "mark": "band",
-                     "lo": -insights.Z95, "hi": insights.Z95, "zero": 0.0})
-    df = pd.DataFrame(rows)
-    zs = [m.z for m in found]
-    top = max(2.5, max(abs(v) for v in zs) + 0.25)
-    y = alt.Y(f"{miss}:Q", title=miss, scale=alt.Scale(domain=[-top, top], nice=False))
-    x = alt.X(f"{rnd}:O", title=rnd, axis=alt.Axis(labelAngle=0))
-    off = alt.XOffset("slot:O")
-    tip = [alt.Tooltip(f"{formulation}:Q", title=formulation),
-           alt.Tooltip(f"{rnd}:O", title=rnd),
-           alt.Tooltip(f"{miss}:Q", title=miss, format=".1f")]
-    band = (alt.Chart().mark_rect(opacity=_BAND, color="gray", tooltip=False)
-            .encode(y=alt.Y("lo:Q", scale=alt.Scale(domain=[-top, top], nice=False)), y2="hi:Q")
-            .transform_filter(_only("band")))
-    label = (alt.Chart().mark_text(align="left", baseline="bottom", dx=3, dy=-2, color=muted(),
-                                   tooltip=False)
-             .encode(y="hi:Q", x=alt.value(0), text=alt.value(_say(opt, wording.MISSES_BAND)))
-             .transform_filter(_only("band")))
-    zero = (alt.Chart().mark_rule(color="gray", strokeWidth=1, tooltip=False)
-            .encode(y="zero:Q").transform_filter(_only("band")))
-    rings = (alt.Chart().mark_point(size=50, strokeWidth=2)
-             .encode(x=x, xOffset=off, y=y, tooltip=tip).transform_filter(_only("miss")))
-    filled = (alt.Chart().mark_point(size=50, filled=True, opacity=1)
-              .encode(x=x, xOffset=off, y=y, tooltip=tip)
-              .transform_filter(_only("miss"))
-              .transform_filter(alt.FieldEqualPredicate(field="inside", equal=True)))
-    return (alt.layer(band, zero, label, rings, filled, data=df)
-            .properties(width=220, height=160)
-            .facet(facet=alt.Facet("panel:N", sort=order, title=None), columns=3))
-
-
 def _pair(opt):
     names = insights.pair_choices(opt)
     if len(names) < 2:
@@ -1626,19 +1585,6 @@ def _mixture(opt, fitted):
     return True
 
 
-def _misses(opt, checks):
-    if not insights.misses_ready(checks):
-        return False
-    found = insights.misses(checks)
-    chart = misses_chart(opt, found)
-    if chart is None:
-        return False
-    _question(opt, wording.Q_MISSES)
-    show_chart(chart)
-    st.caption(_say(opt, wording.MISSES_CAPTION))
-    return True
-
-
 def more_charts_offered(opt, computed):
     """Whether "More charts" has anything to show: 5 formulations with all
     their results, the models fitted, and at least one of its charts past
@@ -1647,10 +1593,11 @@ def more_charts_offered(opt, computed):
         return False
     fitted = computed["fitted"]
     score = fitted.get(insights.SCORE)
+    # The misses chart is gone (spec 2026-09-30 §2.5): measured against
+    # predicted, under "Show each prediction", says the same in the units.
     return (len(opt.objectives) >= 2
             or (len(insights.mixture_choices(opt)) >= 3 and score is not None
-                and score.model is not None)
-            or insights.misses_ready(computed["checks"]))
+                and score.model is not None))
 
 
 def _more_charts(opt, computed):
@@ -1658,8 +1605,7 @@ def _more_charts(opt, computed):
         return
     with st.expander(_say(opt, wording.MORE_CHARTS)):
         for draw in (lambda: _pair(opt),
-                     lambda: _mixture(opt, computed["fitted"]),
-                     lambda: _misses(opt, computed["checks"])):
+                     lambda: _mixture(opt, computed["fitted"])):
             try:
                 draw()
             except Exception:   # one chart failing must not take the tab down

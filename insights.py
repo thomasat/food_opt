@@ -334,33 +334,6 @@ def rounds_not_checked(opt):
     return [r for r, first in round_order(opt) if first < MIN_ROWS]
 
 
-# Wave C: how far each prediction missed, in standard deviations.
-
-@dataclass
-class Miss:
-    formulation: int
-    round: int
-    name: str
-    z: float
-    inside: bool
-
-
-def misses(checks):
-    """Each check's miss in standard deviations of its likely range:
-    (measured - unclipped mean) / calibrated sd. A check with no sd is
-    left out."""
-    return [Miss(c.formulation, c.round, c.name, (c.measured - c.raw_mean) / c.sd, c.inside)
-            for c in checks if c.sd is not None and c.sd > 0 and c.raw_mean is not None]
-
-
-MISSES_GATE = 10
-
-
-def misses_ready(checks):
-    """The same threshold as the headline: 10 measurement checks."""
-    return sum(c.name != SCORE for c in checks) >= MISSES_GATE
-
-
 def binomial_tail(m, n, p=0.05):
     if m <= 0:
         return 1.0
