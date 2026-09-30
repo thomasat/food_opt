@@ -514,16 +514,6 @@ def _keep_if_offered(key, options):
         del st.session_state[key]
 
 
-def _q_change(opt):
-    """Question 2's heading."""
-    # With nothing varying at all, an ingredient project still asks about
-    # an ingredient (there is no process setting to name instead).
-    choices = insights.path_choices(opt)
-    return wording.q_change(insights.has_setting_choice(opt),
-                            insights.has_ingredient_choice(opt)
-                            or (not choices and opt.has_ingredients()))
-
-
 def _change(opt, computed):
     """"Try one ingredient or process setting" (§2.5): its first line ranks
     the choices near what has been tested (review I8), then the two boxes,
