@@ -248,7 +248,10 @@ def test_details_compare_the_typical_miss_with_the_repeats():
     checks = [_check("Firmness", measured=5.0, predicted=5.0 + d) for d in (0.3, 0.5, 0.7)]
     [row] = insights.details(opt, checks)
     assert row.typical_miss == pytest.approx(0.5)
-    assert row.ratio == pytest.approx(0.5 / insights.repeat_sd(opt, "Firmness").sd)
+    # Like with like (spec 2026-09-30 review M6): a median miss against the
+    # median difference a normal spread of this sd gives.
+    assert row.ratio == pytest.approx(
+        0.5 / (insights.MAD_OF_NORMAL * insights.repeat_sd(opt, "Firmness").sd))
 
 
 # ------------------------------------------------------------------ #

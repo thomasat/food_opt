@@ -459,14 +459,26 @@ class DetailRow:
     half_width: float
     typical_miss: float
     repeat_sd: float | None     # spread between Repeats; None: no Repeats yet
-    ratio: float | None         # typical miss / repeat_sd
+    ratio: float | None         # typical miss / (MAD_OF_NORMAL * repeat_sd)
+    widen: float | None = None  # the current fit's widening; None without a model
+    pairs: int = 0              # pairs of Repeats repeat_sd rests on
 
 
-def details(opt, checks):
+# The median absolute value of a standard normal: a typical miss (a median)
+# is compared with a typical difference between Repeats on the same footing
+# (spec 2026-09-30 §2.5, review M6).
+MAD_OF_NORMAL = 0.6744897501960817
+
+
+def details(opt, checks, fitted=None, flagged=None):
     """One row per output checked at least once, in Results' order. R² is
     gone (0.8.0 review fixes §3.4): on formulations the suggestions chose
     it is below 0 even for a perfect prediction one time in seven. The
-    typical miss is compared with the spread between Repeats instead."""
+    typical miss is compared with the typical difference between Repeats,
+    like with like (spec 2026-09-30 review M6). `fitted`: the current
+    models, for the "Likely range widened by" column (review M5).
+    `flagged`: disagreeing_repeat's answer, left out of every output's
+    Repeats (review I4)."""
     rows = []
     matches = None
     ordered = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
@@ -480,13 +492,153 @@ def details(opt, checks):
             # each output's rows are among the fully measured ones.
             matches = _matches(opt, [i for i in range(len(opt.Y_history))
                                      if opt.fully_measured(i)])
-        sd = repeat_sd(opt, name, matches).sd
+        spread = repeat_sd(opt, name, matches, () if flagged is None else (flagged.row,))
+        sd = spread.sd
+        f = (fitted or {}).get(name)
         rows.append(DetailRow(
             name, len(mine), sum(c.inside for c in mine),
             statistics.median((c.high - c.low) / 2 for c in mine), miss,
             # sd 0: the Repeats agreed exactly, and there is no ratio.
-            sd, None if not sd else miss / sd))
+            sd, None if not sd else miss / (MAD_OF_NORMAL * sd),
+            f.widen if f is not None and f.model is not None else None, spread.pairs))
     return rows
+
+
+# ------------------------------------------------------------------ #
+#  0.8.0 speed and simplicity, Plan B: one yardstick, one verdict, one
+#  next step (spec 2026-09-30 §2; review I2, I4, I5, I6). Every function
+#  here takes the checks as an argument, so they can come from a cache.
+# ------------------------------------------------------------------ #
+
+# A pooled spread between Repeats is the yardstick only from this many pairs
+# (review I5): "don't benchmark on one pair".
+YARDSTICK_PAIRS = 3
+# The over-wide verdict (review I6): every result inside, at least this many
+# checks, and a median |z| this small. Simulated with calibrated misses it
+# fires 2.9 % of the time at 20 checks and 0.4 % at 33.
+OVER_WIDE_MIN = 20
+OVER_WIDE_Z = 0.4
+
+
+@dataclass
+class Yardstick:
+    value: float | None     # the threshold: Repeats' sd from 3+ pairs, else 1 point (None
+                            # for a measurement)
+    sd: float | None        # the pooled sd between Repeats, a disagreeing one left out
+    pairs: int              # how many pairs of Repeats sd rests on
+    from_repeats: bool      # value is sd (3+ pairs, at least REPEAT_SD_SHOWN)
+
+
+@dataclass
+class Disagreement:
+    later: int              # the Repeat's Formulation number
+    earlier: int            # the Formulation number it repeats
+    diff: float             # later minus earlier, Overall score
+    row: int                # the later one's row: left out of every Repeat spread
+
+
+def disagreeing_repeat(opt, checks, matches=None):
+    """The one Repeat whose Overall score differs from its original by more
+    than two results should (review I4), or None: |d| over √2 times the
+    half-width of the later one's own Round-ahead check. Only a later one
+    in the verdict's Rounds counts, a group of three or more compares each
+    with its first, either direction counts, and of several the largest
+    |d| is named. `matches`: as for repeat_groups."""
+    window = set(headline(opt, checks).rounds)
+    if not window:
+        return None
+    ahead = {c.formulation: c for c in checks
+             if c.name == SCORE and c.fully_measured and c.round in window}
+    if not ahead:
+        return None
+    best = None
+    for group in repeat_groups(opt, opt.best_candidates(), matches):
+        first, *rest = sorted(group)
+        for i in rest:
+            c = ahead.get(int(opt.formulation_ids[i]))
+            if c is None:
+                continue
+            half = Z95 * c.sd if c.sd else (c.high - c.low) / 2
+            d = float(opt.Y_history[i]) - float(opt.Y_history[first])
+            if abs(d) > math.sqrt(2) * half and (best is None or abs(d) > abs(best.diff)):
+                best = Disagreement(int(opt.formulation_ids[i]),
+                                    int(opt.formulation_ids[first]), d, i)
+    return best
+
+
+def noise_yardstick(opt, checks=(), name=SCORE):
+    """What a difference must beat to be more than chance (review I5): the
+    pooled sd between Repeats of `name`, a disagreeing Repeat left out,
+    from YARDSTICK_PAIRS pairs or more and at least REPEAT_SD_SHOWN; else 1
+    point for the Overall score (None for a measurement). Every rule that
+    asks "more than Repeats differ?" asks this."""
+    flagged = disagreeing_repeat(opt, checks) if checks else None
+    spread = repeat_sd(opt, name, None, () if flagged is None else (flagged.row,))
+    usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
+              and spread.pairs >= YARDSTICK_PAIRS)
+    fallback = 1.0 if name == SCORE else None
+    return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable)
+
+
+def verdict_state(opt, h, checks):
+    """One verdict, in order (review I6): "none", "early", "unreliable",
+    "caution", "wide" (every output in the verdict's Rounds wide),
+    "over_wide", or "within"."""
+    if h.state != "verdict":
+        return h.state
+    if h.verdict in ("unreliable", "caution"):
+        return h.verdict
+    window = [c for c in checks if c.round in h.rounds]
+    names = {c.name for c in window}
+    if names and names <= set(h.wide or []):
+        return "wide"
+    z = [abs((c.measured - c.raw_mean) / c.sd) for c in window
+         if c.name != SCORE and c.sd and c.raw_mean is not None]
+    if (h.inside == h.total and h.total >= OVER_WIDE_MIN and z
+            and statistics.median(z) <= OVER_WIDE_Z):
+        return "over_wide"
+    return "within"
+
+
+@dataclass
+class NextStep:
+    kind: str       # "bias", "misses", "repeat", "early", "untested", "close",
+                    # "rising" or "see"
+    gap: float | None = None                    # "bias": the Overall score's average miss
+    disagreement: Disagreement | None = None    # "repeat"
+    binding: object = None                      # "close": what binds the predicted best
+
+
+def next_step(opt, checks, standing=None):
+    """What to do next (review I2), first match wins. `standing`: the
+    predicted best against Best so far (an object with .higher,
+    .tested_near and .binding), or None when it could not be worked out;
+    the rows that need it are then skipped. Never called at the gate
+    (fewer than MIN_ROWS scored) or after a failed fit: the screen says
+    the gate line there."""
+    h = headline(opt, checks)
+    state = verdict_state(opt, h, checks)
+    yard = noise_yardstick(opt, checks)
+    if state == "unreliable":
+        gap = None if h.score is None else h.score.mean_miss
+        if gap is not None and abs(gap) > yard.value:
+            return NextStep("bias", gap=gap)
+        return NextStep("misses")
+    flagged = disagreeing_repeat(opt, checks)
+    if flagged is not None:
+        return NextStep("repeat", disagreement=flagged)
+    if state in ("none", "early", "wide"):
+        return NextStep("early")
+    answer = improvement(opt, yardstick=yard)
+    if standing is not None:
+        if standing.higher and not standing.tested_near:
+            return NextStep("untested")
+        if (not standing.higher and answer is not None
+                and answer.state in ("not_lately", "barely")):
+            return NextStep("close", binding=standing.binding[0] if standing.binding else None)
+    if answer is not None and answer.state == "yes":
+        return NextStep("rising")
+    return NextStep("see")
 
 
 _EPS = 1e-9
@@ -797,7 +949,7 @@ class Improvement:
 REPEAT_SD_SHOWN = 0.05
 
 
-def improvement(opt, facts=None, spread=None):
+def improvement(opt, facts=None, spread=None, yardstick=None):
     """The answer to "Is it still improving?" (0.8.0 review fixes §3.7,
     §9 I9), or None when there is nothing to say yet. Rounds are the
     scored ones (scored_rounds).
@@ -813,11 +965,16 @@ def improvement(opt, facts=None, spread=None):
       Round since): None, and Best so far's own line says it.
 
     `facts` and `spread`: best_facts(opt) and repeat_sd(opt, SCORE), when
-    the caller has them already."""
+    the caller has them already. `yardstick` (noise_yardstick, spec
+    2026-09-30 review I5), when given, replaces `spread`: the spread
+    between Repeats counts only from YARDSTICK_PAIRS pairs, else 1 point."""
     f = best_facts(opt) if facts is None else facts
     if f is None:
         return None
-    sd = (repeat_sd(opt, SCORE) if spread is None else spread).sd
+    if yardstick is not None:
+        sd = yardstick.value if yardstick.from_repeats else None
+    else:
+        sd = (repeat_sd(opt, SCORE) if spread is None else spread).sd
     if sd is not None and sd < REPEAT_SD_SHOWN:
         sd = None
     if f.rounds_since >= 2:
@@ -888,18 +1045,21 @@ def repeat_groups(opt, rows, matches=None):
     return [g for g in groups.values() if len(g) > 1]
 
 
-def repeat_sd(opt, name, matches=None):
+def repeat_sd(opt, name, matches=None, without=()):
     """The spread between Repeats for one output: the pooled standard
     deviation within Repeat groups (0.8.0 review fixes §9 I9). The Overall
     score uses the formulations Best so far compares; a measurement, the
     fully measured formulations with a value for it. `matches`: as for
-    repeat_groups, over the fully measured formulations or more."""
+    repeat_groups, over the fully measured formulations or more.
+    `without`: rows left out (a Repeat that disagrees, spec 2026-09-30
+    review I4)."""
     if name == SCORE:
-        rows = opt.best_candidates()
+        rows = [i for i in opt.best_candidates() if i not in without]
         value = lambda i: float(opt.Y_history[i])
     else:
         rows = [i for i in range(len(opt.Y_history))
-                if opt.fully_measured(i) and measured(opt, name, i) is not None]
+                if opt.fully_measured(i) and measured(opt, name, i) is not None
+                and i not in without]
         value = lambda i: measured(opt, name, i)
     groups = repeat_groups(opt, rows, matches)
     if not groups:
