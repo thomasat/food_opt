@@ -397,3 +397,16 @@ def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkey
     no = trial_scored.best_formulation_no()
     assert (f"Best so far's score includes some luck; a Repeat of Trial {no} is "
             "predicted at 80 (likely 75–85).") in md, md
+
+
+def test_the_changed_strings_pass_the_vocabulary_guard():
+    from tests.test_food_bo import _BANNED
+    for text in (wording.insights_header(0, None, 3, "Cook loss"),
+                 wording.insights_header(0, None, 1, "Cook loss", early=False),
+                 wording.waiting_generate_caption(1, "Cook loss"),
+                 wording.formulation_corrected_not_scored(7, "Cook loss"),
+                 wording.formulation_corrected_not_scored(7, ""),
+                 wording.spread_two("A", "B", "1.0", "0.9", "Best so far"),
+                 wording.NO_COMPLETE_FORMULATION):
+        assert not any(p.search(text) for p in _BANNED), text
+    assert wording.formulation_corrected_not_scored(7, "") == "Formulation 7 corrected · Not scored."
