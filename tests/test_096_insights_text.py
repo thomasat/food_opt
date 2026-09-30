@@ -244,7 +244,7 @@ def test_a_disagreeing_repeat_names_its_interval():
     d = insights.Disagreement(21, 11, -10.5, 20, 7.4)
     assert ui_insights.disagreement_text(d) == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4. Check the panel, suppliers and "
+        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
         "equipment for a change.")
 
 
@@ -256,4 +256,5 @@ def test_the_correlated_pair_carries_its_r(tmp_path, monkeypatch):
     a, b, r = insights.correlated_pair(opt)
     assert (a, b) == ("Pea", "Oil") == insights.moved_together(opt)
     assert r >= insights.TOGETHER
-    assert f"(r = {r:.2f})" in wording.moved_together(a, b, f"{r:.2f}")
+    # T0 review I-4: the pair is ranked by |r|, and the sentence says so.
+    assert f"(|r| = {r:.2f})" in wording.moved_together(a, b, f"{r:.2f}")

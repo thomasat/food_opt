@@ -4298,6 +4298,10 @@ _BANNED = [
     # "differ", an ingredient "changes the prediction by up to". "spread"
     # named both, and a Compare-all bar besides.
     re.compile(r"\bspread\b", re.I),
+    # Owner's rule (03 rule 12; BO views fix round 1, T0 review I-2):
+    # "calculated", never "worked out" — the frozen WORKED_OUT constant says
+    # "calculated"; only the legacy label an old workbook carries keeps it.
+    re.compile(r"\bwork(ed|ing) out\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -4430,6 +4434,9 @@ _ALLOWED_EXACT = {
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
+    # The label a workbook written before 0.7.1 carries; an import still
+    # reads it, and it never reaches a screen.
+    wording.OLD_CALCULATED_LABEL,
     # "Delete" is now the app's one verb for taking something out, so it is
     # no longer restricted; these entries stay because the sidebar's
     # sentences are assembled from fragments the scan sees one at a time.

@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+import insights
 import wording
 from tests.test_food_bo import _BANNED
 
@@ -136,15 +137,17 @@ def test_exact_texts_from_the_spec():
     assert w.TRUST_WIDE == (
         "Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
         "Range), so nearly any value falls inside.")
-    assert w.trust_within(32, 33, [4, 5, 6], allowed=4) == (
-        "Measurements, Rounds 4–6: 32 of 33 values inside their 95 % interval. As expected: "
-        "95 % intervals allow up to 4 misses in 33.")
+    # T0 review M-7: 4 misses are allowed from 36 values (33 allow 3).
+    assert insights.allowed_misses(36) == 4
+    assert w.trust_within(32, 36, [4, 5, 6], allowed=4) == (
+        "Measurements, Rounds 4–6: 32 of 36 values inside their 95 % interval. As expected: "
+        "95 % intervals allow up to 4 misses in 36.")
     assert w.score_gap_line(11, 11, -1.0) == (
         "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −1.0 "
         "points (measured minus predicted).")
     assert w.repeat_disagrees(21, 11, "10.6", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4. Check the panel, suppliers and "
+        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
         "equipment for a change.")
     assert w.stand_best("90.65", 15, 4) == (
         "Best so far: Overall score 90.65, Formulation 15 (Round 4).")

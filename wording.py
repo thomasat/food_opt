@@ -4001,16 +4001,21 @@ HOW_VERDICT = ("Verdict rule: misses are counted as a binomial count at 5 % per 
                "(for 35 values, up to 3). More misses than expected: rarer than 1 time in 10. "
                "Many more: rarer than 1 time in 100. No p-value is shown.")
 HOW_NOISE_THRESHOLD = ("Noise threshold: the Repeat SD of the Overall score, pooled over Repeat "
-                       "groups, once there are 3 Repeat pairs; until then, 1 point. Rises, "
+                       "groups, once there are 3 Repeat pairs and it is at least 0.05; until "
+                       "then, 1 point. Rises, "
                        "ties, local effects and predicted gains are compared with it. It is a "
                        "fixed rule, not a significance test.")
 
 
-def how_checks(values=False):
-    """A project of process settings alone runs each trial at its values."""
-    at = "values it was run at" if values else "amounts it was made at"
+def how_checks(values=False, total=True):
+    """A project of process settings alone runs each trial at its values.
+    `total`: the project has a Formulation total, so a formulation made off
+    it is learned at it (T0 review I-1); without one, as made."""
+    at = ("values it was run at" if values
+          else "amounts it was made at, brought to the Formulation total when made off it"
+          if total else "amounts it was made at")
     return ("Round-ahead check: each Round is predicted by models fitted only to the "
-            f"{FORMULATION}s recorded before it, at the {at} (at the Formulation total), and "
+            f"{FORMULATION}s recorded before it, at the {at}, and "
             "scored with today's measurements, targets and Share of score. The verdict uses "
             "measured values from the last 3 Rounds checked, more if needed to reach 10; the "
             "Overall score is reported on its own line.")
@@ -4115,10 +4120,11 @@ SPREAD_ON = "Rank by"
 
 def moved_together(first, second, r_text=None):
     """Two ingredients whose amounts moved together (§4.3; 03 §5.5):
-    `r_text`, Pearson's r across the formulations made."""
-    r = f" (r = {r_text})" if r_text is not None else ""
-    return (f"{first} and {second} are correlated across the {FORMULATION}s made{r}, so "
-            "their separate effects cannot be told apart.")
+    `r_text`, the absolute value of Pearson's r across the formulations
+    with all results in (T0 review I-4: the caller passes |r|)."""
+    r = f" (|r| = {r_text})" if r_text is not None else ""
+    return (f"{first} and {second} are correlated across the {FORMULATION}s with all results "
+            f"in{r}, so their separate effects cannot be told apart.")
 
 
 def best_luck(n, mean_text, low_text, high_text, measured_text=None):
@@ -4309,7 +4315,7 @@ def signed(value, decimals=1):
 def trust_over_wide(total, rounds, median_z=None):
     """All values inside, and a median |standardised error| well under
     0.67 (03 §5.2): `median_z` is that median."""
-    basis = (f", with a median standardised error of {median_z:.2f} (0.67 expected)"
+    basis = (f", with a median absolute standardised error of {median_z:.2f} (0.67 expected)"
              if median_z is not None else "")
     return (f"Measurements, {rounds_span(rounds)}: {total} of {total} values inside their 95 % "
             f"interval{basis}: the intervals are wider than needed.")
@@ -4330,7 +4336,7 @@ def trust_misses(k, rounds, inside, total, many=False, allowed=None):
         line += f" {count}; 95 % intervals allow up to {allowed}."
     if many:
         return (f"{line} Many more misses than expected: the intervals are too narrow for "
-                "recent results.")
+                "these results.")
     return f"{line} More misses than expected."
 
 
@@ -4369,7 +4375,8 @@ def repeat_disagrees(later, earlier, diff_text, lower=True, half_text=None):
     line = (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, scored "
             f"{points_text(diff_text)} {'lower' if lower else 'higher'}.")
     if half_text is not None:
-        line += f" The 95 % interval for the difference of two results is ±{half_text}."
+        line += (f" The 95 % interval for the difference of two results is ±{half_text} "
+                 "points.")
     return f"{line} Check the panel, suppliers and equipment for a change."
 
 
@@ -4492,7 +4499,7 @@ def next_bias(gap_text, below=True, rounds=None):
 
 def next_misses(rounds=None):
     return (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
-            f"often than 95 % allows. {_CHECK_CHANGED} before the next {ROUND_CAP}.")
+            f"often than 95 % intervals allow. {_CHECK_CHANGED} before the next {ROUND_CAP}.")
 
 
 NEXT_MISSES = next_misses()
@@ -4687,7 +4694,7 @@ def details_window(all_rounds, k, verdict_rounds=None):
     """Both windows named (03 §5.7): the table's and the verdict's."""
     if len(all_rounds) == 1:
         return f"Table and verdict: {rounds_span(all_rounds)}."
-    last = "the last 1" if k == 1 else f"the last {k}"
+    last = f"the last {ROUND_CAP}" if k == 1 else f"the last {k}"
     if k >= len(all_rounds):
         last = f"all {k}"
     verdict = f" ({rounds_span(verdict_rounds)})" if verdict_rounds else ""
@@ -4913,7 +4920,8 @@ def insights_progress(done, total):
 PREDICTION_PENDING = "…"
 
 
-_MEASURED_MORE = "; measured values: more misses than expected"
+# The unreliable verdict's own fixed name on Insights (T0 review I-3).
+_MEASURED_MORE = "; measured values: many more misses than expected"
 
 
 def _track_head(inside, total, rounds):
@@ -4948,7 +4956,7 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
     line = _track_head(inside, total, rounds)
     if gap_text is not None:
         gap = f"−{gap_text}" if below else f"+{gap_text}"
-        line += f"; mean error {gap} points. More misses than 95 % allows"
+        line += f"; mean error {gap} points. More misses than expected"
     elif allowed is not None:
         line += f"; {_allow(allowed, total)}"
     else:
@@ -5097,8 +5105,8 @@ PENDING_MARK = "·"
 WHY_PENDING = ("· Picks after the first: what each adds to the earlier picks of this Round, "
                "as they were chosen.")
 WHY_COLD = "Chosen to cover the allowed amounts; no model yet."
-WHY_FAILED = "These values could not be worked out."
-WHY_WORKING = "Working out why these were suggested…"
+WHY_FAILED = "These values could not be calculated."
+WHY_WORKING = "Calculating why these were suggested…"
 
 
 def why_row_label(no, own=False, edited=False):

@@ -2480,7 +2480,8 @@ def _how(opt, computed):
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
         for text in (wording.HOW_MODELS,
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
-                     wording.how_checks(values=not opt.has_ingredients()),
+                     wording.how_checks(values=not opt.has_ingredients(),
+                                        total=opt.has_formulation_total()),
                      wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD,
                      wording.how_same_process(values=not opt.has_ingredients()),
                      wording.HOW_NO_P):

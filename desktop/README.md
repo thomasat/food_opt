@@ -152,7 +152,7 @@ warnings entirely, and the checklist below gates distribution on that.
    process setting and one fat limit). Dry blend is portioned; Fat phase
    holds two oils weighed into each formulation; Seasoning blend stays at
    2.2 g. Water's Rule cell says "= rest", so its
-   Highest reads "worked out" and one line under the grid gives
+   Highest reads "calculated" and one line under the grid gives
    what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
    "Discard changes" puts the grid back; open "More settings" and
@@ -164,7 +164,7 @@ warnings entirely, and the checklist below gates distribution on that.
    there only while a default batch size is set), and that picking an
    ingredient does not close "More settings" under you. Go to "2 · Make a
    round", generate one, check every row of the round table totals the
-   batch size and that Water's column is headed "Water · worked out (g)",
+   batch size and that Water's column is headed "Water · calculated (g)",
    change "Batch size (g)" to 250 and watch every amount
    in the round table follow it, download the round sheets (Excel) and
    open it: the sheets
@@ -173,10 +173,10 @@ warnings entirely, and the checklist below gates distribution on that.
    them is boxed, and boxed and shaded are the one treatment: there is no
    second, shaded-but-locked kind of cell. Each formulation page has an
    "Actual (g)" column beside its amounts, with a "Lot" cell per
-   ingredient on the "Round 1" page. Water is printed as "Water · worked
-   out" on the formulation pages and "Water · worked out (g)" on the
+   ingredient on the "Round 1" page. Water is printed as "Water ·
+   calculated" on the formulation pages and "Water · calculated (g)" on the
    round sheet — the mark on the name, the unit behind it, one shape
-   everywhere, with the line "Water is worked out: = rest
+   everywhere, with the line "Water is calculated: = rest
    (batch size − every other ingredient). Weigh the amount printed."
    under the amounts. Record a result (or mark one Not
    scored and score it later from Results), and confirm the `.pkl` appears
@@ -184,7 +184,7 @@ warnings entirely, and the checklist below gates distribution on that.
 6a. On "3 · Results", click "Download all formulations (Excel)" and open
    it: the "Set up" sheet in THAT file is the one with the Rule column,
    and it spells Water out as "= rest (batch size − every other
-   ingredient)" with "worked out" in its Status cell. (The round sheets
+   ingredient)" with "calculated" in its Status cell. (The round sheets
    in step 6 are a different download and carry no Set-up sheet.)
 7. Quit, relaunch: fast start, project still listed and loads.
 8. Wi-Fi off on a set-up machine: works fully offline.

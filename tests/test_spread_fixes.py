@@ -90,8 +90,8 @@ def test_two_ingredients_moved_together_are_named():
                   (7.0, 5.2, 0.9, 190)])
     assert insights.moved_together(opt) == ("Pea", "Oil")
     assert wording.moved_together("Coconut oil", "Beet juice powder") == (
-        "Coconut oil and Beet juice powder are correlated across the formulations made, so "
-        "their separate effects cannot be told apart.")
+        "Coconut oil and Beet juice powder are correlated across the formulations with all "
+        "results in, so their separate effects cannot be told apart.")
 
 
 def test_the_fill_a_setting_and_a_row_that_never_moved_are_left_out():

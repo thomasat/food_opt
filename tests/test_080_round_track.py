@@ -63,11 +63,11 @@ def test_the_lines_read_as_the_spec_says():
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert wording.round_track_rough(6, 12, "5.0", rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; mean error −5.0 "
-        "points. More misses than 95 % allows.")
+        "points. More misses than expected.")
     assert wording.round_track_rough(6, 12, "1.0", below=False).endswith(
-        "mean error +1.0 points. More misses than 95 % allows.")
+        "mean error +1.0 points. More misses than expected.")
     assert wording.round_track_rough(6, 12, see_insights=True, allowed=2).endswith(
-        "95 % intervals allow up to 2 misses in 12; measured values: more misses than "
+        "95 % intervals allow up to 2 misses in 12; measured values: many more misses than "
         "expected.")
     assert wording.insights_progress(4, 6) == (
         "Checking predictions against your results: 4 of 6 Rounds checked…")
@@ -96,9 +96,10 @@ def test_a_wide_or_over_wide_verdict_shows_nothing(state, monkeypatch):
 
 
 def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
-    """Review C M-1."""
+    """Review C M-1; T0 review I-3: the unreliable verdict's own name on
+    Insights, "Many more misses than expected"."""
     assert wording.round_track_holding(11, 11, True).endswith(
-        "; measured values: more misses than expected.")
+        "; measured values: many more misses than expected.")
     assert "measured values" not in wording.round_track_holding(11, 11)
 
 

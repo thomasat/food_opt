@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+import insights
 import wording
 from tests.test_food_bo import _BANNED
 
@@ -157,6 +158,40 @@ def test_headings_are_nouns():
 def test_exact_texts_from_the_audit():
     """03 §5, as adopted by spec §4 (review I7 overrides the speed spec's §9
     B1, M9, I2 and I16 texts)."""
+    # T0 review I-5: the two owner-mandated corrections, pinned whole, and
+    # the 0.674 tied to the code's own constant.
+    assert W.HOW_REPEATS_COMPARED == (
+        "Error ÷ Repeat noise: the median absolute error divided by 0.674 × Repeat SD, which "
+        "is the median absolute error Repeat noise alone would give. Near 1: the model misses "
+        "by about as much as measurement noise. Above about 1.5: it misses by more than noise "
+        "explains (lack of fit). Shown from 3 Repeat pairs.")
+    assert f"{insights.MAD_OF_NORMAL:.3f}" in W.HOW_REPEATS_COMPARED
+    assert W.HOW_WIDENED == (
+        "Calibration factor: the root-mean-square of standardised errors (measured − "
+        "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, floored "
+        "at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: errors 2.5 "
+        "times the model's own SD.")
+    assert f"{insights.FOLDS}-fold" in W.HOW_WIDENED
+    # T0 review I-1: the Formulation total is named only where there is one.
+    assert W.how_checks().startswith(
+        "Round-ahead check: each Round is predicted by models fitted only to the formulations "
+        "recorded before it, at the amounts it was made at, brought to the Formulation total "
+        "when made off it, and scored")
+    assert "Formulation total" not in W.how_checks(total=False)
+    assert "at the amounts it was made at, and scored" in W.how_checks(total=False)
+    assert "at the values it was run at, and scored" in W.how_checks(values=True, total=False)
+    # T0 review I-2: "calculated", never "worked out".
+    assert (W.WHY_WORKING, W.WHY_FAILED) == ("Calculating why these were suggested…",
+                                             "These values could not be calculated.")
+    # T0 review I-3: Make a round names the unreliable verdict by its name.
+    assert W.round_track_holding(11, 12, True, rounds=[3, 4, 5]).endswith(
+        "; measured values: many more misses than expected.")
+    assert W.round_track_rough(9, 12, "2.0", rounds=[3, 4, 5]).endswith(
+        "; mean error −2.0 points. More misses than expected.")
+    # T0 review I-4: |r|, across the formulations with all results in.
+    assert W.moved_together("Pea", "Soy", "0.86") == (
+        "Pea and Soy are correlated across the formulations with all results in (|r| = 0.86), "
+        "so their separate effects cannot be told apart.")
     assert W.trust_within(32, 35, [3, 4, 5], allowed=3) == (
         "Measurements, Rounds 3–5: 32 of 35 values inside their 95 % interval. As expected: "
         "95 % intervals allow up to 3 misses in 35.")
@@ -172,7 +207,7 @@ def test_exact_texts_from_the_audit():
         "predictions read about 1.2 points high.")
     assert W.repeat_disagrees(21, 11, "10.5", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4. Check the panel, suppliers and "
+        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
         "equipment for a change.")
     assert W.stand_barely("0.2", "1.2") == (
         "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
