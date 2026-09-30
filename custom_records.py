@@ -162,7 +162,7 @@ def export_frame(opt):
                 for key, value in entries.items():
                     if value:
                         f = definitions[key]
-                        rows.append({wording.ROUND_CAP: int(number), wording.CUSTOM_SCOPE_LABEL: wording.CUSTOM_SCOPE_NAMES[scope],
+                        rows.append({wording.ROUND_CAP: int(number), wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                                      wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: f['name'],
                                      wording.CUSTOM_VALUE: value})
     return pd.DataFrame(rows)
@@ -179,7 +179,7 @@ def append_workbook(book, opt, rows, print_pack):
         definitions = fields(opt, scope)
         if not definitions or not subjects:
             continue
-        cell = sheet.cell(r, 1, wording.CUSTOM_SECTION_NAMES[scope]); cell.font = Font(bold=True)
+        cell = sheet.cell(r, 1, wording.for_project(opt, wording.CUSTOM_SECTION_NAMES[scope])); cell.font = Font(bold=True)
         r += 1
         sheet.cell(r, 1, wording.CUSTOM_SHEET_HELP)
         r += 1
@@ -256,9 +256,10 @@ def setup(opt):
     import streamlit as st
     from ui_helpers import saved_ok
     with st.popover(wording.CUSTOM_ADD_LABEL):
-        st.caption(wording.CUSTOM_FIELD_HELP)
+        st.caption(wording.for_project(opt, wording.CUSTOM_FIELD_HELP))
         name = st.text_input(wording.CUSTOM_FIELD_NAME, key='custom_field_name', max_chars=80)
-        scope = st.selectbox(wording.CUSTOM_SCOPE_LABEL, SCOPES, format_func=wording.CUSTOM_SCOPE_NAMES.get,
+        scope = st.selectbox(wording.CUSTOM_SCOPE_LABEL, SCOPES,
+                             format_func=lambda s: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[s]),
                              key='custom_field_scope')
         if st.button(wording.CUSTOM_ADD_BUTTON, key='custom_field_add'):
             try:
@@ -317,7 +318,7 @@ def _custom_fields(opt, round_no, formulation_numbers, prefix):
             definitions = fields(opt, scope)
             if not definitions or not subjects:
                 continue
-            st.markdown(wording.CUSTOM_SECTION_NAMES[scope])
+            st.markdown(wording.for_project(opt, wording.CUSTOM_SECTION_NAMES[scope]))
             label = wording.for_project(opt, wording.FORMULATION_CAP) if scope == 'formulation' else wording.CUSTOM_INGREDIENT_LABEL
             frame = pd.DataFrame([{label: subject, **{f['id']: values(opt, round_no, scope, subject).get(f['id'], '')
                                                      for f in definitions}} for subject in subjects])

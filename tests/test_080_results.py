@@ -330,3 +330,43 @@ def test_imported_trials_say_trials(trial_tie):
     _click(at, wording.IMPORT_ALL_ROWS_BUTTON)
     assert not at.exception
     assert "Recorded 2 trials." in _no_formulation(at)
+
+
+# ------------------------------------------------------------------ #
+#  Answer-key read-through: Results' labels and words
+# ------------------------------------------------------------------ #
+
+def test_after_move_to_not_scored_the_box_is_sent_its_new_label(one_waiting):
+    """The browser keeps the label it was shown: "· waiting for Juiciness"
+    stayed above "Not scored". The value is sent again so the label is
+    redrawn."""
+    at = _results(4)
+    _submit_button(at, wording.MOVE_TO_NOT_SCORED).click()
+    at.run()
+    at.button(key="set_aside_4__yes").click()
+    at.run()
+    assert not at.exception
+    box = at.selectbox(key="result_view_burger")
+    assert box.value == 4 and box.proto.set_value
+    options = list(box.proto.options)
+    assert "Formulation 4 (Round 2) · Not scored" in options
+    assert not any("waiting" in o for o in options)
+    at.run()                                                   # once, not every run
+    assert not at.selectbox(key="result_view_burger").proto.set_value
+
+
+def test_the_late_value_box_names_its_unit(one_waiting):
+    one_waiting.objectives[[o["name"] for o in one_waiting.objectives].index("Juiciness")][
+        "unit"] = "%"
+    one_waiting.save()
+    at = _results(4)
+    box = at.number_input(key="missing_4_Juiciness")
+    assert box.label.startswith("Juiciness (%) · ")
+
+
+def test_the_add_fold_says_formulation_as_its_name_does(scored):
+    at = _results()
+    assert wording.ADD_PAST_FORMULATION_LABEL == "Add a past formulation"
+    md = [m.value for m in at.tabs[2].markdown]
+    assert "##### Add a past formulation" in md
+    assert not any("Add a past result" in m for m in md)

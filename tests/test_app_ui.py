@@ -7112,7 +7112,7 @@ def test_the_third_part_of_edit_past_says_record_not_add(scored):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    assert any(m.value == "##### Add a past result"
+    assert any(m.value == "##### Add a past formulation"   # the fold's own word
                for m in at.markdown), [m.value for m in at.markdown]
     assert "Record this formulation" in _labels(at), _labels(at)
     assert "Add this formulation" not in _labels(at), _labels(at)

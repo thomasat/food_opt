@@ -21,7 +21,7 @@ from ui_helpers import (
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
-    go_to_tab, label_with_unit, number_list, open_rows, other_confirmation,
+    entry_label, go_to_tab, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, saved_ok, scale_error,
     table_height, take_clear, waiting_text,
@@ -148,6 +148,18 @@ def _selected_formulation(opt):
         if index is not None and not opt.is_set_aside(index) and not opt.fully_measured(index):
             label = wording.result_view_waiting(label, number_list(opt.waiting_on(index)))
         labels[choice] = wording.for_project(opt, label)
+    # The browser keeps the label it was shown for the value it holds: after
+    # Move to Not scored the box kept "· waiting for Cook loss" above "Not
+    # scored" (answer-key read-through). When the label of the formulation
+    # picked changed, its value is sent again, once, so the label is redrawn.
+    shown_key = f"_result_view_label_{opt.project_name}"
+    current = st.session_state.get(key)
+    shown = st.session_state.get(shown_key)
+    if (current in labels and shown is not None and shown[0] == current
+            and shown[1] != labels[current]):
+        st.session_state[key] = current
+    if current in labels:
+        st.session_state[shown_key] = (current, labels[current])
 
     chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
                           format_func=labels.__getitem__, key=key,
@@ -705,8 +717,10 @@ def _measurement_boxes(ordered, key_of, current=None):
                 key_of(name), None if recorded is None else float(recorded))
             # No clamping here either: the same reading refused on tab 2 must
             # be refusable here, not silently pulled back to the range end.
+            # The unit in the label, as the record form says it: the box
+            # holds a bare number (answer-key read-through).
             typed[name] = st.number_input(
-                f"{label_with_unit(name, obj.get('unit'))} · {goal_line(obj)}",
+                f"{entry_label(name, obj.get('unit'))} · {goal_line(obj)}",
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                 key=key_of(name))
     return typed
@@ -1181,7 +1195,7 @@ def _add_past(opt):
     a CSV. Both land through import_formulation, so both carry no batch and
     the same note, and the CSV is no longer a section of its own that had to
     be found before past work could be entered at all."""
-    mode = st.radio(wording.ADD_PAST_FORMULATION_LABEL,
+    mode = st.radio(wording.for_project(opt, wording.ADD_PAST_FORMULATION_LABEL),
                     [wording.TYPE_IT_IN, wording.UPLOAD_A_FILE],
                     horizontal=True, label_visibility="collapsed",
                     key="add_past_mode")
@@ -1439,7 +1453,7 @@ def _edit_past(opt, storage):
         # form beneath survives (a reserved container left stale buttons).
         _delete_formulations(opt, storage)
         st.divider()
-        st.markdown(wording.ADD_PAST_FORMULATION_HEADING)
+        st.markdown(wording.for_project(opt, wording.ADD_PAST_FORMULATION_HEADING))
         _add_past(opt)
     return pending
 

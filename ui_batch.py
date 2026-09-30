@@ -1372,7 +1372,7 @@ def _upload(opt):
         if extra_records:
             definitions = {f['id']: f for f in custom_records.fields(opt, enabled=False)}
             st.caption(wording.CUSTOM_IMPORT_FOUND)
-            st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.CUSTOM_SCOPE_NAMES[scope],
+            st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                 wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: definitions[key]['name'],
                 wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True)
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)

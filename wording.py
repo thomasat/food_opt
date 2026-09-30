@@ -1969,7 +1969,8 @@ def formulations_deleted(numbers_text):
 # Record, not Add: Add puts a formulation into the open batch, to be made.
 # This one was made already, and the two doors sat one tab apart wearing the
 # same verb.
-ADD_PAST_FORMULATION_LABEL = "Add a past result"
+# As the fold holding it is named ("Correct, delete or add past formulations").
+ADD_PAST_FORMULATION_LABEL = f"Add a past {FORMULATION}"
 ADD_PAST_FORMULATION_HEADING = "##### " + ADD_PAST_FORMULATION_LABEL
 TYPE_IT_IN = "Type it in"
 UPLOAD_A_FILE = "Upload a file"
@@ -3643,9 +3644,13 @@ CUSTOM_ADD_LABEL = "Add your own recording field"
 CUSTOM_ADD_BUTTON = "Add field"
 CUSTOM_FIELD_NAME = "Field name"
 CUSTOM_SCOPE_LABEL = "Record for"
-CUSTOM_SCOPE_NAMES = {'formulation': "Each formulation / trial", 'ingredient': "Each ingredient"}
-CUSTOM_SECTION_NAMES = {'formulation': "Formulation / trial records", 'ingredient': "Ingredient records"}
-CUSTOM_FIELD_HELP = "For example, Operator for each trial, or Expiry date for each ingredient. These records do not affect scores."
+# "formulation" on an ingredient project, "trial" on a project of process
+# settings alone, through for_project where they are shown (answer-key
+# read-through: "trial" read wrong on an ingredient project). The workbook
+# import reads each cell's own marker, never these words.
+CUSTOM_SCOPE_NAMES = {'formulation': "Each formulation", 'ingredient': "Each ingredient"}
+CUSTOM_SECTION_NAMES = {'formulation': "Formulation records", 'ingredient': "Ingredient records"}
+CUSTOM_FIELD_HELP = "For example, Operator for each formulation, or Expiry date for each ingredient. These records do not affect scores."
 CUSTOM_FIELD_INVALID = "Enter a field name of 1–80 characters and choose what it records."
 CUSTOM_FIELD_BUILTIN = "That recording option already exists. Select it in Additional records."
 CUSTOM_FIELD_EXISTS = "A field with this name and scope already exists. Select it in Additional records."
