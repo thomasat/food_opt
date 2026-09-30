@@ -188,3 +188,36 @@ def test_two_tabs_polling_one_job_never_raise(pool):
         t.join(300)
     assert errors == []
     assert all(insights_jobs.ready(insights_jobs.plan(opt), m) for m in memos)
+
+
+def test_a_failed_fold_is_skipped_as_in_process():
+    """Review B M-7."""
+    entry = insights_jobs._entry([{"state": {"a": ["float64", 1.0]}},
+                                  {"z": [0.5, -1.0]}, {"error": "no fit"}, {"z": [2.0]}])
+    assert entry == {"state": {"a": ["float64", 1.0]},
+                     "widen": insights.widen_from([0.5, -1.0, 2.0])}
+    assert insights_jobs._entry([{"error": "no fit"}, {"z": [1.0]}]) == {"error": "no fit"}
+
+
+class _Never:
+    """A pool whose work never starts, so nothing finishes on its own."""
+
+    def submit(self, priority, request):
+        import concurrent.futures as cf
+        return cf.Future()
+
+
+def test_a_new_state_cancels_what_only_the_old_one_needed(monkeypatch):
+    """Review B M-7: job_for gives up an older Job's specs that the new
+    state does not need, and shares the rest."""
+    monkeypatch.setattr(insights_jobs, "_JOBS", {})
+    monkeypatch.setattr(insights_jobs, "_INFLIGHT", {})
+    opt = _burger(rounds=5, noise=0.4)
+    pool = _Never()
+    old = insights_jobs.job_for(opt, pool, {})
+    opt.results_history[-1]["Juiciness"] += 0.3
+    new = insights_jobs.job_for(opt, pool, {})
+    gone = set(old.futures) - set(new.futures)
+    assert gone and all(f.cancelled() for k in gone for f in old.futures[k])
+    kept = set(old.futures) & set(new.futures)
+    assert kept and not any(f.cancelled() for k in kept for f in new.futures[k])
