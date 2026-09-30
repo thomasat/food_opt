@@ -195,3 +195,47 @@ def test_the_luck_line_compares_the_shown_numbers():
     assert not ui_insights.shows_luck(82.0, 81.96)       # 82 against 82.0
     assert ui_insights.shows_luck(81.4, 82.7)            # 81 against 82.7
     assert ui_insights.shows_luck(82.4, 82.7)            # 82 against 82.7
+
+
+# ------------------------------------------------------------------ #
+#  M-3 / M-4 a formulation moved to Not scored in Correct a formulation
+# ------------------------------------------------------------------ #
+
+def _results_tab():
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    return at
+
+
+def test_the_correction_picker_marks_a_set_aside_formulation_not_scored(one_waiting):
+    """Formulation 3 was never recorded; 4 was, and was moved to Not
+    scored. Both read "· Not scored", as the View box and the table say;
+    4 still opens as the recorded row it is."""
+    one_waiting.set_aside_formulation(4)
+    at = _results_tab()
+    box = at.selectbox(key="correct_formulation")
+    assert box.options == ["1", "2", wording.not_scored_option(3),
+                           wording.not_scored_option(4)], box.options
+    box.set_value(4)
+    at.run()
+    assert not at.exception
+    keys = [n.key for n in at.number_input]
+    assert "correct_amount_4_Pea protein" in keys and "correct_4_Firmness" in keys, keys
+
+
+def test_correcting_a_set_aside_formulation_flashes_not_scored(one_waiting):
+    one_waiting.set_aside_formulation(4)
+    at = _results_tab()
+    at.selectbox(key="correct_formulation").set_value(4)
+    at.run()
+    at.text_input(key="correct_note_4").set_value("second bowl")
+    at.run()
+    _submit_button(at, "Save correction").click()
+    at.run()
+    assert not at.exception
+    note = next(s.value for s in at.success if "corrected" in s.value)
+    assert note == ("Formulation 4 corrected · Not scored · Juiciness not measured. "
+                    + wording.COPY_KEPT), note

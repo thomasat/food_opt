@@ -1884,6 +1884,13 @@ def formulation_corrected(no, waiting=None):
     return f"{FORMULATION_CAP} {no} corrected{_waiting_tail(waiting)}."
 
 
+def formulation_corrected_not_scored(no, names_text):
+    """A correction to a formulation moved to Not scored that still lacks a
+    value: 'Formulation 7 corrected · Not scored · Cook loss not measured.'
+    — not "waiting for", which it no longer is (final review M-3)."""
+    return f"{FORMULATION_CAP} {no} corrected · {not_scored_missing(names_text)}."
+
+
 def saved_waiting(numbers, names_text):
     """'Formulation 12 saved · waiting for Cook loss.', or 'Formulations
     7–12 saved · …' — after a round is saved with formulations that still

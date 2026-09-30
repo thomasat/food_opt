@@ -706,6 +706,11 @@ def _correct(opt):
     slot once the confirmations have had their say."""
     scored = [int(n) for n in opt.formulation_ids]
     not_scored = [int(s['formulation']) for s in opt.skipped]
+    # A recorded formulation moved to Not scored reads as Not scored here
+    # too, as in the View box and the table, but it is still a recorded row
+    # and opens as one (final review M-4).
+    set_aside = {int(opt.formulation_ids[i]) for i in range(len(opt.formulation_ids))
+                 if opt.is_set_aside(i)}
     # One run of numbers, in number order: the list came out 1, 2, 4, 3 —
     # scored ones first and the rest after — which is not an order anybody
     # could read. A not-scored one says so on its own line instead.
@@ -723,11 +728,12 @@ def _correct(opt):
         wording.for_project(opt, wording.CORRECT_WHICH_LABEL), numbers, index=None,
         placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
         format_func=lambda n: (wording.not_scored_option(n)
-                               if n in not_scored else str(n)),
+                               if n in not_scored or n in set_aside else str(n)),
         key="correct_formulation")
-    if not_scored:
+    if not_scored or set_aside:
         # A not-scored number in the list is not a correction, and nothing
-        # about the box says what picking one does.
+        # about the box says what picking one does. A set-aside one is
+        # scored here too, by entering its missing value.
         st.caption(wording.for_project(opt, wording.NOT_SCORED_CAN_BE_SCORED_CAPTION))
     if choice is None:
         return None
@@ -879,7 +885,10 @@ def _save_correction(opt, storage, pending):
     # One sentence for the whole correction: a row can change its amounts and
     # its measurements in one save, and naming every number that moved made a
     # flash longer than the table above it.
-    sentences = [wording.formulation_corrected(choice, waiting_text(opt, index))]
+    sentences = [wording.formulation_corrected_not_scored(
+                     choice, number_list(opt.waiting_on(index)))
+                 if opt.is_set_aside(index)
+                 else wording.formulation_corrected(choice, waiting_text(opt, index))]
     move = best_move_sentence(before, after)
     if move:
         sentences.append(move)
@@ -887,7 +896,7 @@ def _save_correction(opt, storage, pending):
     scale = opt.recipe_scale(recipe)
     cautions = [c for c in (bounds_caution(opt, name, recipe[name], scale)
                             for name in amount_changes) if c]
-    flash("success", " ".join(sentences))
+    flash("success", wording.for_project(opt, " ".join(sentences)))
     for caution in cautions:
         flash("warning", caution)
     # The correction is done, so the row closes itself exactly as Close
