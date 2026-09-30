@@ -250,6 +250,15 @@ def _incomplete(missing):
         go_to_tab(TAB_SETUP)
 
 
+def ask_alone(opt, **kwargs):
+    """opt.ask(**kwargs) holding insights.RNG_LOCK: no other tab's Insights
+    step can touch torch's global RNG while a Round is being made (review
+    B2; Plan A review B I-3). The lock is taken here, at the call site,
+    never inside ask()."""
+    with insights.RNG_LOCK:
+        return opt.ask(**kwargs)
+
+
 def _generate(opt, n, batch_no=None, discarded=None):
     with st.spinner(wording.GENERATING_SPINNER):
         try:
@@ -257,8 +266,8 @@ def _generate(opt, n, batch_no=None, discarded=None):
             # retired, and ask() is told both before it opens the batch: a
             # batch renumbered afterwards had already spent the number it was
             # opened with, so the batch AFTER a regenerate skipped one.
-            opt.ask(n_suggestions=int(n), batch_no=batch_no,
-                    discarded=discarded)
+            ask_alone(opt, n_suggestions=int(n), batch_no=batch_no,
+                      discarded=discarded)
         except ValueError as e:
             st.error(str(e))
             return

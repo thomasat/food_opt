@@ -14,6 +14,7 @@ import itertools
 import json
 import math
 import statistics
+import threading
 import types
 from dataclasses import dataclass
 
@@ -34,11 +35,23 @@ Z95 = 1.959963984540054
 _SEED = 20260928
 
 
+# The owner's hard rule across browser tabs (review B2; Plan A review B
+# I-3): Streamlit runs each session's script in a thread of one process, and
+# torch has one global RNG. Every in-process Insights step that touches it
+# goes through _isolated() — fits, conditioning, predictions, the predicted
+# best — and holds this lock for its whole fork-and-reseed; the one ask()
+# call site holds it too (ui_batch.ask_alone). So no Insights step can
+# restore the RNG in the middle of a suggestion. Re-entrant: an _isolated()
+# inside another is fine. Worker processes have their own.
+RNG_LOCK = threading.RLock()
+
+
 @contextlib.contextmanager
 def _isolated():
     """Repeatable, and invisible to everything outside: the global RNG is
-    restored on the way out."""
-    with torch.random.fork_rng():
+    restored on the way out, and nothing else in this process uses it in
+    between (RNG_LOCK)."""
+    with RNG_LOCK, torch.random.fork_rng():
         torch.manual_seed(_SEED)
         yield
 
