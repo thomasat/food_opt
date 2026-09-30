@@ -49,17 +49,9 @@ def test_header_text_leaves_out_waiting_and_set_aside_rows():
     _tell(opt, 7, 3, drop=("Cook loss",))
     _tell(opt, 8, 3, drop=("Cook loss",))
     opt.set_aside_formulation(8)
-    text = ui_insights.header_text(opt, None)
-    assert text.startswith("Based on 6 scored formulations, up to Round 2. "
-                           "1 more is waiting for Cook loss. ")
-
-
-def test_header_text_takes_the_verdict_form_only_with_a_verdict():
-    opt = _burger(rounds=1)
-    verdict = insights.Headline("verdict", [1], 10, 10, "holding")
-    assert ui_insights.header_text(opt, verdict).endswith(wording.LIKELY_RANGE_HEADER)
-    early = insights.Headline("early", [1], 3, 3, None)
-    assert ui_insights.header_text(opt, early).endswith(wording.LIKELY_RANGE_EARLY)
+    text = ui_insights.header_text(opt)
+    assert text == ("Based on 6 scored formulations, up to Round 2. "
+                    "1 is waiting for Cook loss.")
 
 
 def _recorded(opt, complete, waiting):
@@ -82,9 +74,9 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0].startswith(
+    assert captions[0] == (
         f"Based on {complete} scored formulations, up to Round 1. "
-        "1 more is waiting for Juiciness. "), captions
+        "1 is waiting for Juiciness."), captions
     gates = [c for c in captions if "start once 5 " in c or c.startswith("Starts once 5 ")]
     assert gates == [wording.insights_gate(complete)], captions      # said once (Task 6)
 
@@ -263,7 +255,7 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
     assert not at.exception
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
-    assert captions[0].startswith("Based on 9 scored formulations, up to Round 3. Likely range")
+    assert captions[0] == "Based on 9 scored formulations, up to Round 3."
     text = " ".join(m.value for m in tab.markdown)
     assert "holding up" not in text and "R²" not in text
 
@@ -288,12 +280,15 @@ def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project)
     assert not at.exception
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
-    assert captions[0].endswith(wording.LIKELY_RANGE_HEADER), captions[0]
-    assert wording.LIKELY_RANGE_EARLY not in " ".join(captions)
+    assert "Likely range" not in captions[0], captions[0]
     text = " ".join(m.value for m in tab.markdown)
-    verdict = wording.predictions_count(len(h.rounds), h.rounds, h.inside, h.total, h.verdict)
-    assert (verdict + " " + wording.wide_line("Firmness and Juiciness")) in text, text
-    assert wording.score_record_line(h.score.inside, h.score.total, h.score.mean_miss) in text
+    state = insights.verdict_state(opt, h, insights.check_rounds(opt))
+    verdict = ui_insights.verdict_text(opt, h, state)
+    assert verdict.endswith(" " + wording.wide_line("Firmness and Juiciness")), verdict
+    assert verdict in text, text
+    assert wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss,
+                                  ui_insights._beyond(h.score.mean_miss,
+                                                      insights.noise_yardstick(opt))) in text
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

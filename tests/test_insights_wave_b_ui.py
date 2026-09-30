@@ -254,7 +254,7 @@ def test_the_models_are_fitted_once_for_both_screens(warm_round, monkeypatch):
     _rerun_on(at, wording.TAB_INSIGHTS)
     assert not at.exception
     assert calls == [1] and ui_insights.CACHE_KEY in at.session_state
-    assert wording.Q_PREDICTIONS in " ".join(_tab_text(at)[0])
+    assert wording.Q_TRUST in " ".join(_tab_text(at)[0])
     _rerun_on(at, wording.TAB_BATCH)
     assert calls == [1]
     assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
@@ -375,21 +375,6 @@ def test_score_and_value_text():
 def _spreads(monkeypatch, *pairs, held=()):
     monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads(
         [insights.Spread(n, s) for n, s in pairs], list(held)))
-
-
-def test_section_2_answer_line_and_compare_expander(insights_scored):
-    at = _open_insights(_app())
-    assert not at.exception
-    md, caps = _tab_text(at)
-    opt = FoodOptimizer("burger")
-    fitted = insights.fit_all(opt)
-    [top, _] = insights.spreads(opt, fitted, insights.start_recipe(opt, opt.best_index())).moved
-    line = wording.spread_line(top.name, f"{top.spread:.1f}", "Best so far")
-    assert line in md
-    # Above the two boxes: it is the answer, the boxes are the detail.
-    assert md.index(line) == md.index(f"**{wording.q_change(False)}**") + 1
-    assert wording.compare_all(False) in [e.label for e in at.tabs[3].expander]
-    assert wording.SPREAD_CAPTION in caps
 
 
 def test_the_box_opens_on_the_largest_spread_then_keeps_the_choice(insights_scored, monkeypatch):
@@ -557,77 +542,12 @@ def _best_frames(at):
             and wording.BEST_ROW in list(d.value[wording.FORMULATION_CAP])]
 
 
-def test_section_4_answer_table_and_caption(insights_scored):
-    at = _open_insights(_app())
-    assert not at.exception
-    md, caps = _tab_text(at)
-    q = f"**{wording.Q_BEST}**"
-    assert md.index(f"**{wording.Q_IMPROVING}**") < md.index(q)
-    answer = md[md.index(q) + 1]
-    opt = FoodOptimizer("burger")
-    best = insights.predicted_best(opt, insights.fit_all(opt))
-    p = best.score
-    assert answer.startswith(wording.best_answer(f"{p.mean:.0f}", f"{p.low:.0f}", f"{p.high:.0f}"))
-    assert wording.BEST_CAPTION in caps
-    [frame] = _best_frames(at)
-    assert list(frame.columns) == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
-                                   "Pea protein (g)", "Methylcellulose (g)", "Total (g)"]
-    labels = list(frame[wording.FORMULATION_CAP])
-    assert labels[0] == wording.BEST_ROW
-    assert labels[1] in (wording.start_best(opt.best_formulation_no()),
-                         *(wording.start_formulation(int(n)) for n in opt.formulation_ids))
-    # Each row carries its own prediction, beside the other's: the compared
-    # formulation's own prediction is never above the predicted best's.
-    fitted = insights.fit_all(opt)
-    [other] = insights.predict(opt, fitted[insights.SCORE],
-                               [opt._encode(insights.start_recipe(opt, best.compare))])
-    assert list(frame[wording.PREDICTED_SCORE_COLUMN]) == [ui_insights.score_text(p),
-                                                          ui_insights.score_text(other)]
-    assert other.mean <= p.mean + 1e-6
-
-
-def test_section_4_rows_show_their_own_predictions(insights_scored, monkeypatch):
-    """Best so far's own prediction sits beside the predicted best's: the
-    measured score of a lucky formulation can be above both."""
-    _best(monkeypatch, close=None)
-    at = _open_insights(_app())
-    [frame] = _best_frames(at)
-    opt = FoodOptimizer("burger")
-    [own] = insights.predict(opt, insights.fit_all(opt)[insights.SCORE],
-                             [opt._encode(insights.start_recipe(opt, opt.best_index()))])
-    assert list(frame[wording.PREDICTED_SCORE_COLUMN]) == [
-        ui_insights.score_text(insights.Prediction(88.2, 80.4, 95.1)), ui_insights.score_text(own)]
-
-
 def _best(monkeypatch, close):
     def fake(opt, fitted, checks=()):
         return insights.PredictedBest(
             dict(opt.recipe_history[0]), insights.Prediction(88.2, 80.4, 95.1),
             close, close if close is not None else opt.best_index())
     monkeypatch.setattr(insights, "predicted_best", fake)
-
-
-def test_section_4_close_to_a_tested_formulation(insights_scored, monkeypatch):
-    _best(monkeypatch, close=4)
-    at = _open_insights(_app())
-    md, _ = _tab_text(at)
-    # Read back from disk: opening the project puts the shares on 100.
-    opt = FoodOptimizer("burger")
-    no, score = int(opt.formulation_ids[4]), opt.Y_history[4]
-    assert (wording.best_answer("88", "80", "95") + " "
-            + wording.best_close(no, f"{score:.1f}")) in md
-    [frame] = _best_frames(at)
-    assert list(frame[wording.FORMULATION_CAP]) == [wording.BEST_ROW, wording.start_formulation(no)]
-
-
-def test_section_4_not_tested_near_here(insights_scored, monkeypatch):
-    _best(monkeypatch, close=None)
-    at = _open_insights(_app())
-    md, _ = _tab_text(at)
-    assert wording.best_answer("88", "80", "95") + " " + wording.BEST_UNTESTED in md
-    [frame] = _best_frames(at)
-    assert list(frame[wording.FORMULATION_CAP]) == [
-        wording.BEST_ROW, wording.start_best(insights_scored.best_formulation_no())]
 
 
 def test_section_4_shows_the_reason_a_round_could_not_be_made(insights_scored, monkeypatch):
@@ -649,8 +569,8 @@ def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypa
     assert not at.exception
     md, caps = _tab_text(at)
     assert caps.count(wording.BEST_FAILED) == 1
-    assert any(m.startswith("Best so far:") for m in md)
-    assert wording.Q_PREDICTIONS in " ".join(md)
+    assert any("Best so far:" in m for m in md)
+    assert wording.Q_TRUST in " ".join(md)
     _rerun_on(at, wording.TAB_INSIGHTS)
     assert caps.count(wording.BEST_FAILED) == 1 and calls == [1]
 
@@ -672,7 +592,7 @@ def test_a_limit_edit_works_out_the_best_again(insights_scored, monkeypatch):
     _rerun_on(at, wording.TAB_INSIGHTS)
     assert not at.exception
     assert calls == [1, 1]
-    assert wording.Q_BEST in " ".join(_tab_text(at)[0])
+    assert wording.Q_STAND in " ".join(_tab_text(at)[0])
 
 
 def test_a_project_switch_drops_the_best(warm_round):
@@ -693,7 +613,7 @@ def test_the_models_are_shared_with_question_4(warm_round, monkeypatch):
     at = _app()
     at.run()                                          # Make a round
     _rerun_on(at, wording.TAB_INSIGHTS)
-    assert wording.Q_BEST in " ".join(_tab_text(at)[0])
+    assert wording.Q_STAND in " ".join(_tab_text(at)[0])
     assert calls == [1]
 
 
@@ -781,17 +701,11 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     assert not [t for t in said if "ormulation" in t], [t for t in said if "ormulation" in t]
     assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
     md, caps = _tab_text(at)
-    assert "**What happens if you change one process setting?**" in md
-    assert "**Which trial is predicted to score highest?**" in md
+    # The three answers and the folds (spec 2026-09-30 §2, review I14).
+    assert f"**{wording.Q_STAND}**" in md
+    assert "Try one process setting" in [e.label for e in tab.expander]
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
     assert [c for c in caps if c.startswith("Based on 5 scored trials")]
-    # One answer line: the top spread, or the top two when nearly tied.
-    answer = [m for m in md if m.startswith("Across its allowed")
-              or "change the predicted Overall score the most (spreads of" in m]
-    assert len(answer) == 1
-    assert "amounts" not in answer[0]
-    [best] = _best_frames_for(tab, wording.TRIAL_CAP)
-    assert list(best[wording.TRIAL_CAP])[0] == wording.BEST_ROW
 
 
 def test_the_process_only_compare_expander_and_caption(warm_ferment, monkeypatch):
@@ -914,31 +828,12 @@ def test_a_hidden_round_tab_predicts_nothing_even_when_warm(warm_round, monkeypa
     assert calls == []
 
 
-def test_question_4_stands_when_its_own_prediction_fails(insights_scored, monkeypatch):
-    import inspect
-    _best(monkeypatch, close=None)
-    real = insights.predict
-
-    def boom(*a, **k):
-        if inspect.stack()[1].function == "best_frame":
-            raise RuntimeError("no prediction")
-        return real(*a, **k)
-    monkeypatch.setattr(insights, "predict", boom)
-    at = _open_insights(_app())
-    assert not at.exception
-    [frame] = _best_frames(at)
-    assert wording.PREDICTED_SCORE_COLUMN not in frame.columns
-    assert list(frame[wording.FORMULATION_CAP])[0] == wording.BEST_ROW
-    labels = [e.label for e in at.tabs[3].expander]
-    assert wording.MORE_CHARTS in labels and wording.HOW_WORKED_OUT in labels
-
-
 def test_question_2_keeps_ingredient_when_nothing_varies(insights_scored, monkeypatch):
     monkeypatch.setattr(insights, "path_choices", lambda opt: [])
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert "**What happens if you change one ingredient?**" in md
+    assert wording.try_one(False) in [e.label for e in at.tabs[3].expander]
     assert wording.CHANGE_NONE in caps
 
 
@@ -947,7 +842,7 @@ def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypat
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert "**What happens if you change one process setting?**" in md
+    assert "Try one process setting" in [e.label for e in at.tabs[3].expander]
     assert "Nothing to change yet: every process setting is fixed." in caps
     [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
     checks = next(m.value for m in how.markdown if m.value.startswith("Checks:"))

@@ -73,21 +73,26 @@ def test_best_luck_wording():
 
 
 def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch):
+    """Spec 2026-09-30 §2.3: only when Best so far's predicted Repeat is
+    below its measured score by more than the yardstick (1 point here)."""
     top = insights_scored.best_index()
     measured = float(FoodOptimizer("burger").Y_history[top])
 
-    def fake(mean):
+    def fake(repeat):
         def predicted_best(opt, fitted, checks=()):
             return insights.PredictedBest(
-                dict(opt.recipe_history[0]), insights.Prediction(mean, mean - 5, mean + 5),
-                None, opt.best_index(), 1.0, insights.Prediction(80.2, 75.4, 85.1))
+                dict(opt.recipe_history[0]), insights.Prediction(80.0, 75.0, 85.0),
+                None, opt.best_index(), 1.0,
+                insights.Prediction(repeat, repeat - 5, repeat + 5))
         return predicted_best
-    monkeypatch.setattr(insights, "predicted_best", fake(measured - 3))
+    repeat = measured - 3
+    monkeypatch.setattr(insights, "predicted_best", fake(repeat))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     md = [m.value for m in at.tabs[3].markdown]
-    luck = wording.best_luck(insights_scored.best_formulation_no(), "80", "75", "85")
+    luck = wording.best_luck(insights_scored.best_formulation_no(), f"{repeat:.0f}",
+                             f"{repeat - 5:.0f}", f"{repeat + 5:.0f}")
     assert luck in md
-    monkeypatch.setattr(insights, "predicted_best", fake(measured + 3))
+    monkeypatch.setattr(insights, "predicted_best", fake(measured - 0.5))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     assert not [m.value for m in at.tabs[3].markdown if "includes some luck" in m.value]
 

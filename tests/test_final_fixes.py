@@ -30,9 +30,9 @@ def test_the_header_names_the_latest_scored_round_while_a_later_one_waits():
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
     assert [r for r, _ in insights.scored_rounds(opt)] == [1, 2]
-    assert ui_insights.header_text(opt, None).startswith(
+    assert ui_insights.header_text(opt) == (
         "Based on 6 scored formulations, up to Round 2. "
-        "3 more are waiting for Cook loss. ")
+        "3 are waiting for Cook loss.")
 
 
 def test_the_header_leaves_out_a_round_moved_to_not_scored():
@@ -40,8 +40,7 @@ def test_the_header_leaves_out_a_round_moved_to_not_scored():
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
         opt.set_aside_formulation(no)
-    assert ui_insights.header_text(opt, None).startswith(
-        "Based on 6 scored formulations, up to Round 2. Likely range")
+    assert ui_insights.header_text(opt) == "Based on 6 scored formulations, up to Round 2."
 
 
 # ------------------------------------------------------------------ #
@@ -62,8 +61,7 @@ def test_header_text_with_every_formulation_waiting():
     opt = _patty(rows=0)
     for no in (1, 2, 3):
         _tell(opt, no, 1, drop=("Cook loss",))
-    assert ui_insights.header_text(opt, None).startswith(
-        "3 formulations are waiting for Cook loss. ")
+    assert ui_insights.header_text(opt) == "3 formulations are waiting for Cook loss."
 
 
 # ------------------------------------------------------------------ #
@@ -332,32 +330,6 @@ def test_two_named_spreads_say_where_they_are_measured_from():
 # ------------------------------------------------------------------ #
 #  Task 7 M1 / M3 a widened range on screen; the luck line in a Trial
 # ------------------------------------------------------------------ #
-
-def test_question_4_shows_the_widened_range_end_to_end(insights_scored, monkeypatch):
-    """With a widening factor of 2, the compared row's likely range on
-    screen is its own prediction widened by 2; and the checks _best hands
-    predicted_best are the tab's own Round-by-Round checks."""
-    from tests.test_insights_wave_b_ui import _best_frames
-    seen = []
-
-    def fake(opt, fitted, checks=()):
-        seen.append(list(checks))
-        return insights.PredictedBest(
-            dict(opt.recipe_history[0]), insights.Prediction(88.2, 80.4, 95.1),
-            None, opt.best_index(), 2.0)
-    monkeypatch.setattr(insights, "predicted_best", fake)
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not at.exception
-    opt = FoodOptimizer("burger")
-    assert seen and seen[-1] == insights.check_rounds(opt) and seen[-1]
-    fitted = insights.fit_all(opt)[insights.SCORE]
-    [own] = insights.predict(opt, fitted,
-                             [opt._encode(insights.start_recipe(opt, opt.best_index()))])
-    wide = insights.widened(fitted, own, 2.0)
-    assert (wide.low, wide.high) != (own.low, own.high)
-    [frame] = _best_frames(at)
-    assert list(frame[wording.PREDICTED_SCORE_COLUMN])[1] == ui_insights.score_text(wide)
-
 
 @pytest.fixture
 def trial_scored(tmp_path, monkeypatch):

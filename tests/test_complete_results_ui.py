@@ -72,11 +72,11 @@ def test_insights_with_no_complete_formulation(six_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0].startswith("6 formulations are waiting for Juiciness. "), captions
+    assert captions[0] == "6 formulations are waiting for Juiciness.", captions
     assert wording.insights_gate(0) in captions, captions
-    # "Is it still improving?" is not left empty (final review M-5).
+    # "Where do you stand?" is not left empty (final review M-5).
     texts = [m.value for m in at.tabs[3].markdown]
-    at_q = texts.index(f"**{wording.Q_IMPROVING}**")
+    at_q = texts.index(f"**{wording.Q_STAND}**")
     assert texts[at_q + 1] == wording.NO_COMPLETE_FORMULATION, texts
 
 
@@ -206,8 +206,8 @@ def test_a_row_recorded_before_a_measurement_was_added_is_not_missing_it(open_ba
 def test_insights_header_counts_the_waiting(one_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
-    assert any(c.value.startswith(
-        "Based on 2 scored formulations, up to Round 1. 1 more is waiting for Juiciness.")
+    assert any(c.value == (
+        "Based on 2 scored formulations, up to Round 1. 1 is waiting for Juiciness.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
 
 

@@ -86,7 +86,7 @@ def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     at = _open_insights(_app())
     tab = at.tabs[3]
     shown = next(e for e in tab.expander if e.label == wording.SHOW_PREDICTIONS)
-    assert [c.value for c in shown.caption] == [wording.track_caption(True)]
+    assert [c.value for c in shown.caption] == [wording.MVP_CAPTION]
     best = mixture_scored.best_formulation_no()
     assert wording.path_lines(best, True) in [c.value for c in tab.caption]
     assert wording.track_caption(False) == (

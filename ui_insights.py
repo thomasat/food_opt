@@ -11,7 +11,8 @@ import streamlit as st
 import insights
 import wording
 from food_bo import join_unit, number_list
-from ui_helpers import amount_format, table_height
+from ui_helpers import (TAB_BATCH, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
+                        open_rows, readiness, table_height)
 
 _BAND = 0.25
 _GREY = 0.12
@@ -391,66 +392,87 @@ def _section(opt, text):
 
 
 def render(opt):
+    """The tab (spec 2026-09-30 §2): the header, three answers — "Can you
+    trust the predictions?", "Where do you stand?", "What to do next" — the
+    foot button, then three folds. At the gate (fewer than MIN_ROWS
+    scored), after a failed fit and with nothing scored, the header (or
+    one line), Best so far and the foot (review M8)."""
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
         st.caption(_say(opt, wording.INSIGHTS_NONE))
+        _foot(opt)
         return
     # The one "scored" count on the tab, the header's: formulations with all
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    # The header's range sentence depends on whether there is a verdict.
-    # With the checks already worked out it goes up once, in its final
-    # form (Task 6 review I-2: no swap to the early form and back on every
-    # rerun); otherwise it goes up at once in its early form, so it is not
-    # blank while they are worked out (Task 5 review M-2), and is written
-    # again once they are known. One headline per run, for the header and
-    # question 1 (Task 5 review M-3).
-    header = st.empty()
-    warm = _cached(opt) if n >= insights.MIN_ROWS else None
-    h = (None if warm is None or warm.get("failed")
-         else insights.headline(opt, warm["checks"]))
-    header.caption(_say(opt, header_text(opt, h)))
+    st.caption(_say(opt, header_text(opt)))
     if n < insights.MIN_ROWS:
-        # Only "Is it still improving?" can be answered yet, and the other
-        # three wait for one line, said once (0.8.0 review fixes §6).
-        _improving(opt)
+        _question(opt, wording.Q_STAND)
+        _stand_first(opt, insights.noise_yardstick(opt))
         st.caption(_say(opt, wording.insights_gate(n)))
+        _foot(opt)
         _how(opt, None)
         return
     bar = st.empty()
-    # The four headings go up at once and "Is it still improving?", which
-    # needs no model, is answered at once; the rest fill in when the models
-    # are ready (§6, §9 I11).
-    q1 = _section(opt, wording.Q_PREDICTIONS)
-    q2 = _section(opt, _q_change(opt))
-    _improving(opt)
-    q4 = _section(opt, wording.Q_BEST)
-    rest = st.container()
     computed = _computed(opt, bar)
     bar.empty()
     if computed.get("failed"):
-        # The three model questions come off; one line says so, where the
-        # bar was. The header keeps its early form.
-        for slot, _ in (q1, q2, q4):
-            slot.empty()
+        # The model answers come off; one line says so, where the bar was.
         bar.caption(_say(opt, wording.INSIGHTS_FAILED))
-        with rest:
-            _how(opt, None)
+        _question(opt, wording.Q_STAND)
+        _stand_first(opt, insights.noise_yardstick(opt))
+        _foot(opt)
+        _how(opt, None)
         return
-    if warm is None:
-        h = insights.headline(opt, computed["checks"])
-        header.caption(_say(opt, header_text(opt, h)))
-    with q1[1]:
-        _predictions(opt, computed, h)
-    with q2[1]:
+    checks = computed["checks"]
+    h = insights.headline(opt, checks)
+    yard = insights.noise_yardstick(opt, checks)
+    trust = st.container()
+    _question(opt, wording.Q_STAND)
+    standing = _stand(opt, computed, yard)
+    _question(opt, wording.Q_NEXT)
+    step = insights.next_step(opt, checks, standing)
+    change = _next_step(opt, step)
+    with trust:
+        _question(opt, wording.Q_TRUST)
+        # The disagreeing Repeat is said once: here, unless "What to do
+        # next" already says it.
+        _trust(opt, computed, h, yard, repeat=step.kind != "repeat")
+    _foot(opt, change)
+    # The folds, collapsed (§2.5), each with a key of its own.
+    with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one"):
         _change(opt, computed)
-    with q4[1]:
-        _best(opt, computed)
-    with rest:
-        # Wave C: after question 4, before "How these insights are made".
-        _more_charts(opt, computed)
-        _how(opt, computed)
+    _more_charts(opt, computed)
+    _how(opt, computed)
+
+
+def _foot(opt, change=None):
+    """The foot Results uses, in its words and by its rule, with a key of its
+    own (spec 2026-09-30 §2.4, review M13): back to the open Round, else
+    the next one. `change`: (label, ...) of the secondary Set up button
+    "What to do next" asked for, drawn under the foot, or None."""
+    if opt.pending_batch:
+        label = wording.back_to_batch_label(opt.pending_batch_no, len(open_rows(opt)))
+    else:
+        label = wording.START_NEXT_BATCH
+    ready, _ = readiness(opt)
+    lit = ready and not confirmation_open()
+    if st.button(label, type="primary" if lit else "secondary", disabled=not lit,
+                 key="insights_foot") and lit:
+        go_to_tab(TAB_BATCH)
+    if change and st.button(change, key="insights_change_setup",
+                            disabled=confirmation_open()):
+        go_to_tab(TAB_SETUP)
+
+
+def _try_one_label(opt):
+    """The first fold's name (§2.5, review I14): names process settings only
+    when the project has one, and ingredients only when it has one."""
+    choices = insights.path_choices(opt)
+    return wording.try_one(insights.has_setting_choice(opt),
+                           insights.has_ingredient_choice(opt)
+                           or (not choices and opt.has_ingredients()))
 
 
 def score_record_help(opt):
@@ -466,20 +488,19 @@ def score_record_help(opt):
     return wording.score_record_line(rec.inside, rec.total, rec.mean_miss)
 
 
-def header_text(opt, h):
-    """The tab's first line: scored formulations (all their results in),
-    the waiting ones apart, and the likely range's promise — its early form
-    until the first verdict. A formulation moved to Not scored is neither
-    scored nor waiting. Its Round is the latest scored one, the Round "Is
-    it still improving?" calls the last (final review I-1): a Round still
-    all waiting is named only by the waiting sentence."""
+def header_text(opt, h=None):
+    """The tab's first line (§2.1): scored formulations (all their results
+    in), up to the latest scored Round, then the waiting ones. A formulation
+    moved to Not scored is neither scored nor waiting. The likely range is
+    defined where it is first used, in the verdict. `h` is not read (kept
+    for callers of 0.8.0's two forms)."""
     order = insights.scored_rounds(opt)
     waiting = opt.awaited_rows()
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
     names = number_list(next(iter(sets))) if len(sets) == 1 else ""
-    return wording.insights_header(opt.complete_count(), order[-1][0] if order else None,
-                                   len(waiting), names,
-                                   early=h is None or h.state != "verdict")
+    return wording.insights_header_line(opt.complete_count(),
+                                        order[-1][0] if order else None,
+                                        len(waiting), names)
 
 
 def _wide(opt, h):
@@ -494,35 +515,57 @@ def _wide(opt, h):
     return wording.wide_line(number_list(names))
 
 
-def _predictions(opt, computed, h):
-    """Question 1's answer, under its heading. `h`: render's one headline."""
-    checks = computed["checks"]
-    if h.state == "none":
-        st.write(_say(opt, wording.PREDICTIONS_NONE))
-    elif h.state == "early":
-        st.write(_say(opt, wording.predictions_early(h.total)))
+def verdict_text(opt, h, state):
+    """"Can you trust the predictions?" in one line per state (§2.2,
+    review I6, M9); some outputs wide adds the wide line."""
+    if state == "none":
+        return wording.TRUST_NONE
+    if state == "early":
+        return wording.trust_early(h.total)
+    if state == "wide":
+        return wording.TRUST_WIDE
+    if state in ("caution", "unreliable"):
+        line = wording.trust_misses(len(h.rounds), h.rounds, h.inside, h.total,
+                                    many=state == "unreliable")
+    elif state == "over_wide":
+        line = wording.trust_over_wide(h.total, h.rounds)
     else:
-        wide = _wide(opt, h)
-        st.write(_say(opt, wording.predictions_count(len(h.rounds), h.rounds, h.inside,
-                                                     h.total, h.verdict)
-                      + (" " + wide if wide else "")))
-    # The number Make a round shows is the Overall score, so its own record
-    # is always in view, not two clicks deep (§3.3, §9 I7).
+        line = wording.trust_within(h.inside, h.total, h.rounds)
+    wide = _wide(opt, h)
+    return f"{line} {wide}" if wide else line
+
+
+def _beyond(gap, yard):
+    """What the Overall score's average gap is more than, when it is (review
+    I5): "Repeats differ" from 3 pairs, else "1 point"; '' within."""
+    if yard.value is None or abs(gap) <= yard.value:
+        return ""
+    return "Repeats differ" if yard.from_repeats else "1 point"
+
+
+def disagreement_text(d):
+    return wording.repeat_disagrees(d.later, d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0)
+
+
+def _trust(opt, computed, h, yard, repeat=True):
+    """Answer 1 (§2.2): one verdict, the Overall score's own line, a
+    disagreeing Repeat (`repeat`), one line on how, and measured against
+    predicted in its fold."""
+    checks = computed["checks"]
+    st.write(_say(opt, verdict_text(opt, h, insights.verdict_state(opt, h, checks))))
     if h.score is not None:
-        st.write(_say(opt, wording.score_record_line(h.score.inside, h.score.total,
-                                                     h.score.mean_miss)))
-    st.caption(_say(opt, wording.PREDICTIONS_CAPTION))
-    # Only once something has been checked: before that, PREDICTIONS_NONE
-    # already says when the first check comes.
-    skipped = insights.rounds_not_checked(opt)
-    if skipped and h.state != "none":
-        st.caption(_say(opt, wording.rounds_not_checked(skipped)))
-    chart = track_chart(opt, checks)
+        st.write(_say(opt, wording.score_gap_line(h.score.inside, h.score.total,
+                                                  h.score.mean_miss,
+                                                  _beyond(h.score.mean_miss, yard))))
+    flagged = insights.disagreeing_repeat(opt, checks) if repeat else None
+    if flagged is not None:
+        st.write(_say(opt, disagreement_text(flagged)))
+    st.caption(_say(opt, wording.TRUST_BEFOREHAND))
+    chart = measured_vs_predicted_chart(opt, checks)
     if chart is not None:
         with st.expander(_say(opt, wording.SHOW_PREDICTIONS)):
             show_chart(chart)
-            st.caption(_say(opt, wording.track_caption(
-                bool(_target_rows(opt, {c.name for c in checks})))))
+            st.caption(_say(opt, wording.MVP_CAPTION))
 
 
 def _keep_if_offered(key, options):
@@ -809,30 +852,43 @@ def _path_captions(opt, path, number, fitted, near=None):
     return lines
 
 
-def _improving(opt):
-    _question(opt, wording.Q_IMPROVING)
+def stand_text(answer):
+    """The Yes / Barely / Not lately answer (§2.3, review I5, M3). One
+    decimal, unless the rise would read 0.0 or the same as what it is
+    judged against: then hundredths, so the words never contradict the
+    numbers (Task 6 review M-1)."""
+    if answer.state == "not_lately":
+        return wording.stand_not_lately(answer.rounds)
+    threshold = 1.0 if answer.sd is None else answer.sd
+    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+    rise = f"{answer.rise:.{d}f}"
+    if answer.state == "yes":
+        return wording.stand_yes(rise)
+    return wording.stand_barely(rise, None if answer.sd is None else f"{answer.sd:.{d}f}")
+
+
+def _stand_first(opt, yard):
+    """"Where do you stand?" line 1 (§2.3): the answer, Best so far to two
+    decimals as Results shows it (review M1), and the Repeats line only
+    after a rise (audit V24). Needs no model: drawn at the gate too."""
     f = insights.best_facts(opt)
-    spread = insights.repeat_sd(opt, insights.SCORE)
-    answer = insights.improvement(opt, f, spread)
-    if answer is not None:
-        st.write(_say(opt, improving_text(answer)))
+    answer = insights.improvement(opt, f, yardstick=yard)
     if f is None:
-        # Everything recorded still waits: the question is not left empty
-        # (final review M-5), in the words Results uses.
+        # Everything recorded still waits, in the words Results uses.
         st.write(_say(opt, wording.NO_COMPLETE_FORMULATION))
-    else:
-        # The answer above already says what these two did.
-        second = ("" if answer is not None
-                  else wording.BEST_LATEST if f.latest and f.rounds_since == 0
-                  else wording.best_since(f.rounds_since) if f.rounds_since else "")
-        st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round,
-                                             number_list(f.without))
-                      + (" " + second if second else "")))
-    # A spread that would read 0 says nothing about chance.
-    if spread.sd is not None and spread.sd >= insights.REPEAT_SD_SHOWN:
-        st.write(_say(opt, wording.repeats_line(f"{spread.sd:.1f}", spread.pairs)))
+        return answer
+    second = ("" if answer is not None
+              else wording.STAND_LATEST if f.latest and f.rounds_since == 0
+              else wording.stand_since(f.rounds_since) if f.rounds_since else "")
+    line = wording.stand_best(f"{f.score:.2f}", f.formulation, f.round, number_list(f.without))
+    head = stand_text(answer) + " " if answer is not None else ""
+    st.write(_say(opt, head + line + (" " + second if second else "")))
+    if (answer is not None and answer.state in ("yes", "barely")
+            and yard.sd is not None and yard.sd >= insights.REPEAT_SD_SHOWN):
+        st.write(_say(opt, wording.stand_repeats(f"{yard.sd:.1f}", yard.pairs)))
     with st.expander(_say(opt, wording.SHOW_PROGRESS)):
         _progress_chart_body(opt)
+    return answer
 
 
 def improving_text(answer):
@@ -983,49 +1039,104 @@ def shows_luck(predicted, measured):
     return float(_whole(predicted)) < float(f"{measured:.1f}")
 
 
-def _best(opt, computed):
-    """Question 4's answer, under its heading."""
-    fitted = None if computed is None else computed["fitted"]
-    score = None if fitted is None else fitted.get(insights.SCORE)
-    # render draws question 4 only once 5 are scored; without an Overall
-    # score model it cannot be worked out (Task 6 review M-2).
+def binding_text(b):
+    """One item of Line 3: 'the Highest of Pea', 'the limit Fat: at most 20 g'."""
+    return (wording.at_highest(b.name) if b.kind == "highest"
+            else wording.at_lowest(b.name) if b.kind == "lowest" else wording.at_limit(b.text))
+
+
+def standing_text(opt, standing, yard):
+    """Line 2 (§2.3, review I7): the predicted best against Best so far's
+    predicted Repeat, in whole points, in one of four texts."""
+    p = standing.best.score
+    mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
+    if standing.higher:
+        close = standing.best.close
+        return wording.stand_higher(mean, low, high, standing.close_no,
+                                    "" if close is None else f"{opt.Y_history[close]:.2f}")
+    by = wording.beat_by(f"{yard.value:.1f}" if yard.from_repeats else None)
+    return wording.stand_not_higher(by, mean, low, high, standing.close_no)
+
+
+def _stand(opt, computed, yard):
+    """Answer 2 (§2.3): line 1, then the predicted best against Best so
+    far (line 2), what it sits at (line 3), the luck line, and its amounts
+    in a fold only when it is clearly higher and not tested near. Returns
+    the insights.Standing, or None when the predicted best could not be
+    worked out (one line says why)."""
+    _stand_first(opt, yard)
+    fitted = computed["fitted"]
+    score = fitted.get(insights.SCORE)
     if score is None or score.model is None:
         st.caption(_say(opt, wording.BEST_FAILED))
-        return
+        return None
     best = _predicted_best(opt, fitted, computed["checks"])
     if isinstance(best, str):
         st.caption(_say(opt, best))
-        return
+        return None
     if best is _FAILED:
         st.caption(_say(opt, wording.BEST_FAILED))
-        return
-    p = best.score
-    line = wording.best_answer(_whole(p.mean), _whole(p.low), _whole(p.high))
-    if best.close is not None:
-        line += " " + wording.best_close(int(opt.formulation_ids[best.close]),
-                                         f"{opt.Y_history[best.close]:.1f}")
-    else:
-        line += " " + wording.BEST_UNTESTED
-    st.write(_say(opt, line))
+        return None
+    standing = insights.best_standing(opt, best, yard.value)
+    st.write(_say(opt, standing_text(opt, standing, yard)))
+    if standing.binding:
+        st.write(_say(opt, wording.stand_limits([binding_text(b) for b in standing.binding])))
     top = opt.best_index()
-    # Best so far's measured score was picked for being the highest, so it
-    # carries some luck; said when the predicted best reads below it (§3.6).
-    if (best.repeat is not None and top is not None
-            and shows_luck(p.mean, float(opt.Y_history[top]))):
+    if standing.luck and best.repeat is not None and top is not None:
         r = best.repeat
         st.write(_say(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
                                              _whole(r.low), _whole(r.high))))
-    try:
-        frame = best_frame(opt, best, fitted)
-    except Exception:   # one line, never a traceback: the tab still stands
-        st.caption(_say(opt, wording.BEST_FAILED))
-        return
-    st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
-                 column_config={wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
-                     wording.PREDICTED_SCORE_COLUMN,
-                     help=_say(opt, wording.PREDICTED_SCORE_HELP))},
-                 height=table_height(len(frame)))
-    st.caption(_say(opt, wording.BEST_CAPTION))
+    if standing.higher and not standing.tested_near:
+        with st.expander(_say(opt, wording.show_its_amounts(not opt.has_ingredients()))):
+            try:
+                frame = best_frame(opt, best, fitted)
+            except Exception:   # one line, never a traceback: the tab still stands
+                st.caption(_say(opt, wording.BEST_FAILED))
+            else:
+                st.dataframe(frame.style.format(amount_format(opt, frame)), hide_index=True,
+                             column_config={wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
+                                 wording.PREDICTED_SCORE_COLUMN,
+                                 help=_say(opt, wording.PREDICTED_SCORE_HELP))},
+                             height=table_height(len(frame)))
+    return standing
+
+
+def next_step_text(opt, step):
+    """(sentence, Set up button label or None) for insights.next_step's
+    answer (§2.4, review I2, I3, I14, M17)."""
+    values = not opt.has_ingredients()
+    settings_only = not insights.has_ingredient_choice(opt)
+    if step.kind == "bias":
+        return wording.next_bias(f"{abs(step.gap):.1f}", below=step.gap < 0), None
+    if step.kind == "misses":
+        return wording.NEXT_MISSES, None
+    if step.kind == "repeat":
+        return disagreement_text(step.disagreement), None
+    if step.kind == "early":
+        return wording.NEXT_TOO_EARLY, None
+    if step.kind == "untested":
+        return wording.next_untested(values), None
+    if step.kind == "close":
+        b = step.binding
+        if b is None:
+            return wording.next_close_to_top(settings_only=settings_only), None
+        if b.kind == "limit":
+            return (wording.next_close_to_top(wording.widen_limit(b.text), settings_only),
+                    wording.CHANGE_LIMITS_ON_SETUP)
+        change = (wording.raise_highest(b.name) if b.kind == "highest"
+                  else wording.lower_lowest(b.name))
+        return (wording.next_close_to_top(change, settings_only),
+                wording.change_on_setup(b.name, highest=b.kind == "highest"))
+    if step.kind == "rising":
+        return wording.NEXT_RISING, None
+    return wording.NEXT_SEE, None
+
+
+def _next_step(opt, step):
+    """Answer 3: one sentence. Returns the Set up button's label, or None."""
+    text, change = next_step_text(opt, step)
+    st.write(_say(opt, text))
+    return change
 
 
 # ------------------------------------------------------------------ #
@@ -1556,6 +1667,10 @@ def _more_charts(opt, computed):
 
 
 def _how(opt, computed):
+    """"How these insights are made" (§2.5; review M5, M6, M10): plain
+    paragraphs, the two method lines that were under the verdict (audit
+    V23), then the details table with its window named and a "Likely range
+    widened by" column, and the lines that read it."""
     with st.expander(_say(opt, wording.HOW_WORKED_OUT)):
         tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
         for text in (wording.HOW_MODELS,
@@ -1566,15 +1681,28 @@ def _how(opt, computed):
             st.markdown(_say(opt, text))
         if computed is None:
             return
-        rows = insights.details(opt, computed["checks"])
+        checks = computed["checks"]
+        st.caption(_say(opt, wording.PREDICTIONS_CAPTION))
+        skipped = insights.rounds_not_checked(opt)
+        if skipped and checks:
+            st.caption(_say(opt, wording.rounds_not_checked(skipped)))
+        flagged = insights.disagreeing_repeat(opt, checks)
+        rows = insights.details(opt, checks, computed["fitted"], flagged)
         if not rows:
             st.caption(_say(opt, wording.DETAILS_NONE))
-        else:
-            st.dataframe(pd.DataFrame([{
-                wording.DETAILS_COLUMNS[0]: panel_label(opt, r.name),
-                wording.DETAILS_COLUMNS[1]: r.checked,
-                wording.DETAILS_COLUMNS[2]: r.inside,
-                wording.DETAILS_COLUMNS[3]: f"± {_num(r.half_width)}",
-                wording.DETAILS_COLUMNS[4]: _num(r.typical_miss),
-                wording.DETAILS_COLUMNS[5]: wording.repeat_ratio(r.ratio, r.repeat_sd),
-            } for r in rows]), hide_index=True, height=table_height(len(rows)))
+            return
+        h = insights.headline(opt, checks)
+        st.caption(_say(opt, wording.details_window(insights._ordered_rounds(checks),
+                                                    len(h.rounds))))
+        columns = wording.DETAILS_COLUMNS_2
+        st.dataframe(pd.DataFrame([{
+            columns[0]: panel_label(opt, r.name),
+            columns[1]: r.checked,
+            columns[2]: r.inside,
+            columns[3]: f"± {_num(r.half_width)}",
+            columns[4]: _num(r.typical_miss),
+            columns[5]: "" if r.widen is None else wording.widen_text(r.widen),
+            columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs),
+        } for r in rows]), hide_index=True, height=table_height(len(rows)))
+        for text in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
+            st.caption(_say(opt, text))

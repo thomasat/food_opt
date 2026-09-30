@@ -91,32 +91,14 @@ def test_the_repeats_line_names_its_pairs():
 def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     md = [m.value for m in at.tabs[3].markdown]
-    i = md.index(f"**{wording.Q_IMPROVING}**")
-    answer = insights.improvement(insights_scored)
+    i = md.index(f"**{wording.Q_STAND}**")
+    answer = insights.improvement(insights_scored,
+                                  yardstick=insights.noise_yardstick(insights_scored))
     if answer is not None:
-        assert md[i + 1] == ui_insights.improving_text(answer)
-        assert md[i + 2].startswith("Best so far:")
-        assert wording.BEST_LATEST not in md[i + 2]
-        assert "No higher score" not in md[i + 2]      # the fixture reads Not lately
-
-
-def test_the_four_headings_come_in_order(insights_scored):
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    md = [m.value for m in at.tabs[3].markdown]
-    heads = [f"**{q}**" for q in (wording.Q_PREDICTIONS, wording.q_change(False),
-                                  wording.Q_IMPROVING, wording.Q_BEST)]
-    assert [md.index(h) for h in heads] == sorted(md.index(h) for h in heads)
-    assert all(md.count(h) == 1 for h in heads)
-
-
-def test_a_failed_fit_takes_the_three_model_questions_off(insights_scored, monkeypatch):
-    monkeypatch.setattr(insights, "fit_all", lambda opt: (_ for _ in ()).throw(RuntimeError()))
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not at.exception
-    md = " ".join(m.value for m in at.tabs[3].markdown)
-    assert wording.Q_PREDICTIONS not in md and wording.Q_BEST not in md
-    assert wording.Q_IMPROVING in md
-    assert [c.value for c in at.tabs[3].caption].count(wording.INSIGHTS_FAILED) == 1
+        # One line: the answer, then Best so far (spec 2026-09-30 §2.3).
+        assert md[i + 1].startswith(ui_insights.stand_text(answer) + " Best so far:")
+        assert wording.STAND_LATEST not in md[i + 1]
+        assert "No higher score" not in md[i + 1]      # the fixture reads Not lately
 
 
 def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
@@ -134,44 +116,6 @@ def test_the_new_strings_pass_the_vocabulary_guard():
                  wording.improving_not_lately(3)):
         assert not any(p.search(text) for p in _BANNED), text
     assert "first visit" not in wording.CHECKING
-
-
-def test_the_header_is_filled_before_the_checks_run(insights_scored, monkeypatch):
-    """Task 5 review M-2: during the first compute the header is not blank.
-    Its early form goes up before the checks, then the verdict form over it."""
-    log = []
-    real_header, real_checks = ui_insights.header_text, insights.check_rounds
-
-    def header(opt, h):
-        log.append(("header", h))
-        return real_header(opt, h)
-
-    def checks(*a, **k):
-        log.append(("checks", None))
-        return real_checks(*a, **k)
-    monkeypatch.setattr(ui_insights, "header_text", header)
-    monkeypatch.setattr(insights, "check_rounds", checks)
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not at.exception
-    first = log.index(("checks", None))
-    assert ("header", None) in log[:first]
-    assert log[-1][0] == "header" and log[-1][1] is not None
-
-
-def test_the_headline_is_worked_out_once_per_run(insights_scored, monkeypatch):
-    """Task 5 review M-3: the header and question 1 share one headline."""
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    calls = []
-    real = insights.headline
-
-    def counted(*a, **k):
-        calls.append(1)
-        return real(*a, **k)
-    monkeypatch.setattr(insights, "headline", counted)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------- fix round 1
@@ -271,23 +215,6 @@ def test_the_section_works_out_best_so_far_once(insights_scored, monkeypatch):
     at.run()
     assert not at.exception
     assert len(calls) == 1
-
-
-def test_a_warm_rerun_writes_the_header_once(insights_scored, monkeypatch):
-    """Review I-2: with the checks already worked out, the header goes up
-    once in its verdict-aware form, never the early form first."""
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    log = []
-    real = ui_insights.header_text
-
-    def header(opt, h):
-        log.append(h)
-        return real(opt, h)
-    monkeypatch.setattr(ui_insights, "header_text", header)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    assert len(log) == 1 and log[0] is not None
 
 
 def test_question_4_without_a_score_model_says_it_could_not_be_worked_out(

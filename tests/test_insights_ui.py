@@ -309,12 +309,15 @@ def test_insights_sections_and_expanders(insights_scored):
     assert not at.exception
     tab = at.tabs[3]
     text = " ".join(m.value for m in tab.markdown)
-    for q in (wording.Q_PREDICTIONS, wording.q_change(False), wording.Q_IMPROVING):
+    for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT):
         assert q in text
     labels = [e.label for e in tab.expander]
-    for lab in (wording.SHOW_PREDICTIONS, wording.SHOW_PROGRESS, wording.HOW_WORKED_OUT):
+    for lab in (wording.SHOW_PREDICTIONS, wording.SHOW_PROGRESS, wording.try_one(False),
+                wording.HOW_WORKED_OUT):
         assert lab in labels, labels
-    assert not [b for b in tab.button if b.proto.type == "primary"]
+    # One lit button: the foot (spec 2026-09-30 §2.4).
+    assert [b.label for b in tab.button if b.proto.type == "primary"] == [
+        wording.START_NEXT_BATCH]
     # The two controls of "What happens if you change one ingredient?"
     assert tab.selectbox(key="insights_choice").value == "Pea protein"
     best = insights_scored.best_index()
@@ -389,8 +392,8 @@ def test_how_section_default_wording(insights_scored):
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
     [frame] = _details_frames(at)
-    assert list(frame.columns) == list(wording.DETAILS_COLUMNS)
-    assert frame.iloc[-1][wording.DETAILS_COLUMNS[0]] == wording.OVERALL_SCORE_COLUMN
+    assert list(frame.columns) == list(wording.DETAILS_COLUMNS_2)
+    assert frame.iloc[-1][wording.DETAILS_COLUMNS_2[0]] == wording.OVERALL_SCORE_COLUMN
 
 
 def test_how_section_fixed_tiny_wording(insights_fixed_tiny):
@@ -505,7 +508,7 @@ def _details_frames(at):
     """The details table in "How these insights are made". Question 4's
     table (wave B) is drawn above it, so it is found by its columns."""
     return [d.value for d in at.tabs[3].dataframe
-            if list(d.value.columns) == list(wording.DETAILS_COLUMNS)]
+            if list(d.value.columns) == list(wording.DETAILS_COLUMNS_2)]
 
 
 def _tab_text(at):
@@ -523,7 +526,7 @@ def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, mon
     assert not at.exception
     md, caps = _tab_text(at)
     assert caps.count(wording.INSIGHTS_FAILED) == 1
-    assert any(m.startswith("Best so far:") for m in md)       # section 3 still shows
+    assert any("Best so far:" in m for m in md)       # "Where do you stand?" still shows
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception and calls == [1]
@@ -543,8 +546,8 @@ def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, 
     assert not at.exception
     md, caps = _tab_text(at)
     assert wording.panel_failed("Pea protein") in caps
-    assert wording.Q_PREDICTIONS in " ".join(md)
-    assert any(m.startswith("Best so far:") for m in md)
+    assert wording.Q_TRUST in " ".join(md)
+    assert any("Best so far:" in m for m in md)
 
 
 def test_section_2_says_when_there_is_nothing_to_change(insights_scored, monkeypatch):
@@ -556,19 +559,24 @@ def test_section_2_says_when_there_is_nothing_to_change(insights_scored, monkeyp
 
 def test_question_2_names_process_settings_only_when_there_are_some(insights_scored):
     at = _open_insights(_app())
-    body = " ".join(_tab_text(at)[0])
-    assert wording.q_change(False) in body and wording.q_change(True) not in body
+    labels = [e.label for e in at.tabs[3].expander]
+    assert wording.try_one(False) in labels and wording.try_one(True) not in labels
 
 
 @pytest.mark.parametrize("sd, shown", [(0.04, False), (0.0, False), (0.06, True)])
 def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd, shown):
-    monkeypatch.setattr(insights, "repeat_sd",
-                        lambda opt, name: insights.RepeatSpread(sd, 1))
+    """After a rise only (audit V24), and a spread that reads 0.0 says nothing."""
+    monkeypatch.setattr(insights, "noise_yardstick",
+                        lambda opt, checks=(), name=insights.SCORE:
+                        insights.Yardstick(1.0, sd, 1, False))
+    monkeypatch.setattr(insights, "improvement",
+                        lambda opt, facts=None, spread=None, yardstick=None:
+                        insights.Improvement("yes", 2.0, None, 0))
     at = _open_insights(_app())
     md = " ".join(_tab_text(at)[0])
     assert ("Repeats of the same formulation" in md) == shown
     if shown:
-        assert wording.repeats_line("0.1", 1) in md
+        assert wording.stand_repeats("0.1", 1) in md
 
 
 @pytest.fixture
@@ -596,7 +604,7 @@ def test_details_table_shows_rows_after_one_checked_round(insights_scored):
     at = _open_insights(_app())
     [frame] = _details_frames(at)
     assert len(frame) == 3                                        # 3 checked each
-    assert set(frame[wording.DETAILS_COLUMNS[5]]) == {"no Repeats yet"}
+    assert set(frame[wording.DETAILS_COLUMNS_2[6]]) == {"no Repeats yet"}
     assert wording.DETAILS_NONE not in _tab_text(at)[1]
 
 
