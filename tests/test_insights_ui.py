@@ -328,9 +328,9 @@ def test_progress_chart_moved_from_results(insights_scored):
     at.run()
     labels = [e.label for e in at.expander]
     assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
-    assert not any(c.value == wording.PROGRESS_CHART_CAPTION for c in at.caption)
+    assert not any(c.value == wording.progress_caption_2() for c in at.caption)
     at = _open_insights(_app())
-    assert any(c.value == wording.PROGRESS_CHART_CAPTION for c in at.tabs[3].caption)
+    assert any(c.value == wording.progress_caption_2() for c in at.tabs[3].caption)
 
 
 def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkeypatch):

@@ -199,8 +199,9 @@ def test_the_progress_caption_names_the_ring_when_one_is_drawn(monkeypatch):
     """Review of Task 4: nothing said what the hollow dot meant."""
     from tests.test_best_candidates import _upgrade_like
     said = _progress_captions(_upgrade_like(), monkeypatch)
-    assert said == [wording.progress_caption(rings=True)]
-    assert said[0].startswith(wording.PROGRESS_CHART_CAPTION)
+    # Spec 2026-09-30 §2.3 (expert #8): the caption starts from its key.
+    assert said == [wording.progress_caption_2(rings=True)]
+    assert said[0].startswith(wording.progress_caption_2())
     assert said[0].endswith(" " + wording.PROGRESS_RING)
     assert not any(p.search(wording.PROGRESS_RING) for p in __import__(
         "tests.test_food_bo", fromlist=["_BANNED"])._BANNED)
@@ -212,5 +213,4 @@ def test_the_progress_caption_says_nothing_of_rings_without_one(monkeypatch):
     from tests.test_complete_results import _patty, _tell
     opt = _patty(rows=2)
     _tell(opt, 3, 1, drop=("Cook loss",))
-    assert _progress_captions(opt, monkeypatch) == [wording.PROGRESS_CHART_CAPTION]
-    assert wording.progress_caption(rings=False) == wording.PROGRESS_CHART_CAPTION
+    assert _progress_captions(opt, monkeypatch) == [wording.progress_caption_2()]

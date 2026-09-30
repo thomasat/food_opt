@@ -158,6 +158,64 @@ def track_chart(opt, checks):
     return _faceted(layers, df, order)
 
 
+def _padded(values):
+    """One domain for both axes of a measured-against-predicted panel: the
+    values' extent padded 5 % (review M4), never zero-width."""
+    lo, hi = min(values), max(values)
+    pad = 0.05 * (hi - lo) if hi > lo else max(0.5, 0.05 * abs(hi))
+    return [lo - pad, hi + pad]
+
+
+def measured_vs_predicted_chart(opt, checks):
+    """Can you trust the predictions? — one panel per measurement, then the
+    Overall score (spec 2026-09-30 §2.2, review M4). Each check is a dot at
+    (predicted before it was made, measured) with its likely range as a thin
+    vertical bar; the dashed line is "exactly as predicted". Filled = inside
+    its likely range; the latest Round is drawn darker. Both axes of a panel
+    share one domain, padded 5 %, so the line is at 45 degrees."""
+    if not checks:
+        return None
+    names = [n for n in track_panels(opt) if any(c.name == n for c in checks)]
+    latest = max(c.round for c in checks)
+    formulation = _say(opt, wording.FORMULATION_CAP)
+    predicted, measured = wording.TRACK_PREDICTED, wording.TRACK_MEASURED
+    low, high = wording.TRACK_LOW, wording.TRACK_HIGH
+    panels = []
+    for name in names:
+        mine = [c for c in checks if c.name == name]
+        d = decimals(opt, name)
+        domain = _padded([v for c in mine for v in (c.low, c.high, c.measured, c.predicted)])
+        scale = alt.Scale(domain=domain, nice=False, zero=False)
+        df = pd.DataFrame([{
+            formulation: c.formulation, wording.ROUND_CAP: c.round,
+            predicted: round(c.predicted, d), low: round(c.low, d), high: round(c.high, d),
+            measured: round(c.measured, max(1, d)), "inside": c.inside,
+            "latest": c.round == latest} for c in mine])
+        x = alt.X(f"{predicted}:Q", title=predicted, scale=scale)
+        y = alt.Y(f"{measured}:Q", title=measured, scale=scale)
+        tip = [alt.Tooltip(f"{f}:{t}", title=f) for f, t in (
+            (formulation, "Q"), (wording.ROUND_CAP, "N"), (predicted, "Q"), (low, "Q"),
+            (high, "Q"), (measured, "Q"))]
+        latest_first = alt.FieldEqualPredicate(field="latest", equal=True)
+        line = (alt.Chart(pd.DataFrame({"a": domain, "b": domain}))
+                .mark_line(color="gray", strokeDash=[4, 3], strokeWidth=1, tooltip=False)
+                .encode(x=alt.X("a:Q", scale=scale, title=predicted),
+                        y=alt.Y("b:Q", scale=scale, title=measured)))
+        base = alt.Chart(df)
+        bars = base.mark_rule(strokeWidth=2).encode(
+            x=x, y=alt.Y(f"{low}:Q", scale=scale, title=measured), y2=f"{high}:Q",
+            opacity=alt.condition(latest_first, alt.value(0.6), alt.value(0.25)), tooltip=tip)
+        rings = base.mark_point(size=50, strokeWidth=1.5).encode(
+            x=x, y=y, opacity=alt.condition(latest_first, alt.value(1.0), alt.value(0.45)),
+            tooltip=tip)
+        filled = (base.mark_point(size=50, filled=True).encode(
+            x=x, y=y, opacity=alt.condition(latest_first, alt.value(1.0), alt.value(0.45)),
+            tooltip=tip).transform_filter(alt.FieldEqualPredicate(field="inside", equal=True)))
+        panels.append(alt.layer(line, bars, rings, filled)
+                      .properties(width=220, height=220, title=_say(opt, panel_label(opt, name))))
+    return alt.concat(*panels, columns=3)
+
+
 def path_chart(opt, path, preds, near=None):
     """What happens if you change one ingredient? — one panel per output: a
     neutral predicted line, a light 95 % likely-range band, grey shading
@@ -269,6 +327,15 @@ def _cached(opt):
     out, else None."""
     hit = st.session_state.get(CACHE_KEY)
     return hit[1] if hit and hit[0] == insights.data_key(opt) else None
+
+
+def cached_checks(opt):
+    """The Round-by-Round checks for this project's data when Insights has
+    already worked them out, else (). Results and Make a round read them
+    here and never check Rounds themselves (spec 2026-09-30 Plan B; Plan A
+    swaps in its precomputed cache behind this one door)."""
+    hit = _cached(opt)
+    return () if hit is None or hit.get("failed") else hit["checks"]
 
 
 def _computed(opt, bar=None):
@@ -525,6 +592,27 @@ def _change(opt, computed):
         show_chart(chart)
     for line in lines:
         st.caption(_say(opt, line))
+
+
+def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
+    """Compare all: one bar per choice, ranked by how much it changes the
+    prediction near what has been tested (dark), extended in a lighter
+    shade to its change along the whole path (spec 2026-09-30 §2.5, review
+    I8). A choice whose start is not tested near has only the light bar.
+    `changes`: insights.NearChange, in the order to draw them."""
+    if not changes:
+        return None
+    df = pd.DataFrame([{"name": c.name, "near": round(c.near or 0.0, d),
+                        "whole": round(c.whole, d)} for c in changes])
+    order = [c.name for c in changes]
+    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=0, titleLimit=0))
+    tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
+           alt.Tooltip("near:Q", title=wording.CHANGE_NEAR, format=f".{d}f"),
+           alt.Tooltip("whole:Q", title=wording.CHANGE_WHOLE, format=f".{d}f")]
+    base = alt.Chart(df)
+    light = base.mark_bar(opacity=0.35).encode(x=alt.X("whole:Q", title=axis), y=y, tooltip=tip)
+    dark = base.mark_bar().encode(x=alt.X("near:Q", title=axis), y=y, tooltip=tip)
+    return alt.layer(light, dark).properties(height=28 * len(changes) + 20)
 
 
 def spread_chart(spreads, axis=wording.SPREAD_AXIS, d=1):
@@ -795,9 +883,11 @@ def progress_chart(opt):
     frame["series"] = score
     # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0 with one
     # round of data and nothing on the chart said what either number was.
+    # Whole-number ticks, each once (spec 2026-09-30 §2.3, expert #8), and a
+    # y axis that fits the scores rather than starting at 0.
     x = alt.X(f"{formulation}:Q", title=formulation,
-              axis=alt.Axis(format="d", tickMinStep=1))
-    y = alt.Y(f"{score}:Q", title=score)
+              axis=alt.Axis(format="d", values=formulation_ticks(frame[formulation])))
+    y = alt.Y(f"{score}:Q", title=score, scale=alt.Scale(zero=False))
     colour = alt.Color("series:N", legend=None)
     # Titled and rounded (0.8.0 review fixes §6): a measured Overall score
     # reads one decimal, never 73.283749….
@@ -811,9 +901,25 @@ def progress_chart(opt):
                     tooltip=[no_tip, alt.Tooltip(f"{score}:Q", title=score, format=".1f")])
             .transform_filter(alt.FieldValidPredicate(field=score, valid=True)))
     best_line = (alt.Chart(frame).mark_line(color="gray", strokeDash=[4, 3])
-                 .encode(x=x, y=alt.Y(f"{best}:Q", title=score),
+                 .encode(x=x, y=alt.Y(f"{best}:Q", title=score, scale=alt.Scale(zero=False)),
                          tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
     return alt.layer(score_line, dots, best_line).properties(height=220)
+
+
+# At most this many ticks on the Progress chart's Formulation axis.
+_MAX_TICKS = 12
+
+
+def formulation_ticks(numbers):
+    """Whole numbers from the first formulation to the last, every one while
+    they fit in _MAX_TICKS, else every k-th: never a repeated or a
+    fractional tick."""
+    numbers = [int(n) for n in numbers]
+    if not numbers:
+        return []
+    lo, hi = min(numbers), max(numbers)
+    step = max(1, math.ceil((hi - lo + 1) / _MAX_TICKS))
+    return list(range(lo, hi + 1, step))
 
 
 def _progress_chart_body(opt):
@@ -823,7 +929,7 @@ def _progress_chart_body(opt):
     # formulation still waiting is a gap, not a dot, so it does not count.
     pool = set(opt.best_candidates())
     rings = any(opt.fully_measured(i) and i not in pool for i in range(len(opt.Y_history)))
-    st.caption(_say(opt, wording.progress_caption(rings)))
+    st.caption(_say(opt, wording.progress_caption_2(rings)))
 
 
 def _predicted_best(opt, fitted, checks=()):
