@@ -474,7 +474,7 @@ def test_the_discarded_notice_names_the_round_and_what_to_do_next():
     assert notice == ("Round 2 was discarded: your set-up changed after it "
                       "was made. Generate a new one."), notice
     assert "generated" not in notice, notice
-    assert wording.batch_discarded_notice().startswith("The open round")
+    assert wording.batch_discarded_notice().startswith("The open Round")
 
 
 def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():

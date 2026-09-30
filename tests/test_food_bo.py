@@ -731,7 +731,7 @@ class TestAskTell:
                                       {"Taste": 7.0})
 
     def test_tell_missing_result_raises(self, opt_configured):
-        with pytest.raises(ValueError, match="Enter a value for"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt_configured.tell({"Water": 50, "Flour": 25, "Sugar": 10}, {})
 
     def test_warm_start_after_enough_experiments(self, opt_configured):
@@ -1845,7 +1845,7 @@ class TestFormulationIdentity:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7, min_val=0, max_val=10)
         opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": None})
         assert opt.results_history[0] == {"Firmness": 6.0}
-        with pytest.raises(ValueError, match="Enter a value for"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt.tell({"Water": 20.0}, {"Firmness": None, "Juiciness": None})
 
     def test_skipped_formulations_live_outside_the_scored_history(self, tmp_path, monkeypatch):
@@ -1920,7 +1920,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.ask(n_suggestions=2)
-        with pytest.raises(ValueError, match="Record or discard the open round first."):
+        with pytest.raises(ValueError, match="Record or discard the open Round first."):
             opt.undo_last_batch()
         assert opt.pending_batch is not None
         assert opt.formulation_ids == [1]
@@ -1931,7 +1931,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.set_pending_batch([])
-        with pytest.raises(ValueError, match="Record or discard the open round first."):
+        with pytest.raises(ValueError, match="Record or discard the open Round first."):
             opt.undo_last_batch()
 
     def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
@@ -2004,7 +2004,7 @@ class TestFormulationIdentity:
         survive that refusal, or a slip of the hand deletes the formulation."""
         opt = self._opt(tmp_path, monkeypatch, name="scoreskipped2")
         opt.record_skipped(1, 1, {"Water": 10.0}, note="Not scored")
-        with pytest.raises(ValueError, match="at least one measurement"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt.score_skipped(1, {"Firmness": None})
         assert [s["formulation"] for s in opt.skipped] == [1]
         assert FoodOptimizer("scoreskipped2").skipped[0]["formulation"] == 1
@@ -2980,7 +2980,7 @@ class TestParseBatchResultsByFormulation:
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
         with pytest.raises(ValueError,
-                           match=r"Formulation 11 is not in round 3 \(it has 7, 8, 9\)\."):
+                           match=r"Formulation 11 is not in Round 3 \(it has 7, 8, 9\)\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
@@ -3762,9 +3762,8 @@ class TestSharesAreTheWeights:
         opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": 10.0})
         saved = FoodOptimizer(opt.project_name)
         assert saved.Y_history[0] == pytest.approx(100.0)
-        assert wording.overall_score_caption(
-            saved.Y_history[0], saved.utility_ceiling()).startswith(
-            "Overall score 100.00 of 100")
+        assert wording.overall_score_line(
+            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.00 of 100."
 
     def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
             self, tmp_path, monkeypatch):
@@ -4292,6 +4291,10 @@ _BANNED = [
     # "holds" and "holding" are the ordinary English verb ("a copy holds
     # everything") and are not this word.
     re.compile(r"\b(hold|held)\b", re.I),
+    # 0.8.0 speed and simplicity (spec 2026-09-30 §6, review M3): Repeats
+    # "differ", an ingredient "changes the prediction by up to". "spread"
+    # named both, and a Compare-all bar besides.
+    re.compile(r"\bspread\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -4414,9 +4417,9 @@ _ALLOWED_EXACT = {
     wording.PROCESS_STUDY_INTRO, wording.METHOD_HELP, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
     # Scientific teaching copy requested by the owner uses measurement scale,
     # ingredient weight and experimental results in their ordinary meanings.
-    wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
+    wording.MEASUREMENT_MIN_HELP,
     wording.MEASUREMENT_MAX_HELP, wording.RULE_GUIDE, wording.FORMULA_HELP,
-    wording.MADE_AS_HELP, wording.SAMPLE_TAB1_DESCRIPTION,
+    wording.MADE_AS_HELP,
     wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
     wording.WIDEN_RANGE_HINT,
     wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD, wording.LEGACY_SAMPLE_TARGETS_SOURCE, wording.SAMPLE_REFERENCE,
@@ -5624,9 +5627,10 @@ class TestWhatEachFormulationIsTrying:
         opt.tell({"Water": 40.0, "Wheat gluten": 20.0}, {"Firmness": 9.0},
                  formulation_no=1, batch_no=1)
         recipe = {"Water": 80.0, "Wheat gluten": 20.0}
-        assert opt.suggestion_kind(recipe) == "spread across the allowed amounts"
+        # "covering", not "spread across" (spec 2026-09-30 §6, review M3).
+        assert opt.suggestion_kind(recipe) == "covering the allowed amounts"
         assert opt.compared_with_text(recipe) == \
-            "Spread across the allowed amounts"
+            "Covering the allowed amounts"
         assert opt.compared_with_column() == "Compared with the allowed amounts"
 
     def test_with_no_best_there_is_nothing_to_compare(self, tmp_path,
@@ -5635,7 +5639,7 @@ class TestWhatEachFormulationIsTrying:
         assert opt.best_formulation_no() is None
         assert opt.vs_best_text({"Water": 40.0}) == ""
         assert opt.compared_with_text({"Water": 40.0}) == \
-            "Spread across the allowed amounts"
+            "Covering the allowed amounts"
 
     def test_the_changes_are_the_three_largest_in_their_own_units(
             self, tmp_path, monkeypatch):
@@ -6396,7 +6400,7 @@ class TestTheWorkbook:
         opt.set_pending_batch([{"Pea protein": 20.0, "Water": 70.0,
                                 "Salt": 10.0, "Cook temperature": 180.0}],
                               batch_no=3)
-        with pytest.raises(ValueError, match="different round"):
+        with pytest.raises(ValueError, match="different Round"):
             opt.results_from_workbook(io.BytesIO(stale))
 
     def test_a_sheet_with_no_formulation_columns_is_refused(self, tmp_path,
@@ -9713,7 +9717,7 @@ class TestTheFormulaColumn:
                 if text.startswith("Formulations already made keep")]
         assert said == [
             "Formulations already made keep their amounts. Water and Salt "
-            "are calculated from their calculations from the next round on."]
+            "are calculated from their calculations from the next Round on."]
 
     # ---- a formula is data a file can bring in ---------------------- #
 
@@ -10949,7 +10953,7 @@ class TestPreMixes:
         said = opt.premix_consequence("Dry blend")
         assert said.startswith(
             "The suggestions vary how much Dry blend goes in. Its make-up "
-            "stays the same for the whole round, so you make it once.")
+            "stays the same for the whole Round, so you make it once.")
         assert said.startswith(wording.premix_portioned_consequence(
             "Dry blend"))
         assert "Flour" not in said and "Salt" not in said
@@ -11019,7 +11023,7 @@ class TestPreMixes:
         # And what the screen's question is built from, in wave 1's words.
         assert wording.saving_discards_round(no, "3 formulations", 1) == (
             f"Saving will discard Round {no}: 3 formulations, 1 of them "
-            "added by you. A formulation you added goes with the round — a "
+            "added by you. A formulation you added goes with the Round — a "
             "set-up change can make it invalid.")
 
     def test_portioned_to_weighed_back_fills_the_parts_from_the_round_version(

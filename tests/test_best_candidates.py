@@ -89,10 +89,10 @@ def test_the_insights_best_line_names_what_it_is_scored_without():
     _add_cook_loss(opt)
     facts = insights.best_facts(opt)
     assert facts.without == ["Cook loss"]
-    line = wording.best_line("81.0", facts.formulation, facts.round, "Cook loss")
-    assert line == (f"Best so far: 81.0, Formulation {facts.formulation} in Round "
-                    f"{facts.round} · scored without Cook loss.")
-    assert wording.best_line("81.0", 14, "4") == "Best so far: 81.0, Formulation 14 in Round 4."
+    line = wording.stand_best("81.00", facts.formulation, facts.round, "Cook loss")
+    assert line == (f"Best so far: 81.00, Formulation {facts.formulation} (Round "
+                    f"{facts.round}) · scored without Cook loss.")
+    assert wording.stand_best("81.00", 14, "4") == "Best so far: 81.00, Formulation 14 (Round 4)."
 
 
 def test_complete_results_caption_says_dashes_are_not_compared():
@@ -121,30 +121,10 @@ def test_the_fallback_caption_does_not_contradict_the_star():
         "measurement, Best so far is scored without it too.")
 
 
-def test_the_help_lines_say_which_formulations_are_compared():
-    """Review M-1: neither says 'highest recorded', which a rescaled
-    score above the star would contradict."""
-    assert wording.RESULT_BEST_HELP == (
-        "Best so far has the highest overall score among formulations with "
-        "every measurement, for your current measurements and targets.")
-    assert wording.RESULT_BEST_HELP_WITHOUT == (
-        "Best so far has the highest overall score among formulations with "
-        "all their results; none has every measurement yet.")
-    assert wording.PROGRESS_CHART_CAPTION.startswith(
-        "The best-so-far line follows the highest score among formulations "
-        "with every measurement (among those with all their results, while "
-        "none has every measurement).")
-    assert "recorded" not in wording.RESULT_BEST_HELP + wording.PROGRESS_CHART_CAPTION
-
-
 def test_every_new_string_passes_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     strings = [wording.COMPLETE_RESULTS_CAPTION,
-               wording.complete_results_caption(compared=False),
-               wording.RESULT_BEST_HELP, wording.RESULT_BEST_HELP_WITHOUT,
-               wording.PROGRESS_CHART_CAPTION,
-               wording.best_line("81.0", 3, "2", "Cook loss"),
-               wording.best_line("81.0", 3, None, "Cook loss and Aroma")]
+               wording.complete_results_caption(compared=False)]
     for s in strings:
         for pattern in _BANNED:
             assert not pattern.search(s), (pattern.pattern, s)

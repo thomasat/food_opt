@@ -388,26 +388,6 @@ def test_a_failed_spread_leaves_the_path(insights_scored, monkeypatch):
     assert [c for c in caps if c.startswith("More Pea protein")]
 
 
-def test_spread_chart_is_horizontal_largest_first_without_error_bars():
-    chart = ui_insights.spread_chart([insights.Spread("Oil", 6.2), insights.Spread("Pea", 2.0)])
-    spec = chart.to_dict()
-    assert spec["mark"]["type"] == "bar"
-    assert spec["encoding"]["y"]["sort"] == ["Oil", "Pea"]
-    assert spec["encoding"]["x"]["title"] == wording.SPREAD_AXIS
-    assert "errorbar" not in str(spec)
-    assert ui_insights.spread_chart([]) is None
-
-
-def test_spread_chart_never_truncates_an_ingredient_name():
-    """A long name like "Textured pea protein" must not be cut short on the
-    y axis: labelLimit=0 turns off Vega-Lite's default truncation."""
-    chart = ui_insights.spread_chart([insights.Spread("Textured pea protein", 6.2),
-                                      insights.Spread("Oil", 2.0)])
-    axis = chart.to_dict()["encoding"]["y"]["axis"]
-    assert axis["labelLimit"] == 0
-    assert axis["titleLimit"] == 0
-
-
 # ------------------------------------------------------------------ #
 #  Task 5: which formulation is predicted to score highest
 # ------------------------------------------------------------------ #
@@ -454,7 +434,7 @@ def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypa
 def test_section_4_gate(scored):          # 2 formulations with all their results
     at = _open_insights(_app())
     md, caps = _tab_text(at)
-    assert f"**{wording.Q_BEST}**" not in md               # under 5: one line instead
+    assert f"**{wording.Q_NEXT}**" not in md               # under 5: the gate line instead
     assert caps.count(wording.insights_gate(2)) == 1
 
 
@@ -509,20 +489,11 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
     for s in (wording.PREDICTIONS_WORKING, wording.PREDICTED_SCORE_COLUMN,
               wording.PREDICTED_SCORE_HELP, wording.PREDICTIONS_ROUND_CAPTION,
               wording.PREDICTED_MEASUREMENTS,
-              wording.spread_line("Coconut oil", "6.2", wording.spread_from(True, 14)),
-              wording.spread_line("Coconut oil", "6.2", wording.spread_from(False, 9), only=True),
-              wording.SPREAD_FLAT, wording.compare_all(True), wording.compare_all(False),
-              wording.SPREAD_CAPTION, wording.SPREAD_AXIS, wording.Q_BEST,
-              wording.best_answer("88", "80", "95"), wording.best_close(14, "81.0"),
-              wording.BEST_UNTESTED, wording.BEST_ROW, wording.BEST_CAPTION,
-              wording.BEST_FAILED, wording.HOW_MODELS,
+              wording.compare_all(True), wording.compare_all(False),
+              wording.BEST_ROW, wording.BEST_FAILED, wording.HOW_MODELS,
               wording.held_line("Best so far", ["Wheat gluten", "Sunflower oil"]),
               wording.held_all("Formulation 9"), wording.held_all("Best so far", True),
-              wording.spread_flat(True), wording.compare_all(False, False),
-              wording.spread_caption(True), wording.predictions_round_caption(True),
-              wording.path_grey(True), wording.q_change(True, False),
-              wording.path_process("Mixing time", 3, False),
-              wording.spread_line("Mixing time", "2.0", "Best so far", values=True)):
+              wording.compare_all(False, False), wording.predictions_round_caption(True)):
         assert not any(p.search(s) for p in _BANNED), s
         assert not also.search(s), s
 
@@ -535,23 +506,7 @@ def test_exact_wave_b_strings():
     assert wording.PREDICTIONS_ROUND_CAPTION == (
         "Some formulations are chosen to try amounts not tested yet, so their prediction can be "
         "lower than Best so far.")
-    assert wording.spread_line("Coconut oil", "6.2", wording.spread_from(True, 14)) == (
-        "Across its allowed amounts, Coconut oil changes the predicted Overall score the most: "
-        "a spread of 6.2 points (from Best so far).")
     assert wording.spread_from(False, 9) == "Formulation 9"
-    assert wording.SPREAD_CAPTION == (
-        "Spread = highest minus lowest predicted Overall score along each path, from the same "
-        "starting formulation, including amounts not tested yet.")
-    assert wording.SPREAD_FLAT == (
-        "No ingredient or process setting changes the predicted Overall score by more than 0.1 "
-        "points yet.")
-    assert wording.Q_BEST == "Which formulation is predicted to score highest?"
-    assert wording.best_answer("88", "80", "95") == "Predicted to score highest: 88 (likely 80–95)."
-    assert wording.best_close(14, "81.0") == "Close to Formulation 14, which scored 81.0."
-    assert wording.BEST_UNTESTED == "Not tested near here yet — treat it as a guess."
-    assert wording.BEST_CAPTION == (
-        "Suggestions on Make a round also try untested areas; this is the single formulation "
-        "predicted to score highest.")
 
 
 # ------------------------------------------------------------------ #
@@ -605,18 +560,9 @@ def mixed_scored(burger):
 
 
 def test_process_setting_wording():
-    assert wording.q_change(True, False) == "What happens if you change one process setting?"
-    assert wording.q_change(True) == "What happens if you change one ingredient or process setting?"
     assert wording.compare_all(True, False) == "Compare all process settings"
-    assert wording.path_grey(True) == "Grey: not tested near here — treat the curve there as a guess."
-    assert wording.PATH_GREY == wording.path_grey(True)
-    assert wording.path_process("Incubation time", 1, False) == (
-        "Incubation time changes; everything else stays as in Formulation 1.")
-    assert wording.path_process("Mixing time", 1) == (
-        "Mixing time changes; the ingredients stay as in Formulation 1.")
+    assert wording.path_head_process("Incubation time") == "Incubation time changes"
     assert wording.PREDICTIONS_ROUND_CAPTION == wording.predictions_round_caption()
-    assert wording.SPREAD_CAPTION == wording.spread_caption()
-    assert wording.SPREAD_FLAT == wording.spread_flat()
 
 
 # ------------------------------------------------------------------ #

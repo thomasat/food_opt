@@ -743,11 +743,6 @@ def _checks(opt):
     return insights.check_rounds(opt)
 
 
-def test_the_misses_strings_pass_the_word_guards():
-    _assert_clean(wording.Q_MISSES, wording.MISSES_CAPTION, wording.MISSES_AXIS,
-                  wording.MISSES_BAND)
-
-
 # ------------------------------------------------------------------ #
 #  On wave B's final code: the triangle's default three read the moved
 #  spreads, and every wave C line is in the project's own words.

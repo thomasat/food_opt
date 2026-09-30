@@ -91,10 +91,6 @@ def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     best = mixture_scored.best_formulation_no()
     assert any(c.value.endswith(f"Dotted: Formulation {best}; dashed: target.")
                for c in tab.caption)
-    assert wording.track_caption(False) == (
-        "Bar = likely range, predicted before the Round; filled dot = landed inside, "
-        "ring = outside.")
-    assert wording.path_lines(30, True) == "Dotted line: Formulation 30; dashed line: target."
 
 
 def test_the_path_y_axes_are_not_forced_to_zero():
@@ -148,14 +144,6 @@ def test_chart_text_reaches_4_5_to_1_in_both_themes(monkeypatch):
         type = "dark"
     monkeypatch.setattr(type(st.context), "theme", property(lambda self: Dark()))
     assert ui_insights.muted() == ui_insights._MUTED_DARK
-
-
-def test_the_new_strings_pass_the_vocabulary_guard():
-    from tests.test_food_bo import _BANNED
-    for text in (wording.track_caption(True), wording.track_caption(False),
-                 wording.path_lines(30, True), wording.path_lines(30, False)):
-        assert not any(p.search(text) for p in _BANNED), text
-    assert math.isclose(len(wording.track_caption(True).splitlines()), 1)
 
 
 def test_the_progress_chart_marks_scored_without_hollow():

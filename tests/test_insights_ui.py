@@ -19,17 +19,6 @@ def _spec(chart):
     return chart.to_dict()
 
 
-def test_track_chart_has_one_panel_per_output_and_no_caps():
-    opt = _burger(rounds=4, per_round=4, noise=0.1)
-    chart = ui_insights.track_chart(opt, insights.check_rounds(opt))
-    spec = _spec(chart)
-    panels = {row["panel"] for row in spec["datasets"][next(iter(spec["datasets"]))]}
-    assert panels == {ui_insights.panel_label(opt, n) for n in ("Firmness", "Juiciness", insights.SCORE)}
-    marks = {layer["mark"]["type"] for layer in spec["spec"]["layer"]}
-    assert not marks & {"errorbar", "tick"}                   # no end caps
-    assert spec["facet"] and spec.get("columns") == 3
-
-
 def test_path_chart_panels_score_first_and_grey_where_untested():
     opt = _burger(rounds=3)
     fitted = insights.fit_all(opt)
@@ -38,19 +27,6 @@ def test_path_chart_panels_score_first_and_grey_where_untested():
     assert ui_insights.path_panels(opt)[0] == insights.SCORE
     spec = str(_spec(chart))
     assert "rect" in spec                                     # untested shading layer
-
-
-def test_track_dots_share_the_theme_colour():
-    """Rings for every measured value, a filled dot of the same (theme) colour
-    only where it landed inside: never the text colour."""
-    opt = _burger(rounds=4, per_round=4, noise=0.1)
-    spec = _spec(ui_insights.track_chart(opt, insights.check_rounds(opt)))
-    assert "currentColor" not in str(spec)
-    points = [layer for layer in spec["spec"]["layer"]
-              if (layer.get("mark") or {}).get("type") == "point"]
-    assert [bool(p["mark"].get("filled")) for p in points] == [False, True]
-    assert points[1]["transform"] == [{"filter": {"field": wording.TRACK_INSIDE}}] \
-        or wording.TRACK_INSIDE in str(points[1]["transform"])
 
 
 def test_path_chart_x_axis_is_not_zero_based():
@@ -94,34 +70,6 @@ def _layers_by_panel(spec):
             by[r["panel"]].append(r)
         out.setdefault(mark, []).append((layer["mark"], dict(by)))
     return out
-
-
-def test_track_chart_target_only_in_its_own_panel():
-    opt = _burger(rounds=4, per_round=4, noise=0.1)
-    spec = _spec(ui_insights.track_chart(opt, insights.check_rounds(opt)))
-    layers = _layers_by_panel(spec)
-    [(mark, panels)] = layers["target"]
-    firm = ui_insights.panel_label(opt, "Firmness")
-    assert list(panels) == [firm]
-    assert [r["target"] for r in panels[firm]] == [6.0]
-    # Dashed and lighter than the likely-range bars, so it never reads as one.
-    assert mark["strokeDash"] == [4, 3]
-    bars = [m for m, _ in layers["check"] if m["type"] == "rule"]
-    assert bars and all("strokeDash" not in m for m in bars)
-    assert mark.get("strokeWidth", 1) < bars[0]["strokeWidth"]
-    # Every check in its own panel, once.
-    for m, by in layers["check"]:
-        assert sum(len(v) for v in by.values()) <= len(insights.check_rounds(opt))
-
-
-def test_track_chart_width_is_bounded():
-    opt = _burger(rounds=1, per_round=1)
-    checks = [insights.Check(no, 1 + no // 4, name, 5.0, 4.0, 6.0, 5.2, True, True)
-              for no in range(1, 121) for name in ("Firmness", "Juiciness", insights.SCORE)]
-    spec = _spec(ui_insights.track_chart(opt, checks))
-    assert spec["spec"]["width"] <= 240 and spec["spec"]["height"] <= 240
-    x = [layer["encoding"]["x"] for layer in spec["spec"]["layer"] if "x" in layer["encoding"]]
-    assert x and all(e["type"] == "quantitative" for e in x)
 
 
 def _path_spec(opt, name="Oil"):
@@ -185,48 +133,21 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.TAB_INSIGHTS)
     _check(wording.INSIGHTS_NONE)
     _check(wording.INSIGHTS_WORKING)
-    _check(wording.insights_header(1, None))
-    _check(wording.insights_header(17, "5"))
-    _check(wording.insights_header(17, "5", 2))
     _check(wording.insights_gate(3))
-    _check(wording.Q_PREDICTIONS)
-    _check(wording.q_change(True))
-    _check(wording.q_change(False))
-    _check(wording.Q_IMPROVING)
-    _check(wording.PREDICTIONS_NONE)
-    _check(wording.predictions_early(1))
-    _check(wording.predictions_early(3))
     _check(wording.rounds_span(["3"]))
     _check(wording.rounds_span(["3", "4", "5"]))
-    _check(wording.predictions_count(3, ["3", "4", "5"], 26, 27))
-    _check(wording.predictions_count(1, ["5"], 1, 1))
-    for v in wording.VERDICT.values():
-        _check(v)
     _check(wording.PREDICTIONS_CAPTION)
     _check(wording.SHOW_PREDICTIONS)
     _check(wording.INGREDIENT_OR_SETTING)
     _check(wording.START_FROM)
     _check(wording.start_best(14))
     _check(wording.start_formulation(3))
-    _check(wording.path_fill("Coconut oil", "Remaining water", 14))
-    _check(wording.path_proportional("Coconut oil", "100 g"))
-    _check(wording.path_free("Coconut oil", 14))
-    _check(wording.path_process("Mixing speed", 14))
-    _check(wording.path_stops("9.1 g", "Fat: at most 16 g"))
-    _check(wording.path_fixed("Salt 2 g"))
     _check(wording.path_follows("Total fat"))
     _check(wording.path_outside(3, "9 g"))
     _check(wording.path_start_breaks(3, "Fat: at most 16 g"))
     _check(wording.path_not_checked("Fat: at most 16 g", "Fat"))
-    _check(wording.PATH_GREY)
     _check(wording.panel_missing("Firmness"))
     _check(wording.panel_failed("Firmness"))
-    _check(wording.best_line("81.0", 14, "4"))
-    _check(wording.best_line("81.0", 14, None))
-    _check(wording.BEST_LATEST)
-    _check(wording.best_since(1))
-    _check(wording.best_since(3))
-    _check(wording.repeats_line("2.5", 1))
     _check(wording.SHOW_PROGRESS)
     _check(wording.HOW_WORKED_OUT)
     _check(wording.HOW_MODELS)
@@ -234,7 +155,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.HOW_RANGE_FIXED_TINY)
     _check(wording.HOW_CHECKS)
     _check(wording.HOW_NO_P)
-    for c in wording.DETAILS_COLUMNS:
+    for c in wording.DETAILS_COLUMNS_2:
         _check(c)
     _check(wording.TRACK_PREDICTED)
     _check(wording.TRACK_MEASURED)
@@ -376,9 +297,9 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     tab = at.tabs[3]
     captions = [c.value for c in tab.caption]
     assert captions.count(wording.insights_gate(2)) == 1       # once on the tab
-    assert any(m.value.startswith("Best so far:") for m in tab.markdown)   # section 3 shows
+    assert any("Best so far:" in m.value for m in tab.markdown)   # "Where do you stand?" shows
     md = " ".join(m.value for m in tab.markdown)
-    assert wording.Q_PREDICTIONS not in md and wording.Q_BEST not in md
+    assert wording.Q_TRUST not in md and wording.Q_NEXT not in md
 
 
 def test_how_section_default_wording(insights_scored):
@@ -459,18 +380,18 @@ def test_final_wave_wording():
     assert wording.INSIGHTS_WORKING == "Preparing the insights…"
     assert wording.HOW_WORKED_OUT == "How these insights are made"
     assert wording.panel_failed("Firmness") == "Could not be predicted for Firmness."
-    assert wording.q_change(True) == "What happens if you change one ingredient or process setting?"
-    assert wording.q_change(False) == "What happens if you change one ingredient?"
+    assert wording.try_one(True) == "Try one ingredient or process setting"
+    assert wording.try_one(False) == "Try one ingredient"
     assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
         "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
     assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
     assert wording.CHANGE_NONE == (
         "Nothing to change yet: every ingredient and process setting is fixed.")
-    assert wording.DETAILS_NONE == "This table fills in once a round has been checked."
+    assert wording.DETAILS_NONE == "This table fills in once a Round has been checked."
     for text in (wording.INSIGHTS_WORKING, wording.HOW_WORKED_OUT, wording.panel_failed("X"),
-                 wording.PREDICTIONS_NONE, wording.BEST_LATEST, wording.best_since(1),
-                 wording.best_since(3), wording.HOW_MODELS, wording.q_change(True),
-                 wording.q_change(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
+                 wording.TRUST_NONE, wording.STAND_LATEST, wording.stand_since(1),
+                 wording.stand_since(3), wording.HOW_MODELS, wording.try_one(True),
+                 wording.try_one(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
                  wording.DETAILS_NONE, wording.rounds_not_checked([1, 2])):
         assert "worked out" not in text.lower() and "working out" not in text.lower(), text
 
@@ -482,7 +403,7 @@ def test_round_and_tab_words_come_from_constants(monkeypatch):
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
     assert wording.TAB_BATCH_NAME in wording.HOW_MODELS
-    for fn in ("PREDICTIONS_NONE", "BEST_LATEST", "best_since", "HOW_MODELS"):
+    for fn in ("TRUST_NONE", "STAND_LATEST", "stand_since", "HOW_MODELS"):
         block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
         assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
 

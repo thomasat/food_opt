@@ -30,20 +30,6 @@ def _check(name="Firmness", rnd=3, measured=5.0, predicted=5.0, low=4.0, high=6.
 #  §3.1 / §3.5 the header
 # ------------------------------------------------------------------ #
 
-def test_the_header_counts_scored_and_waiting_apart():
-    assert wording.insights_header(18, 6, 2, "Cook loss", early=False) == (
-        "Based on 18 scored formulations, up to Round 6. 2 more are waiting for Cook loss. "
-        "Likely range: where about 19 in 20 results should land.")
-    assert wording.insights_header(3, 1, 1, "Juiciness").startswith(
-        "Based on 3 scored formulations, up to Round 1. 1 more is waiting for Juiciness. ")
-
-
-def test_until_the_first_verdict_the_range_sentence_says_early_on():
-    assert wording.insights_header(3, 1).endswith(
-        "Likely range: where about 19 in 20 results should land once there are enough "
-        "formulations; early on it is closer to 17 in 20.")
-
-
 def test_header_text_leaves_out_waiting_and_set_aside_rows():
     opt = _patty(rows=6)
     _tell(opt, 7, 3, drop=("Cook loss",))
@@ -84,17 +70,6 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
 # ------------------------------------------------------------------ #
 #  §3.2 / §9 B1, I8 the verdict and the wide-range line
 # ------------------------------------------------------------------ #
-
-def test_the_verdict_is_about_the_likely_range_in_the_past_tense():
-    base = "In the last 3 rounds checked (Rounds 4–6), 24 of 26 measured values landed inside their likely range"
-    assert wording.predictions_count(3, [4, 5, 6], 24, 26, "holding") == (
-        base + ": the likely range proved right.")
-    assert wording.predictions_count(3, [4, 5, 6], 24, 26, "caution") == (
-        base + ": more misses than expected.")
-    assert wording.predictions_count(3, [4, 5, 6], 24, 26, "unreliable") == (
-        base + ": many more misses than expected — treat predictions with caution.")
-    assert wording.predictions_count(3, [4, 5, 6], 24, 26) == base + "."
-
 
 def test_a_wide_range_is_named_per_output():
     opt = _burger(rounds=1)                          # Firmness, Juiciness on 0-10
@@ -194,15 +169,18 @@ def test_a_chain_of_near_matches_is_one_group():
 
 
 def test_the_ratio_column_bands():
-    assert wording.repeat_ratio(None) == "no Repeats yet"
-    assert wording.repeat_ratio(None, 0.0) == "Repeats matched exactly"
-    assert wording.repeat_ratio(0.6) == "about the same"
-    assert wording.repeat_ratio(1.5) == "about the same"
-    assert wording.repeat_ratio(1.54) == "about the same"          # shown as 1.5
-    assert wording.repeat_ratio(1.56) == "about 1.6× larger"
-    assert wording.repeat_ratio(2.04) == "about 2× larger"
-    assert wording.repeat_ratio(3.46) == "about 3.5× larger"
-    assert wording.DETAILS_COLUMNS[5] == "Typical miss compared with the spread between Repeats"
+    """The 1.5 band stays (spec 2026-09-30 review M6); under 3 pairs there
+    is too little to compare with (review I5)."""
+    assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
+    assert wording.repeat_compare(None, 0.0, 3) == "Repeats matched exactly"
+    assert wording.repeat_compare(0.6, 1.0, 3) == "about the same"
+    assert wording.repeat_compare(1.5, 1.0, 3) == "about the same"
+    assert wording.repeat_compare(1.54, 1.0, 3) == "about the same"     # shown as 1.5
+    assert wording.repeat_compare(1.56, 1.0, 3) == "about 1.6× larger"
+    assert wording.repeat_compare(2.04, 1.0, 3) == "about 2× larger"
+    assert wording.repeat_compare(3.46, 1.0, 3) == "about 3.5× larger"
+    assert wording.repeat_compare(3.46, 1.0, 2) == "too few to compare"
+    assert wording.DETAILS_COLUMNS_2[6] == "Typical miss compared with how much Repeats differ"
 
 
 def test_repeats_that_agreed_exactly_are_not_no_repeats():
@@ -216,7 +194,7 @@ def test_repeats_that_agreed_exactly_are_not_no_repeats():
     assert insights.repeat_sd(opt, "Juiciness").sd == 0.0
     [row] = insights.details(opt, [_check("Juiciness", measured=5.0, predicted=5.4)])
     assert row.repeat_sd == 0.0 and row.ratio is None
-    assert wording.repeat_ratio(row.ratio, row.repeat_sd) == "Repeats matched exactly"
+    assert wording.repeat_compare(row.ratio, row.repeat_sd, row.pairs) == "Repeats matched exactly"
 
 
 def test_details_compare_the_recipes_once_for_every_output(monkeypatch):
@@ -293,11 +271,10 @@ def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project)
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    texts = [wording.insights_header(18, 6, 2, "Cook loss"), wording.LIKELY_RANGE_HEADER,
-             wording.LIKELY_RANGE_EARLY, wording.WIDE_EVERY, wording.wide_line("Cook loss"),
-             wording.score_record_line(7, 8, -1.8), wording.repeat_ratio(2.0),
-             wording.repeat_ratio(None, 0.0),
-             wording.DETAILS_COLUMNS[5]] + [wording.predictions_count(3, [4, 5, 6], 1, 2, v)
-                                            for v in wording.VERDICT]
+    texts = [wording.WIDE_EVERY, wording.wide_line("Cook loss"),
+             wording.score_record_line(7, 8, -1.8), wording.repeat_compare(2.0, 1.0, 3),
+             wording.repeat_compare(None, 0.0, 3),
+             wording.DETAILS_COLUMNS_2[6]] + [wording.trust_misses(3, [4, 5, 6], 1, 2, many)
+                                              for many in (False, True)]
     for text in texts:
         assert not any(p.search(text) for p in _BANNED), text

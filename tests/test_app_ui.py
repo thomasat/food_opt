@@ -5614,7 +5614,7 @@ def test_a_save_that_would_discard_a_round_asks_first_and_counts_your_own(
     assert not at.exception
     assert any(w.value == ("Saving will discard Round 1: 3 formulations, "
                            "1 of them added by you. A formulation you added "
-                           "goes with the round — a set-up change can make "
+                           "goes with the Round — a set-up change can make "
                            "it invalid.")
                for w in at.warning), [w.value for w in at.warning]
     # Nothing is written while the question is up, and the tab still shows
@@ -6986,7 +6986,7 @@ def test_scoring_a_not_scored_formulation_with_nothing_typed_is_refused(scored):
     _submit_button(at, wording.SAVE_RESULT_BUTTON).click()
     at.run()
     assert not at.exception
-    assert any("at least one measurement" in e.value for e in at.error), \
+    assert any(e.value == "Enter at least one result." for e in at.error), \
         [e.value for e in at.error]
     assert [s["formulation"] for s in FoodOptimizer("burger").skipped] == [3]
 
@@ -7045,7 +7045,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     _submit_button(at, "Delete limit on Fat per 100 g").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
-                           "round no longer has to obey it. " + wording.COPY_KEPT)
+                           "Round no longer has to obey it. " + wording.COPY_KEPT)
                for w in at.warning), [w.value for w in at.warning]
     assert FoodOptimizer("burger").constraints != []   # not yet
     _submit_button(at, wording.YES_DELETE).click()
@@ -7152,7 +7152,7 @@ def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert at.number_input(key="scale_total").help == (
-        "Every formulation in this round adds up to this. Change it and the "
+        "Every formulation in this Round adds up to this. Change it and the "
         "amounts are recalculated at that size; the table's Total (g) "
         "shows it.")
 
@@ -7648,7 +7648,7 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     # to come. This one is the round on screen.
     assert box.label == "Batch size (g)"
     assert box.proto.placeholder == "e.g. 100"
-    assert box.help == ("Every formulation in this round adds up to this. "
+    assert box.help == ("Every formulation in this Round adds up to this. "
                         "Change it and the amounts are recalculated at "
                         "that size; the table's Total (g) shows it.")
     box.set_value(25.0)
@@ -7724,7 +7724,7 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     at.run()
     assert not at.exception
     assert any(c.value == ("A batch size of 250 g is not reachable: the most "
-                           "these ingredients can make is 28 g. The round "
+                           "these ingredients can make is 28 g. The Round "
                            "stays at 25 g.")
                for c in at.caption), [c.value for c in at.caption]
     # Not made to it: the round, the table and the sheets are all still 25 g.
@@ -8185,9 +8185,8 @@ def test_how_it_works_is_five_lines(burger):
         "and goals are what it aims for.",
         "Share of score says how much each measurement counts, out of 100. "
         "Closeness says how near a result is to its goal, from 0 to 1.",
-        "Until five formulations have results, new ones are spread out "
-        "to cover the allowed amounts. After that, each round aims closer "
-            "to your targets.",
+        "Until five formulations have results, new ones cover the allowed "
+        "amounts. After that, each Round aims closer to your targets.",
         "Generated formulations satisfy the limits you set. "
         "A formulation of your own is recorded as you typed it.",
         "Each suggestion says whether it stays close to the best or tries "
@@ -8890,7 +8889,7 @@ def test_the_total_box_sits_under_the_ingredients_and_says_what_it_does(burger):
     box = _total_box(at)
     assert box is not None
     assert box.label == "Default batch size (g)"
-    assert box.help == ("Every formulation adds up to this unless a round "
+    assert box.help == ("Every formulation adds up to this unless a Round "
                         "sets its own batch size.")
     assert box.placeholder == "e.g. 100"
     assert box.value is None
@@ -9378,7 +9377,7 @@ def test_a_round_with_no_batch_size_of_its_own_says_so_under_the_table(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This round has no batch size of its own."
+    assert any(c.value == "This Round has no batch size of its own."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 

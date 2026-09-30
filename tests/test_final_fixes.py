@@ -47,16 +47,6 @@ def test_the_header_leaves_out_a_round_moved_to_not_scored():
 #  M-5 every formulation waiting: no "0 ... more", no empty question
 # ------------------------------------------------------------------ #
 
-def test_with_none_scored_the_header_says_what_is_waiting_without_more():
-    assert wording.insights_header(0, None, 3, "Cook loss").startswith(
-        "3 formulations are waiting for Cook loss. Likely range")
-    assert wording.insights_header(0, None, 1, "Cook loss").startswith(
-        "1 formulation is waiting for Cook loss. Likely range")
-    # Some scored: the waiting ones are "more" than those.
-    assert wording.insights_header(2, 1, 1, "Cook loss").startswith(
-        "Based on 2 scored formulations, up to Round 1. 1 more is waiting for Cook loss. ")
-
-
 def test_header_text_with_every_formulation_waiting():
     opt = _patty(rows=0)
     for no in (1, 2, 3):
@@ -158,17 +148,6 @@ def test_the_missing_value_boxes_are_parked_empty_on_a_project_switch():
 #  M-1 Make a round's waiting caption: singular, and trials
 # ------------------------------------------------------------------ #
 
-def test_the_waiting_caption_agrees_in_number():
-    assert wording.waiting_generate_caption(1, "Cook loss") == (
-        "1 formulation is waiting for Cook loss and is not used for "
-        "suggestions yet. Enter its results on Results. Suggestions don't "
-        "know about it yet and may be close to it.")
-    assert wording.waiting_generate_caption(2, "Cook loss") == (
-        "2 formulations are waiting for Cook loss and are not used for "
-        "suggestions yet. Enter their results on Results. Suggestions don't "
-        "know about these yet and may be close to them.")
-
-
 def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -183,15 +162,6 @@ def test_the_waiting_caption_says_trial_in_a_process_only_project(trial_waiting)
 # ------------------------------------------------------------------ #
 #  M-2 the luck line compares the numbers as they are shown
 # ------------------------------------------------------------------ #
-
-def test_the_luck_line_compares_the_shown_numbers():
-    # "Predicted to score highest: 83" beside "Best so far: 82.7": no luck.
-    assert not ui_insights.shows_luck(82.6, 82.7)
-    assert not ui_insights.shows_luck(82.66, 82.66)      # 83 against 82.7
-    assert not ui_insights.shows_luck(82.0, 81.96)       # 82 against 82.0
-    assert ui_insights.shows_luck(81.4, 82.7)            # 81 against 82.7
-    assert ui_insights.shows_luck(82.4, 82.7)            # 82 against 82.7
-
 
 # ------------------------------------------------------------------ #
 #  M-3 / M-4 a formulation moved to Not scored in Correct a formulation
@@ -304,26 +274,17 @@ def test_compare_all_ranks_by_the_measurement_it_was_given(insights_scored, monk
 
 
 def test_compare_all_says_no_caption_without_a_chart(insights_scored, monkeypatch):
-    real_spreads = insights.spreads
+    real_changes = insights.tested_near_changes
     monkeypatch.setattr(
-        insights, "spreads", lambda opt, fitted, start, name=insights.SCORE:
-        insights.Spreads([], []) if name == "Firmness"
-        else real_spreads(opt, fitted, start, name))
+        insights, "tested_near_changes", lambda opt, fitted, start, name=insights.SCORE:
+        insights.NearChanges([], [], False) if name == "Firmness"
+        else real_changes(opt, fitted, start, name))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
     _rerun_on(at, wording.TAB_INSIGHTS)
     assert not at.exception
     caps = [c.value for c in at.tabs[3].caption]
-    assert wording.spread_caption(measure="Firmness") not in caps, caps
-
-
-def test_two_named_spreads_say_where_they_are_measured_from():
-    assert wording.spread_two("Coconut oil", "Beet juice powder", "8.8", "7.9",
-                              "Best so far") == (
-        "Coconut oil and Beet juice powder change the predicted Overall score the most "
-        "(spreads of 8.8 and 7.9 points, from Best so far).")
-    assert wording.spread_two("Pea", "Oil", "5.0", "4.5", "Formulation 9").endswith(
-        "(spreads of 5.0 and 4.5 points, from Formulation 9).")
+    assert wording.change_caption(measure="Firmness") not in caps, caps
 
 
 # ------------------------------------------------------------------ #
@@ -371,12 +332,8 @@ def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkey
 
 def test_the_changed_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.insights_header(0, None, 3, "Cook loss"),
-                 wording.insights_header(0, None, 1, "Cook loss", early=False),
-                 wording.waiting_generate_caption(1, "Cook loss"),
-                 wording.formulation_corrected_not_scored(7, "Cook loss"),
+    for text in (wording.formulation_corrected_not_scored(7, "Cook loss"),
                  wording.formulation_corrected_not_scored(7, ""),
-                 wording.spread_two("A", "B", "1.0", "0.9", "Best so far"),
                  wording.NO_COMPLETE_FORMULATION):
         assert not any(p.search(text) for p in _BANNED), text
     assert wording.formulation_corrected_not_scored(7, "") == "Formulation 7 corrected · Not scored."

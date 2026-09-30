@@ -445,7 +445,7 @@ def test_missing_or_damaged_hidden_metadata_refused(project, damage):
         records = json.loads(metadata['A2'].value)
         records[0][0 if damage == 'sheet' else 1] = 'missing' if damage == 'sheet' else 'A1:A2'
         metadata['A2'] = json.dumps(records)
-    with pytest.raises(ValueError, match='round information'):
+    with pytest.raises(ValueError, match='Round information'):
         project.results_from_workbook(data(book))
 
 

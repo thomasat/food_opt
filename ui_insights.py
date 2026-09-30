@@ -109,56 +109,6 @@ def _faceted(layers, df, order):
             .resolve_scale(y="independent"))
 
 
-def track_chart(opt, checks):
-    """Did the predictions come true? — one panel per measurement plus the
-    Overall score: a thin likely-range bar (no end caps) and a dot for the
-    measured value, filled when inside, hollow when outside."""
-    if not checks:
-        return None
-    names = track_panels(opt)
-    order = [panel_label(opt, n) for n in names]
-    formulation = _say(opt, wording.FORMULATION_CAP)
-    rows = [{
-        "panel": panel_label(opt, c.name), "mark": "check",
-        formulation: c.formulation,
-        wording.ROUND_CAP: c.round,
-        wording.TRACK_PREDICTED: round(c.predicted, decimals(opt, c.name)),
-        wording.TRACK_LOW: round(c.low, decimals(opt, c.name)),
-        wording.TRACK_HIGH: round(c.high, decimals(opt, c.name)),
-        # A measured Overall score reads to one decimal, as Best so far does.
-        wording.TRACK_MEASURED: round(c.measured, max(1, decimals(opt, c.name))),
-        wording.TRACK_INSIDE: c.inside,
-    } for c in checks]
-    rows += _target_rows(opt, {c.name for c in checks})   # spec §3.1
-    df = pd.DataFrame(rows)
-    # Quantitative, not one band per formulation: 100 formulations fit the
-    # same 220 px as 10.
-    x = alt.X(f"{formulation}:Q", title=formulation,
-              scale=alt.Scale(zero=False, nice=False),
-              axis=alt.Axis(format="d", tickMinStep=1))
-    tip = [alt.Tooltip(f"{f}:{t}", title=f) for f, t in (
-        (formulation, "Q"), (wording.ROUND_CAP, "N"), (wording.TRACK_PREDICTED, "Q"),
-        (wording.TRACK_LOW, "Q"), (wording.TRACK_HIGH, "Q"), (wording.TRACK_MEASURED, "Q"))]
-    bars = (alt.Chart().mark_rule(strokeWidth=3, opacity=0.35).encode(
-        x=x, y=alt.Y(f"{wording.TRACK_LOW}:Q", title=None), y2=f"{wording.TRACK_HIGH}:Q",
-        tooltip=tip).transform_filter(_only("check")))
-    # Every measured value gets a ring in the theme's own mark colour; the
-    # ones inside their likely range get a filled dot of the same colour on
-    # top. A single layer filled with "currentColor" painted the inside dots
-    # in the TEXT colour (near-black / near-white) inside a blue ring.
-    y = alt.Y(f"{wording.TRACK_MEASURED}:Q")
-    rings = (alt.Chart().mark_point(size=60, strokeWidth=2).encode(x=x, y=y, tooltip=tip)
-             .transform_filter(_only("check")))
-    filled = (alt.Chart().mark_point(size=60, filled=True, opacity=1)
-              .encode(x=x, y=y, tooltip=tip)
-              .transform_filter(_only("check"))
-              .transform_filter(alt.FieldEqualPredicate(field=wording.TRACK_INSIDE, equal=True)))
-    layers = [bars, rings, filled]
-    if any(r["mark"] == "target" for r in rows):
-        layers.insert(0, _target_layer())
-    return _faceted(layers, df, order)
-
-
 def _padded(values):
     """One domain for both axes of a measured-against-predicted panel: the
     values' extent padded 5 % (review M4), never zero-width."""
@@ -378,17 +328,6 @@ def _say(opt, text):
 
 def _question(opt, text):
     st.markdown(f"**{_say(opt, text)}**")
-
-
-def _section(opt, text):
-    """A question's heading, drawn now, and the slot its answer fills once
-    the models are ready. Both sit in one st.empty(), so a failed fit can
-    take the question off the tab again."""
-    slot = st.empty()
-    box = slot.container()
-    with box:
-        _question(opt, text)
-    return slot, box
 
 
 def render(opt):
@@ -662,28 +601,6 @@ def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
     return alt.layer(light, dark).properties(height=28 * len(changes) + 20)
 
 
-def spread_chart(spreads, axis=wording.SPREAD_AXIS, d=1):
-    """Compare all ingredients and settings: one horizontal bar per choice,
-    largest spread first, in points of Overall score (or in the chosen
-    measurement's own unit, `axis`, to `d` decimals). No error bars: a
-    spread is worked from the predicted means, and the caption says so."""
-    if not spreads:
-        return None
-    df = pd.DataFrame({"name": [s.name for s in spreads],
-                       axis: [round(s.spread, d) for s in spreads]})
-    order = [s.name for s in spreads]
-    tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
-           alt.Tooltip(f"{axis}:Q", title=axis, format=f".{d}f")]
-    return (alt.Chart(df).mark_bar()
-            .encode(x=alt.X(f"{axis}:Q", title=axis),
-                    # An ingredient's name is never cut short, however long:
-                    # labelLimit=0 turns off Vega-Lite's default truncation.
-                    y=alt.Y("name:N", sort=order, title=None,
-                           axis=alt.Axis(labelLimit=0, titleLimit=0)),
-                    tooltip=tip)
-            .properties(height=28 * len(spreads) + 20))
-
-
 # Under a tenth of a point every spread reads "0.0" or "0.1": no choice
 # moves the prediction by more than SPREAD_FLAT's 0.1 points.
 _FLAT = 0.1
@@ -903,21 +820,6 @@ def _stand_first(opt, yard):
     return answer
 
 
-def improving_text(answer):
-    """The computed answer to "Is it still improving?" (§3.7, §9 I9).
-    One decimal, as elsewhere on the tab, unless the rise would read 0.0 or
-    the same as what it is judged against: then hundredths, so the words
-    never contradict the numbers (Task 6 review M-1)."""
-    if answer.state == "not_lately":
-        return wording.improving_not_lately(answer.rounds)
-    threshold = 1.0 if answer.sd is None else answer.sd
-    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-    rise = f"{answer.rise:.{d}f}"
-    if answer.state == "yes":
-        return wording.improving_yes(rise)
-    return wording.improving_barely(rise, None if answer.sd is None else f"{answer.sd:.{d}f}")
-
-
 def progress_frame(opt):
     """The Progress chart's data, one row per scored formulation. A
     formulation still waiting for results is a gap in the Overall score line
@@ -1042,13 +944,6 @@ def best_frame(opt, best, fitted):
         frame.insert(1, wording.PREDICTED_SCORE_COLUMN,
                      [score_text(best.score), score_text(own)])
     return frame.rename(columns={wording.FORMULATION_CAP: _say(opt, wording.FORMULATION_CAP)})
-
-
-def shows_luck(predicted, measured):
-    """True when the predicted best, as shown (a whole number), reads below
-    Best so far's score as shown (one decimal): the luck line never sits
-    beside a prediction that reads at or above it (final review M-2)."""
-    return float(_whole(predicted)) < float(f"{measured:.1f}")
 
 
 def binding_text(b):

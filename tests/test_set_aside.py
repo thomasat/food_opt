@@ -199,11 +199,11 @@ def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     for text in (wording.not_scored_missing("Cook loss"), wording.save_missing("Cook loss"),
                  wording.MOVE_TO_NOT_SCORED, wording.WAIT_AGAIN,
-                 wording.move_to_not_scored_warning(33), wording.moved_to_not_scored(33),
+                 wording.never_coming_warning(33, "Cook loss"), wording.moved_to_not_scored(33),
                  wording.waiting_again(33, "Cook loss"),
                  wording.saved_not_scored(33, "Cook loss"),
                  wording.formulation_has_all_results(33)):
         assert not any(p.search(text) for p in _BANNED), text
-    assert wording.move_to_not_scored_warning(33) == (
-        "Move Formulation 33 to Not scored? Its partial results will stop "
-        "counting on Insights.")
+    assert wording.never_coming_warning(33, "Cook loss") == (
+        "Cook loss for Formulation 33 will never come? It stays in your records, unscored, "
+        "and stops counting on Insights.")

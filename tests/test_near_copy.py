@@ -302,14 +302,6 @@ def test_near_copy_never_writes_to_the_project():
 #  Wording: the caption, process-only wording, the vocabulary guard
 # ------------------------------------------------------------------ #
 
-def test_the_waiting_caption_says_suggestions_may_be_close():
-    line = wording.waiting_generate_caption(1, "Cook loss")
-    assert line == (
-        "1 formulation is waiting for Cook loss and is not used for "
-        "suggestions yet. Enter its results on Results. Suggestions don't "
-        "know about it yet and may be close to it.")
-
-
 def test_the_waiting_caption_is_still_one_caption():
     opt = _project(rows=6)
     _waiting(opt, 7, 3)
@@ -322,9 +314,9 @@ def test_new_strings_pass_the_vocabulary_guard():
     strings = [
         wording.near_copy_prefix(20, "Cook loss"),
         wording.near_copy_prefix(20, "Cook loss and Juiciness"),
-        wording.waiting_generate_caption(1, "Cook loss"),
-        wording.waiting_generate_caption(2, "Cook loss"),
-        wording.waiting_generate_caption(2, ""),
+        wording.waiting_line(1, "Cook loss"),
+        wording.waiting_line(2, "Cook loss"),
+        wording.waiting_line(2, ""),
     ]
     for text in strings:
         assert not any(p.search(text) for p in _BANNED), text

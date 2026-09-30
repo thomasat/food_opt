@@ -67,10 +67,6 @@ def test_two_are_named_when_the_second_is_within_20_percent():
     assert insights.near_tie([S("Oil", 10.0), S("Beet", 7.9)]) is None
     assert insights.near_tie([S("Oil", 10.0), S("Beet", 8.0)]) is not None   # exactly 80 %
     assert insights.near_tie([S("Oil", 10.0)]) is None
-    assert wording.spread_two("Coconut oil", "Beet juice powder", "8.8", "7.9",
-                              "Best so far") == (
-        "Coconut oil and Beet juice powder change the predicted Overall score the most "
-        "(spreads of 8.8 and 7.9 points, from Best so far).")
 
 
 # ------------------------------------------------------------------ #
@@ -138,12 +134,12 @@ def test_untested_runs_cover_each_stretch_without_gaps():
 
 
 def test_the_grey_caption_uses_the_near_rule():
-    assert wording.PATH_GREY == "Grey: not tested near here — treat the curve there as a guess."
+    assert wording.path_key(9, grey=True) == "Grey: not tested near here. Dotted: Formulation 9."
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.spread_two("A", "B", "1.0", "0.9", "Formulation 9"), wording.moved_together("A", "B"),
-                 wording.SPREAD_ON, wording.spread_axis("N"), wording.PATH_GREY,
-                 wording.spread_caption(measure="Firmness")):
+    for text in (wording.moved_together("A", "B"), wording.SPREAD_ON,
+                 wording.change_axis("Firmness", "N"), wording.path_key(9, grey=True),
+                 wording.change_caption(measure="Firmness")):
         assert not any(p.search(text) for p in _BANNED), text

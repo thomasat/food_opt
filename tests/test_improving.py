@@ -36,14 +36,14 @@ def test_yes_when_the_latest_round_rose_by_more_than_a_point_without_repeats():
     a = insights.improvement(opt)
     assert (a.state, a.sd) == ("yes", None)
     assert a.rise == pytest.approx(3.1)
-    assert ui_insights.improving_text(a) == "Yes — up 3.1 points in the last round."
+    assert ui_insights.stand_text(a) == "Yes — up 3.1 points in the last Round."
 
 
 def test_barely_when_the_rise_is_within_a_point_without_repeats():
     opt = _rounds([[70.0, 72.0], [72.4]])
     a = insights.improvement(opt)
     assert a.state == "barely"
-    assert ui_insights.improving_text(a) == (
+    assert ui_insights.stand_text(a) == (
         "Barely — the last rise (0.4 points) is under 1 point.")
 
 
@@ -52,15 +52,15 @@ def test_barely_against_the_spread_between_repeats(monkeypatch):
     monkeypatch.setattr(insights, "repeat_sd", lambda o, name: insights.RepeatSpread(0.29, 1))
     a = insights.improvement(opt)
     assert a.state == "barely"
-    assert ui_insights.improving_text(a) == (
-        "Barely — the last rise (0.2 points) is smaller than the spread between Repeats (0.3).")
+    assert ui_insights.stand_text(a) == (
+        "Barely — the last rise (0.2 points) is smaller than how much Repeats differ (0.3).")
 
 
 def test_not_lately_after_two_or_more_rounds_without_a_higher_score():
     opt = _rounds([[90.0], [80.0], [85.0], [70.0]])
     a = insights.improvement(opt)
     assert (a.state, a.rounds) == ("not_lately", 3)
-    assert ui_insights.improving_text(a) == "Not lately — no higher score in 3 rounds."
+    assert ui_insights.stand_text(a) == "Not lately — no higher score in 3 Rounds."
 
 
 def test_no_answer_after_one_round_or_one_round_without_a_rise():
@@ -82,10 +82,10 @@ def test_the_rise_is_measured_against_formulations_best_so_far_compares():
 
 
 def test_the_repeats_line_names_its_pairs():
-    assert wording.repeats_line("0.3", 1) == (
-        "Repeats of the same formulation vary by about 0.3 points (1 pair), "
-        "so a smaller rise may be chance.")
-    assert "(4 pairs)" in wording.repeats_line("0.3", 4)
+    assert wording.stand_repeats("0.3", 1) == (
+        "Repeats of the same formulation differ by about 0.3 points (1 pair, too few to be "
+        "sure), so a smaller rise may be chance.")
+    assert "(4 pairs)" in wording.stand_repeats("0.3", 4)
 
 
 def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_scored):
@@ -111,9 +111,9 @@ def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     for text in (wording.CHECKING, wording.insights_gate(3),
-                 wording.repeats_line("0.3", 2), wording.improving_yes("3.1"),
-                 wording.improving_barely("0.2", "0.3"), wording.improving_barely("0.2"),
-                 wording.improving_not_lately(3)):
+                 wording.stand_repeats("0.3", 2), wording.stand_yes("3.1"),
+                 wording.stand_barely("0.2", "0.3"), wording.stand_barely("0.2"),
+                 wording.stand_not_lately(3)):
         assert not any(p.search(text) for p in _BANNED), text
     assert "first visit" not in wording.CHECKING
 
@@ -142,7 +142,7 @@ def test_a_rise_stays_yes_while_the_next_round_waits():
     _waiting_round(opt, 3, 3)
     a = insights.improvement(opt)
     assert a.state == "yes" and a.rise == pytest.approx(5.0)
-    assert ui_insights.improving_text(a) == "Yes — up 5.0 points in the last round."
+    assert ui_insights.stand_text(a) == "Yes — up 5.0 points in the last Round."
     assert insights.best_facts(opt).latest
 
 
@@ -165,7 +165,7 @@ def test_a_rise_that_rounds_to_one_point_says_its_hundredths():
     opt = _rounds([[70.0], [70.96]])
     a = insights.improvement(opt)
     assert a.state == "barely"
-    assert ui_insights.improving_text(a) == (
+    assert ui_insights.stand_text(a) == (
         "Barely — the last rise (0.96 points) is under 1 point.")
 
 
@@ -174,8 +174,8 @@ def test_a_rise_and_spread_that_round_alike_say_their_hundredths(monkeypatch):
     monkeypatch.setattr(insights, "repeat_sd", lambda o, name: insights.RepeatSpread(0.29, 1))
     a = insights.improvement(opt)
     assert a.state == "barely"
-    assert ui_insights.improving_text(a) == (
-        "Barely — the last rise (0.26 points) is smaller than the spread between Repeats (0.29).")
+    assert ui_insights.stand_text(a) == (
+        "Barely — the last rise (0.26 points) is smaller than how much Repeats differ (0.29).")
 
 
 def test_repeats_that_matched_exactly_count_as_no_repeats():
@@ -187,7 +187,7 @@ def test_repeats_that_matched_exactly_count_as_no_repeats():
     assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(0.0, 1)
     a = insights.improvement(opt)
     assert (a.state, a.sd) == ("barely", None)
-    assert ui_insights.improving_text(a) == (
+    assert ui_insights.stand_text(a) == (
         "Barely — the last rise (0.4 points) is under 1 point.")
 
 
