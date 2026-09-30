@@ -95,6 +95,15 @@ def test_the_guard_takes_the_model_layers_away(monkeypatch):
                                                          ui_insights.PATH_LAYER_KEY)]
 
 
+def test_an_unreliable_verdict_takes_the_model_layers_away(monkeypatch):
+    """Fix round 1: as Progress withholds its expected improvement."""
+    opt = _open_round()
+    fitted = insights.fit_all(opt)
+    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: insights.check_rounds(o))
+    monkeypatch.setattr(insights, "verdict_state", lambda *a: "unreliable")
+    assert ui_insights.layers_offered(opt, fitted) == (wording.LAYER_SCORE,)
+
+
 def test_the_uncertainty_layer_goes_through_the_first_suggestion():
     """Review I8: its default anchor is the open Round's first row still to
     make, named in the caption; the Predicted score layer keeps Best so far."""

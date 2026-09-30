@@ -2286,9 +2286,12 @@ def _model_guard(opt, fitted):
 
 def layers_offered(opt, fitted):
     """The three layers (review I6), or the Predicted score layer alone:
-    while the noise guard fires (review I4), and without a model yet."""
+    while the model's gains are withheld — the noise guard (review I4), or
+    a caution or unreliable verdict, as Progress withholds its expected
+    improvement (fix round 1) — and without a model yet."""
     rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
-    if len(rows) < insights.MIN_ROWS or _model_guard(opt, fitted).fires:
+    if len(rows) < insights.MIN_ROWS or withheld(
+            opt, (fitted or {}).get(insights.SCORE), checks_for(opt, "trust") or ()):
         return (wording.LAYER_SCORE,)
     if opt.pending_batch and opt.pending_batch_no is not None:
         if bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
