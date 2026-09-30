@@ -1978,14 +1978,20 @@ def round_track(opt, checks):
     inside than 1 in 20 misses explains (binomial tail under 0.10) or the
     average miss is more than Repeats differ (noise_yardstick); holding
     otherwise. None — no line — without a record (fewer than
-    SCORE_RECORD_MIN fully measured checks) or when the verdict is early,
-    wide ("Too early to judge" on Insights, review C I-5) or over-wide."""
+    SCORE_RECORD_MIN fully measured checks), when the verdict is early,
+    wide ("Too early to judge" on Insights, review C I-5) or over-wide, and
+    when the Overall score's own range is wide (final review I-1)."""
     h = headline(opt, checks)
     record = h.score
     if record is None:
         return None
     state = verdict_state(opt, h, checks)
     if state in ("none", "early", "wide", "over_wide"):
+        return None
+    if SCORE in (h.wide or []):
+        # Insights says the Overall score's own likely range is wide, so
+        # says little yet: no "12 of 12 landed inside" beside it (final
+        # review I-1).
         return None
     beyond = abs(record.mean_miss) > noise_yardstick(opt, checks).value
     rough = binomial_tail(record.total - record.inside, record.total) < 0.10 or beyond

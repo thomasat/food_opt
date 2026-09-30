@@ -95,3 +95,21 @@ def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
     """Review C M-1."""
     assert wording.round_track_holding(11, 11, True).endswith(" See Insights.")
     assert not wording.round_track_holding(11, 11).endswith("See Insights.")
+
+
+def test_no_line_when_the_overall_scores_own_range_is_wide(monkeypatch):
+    """Final review I-1: the verdict holds ("within") but Insights says the
+    likely range for the Overall score is wide, so says little yet; Make a
+    round must not report "12 of 12 landed inside" beside it. good-5 at
+    Round 7 is one of the 13 such states in the coverage fixture."""
+    from tests import coverage_sim as sim
+    [entry] = [e for e in sim.fixture()["projects"] if e["project"] == "good-5"]
+    opt = sim.stub(entry)
+    checks = insights.nest_score_widen(opt, [c for c in sim.checks_of(entry) if c.round <= 7])
+    h = insights.headline(opt, checks)
+    assert insights.SCORE in h.wide and h.score is not None
+    assert insights.verdict_state(opt, h, checks) == "within"
+    # The fixture's stand-in project has no Repeats: the 1-point yardstick.
+    monkeypatch.setattr(insights, "noise_yardstick",
+                        lambda *a, **k: insights.Yardstick(1.0, None, 0, False))
+    assert insights.round_track(opt, checks) is None
