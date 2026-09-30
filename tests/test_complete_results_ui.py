@@ -72,7 +72,7 @@ def test_insights_with_no_complete_formulation(six_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0].startswith("Based on 0 scored formulations, up to Round 2. "
+    assert captions[0].startswith("Based on 0 scored formulations. "
                                   "6 more are waiting for Juiciness. "), captions
     assert wording.insights_gate(0) in captions, captions
 
@@ -207,7 +207,7 @@ def test_insights_header_counts_the_waiting(one_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
     assert any(c.value.startswith(
-        "Based on 2 scored formulations, up to Round 2. 1 more is waiting for Juiciness.")
+        "Based on 2 scored formulations, up to Round 1. 1 more is waiting for Juiciness.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
 
 

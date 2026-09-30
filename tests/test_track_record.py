@@ -50,7 +50,7 @@ def test_header_text_leaves_out_waiting_and_set_aside_rows():
     _tell(opt, 8, 3, drop=("Cook loss",))
     opt.set_aside_formulation(8)
     text = ui_insights.header_text(opt, None)
-    assert text.startswith("Based on 6 scored formulations, up to Round 3. "
+    assert text.startswith("Based on 6 scored formulations, up to Round 2. "
                            "1 more is waiting for Cook loss. ")
 
 
@@ -83,7 +83,7 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0].startswith(
-        f"Based on {complete} scored formulations, up to Round 2. "
+        f"Based on {complete} scored formulations, up to Round 1. "
         "1 more is waiting for Juiciness. "), captions
     gates = [c for c in captions if "start once 5 " in c or c.startswith("Starts once 5 ")]
     assert gates == [wording.insights_gate(complete)], captions      # said once (Task 6)

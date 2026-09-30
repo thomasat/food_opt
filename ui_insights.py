@@ -403,8 +403,10 @@ def header_text(opt, h):
     """The tab's first line: scored formulations (all their results in),
     the waiting ones apart, and the likely range's promise — its early form
     until the first verdict. A formulation moved to Not scored is neither
-    scored nor waiting."""
-    order = insights.round_order(opt)
+    scored nor waiting. Its Round is the latest scored one, the Round "Is
+    it still improving?" calls the last (final review I-1): a Round still
+    all waiting is named only by the waiting sentence."""
+    order = insights.scored_rounds(opt)
     waiting = opt.awaited_rows()
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
     names = number_list(next(iter(sets))) if len(sets) == 1 else ""
