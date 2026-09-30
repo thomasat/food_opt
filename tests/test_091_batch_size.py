@@ -18,7 +18,7 @@ def _truth(r):
     return {"Firmness": 2 + 0.9 * r["Pea"], "Juiciness": 1 + 1.2 * r["Oil"]}
 
 
-def _project(name, formula=False):
+def _project(name, formula=False, fixed=False):
     """Pea 4-8, Oil 2-6, Water; a Formulation total of 100 g; with
     `formula` Salt is worked out as `= 0.5 + 0.05 × Pea` and Water varies
     (the case where total ÷ batch size would miss the total); else Water
@@ -29,6 +29,8 @@ def _project(name, formula=False):
     opt.add_ingredient("Oil", 2, 6)
     if formula:
         opt.add_ingredient("Salt", 0, 2)
+    elif fixed:
+        opt.add_ingredient("Salt", 1.5, 1.5)            # a fixed row
     opt.add_ingredient("Water", 0, 100 if not formula else 94)
     opt.add_objective("Firmness", 50, goal="target", target=6, min_val=0, max_val=10)
     opt.add_objective("Juiciness", 30, goal="max", min_val=0, max_val=10)
@@ -41,6 +43,8 @@ def _project(name, formula=False):
         r = {"Pea": 4 + (k * 0.37) % 4, "Oil": 2 + (k * 0.61) % 4}
         if formula:
             r["Water"] = 100 - r["Pea"] - r["Oil"] - (0.5 + 0.05 * r["Pea"])
+        elif fixed:
+            r["Salt"] = 1.5
         r = opt.fill_formulas(r)
         opt.tell(r, _truth(r), formulation_no=k + 1, batch_no=k // 3 + 1)
     return opt
@@ -289,3 +293,143 @@ def test_an_own_formulation_typed_at_the_rounds_batch_size_is_learned_at_the_tot
     assert opt.ingredient_total(learned) == pytest.approx(100.0)
     assert learned["Pea"] / learned["Oil"] == pytest.approx(1.5)
     assert learned["Pea"] == pytest.approx(6.0, abs=0.05)      # Salt's 0.5 g does not scale
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 1 (T1 review I1, I2, M1-M4): the other doors, and the
+#  metadata's edges
+# ------------------------------------------------------------------ #
+
+def _twins(name, fixed=False, waiting=False):
+    """(big, small): Round 3 made at 500 g, and the same Round recorded at
+    the amounts at the total model_recipe gives. With `waiting` the last
+    row of Round 3 waits for Juiciness in both."""
+    big = _project(f"{name}_big", fixed=fixed)
+    big.ask(3)
+    big.scale_round(500)
+    rows = list(big.pending_batch)
+    for j, row in enumerate(rows):
+        no = row["formulation"]
+        results = {"Firmness": 3 + 0.3 * (no % 5), "Juiciness": 4 + 0.7 * (no % 3)}
+        if waiting and j == len(rows) - 1:
+            del results["Juiciness"]
+        big.tell(row["recipe"], results, formulation_no=no, batch_no=big.pending_batch_no)
+    small = _project(f"{name}_small", fixed=fixed)
+    small.ask(3)
+    for j, row in enumerate(list(small.pending_batch)):
+        no = row["formulation"]
+        results = {"Firmness": 3 + 0.3 * (no % 5), "Juiciness": 4 + 0.7 * (no % 3)}
+        if waiting and j == 2:
+            del results["Juiciness"]
+        small.tell(big.model_recipe(6 + j), results, formulation_no=no,
+                   batch_no=small.pending_batch_no)
+    return big, small
+
+
+def test_a_fixed_rows_frame_is_the_rows_as_learned():
+    """T1 review I1 (1): _search_bounds' `seen` reads model_X. A fixed Salt
+    1.5 g recorded at 500 g as 7.5 g must not widen its frame to 7.5."""
+    big, small = _twins("fixed", fixed=True)
+    salt = [r["Salt"] for r in big.recipe_history[6:]]
+    assert salt == pytest.approx([7.5] * 3)
+    assert big._search_bounds() == small._search_bounds()
+    seen_big, seen_small = _spy(big), _spy(small)
+    big.ask(2)
+    small.ask(2)
+    assert torch.allclose(seen_big[0], seen_small[0], rtol=0, atol=1e-12)
+
+
+def test_a_waiting_row_leaves_the_rest_learned_at_the_total():
+    """T1 review I1 (2): the waiting branch of _ask_optimize (a row still
+    missing a result) reads model_X too."""
+    big, small = _twins("waiting", waiting=True)
+    assert big.waiting_rows() and big.waiting_rows() == small.waiting_rows()
+    seen_big, seen_small = _spy(big), _spy(small)
+    big.ask(2)
+    small.ask(2)
+    assert seen_big[0].shape[0] == 8
+    assert torch.allclose(seen_big[0], seen_small[0], rtol=0, atol=1e-12)
+
+
+def test_the_round_ahead_checks_predict_the_rows_as_learned():
+    """T1 review I1 (3): _check_round predicts a 500 g Round at the total,
+    as its twin recorded at the total."""
+    big, small = _twins("checks")
+    got = {(c.formulation, c.name): c for c in insights.check_rounds(big) if c.round == 3}
+    want = {(c.formulation, c.name): c for c in insights.check_rounds(small) if c.round == 3}
+    assert got and got.keys() == want.keys()
+    for key, c in got.items():
+        assert c.predicted == pytest.approx(want[key].predicted, abs=1e-9), key
+        assert c.low == pytest.approx(want[key].low, abs=1e-9), key
+
+
+def test_the_models_settings_carry_the_total():
+    """Planner ruling 1: the one-time invalidation that stands in for a
+    MODEL_SALT bump."""
+    opt = _project("settings")
+    assert insights._model_settings(opt)["total"] == 100
+
+
+def test_the_in_memory_key_follows_a_formula_edit():
+    """T1 review M3: data_key hashes the rows as learned, so a fit made
+    before a formula's constant changed is not served afterwards."""
+    opt = _record(_project("formula_key", formula=True), 500)
+    key = insights.data_key(opt)
+    before = opt.model_X([6])[0]
+    opt.set_formula("Salt", "= 1.5 + 0.05 * Pea")
+    assert opt.model_X([6])[0] != before
+    assert insights.data_key(opt) != key
+
+
+def test_an_off_total_categorical_row_is_brought_to_the_total():
+    """T1 review M2: at_total keeps a categorical row's choice, as
+    model_recipe does, instead of failing on it."""
+    opt = FoodOptimizer("categorical")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea", 2, 8)
+    opt.add_ingredient("Water", 0, 100)
+    opt.variables.append({"name": "Binder", "type": "categorical", "options": ["A", "B"]})
+    opt.add_objective("Firmness", 1, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(100)
+    recipe = {"Pea": 20.0, "Water": 480.0, "Binder": "B"}
+    got = insights.at_total(opt, recipe)
+    assert got["Binder"] == "B"
+    assert got["Pea"] == pytest.approx(4.0) and got["Water"] == pytest.approx(96.0)
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_an_infinite_number_in_the_metadata_is_dropped_not_fatal(bad):
+    """T1 review M1: json reads Infinity and NaN; the entry is dropped and
+    the copy still opens."""
+    import json
+    opt = _project("inf")
+    opt.ask(2)
+    opt.scale_round(500)
+    no = opt.pending_batch_no
+    first = opt.pending_batch[0]["formulation"]
+    state = opt.export_json()
+    state["round_generation"] = {str(no): {"seed": bad, "rows": [1], "n": 2,
+                                           "regime": "warm", "key": ""}}
+    state["batch_generated_totals"][str(no)][str(first)] = bad
+    state = json.loads(json.dumps(state))
+    other = FoodOptimizer("inf_copy")
+    other.import_json(state)
+    assert other.round_generation == {}
+    assert first not in other.batch_generated_totals.get(no, {})
+
+
+def test_a_regenerated_round_keeps_what_its_new_formulations_added_up_to():
+    """T1 review M4: "Generate a different batch" keeps the Round's number
+    with new formulation numbers; each keeps its sum at its first re-size."""
+    opt = _project("regen")
+    opt.ask(2)
+    no = opt.pending_batch_no
+    first = [r["formulation"] for r in opt.pending_batch]
+    opt.scale_round(500)
+    opt.ask(2, batch_no=no, discarded=first)
+    again = [r["formulation"] for r in opt.pending_batch]
+    assert opt.pending_batch_no == no and not set(again) & set(first)
+    opt.scale_round(250)
+    sums = opt.batch_generated_totals[no]
+    assert set(again) <= set(sums)
+    assert all(sums[n] == pytest.approx(100.0) for n in again)

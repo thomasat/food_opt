@@ -1785,6 +1785,25 @@ def test_start_from_the_best_prefills_and_notes_the_repeat(burger):
     assert reloaded.pending_batch[-1]["note"] == wording.repeat_of_formulation(1)
 
 
+def test_start_from_the_best_leaves_a_later_ingredient_empty(burger):
+    """T1 review I2: an ingredient added after Best so far was recorded
+    has no amount in it; its box opens empty, never at 0.00, so Add asks
+    for it."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    burger.add_ingredient("Fibre", 0, 5)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    _submit_button(at, wording.START_FROM_BEST_SO_FAR).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["own_Pea protein"] == 10.0
+    assert at.session_state["own_Fibre"] is None
+    assert at.number_input(key="own_Fibre").value is None
+
+
 def test_blank_amount_is_refused(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
@@ -7930,9 +7949,11 @@ def test_a_batch_made_as_generated_still_reads_as_before(scored):
 
 
 def test_start_from_the_best_still_offers_the_recorded_amounts(made_to_a_total):
-    """The boxes ask for amounts the project allows, and the model was told
-    the recorded ones: starting from 136.36 g of protein would be a repeat of
-    a formulation that was never recorded."""
+    """The boxes ask for amounts the project allows. The recorded amounts
+    are the ones generated (the bench weighed them out at 150 g), and the
+    project has no Formulation total, so they are also what the model
+    learned: starting from 136.36 g of protein would be a repeat of a
+    formulation that was never recorded (T1 review M5)."""
     made_to_a_total.set_pending_batch([{"Pea protein": 20.0,
                                         "Methylcellulose": 2.0}], batch_no=2)
     at = AppTest.from_file(APP_PATH, default_timeout=180)

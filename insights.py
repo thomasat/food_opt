@@ -331,9 +331,12 @@ def _model_settings(opt):
 
 
 def data_key(opt):
-    """Everything a fitted model or a Round-ahead check depends on."""
+    """Everything a fitted model or a Round-ahead check depends on. The
+    rows as the models learn them (model_X): a row made off the total moves
+    when a formula's constant is edited (T1 review M3)."""
     return _digest({
-        "X": opt.X_history, "Y": opt.Y_history, "R": opt.results_history,
+        "X": opt.model_X(range(len(opt.X_history))), "Y": opt.Y_history,
+        "R": opt.results_history,
         "ids": opt.formulation_ids, "rounds": opt.batch_history,
         "aside": [opt.is_set_aside(i) for i in range(len(opt.Y_history))],
         **_model_settings(opt),
@@ -880,7 +883,8 @@ def at_total(opt, recipe):
     2026-09-30-bo-views §1, review B1)."""
     recipe = dict(recipe)
     if opt.off_total(recipe):
-        return opt.scaled_recipe(recipe, scale_to=float(opt.formulation_total))
+        # A categorical row's choice kept as it is (T1 review M2).
+        return opt.at_model_total(recipe)
     return opt.fill_formulas(recipe)
 
 

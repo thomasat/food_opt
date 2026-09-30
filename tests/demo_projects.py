@@ -17,15 +17,17 @@ TIMING = "Timing check - 60 formulations"
 
 def load(name):
     """The demo project `name`, opened in a fresh temporary folder (the
-    working folder is put back after), with save() switched off."""
+    working folder is put back after, and the folder removed: T1 review
+    M6), with save() switched off."""
     state = json.loads((HERE / f"{name}.json").read_text())
     here = os.getcwd()
-    os.chdir(tempfile.mkdtemp(prefix="demo-"))
-    try:
-        opt = FoodOptimizer(state["project_name"])
-        opt.save = lambda: None
-        opt.import_json(state)
-        opt.save = lambda: None
-    finally:
-        os.chdir(here)
+    with tempfile.TemporaryDirectory(prefix="demo-") as folder:
+        os.chdir(folder)
+        try:
+            opt = FoodOptimizer(state["project_name"])
+            opt.save = lambda: None
+            opt.import_json(state)
+            opt.save = lambda: None
+        finally:
+            os.chdir(here)
     return opt

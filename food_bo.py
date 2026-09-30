@@ -1520,8 +1520,10 @@ def _generated_totals_from(raw):
     out = {}
     for k, row in (raw or {}).items() if isinstance(raw, dict) else ():
         try:
-            out[int(k)] = {int(n): float(t) for n, t in (row or {}).items()}
-        except (TypeError, ValueError, AttributeError):
+            sums = {int(n): float(t) for n, t in (row or {}).items()}
+            # Infinity or NaN is a damaged entry too (T1 review M1).
+            out[int(k)] = {n: t for n, t in sums.items() if math.isfinite(t)}
+        except (TypeError, ValueError, AttributeError, OverflowError):
             continue
     return out
 
@@ -1536,7 +1538,9 @@ def _generation_records_from(raw):
                            "rows": [int(n) for n in record["rows"]],
                            "n": int(record["n"]), "regime": str(record["regime"]),
                            "key": str(record.get("key") or "")}
-        except (TypeError, ValueError, KeyError, AttributeError):
+        # int(float('inf')) raises OverflowError: a damaged entry, dropped,
+        # never a reason to refuse the copy (T1 review M1).
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
             continue
     return out
 
@@ -7784,6 +7788,12 @@ class FoodOptimizer:
         recipe = self._recorded_recipe(index)
         if not self.off_total(recipe):
             return recipe
+        return self.at_model_total(recipe)
+
+    def at_model_total(self, recipe):
+        """`recipe` brought to the Formulation total by scaled_recipe, a
+        categorical row's choice kept as it is: the one rescaling model_recipe
+        and insights.at_total share (T1 review M2)."""
         words = {k: v for k, v in recipe.items() if isinstance(v, str)}
         scaled = self.scaled_recipe({k: v for k, v in recipe.items()
                                      if not isinstance(v, str)},
@@ -8415,12 +8425,13 @@ class FoodOptimizer:
             # What each formulation added up to before the box first
             # re-sized it (review B1): metadata only, so a later wave can
             # learn a project with no Formulation total at its own size.
-            made = self._generated_totals()
-            no = int(self.pending_batch_no)
-            if no not in made:
-                made[no] = {int(row['formulation']): self.ingredient_total(
-                    {k: v for k, v in row['recipe'].items() if not isinstance(v, str)})
-                    for row in rows}
+            # Per formulation, not per Round (T1 review M4): "Generate a
+            # different batch" keeps the Round's number with new formulation
+            # numbers, and an own formulation can join after a re-size.
+            sums = self._generated_totals().setdefault(int(self.pending_batch_no), {})
+            for row in rows:
+                sums.setdefault(int(row['formulation']), self.ingredient_total(
+                    {k: v for k, v in row['recipe'].items() if not isinstance(v, str)}))
             rows = [self._batch_row(row['formulation'],
                                     self.scaled_recipe(row['recipe'], size),
                                     row.get('note'))

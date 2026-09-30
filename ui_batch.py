@@ -452,7 +452,11 @@ def _start_from_best(opt, best_no):
     index = opt.index_of_formulation(best_no)
     if index is None:
         return
-    recipe = insights.start_recipe(opt, index)
+    # At the total, but only the rows that formulation was recorded with
+    # (T1 review I2): start_recipe decodes every current row.
+    recorded_names = opt.recipe_history[index]
+    recipe = {k: v for k, v in insights.start_recipe(opt, index).items()
+              if k in recorded_names}
     prefilled = {}
     for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount
