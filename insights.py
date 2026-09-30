@@ -734,11 +734,21 @@ class BestFacts:
     without: list       # measurements Best so far is scored without ([] as a rule)
 
 
+def scored_rounds(opt):
+    """round_order for the Rounds with at least one formulation Best so far
+    compares. A Round still all waiting, or all moved to Not scored, has
+    not been scored: it is neither the latest Round nor a Round "without a
+    higher score" (0.8.0 review fixes, Task 6 review I-1)."""
+    pool = {opt.batch_history[i] for i in opt.best_candidates()}
+    return [(r, first) for r, first in round_order(opt) if r in pool]
+
+
 def best_facts(opt):
+    """Best so far, and where it stands among the scored Rounds."""
     i = opt.best_index()
     if i is None:
         return None
-    order = round_order(opt)
+    order = scored_rounds(opt)
     since = [r for r, first in order if first > i]
     r = opt.batch_history[i]
     latest = r is not None and bool(order) and order[-1][0] == r
@@ -754,21 +764,35 @@ class Improvement:
     rounds: int             # Rounds since Best so far ("not_lately")
 
 
-def improvement(opt):
+# A spread between Repeats under this reads 0.0 on screen, so the tab
+# neither shows it nor judges a rise against it: Repeats that matched
+# exactly say nothing about chance (Task 6 review M-1).
+REPEAT_SD_SHOWN = 0.05
+
+
+def improvement(opt, facts=None, spread=None):
     """The answer to "Is it still improving?" (0.8.0 review fixes §3.7,
-    §9 I9), or None when there is nothing to say yet.
+    §9 I9), or None when there is nothing to say yet. Rounds are the
+    scored ones (scored_rounds).
 
     - Not lately: no higher score in the last 2 or more Rounds.
     - When Best so far came from the latest Round, the rise is its score
-      minus the Best so far before that Round: Barely when it is no more
-      than the Overall score's spread between Repeats (1 point without
-      Repeats), Yes when it is more.
+      minus the Best so far before that Round: Barely when it is below
+      the Overall score's spread between Repeats (1 point without Repeats,
+      or with a spread under REPEAT_SD_SHOWN), Yes otherwise. Both are
+      compared to the hundredth, as the answer can print them, so its
+      words never contradict its numbers.
     - Anything else (one Round only, or no higher score in just the
-      Round since): None, and Best so far's own line says it."""
-    f = best_facts(opt)
+      Round since): None, and Best so far's own line says it.
+
+    `facts` and `spread`: best_facts(opt) and repeat_sd(opt, SCORE), when
+    the caller has them already."""
+    f = best_facts(opt) if facts is None else facts
     if f is None:
         return None
-    sd = repeat_sd(opt, SCORE).sd
+    sd = (repeat_sd(opt, SCORE) if spread is None else spread).sd
+    if sd is not None and sd < REPEAT_SD_SHOWN:
+        sd = None
     if f.rounds_since >= 2:
         return Improvement("not_lately", None, sd, f.rounds_since)
     if f.rounds_since or not f.latest:
@@ -779,7 +803,8 @@ def improvement(opt):
         return None
     rise = f.score - max(earlier)
     threshold = sd if sd is not None else 1.0
-    return Improvement("yes" if rise > threshold else "barely", rise, sd, 0)
+    barely = round(rise, 2) < round(threshold, 2)
+    return Improvement("barely" if barely else "yes", rise, sd, 0)
 
 
 def _same(opt, a, b):

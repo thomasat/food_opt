@@ -199,7 +199,7 @@ def test_one_progress_bar_while_the_models_and_rounds_are_worked_out(insights_sc
     assert {t for _, t in steps} == {wording.CHECKING}
     assert not [t for t in spins if t.startswith("Checking")]
     # Only question 4's own search keeps a spinner, under its heading.
-    assert spins.count(wording.INSIGHTS_WORKING) <= 1
+    assert spins.count(wording.INSIGHTS_WORKING) == 1
     assert ui_insights.ROUNDS_KEY in at.session_state
     steps.clear()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS

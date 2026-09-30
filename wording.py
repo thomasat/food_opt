@@ -4018,12 +4018,6 @@ def insights_gate(n):
     return f"The other answers start once 5 {FORMULATION}s are scored. So far: {n}."
 
 
-def best_gate(n):
-    """Under question 4 alone, when enough formulations are recorded but
-    fewer than 5 have all their results."""
-    return f"Starts once 5 {FORMULATION}s have all their results. So far: {n}."
-
-
 Q_PREDICTIONS = "Did the predictions come true?"
 
 

@@ -264,15 +264,22 @@ def _stepper(opt, bar):
     return checking
 
 
+def _cached(opt):
+    """_computed's value for this project's data when it is already worked
+    out, else None."""
+    hit = st.session_state.get(CACHE_KEY)
+    return hit[1] if hit and hit[0] == insights.data_key(opt) else None
+
+
 def _computed(opt, bar=None):
     """The fitted models and the Round-by-Round checks, once per data_key.
     `bar`, a slot under the header, shows one progress bar while they are
     worked out; without it (a test, or a caller with no slot) a slot of
     its own."""
+    hit = _cached(opt)
+    if hit is not None:
+        return hit
     key = insights.data_key(opt)
-    hit = st.session_state.get(CACHE_KEY)
-    if hit and hit[0] == key:
-        return hit[1]
     bar = bar if bar is not None else st.empty()
     fitted = fitted_models(opt, bar=bar)
     if fitted is None:
@@ -325,12 +332,18 @@ def render(opt):
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    # The header goes up at once in its early form, so it is not blank while
-    # the models are worked out (review M-2); its range sentence depends on
-    # whether there is a verdict, so it is written again once the checks
-    # are known.
+    # The header's range sentence depends on whether there is a verdict.
+    # With the checks already worked out it goes up once, in its final
+    # form (Task 6 review I-2: no swap to the early form and back on every
+    # rerun); otherwise it goes up at once in its early form, so it is not
+    # blank while they are worked out (Task 5 review M-2), and is written
+    # again once they are known. One headline per run, for the header and
+    # question 1 (Task 5 review M-3).
     header = st.empty()
-    header.caption(_say(opt, header_text(opt, None)))
+    warm = _cached(opt) if n >= insights.MIN_ROWS else None
+    h = (None if warm is None or warm.get("failed")
+         else insights.headline(opt, warm["checks"]))
+    header.caption(_say(opt, header_text(opt, h)))
     if n < insights.MIN_ROWS:
         # Only "Is it still improving?" can be answered yet, and the other
         # three wait for one line, said once (0.8.0 review fixes §6).
@@ -358,9 +371,9 @@ def render(opt):
         with rest:
             _how(opt, None)
         return
-    # One headline per run, for the header and question 1 (review M-3).
-    h = insights.headline(opt, computed["checks"])
-    header.caption(_say(opt, header_text(opt, h)))
+    if warm is None:
+        h = insights.headline(opt, computed["checks"])
+        header.caption(_say(opt, header_text(opt, h)))
     with q1[1]:
         _predictions(opt, computed, h)
     with q2[1]:
@@ -649,7 +662,8 @@ def _path_captions(opt, path, number, fitted):
 def _improving(opt):
     _question(opt, wording.Q_IMPROVING)
     f = insights.best_facts(opt)
-    answer = insights.improvement(opt)
+    spread = insights.repeat_sd(opt, insights.SCORE)
+    answer = insights.improvement(opt, f, spread)
     if answer is not None:
         st.write(_say(opt, improving_text(answer)))
     if f is not None:
@@ -660,22 +674,26 @@ def _improving(opt):
         st.write(_say(opt, wording.best_line(f"{f.score:.1f}", f.formulation, f.round,
                                              number_list(f.without))
                       + (" " + second if second else "")))
-    spread = insights.repeat_sd(opt, insights.SCORE)
     # A spread that would read 0 says nothing about chance.
-    if spread.sd is not None and spread.sd >= 0.05:
+    if spread.sd is not None and spread.sd >= insights.REPEAT_SD_SHOWN:
         st.write(_say(opt, wording.repeats_line(f"{spread.sd:.1f}", spread.pairs)))
     with st.expander(_say(opt, wording.SHOW_PROGRESS)):
         _progress_chart_body(opt)
 
 
 def improving_text(answer):
-    """The computed answer to "Is it still improving?" (§3.7, §9 I9)."""
+    """The computed answer to "Is it still improving?" (§3.7, §9 I9).
+    One decimal, as elsewhere on the tab, unless the rise would read 0.0 or
+    the same as what it is judged against: then hundredths, so the words
+    never contradict the numbers (Task 6 review M-1)."""
+    if answer.state == "not_lately":
+        return wording.improving_not_lately(answer.rounds)
+    threshold = 1.0 if answer.sd is None else answer.sd
+    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+    rise = f"{answer.rise:.{d}f}"
     if answer.state == "yes":
-        return wording.improving_yes(f"{answer.rise:.1f}")
-    if answer.state == "barely":
-        return wording.improving_barely(
-            f"{answer.rise:.1f}", None if answer.sd is None else f"{answer.sd:.1f}")
-    return wording.improving_not_lately(answer.rounds)
+        return wording.improving_yes(rise)
+    return wording.improving_barely(rise, None if answer.sd is None else f"{answer.sd:.{d}f}")
 
 
 def progress_frame(opt):
@@ -786,9 +804,10 @@ def _best(opt, computed):
     """Question 4's answer, under its heading."""
     fitted = None if computed is None else computed["fitted"]
     score = None if fitted is None else fitted.get(insights.SCORE)
-    if (opt.complete_count() < insights.MIN_ROWS or score is None
-            or score.model is None):
-        st.caption(_say(opt, wording.best_gate(opt.complete_count())))
+    # render draws question 4 only once 5 are scored; without an Overall
+    # score model it cannot be worked out (Task 6 review M-2).
+    if score is None or score.model is None:
+        st.caption(_say(opt, wording.BEST_FAILED))
         return
     best = _predicted_best(opt, fitted)
     if isinstance(best, str):

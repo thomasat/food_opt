@@ -97,6 +97,7 @@ def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_s
         assert md[i + 1] == ui_insights.improving_text(answer)
         assert md[i + 2].startswith("Best so far:")
         assert wording.BEST_LATEST not in md[i + 2]
+        assert "No higher score" not in md[i + 2]      # the fixture reads Not lately
 
 
 def test_the_four_headings_come_in_order(insights_scored):
@@ -123,12 +124,11 @@ def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
     tab = at.tabs[3]
     assert [c.value for c in tab.caption].count(wording.insights_gate(2)) == 1
     assert wording.insights_gate(2) == "The other answers start once 5 formulations are scored. So far: 2."
-    assert wording.best_gate(4) == "Starts once 5 formulations have all their results. So far: 4."
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.CHECKING, wording.insights_gate(3), wording.best_gate(3),
+    for text in (wording.CHECKING, wording.insights_gate(3),
                  wording.repeats_line("0.3", 2), wording.improving_yes("3.1"),
                  wording.improving_barely("0.2", "0.3"), wording.improving_barely("0.2"),
                  wording.improving_not_lately(3)):
@@ -172,3 +172,137 @@ def test_the_headline_is_worked_out_once_per_run(insights_scored, monkeypatch):
     at.run()
     assert not at.exception
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------- fix round 1
+
+
+def _waiting_round(opt, no, r):
+    """Formulation `no` recorded in Round `r`, still waiting for Cook loss."""
+    _tell(opt, no, r, drop=("Cook loss",))
+    assert not opt.fully_measured(len(opt.Y_history) - 1)
+
+
+def test_a_round_still_waiting_is_not_a_round_without_a_higher_score():
+    """Review I-1: Round 3 is recorded but not scored, so Best so far in
+    Round 1 has gone one scored Round without a higher score, not two."""
+    opt = _rounds([[90.0], [80.0]])
+    _waiting_round(opt, 3, 3)
+    assert insights.improvement(opt) is None
+    f = insights.best_facts(opt)
+    assert f.rounds_since == 1 and not f.latest
+
+
+def test_a_rise_stays_yes_while_the_next_round_waits():
+    opt = _rounds([[70.0], [75.0]])
+    _waiting_round(opt, 3, 3)
+    a = insights.improvement(opt)
+    assert a.state == "yes" and a.rise == pytest.approx(5.0)
+    assert ui_insights.improving_text(a) == "Yes — up 5.0 points in the last round."
+    assert insights.best_facts(opt).latest
+
+
+def test_a_round_moved_to_not_scored_is_not_counted():
+    opt = _rounds([[70.0], [75.0]])
+    _waiting_round(opt, 3, 3)
+    opt.set_aside_formulation(3)
+    assert opt.is_set_aside(2)
+    a = insights.improvement(opt)
+    assert a.state == "yes" and a.rise == pytest.approx(5.0)
+    opt2 = _rounds([[90.0], [80.0]])
+    _waiting_round(opt2, 3, 3)
+    opt2.set_aside_formulation(3)
+    assert insights.improvement(opt2) is None
+    assert insights.best_facts(opt2).rounds_since == 1
+
+
+def test_a_rise_that_rounds_to_one_point_says_its_hundredths():
+    """Review M-1: 0.96 is under 1 point, so it must not read "1.0"."""
+    opt = _rounds([[70.0], [70.96]])
+    a = insights.improvement(opt)
+    assert a.state == "barely"
+    assert ui_insights.improving_text(a) == (
+        "Barely — the last rise (0.96 points) is under 1 point.")
+
+
+def test_a_rise_and_spread_that_round_alike_say_their_hundredths(monkeypatch):
+    opt = _rounds([[70.0], [70.26]])
+    monkeypatch.setattr(insights, "repeat_sd", lambda o, name: insights.RepeatSpread(0.29, 1))
+    a = insights.improvement(opt)
+    assert a.state == "barely"
+    assert ui_insights.improving_text(a) == (
+        "Barely — the last rise (0.26 points) is smaller than the spread between Repeats (0.29).")
+
+
+def test_repeats_that_matched_exactly_count_as_no_repeats():
+    """Review M-1: a spread under 0.05 (0 here) is not shown, so the answer
+    is judged against 1 point, as without Repeats, never "Yes — up 0.4"."""
+    opt = _rounds([[70.0], [70.4, 70.4]])
+    opt.recipe_history[2] = dict(opt.recipe_history[1])
+    opt.X_history[2] = list(opt.X_history[1])
+    assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(0.0, 1)
+    a = insights.improvement(opt)
+    assert (a.state, a.sd) == ("barely", None)
+    assert ui_insights.improving_text(a) == (
+        "Barely — the last rise (0.4 points) is under 1 point.")
+
+
+def test_improvement_takes_what_the_tab_already_worked_out(monkeypatch):
+    """Review M-4: best_facts and repeat_sd run once per "Is it still
+    improving?" section."""
+    opt = _rounds([[70.0, 72.0], [75.1]])
+    f, spread = insights.best_facts(opt), insights.repeat_sd(opt, insights.SCORE)
+    monkeypatch.setattr(insights, "best_facts", lambda o: pytest.fail("computed again"))
+    monkeypatch.setattr(insights, "repeat_sd", lambda o, n: pytest.fail("computed again"))
+    assert insights.improvement(opt, f, spread).state == "yes"
+
+
+def test_the_section_works_out_best_so_far_once(insights_scored, monkeypatch):
+    calls = []
+    real = insights.best_facts
+
+    def counted(opt):
+        calls.append(1)
+        return real(opt)
+    monkeypatch.setattr(insights, "best_facts", counted)
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    calls.clear()
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    assert len(calls) == 1
+
+
+def test_a_warm_rerun_writes_the_header_once(insights_scored, monkeypatch):
+    """Review I-2: with the checks already worked out, the header goes up
+    once in its verdict-aware form, never the early form first."""
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    log = []
+    real = ui_insights.header_text
+
+    def header(opt, h):
+        log.append(h)
+        return real(opt, h)
+    monkeypatch.setattr(ui_insights, "header_text", header)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception
+    assert len(log) == 1 and log[0] is not None
+
+
+def test_question_4_without_a_score_model_says_it_could_not_be_worked_out(
+        insights_scored, monkeypatch):
+    """Review M-2: with 5 or more scored, never "Starts once 5 … So far: 9"."""
+    import dataclasses
+    real = insights.fit_all
+
+    def no_score(opt):
+        fitted = real(opt)
+        fitted[insights.SCORE] = dataclasses.replace(fitted[insights.SCORE], model=None)
+        return fitted
+    monkeypatch.setattr(insights, "fit_all", no_score)
+    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
+    assert not at.exception
+    caps = [c.value for c in at.tabs[3].caption]
+    assert wording.BEST_FAILED in caps
+    assert not any("Starts once" in c for c in caps), caps
