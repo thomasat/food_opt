@@ -418,7 +418,7 @@ def _missing_panel(opt, number, names, correcting=False):
                           number, number_list(names))),
                       confirm_label=wording.MOVE_TO_NOT_SCORED,   # spec §4, review I9
                       disabled=other_confirmation(key),
-                      help=wording.MOVE_TO_NOT_SCORED_HELP):
+                      help=wording.for_project(opt, wording.move_to_not_scored_help(len(names)))):
         opt.set_aside_formulation(number)
         if saved_ok(opt):
             flash("success", wording.for_project(opt, wording.moved_to_not_scored(number)))
@@ -1470,7 +1470,8 @@ def render(opt, storage):
         # Not beside a formulation still waiting or Not scored: its missing
         # value is the way on, not Set up (spec 2026-09-30 §4).
         lit = not confirmation_open()
-        if settled and st.button(wording.CHANGE_SETUP_FROM_RESULTS_BUTTON,
+        if settled and st.button(wording.change_setup_from_results(
+                settings_only=not opt.has_ingredients()),
                                  key="change_setup_from_results", disabled=not lit) and lit:
             go_to_tab(TAB_SETUP)
     with foot:

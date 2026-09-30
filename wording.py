@@ -1731,6 +1731,13 @@ OFF_BY_COLUMN = "Off by"
 # Results, for a measurement that needs its range widened or an ingredient
 # that needs a new limit once a formulation is on screen.
 CHANGE_SETUP_FROM_RESULTS_BUTTON = "Change a measurement or an ingredient"
+
+
+def change_setup_from_results(settings_only=False):
+    """Results' way to Set up; a project of process settings alone names
+    them (final review M-9, review I14)."""
+    return ("Change a measurement or a process setting" if settings_only
+            else CHANGE_SETUP_FROM_RESULTS_BUTTON)
 AMOUNTS_TO_MAKE_IT_HEADING = "**Amounts to make it**"
 
 
@@ -3927,7 +3934,7 @@ def score_record_line(inside, total, mean_miss):
     if size == "0.0":
         how = "on average as predicted"
     else:
-        how = f"on average {size} points {'below' if mean_miss < 0 else 'above'} prediction"
+        how = f"on average {points_text(size)} {'below' if mean_miss < 0 else 'above'} prediction"
     return f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside their likely range; {how}."
 
 
@@ -4095,7 +4102,7 @@ def best_luck(n, mean_text, low_text, high_text):
 
 
 BEST_ROW = "Predicted best"
-BEST_FAILED = f"The {FORMULATION} predicted to score highest could not be worked out."
+BEST_FAILED = "The predicted best could not be found."
 
 
 # Insights wave C (0.8.0): "More charts", the three views a reader who knows
@@ -4300,7 +4307,7 @@ Q_STAND = "Where do you stand?"
 
 
 def stand_yes(rise_text):
-    return f"Yes — up {rise_text} points in the last {ROUND_CAP}."
+    return f"Yes — up {points_text(rise_text)} in the last {ROUND_CAP}."
 
 
 def stand_barely(rise_text, sd_text=None):
@@ -4695,6 +4702,15 @@ MOVE_TO_NOT_SCORED_HELP = ("Use when this result will never come. It stays in yo
                            "is not scored or used for suggestions. You can undo it.")
 
 
+def move_to_not_scored_help(n):
+    """The Move to Not scored help for `n` missing results (final review
+    M-7): one is "this result", more are "these results"."""
+    if n == 1:
+        return MOVE_TO_NOT_SCORED_HELP
+    return (f"Use when these results will never come. The {FORMULATION} stays in your records "
+            "but is not scored or used for suggestions. You can undo it.")
+
+
 def never_coming_warning(no, names_text):
     """The Move to Not scored confirmation (spec review I9)."""
     return (f"{names_text or 'The results'} for {FORMULATION_CAP} {no} will never come? It "
@@ -4748,11 +4764,14 @@ PREDICTION_PENDING = "…"
 
 def round_track_holding(inside, total, see_insights=False):
     """Make a round's track-record line when the Overall score's recent
-    record holds (spec §3, review I16); 'See Insights.' after an unreliable
-    verdict."""
+    record holds (spec §3, review I16). After an unreliable verdict it says
+    why to see Insights, so it never reads as good news alone (final review
+    M-8)."""
     line = (f"Recent {ROUND_CAP}s: {inside} of {total} {OVERALL_SCORE_COLUMN}s landed inside "
-            "their likely range.")
-    return f"{line} See {TAB_INSIGHTS}." if see_insights else line
+            "their likely range")
+    if see_insights:
+        return f"{line}; the measurements missed more often — see {TAB_INSIGHTS}."
+    return f"{line}."
 
 
 def round_track_rough(inside, total, gap_text=None, below=True, see_insights=False):

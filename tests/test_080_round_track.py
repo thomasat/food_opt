@@ -93,8 +93,8 @@ def test_a_wide_or_over_wide_verdict_shows_nothing(state, monkeypatch):
 
 def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
     """Review C M-1."""
-    assert wording.round_track_holding(11, 11, True).endswith(" See Insights.")
-    assert not wording.round_track_holding(11, 11).endswith("See Insights.")
+    assert wording.round_track_holding(11, 11, True).endswith(" — see Insights.")
+    assert "Insights" not in wording.round_track_holding(11, 11)
 
 
 def test_no_line_when_the_overall_scores_own_range_is_wide(monkeypatch):

@@ -129,3 +129,61 @@ def test_a_process_only_project_says_trials(ferment_scored):
     text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("see"))[0])
     assert text == (f"Record the trial still open in Round {opt.pending_batch_no} "
                     "to see whether scores rise.")
+
+
+# ------------------------------------------------------------------ #
+#  Final review M-3, M-7, M-8, M-9: words
+# ------------------------------------------------------------------ #
+
+def test_best_failed_says_predicted_best():
+    """M-3: "Predicted best" everywhere; "worked out" is not the owner's word."""
+    assert wording.BEST_FAILED == "The predicted best could not be found."
+
+
+def test_one_point_is_said_in_the_singular():
+    """M-7."""
+    assert wording.stand_yes("1.0") == "Yes — up 1 point in the last Round."
+    assert wording.stand_yes("3.1") == "Yes — up 3.1 points in the last Round."
+    assert "on average 1 point below prediction" in wording.score_record_line(5, 5, -1.0)
+    assert "on average 1.8 points below prediction" in wording.score_record_line(7, 8, -1.84)
+
+
+def test_move_to_not_scored_help_counts_the_results():
+    """M-7: two measurements missing are "these results"."""
+    assert wording.move_to_not_scored_help(1) == wording.MOVE_TO_NOT_SCORED_HELP
+    two = wording.move_to_not_scored_help(2)
+    assert two.startswith("Use when these results will never come.")
+    assert "this result" not in two
+
+
+def test_the_holding_line_after_an_unreliable_verdict_is_not_good_news():
+    """M-8."""
+    assert wording.round_track_holding(11, 11, True) == (
+        "Recent Rounds: 11 of 11 Overall scores landed inside their likely range; "
+        "the measurements missed more often — see Insights.")
+
+
+def test_the_results_setup_button_names_process_settings_on_a_process_only_project(
+        ferment_scored):
+    """M-9."""
+    assert wording.change_setup_from_results() == wording.CHANGE_SETUP_FROM_RESULTS_BUTTON
+    assert (wording.change_setup_from_results(settings_only=True)
+            == "Change a measurement or a process setting")
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    labels = [b.label for b in at.tabs[2].button]
+    assert "Change a measurement or a process setting" in labels
+    assert wording.CHANGE_SETUP_FROM_RESULTS_BUTTON not in labels
+
+
+def test_the_new_words_pass_the_guard():
+    for text in (wording.BEST_FAILED, wording.stand_yes("1.0"),
+                 wording.score_record_line(5, 5, -1.0), wording.move_to_not_scored_help(2),
+                 wording.round_track_holding(11, 11, True),
+                 wording.change_setup_from_results(settings_only=True),
+                 wording.next_rising_open(6, 4), wording.next_see_open(6, 1),
+                 wording.next_too_early_open(6, 2)):
+        assert not any(p.search(text) for p in _BANNED), text
