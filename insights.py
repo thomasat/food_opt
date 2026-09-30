@@ -781,6 +781,7 @@ class NextStep:
     gap: float | None = None                    # "bias": the Overall score's average miss
     disagreement: Disagreement | None = None    # "repeat"
     binding: object = None                      # "close": what binds the predicted best
+    wide: list = dataclasses.field(default_factory=list)   # "rising": outputs still wide
 
 
 def next_step(opt, checks, standing=None):
@@ -813,7 +814,9 @@ def next_step(opt, checks, standing=None):
                 and answer.state in ("not_lately", "barely")):
             return NextStep("close", binding=standing.binding[0] if standing.binding else None)
     if answer is not None and answer.state == "yes":
-        return NextStep("rising")
+        # Said with the width caution the verdict gives (answer-key
+        # read-through, Line C).
+        return NextStep("rising", wide=list(h.wide or []))
     return NextStep("see")
 
 

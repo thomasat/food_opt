@@ -859,9 +859,14 @@ def _wide(opt, h):
     measured_names = [o['name'] for o in opt.objectives]
     if all(n in h.wide for n in measured_names + [insights.SCORE]):
         return wording.WIDE_EVERY
-    names = [f"the {wording.OVERALL_SCORE_COLUMN}" if n == insights.SCORE else n
-             for n in h.wide]
-    return wording.wide_line(number_list(names))
+    return wording.wide_line(_wide_names(h.wide))
+
+
+def _wide_names(names):
+    """'Firmness, Juiciness and the Overall score' for outputs whose likely
+    range is wide; '' for none."""
+    return number_list([f"the {wording.OVERALL_SCORE_COLUMN}" if n == insights.SCORE else n
+                        for n in names]) if names else ""
 
 
 def verdict_text(opt, h, state, bias=None):
@@ -1460,7 +1465,7 @@ def next_step_text(opt, step):
         return (wording.next_close_to_top(change, settings_only),
                 wording.change_on_setup(b.name, highest=b.kind == "highest"))
     if step.kind == "rising":
-        return (wording.next_rising_open(no, left) if left else wording.NEXT_RISING), None
+        return wording.next_rising(_wide_names(getattr(step, "wide", None) or []), no, left), None
     return (wording.next_see_open(no, left) if left else wording.NEXT_SEE), None
 
 

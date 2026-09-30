@@ -4462,8 +4462,20 @@ def next_too_early_open(no, n):
             f"then make the next {ROUND_CAP}.")
 
 
+def next_rising(wide_text="", no=None, n=0):
+    """"Scores are still rising", with the width caution when some outputs'
+    likely range is still wide (one range each, never "ranges"), then what to
+    do: record the open Round first when there is one."""
+    head = "Scores are still rising"
+    if wide_text:
+        head += f"; the likely range for {wide_text} is still wide"
+    tail = (f"{record_open_round(no, n)}, then make the next {ROUND_CAP}." if n
+            else f"Make the next {ROUND_CAP}.")
+    return f"{head}. {tail}"
+
+
 def next_rising_open(no, n):
-    return f"Scores are still rising. {record_open_round(no, n)}, then make the next {ROUND_CAP}."
+    return next_rising("", no, n)
 
 
 def next_see_open(no, n):

@@ -176,3 +176,41 @@ def test_a_pair_left_out_is_said_as_left_out():
     assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
     assert wording.repeat_compare(None, None, 0, 2) == "2 pairs left out (they disagreed)"
     _clean(wording.repeat_compare(None, None, 0, 1), wording.repeat_compare(None, None, 0, 2))
+
+
+# ------------------------------------------------------------------ #
+#  5. "Scores are still rising" carries the width caution when some
+#     outputs' likely range is wide (Line C)
+# ------------------------------------------------------------------ #
+
+def test_rising_names_the_outputs_whose_range_is_still_wide(monkeypatch):
+    opt = _patty(rows=6)
+    checks = _values(2) + _scores(2, 11, 0.1)
+    wide_firmness = [_check("Firmness", 2, 900 + k, 5.0, 5.0, 3.0) for k in range(10)]
+    checks = [c for c in checks if c.name != "Firmness"] + wide_firmness
+    h = insights.headline(opt, checks)
+    assert h.wide == ["Firmness"]
+    monkeypatch.setattr(insights, "improvement",
+                        lambda *a, **k: SimpleNamespace(state="yes", rise=3.0, sd=None, rounds=0))
+    step = insights.next_step(opt, checks, None)
+    assert step.kind == "rising" and step.wide == ["Firmness"]
+    text, _ = ui_insights.next_step_text(opt, step)
+    assert text == ("Scores are still rising; the likely range for Firmness is still wide. "
+                    "Make the next Round.")
+    opt.set_pending_batch([dict(opt.recipe_history[0])])
+    text, _ = ui_insights.next_step_text(opt, step)
+    assert text == ("Scores are still rising; the likely range for Firmness is still wide. "
+                    f"Record the formulation still open in Round {opt.pending_batch_no}, "
+                    "then make the next Round.")
+    three = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None,
+                            wide=["Firmness", "Juiciness", insights.SCORE])
+    text, _ = ui_insights.next_step_text(opt, three)
+    assert "the likely range for Firmness, Juiciness and the Overall score is still wide" in text
+    assert "ranges" not in text
+    _clean(text)
+
+
+def test_rising_without_a_wide_output_is_unchanged():
+    opt = _patty(rows=6)
+    step = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None, wide=[])
+    assert ui_insights.next_step_text(opt, step)[0] == wording.NEXT_RISING
