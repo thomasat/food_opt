@@ -574,9 +574,25 @@ def keep_up(opt, stages=()):
     if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
         return
     _catch_up(opt)
-    st.session_state[SEEN_KEY] = _seen(opt, stages)
+    drawn, now = st.session_state.get(SEEN_KEY), _seen(opt, stages)
+    st.session_state[SEEN_KEY] = now
+    if drawn is not None and len(drawn) == len(now) and drawn != now:
+        # A part landed while the page was being drawn (drawing() marked
+        # what it was drawn from): the screen shows it in one more run
+        # instead of keeping the older state until the next click.
+        st.rerun()
     if not _caught_up(opt):
         _poller(opt, tuple(stages))
+
+
+def drawing(opt, stages=()):
+    """app.py, before the page is drawn: which parts of the open screen
+    (`stages`) are in, so keep_up can tell when one landed while the page
+    was drawn — after Save results the last fits often land in that
+    moment, and nothing else would rerun the page."""
+    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
+        return
+    st.session_state[SEEN_KEY] = _seen(opt, stages)
 
 
 @st.fragment(run_every=POLL_SECS)

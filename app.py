@@ -881,8 +881,18 @@ _line = _batch_line(_opt)
 # opening it, Save results, Move to Not scored, a waiting value — whichever
 # tab is showing. A worker never shares this process's torch state, so
 # nothing it does can reach ask() (review B2).
+def _insights_stages():
+    """The parts of the open screen that wait for Insights' fits."""
+    if tab_insights.open:
+        return ("column", "trust", "stand", "all")
+    if tab_batch.open and open_rows(_opt):
+        return ("column", "trust", "now")
+    return ()
+
+
 try:
     ui_insights.start(_opt)
+    ui_insights.drawing(_opt, _insights_stages())
 except Exception:   # the screens fit in this process instead, as before
     pass
 
@@ -913,12 +923,7 @@ with tab_insights:
 # half second in a fragment of its own, rerunning the page when a part the
 # open tab draws lands (review I15).
 try:
-    if tab_insights.open:
-        ui_insights.keep_up(_opt, ("column", "trust", "stand", "all"))
-    elif tab_batch.open and open_rows(_opt):
-        ui_insights.keep_up(_opt, ("column", "trust", "now"))
-    else:
-        ui_insights.keep_up(_opt)
+    ui_insights.keep_up(_opt, _insights_stages())
 except Exception:   # the screens work it out when they are opened, as before
     pass
 

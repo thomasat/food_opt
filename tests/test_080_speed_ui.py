@@ -253,6 +253,30 @@ def test_every_check_is_worked_out_after_the_page_once_all_are_in(stuck, five_ro
     assert key == insights.data_key(five_rounds) and value["checks"]
 
 
+def test_a_part_that_lands_while_the_page_is_drawn_is_drawn_by_one_more_run(
+        stuck, five_rounds, monkeypatch):
+    """After Save results the last fits often land between the tab's draw
+    and keep_up: the page must not stay on the progress line with nothing
+    left to wait for (browser: stuck until the next click)."""
+    at = _app(five_rounds.project_name)
+    at.run()
+    _seed(at, five_rounds, "stand")
+    real = ui_insights._catch_up
+    landed = []
+
+    def catch_up(opt):
+        if not landed:                   # the rest lands after render drew
+            landed.append(1)
+            insights_jobs.compute_inline(opt, ui_insights.memo(opt), insights_jobs.plan(opt))
+        real(opt)
+    monkeypatch.setattr(ui_insights, "_catch_up", catch_up)
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception and landed
+    assert wording.MORE_CHARTS in _texts(at)
+    assert at.tabs[3].get("progress") == []
+
+
 # ------------------------------------------------------------------ #
 #  Plan B Task 6 review I-1 (review I15's order): the header, line 1 and
 #  the foot are drawn before anything is fitted or worked out
