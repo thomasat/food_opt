@@ -158,12 +158,14 @@ def track_chart(opt, checks):
     return _faceted(layers, df, order)
 
 
-def path_chart(opt, path, preds):
+def path_chart(opt, path, preds, near=None):
     """What happens if you change one ingredient? — one panel per output: a
     neutral predicted line, a light 95 % likely-range band, grey shading
-    where the amount was not tested, a dashed start marker."""
+    where nothing was tested near here (`near`, insights.tested_near, worked
+    out when not given), a dotted start marker."""
     if not path.amounts or not preds:
         return None
+    near = insights.tested_near(opt, path) if near is None else near
     names = [n for n in path_panels(opt) if n in preds]
     x_title = f"{path.name} ({path.unit})" if path.unit else path.name
     rows = []
@@ -176,12 +178,8 @@ def path_chart(opt, path, preds):
                          "amount": _amount(t, path.unit),
                          "predicted": f"{p.mean:.{d}f} ({range_text(p.low, p.high, lambda v: f'{v:.{d}f}')})"})
         rows.append({"panel": label, "mark": "start", "x": path.start_amount})
-        if path.tested:
-            lo, hi = path.amounts[0], path.amounts[-1]
-            if lo < path.tested[0]:
-                rows.append({"panel": label, "mark": "grey", "x": lo, "x2": path.tested[0]})
-            if hi > path.tested[1]:
-                rows.append({"panel": label, "mark": "grey", "x": path.tested[1], "x2": hi})
+        for lo, hi in insights.untested_runs(path, near):
+            rows.append({"panel": label, "mark": "grey", "x": lo, "x2": hi})
     targets = _target_rows(opt, names)
     df = pd.DataFrame(rows + targets)
     # Not from 0: the path runs over this row's own Lowest-Highest, and a
@@ -229,6 +227,8 @@ BEST_KEY = "_insights_best"
 # them with the two section-2 controls below.
 CHOICE_KEY = "insights_choice"
 START_KEY = "insights_start"
+# What "Compare all" ranks by: the Overall score or one measurement (§4.1).
+SPREAD_KEY = "insights_spread_on"
 
 
 def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
@@ -485,23 +485,25 @@ def _change(opt, computed):
                                     else wording.start_formulation(no)))
     fitted = computed["fitted"]
     try:
-        found = insights.spreads(opt, fitted, insights.start_recipe(opt, ids.index(number)))
+        recipe = insights.start_recipe(opt, ids.index(number))
+        found = insights.spreads(opt, fitted, recipe)
     except Exception:   # the answer line is left out; the path still draws
-        found = insights.Spreads([], [])
+        recipe, found = None, insights.Spreads([], [])
     # The box opens on the largest spread; after that it keeps the reader's
     # own choice (_keep_if_offered drops it only when it is no longer offered).
     if found.moved and CHOICE_KEY not in st.session_state:
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
-        _spread_answer(opt, found, number == best_no, number)
+        _spread_answer(opt, found, number == best_no, number, fitted, recipe)
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         path = insights.build_path(opt, name, insights.start_recipe(opt, ids.index(number)))
         if path.start_breaks:
             st.caption(_say(opt, wording.path_start_breaks(number, path.start_breaks)))
             return
-        chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path))
-        lines = _path_captions(opt, path, number, fitted)
+        near = insights.tested_near(opt, path)
+        chart = path_chart(opt, path, insights.path_predictions(opt, fitted, path), near)
+        lines = _path_captions(opt, path, number, fitted, near)
     except Exception:   # one path failing must not take the tab down
         st.caption(_say(opt, wording.panel_failed(name)))
         return
@@ -511,19 +513,20 @@ def _change(opt, computed):
         st.caption(_say(opt, line))
 
 
-def spread_chart(spreads):
+def spread_chart(spreads, axis=wording.SPREAD_AXIS, d=1):
     """Compare all ingredients and settings: one horizontal bar per choice,
-    largest spread first, in points of Overall score. No error bars: a
+    largest spread first, in points of Overall score (or in the chosen
+    measurement's own unit, `axis`, to `d` decimals). No error bars: a
     spread is worked from the predicted means, and the caption says so."""
     if not spreads:
         return None
     df = pd.DataFrame({"name": [s.name for s in spreads],
-                       wording.SPREAD_AXIS: [round(s.spread, 1) for s in spreads]})
+                       axis: [round(s.spread, d) for s in spreads]})
     order = [s.name for s in spreads]
     tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
-           alt.Tooltip(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS, format=".1f")]
+           alt.Tooltip(f"{axis}:Q", title=axis, format=f".{d}f")]
     return (alt.Chart(df).mark_bar()
-            .encode(x=alt.X(f"{wording.SPREAD_AXIS}:Q", title=wording.SPREAD_AXIS),
+            .encode(x=alt.X(f"{axis}:Q", title=axis),
                     # An ingredient's name is never cut short, however long:
                     # labelLimit=0 turns off Vega-Lite's default truncation.
                     y=alt.Y("name:N", sort=order, title=None,
@@ -537,9 +540,11 @@ def spread_chart(spreads):
 _FLAT = 0.1
 
 
-def _spread_answer(opt, found, from_best, number):
-    """The one line above the boxes, a caption naming any choice the limits
-    hold in place, and the compare expander. Nothing when no path could be
+def _spread_answer(opt, found, from_best, number, fitted=None, recipe=None):
+    """The one line above the boxes — naming two when they are nearly tied —
+    a caption naming any choice the limits hold in place, one naming two
+    ingredients that moved together, and the compare expander, which ranks
+    by the Overall score or a measurement. Nothing when no path could be
     drawn or there is no Overall-score model yet."""
     start = wording.spread_from(from_best, number)
     # With no ingredient to change, every choice is a process setting: it
@@ -551,8 +556,12 @@ def _spread_answer(opt, found, from_best, number):
             st.write(_say(opt, wording.held_all(start, settings_only)))
         return
     flat = all(s.spread < _FLAT for s in moved)
+    tie = None if flat else insights.near_tie(moved)
     if flat:
         st.write(_say(opt, wording.spread_flat(settings_only)))
+    elif tie:
+        st.write(_say(opt, wording.spread_two(tie[0].name, tie[1].name,
+                                              f"{tie[0].spread:.1f}", f"{tie[1].spread:.1f}")))
     else:
         top = moved[0]
         st.write(_say(opt, wording.spread_line(top.name, f"{top.spread:.1f}", start,
@@ -560,11 +569,40 @@ def _spread_answer(opt, found, from_best, number):
                                                values=insights.is_setting(opt, top.name))))
     if found.held:
         st.caption(_say(opt, wording.held_line(start, found.held)))
+    together = None if flat else insights.moved_together(opt)
+    if together:
+        st.caption(_say(opt, wording.moved_together(*together)))
     if not flat and len(moved) > 1:
         with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
                                                        not settings_only))):
-            show_chart(spread_chart(moved))
-            st.caption(_say(opt, wording.spread_caption(values=settings_only)))
+            _compare_all(opt, moved, settings_only, fitted, recipe)
+
+
+def _compare_all(opt, moved, settings_only, fitted, recipe):
+    """The ranking, by the Overall score (the answer's own spreads) or by
+    the measurement chosen beside it: its spreads come from that
+    measurement's own predictions, so the ranking agrees with its panel
+    below (0.8.0 review fixes §4.1)."""
+    fitted = fitted or {}
+    options = [insights.SCORE] + ([] if recipe is None else [
+        o['name'] for o in opt.measurements_by_importance()
+        if getattr(fitted.get(o['name']), "model", None) is not None])
+    _keep_if_offered(SPREAD_KEY, options)
+    on = st.selectbox(_say(opt, wording.SPREAD_ON), options, key=SPREAD_KEY,
+                      format_func=lambda n: _say(opt, panel_label(opt, n)))
+    ranked, axis, d = moved, wording.SPREAD_AXIS, 1
+    if on != insights.SCORE:
+        try:
+            ranked = insights.spreads(opt, fitted, recipe, on).moved
+        except Exception:
+            ranked = []
+        obj = next(o for o in opt.objectives if o['name'] == on)
+        axis, d = wording.spread_axis(obj.get('unit')), decimals(opt, on)
+    chart = spread_chart(ranked, axis, d)
+    if chart is not None:
+        show_chart(chart)
+    label = wording.OVERALL_SCORE_COLUMN if on == insights.SCORE else on
+    st.caption(_say(opt, wording.spread_caption(values=settings_only, measure=label)))
 
 
 def _whole(value):
@@ -624,7 +662,7 @@ def _shared_decimals(values):
     return min(2, decimals)
 
 
-def _path_captions(opt, path, number, fitted):
+def _path_captions(opt, path, number, fitted, near=None):
     lines = []
     if path.mode == "fill":
         lines.append(wording.path_fill(path.name, path.fill_name, number))
@@ -653,7 +691,8 @@ def _path_captions(opt, path, number, fitted):
             lines.append(wording.panel_failed(panel_label(opt, name)))
         elif f.model is None:
             lines.append(wording.panel_missing(panel_label(opt, name)))
-    if path.tested and (path.amounts[0] < path.tested[0] or path.amounts[-1] > path.tested[1]):
+    near = insights.tested_near(opt, path) if near is None else near
+    if not all(near):
         lines.append(wording.path_grey(values=path.mode == "process"))
     lines.append(wording.path_lines(number, bool(_target_rows(opt, path_panels(opt)))))
     return lines

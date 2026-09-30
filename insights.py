@@ -7,6 +7,7 @@ The suggestions themselves still come from the one Overall-score model that
 FoodOptimizer._ask_optimize fits; the models here never reach it."""
 import contextlib
 import hashlib
+import itertools
 import json
 import math
 import statistics
@@ -553,7 +554,6 @@ class Path:
     start_breaks: str | None
     skipped: list
     outside: bool
-    tested: tuple | None
     fixed: list
     follows: list
 
@@ -679,10 +679,9 @@ def build_path(opt, name, start, points=60):
     watched = {name, *moving}
     follows = [n for n, f in opt._resolved_forms().items()
                if n != opt.balance_row_name() and watched & set(f.names())]
-    tested = _tested_span(opt, name)
     base = dict(name=name, unit=opt.unit_of(name), mode=mode,
                 fill_name=opt.balance_row_name() if mode == "fill" else None,
-                start_amount=s, skipped=skipped, outside=outside, tested=tested,
+                start_amount=s, skipped=skipped, outside=outside,
                 fixed=fixed, follows=follows)
     start_reason, start_recipe_value = _reason(opt, name, start, mode, s, moving)
     if start_reason is not None:
@@ -712,10 +711,38 @@ def build_path(opt, name, start, points=60):
                 high_end=ends["high"], start_breaks=None, **base)
 
 
-def _tested_span(opt, name):
-    values = [float(start_recipe(opt, i).get(name, 0.0))
-              for i in range(len(opt.Y_history))]
-    return (min(values), max(values)) if values else None
+def tested_near(opt, path):
+    """For each point of `path`, whether a fully measured formulation lies
+    within CLOSE_TO_THE_BEST of it on every varying row — the tab's own
+    "not tested near here" rule, which question 4 and the triangle use
+    (0.8.0 review fixes §9 I13). Each row's own min-max, as before, left
+    85 % of the curve white while untested by this rule."""
+    tested = [start_recipe(opt, i) for i in range(len(opt.Y_history))
+              if opt.fully_measured(i)]
+    out = []
+    for r in path.recipes:
+        ds = [distance(opt, r, t) for t in tested]
+        out.append(any(d is not None and d <= CLOSE_TO_THE_BEST + _EPS for d in ds))
+    return out
+
+
+def untested_runs(path, near):
+    """The stretches of `path` not tested near here, as (from, to) amounts:
+    each run of untested points, reaching halfway to its tested neighbours
+    so the shading has no gaps."""
+    a, runs, k = path.amounts, [], 0
+    while k < len(a):
+        if near[k]:
+            k += 1
+            continue
+        j = k
+        while j + 1 < len(a) and not near[j + 1]:
+            j += 1
+        lo = a[0] if k == 0 else (a[k - 1] + a[k]) / 2
+        hi = a[-1] if j == len(a) - 1 else (a[j] + a[j + 1]) / 2
+        runs.append((lo, hi))
+        k = j + 1
+    return runs
 
 
 def path_predictions(opt, fitted, path):
@@ -961,28 +988,66 @@ def has_ingredient_choice(opt):
     return any(_is_ingredient(_var(opt, n)) for n in path_choices(opt))
 
 
-def spreads(opt, fitted, start):
-    """How far each path choice moves the predicted Overall score from
+def spreads(opt, fitted, start, name=SCORE):
+    """How far each path choice moves the predicted `name` (the Overall
+    score unless a measurement is named, 0.8.0 review fixes §4.1) from
     `start`: highest minus lowest mean along its path, largest first (ties
     keep path_choices order). A choice whose path the limits box in (under
     HELD of its Lowest-Highest) is named in `held` instead of given a
-    spread. A path that cannot be drawn is left out; with no Overall-score
-    model there is nothing to say."""
-    score = fitted.get(SCORE)
+    spread. A path that cannot be drawn is left out; with no model for
+    `name` there is nothing to say."""
+    score = fitted.get(name)
     if score is None or score.model is None:
         return Spreads([], [])
     moved, held = [], []
-    for name in path_choices(opt):
-        path = build_path(opt, name, start)
+    for choice in path_choices(opt):
+        path = build_path(opt, choice, start)
         if path.start_breaks or not path.recipes:
             continue
-        lo, hi = (float(b) for b in _var(opt, name)['bounds'])
+        lo, hi = (float(b) for b in _var(opt, choice)['bounds'])
         if path.amounts[-1] - path.amounts[0] < HELD * (hi - lo):
-            held.append(name)
+            held.append(choice)
             continue
         means = [p.mean for p in predict(opt, score, [opt._encode(r) for r in path.recipes])]
-        moved.append(Spread(name, max(means) - min(means)))
+        moved.append(Spread(choice, max(means) - min(means)))
     return Spreads(sorted(moved, key=lambda s: -s.spread), held)
+
+
+# Two spreads this close are named together (§4.2): the named top was wrong
+# in 55-70 % of the trust audit's misses when the second was within 20 %.
+NEAR_TIE = 0.8
+# Amounts that moved together this closely are named (§4.3).
+TOGETHER = 0.8
+
+
+def near_tie(moved):
+    """The top two when the second is at least NEAR_TIE of the first."""
+    if len(moved) >= 2 and moved[0].spread > 0 and moved[1].spread >= NEAR_TIE * moved[0].spread:
+        return moved[:2]
+    return None
+
+
+def moved_together(opt):
+    """(a, b) — the two varying ingredients whose amounts across the fully
+    measured formulations are most closely correlated, when |r| is at least
+    TOGETHER — or None (§4.3, §9 minor 16). The Fill to total row, a row a
+    calculation works out and the process settings are left out, and so is
+    a row whose amount never varied."""
+    fill = opt.balance_row_name()
+    names = [v['name'] for v in opt.varying_variables()
+             if _is_ingredient(v) and v.get('type') == 'continuous'
+             and v['name'] != fill and not opt.has_formula(v)]
+    rows = [start_recipe(opt, i) for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    if len(rows) < 3:
+        return None
+    cols = {n: [float(r.get(n, 0.0) or 0.0) for r in rows] for n in names}
+    cols = {n: v for n, v in cols.items() if max(v) - min(v) > _EPS}
+    best = None
+    for a, b in itertools.combinations(list(cols), 2):
+        r = abs(statistics.correlation(cols[a], cols[b]))
+        if r >= TOGETHER - 1e-12 and (best is None or r > best[0] + 1e-12):
+            best = (r, a, b)
+    return None if best is None else (best[1], best[2])
 
 
 def best_refusal(opt):

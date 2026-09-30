@@ -173,6 +173,8 @@ def _reset_project_session():
               ui_insights.FITTED_KEY, ui_insights.BEST_KEY,
               # Wave C: the More charts picks and the triangle's grid.
               ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY,
+              # Review fixes: what Compare all ranks by.
+              ui_insights.SPREAD_KEY,
               ARMED_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever

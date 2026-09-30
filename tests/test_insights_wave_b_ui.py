@@ -479,7 +479,8 @@ def test_held_choices_stay_out_of_the_compare_chart(insights_scored, monkeypatch
     _spreads(monkeypatch, ("Methylcellulose", 5.0), ("Pea protein", 2.0), held=["Salt"])
     drawn = []
     real = ui_insights.spread_chart
-    monkeypatch.setattr(ui_insights, "spread_chart", lambda s: drawn.append(s) or real(s))
+    monkeypatch.setattr(ui_insights, "spread_chart",
+                        lambda s, *a: drawn.append(s) or real(s, *a))
     at = _open_insights(_app())
     md, caps = _tab_text(at)
     assert wording.spread_line("Methylcellulose", "5.0", "Best so far") in md
@@ -781,8 +782,11 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     assert "**Which trial is predicted to score highest?**" in md
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
     assert [c for c in caps if c.startswith("Based on 5 scored trials")]
-    answer = [m for m in md if m.startswith("Across its allowed")]
-    assert answer and all(m.startswith("Across its allowed values, ") for m in answer)
+    # One answer line: the top spread, or the top two when nearly tied.
+    answer = [m for m in md if m.startswith("Across its allowed")
+              or "change the predicted Overall score the most (spreads of" in m]
+    assert len(answer) == 1
+    assert "amounts" not in answer[0]
     [best] = _best_frames_for(tab, wording.TRIAL_CAP)
     assert list(best[wording.TRIAL_CAP])[0] == wording.BEST_ROW
 
@@ -848,8 +852,8 @@ def test_process_setting_wording():
     assert wording.q_change(True, False) == "What happens if you change one process setting?"
     assert wording.q_change(True) == "What happens if you change one ingredient or process setting?"
     assert wording.compare_all(True, False) == "Compare all process settings"
-    assert wording.path_grey(True) == "Grey: values not tested yet — treat the curve there as a guess."
-    assert wording.PATH_GREY == "Grey: amounts not tested yet — treat the curve there as a guess."
+    assert wording.path_grey(True) == "Grey: not tested near here — treat the curve there as a guess."
+    assert wording.PATH_GREY == wording.path_grey(True)
     assert wording.path_process("Incubation time", 1, False) == (
         "Incubation time changes; everything else stays as in Formulation 1.")
     assert wording.path_process("Mixing time", 1) == (

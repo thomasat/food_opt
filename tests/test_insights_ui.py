@@ -144,12 +144,8 @@ def test_path_chart_marks_stay_in_their_own_panel():
     [(_, starts)] = layers["start"]
     assert sorted(starts) == sorted(labels)
     assert all([r["x"] for r in v] == [p.start_amount] for v in starts.values())
-    # Grey: exactly this chart's untested intervals, once in each panel.
-    want = []
-    if p.amounts[0] < p.tested[0]:
-        want.append((p.amounts[0], p.tested[0]))
-    if p.amounts[-1] > p.tested[1]:
-        want.append((p.tested[1], p.amounts[-1]))
+    # Grey: exactly this chart's untested stretches, once in each panel.
+    want = insights.untested_runs(p, insights.tested_near(opt, p))
     assert want                                   # this fixture has some
     [(_, grey)] = layers["grey"]
     assert sorted(grey) == sorted(labels)

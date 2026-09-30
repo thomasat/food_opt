@@ -4166,9 +4166,11 @@ def path_not_checked(limit, prop):
 
 
 def path_grey(values=False):
-    """`values`: the path is a process setting's, which has values."""
-    what = "values" if values else "amounts"
-    return f"Grey: {what} not tested yet — treat the curve there as a guess."
+    """The path's grey: nothing fully measured lies within 0.15 of each
+    row's span there — the tab's own "not tested near here" rule (0.8.0
+    review fixes §9 I13). `values` is kept for callers; the words are the
+    same for a process setting."""
+    return "Grey: not tested near here — treat the curve there as a guess."
 
 
 PATH_GREY = path_grey()
@@ -4365,15 +4367,36 @@ def compare_all(has_settings, has_ingredients=True):
     return "Compare all ingredients and settings" if has_settings else "Compare all ingredients"
 
 
-def spread_caption(values=False):
-    """`values`: every choice is a process setting."""
+def spread_caption(values=False, measure=OVERALL_SCORE_COLUMN):
+    """`values`: every choice is a process setting. `measure`: what the
+    ranking is by, the Overall score or one measurement (§4.1)."""
     what = "values" if values else "amounts"
-    return (f"Spread = highest minus lowest predicted {OVERALL_SCORE_COLUMN} along each "
+    return (f"Spread = highest minus lowest predicted {measure} along each "
             f"path, from the same starting {FORMULATION}, including {what} not tested yet.")
 
 
 SPREAD_CAPTION = spread_caption()
 SPREAD_AXIS = "Spread (points)"
+# 0.8.0 review fixes §4: the ranking by one measurement, near-ties, and two
+# ingredients the Rounds moved together.
+SPREAD_ON = "Rank by"
+
+
+def spread_axis(unit=""):
+    """A measurement's spread, in its own unit: 'Spread (N)'."""
+    return f"Spread ({unit})" if unit else "Spread"
+
+
+def spread_two(first, second, first_text, second_text):
+    """The answer when the top two spreads are within 20 % (§4.2)."""
+    return (f"{first} and {second} change the predicted {OVERALL_SCORE_COLUMN} the most "
+            f"(spreads of {first_text} and {second_text}).")
+
+
+def moved_together(first, second):
+    """Two ingredients whose amounts moved together (§4.3)."""
+    return (f"{first} and {second} have mostly been changed together, so their effects "
+            "are hard to tell apart.")
 
 
 Q_BEST = f"Which {FORMULATION} is predicted to score highest?"
