@@ -123,9 +123,12 @@ _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
 # before this), one per amount in tab 3's correction row
 # (correct_amount_<no>_<name>), and one per amount and measurement in tab 3's
 # typed-in past formulation (past_<name> and past_m_<name>; past_note is
-# named in _FORM_FRESH and parked first). Properties are a grid now, and a
-# grid's key is turned over rather than parked.
-_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_")
+# named in _FORM_FRESH and parked first), and one per missing measurement
+# under a formulation that waits for results (missing_<no>_<name>: a value
+# typed there and not saved would sit behind a lit Save in the next project;
+# final review I-3). Properties are a grid now, and a grid's key is turned
+# over rather than parked.
+_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_", "missing_")
 
 
 def _grid_fresh(key):
