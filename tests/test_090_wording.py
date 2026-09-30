@@ -89,6 +89,8 @@ def _new_lines():
         W.GAIN_BEST_MEASURED, W.GAIN_HIGHEST_PREDICTED, W.HOW_VERDICT, W.HOW_NOISE_THRESHOLD,
         W.gain_line("0.12", 6, W.beat_by()), W.gain_line("1.40", 6, W.beat_by("1.2"), above=True),
         W.gain_line("0.12", 5, W.beat_by(), recomputed=True),
+        W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True),
+        W.next_explore("1.08", 13, 3), W.next_explore("1.08"),
         W.gain_line("0.30", 6, W.beat_by(), measured_text="90.45"),
         W.GAIN_UCB, W.gain_cold(2), W.gain_unreliable(W.GAIN_REASON_VERDICT),
         W.gain_unreliable(W.GAIN_REASON_SKILL), W.gain_unreliable(W.GAIN_REASON_GUARD),
@@ -219,7 +221,17 @@ def test_the_new_lines_from_the_rulings():
     assert W.gain_line("0.12", 6, W.beat_by()) == (
         "Expected improvement, Round 6: 0.12 points (model, one formulation), under the "
         "1-point noise threshold. If the model is right, the best single new formulation beats "
-        "the best tested formulation by about 0.12 points, before Repeat noise.")
+        "the model's best tested formulation by about 0.12 points, before Repeat noise.")
+    # Fix round 1 (ledger ruling C1): above the threshold with no predicted gain.
+    assert W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True) == (
+        "Expected improvement, Round 13: 1.08 points (model, one formulation), above the "
+        "1-point noise threshold. No predicted mean clears the noise threshold, but the model "
+        "still expects about 1.08 points from formulations it is unsure about.")
+    assert W.next_explore("1.08", 13, 3) == (
+        "No predicted mean clears the noise threshold, but the model still expects about 1.08 "
+        "points from formulations it is unsure about. Record the 3 formulations still open in "
+        "Round 13 to test them.")
+    assert W.next_explore("1.08").endswith("Make the next Round to test them.")
     assert "Best so far's measured 90.45" in W.gain_line("0.30", 6, W.beat_by(),
                                                          measured_text="90.45")
     assert W.OPTIMISTIC_SCORE == "Optimistic score (mean + 0.45 × sd)"

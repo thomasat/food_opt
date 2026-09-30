@@ -751,7 +751,8 @@ def render(opt):
     bar.empty()
     with nxt:
         _question(opt, wording.Q_NEXT)
-        step = insights.next_step(opt, checks, standing)
+        step = insights.next_step(opt, checks, standing, gain=shown_gain(
+            opt, computed["fitted"].get(insights.SCORE), checks))
         change = _next_step(opt, step)
     with trust:
         _question(opt, wording.Q_TRUST)
@@ -801,7 +802,8 @@ def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
             standing = _stand(opt, computed, yard)
         with nxt:
             _question(opt, wording.Q_NEXT)
-            step = insights.next_step(opt, checks, standing)
+            step = insights.next_step(opt, checks, standing,
+                                      gain=shown_gain(opt, score, checks))
             change = _next_step(opt, step)
         with below:
             _setup_button(change)
@@ -1666,7 +1668,7 @@ def _stand(opt, computed, yard, spinner=True):
                                              f"{opt.Y_history[top]:.2f}")))
     # Expected improvement by Round (spec 2026-09-30-bo-views §3.2; review
     # I5, M8): its line here, its chart in the Progress chart fold.
-    line = gain_text(opt, computed, yard)
+    line = gain_text(opt, computed, yard, standing)
     if line:
         st.write(_say(opt, line))
     if standing.higher and not standing.tested_near:
@@ -1684,29 +1686,102 @@ def _stand(opt, computed, yard, spinner=True):
     return standing
 
 
-def gain_text(opt, computed, yard):
+# (key, bo_views.RoundGain or None): §3.2's figure for this data, open Round
+# and generation record, worked out once (fix round 1, C1: Progress, Next
+# step and Make a round's E3 read the same number).
+GAIN_KEY = "_insights_gain"
+
+
+def _gain_key(opt):
+    record = (getattr(opt, "round_generation", None) or {}).get(opt.pending_batch_no)
+    return insights._digest({"setup": insights.setup_key(opt),
+                             "acquisition": bo_views.acquisition(opt),
+                             "open": opt.pending_batch, "record": record})
+
+
+def _gain_needs_no_fit(opt, mem):
+    """Whether bo_views.latest_gain needs no display-model fit: a cold
+    Round, an exact one (one default fit of the suggestion model, as the
+    Why fold makes), or a recomputed one whose display model is in the
+    memo."""
+    r = opt.pending_batch_no if opt.pending_batch else None
+    if r is None:
+        order = insights.round_order(opt)
+        r = order[-1][0] if order else None
+    if r is None:
+        return True
+    gen = bo_views.generation(opt, r)
+    if gen.regime != "warm" or gen.exact:
+        return True
+    use = [i for i in gen.rows if insights.measured(opt, insights.SCORE, i) is not None]
+    return insights.model_key(opt, insights.SCORE, use) in mem
+
+
+def latest_gain(opt, fit=True):
+    """bo_views.latest_gain once per _gain_key. `fit` False (Make a round):
+    None, not stored, when it would need a display-model fit."""
+    key = _gain_key(opt)
+    hit = st.session_state.get(GAIN_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    mem = memo(opt)
+    if not fit and not _gain_needs_no_fit(opt, mem):
+        return None
+    try:
+        with insights.memo_in_use(mem):
+            g = bo_views.latest_gain(opt)
+    except Exception:
+        g = None
+    st.session_state[GAIN_KEY] = (key, g)
+    return g
+
+
+def gain_state(opt, score, checks, fit=True):
+    """(why it is withheld or None, bo_views.RoundGain or None) for §3.2's
+    line (review I4): "ucb" (no expected improvement), "verdict" (a
+    caution or unreliable verdict), "skill" (no skill), "guard" (the noise
+    guard); else the figure itself. `score`: the Overall score's display
+    model (insights.Fitted) or None."""
+    if bo_views.acquisition(opt) == "qucb":
+        return "ucb", None
+    h = insights.headline(opt, checks)
+    state = insights.verdict_state(opt, h, checks)
+    if state in ("caution", "unreliable"):
+        return "verdict", None
+    guard = insights.noise_guard(opt, score, checks)
+    if "skill" in guard.reasons:
+        return "skill", None
+    if guard.fires:
+        return "guard", None
+    return None, latest_gain(opt, fit)
+
+
+def shown_gain(opt, score, checks, fit=True):
+    """The expected improvement Progress shows, in points, or None where
+    it shows none: what Next step weighs against the noise threshold (fix
+    round 1, ledger ruling C1)."""
+    why, g = gain_state(opt, score, checks, fit)
+    if why is not None or g is None or g.why_none is not None or g.gain is None:
+        return None
+    return float(g.gain)
+
+
+def gain_text(opt, computed, yard, standing=None):
     """§3.2's line (review I5): the expected improvement the open Round's
     first suggestion was chosen for, else the last Round's, named with its
     Round and compared with the noise threshold; withheld, saying why,
     under a caution or unreliable verdict, a no-skill record or the noise
-    guard (review I4). '' for a Round of the user's own formulations."""
+    guard (review I4). Above the threshold while the predicted best is not
+    higher (`standing`), it says the number comes from the model's
+    uncertainty (C1). '' for a Round of the user's own formulations."""
     checks = computed.get("checks") or ()
-    if bo_views.acquisition(opt) == "qucb":
+    why, g = gain_state(opt, computed["fitted"].get(insights.SCORE), checks)
+    if why == "ucb":
         return wording.GAIN_UCB
-    h = insights.headline(opt, checks)
-    state = insights.verdict_state(opt, h, checks)
-    guard = insights.noise_guard(opt, computed["fitted"].get(insights.SCORE), checks)
-    if state in ("caution", "unreliable"):
-        return wording.gain_unreliable(wording.GAIN_REASON_VERDICT)
-    if "skill" in guard.reasons:
-        return wording.gain_unreliable(wording.GAIN_REASON_SKILL)
-    if guard.fires:
-        return wording.gain_unreliable(wording.GAIN_REASON_GUARD)
-    try:
-        with insights.memo_in_use(memo(opt)):
-            g = bo_views.latest_gain(opt)
-    except Exception:
-        return ""
+    if why is not None:
+        return wording.gain_unreliable({"verdict": wording.GAIN_REASON_VERDICT,
+                                        "skill": wording.GAIN_REASON_SKILL,
+                                        "guard": wording.GAIN_REASON_GUARD}[why])
     if g is None or g.why_none == "own":
         return ""
     if g.why_none == "cold":
@@ -1716,7 +1791,8 @@ def gain_text(opt, computed, yard):
                 and best is not None else None)
     return wording.gain_line(f"{g.gain:.2f}", g.round, threshold_text(yard),
                              above=g.gain > yard.value, recomputed=not g.exact,
-                             measured_text=measured)
+                             measured_text=measured,
+                             predicted_none=standing is not None and not standing.higher)
 
 
 def next_step_text(opt, step, rounds=None):
@@ -1743,6 +1819,8 @@ def next_step_text(opt, step, rounds=None):
     if step.kind == "untested":
         return wording.next_untested(values, open_round=bool(opt.pending_batch),
                                      round_no=no), None
+    if step.kind == "explore":
+        return wording.next_explore(f"{step.gain:.2f}", no, left), None
     if step.kind == "close":
         b = step.binding
         if b is None:

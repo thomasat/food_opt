@@ -266,6 +266,25 @@ def test_a_disagreeing_repeat_comes_before_no_skill(lines, monkeypatch):
     assert step.kind == "repeat" and step.disagreement is flagged
 
 
+@pytest.mark.parametrize("gain,kind", [(None, "close"), (0.0, "close"), (1.0, "close"),
+                                       (1.08, "explore")])
+def test_close_to_the_top_needs_the_expected_improvement_under_the_threshold_too(
+        lines, monkeypatch, gain, kind):
+    """Fix round 1 (ledger ruling C1): nothing predicted clearly higher and
+    Best so far not rising is "close to the top" only when the expected
+    improvement Progress shows is at or under the noise threshold (1
+    point here) too; above it, "explore". None: none shown."""
+    opt, checks, _ = lines[demo.LINE_A]
+    monkeypatch.setattr(insights, "improvement", lambda *a, **k: SimpleNamespace(
+        state="not_lately"))
+    monkeypatch.setattr(insights, "noise_yardstick", lambda *a, **k: insights.Yardstick(
+        1.0, None, 0, False))
+    standing = SimpleNamespace(higher=False, tested_near=True, binding=[])
+    step = insights.next_step(opt, checks, standing, gain=gain)
+    assert step.kind == kind
+    assert step.gain == (gain if kind == "explore" else None)
+
+
 def test_the_track_line_carries_no_skill_even_when_coverage_holds(lines):
     opt, checks, _ = lines[demo.LINE_C]
     t = insights.round_track(opt, checks)

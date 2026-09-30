@@ -350,7 +350,28 @@ def _cached_step(opt):
     hit = st.session_state.get(ui_insights.BEST_KEY)
     if hit and hit[0] == insights.setup_key(opt) and isinstance(hit[1], insights.PredictedBest):
         standing = insights.best_standing(opt, hit[1], insights.noise_yardstick(opt, checks).value)
-    return insights.next_step(opt, checks, standing)
+    step = insights.next_step(opt, checks, standing)
+    if step.kind == "close":
+        # "Close to the top" also needs the expected improvement Insights
+        # shows under the noise threshold (fix round 1, C1): the same
+        # figure, without a display-model fit.
+        score = _memo_score(opt)
+        gain = None if score is None else ui_insights.shown_gain(opt, score, checks, fit=False)
+        if gain is not None:
+            step = insights.next_step(opt, checks, standing, gain=gain)
+    return step
+
+
+def _memo_score(opt):
+    """The Overall score's display model from the memo (conditioned, never
+    optimised), or None when it is not there."""
+    mem = ui_insights.memo(opt)
+    rows = list(range(len(opt.Y_history)))
+    use = [i for i in rows if insights.measured(opt, insights.SCORE, i) is not None]
+    if insights.model_key(opt, insights.SCORE, use) not in mem:
+        return None
+    with insights.memo_in_use(mem):
+        return insights.fit(opt, insights.SCORE, rows)
 
 
 def _next_step_line(opt):

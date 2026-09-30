@@ -276,12 +276,39 @@ def test_e3_keeps_its_line_but_drops_the_link_once_insights_was_opened(monkeypat
 
 
 def test_e3_never_fits_or_waits(monkeypatch):
-    """Review I10: with nothing worked out, E3 says nothing."""
+    """Review I10 (T47 minor 1): with nothing worked out, E3 says nothing,
+    fits nothing and works out no check — even with a Next step that would
+    show a link."""
     opt = _burger(rounds=4)
-    fits = []
-    monkeypatch.setattr(insights, "fit_all", lambda o: fits.append(1) or {})
+    calls = []
+    monkeypatch.setattr(insights, "next_step", lambda *a, **k: insights.NextStep("close"))
+    monkeypatch.setattr(insights, "fit_all", lambda o: calls.append("fit_all") or {})
+    real_fit, real_checks = insights.fit_xy, insights.check_rounds
+    monkeypatch.setattr(insights, "fit_xy", lambda *a, **k: calls.append("fit") or real_fit(
+        *a, **k))
+    monkeypatch.setattr(insights, "check_rounds", lambda *a, **k: calls.append(
+        "checks") or real_checks(*a, **k))
     at = _app(opt)
-    assert _links(at) == [] and fits == []
+    assert _links(at) == [] and calls == []
+
+
+@pytest.mark.parametrize("gain,shown", [(1.5, False), (0.4, True), (None, True)])
+def test_e3_weighs_the_expected_improvement_insights_shows(monkeypatch, gain, shown):
+    """Fix round 1 (ledger ruling C1): "close to the top" above Generate
+    only when the expected improvement Insights shows is at or under the
+    noise threshold too; above it Next step is the explore row, which is
+    another Round, so E3 says nothing."""
+    opt = _burger(rounds=4)
+
+    def step(o, c, standing=None, gain=None):
+        return (insights.NextStep("explore", gain=gain) if gain is not None and gain > 1.0
+                else insights.NextStep("close"))
+    monkeypatch.setattr(insights, "next_step", step)
+    monkeypatch.setattr(ui_insights, "shown_gain", lambda *a, **k: gain)
+    at = _app(opt, wording.TAB_INSIGHTS)
+    del at.session_state[INSIGHTS_OPENED_KEY]
+    _rerun(at)
+    assert bool(_links(at)) is shown
 
 
 def test_the_column_help_names_its_basis():

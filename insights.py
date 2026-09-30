@@ -799,21 +799,28 @@ def median_z(h, checks):
 @dataclass
 class NextStep:
     kind: str       # "bias", "misses", "repeat", "early", "no_skill", "untested",
-                    # "close", "rising" or "see"
+                    # "explore", "close", "rising" or "see"
     gap: float | None = None                    # "bias": the Overall score's average miss
     disagreement: Disagreement | None = None    # "repeat"
     binding: object = None                      # "close": what binds the predicted best
     wide: list = dataclasses.field(default_factory=list)   # "rising": outputs still wide
     skill: object = None                        # "no_skill": the SkillFact (BO views, I1)
+    gain: float | None = None                   # "explore": the expected improvement, points
 
 
-def next_step(opt, checks, standing=None):
+def next_step(opt, checks, standing=None, gain=None):
     """What to do next (review I2), first match wins. `standing`: the
     predicted best against Best so far (an object with .higher,
     .tested_near and .binding), or None when it could not be worked out;
-    the rows that need it are then skipped. Never called at the gate
-    (fewer than MIN_ROWS scored) or after a failed fit: the screen says
-    the gate line there."""
+    the rows that need it are then skipped. `gain`: the expected
+    improvement Progress shows (points), or None where it shows none.
+    "Close to the top" needs BOTH the predicted gain and the expected
+    improvement at or under the noise threshold (fix round 1, ledger
+    ruling C1); a predicted gain under it with an expected improvement
+    above it is "explore": the model still expects that much from
+    formulations it is unsure about. Never called at the gate (fewer than
+    MIN_ROWS scored) or after a failed fit: the screen says the gate line
+    there."""
     h = headline(opt, checks)
     state = verdict_state(opt, h, checks)
     yard = noise_yardstick(opt, checks)
@@ -840,6 +847,8 @@ def next_step(opt, checks, standing=None):
             return NextStep("untested")
         if (not standing.higher and answer is not None
                 and answer.state in ("not_lately", "barely")):
+            if gain is not None and gain > yard.value:
+                return NextStep("explore", gain=gain)
             return NextStep("close", binding=standing.binding[0] if standing.binding else None)
     if answer is not None and answer.state == "yes":
         # Said with the width caution the verdict gives (answer-key

@@ -4534,6 +4534,16 @@ def next_close_to_top(change_text="", settings_only=False):
     return f"{head} To look further, add {new}."
 
 
+def next_explore(gain_text, no=None, n=0):
+    """Next step "explore" (fix round 1, ledger ruling C1): no predicted
+    gain beyond the noise threshold, an expected improvement above it."""
+    head = (f"No predicted mean clears the noise threshold, but the model still expects about "
+            f"{gain_text} points from {FORMULATION}s it is unsure about.")
+    tail = (f"{record_open_round(no, n)} to test them." if n
+            else f"Make the next {ROUND_CAP} to test them.")
+    return f"{head} {tail}"
+
+
 NEXT_RISING = f"Best so far is rising. Make the next {ROUND_CAP}."
 NEXT_SEE = f"Make the next {ROUND_CAP} to see whether Best so far rises."
 
@@ -5145,18 +5155,26 @@ GAIN_HEADING = "Expected improvement by Round"
 
 
 def gain_line(value_text, round_no, threshold_text, above=False, recomputed=False,
-              measured_text=None):
+              measured_text=None, predicted_none=False):
     """The Progress section's line for the open Round, else the last Round
     made (review I5), named by its number. `threshold_text`: beat_by's
     words; `measured_text`: Best so far's measured score, for qLogEI
-    projects, whose reference it is."""
+    projects, whose reference it is. `predicted_none` (above the threshold
+    while no predicted gain is, fix round 1, ledger ruling C1): one
+    sentence says where the number comes from — the model's uncertainty,
+    not a higher predicted mean."""
     which = f"{ROUND_CAP} {round_no}"
     how = "above" if above else "under"
     ref = (f"Best so far's measured {measured_text}" if measured_text is not None
-           else f"the best tested {FORMULATION}")
-    line = (f"Expected improvement, {which}: {value_text} points (model, one {FORMULATION}), "
-            f"{how} {threshold_text}. If the model is right, the best single new {FORMULATION} "
-            f"beats {ref} by about {value_text} points, before Repeat noise.")
+           else f"the model's best tested {FORMULATION}")
+    head = (f"Expected improvement, {which}: {value_text} points (model, one {FORMULATION}), "
+            f"{how} {threshold_text}.")
+    if above and predicted_none:
+        line = (f"{head} No predicted mean clears the noise threshold, but the model still "
+                f"expects about {value_text} points from {FORMULATION}s it is unsure about.")
+    else:
+        line = (f"{head} If the model is right, the best single new {FORMULATION} beats {ref} "
+                f"by about {value_text} points, before Repeat noise.")
     if recomputed:
         line += " Recomputed from today's records."
     return line

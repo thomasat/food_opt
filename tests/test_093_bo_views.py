@@ -104,6 +104,9 @@ def test_rebuilding_never_moves_a_suggestion():
     w = bo_views.why(a)
     assert w is not None and not w.cold and len(w.rows) == 2
     bo_views.round_history(a)
+    # The real check: the global RNG state. ask() reseeds torch itself, so
+    # the second assertion holds even if the views drew from it (T3 M-9);
+    # the ask/golden fixture tests are the guard for ask() itself.
     assert torch.equal(state, torch.get_rng_state())
     assert a.ask(2, batch_no=a.pending_batch_no) == b.ask(2, batch_no=b.pending_batch_no)
 

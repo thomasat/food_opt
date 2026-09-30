@@ -153,6 +153,42 @@ def test_the_number_is_withheld_when_the_model_is_not_trusted(tabs, name, reason
     assert wording.gain_unreliable(reason) in md
 
 
+@pytest.fixture(scope="module")
+def timing_generated(tmp_path_factory):
+    """The Timing check straight after Generate (ui_batch.ask_alone, which
+    records Round 13's generation), opened on Insights."""
+    import ui_batch
+    here = os.getcwd()
+    os.chdir(tmp_path_factory.mktemp("timing"))
+    try:
+        with bo_views.fresh():
+            opt = _install(demo.TIMING)
+            ui_batch.ask_alone(opt, n_suggestions=3)
+            got = _open(demo.TIMING), opt
+    finally:
+        os.chdir(here)       # the other tests open their projects where they were
+    return got
+
+
+def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
+    """Fix round 1 (T56 C1, ledger ruling): nothing predicted beyond the
+    noise threshold, an expected improvement above it. Progress shows both,
+    with one sentence on where the second comes from; Next step is not
+    "close to the top" but the explore row."""
+    at, opt = timing_generated
+    md, _ = _texts(at)
+    assert any("Predicted gain over Best so far: none beyond the 1-point noise threshold."
+               in m for m in md)
+    [line] = [m for m in md if m.startswith("Expected improvement")]
+    assert line.startswith(f"Expected improvement, Round {opt.pending_batch_no}: ")
+    assert "above the 1-point noise threshold. No predicted mean clears the noise " \
+           "threshold, but the model still expects about" in line
+    after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
+    assert after.startswith("No predicted mean clears the noise threshold, but the model "
+                            "still expects about")
+    assert not any(m.startswith("Within these") for m in md)
+
+
 def test_qucb_has_no_expected_improvement():
     opt = demo.load(demo.LINE_A)
     opt.bo_config = {"acquisition": "qucb"}
