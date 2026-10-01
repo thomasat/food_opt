@@ -231,7 +231,7 @@ def test_pair_chart_colours_by_score_and_draws_waiting_rows_hollow(tmp_path, mon
     colour = dots["encoding"]["color"]
     assert colour["field"] == "score"
     assert colour["scale"]["domain"] == [0, opt.utility_ceiling()]
-    assert colour["scale"]["scheme"] == {"name": "blues", "extent": [0.25, 1]}
+    assert colour["scale"]["scheme"] == {"name": "blues", "extent": [0.55, 1]}  # M-10: 3:1 on white
     hollow = [l for l in _layers(spec, "point") if l["mark"].get("filled") is False
               and l["mark"].get("color") == ui_insights.mark("neutral")[0]  # D1 token (integration)
               and l["mark"].get("size") == 60]
@@ -580,7 +580,7 @@ def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(
     grey, coloured = circles
     assert grey["mark"]["color"] == "lightgray"
     assert [t["title"] for t in grey["encoding"]["tooltip"]][-1] == wording.MIXTURE_BLOCKED
-    assert coloured["encoding"]["color"]["scale"]["scheme"] == {"name": "blues", "extent": [0.25, 1]}
+    assert coloured["encoding"]["color"]["scale"]["scheme"] == {"name": "blues", "extent": [0.55, 1]}  # M-10: 3:1 on white
     allowed = [q.mean for q in preds if q is not None]
     assert coloured["encoding"]["color"]["scale"]["domain"] == pytest.approx([min(allowed), max(allowed)])
     size = coloured["encoding"]["size"]["scale"]

@@ -5665,6 +5665,12 @@ def setup_callout_limit(text):
             f"{INGREDIENT_LIMITS_EXPANDER} below.")
 
 
+# Final review M-6: the same callout when the limit itself is not known on
+# Set up (no predicted best worked out for this data): never an empty slot.
+SETUP_CALLOUT_LIMITS = (f"Next step suggests widening a {LIMIT} the predicted best sits at; "
+                        f"change it under {INGREDIENT_LIMITS_EXPANDER} below.")
+
+
 # B1 (review I9): Fill to total on a blank project and in the ingredient
 # file. The import compares a Calculation cell, stripped and lower-cased,
 # with these: never reword them (a file written for them stops loading).

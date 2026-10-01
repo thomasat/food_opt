@@ -679,6 +679,9 @@ def callout_text(opt, change):
             b for b in insights.binding_limits(opt, recipe) if b.kind == "limit"]
         if limits:
             return wording.setup_callout_limit(limits[0].text)
+        # Final review M-6: the predicted best for this data is not in hand
+        # (or no longer sits at a limit), so the fold is named instead.
+        return wording.SETUP_CALLOUT_LIMITS
     return ""
 
 

@@ -69,16 +69,18 @@ def mark(name):
     return _MARKS[theme()][name]
 
 
-# The colour scales' range in Vega's "blues": from 0.25 (light) to the top.
+# The colour scales' range in Vega's "blues", per theme, darker for higher.
 # On the dark page the top of the scheme, rgb(10,74,144), is about 2:1 (O16):
-# it stops at 0.8 there (3.6:1), still darker for higher.
-_BLUES_TOP = {"light": 1.0, "dark": 0.8}
+# it stops at 0.8 there (3.6:1); its low end, 0.25, is 10.6:1. On white the
+# low end was 0.25, 1.8:1 (final review M-10): it starts at 0.55 there
+# (#509aca, 3.1:1), so every stop reaches 3:1 in both themes.
+_BLUES_EXTENT = {"light": (0.55, 1.0), "dark": (0.25, 0.8)}
 
 
 def blues(which=None):
     """The colour scheme of the triangle's layers for a theme (the reader's
     when not given)."""
-    return alt.SchemeParams(name="blues", extent=[0.25, _BLUES_TOP[which or theme()]])
+    return alt.SchemeParams(name="blues", extent=list(_BLUES_EXTENT[which or theme()]))
 
 
 def decimals(opt, name):

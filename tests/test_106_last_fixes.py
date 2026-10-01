@@ -293,3 +293,30 @@ def test_line_b_track_line(tmp_path, monkeypatch):
     line = ui_insights.track_text(insights.round_track(opt, insights.check_rounds(opt)))
     assert "More misses than expected; many more in the measured values." in line
     assert line.lower().count("misses than expected") == 1
+
+
+# ------------------------------------------------------------------ #
+#  M-6: the callout's limit form never lands on an empty slot
+# ------------------------------------------------------------------ #
+
+def test_the_limit_callout_falls_back_to_the_limits_fold(burger):
+    import streamlit as st
+
+    import ui_setup
+    st.session_state.pop(ui_insights.BEST_KEY, None)      # no predicted best worked out
+    text = ui_setup.callout_text(burger, wording.CHANGE_LIMITS_ON_SETUP)
+    assert text == wording.SETUP_CALLOUT_LIMITS
+    assert wording.INGREDIENT_LIMITS_EXPANDER in text
+
+
+# ------------------------------------------------------------------ #
+#  M-10: both ends of the blues scale reach 3:1 in both themes
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_both_ends_of_the_blues_scale_reach_3_to_1(which):
+    from tests.test_104_speed_robust_charts import PAGES, _contrast_on, _vega_blues
+    low, high = ui_insights.blues(which).extent
+    for end in (low, high):
+        assert _contrast_on(_vega_blues(end), 1.0, PAGES[which]) >= 3.0, (which, end)
+    assert high - low >= 0.4          # still a scale, not one colour
