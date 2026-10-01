@@ -1418,7 +1418,7 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text
     if guard.fires:
         st.write(_say(opt, guard_text(guard, settings_only)))
     elif not found.start_tested:
-        st.write(_say(opt, wording.near_start_untested(start)))
+        st.write(_say(opt, untested_start_text(opt, recipe, start)))
     elif not standing:
         st.write(_say(opt, wording.near_none(settings_only, insights.has_setting_choice(opt))))
     else:
@@ -1442,6 +1442,22 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text
         with st.expander(_say(opt, wording.compare_all(insights.has_setting_choice(opt),
                                                        not settings_only))):
             _compare_all(opt, moved, settings_only, fitted, recipe)
+
+
+def untested_start_text(opt, recipe, start_text):
+    """The effect fold's line when its start is not tested near: with the
+    nearest tested formulation and how far it is, by insights.nearest, the
+    rule the Why fold's Nearest tested column uses (polish round)."""
+    try:
+        index, d = insights.nearest(opt, recipe)
+    except Exception:
+        index, d = None, None
+    if index is None or d is None or d <= insights.CLOSE_TO_THE_BEST:
+        # None to name, or the start is itself a tested formulation.
+        return wording.near_start_untested(start_text)
+    # Tenths, rounded up: 15.49 % must not read "15 %" beside a 15 % rule.
+    share = f"{math.ceil(1000 * d - 1e-9) / 10:.1f}".removesuffix(".0")
+    return wording.near_start_untested(start_text, int(opt.formulation_ids[index]), share)
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}

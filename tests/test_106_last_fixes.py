@@ -600,3 +600,29 @@ def test_deleting_a_row_while_typing_a_share_still_rebalances(tmp_path, monkeypa
     errors, _ = opt.apply_measurement_grid(frame)
     assert errors == []
     assert opt.share_percents()[frame.loc[frame.index[0], wording.MEASUREMENT_COLUMN]] == 70.0
+
+
+# ------------------------------------------------------------------ #
+#  Polish 4: the effect line names the nearest tested formulation, as
+#  the Why fold does, by the same distance
+# ------------------------------------------------------------------ #
+
+def test_the_untested_start_line_names_its_nearest_tested(tmp_path, monkeypatch):
+    import bo_views
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(D.LINE_A)
+    recipe = ui_insights.anchor_recipe(opt, 22)
+    start = ui_insights.anchor_text(opt, 22)
+    line = ui_insights.untested_start_text(opt, recipe, start)
+    why = {w.formulation: w.nearest for w in bo_views.why(opt, None).rows}
+    assert why[22] == 18
+    assert line == wording.near_start_untested(start, 18, "15.5")
+    assert line == ("Nothing has been tested within 15 % of each span of Formulation 22 "
+                    "(suggested, still to make), so nothing is ranked. Its nearest tested "
+                    "formulation, Formulation 18, differs by up to 15.5 % of a span.")
+
+
+def test_the_untested_start_line_without_a_nearest():
+    assert wording.near_start_untested("Best so far") == (
+        "Nothing has been tested within 15 % of each span of Best so far, so nothing "
+        "is ranked.")

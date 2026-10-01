@@ -4738,8 +4738,18 @@ def near_none(settings_only=False, has_settings=True):
     return f"No {what} has a local effect above the noise threshold."
 
 
-def near_start_untested(start_text):
-    return f"Nothing has been tested near {start_text} yet, so nothing is ranked."
+def near_start_untested(start_text, nearest_no=None, share_text=None):
+    """No formulation with all results in lies within 15 % of each span of
+    the start (insights.CLOSE_TO_THE_BEST). It names the nearest tested one
+    and its distance, the measure the Why fold's Nearest tested column uses
+    (polish round: "Nothing has been tested near Formulation 22" read as
+    nothing at all, beside a Why fold naming Formulation 18)."""
+    line = (f"Nothing has been tested within 15 % of each span of {start_text}, so nothing "
+            "is ranked.")
+    if nearest_no is None:
+        return line
+    return (f"{line} Its nearest tested {FORMULATION}, {FORMULATION_CAP} {nearest_no}, "
+            f"differs by up to {share_text} % of a span.")
 
 
 def change_axis(measure=OVERALL_SCORE_COLUMN, unit="points"):
