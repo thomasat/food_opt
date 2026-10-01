@@ -1,8 +1,8 @@
 """T0b of the 0.8.0 e2e fixes (spec 2026-10-01 rev. 2; review I12): the
 campaign's own projects load as saved, the Round truncation behaves, and
 the model-free facts the later pins rest on are fixed here. The last test
-pins today's behaviour that W2 flips (the 500 g Round read off its stored
-amounts); it is marked where it is to change."""
+was T0b's pin of the 500 g Round read off its stored amounts; W2 flipped
+it (suggestion_role reads both sides at the Formulation total)."""
 import json
 
 import pytest
@@ -108,12 +108,15 @@ def test_state_is_a_fresh_copy():
     assert len(saved["recipe_history"]) == 32
 
 
-def test_today_the_500g_round_reads_against_its_stored_amounts():
-    """TODAY'S BEHAVIOUR, flipped by W2 (review I3): suggestion_kind compares
-    Round 3's rows at 500 g with Best so far at 100 g, so all four read
-    "explores" (02 I1: "all 4 'Trying something different'"). W2's
-    suggestion_role compares both at the total and replaces this test."""
+def test_the_500g_round_reads_at_the_formulation_total():
+    """W2 (review I3): suggestion_role compares Round 3's rows, made at
+    500 g, with Best so far at the Formulation total. T0b pinned all four
+    as "explores" (02 I1: "all 4 'Trying something different'"): the
+    stored 500 g amounts against Best so far at 100 g. F12 moved Textured
+    pea protein −9.3 g (more than 0.30 of its span from everything made):
+    it explores, and the other three are balanced."""
     before = E.load(E.PATTY_ROUND3, last_round=2)
     r3 = E.load(E.PATTY_ROUND3)
+    assert r3.batch_totals[3] == 500.0
     kinds = [before.suggestion_kind(r3.recipe_history[i]) for i in range(8, 12)]
-    assert kinds == [wording.SUGGESTION_DIFFERENT] * 4
+    assert kinds == [wording.SUGGESTION_BALANCED] * 3 + [wording.SUGGESTION_DIFFERENT]

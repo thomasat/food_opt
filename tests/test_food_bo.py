@@ -2471,14 +2471,16 @@ class TestUnitsAndImportance:
         assert opt.closeness_details(-1) == []
 
     def test_the_changes_are_largest_first(self, tmp_path, monkeypatch):
+        """Largest share of its own span first (0.8.0 e2e fixes B2, review
+        M3): 0.8 g of an allowed 0-3 g (27 %) before 2.1 g of 0-25 g (8 %)."""
         opt = self._opt(tmp_path, monkeypatch)
         changes = opt._variable_deltas(
             {"Pea protein": 8.0, "Methylcellulose": 1.8},
             {"Pea protein": 10.1, "Methylcellulose": 1.0}, 'ingredient')
-        assert changes[0][0] == "Pea protein"
-        assert changes[0][1] == pytest.approx(-2.1)
-        assert changes[1][0] == "Methylcellulose"
-        assert changes[1][1] == pytest.approx(0.8)
+        assert changes[0][0] == "Methylcellulose"
+        assert changes[0][1] == pytest.approx(0.8)
+        assert changes[1][0] == "Pea protein"
+        assert changes[1][1] == pytest.approx(-2.1)
 
     def test_the_amounts_are_asked_for_without_the_settings(self, tmp_path,
                                                             monkeypatch):
@@ -2493,7 +2495,7 @@ class TestUnitsAndImportance:
                "Cook temperature": 0.0}
         assert [name for name, _ in
                 opt._variable_deltas(recipe, ref, 'ingredient')] == \
-            ["Pea protein", "Methylcellulose"]
+            ["Methylcellulose", "Pea protein"]
         assert [name for name, _ in
                 opt._variable_deltas(recipe, ref, 'process')] == \
             ["Cook temperature"]
@@ -5591,14 +5593,22 @@ class TestWhatEachFormulationIsTrying:
             self, tmp_path, monkeypatch):
         """The line is at 0.15 of a variable's own allowed range, and 0.15
         itself falls on the near side of it. Water is allowed 0 to 100 g, so
-        the move that decides it is 15 g."""
+        the move that decides it is 15 g. Past it, a row is balanced until it
+        is more than 0.30 from every formulation made (0.8.0 e2e fixes A2,
+        review I3): Formulations 1-5 hold 40-45 g of water."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
         assert opt.suggestion_kind({"Water": 55.0, "Wheat gluten": 20.0}) == \
             "refines the best"
         assert opt.suggestion_kind({"Water": 55.1, "Wheat gluten": 20.0}) == \
+            "balanced"
+        assert opt.suggestion_kind({"Water": 75.0, "Wheat gluten": 20.0}) == \
+            "balanced"
+        assert opt.suggestion_kind({"Water": 75.1, "Wheat gluten": 20.0}) == \
             "explores"
         # Down is the same distance as up.
         assert opt.suggestion_kind({"Water": 24.9, "Wheat gluten": 20.0}) == \
+            "balanced"
+        assert opt.suggestion_kind({"Water": 9.9, "Wheat gluten": 20.0}) == \
             "explores"
 
     def test_the_kind_is_a_fraction_of_each_variables_own_range(
@@ -5653,9 +5663,11 @@ class TestWhatEachFormulationIsTrying:
 
     def test_the_changes_are_the_three_largest_in_their_own_units(
             self, tmp_path, monkeypatch):
-        """Three amounts, largest first, each in its own ingredient's unit and
-        written to the two decimals a balance works to; the settings follow
-        the amounts, and a setting is not an amount, so it is not."""
+        """Three amounts and the settings, the largest share of its own span
+        first, amounts and settings ranked together (0.8.0 e2e fixes B2):
+        each in its own unit, an amount written to the two decimals a balance
+        works to, and a setting is not an amount, so it is not. Oil moved
+        0.4 % of its span, the fourth amount: left out by the count."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("units")
         opt.add_ingredient("Water", 0, 100, unit="ml")
@@ -5670,8 +5682,8 @@ class TestWhatEachFormulationIsTrying:
         text = opt.vs_best_text({"Water": 52.0, "Wheat gluten": 17.0,
                                  "Salt": 1.5, "Oil": 10.2,
                                  "Cook temperature": 185.0})
-        assert text == ("Water +12.00 ml, Wheat gluten −3.00 g, Salt +0.50 g, "
-                        "Cook temperature +5 °C")
+        assert text == ("Water +12.00 ml, Salt +0.50 g, Cook temperature +5 °C, "
+                        "Wheat gluten −3.00 g")
         # The minus is the typographic one, so it sits beside a plus.
         assert "-3" not in text
 
@@ -5687,8 +5699,10 @@ class TestWhatEachFormulationIsTrying:
         """'Explores · Water +12.00 g' — the kind first,
         capitalised as the first word of the cell, then what carries it."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
+        assert opt.compared_with_text({"Water": 80.0, "Wheat gluten": 20.0}) \
+            == "Explores · Water +40.00 g"
         assert opt.compared_with_text({"Water": 60.0, "Wheat gluten": 20.0}) \
-            == "Explores · Water +20.00 g"
+            == "Balanced · Water +20.00 g"
         assert opt.compared_with_text({"Water": 41.0, "Wheat gluten": 20.0}) \
             == "Refines the best · Water +1.00 g"
 
@@ -5697,12 +5711,12 @@ class TestWhatEachFormulationIsTrying:
         """The table says what each formulation is trying; the CSV sheet is a
         grid to fill in, and a column of prose is not something to weigh."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
-        opt.set_pending_batch([{"Water": 60.0, "Wheat gluten": 20.0},
+        opt.set_pending_batch([{"Water": 80.0, "Wheat gluten": 20.0},
                                {"Water": 41.0, "Wheat gluten": 20.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns)[-1] == "Compared with Formulation 1"
         assert list(df["Compared with Formulation 1"]) == [
-            "Explores · Water +20.00 g",
+            "Explores · Water +40.00 g",
             "Refines the best · Water +1.00 g"]
         # ... and not on the sheets: a workbook's rows are the ingredients
         # to weigh out, and a column of prose is not one of them.

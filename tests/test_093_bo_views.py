@@ -13,6 +13,7 @@ import torch
 import bo_views
 import insights
 import insights_jobs
+import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as demo
 
@@ -222,10 +223,18 @@ def test_the_pool_is_the_same_every_time():
     assert torch.equal(a, b)
 
 
-@pytest.mark.parametrize("mean,sd,expected", [(95, 80, "explores"), (95, 40, "refines"),
-                                              (80, 40, "balanced"), (95, 60, "balanced")])
-def test_the_role_rule(mean, sd, expected):
-    assert bo_views.role(mean, sd) == expected
+def test_the_role_is_the_compared_with_cells_word():
+    """0.8.0 e2e fixes A2 (review I3): the Why fold's role is the Compared
+    with cell's own word, by suggestion_role's distance rule, never the
+    pool's percentiles; a row with a note is the user's own, as its cell
+    says."""
+    opt = demo.load(demo.LINE_A)
+    for row in opt.pending_batch:
+        assert bo_views.role(opt, row) == opt.suggestion_role(row["recipe"])
+        assert opt.compared_with_text(row["recipe"]).lower().startswith(
+            bo_views.role(opt, row))
+    mine = dict(opt.pending_batch[0], note="Repeat of Formulation 15")
+    assert bo_views.role(opt, mine) == wording.OWN_FORMULATION_KIND
 
 
 # ------------------------------------------------------------------ #
@@ -247,8 +256,12 @@ def test_why_these_suggestions_on_line_a():
     assert [got[n].value for n in (23, 24, 25)] == pytest.approx([0.058, 0.049, 0.034],
                                                                   abs=0.01)
     assert got[23].value < 0.07
-    assert [got[n].role for n in (22, 23, 24, 25)] == ["refines", "refines", "balanced",
-                                                        "balanced"]
+    # 0.8.0 e2e fixes A2: by distance. 22 and 23 are more than 0.15 from
+    # Best so far (F15) but near tested ones; 24 and 25 move Mixing time
+    # after fat by 105 s, more than 0.30 of its span from everything made.
+    assert [got[n].role for n in (22, 23, 24, 25)] == [
+        wording.ROLE_BALANCED, wording.ROLE_BALANCED, wording.ROLE_EXPLORES,
+        wording.ROLE_EXPLORES]
     assert got[22].nearest == 18
     name, diff, unit = got[22].differences[0]
     assert unit == "g" and name in {v["name"] for v in demo.load(demo.LINE_A).variables}
@@ -431,13 +444,16 @@ def test_a_degenerate_pool_says_no_roles():
     assert bo_views.pool_points(None) == 0
 
 
-def test_the_why_fold_gives_no_roles_from_a_degenerate_pool(monkeypatch):
-    """T3 M-1: the rows of the pool are there, the formulations are not."""
+def test_a_degenerate_pool_leaves_the_roles_alone(monkeypatch):
+    """T3 M-1 said no roles from a pool of a few formulations; 0.8.0 e2e
+    fixes A2 (review I3): the role is a distance, so it never reads the
+    pool and is said all the same."""
     opt = _project("degenerate", rows=9)
     _ask_and_capture(opt, 2, _grid(8))
     one = bo_views.points(opt, [insights.at_total(opt, opt.pending_batch[0]["recipe"])])
     monkeypatch.setattr(bo_views, "feasible_pool", lambda o: one.repeat(bo_views.POOL_SIZE, 1))
-    assert [r.role for r in bo_views.why(opt).rows] == [None, None]
+    assert [r.role for r in bo_views.why(opt).rows] == [
+        opt.suggestion_role(r["recipe"]) for r in opt.pending_batch]
 
 
 def test_the_pool_key_follows_the_open_round_and_its_not_scored_rows():

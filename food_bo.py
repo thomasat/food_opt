@@ -594,6 +594,12 @@ _FIXED_SPAN_FLOOR = 1e-9
 # against a formulation made before the project existed.
 NO_BATCH = object()
 CLOSE_TO_THE_BEST = 0.15
+# A suggestion farther than this from every formulation recorded before its
+# Round explores (0.8.0 e2e fixes A2, review I3): twice the near cut, so
+# the three roles are three, and "balanced" is not left empty by one cut
+# used twice. Both cuts are compared with _ROLE_EPS, insights' own _EPS.
+FAR_FROM_TESTED = 2 * CLOSE_TO_THE_BEST
+_ROLE_EPS = 1e-9
 # How many process settings one what-is-it-trying line names, on its own so
 # that a project of eight settings does not bury the amounts under them. The
 # ingredients have their own count, which vs_best_text takes as an argument.
@@ -3200,16 +3206,20 @@ class FoodOptimizer:
         return rows
 
     def _variable_deltas(self, recipe, ref_recipe, category=None, floor=0.005):
-        """Every change from ref_recipe to recipe — largest first, as
-        (name, change) pairs. `category` keeps to the ingredients or to the
-        process settings; None takes both. A change smaller than `floor` is
-        left out, and so is a held variable: it is held at one value in
-        every new formulation, so it cannot be a change this batch made;
-        naming it as the biggest one pointed at the row nobody moved.
+        """Every change from ref_recipe to recipe, as (name, change) pairs,
+        the largest share of its own Lowest-Highest span first (0.8.0 e2e
+        fixes B2, review M3): amounts and settings ranked together, so a
+        Baking temperature +10.7 °C (27 % of its span) comes before Rolled
+        oats −0.67 g (03 I6). bo_views._differences ranks the Why fold's
+        Largest differences by this same rule.
 
-        Amounts and settings are asked for separately wherever they are
-        written out, because they are not comparable numbers: reporting a
-        cook temperature as "+198.65 g" priced an oven in grams.
+        Only the varying rows: a held row is at one value in every new
+        formulation, so it cannot be a change this Round made, and a
+        calculated row (Fill to total among them) is the other rows'
+        difference, not a change of its own (02 M7: "Water +0.01 g").
+        `category` keeps to the ingredients or to the process settings;
+        None takes both. A change smaller than `floor` is left out: below
+        one display step it reads "0.00 g" (03 M6).
 
         A key missing from either side is read as the variable's 'absent'
         value — 0 for an ingredient, its baseline for a process setting —
@@ -3217,14 +3227,15 @@ class FoodOptimizer:
         reported as having moved by the whole of that baseline. A categorical
         variable has no change to subtract and falls out here.
 
-        The sort is stable, so two changes of the same size stay in set-up
-        order rather than swapping between two runs of the same batch."""
-        pairs = []
-        for var in self.variables:
+        Two changes of the same share keep the amounts first — they are
+        weighed out before anything is dialled in — then set-up order, so
+        they never swap between two runs of the same batch."""
+        ranked = []
+        for at, var in enumerate(self.varying_variables()):
             if category is not None and \
                     var.get('category', 'ingredient') != category:
                 continue
-            if not self.has_formula(var) and self.is_fixed(var):
+            if var.get('type', 'continuous') != 'continuous':
                 continue
             name = var['name']
             absent = var.get('_absent_value', 0.0)
@@ -3233,11 +3244,19 @@ class FoodOptimizer:
                          - float(ref_recipe.get(name, absent)))
             except (TypeError, ValueError):
                 continue
-            if abs(delta) < floor:
+            if abs(delta) < floor or abs(delta) < 1e-12:
                 continue
-            pairs.append((name, delta))
-        pairs.sort(key=lambda kv: abs(kv[1]), reverse=True)
-        return pairs
+            setting = var.get('category', 'ingredient') != 'ingredient'
+            ranked.append(((-self._span_share(var, delta), setting, at), name, delta))
+        ranked.sort(key=lambda t: t[0])
+        return [(name, delta) for _, name, delta in ranked]
+
+    @staticmethod
+    def _span_share(var, delta):
+        """|delta| as a share of the row's own Lowest-Highest span (0 for a
+        row with none): the one footing amounts and settings are ranked on."""
+        lo, hi = (float(b) for b in var['bounds'])
+        return abs(float(delta)) / (hi - lo) if hi > lo else 0.0
 
     def best_formulation_no(self):
         """The number of the highest-scoring formulation, or None. Several
@@ -3263,75 +3282,126 @@ class FoodOptimizer:
         return self._best_recipe_index()
 
     def vs_best_text(self, recipe, n=3, scale_to=None, max_changes=None):
-        """What this formulation changes from the best one so far: the `n`
-        largest amount changes among the ingredients, largest first, then the
-        SETTINGS_SHOWN largest among the process settings — the settings have
-        a count of their own, so widening the amounts does not also lengthen
-        the list of dials. '' while there is no best.
+        """What this formulation changes from the best one so far: up to `n`
+        amounts and up to SETTINGS_SHOWN process settings, the largest share
+        of its own span first, amounts and settings ranked together (0.8.0
+        e2e fixes B2, review M3: the cell and the Why fold rank alike, by
+        _variable_deltas). The settings keep a count of their own, so
+        widening the amounts does not also lengthen the list of dials. ''
+        while there is no best.
 
-        Amounts and settings are never ranked against each other — a change
-        of 12 g and a change of 12 °C are not comparable numbers — and the
-        amounts come first because they are weighed out before anything is
-        dialled in. Each number wears its own variable's unit; an amount is
-        written to the two decimals a balance works to and a setting is not,
-        because no oven dial reads 180.00.
+        Each number wears its own variable's unit; an amount is written to
+        the two decimals a balance works to and a setting is not, because no
+        oven dial reads 180.00 (fmt_setting). A change that would read 0 at
+        those decimals is left out.
 
+        The order is read at the Formulation total, where the shares are
+        the project's own, and so are the numbers without `scale_to`;
         `scale_to` rewrites this formulation AND the best one to that total
-        before the two are compared, so a change read beside a scaled table
-        is the difference between two numbers the screen actually shows.
+        before the numbers are written, so a change read beside a scaled
+        table is the difference between two numbers the screen actually
+        shows.
 
-        `max_changes` keeps only the first that many, amounts first (spec
-        2026-09-30 §3, review M14): the screen's table passes 2; the sheet
-        never passes it."""
+        `max_changes` keeps only the first that many (spec 2026-09-30 §3,
+        review M14): the screen's table passes 2; the sheet never passes
+        it."""
+        import insights     # insights imports this module
         best = self._best_recipe_index()
         if best is None:
             return ""
-        mine = self.scaled_recipe(recipe, scale_to)
-        ref = self.scaled_recipe(self.recipe_history[best], scale_to)
-        parts = [
-            wording.change_text(name, delta,
-                                fmt_amount(abs(delta), self.unit_of(name)))
-            for name, delta in self._variable_deltas(mine, ref, 'ingredient')[:n]
-        ]
-        parts += [
-            wording.change_text(name, delta,
-                                fmt_setting(abs(delta), self.unit_of(name)))
-            for name, delta
-            in self._variable_deltas(mine, ref, 'process')[:SETTINGS_SHOWN]
-        ]
+        here, there = insights.at_total(self, recipe), insights.start_recipe(self, best)
+        rank = {name: k for k, (name, _) in enumerate(self._variable_deltas(
+            here, there, floor=0.0))}
+        if scale_to is None:
+            # Both at the Formulation total: a row stored at 500 g read
+            # against a best made at 100 g listed five-fold changes (02
+            # Round 3, review I3).
+            mine, ref = here, there
+        else:
+            mine = self.scaled_recipe(recipe, scale_to)
+            ref = self.scaled_recipe(self.recipe_history[best], scale_to)
+        shown = self._variable_deltas(mine, ref)
+        # In the order read at the total; a change only the scaled numbers
+        # show (two rows of different totals rewritten to one) keeps its
+        # place among them as ranked there, after the rest.
+        shown.sort(key=lambda kv: rank.get(kv[0], len(rank)))
+        variables = self._by_name()
+        counts = {'ingredient': n, 'process': SETTINGS_SHOWN}
+        parts = []
+        for name, delta in shown:
+            category = variables[name].get('category', 'ingredient')
+            if counts.get(category, 0) <= 0:
+                continue
+            counts[category] -= 1
+            size = (fmt_amount(abs(delta), self.unit_of(name)) if category == 'ingredient'
+                    else fmt_setting(abs(delta), self.unit_of(name)))
+            parts.append(wording.change_text(name, delta, size))
         if max_changes is not None:
             parts = parts[:max_changes]
         return ", ".join(parts)
 
     def suggestion_kind(self, recipe):
-        """Whether this formulation stays near the best one or strikes out:
-        `close to the best` while the largest change is at most
-        CLOSE_TO_THE_BEST of that variable's own allowed range, and
-        `trying something different` otherwise.
+        """suggestion_role for a row of the open Round (or, with none open,
+        of the next one): the first words of its Compared with cell."""
+        return self.suggestion_role(recipe)
 
-        Normalised, because the raw numbers are not comparable: 5 g of salt
-        out of an allowed 0 to 10 g is a bold move, 5 °C out of an allowed
-        20 to 200 °C is not. Until the cold start is over there is nothing to
-        be close to — the formulations are spread out to learn the space —
-        so every row says that instead.
+    def _recorded_before(self, before):
+        """Every formulation recorded before Round `before`, at the
+        Formulation total: scored, waiting, Not scored (kept in the records
+        or never recorded) and the user's own alike. A row with no Round
+        (typed in as a past formulation) counts as earlier. `before` None:
+        every one on file."""
+        import insights     # insights imports this module
+        earlier = lambda r: before is None or r is None or int(r) < int(before)
+        out = [insights.start_recipe(self, i)
+               for i, r in enumerate(self.batch_history[:len(self.X_history)])
+               if earlier(r)]
+        out += [insights.at_total(self, row['recipe']) for row in self.skipped
+                if row.get('recipe') and earlier(row.get(ROUND_FIELD))]
+        return out
 
-        The amounts are the ones the project stores, never a scaled copy: the
-        allowed amounts this is a fraction of are the project's own."""
+    def suggestion_role(self, recipe, before=None):
+        """What a suggestion does, in one of three words (0.8.0 e2e fixes
+        A2, review I3), by a distance rule that never asks the model — so
+        it is shown whatever the Prediction check says, and the Compared
+        with cell and the Why fold's Role column say the same word:
+
+        - `refines the best`: within CLOSE_TO_THE_BEST of Best so far, or
+          of a Repeat of it;
+        - `explores`: more than FAR_FROM_TESTED from every formulation
+          recorded before its Round (`_recorded_before`);
+        - `balanced`: in between.
+
+        The distance is insights.distance: the largest change over the
+        varying rows, each as a share of its own Lowest-Highest span,
+        calculated and Fill-to-total rows left out. Both sides are taken
+        at the Formulation total (insights.at_total), so a Round made at
+        500 g is not read at five times the size of a best made at 100 g
+        (02 Round 3, review I3). A choice (categorical row) that differs
+        is far.
+
+        `before`: the Round the row belongs to; None reads the open Round
+        (or, with none open, the next one). Until the cold start is over
+        there is nothing to compare with, and every row says so."""
+        import insights     # insights imports this module
         best = self._best_to_compare()
         if best is None:
             return wording.SUGGESTION_SPREAD
-        # Every kind of variable at once, and no floor: a move of half a gram
-        # is too small to be worth naming on the sheet but not too small to
-        # decide what this formulation is, if half a gram is what it is
-        # allowed to move at all.
-        deltas = self._variable_deltas(recipe, self.recipe_history[best],
-                                       floor=0.0)
-        spans = {v['name']: float(v['bounds'][1]) - float(v['bounds'][0])
-                 for v in self.variables if v['type'] == 'continuous'}
-        largest = max((abs(delta) / spans[name] for name, delta in deltas
-                       if spans.get(name)), default=0.0)
-        return (wording.SUGGESTION_CLOSE if largest <= CLOSE_TO_THE_BEST
-                else wording.SUGGESTION_DIFFERENT)
+        if before is None and self.pending_batch:
+            before = self.pending_batch_no
+        mine = insights.at_total(self, recipe)
+        near = lambda d: d is not None and d <= CLOSE_TO_THE_BEST + _ROLE_EPS
+        top = insights.start_recipe(self, best)
+        # Best so far's Repeats: the scored rows with its make-up.
+        refs = [top] + [insights.start_recipe(self, i) for i in self.best_candidates()
+                        if i != best and insights._same(
+                            self, insights.start_recipe(self, i), top)]
+        if any(near(insights.distance(self, mine, ref)) for ref in refs):
+            return wording.SUGGESTION_CLOSE
+        far = lambda d: d is None or d > FAR_FROM_TESTED + _ROLE_EPS
+        if all(far(insights.distance(self, mine, r)) for r in self._recorded_before(before)):
+            return wording.SUGGESTION_DIFFERENT
+        return wording.SUGGESTION_BALANCED
 
     def compared_with_column(self):
         """The header of the what-is-it-trying column: the best formulation's
@@ -3893,8 +3963,9 @@ class FoodOptimizer:
             # Rounded in the FRAME, not only in the formatting: the reader
             # met 18.11529942207362 and a Total (g) of 250.00000000000003 on
             # the screen the bench weighs from, and a balance reads to two
-            # decimals. A process setting keeps its own precision — it is
-            # dialled in, not weighed.
+            # decimals. A process setting is dialled in, not weighed, but
+            # no dial reads 141.4638215303421 °C either (03 M3, 02 M2): at
+            # most two decimals, the ones fmt_setting writes.
             for var in ingredients:
                 item[self._amount_column(var['name'], mark=True)] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
@@ -3902,8 +3973,8 @@ class FoodOptimizer:
             if total_col is not None:
                 item[total_col] = self._total_cell(recipe)
             for var in process:
-                item[self._amount_column(var['name'])] = float(
-                    recipe.get(var['name'], 0.0))
+                item[self._amount_column(var['name'])] = round(float(
+                    recipe.get(var['name'], 0.0)), 2)
             if noted:
                 item["Note"] = row.get('note', "")
             if trying is not None:

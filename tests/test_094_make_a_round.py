@@ -128,7 +128,7 @@ def test_the_opened_fold_explains_each_row():
     assert not ei[0].endswith(wording.PENDING_MARK)
     assert all(v.endswith(wording.PENDING_MARK) for v in ei[1:])       # picks 2+
     assert set(frame[wording.ROLE]) <= {wording.ROLE_REFINES, wording.ROLE_BALANCED,
-                                        wording.ROLE_EXPLORES}
+                                        wording.ROLE_EXPLORES, wording.OWN_FORMULATION_KIND}
     assert all(" g" in cell for cell in frame[wording.LARGEST_DIFFERENCES] if cell)
     captions = [c.value for c in fold.caption]
     assert wording.WHY_PENDING in captions
@@ -147,6 +147,8 @@ def test_an_own_formulation_is_labelled_and_valued_alone():
     assert own.own and own.pick is None and not own.pending
     frame, _ = ui_batch.why_frame(opt, w, None)
     assert wording.why_row_label(no, own=True) in list(frame[wording.FORMULATION_CAP])
+    # Its role is the Compared with cell's own kind (0.8.0 e2e fixes A2).
+    assert own.role == wording.OWN_FORMULATION_KIND
 
 
 @pytest.mark.parametrize("reasons,state,line", [
@@ -156,8 +158,9 @@ def test_an_own_formulation_is_labelled_and_valued_alone():
 ])
 def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line):
     """Review I4, fix round 1: the fold keeps its model-free columns and
-    withholds the expected improvement and the roles exactly when Progress
-    withholds its expected improvement, with the same reason."""
+    withholds the expected improvement exactly when Progress withholds its
+    expected improvement, with the same reason. The role is model-free from
+    the 0.8.0 e2e fixes (A2, review I3), so it stays."""
     opt = _open_round()
     monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(reasons))
     real = insights.verdict_state
@@ -168,7 +171,7 @@ def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line)
     _rerun(at)
     fold = _fold(at)
     [frame] = [d.value for d in fold.dataframe]
-    assert wording.ROLE not in frame.columns
+    assert wording.ROLE in frame.columns
     assert wording.EXPECTED_IMPROVEMENT not in frame.columns
     assert line in [c.value for c in fold.caption]
     assert wording.WHY_PENDING not in [c.value for c in fold.caption]

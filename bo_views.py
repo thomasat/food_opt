@@ -38,18 +38,15 @@ import wording
 from food_bo import COLD_START_RUNS, ROUND_FIELD, FoodOptimizer, LinearForm
 
 # The pool of allowed formulations (review I9): hit-and-run over the
-# normalised continuous columns, seed 0, 3,000 points, thinning 10. With
-# fewer than POOL_MIN points no percentile and no role is said.
+# normalised continuous columns, seed 0, 3,000 points, thinning 10. Fewer
+# than POOL_MIN distinct points is a degenerate pool (pool_points). The pool
+# no longer gives the role (0.8.0 e2e fixes A2, review I3: role()).
 POOL_SIZE = 3000
 POOL_SEED = 0
 POOL_THINNING = 10
 POOL_MIN = 500
 # Every evaluation runs in chunks of this many points (review M10).
 CHUNK = 256
-# The role rule (02 §4.3, review M5): percentiles among the pool.
-EXPLORE_SD = 75.0
-REFINE_MEAN = 90.0
-REFINE_SD = 50.0
 # The outputs kept in this process (review B4: outputs, not models),
 # shared by every session's script thread (T3 M-3: under a lock).
 _CACHE = collections.OrderedDict()
@@ -423,21 +420,16 @@ def pool_points(P):
     return int(torch.unique(torch.round(P * 1e6), dim=0).shape[0])
 
 
-def percentile(values, v):
-    """The share of `values` at or below `v`, in per cent."""
-    return 100.0 * float((values <= v).double().mean())
-
-
-def role(mean_pct, sd_pct):
-    """02 §4.3's position rule (review M5): 'explores' when the model's sd
-    is at or above its 75th percentile among the pool; 'refines' when the
-    mean is at or above the 90th and the sd at or below the 50th;
-    'balanced' otherwise."""
-    if sd_pct >= EXPLORE_SD:
-        return "explores"
-    if mean_pct >= REFINE_MEAN and sd_pct <= REFINE_SD:
-        return "refines"
-    return "balanced"
+def role(opt, row):
+    """A row of the open Round's role (0.8.0 e2e fixes A2, review I3): the
+    Compared with cell's own word, by FoodOptimizer.suggestion_role's
+    distance rule, so the two tables never disagree. A row with a note (the
+    user's own, a Repeat, an edited suggestion) is "your own formulation",
+    by the cell's own rule (compared_with_text). Model-free: shown whatever
+    the Prediction check says (it reverts 11152ff's withholding)."""
+    if row.get('note'):
+        return wording.OWN_FORMULATION_KIND
+    return opt.suggestion_role(row['recipe'])
 
 
 # ------------------------------------------------------------------ #
@@ -456,7 +448,7 @@ class WhyRow:
     pending: bool       # valued with the earlier picks counted (picks 2+)
     nearest: int | None
     differences: list   # [(name, difference in its own unit, unit)], the two largest
-    role: str | None
+    role: str           # role(): the Compared with cell's own word
 
 
 @dataclass
@@ -474,17 +466,12 @@ class Why:
 def _differences(opt, recipe, other, k=2):
     """The `k` largest differences of `recipe` from `other` (both at the
     Formulation total), largest share of its span first, in each row's
-    own unit (review M4)."""
-    out = []
-    for v in opt.varying_variables():
-        if v.get('type') != 'continuous':
-            continue
-        lo, hi = (float(b) for b in v['bounds'])
-        d = float(recipe.get(v['name'], 0.0) or 0.0) - float(other.get(v['name'], 0.0) or 0.0)
-        if hi > lo and abs(d) > 1e-9:
-            out.append((abs(d) / (hi - lo), v['name'], d, opt.unit_of(v['name'])))
-    out.sort(key=lambda t: -t[0])
-    return [(name, d, unit) for _, name, d, unit in out[:k]]
+    own unit (review M4): FoodOptimizer._variable_deltas, the rule the
+    Compared with cell ranks by (0.8.0 e2e fixes B2, review M3), so the
+    two tables never list different changes for one reason. A difference
+    under one display step is left out (03 M6: "Honey 0.00 g")."""
+    return [(name, d, opt.unit_of(name))
+            for name, d in opt._variable_deltas(recipe, other)[:k]]
 
 
 def _issued(opt, number):
@@ -521,8 +508,8 @@ def why(opt, fitted=None):
     counted — qLogNEI's improvement over the tested and earlier picks, the
     increment qLogEI's joint value gains from this pick (T3 I-1); qUCB has
     no such form, so every row shows its own optimistic score. The user's
-    own and edited rows at their amounts as they stand, marked. Positions
-    among the pool give the role. None without an open Round."""
+    own and edited rows at their amounts as they stand, marked. The role
+    is role()'s distance rule, never the pool. None without an open Round."""
     r = opt.pending_batch_no
     if not opt.pending_batch or r is None:
         return None
@@ -560,13 +547,9 @@ def why(opt, fitted=None):
         i, _ = insights.nearest(opt, recipes[k])
         near = None if i is None else int(opt.formulation_ids[i])
         diffs = [] if i is None else _differences(opt, recipes[k], insights.start_recipe(opt, i))
-        who = None
-        if pool_values is not None and pool_points(pool) >= POOL_MIN:
-            who = role(percentile(pool_values.mean, float(alone.mean[k])),
-                       percentile(pool_values.sd, float(alone.sd[k])))
         out.append(WhyRow(no, own[k], bool(row.get('original_recipe')) and not own[k],
                           pick, float(alone.mean[k]), float(alone.sd[k]), value,
-                          pending, near, diffs, who))
+                          pending, near, diffs, role(opt, row)))
     return Why(kind, model.exact, False, out,
                None if pool_values is None else pool_values.mean,
                None if pool_values is None else pool_values.sd,

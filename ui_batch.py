@@ -1002,8 +1002,6 @@ def _warns(t):
 # ------------------------------------------------------------------ #
 
 WHY_KEY = "why_these"
-_ROLE_WORDS = {"refines": wording.ROLE_REFINES, "balanced": wording.ROLE_BALANCED,
-               "explores": wording.ROLE_EXPLORES}
 
 
 def _why_models(opt):
@@ -1039,6 +1037,15 @@ def _signed_amount(value, unit):
     return join_unit(wording.signed(value, 2), unit) if unit else wording.signed(value, 2)
 
 
+def _signed_change(opt, name, value, unit):
+    """One Largest difference: an amount to the two decimals a balance
+    works to, a setting as the Compared with cell writes it (fmt_setting:
+    "+30 s", never "+30.00 s", 01 O15)."""
+    if not insights.is_setting(opt, name):
+        return _signed_amount(value, unit)
+    return ("+" if value > 0 else "−") + fmt_setting(abs(value), unit)
+
+
 def why_frame(opt, why, preds, hide=False):
     """One row per formulation of the open Round (review I12): its role
     (M5) straight after its number, so it is on screen at 1366 px (T47
@@ -1047,8 +1054,9 @@ def why_frame(opt, why, preds, hide=False):
     improvement in points — "·" when valued with the earlier picks counted
     — the nearest tested formulation and the two largest differences from
     it in each row's own unit (M4). `hide` (the noise guard, review I4)
-    leaves out the expected improvement and the role. Every cell in the
-    project's own words (T47 review I-1: "Trial" in a process-only study)."""
+    leaves out the expected improvement; the role is model-free and always
+    shown (0.8.0 e2e fixes A2, review I3). Every cell in the project's own
+    words (T47 review I-1: "Trial" in a process-only study)."""
     value_col = (wording.OPTIMISTIC_SCORE if why.kind == "qucb"
                  else wording.EXPECTED_IMPROVEMENT)
     say = lambda text: wording.for_project(opt, text)
@@ -1057,8 +1065,7 @@ def why_frame(opt, why, preds, hide=False):
         p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
         item = {wording.FORMULATION_CAP: say(wording.why_row_label(r.formulation, r.own,
                                                                    r.edited))}
-        if not hide:
-            item[wording.ROLE] = "" if r.role is None else _ROLE_WORDS[r.role]
+        item[wording.ROLE] = say(r.role)
         item[wording.PREDICTED_SCORE_COLUMN] = "" if p is None else ui_insights.score_text(p)
         item[wording.MODEL_SD] = f"{r.sd:.2f}"
         if not hide:
@@ -1066,9 +1073,29 @@ def why_frame(opt, why, preds, hide=False):
         item[wording.NEAREST_TESTED] = ("" if r.nearest is None
                                         else say(wording.start_formulation(r.nearest)))
         item[wording.LARGEST_DIFFERENCES] = ", ".join(
-            wording.why_difference(name, _signed_amount(d, unit)) for name, d, unit in r.differences)
+            wording.why_difference(name, _signed_change(opt, name, d, unit))
+            for name, d, unit in r.differences)
         rows.append(item)
     return pd.DataFrame(rows), value_col
+
+
+def why_columns(opt, value_col, help_text):
+    """The Why fold's column_config (D2, review M8): every column visible at
+    1280 px — narrow ones for the short cells, Largest differences the
+    widest — with the full meaning in each header's tooltip."""
+    say = lambda text: wording.for_project(opt, text)
+    col = st.column_config.Column
+    return {
+        wording.FORMULATION_CAP: col(say(wording.FORMULATION_CAP), width="small"),
+        wording.ROLE: col(wording.ROLE, width="small", help=say(wording.role_help())),
+        wording.PREDICTED_SCORE_COLUMN: col(wording.PREDICTED_SCORE_COLUMN, width="small"),
+        wording.MODEL_SD: col(wording.MODEL_SD, width="small", help=wording.MODEL_SD_HELP),
+        value_col: col(say(value_col), width="small", help=say(help_text)),
+        wording.NEAREST_TESTED: col(wording.NEAREST_TESTED, width="small",
+                                    help=say(wording.NEAREST_TESTED_HELP)),
+        wording.LARGEST_DIFFERENCES: col(wording.LARGEST_DIFFERENCES, width="medium",
+                                         help=say(wording.LARGEST_DIFFERENCES_HELP)),
+    }
 
 
 def why_chart(opt, why, ref=None):
@@ -1156,21 +1183,14 @@ def _why_these(opt, preds):
                      else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
                      else wording.EXPECTED_IMPROVEMENT_HELP)
         st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
-                     column_config={
-                         wording.FORMULATION_CAP: st.column_config.Column(
-                             wording.for_project(opt, wording.FORMULATION_CAP)),
-                         wording.MODEL_SD: st.column_config.Column(
-                             wording.MODEL_SD, help=wording.MODEL_SD_HELP),
-                         value_col: st.column_config.Column(
-                             wording.for_project(opt, value_col),
-                             help=wording.for_project(opt, help_text))})
+                     column_config=why_columns(opt, value_col, help_text))
         if any(r.pending for r in why.rows) and not hide:
             st.caption(wording.for_project(opt, wording.WHY_PENDING))
         if not why.exact:
             st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))
         chart = why_chart(opt, why, ref)
         if chart is None:
-            st.caption(wording.for_project(opt, wording.why_no_roles(0)))
+            # No map without a pool; the roles above never needed one.
             return
         ui_insights.show_chart(chart)
         st.caption(wording.for_project(opt, wording.why_chart_caption(
