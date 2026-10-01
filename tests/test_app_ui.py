@@ -5022,14 +5022,14 @@ def test_the_compared_with_column_reads_the_amounts_on_the_table(burger):
     # As generated, the only change is +20.00 g of protein.
     table = next(d.value for d in at.dataframe if column in d.value.columns)
     assert table[column].iloc[0] == \
-        "Trying something different · Pea protein +20.00 g"
+        "Explores · Pea protein +20.00 g"
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
     # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00, and
     # the cell reads the table: the best is scaled to the same total.
     table = next(d.value for d in at.dataframe if column in d.value.columns)
     assert table[column].iloc[0] == (
-        "Trying something different · Pea protein +5.00 g, "
+        "Explores · Pea protein +5.00 g, "
         "Methylcellulose −5.00 g"), table[column].iloc[0]
 
 
@@ -6335,7 +6335,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     assert len(HOW_IT_WORKS) == 5
     assert "the app varies" in text and "aims for" in text
     assert "Generated formulations satisfy the limits you set" in text
-    assert "close to the best or tries something different" in text
+    assert "refines the best, explores, or is balanced between the two" in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
     # the reader types into now, so the fold that explains the screen has to
     # name it — but a bare "Share" is still nobody's word.
@@ -8213,8 +8213,8 @@ def test_how_it_works_is_five_lines(burger):
         "amounts. After that, each Round aims closer to your targets.",
         "Generated formulations satisfy the limits you set. "
         "A formulation of your own is recorded as you typed it.",
-        "Each suggestion says whether it stays close to the best or tries "
-        "something different, and what it changes.",
+        "Each suggestion says whether it refines the best, explores, or is "
+        "balanced between the two, and what it changes.",
     ], wording.HOW_IT_WORKS
     assert not _advanced(at).proto.expanded
     text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
@@ -9135,7 +9135,7 @@ def test_each_formulation_says_what_it_is_trying(burger):
     # Straight after Formulation on screen (spec 2026-09-30 §3), after the
     # predicted column when there is one; the sheet keeps its own order.
     assert "Compared with Formulation 1" in list(table.columns)[1:3]
-    line = "Close to the best · Pea protein +1.00 g"
+    line = "Refines the best · Pea protein +1.00 g"
     assert table["Compared with Formulation 1"].iloc[0] == line
     # On paper there is no column header to read the cell against, so the
     # line carries it.
@@ -9159,7 +9159,7 @@ def test_an_own_formulation_gets_the_same_line(burger):
     # three kinds of suggestion, and calling it one took credit for their
     # own bench standard.
     assert list(table["Compared with Formulation 1"]) == [
-        "Close to the best · Pea protein +1.00 g",
+        "Refines the best · Pea protein +1.00 g",
         "Your own formulation · Pea protein +10.00 g"]
 
 

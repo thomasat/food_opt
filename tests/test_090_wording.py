@@ -74,7 +74,7 @@ def _new_lines():
         W.skill_line("0.36", 15, [2, 3, 4, 5, 6], "skill"),
         W.skill_line("0.12", 12, [2, 3], "unclear"),
         W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill"), W.skill_cell("0.36", 15),
-        W.SKILL_UNDER_TEN, W.how_skill(), W.how_skill("−0.25", "10: 0.00, 12: 0.03"), W.next_no_skill("−0.47", 16),
+        W.SKILL_UNDER_TEN, W.how_skill(), W.how_skill("−0.25"), W.next_no_skill("−0.47", 16),
         W.next_no_skill("−0.47", 16, 6, 4), W.round_track_no_skill("−0.47", 16),
         W.next_no_skill("−0.47", 16, 6, 4, [2, 3, 4, 5]),
         W.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]),
@@ -92,7 +92,7 @@ def _new_lines():
         W.OPTIMISTIC_SCORE_HELP, W.WHY_PENDING, W.WHY_COLD, W.WHY_FAILED, W.WHY_WORKING,
         W.why_row_label(24), W.why_row_label(25, own=True), W.why_row_label(26, edited=True),
         W.why_difference("Coconut oil", "+1.20 g"), W.why_chart_caption(3000),
-        W.why_no_roles(120), W.how_roles(), W.HOW_EXPECTED_IMPROVEMENT, W.GAIN_HEADING,
+        W.why_no_roles(120), W.why_role_rule(), W.HOW_EXPECTED_IMPROVEMENT, W.GAIN_HEADING,
         W.WHY_AXIS_MEAN, W.WHY_POOL, W.WHY_TESTED, W.WHY_SUGGESTED, W.WHY_RECOMPUTED,
         W.GAIN_BEST_MEASURED, W.GAIN_HIGHEST_PREDICTED, W.HOW_VERDICT, W.HOW_NOISE_THRESHOLD,
         W.gain_line("0.12", 6, W.beat_by()), W.gain_line("1.40", 6, W.beat_by("1.2"), above=True),
@@ -215,8 +215,8 @@ def test_exact_texts_from_the_audit():
         "predictions read about 1.2 points high.")
     assert W.repeat_disagrees(21, 11, "10.5", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
-        "equipment for a change.")
+        "interval for the difference of two results is ±7.4 points. If something changed "
+        "(panel, supplier, equipment), check it before relying on the next suggestions.")
     assert W.stand_barely("0.2", "1.2") == (
         "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
         "1.2 points).")
@@ -248,11 +248,12 @@ def test_the_new_lines_from_the_rulings():
     # Fix round 1 (ledger ruling on T2 I-1): between the cut and 0.2.
     assert W.skill_line("0.12", 12, [2, 3], "unclear").endswith(
         ", not clearly better than the average of earlier results.")
-    assert W.how_skill("−0.20", "10: 0.00, 12: 0.03").endswith(
+    # 0.8.0 e2e fixes D4 (review M10): the cut stated plainly, no table.
+    assert W.how_skill("−0.20").endswith(
         "At or below −0.20: no better than the average; below 0.20: not clearly better; "
-        "0.20 or more: better. The cut is the lower of −0.20 and the 10th percentile of a "
-        "correct model's skill in simulation where its true skill is 0.20 or more, by n: "
-        "10: 0.00, 12: 0.03.")
+        "0.20 or more: better. The cut is −0.20: a correct model reads “no better than the "
+        "average” in under 7 % of cases at n = 10, and below 0.20 in about 15 %. Ingredient "
+        "effects are reported only from 10 values and skill 0.20.")
     assert W.guard_line([W.GUARD_FLOOR]) == (
         "The model is fitting noise in these results (the model's correlation length is at its "
         "lower limit), so ingredient effects are not reported.")
@@ -261,17 +262,19 @@ def test_the_new_lines_from_the_rulings():
         "Ingredient effects are not reported until Round-ahead predictions beat the average of "
         "earlier results.")
     assert W.EXPECTED_IMPROVEMENT == "Expected improvement (model, one formulation)"
+    # 0.8.0 e2e fixes A5 (review I6): what the statistic is.
     assert W.gain_line("0.12", 6, W.beat_by()) == (
-        "Expected improvement, Round 6: 0.12 points (model, one formulation), under the "
-        "1-point noise threshold. If the model is right, the best single new formulation beats "
-        "the model's best tested formulation by about 0.12 points, before Repeat noise.")
+        "Expected improvement, Round 6: 0.12 points (model, one formulation): the model's "
+        "average gain of one new formulation over the model's best tested formulation, "
+        "counting no gain as zero; under the 1-point noise threshold.")
     # Fix round 1 (ledger ruling C1): above the threshold with no predicted gain.
     # Final review M-2: precise, the number once, and not the same sentence twice.
     progress = W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True)
     assert progress == (
-        "Expected improvement, Round 13: 1.08 points (model, one formulation), above the "
-        "1-point noise threshold; it comes from the model's uncertainty, not from a higher "
-        "predicted score.")
+        "Expected improvement, Round 13: 1.08 points (model, one formulation): the model's "
+        "average gain of one new formulation over the model's best tested formulation, "
+        "counting no gain as zero; above the 1-point noise threshold. It comes from the "
+        "model's uncertainty, not from a higher predicted score.")
     assert progress.count("1.08") == 1
     nxt = W.next_explore(13, 3)
     assert nxt == (
@@ -283,8 +286,8 @@ def test_the_new_lines_from_the_rulings():
         "expected improvement above the noise threshold.")
     # Final review I-1: with no Round open the figure is the next Round's.
     assert W.gain_line("0.37", None, W.beat_by()).startswith(
-        "Expected improvement, next Round: 0.37 points (model, one formulation), under the "
-        "1-point noise threshold.")
+        "Expected improvement, next Round: 0.37 points (model, one formulation): ")
+    assert W.gain_line("0.37", None, W.beat_by()).endswith("under the 1-point noise threshold.")
     assert W.MODEL_SD == "Model sd (points)"                        # final review M-3
     # T56 m3: a machine zero is said as under 0.01 points, with no reading.
     assert W.gain_line_tiny(12, W.beat_by()) == (
@@ -323,7 +326,7 @@ def test_the_t0_review_minors():
     many = W.trust_misses(3, [3, 4, 5], 26, 36, many=True, allowed=4)
     assert many.endswith("the intervals are too narrow for these results.")
     assert "recent" not in many
-    assert "more often than 95 % intervals allow." in W.next_misses([3, 4, 5])
+    assert "more often than 95 % intervals allow:" in W.next_misses([3, 4, 5])
     assert W.details_window([2, 3, 4, 5], 1, [5]).endswith("Verdict: the last Round (Round 5).")
     assert "±7.4 points." in W.repeat_disagrees(21, 11, "10.5", half_text="7.4")
     assert "3 Repeat pairs and it is at least 0.05" in W.HOW_NOISE_THRESHOLD

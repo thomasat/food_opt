@@ -184,7 +184,8 @@ def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
     assert not at.exception
     line = ui_insights.disagreement_text(d)
     assert line == ("Formulation 9, a Repeat of Formulation 3, scored 10.6 points lower. "
-                    "Check the panel, suppliers and equipment for a change.")
+                    "If something changed (panel, supplier, equipment), check it before "
+                    "relying on the next suggestions.")
     assert _md(at).count(line) == 1
 
 

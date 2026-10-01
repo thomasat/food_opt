@@ -153,13 +153,16 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
 
 
 def test_how_says_the_bias_rule_in_plain_words():
-    """Re-review R1: the gap is always shown; "too high" or "too low" only
-    past the yardstick and steady — and the yardstick's true rule."""
+    """Re-review R1, as the 0.8.0 e2e fixes rule it (review B1): every Round
+    checked, the Round as the unit from 4 Rounds, and no advice."""
     assert wording.HOW_BIAS == (
-        "Mean error: the average of measured minus predicted Overall score over the "
-        "verdict's Rounds (formulations with all results in, at least 5). It is reported as a "
-        "bias, with advice, only when its size exceeds the noise threshold and 2 standard "
-        "errors of the mean (2 × SD ÷ √n).")
+        "Mean error: the average of measured minus predicted over every Round checked, for "
+        "the Overall score and each measurement (formulations with all results in, at least "
+        "5). It is a steady bias when its size exceeds the noise threshold (for a measurement, "
+        "its own Repeat SD from 3 pairs, else no floor) and 2 standard errors. From 4 Rounds "
+        "checked, each Round's mean error counts as one value, because a Round's formulations "
+        "sit close together and share the model's error; before that, each formulation "
+        "counts. A steady bias is reported as a fact, with no advice to check the bench.")
     _clean(wording.HOW_BIAS)
 
 

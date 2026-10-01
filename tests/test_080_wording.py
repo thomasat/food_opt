@@ -129,7 +129,12 @@ def test_the_round_sheet_name_is_frozen():
 def test_exact_texts_from_the_spec():
     """Rewritten for the BO-views wave (spec 2026-09-30-bo-views §4, review
     I7): 03-wording-audit.md's texts override the speed spec's §9 B1, M9,
-    I2 and I16 texts."""
+    I2 and I16 texts. Rewritten again for the 0.8.0 e2e fixes (spec
+    2026-10-01 rev. 2, the Overrides clause of review I1): the Repeat row's
+    check is conditional, the bias and misses rows advise no check, the
+    score line names its own Rounds (every Round checked), the 1-point
+    threshold says it is assumed, and the expected improvement is said as
+    the average gain it is."""
     w = wording
     assert w.insights_header_line(24, 6, 1, "Cook loss") == (
         "Based on 24 scored formulations (all results in), up to Round 6. 1 more is waiting "
@@ -147,8 +152,33 @@ def test_exact_texts_from_the_spec():
         "points (measured minus predicted).")
     assert w.repeat_disagrees(21, 11, "10.6", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
-        "equipment for a change.")
+        "interval for the difference of two results is ±7.4 points. If something changed "
+        "(panel, supplier, equipment), check it before relying on the next suggestions.")
+    # Overrides (review I1 rows A1): the score line's window is every Round
+    # checked, named; the bias and misses rows lose their "Check …".
+    assert w.score_gap_line(30, 32, -4.3, rounds=[2, 3, 4, 5, 6, 7]) == (
+        "Overall score, Rounds 2–7: 30 of 32 inside their 95 % interval; mean error −4.3 "
+        "points (measured minus predicted).")
+    assert w.next_bias("4.1", rounds=[3, 4, 5, 6, 7]) == (
+        "Overall-score predictions have run about 4.1 points high (Rounds 3–7).")
+    assert w.next_misses([5, 6, 7]) == (
+        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
+        "intervals allow: the intervals are too narrow here, so new predictions carry more "
+        "error than their intervals show.")
+    # Overrides (review I1 row A4, ruled by B2): the threshold rule is
+    # unchanged; below 3 pairs it says it is assumed.
+    assert w.beat_by(assumed=True) == (
+        "the 1-point noise threshold (assumed: no Repeats yet; a Repeat of Best so far would "
+        "measure it)")
+    assert w.beat_by(assumed=True, pairs=2) == (
+        "the 1-point noise threshold (assumed: 2 pairs of Repeats, 3 needed; a Repeat of Best "
+        "so far would measure it)")
+    # Overrides (review I1 row A5): never "the best single new formulation
+    # beats … by".
+    assert w.gain_line("2.66", None, w.beat_by()) == (
+        "Expected improvement, next Round: 2.66 points (model, one formulation): the model's "
+        "average gain of one new formulation over the model's best tested formulation, "
+        "counting no gain as zero; under the 1-point noise threshold.")
     assert w.stand_best("90.65", 15, 4) == (
         "Best so far: Overall score 90.65, Formulation 15 (Round 4).")
     assert w.stand_not_higher(w.beat_by("1.2"), "90", "86", "94", 18) == (

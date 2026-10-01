@@ -2673,16 +2673,16 @@ def _how(opt, computed):
                      wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS,
                      how_skill_text(),
                      wording.HOW_EXPECTED_IMPROVEMENT,
-                     wording.how_roles(f"{bo_views.POOL_SIZE:,}")):
+                     wording.why_role_rule(values=not opt.has_ingredients(),
+                                           total=bool(opt.formulation_total))):
             if text:
                 st.caption(_say(opt, text))
 
 
-def how_skill_text():
-    """Method and details' skill paragraph, with the no-skill cut and the
-    simulation gate's 10th percentiles by n (fix round 1, T2 I-1)."""
-    gate = ", ".join(f"{n}: {skill_value(v)}" for n, v in sorted(insights.SKILL_GATE_Q10.items()))
-    return wording.how_skill(skill_value(insights.skill_cut(insights.SKILL_MIN)), gate)
+def how_skill_text(settings_only=False):
+    """Method and details' skill paragraph, with the no-skill cut stated
+    plainly (fix round 1, T2 I-1; 0.8.0 e2e fixes D4: no percentile table)."""
+    return wording.how_skill(skill_value(insights.skill_cut(insights.SKILL_MIN)), settings_only)
 
 
 def skill_cell(opt, checks, name):

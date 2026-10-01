@@ -130,9 +130,8 @@ def test_method_and_details_define_the_new_terms(tabs):
     said = [m.value for m in how.markdown] + [c.value for c in how.caption]
     # T0 review I-1: Line A has a Formulation total.
     assert wording.how_checks() in said
-    for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill(
-                     "−0.20", "10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45"),
-                 wording.HOW_EXPECTED_IMPROVEMENT, wording.how_roles("3,000")):
+    for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill("−0.20"),
+                 wording.HOW_EXPECTED_IMPROVEMENT, wording.why_role_rule()):
         assert text in said, text
     assert wording.details_window([2, 3, 4, 5], 3, [3, 4, 5]) in said
 
@@ -145,7 +144,8 @@ def test_line_a_says_the_expected_improvement_of_its_open_round(tabs):
     md, _ = _texts(tabs[demo.LINE_A])
     [line] = [m for m in md if m.startswith("Expected improvement")]
     assert line.startswith("Expected improvement, Round 6: 0.12 points (model, one "
-                           "formulation), under the 1-point noise threshold.")
+                           "formulation): ")
+    assert "; under the 1-point noise threshold." in line
     assert line.endswith("Recomputed from today's records.")
     assert md.index(line) < md.index(f"##### {wording.Q_NEXT}")
 
@@ -185,7 +185,7 @@ def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
                in m for m in md)
     [line] = [m for m in md if m.startswith("Expected improvement")]
     assert line.startswith(f"Expected improvement, Round {opt.pending_batch_no}: ")
-    assert line.endswith("above the 1-point noise threshold; it comes from the model's "
+    assert line.endswith("above the 1-point noise threshold. It comes from the model's "
                          "uncertainty, not from a higher predicted score.")
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
     assert after == wording.next_explore(opt.pending_batch_no, 3)
@@ -345,8 +345,8 @@ def test_a_disagreeing_repeat_names_its_interval():
     d = insights.Disagreement(21, 11, -10.5, 20, 7.4)
     assert ui_insights.disagreement_text(d) == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
-        "interval for the difference of two results is ±7.4 points. Check the panel, suppliers and "
-        "equipment for a change.")
+        "interval for the difference of two results is ±7.4 points. If something changed "
+        "(panel, supplier, equipment), check it before relying on the next suggestions.")
 
 
 def test_the_correlated_pair_carries_its_r(tmp_path, monkeypatch):
