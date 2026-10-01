@@ -184,8 +184,12 @@ def test_the_correction_picker_marks_a_set_aside_formulation_not_scored(one_wait
     one_waiting.set_aside_formulation(4)
     at = _results_tab()
     box = at.selectbox(key="correct_formulation")
-    assert box.options == ["1", "2", wording.not_scored_option(3),
-                           wording.not_scored_option(4)], box.options
+    # As the View formulation box reads them (polish round I8).
+    assert [o.split(" (")[0] for o in box.options] == [
+        "Formulation 1", "Best so far · Formulation 2", "Formulation 3",
+        "Formulation 4"], box.options
+    assert [o.endswith(" · Not scored") for o in box.options] == [
+        False, False, True, True], box.options
     box.set_value(4)
     at.run()
     assert not at.exception

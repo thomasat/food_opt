@@ -119,6 +119,9 @@ FLASH_SLOT = "results_flash"
 # "Change a measurement or an ingredient" scrolls to while a recorded
 # formulation is being corrected (05 I8).
 CORRECTION_SLOT = "results_correction"
+# The "Correct, delete or add past formulations" fold, keyed so the button
+# above can open it (polish round I8).
+EDIT_PAST_KEY = "results_edit_past"
 
 
 def _view_key(opt):
@@ -179,19 +182,9 @@ def _selected_formulation(opt):
             st.session_state.pop(key, None)
     st.session_state[seen] = best_no
 
-    labels = {}
-    for choice in options:
-        number = best_no if choice == BEST_CHOICE else choice
-        index = opt.index_of_formulation(number)
-        skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
-        batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
-        label = wording.result_view_option(
-            number, batch, best=choice == BEST_CHOICE,
-            unscored=index is None or opt.is_set_aside(index))
-        # A formulation still waiting says what for (spec 2026-09-30 §4).
-        if index is not None and not opt.is_set_aside(index) and not opt.fully_measured(index):
-            label = wording.result_view_waiting(label, number_list(opt.waiting_on(index)))
-        labels[choice] = wording.for_project(opt, label)
+    labels = {choice: formulation_option(opt, best_no if choice == BEST_CHOICE else choice,
+                                         best=choice == BEST_CHOICE)
+              for choice in options}
     # The browser keeps the label it was shown for the value it holds: after
     # Move to Not scored the box kept "· waiting for Cook loss" above "Not
     # scored" (answer-key read-through). When the label of the formulation
@@ -208,6 +201,33 @@ def _selected_formulation(opt):
     chosen = st.selectbox(wording.for_project(opt, wording.RESULT_VIEW_LABEL), options,
                           format_func=labels.__getitem__, key=key,
                           help=wording.for_project(opt, wording.RESULT_VIEW_HELP))
+    return best_no if chosen in (None, BEST_CHOICE) else chosen
+
+
+def formulation_option(opt, number, best=False):
+    """How a formulation reads in a picker: number, Round and status
+    ("Best so far · Formulation 2 (Round 1)", "… · Not scored", "… ·
+    waiting for Cook loss"). The View formulation box and the correction
+    picker say it the same way (polish round I8)."""
+    index = opt.index_of_formulation(number)
+    skipped = next((r for r in opt.skipped if int(r['formulation']) == number), {})
+    batch = opt.batch_history[index] if index is not None else skipped.get(ROUND_FIELD)
+    label = wording.result_view_option(
+        number, batch, best=best, unscored=index is None or opt.is_set_aside(index))
+    # A formulation still waiting says what for (spec 2026-09-30 §4).
+    if index is not None and not opt.is_set_aside(index) and not opt.fully_measured(index):
+        label = wording.result_view_waiting(label, number_list(opt.waiting_on(index)))
+    return wording.for_project(opt, label)
+
+
+def _viewed_number(opt):
+    """The formulation the View formulation box is showing, or None."""
+    best = opt.best_index()
+    best_no = int(opt.formulation_ids[best]) if best is not None else None
+    numbers = _all_numbers(opt)
+    if len(numbers) < 2:
+        return numbers[0] if numbers else None
+    chosen = st.session_state.get(_view_key(opt))
     return best_no if chosen in (None, BEST_CHOICE) else chosen
 
 
@@ -904,11 +924,14 @@ def _correct(opt):
     # The label says what picking one DOES; the placeholder says what the box
     # holds. A bare "Formulation" on both left the reader to infer the verb
     # from a heading three rows up.
+    best = opt.best_index()
+    best_no = int(opt.formulation_ids[best]) if best is not None else None
     choice = st.selectbox(
         wording.for_project(opt, wording.CORRECT_WHICH_LABEL), numbers, index=None,
         placeholder=wording.CHOOSE_A_FORMULATION_PLACEHOLDER,
-        format_func=lambda n: (wording.not_scored_option(n)
-                               if n in not_scored or n in set_aside else str(n)),
+        # As the View formulation box reads them (polish round I8), not
+        # bare numbers.
+        format_func=lambda n: formulation_option(opt, n, best=n == best_no),
         key="correct_formulation")
     if not_scored or set_aside:
         # A not-scored number in the list is not a correction, and nothing
@@ -1536,7 +1559,8 @@ def _edit_past(opt, storage):
     if not (opt.X_history or opt.skipped or opt.variables):
         return None
     # Named for all three things it holds (spec 2026-09-30 §9 I13).
-    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FOLD)):
+    with st.expander(wording.for_project(opt, wording.EDIT_PAST_FOLD), key=EDIT_PAST_KEY,
+                     on_change="rerun"):
         # The heading follows the pick: with a not-scored row picked, the
         # section is writing that row's FIRST result, and "Correct" named
         # something there was nothing of yet.
@@ -1617,14 +1641,19 @@ def render(opt, storage):
         if settled and st.button(wording.change_setup_from_results(
                 settings_only=not opt.has_ingredients()),
                                  key="change_setup_from_results", disabled=not lit) and lit:
-            if _correcting(opt, pending):
-                # 05 I8: a recorded formulation is open for correction, so a
-                # measurement to change is one of its values, not Set up's;
-                # and leaving the tab would drop what is typed there.
-                preserve_tab_forms()
-                st.session_state[SCROLL_KEY] = CORRECTION_SLOT
-                st.rerun()
-            go_to_tab(TAB_SETUP)
+            # 02 I8 (05; polish round): a recorded formulation is on
+            # screen, so a measurement to change is one of its values. The
+            # correction fold opens on it, or stays on the one already open
+            # there, and the page goes to it. What is typed in the fold
+            # below is kept.
+            preserve_tab_forms()
+            if not _correcting(opt, pending):
+                number = _viewed_number(opt)
+                if number is not None:
+                    park_clear("correct_formulation", number)
+            park_clear(EDIT_PAST_KEY, True)
+            st.session_state[SCROLL_KEY] = CORRECTION_SLOT
+            st.rerun()
     with foot:
         typed = missing is not None and any(
             st.session_state.get(_missing_key(missing['number'], n)) is not None

@@ -350,12 +350,55 @@ def test_change_while_correcting_goes_to_the_correction(scored):
     assert FoodOptimizer("burger").results_history[1]["Firmness"] == 8.0   # nothing saved
 
 
-def test_change_without_a_correction_still_goes_to_set_up(scored):
+def _correction_fold(at):
+    import ui_results
+    return next(e for e in at.tabs[2].expander
+                if e.label == wording.for_project(FoodOptimizer("burger"),
+                                                  wording.EDIT_PAST_FOLD)), ui_results
+
+
+def test_change_from_the_results_view_opens_the_correction_on_that_formulation(scored):
+    """Polish round I8 (last-fix review R-0): from the plain Results view,
+    with a recorded formulation on screen, the button opens the correction
+    fold on that formulation, not Set up."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
+    best = int(FoodOptimizer("burger").formulation_ids[FoodOptimizer("burger").best_index()])
     _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON).click().run()
-    assert at.session_state["main_tab"] == wording.TAB_SETUP
+    assert not at.exception
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
+    assert at.session_state["correct_formulation"] == best
+    assert f"correct_{best}_Firmness" in [n.key for n in at.number_input]
+    fold, ui_results = _correction_fold(at)
+    assert at.session_state[ui_results.EDIT_PAST_KEY] is True
+    scripts = [h.proto.body for h in at.get("html")]
+    assert any(f".st-key-{ui_results.CORRECTION_SLOT}" in b for b in scripts), scripts
+
+
+def test_change_opens_the_formulation_picked_in_the_view_box(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    at.selectbox(key="result_view_burger").set_value(1).run()
+    _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON).click().run()
+    assert at.session_state["correct_formulation"] == 1
+    assert "correct_1_Firmness" in [n.key for n in at.number_input]
+
+
+def test_the_correction_picker_reads_like_the_view_box(scored):
+    """Number, Round and status, as the View formulation box says them,
+    not bare numbers."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    opt = FoodOptimizer("burger")
+    best = int(opt.formulation_ids[opt.best_index()])
+    want = [wording.result_view_option(n, 1, best=n == best, unscored=n == 3)
+            for n in (1, 2, 3)]
+    assert at.selectbox(key="correct_formulation").options == want
+    view = at.selectbox(key="result_view_burger").options
+    assert set(view) <= set(want), (view, want)
 
 
 # ------------------------------------------------------------------ #

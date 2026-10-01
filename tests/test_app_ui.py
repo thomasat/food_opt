@@ -2904,9 +2904,11 @@ def test_the_results_foot_steps_aside_for_a_confirmation(scored):
     assert foot.proto.type == "secondary" and foot.disabled
 
 
-def test_change_setup_from_results_jumps_to_tab_1(scored):
-    """Directly under the best-so-far block: the one way back to Set up from
-    a formulation on screen, for a range too narrow or a limit too tight."""
+def test_change_setup_from_results_opens_the_correction(scored):
+    """Directly under the best-so-far block. It went to Set up; 02 I8 (and
+    the polish round) found that a reader fixing a typed value wants the
+    correction of the formulation on screen, so it opens that, on this tab
+    (tests/test_106_last_fixes.py)."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     button = _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON)
@@ -2914,7 +2916,8 @@ def test_change_setup_from_results_jumps_to_tab_1(scored):
     button.click()
     at.run()
     assert not at.exception
-    assert at.session_state["main_tab"] == wording.TAB_SETUP
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
+    assert at.session_state["correct_formulation"] is not None
 
 
 def test_change_setup_from_results_steps_aside_for_a_confirmation(scored):
@@ -6863,8 +6866,12 @@ def test_the_correct_picker_offers_not_scored_formulations(scored):
     rest and saying what it is, and the caption says what picking it does."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    # Read as the View formulation box reads them (polish round I8).
+    opt = FoodOptimizer("burger")
+    best = int(opt.formulation_ids[opt.best_index()])
     assert at.selectbox(key="correct_formulation").options == [
-        "1", "2", "3 · Not scored"]
+        wording.result_view_option(n, 1, best=n == best, unscored=n == 3) for n in (1, 2, 3)]
+    assert at.selectbox(key="correct_formulation").options[2].endswith(" · Not scored")
     assert any(c.value == wording.NOT_SCORED_CAN_BE_SCORED_CAPTION
                for c in at.caption), \
         [c.value for c in at.caption]
