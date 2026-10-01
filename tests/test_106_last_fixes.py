@@ -153,3 +153,78 @@ def test_method_and_details_says_the_bias_clause():
     assert wording.HOW_REGRESSION.endswith(
         "by more than the noise threshold, and no steady bias of the Overall score "
         "explains the gap.")
+
+
+# ------------------------------------------------------------------ #
+#  M-7: an unchanged measurements grid leaves the shares alone
+# ------------------------------------------------------------------ #
+
+def _equal_shares_line_a(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(D.LINE_A)
+    opt.set_shares({o['name']: 1.0 for o in opt.objectives})   # 33.333… each
+    return opt
+
+
+def test_saving_the_grid_unchanged_keeps_every_weight_and_score(tmp_path, monkeypatch):
+    """Final review M-7: the save wrote the shown tenths back (33.4 / 33.3 /
+    33.3), every Overall score moved by up to 0.031, and those scores feed
+    the suggestions."""
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    weights = [o['weight'] for o in opt.objectives]
+    scores = list(opt.Y_history)
+    copies = []
+    errors, messages = opt.apply_measurement_grid(opt.measurement_grid_frame(),
+                                                  archive=lambda: copies.append(1))
+    assert errors == [] and messages == [] and copies == []
+    assert [o['weight'] for o in opt.objectives] == weights
+    assert list(opt.Y_history) == scores
+
+
+def test_a_unit_corrected_on_the_grid_keeps_every_weight_and_score(tmp_path, monkeypatch):
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    weights = [o['weight'] for o in opt.objectives]
+    scores = list(opt.Y_history)
+    frame = opt.measurement_grid_frame()
+    frame.loc[frame.index[0], wording.UNIT_LABEL] = "kN"
+    errors, messages = opt.apply_measurement_grid(frame)
+    assert errors == []
+    assert [o['weight'] for o in opt.objectives] == weights
+    assert list(opt.Y_history) == scores
+
+
+def test_a_typed_share_still_rebalances(tmp_path, monkeypatch):
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    frame = opt.measurement_grid_frame()
+    frame.loc[frame.index[0], wording.SHARE_COLUMN] = 50.0
+    errors, _ = opt.apply_measurement_grid(frame)
+    assert errors == []
+    shares = opt.share_percents()
+    assert shares[frame.loc[frame.index[0], wording.MEASUREMENT_COLUMN]] == 50.0
+    assert sum(shares.values()) == pytest.approx(100.0)
+
+
+def test_a_share_typed_back_to_what_was_shown_is_not_a_change(tmp_path, monkeypatch):
+    """Compared with a tolerance: the grid hands back 33.3 as a float that
+    need not be the exact float it was given."""
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    weights = [o['weight'] for o in opt.objectives]
+    frame = opt.measurement_grid_frame()
+    frame.loc[frame.index[1], wording.SHARE_COLUMN] = float(frame.loc[frame.index[1], wording.SHARE_COLUMN]) + 1e-7
+    opt.apply_measurement_grid(frame)
+    assert [o['weight'] for o in opt.objectives] == weights
+
+
+def test_the_app_saves_a_unit_without_moving_any_overall_score(burger):
+    burger.set_shares({'Juiciness': 1.0, 'Firmness': 2.0})     # 33.333 / 66.667
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 6.2, "Firmness": 4.1}, formulation_no=1, batch_no=1)
+    weights = [o['weight'] for o in FoodOptimizer('burger').objectives]
+    scores = list(FoodOptimizer('burger').Y_history)
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    _save_grid(at, MEAS_GRID, edited={0: {wording.UNIT_LABEL: "kN"}})
+    assert not at.exception
+    saved = FoodOptimizer('burger')
+    assert next(o['unit'] for o in saved.objectives if o['name'] == 'Firmness') == "kN"
+    assert [o['weight'] for o in saved.objectives] == weights
+    assert list(saved.Y_history) == scores

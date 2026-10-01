@@ -1141,6 +1141,12 @@ def _what_moved(before, after):
     return moved
 
 
+# A share on the grid is shown and typed to one decimal: anything closer
+# to what was shown than this is the same share handed back, not a typed
+# one (final review M-7).
+SHARE_TOLERANCE = 0.005
+
+
 def _shares_moved(typed, final):
     """True when the column on screen will not come back holding what was
     typed into it."""
@@ -12039,7 +12045,8 @@ class FoodOptimizer:
         typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
         was_called = {spec['name']: spec['id'] or spec['name'] for _, spec in rows}
         moved = {name for name, share in typed.items()
-                 if was_called[name] not in stored or abs(stored[was_called[name]] - share) > 1e-9}
+                 if was_called[name] not in stored
+                 or abs(stored[was_called[name]] - share) > SHARE_TOLERANCE}
         was_showing = {name: float(stored.get(old, 0)) for name, old in was_called.items()}
         weights = self._rebalanced_shares(typed, moved, was_showing)
         # Preserve saved row order for rounding ties, including renamed rows.
@@ -12087,7 +12094,7 @@ class FoodOptimizer:
             # Under the name it is filed under today: a rename moves the
             # results with it, so it recalculates nothing.
             if abs(float(stored.get(spec['id'] or spec['name'], 0))
-                   - float(spec['share_of_score'])) > 1e-9:
+                   - float(spec['share_of_score'])) > SHARE_TOLERANCE:
                 return True
         return False
 
@@ -12245,14 +12252,21 @@ class FoodOptimizer:
             # those, because there was nothing there to leave alone.
             moved = {name for name, share in typed.items()
                      if was_called[name] not in stored_shares
-                     or abs(stored_shares[was_called[name]] - share) > 1e-9}
+                     or abs(stored_shares[was_called[name]] - share)
+                     > SHARE_TOLERANCE}
             # Keyed by the name each row wears NOW, because that is how
             # `typed` is keyed; a renamed row keeps the share it was
             # showing under its old name.
             was_showing = {name: float(stored_shares.get(old, 0.0))
                            for name, old in was_called.items()}
-            self.set_shares(self._rebalanced_shares(typed, moved,
-                                                    was_showing))
+            # Final review M-7: only a share typed (a row added is one) or a
+            # row deleted writes the column. Written back untouched, the
+            # tenths on screen replaced the weights stored (33.333 each
+            # became 33.4 / 33.3 / 33.3) and every Overall score moved,
+            # unannounced, under the suggestions.
+            if moved or deleted:
+                self.set_shares(self._rebalanced_shares(typed, moved,
+                                                        was_showing))
             final = self.share_percents()
             if _shares_moved(typed, final):
                 # Named, not counted: the reader typed one number and two
