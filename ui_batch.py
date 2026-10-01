@@ -605,12 +605,12 @@ def _own_formulation(opt):
             c1, c2 = st.columns(2)
             with c1:
                 if st.button(wording.START_FROM_BEST_SO_FAR, key="start_from_best",
-                             disabled=blocked, use_container_width=True):
+                             disabled=blocked, width="stretch"):
                     _start_from_best(opt, best_no)
             with c2:
                 add = st.button(wording.ADD_TO_THIS_BATCH,
                                 key="add_own_formulation", disabled=blocked,
-                                use_container_width=True)
+                                width="stretch")
         if add:
             _add_own(opt)
 
@@ -902,7 +902,7 @@ def _batch_table(opt, scale_to, tab_open=False):
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
                                column_config=columns,
                                disabled=[c for c in frame if c not in independent],
-                               key=edit_key + "_grid", use_container_width=True)
+                               key=edit_key + "_grid", width="stretch")
         save, cancel = st.columns(2)
         if save.button("Save changes", key=edit_key + "_save", type="primary"):
             changes = {}
@@ -1343,7 +1343,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
         type="primary" if lit else "secondary",
-        use_container_width=True,
+        width="stretch",
         on_click=_sheets_are_out,
         help=wording.for_project(opt, wording.workbook_tabs_help(print_pack)),
     )
@@ -1817,7 +1817,7 @@ def _upload(opt):
             st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
-                             hide_index=True, use_container_width=True)
+                             hide_index=True, width="stretch")
         # The next step once the preview shows (02 M5): lit, and the
         # download steps aside (_downloads, _upload_pending). Not while
         # results are typed into the grid: Save results is lit then.

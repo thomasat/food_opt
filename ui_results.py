@@ -973,10 +973,10 @@ def _save_correction(opt, storage, pending):
                  else wording.SAVE_CORRECTION_BUTTON)
         save = st.button(label, key="save_correction",
                          type="primary" if lit else "secondary",
-                         disabled=not lit, use_container_width=True) and lit
+                         disabled=not lit, width="stretch") and lit
     with b2:
         # The select box cannot be cleared by the user once it holds a value.
-        if st.button(wording.CLOSE_BUTTON, key="done_correcting", use_container_width=True):
+        if st.button(wording.CLOSE_BUTTON, key="done_correcting", width="stretch"):
             _close_correction(opt, choice)
             st.rerun()
     if not save:

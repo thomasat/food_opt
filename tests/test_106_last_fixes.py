@@ -488,3 +488,24 @@ def test_the_untested_band_is_visible_on_the_dark_page(monkeypatch):
     [rect, *_] = ui_insights._untested_layers(alt.Chart())
     mark = rect.to_dict()["mark"]
     assert (mark["color"], mark["opacity"]) == (colour, opacity)
+
+
+# ------------------------------------------------------------------ #
+#  04 M-7: no deprecated use_container_width flooding the log
+# ------------------------------------------------------------------ #
+
+def test_no_screen_uses_the_deprecated_width_flag():
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    users = [p.name for p in sorted(root.glob("*.py"))
+             if "use_container_width" in p.read_text()]
+    assert users == []
+
+
+def test_a_run_logs_no_width_deprecation(open_batch, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+        at.number_input(key='f1_Firmness').set_value(6).run()
+    assert not at.exception
+    assert not [r for r in caplog.records if "use_container_width" in r.getMessage()]

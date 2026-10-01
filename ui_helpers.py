@@ -288,9 +288,9 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     c1, c2 = st.columns(2)
     with c1:
         confirmed = st.button(confirm_label, key=f"{key}__yes", type="primary",
-                              use_container_width=True)
+                              width="stretch")
     with c2:
-        if st.button(wording.CANCEL, key=f"{key}__no", use_container_width=True):
+        if st.button(wording.CANCEL, key=f"{key}__no", width="stretch"):
             st.session_state[pending_key] = False
             st.session_state.pop(ARMED_KEY, None)
             if preserve:

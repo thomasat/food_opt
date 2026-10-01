@@ -718,7 +718,7 @@ with st.sidebar:
                     # A confirmation is the one thing to do while it is on
                     # screen, so it is lit — like every confirm_action.
                     if st.button(wording.YES_REPLACE, type="primary",
-                                 use_container_width=True):
+                                 width="stretch"):
                         # Constructing FoodOptimizer below would re-stamp the
                         # shared _seen entry from the current file, so the
                         # stale check must happen first, against what THIS
@@ -765,7 +765,7 @@ with st.sidebar:
                                         new_opt.project_name, archived))
                                     st.rerun()
                 with rc2:
-                    if st.button(wording.CANCEL, use_container_width=True, key="restore_cancel"):
+                    if st.button(wording.CANCEL, width="stretch", key="restore_cancel"):
                         st.session_state.pop("_restore_candidate", None)
                         # This rerun never reaches the tabs; without this the
                         # forms on them would come back empty.
@@ -831,10 +831,10 @@ if getattr(st.session_state.optimizer, "save_error", None):
         st.download_button(wording.SAVE_COPY_NOW,
                            data=json.dumps(_err_opt.export_json(), indent=2),
                            file_name=f"{_err_opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
-                           mime="application/json", use_container_width=True,
+                           mime="application/json", width="stretch",
                            key="download_after_save_error")
     with b2:
-        if st.button(wording.RELOAD_PROJECT, key="reload_after_save_error", use_container_width=True):
+        if st.button(wording.RELOAD_PROJECT, key="reload_after_save_error", width="stretch"):
             st.session_state.pop("optimizer", None)
             st.session_state.pop("current_batch", None)
             flash("info", wording.PROJECT_RELOADED)

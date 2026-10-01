@@ -531,10 +531,10 @@ def _save_and_discard(key, grid, lit):
         save = st.button(wording.SAVE_CHANGES_BUTTON, key=f"{key}__save",
                          type="primary" if lit else "secondary",
                          disabled=confirmation_open(),
-                         use_container_width=True)
+                         width="stretch")
     with b2:
         if st.button(wording.DISCARD_CHANGES_BUTTON, key=f"{key}__discard",
-                     use_container_width=True):
+                     width="stretch"):
             _discard_grid(grid)
     return save
 
@@ -586,7 +586,7 @@ def _variables(opt, storage):
                      [c for c in saved.columns if c not in hidden + (wording.NAME_LABEL,
                       wording.FORMULA_LABEL, wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
                       wording.UNIT_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL)],
-        use_container_width=True,
+        width="stretch",
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     edited = calculation_editor.canonical_frame(edited, opening)
     slot = st.empty()            # where a refused Save writes its rows
@@ -1057,7 +1057,7 @@ def _premix_grid(opt, storage, name):
         st.caption(wording.EDITABLE_TABLE_HELP)
         edited = st.data_editor(
             display, key=grid_key(grid), num_rows="dynamic",
-            column_config=config, use_container_width=True,
+            column_config=config, width="stretch",
             height=table_height(max(len(saved) + 1, 2), max_rows=20))
         if amount_entry:
             shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
@@ -1362,14 +1362,14 @@ def _targets_source_contents(opt):
         b1, b2 = st.columns(2)
         with b1:
             if st.button(wording.SAVE_BUTTON, key="save_targets_source",
-                         use_container_width=True):
+                         width="stretch"):
                 opt.set_targets_source(text)
                 if saved_ok(opt):
                     st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
                     st.rerun()
         with b2:
             if st.button(wording.CANCEL, key="cancel_targets_source",
-                         use_container_width=True):
+                         width="stretch"):
                 st.session_state.pop(_TARGETS_SOURCE_OPEN, None)
                 st.session_state.pop(_TARGETS_SOURCE_BOX, None)
                 st.rerun()
@@ -1485,7 +1485,7 @@ def _measurements(opt, storage):
                       wording.TARGET_LABEL, wording.SHARE_COLUMN,
                       wording.UNIT_LABEL, wording.LOWEST_MEASURABLE_LABEL,
                       wording.HIGHEST_MEASURABLE_LABEL],
-        column_config=_measurement_columns(), use_container_width=True,
+        column_config=_measurement_columns(), width="stretch",
         height=table_height(max(len(saved) + 1, 2), max_rows=20))
     preview = opt.preview_measurement_shares(edited)
     if preview:
@@ -1737,7 +1737,7 @@ def _properties(opt, storage):
         edited = st.data_editor(
             opening, key=grid_key(PROP_GRID_KEY), num_rows="fixed",
             column_config=_property_columns(properties),
-            use_container_width=True,
+            width="stretch",
             height=table_height(max(len(saved), 1), max_rows=20))
         slot = st.empty()
         _grid_errors(slot, _PROP_ERRORS)
@@ -2133,13 +2133,13 @@ def render(opt, storage):
         help_col, import_col = st.columns(2)
         with help_col:
             if opt.has_ingredients():
-                with st.popover(wording.RULE_GUIDE_LABEL, use_container_width=True):
+                with st.popover(wording.RULE_GUIDE_LABEL, width="stretch"):
                     st.markdown(wording.RULE_GUIDE)
                     with st.expander(wording.CALCULATION_SYNTAX_LABEL):
                         st.markdown(wording.CALCULATION_SYNTAX_DETAILS)
         with import_col:
             lit = empty and not confirmation_open() and not pending
-            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, use_container_width=True,
+            with st.popover(wording.UPLOAD_INGREDIENTS_EXPANDER, width="stretch",
                             type="primary" if lit else "secondary"):
                 _upload_ingredients(opt)
     _advanced(opt)
