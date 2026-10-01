@@ -666,3 +666,125 @@ def test_03_clean_says_its_bias_both_ways_without_advice(project):
     line = ui_insights.steady_bias_text(opt, checks)
     assert line.startswith("Predictions have run high: Crumbliness")
     assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")
+
+
+# ------------------------------------------------------------------ #
+#  I6 (A5): the expected-improvement sentence names its reference
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("acquisition,ref", [
+    (None, "the model's best tested formulation"),
+    ("qlogei", "Best so far's measured {best}")])
+def test_the_expected_improvement_is_an_average_gain_over_its_reference(
+        monkeypatch, acquisition, ref):
+    """Review I6: under qLogNEI (the default) the reference is the model's
+    best tested formulation; under qLogEI, Best so far's measured score.
+    Never "the best single new formulation beats … by"."""
+    import bo_views
+    opt = _patty(rows=6)
+    if acquisition:
+        opt.bo_config = {"acquisition": acquisition}
+    monkeypatch.setattr(insights, "skill_gate", lambda o, c, fact=None: None)
+    monkeypatch.setattr(ui_insights, "latest_gain", lambda *a, **k: bo_views.RoundGain(
+        None, 80.0, None, 2.66, True, None))
+    yard = insights.noise_yardstick(opt)
+    got = ui_insights.gain_text(opt, {"checks": [], "fitted": {}}, yard)
+    best = f"{opt.Y_history[opt.best_index()]:.2f}"
+    assert got == wording.gain_line("2.66", None, wording.beat_by(), above=True,
+                                    measured_text=best if acquisition else None)
+    assert ref.format(best=best) in got and "counting no gain as zero" in got
+    assert "beats" not in got
+
+
+# ------------------------------------------------------------------ #
+#  The tab itself, on the campaign's projects
+# ------------------------------------------------------------------ #
+
+@pytest.fixture(scope="module")
+def tabs(tmp_path_factory):
+    """02 after Round 3, 02 final (also with Method and details open) and
+    03 drift, each opened on Insights as the app opens a saved project."""
+    import os
+
+    import bo_views
+    from streamlit.testing.v1 import AppTest
+
+    from food_bo import FoodOptimizer
+    from tests.test_app_ui import APP_PATH
+
+    def install(name):
+        state = E.state(name)
+        opt = FoodOptimizer(state["project_name"])
+        opt.import_json(state)
+        opt.save()
+        return opt.project_name
+
+    def open_tab(project, fold=None):
+        at = AppTest.from_file(APP_PATH, default_timeout=300)
+        at.session_state["_loaded_project"] = project
+        at.run()
+        at.session_state["main_tab"] = wording.TAB_INSIGHTS
+        if fold is not None:
+            at.session_state[fold] = True
+        at.run()
+        assert not at.exception
+        return at
+
+    here = os.getcwd()
+    os.chdir(tmp_path_factory.mktemp("w1tabs"))
+    try:
+        with bo_views.fresh():
+            out = {}
+            for name in (E.PATTY_ROUND3, E.PATTY, E.BAR_DRIFT):
+                out[name] = open_tab(install(name))
+            out["02 how"] = open_tab(install(E.PATTY), ui_insights.HOW_KEY)
+            yield out
+    finally:
+        os.chdir(here)
+
+
+def _tab_texts(at):
+    tab = at.tabs[3]
+    return [m.value for m in tab.markdown] + [c.value for c in tab.caption]
+
+
+def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
+    texts = _tab_texts(tabs[E.PATTY_ROUND3])
+    said = " ".join(texts)
+    assert said.count("(assumed:") == 1, said
+    assert any(t.startswith("Rising: up 6.3 points in the last Round, above the 1-point noise "
+                            "threshold (assumed: no Repeats yet;") for t in texts)
+    nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
+    assert nxt.endswith(wording.NEXT_REPEAT_TO_MEASURE)
+    # Fewer than 10 checks: effects and the expected improvement wait.
+    assert wording.gain_unreliable(wording.gain_reason_too_few(4)) in texts
+
+
+def test_the_02_final_tab_states_its_bias_and_never_says_check(tabs):
+    texts = _tab_texts(tabs[E.PATTY])
+    assert "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)." in texts
+    said = " ".join(texts)
+    assert wording.CHECK_IF_CHANGED not in said and "Check the panel" not in said
+    nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
+    assert nxt.startswith("Measured values in Rounds 6–8 fell outside")
+    assert nxt.endswith("Overall-score predictions have run about 3.7 points high (Rounds 3–8).")
+    assert wording.gain_unreliable(wording.GAIN_REASON_VERDICT) in texts
+
+
+def test_the_drift_tab_makes_no_causal_claim(tabs):
+    said = " ".join(_tab_texts(tabs[E.BAR_DRIFT]))
+    assert wording.CHECK_IF_CHANGED not in said and "panel" not in said
+
+
+def test_the_02_method_and_details(tabs):
+    at = tabs["02 how"]
+    how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    said = [c.value for c in how.caption] + [m.value for m in how.markdown]
+    for want in (wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT, wording.HOW_FITTED_NOISE,
+                 wording.how_models()):
+        assert want in said, want
+    frame = how.dataframe[0].value
+    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
+    score = frame.iloc[-1]
+    assert score[wording.MEAN_ERROR_COLUMN] == "−3.7 (bias)"
+    assert score[wording.FITTED_NOISE_COLUMN] not in ("", wording.FITTED_NOISE_FIXED)
