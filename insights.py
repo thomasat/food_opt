@@ -697,6 +697,23 @@ def steady_bias(opt, checks, flagged=None):
     return out
 
 
+def score_steady_bias(opt, checks, flagged=None):
+    """The Overall score's steady bias alone (steady_bias's rule and
+    inputs), or None: measured minus predicted, so above 0 the
+    predictions ran low. Final review I-1: Progress's luck line reads
+    against it."""
+    if not checks:
+        return None
+    record = error_record(checks, SCORE)
+    if record is None:
+        return None
+    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
+    without = () if not flagged else (flagged.row,)
+    matches = _matches(opt, [i for i in range(len(opt.Y_history))
+                             if opt.fully_measured(i)])
+    return bias_gap(record, _noise_floor(opt, SCORE, matches, without))
+
+
 def wide_ranges(opt, checks):
     """The outputs among `checks` whose typical likely range is wide: a
     median half-width over WIDE of the output's Range (0 to the ceiling for
@@ -1915,11 +1932,15 @@ class Standing:
                             # by more than the yardstick
 
 
-def best_standing(opt, best, yardstick):
+def best_standing(opt, best, yardstick, score_bias=None):
     """The predicted best against Best so far (review I7): like with like,
     its mean against Best so far's predicted Repeat (the measured score
     when there is none), judged by `yardstick` (points) — and, as shown,
-    above Best so far's measured score by more than the yardstick too."""
+    above Best so far's measured score by more than the yardstick too.
+    `score_bias`: the Overall score's steady bias (score_steady_bias). When
+    predictions run low by at least the gap between the measured score and
+    its predicted Repeat, the gap is the model's, not chance, and there is
+    no luck line (final review I-1)."""
     top = opt.best_index()
     measured_top = None if top is None else float(opt.Y_history[top])
     ref = best.repeat.mean if best.repeat is not None else measured_top
@@ -1935,7 +1956,9 @@ def best_standing(opt, best, yardstick):
     # that reads higher than the score.
     luck = (best.repeat is not None and measured_top is not None
             and best.repeat.mean < measured_top - yardstick
-            and round(best.repeat.mean) < round(measured_top, 2))
+            and round(best.repeat.mean) < round(measured_top, 2)
+            and not (score_bias is not None and score_bias > 0
+                     and score_bias >= measured_top - best.repeat.mean))
     close_no = None if best.close is None else int(opt.formulation_ids[best.close])
     return Standing(best, higher, best.close is not None, close_no,
                     binding_limits(opt, best.recipe), luck)

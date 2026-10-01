@@ -1943,6 +1943,17 @@ def standing_text(opt, standing, yard):
     return wording.stand_not_higher(by, mean, low, high, standing.close_no, values=values)
 
 
+def standing_for(opt, best, checks, yard):
+    """Progress's Standing. The luck line is read against the Overall
+    score's steady bias, worked out only when there is a luck line to
+    read (final review I-1)."""
+    standing = insights.best_standing(opt, best, yard.value)
+    if standing.luck:
+        standing = insights.best_standing(
+            opt, best, yard.value, score_bias=insights.score_steady_bias(opt, checks))
+    return standing
+
+
 def _stand(opt, computed, yard, spinner=True):
     """Answer 2 after line 1 (render draws that first, §2.3, review I15):
     the predicted best against Best so far (line 2), what it sits at (line
@@ -1962,7 +1973,7 @@ def _stand(opt, computed, yard, spinner=True):
     if best is _FAILED:
         st.caption(_say(opt, wording.BEST_FAILED))
         return None
-    standing = insights.best_standing(opt, best, yard.value)
+    standing = standing_for(opt, best, computed["checks"], yard)
     st.write(_say(opt, standing_text(opt, standing, yard)))
     if standing.binding:
         st.write(_say(opt, wording.stand_limits([binding_text(b) for b in standing.binding])))

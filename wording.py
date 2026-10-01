@@ -4063,7 +4063,7 @@ HOW_REGRESSION = ("Regression to the mean: Best so far is the highest of the mea
                   "scores, so its own noise is more often above zero than below. A Repeat of it "
                   "is predicted by the Overall-score model at its amounts. Progress gives that "
                   "prediction when it is below the measured score by more than the noise "
-                  "threshold.")
+                  "threshold, and no steady bias of the Overall score explains the gap.")
 
 
 def how_checks(values=False, total=True):

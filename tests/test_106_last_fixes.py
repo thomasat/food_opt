@@ -76,3 +76,80 @@ def test_deleting_a_measurement_nobody_typed_says_nothing_more(open_batch):
     said = [s.value for s in at.success] + [i.value for i in at.info]
     assert not any("typed for" in s for s in said), said
     assert at.number_input(key='f1_Firmness').value == 6
+
+
+# ------------------------------------------------------------------ #
+#  I-1: no luck line when the Overall score's steady bias explains it
+# ------------------------------------------------------------------ #
+
+import pytest  # noqa: E402
+
+import insights  # noqa: E402
+import ui_insights  # noqa: E402
+from tests import demo_projects as D  # noqa: E402
+from tests import e2e_fixtures as E  # noqa: E402
+
+NOISY_RECOMMENDED = "03_bar_noisy (Recommended)"
+
+
+def _load(name):
+    if name == NOISY_RECOMMENDED:
+        return E.load(E.BAR_NOISY, recommended=True)
+    if name in E.NAMES:
+        return E.load(name)
+    return D.load(name)
+
+
+@pytest.fixture(scope="module")
+def standing_of():
+    """name -> (plain luck, the screen's Standing, the Overall score's
+    steady bias), fitted once per project."""
+    seen = {}
+
+    def get(name):
+        if name not in seen:
+            opt = _load(name)
+            checks = insights.check_rounds(opt)
+            yard = insights.noise_yardstick(opt, checks)
+            score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
+            best = insights.predicted_best(opt, {insights.SCORE: score}, checks)
+            plain = insights.best_standing(opt, best, yard.value)
+            seen[name] = (plain.luck, ui_insights.standing_for(opt, best, checks, yard),
+                          insights.score_steady_bias(opt, checks), opt, best)
+        return seen[name]
+    return get
+
+
+def test_03_clean_has_no_luck_line_its_steady_bias_explains_the_gap(standing_of):
+    """Final review I-1: predictions of the Overall score run 2.1 points low
+    (Rounds 3–8), and F23's predicted Repeat is 1.6 below its measured
+    91.69. The gap is the model's bias, not chance."""
+    plain, standing, bias, opt, best = standing_of(E.BAR_CLEAN)
+    assert plain                      # what the screen said before
+    assert bias == pytest.approx(2.13, abs=0.01)
+    top = float(opt.Y_history[opt.best_index()])
+    assert 0 < top - best.repeat.mean <= bias
+    assert not standing.luck
+
+
+@pytest.mark.parametrize("name", [D.LINE_B, D.TIMING, NOISY_RECOMMENDED])
+def test_the_luck_line_stays_where_no_bias_explains_it(standing_of, name):
+    plain, standing, bias, opt, best = standing_of(name)
+    assert plain and standing.luck, (name, bias)
+
+
+def test_a_low_bias_smaller_than_the_gap_keeps_the_luck_line(standing_of):
+    plain, standing, bias, opt, best = standing_of(E.BAR_CLEAN)
+    top = float(opt.Y_history[opt.best_index()])
+    gap = top - best.repeat.mean
+    yard = insights.noise_yardstick(opt, insights.check_rounds(opt)).value
+    assert insights.best_standing(opt, best, yard, score_bias=gap - 0.01).luck
+    assert not insights.best_standing(opt, best, yard, score_bias=gap).luck
+    # A bias the other way (predictions run high) explains nothing here.
+    assert insights.best_standing(opt, best, yard, score_bias=-5.0).luck
+
+
+def test_method_and_details_says_the_bias_clause():
+    assert wording.HOW_REGRESSION.endswith(
+        "by more than the noise threshold, and no steady bias of the Overall score "
+        "explains the gap.")
