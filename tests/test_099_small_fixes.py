@@ -171,7 +171,7 @@ def test_the_new_lines_pass_the_guards():
     from tests.test_090_wording import _STYLE
     from tests.test_food_bo import _BANNED
     lines = [wording.best_luck(11, "84", "62", "100", "90.09"), wording.HOW_REGRESSION,
-             wording.WHY_REFERENCE, wording.why_chart_caption("3,000")]
+             wording.WHY_REFERENCE, wording.why_chart_caption("3,000"), wording.WHY_CHECKING]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
     assert [t for t in lines if any(p.search(t) for p in _STYLE)] == []
     assert [t for t in lines if t.count("—") > 1] == []
@@ -188,3 +188,73 @@ def test_method_and_details_says_the_term():
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
     assert wording.HOW_REGRESSION in [m.value for m in how.markdown]
+
+
+# ------------------------------------------------------------------ #
+#  3. The Why fold never shows roles it later withdraws (item 8)
+# ------------------------------------------------------------------ #
+
+class _Stuck:
+    """A pool whose workers never answer: the screens wait for them."""
+
+    broken = False
+
+    def submit(self, priority, request):
+        return cf.Future()
+
+    def idle(self):
+        return False
+
+
+def _workers(monkeypatch, pool):
+    monkeypatch.setattr(insights_jobs, "workers_on", lambda: pool is not None)
+    monkeypatch.setattr(insights_jobs, "pool", lambda: pool)
+
+
+def _seed(at, opt, stage):
+    """This session's memo holding exactly what `stage` needs."""
+    memo = {}
+    specs = insights_jobs.stage_specs(opt, insights_jobs.plan(opt), stage)
+    insights_jobs.compute_inline(opt, memo, specs)
+    at.session_state[ui_insights.MEMO_KEY] = (opt.project_name, memo)
+
+
+def _columns(at):
+    return [list(d.value.columns) for d in _fold(at).dataframe]
+
+
+def test_line_b_opened_before_the_checks_says_why_and_shows_no_roles(monkeypatch):
+    """Line B opened on Make a round while the workers have the Overall
+    score's models but not the verdict's: the fold says the Prediction
+    check is still being calculated and shows no role or expected
+    improvement; once the checks are in it gives the verdict's reason. At
+    no point does it show a role (the headless reading saw all four
+    'refines the best', withdrawn once the checks landed)."""
+    _workers(monkeypatch, _Stuck())
+    opt = _install(demo.LINE_B)
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.session_state["_loaded_project"] = opt.project_name
+    at.run()
+    _seed(at, opt, "column")
+    at.session_state[ui_batch.WHY_KEY] = True
+    _rerun(at)
+    captions = [c.value for c in _fold(at).caption]
+    assert wording.WHY_CHECKING in captions
+    assert all(wording.ROLE not in cols and wording.EXPECTED_IMPROVEMENT not in cols
+               for cols in _columns(at))
+    _seed(at, opt, "all")
+    _rerun(at)
+    captions = [c.value for c in _fold(at).caption]
+    assert wording.why_guard_line(verdict=True) in captions
+    assert wording.WHY_CHECKING not in captions
+    assert all(wording.ROLE not in cols for cols in _columns(at))
+
+
+def test_without_workers_the_open_fold_works_out_its_own_checks():
+    """No workers (or they failed): the open fold calculates the checks the
+    withhold rule reads, so Line B says the verdict's reason at once."""
+    opt = _install(demo.LINE_B)
+    at = _app(opt.project_name)
+    captions = [c.value for c in _fold(at).caption]
+    assert wording.why_guard_line(verdict=True) in captions
+    assert all(wording.ROLE not in cols for cols in _columns(at))

@@ -5111,6 +5111,12 @@ def why_guard_line(reasons=(), skill_only=False, verdict=False):
             f"results ({'; '.join(reasons)}).")
 
 
+# The Why fold opened before the checks its withhold rule reads are in
+# (answer-key refresh item 8): nothing is shown that might be withdrawn.
+WHY_CHECKING = ("Expected improvement and roles are not shown until the Prediction check is "
+                "calculated.")
+
+
 PATH_GUARD = "The curve's bends are not reliable: the model is fitting noise in these results."
 PATH_GUARD_SKILL = ("The curve's bends are not reliable: Round-ahead predictions do not beat "
                     "the average of earlier results yet.")

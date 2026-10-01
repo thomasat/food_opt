@@ -477,6 +477,20 @@ def checks_for(opt, stage):
     return _partial_checks(opt, stage)
 
 
+def checks_here(opt):
+    """The checks "trust" needs, fitted in this process: for a screen that
+    must have them now when there are no workers (or they failed) — Make a
+    round's Why fold, opened before Insights (answer-key refresh item 8).
+    Every check when the verdict's Rounds come out short of plan."""
+    mem, specs = memo(opt), _plan(opt)
+    insights_jobs.compute_inline(opt, mem, insights_jobs.stage_specs(opt, specs, "trust"))
+    checks = _partial_checks(opt, "trust")
+    if checks is None:
+        insights_jobs.compute_inline(opt, mem, specs)
+        checks = _partial_checks(opt, "trust")
+    return checks or ()
+
+
 def save(opt):
     """Write what is worked out for this project's data beside the project:
     its fitted models, its Round checks and its predicted best, pruned to

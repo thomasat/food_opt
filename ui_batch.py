@@ -1007,11 +1007,21 @@ _ROLE_WORDS = {"refines": wording.ROLE_REFINES, "balanced": wording.ROLE_BALANCE
 
 
 def _why_models(opt):
-    """(the current Overall-score model, the checks) for the guard, from
-    what Make a round's column already has."""
+    """(the current Overall-score model, the checks) for the withhold rule,
+    from what Make a round's column already has. The checks are None
+    while the workers are still fitting them: the fold then shows no role
+    and no expected improvement, so it never shows one it withdraws once
+    they land (answer-key refresh item 8). Without workers (or after they
+    failed) the open fold fits them here."""
     got = ui_insights.column_models(opt)
     models = (got or (None, None))[0] or {}
-    return models.get(insights.SCORE), ui_insights.checks_for(opt, "trust") or ()
+    checks = ui_insights.checks_for(opt, "trust")
+    if checks is None and not ui_insights.waiting(opt, "trust"):
+        try:
+            checks = ui_insights.checks_here(opt)
+        except Exception:      # still not known: said as withheld, never a traceback
+            checks = None
+    return models.get(insights.SCORE), checks
 
 
 def _best_repeat(opt, score):
@@ -1109,8 +1119,6 @@ def _why_these(opt, preds):
                      on_change="rerun") as fold:
         if not fold.open:
             return
-        score, checks = _why_models(opt)
-        ref = _best_repeat(opt, score)
         with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
             try:
                 # The memo: a recomputed Round's display model is rebuilt
@@ -1119,21 +1127,30 @@ def _why_these(opt, preds):
                     why = bo_views.why(opt, None)
             except Exception:
                 why = None
+            if why is not None and not why.cold:
+                score, checks = _why_models(opt)
         if why is None:
             st.caption(wording.for_project(opt, wording.WHY_FAILED))
             return
         if why.cold:
             st.caption(wording.for_project(opt, wording.why_cold(not opt.has_ingredients())))
             return
-        # Withheld by the rule Progress uses for its expected improvement, and
-        # said with the same reason (T47 review minor 5; fix round 1).
-        reason = ui_insights.withheld(opt, score, checks)
-        hide = reason is not None
-        if hide:
-            guard = insights.noise_guard(opt, score, checks)
-            st.caption(wording.for_project(opt, wording.why_guard_line(
-                [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
-                skill_only=reason == "skill", verdict=reason == "verdict")))
+        ref = _best_repeat(opt, score)
+        if checks is None:
+            # Not known yet: shown as withheld until it is (item 8).
+            hide = True
+            st.caption(wording.for_project(opt, wording.WHY_CHECKING))
+        else:
+            # Withheld by the rule Progress uses for its expected
+            # improvement, and said with the same reason (T47 review
+            # minor 5; fix round 1).
+            reason = ui_insights.withheld(opt, score, checks)
+            hide = reason is not None
+            if hide:
+                guard = insights.noise_guard(opt, score, checks)
+                st.caption(wording.for_project(opt, wording.why_guard_line(
+                    [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
+                    skill_only=reason == "skill", verdict=reason == "verdict")))
         frame, value_col = why_frame(opt, why, preds, hide=hide)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
