@@ -666,11 +666,23 @@ def latest_gain(opt, fitted=None):
     return None if r is None else round_gain(opt, r, fitted, highest=False)
 
 
+def next_model(opt):
+    """The suggestion model the next Generate fits, rebuilt exactly as an
+    exact Round is (fit_default under RNG_LOCK): today's fully measured rows
+    as the model learns them (model_X), the seed ask() will use
+    (next_formulation_no), botorch's default fit. None while cold. So the
+    figure before Generate and the one Generate records come from one
+    model (final review I-1, coordinator ruling)."""
+    rows = _complete_rows(opt)
+    regime = "warm" if opt.complete_count() >= COLD_START_RUNS else "cold"
+    return rebuild(opt, Generation(None, int(opt.next_formulation_no), rows, regime, True))
+
+
 def next_gain(opt, model):
     """§3.2's figure with no Round open (final review I-1): the largest
     expected improvement over the allowed pool under `model`, the
-    suggestion model the next Generate would fit (ui_insights.layer_model:
-    today's rows, the next seed), as RoundGain(None, …). A Round already
+    suggestion model the next Generate fits (next_model), as
+    RoundGain(None, …). A Round already
     made is history, in round_history; its figure was for formulations
     since measured. None without a pool or a model."""
     rows = _complete_rows(opt)

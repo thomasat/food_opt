@@ -230,10 +230,12 @@ def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
     assert after.startswith("Within these ingredients and limits, no predicted gain exceeds "
                             "the noise threshold.")
-    # The figure is the pool's largest under today's suggestion model.
-    with bo_views.fresh(), insights.memo_in_use({}):
-        model = ui_insights.layer_model(opt, None)
+    # The figure is the pool's largest under the model the next Generate
+    # fits (botorch's default fit, the next seed: coordinator ruling).
+    with bo_views.fresh():
+        model = bo_views.next_model(opt)
         want = float(bo_views.evaluate(opt, model, bo_views.feasible_pool(opt)).value.max())
+    assert at.session_state[ui_insights.GAIN_KEY][1].gain == pytest.approx(want, abs=1e-9)
     assert line.startswith(f"Expected improvement, next Round: {want:.2f} points")
     # Round 13's own figure stays as history, in Expected improvement by Round.
     with insights.memo_in_use({}):

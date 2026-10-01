@@ -1743,7 +1743,8 @@ def latest_gain(opt, fit=True):
     """§3.2's figure once per _gain_key (the data, the open Round and its
     record): the open Round's own (bo_views.latest_gain); with no Round
     open, the next Round's from today's rows (bo_views.next_gain under
-    layer_model, final review I-1), worked out here under the lock. `fit`
+    bo_views.next_model, the default fit ask() makes, final review I-1),
+    worked out here under the lock. `fit`
     False (Make a round's E3): only what is already worked out; None, not
     stored, otherwise."""
     key = _gain_key(opt)
@@ -1758,7 +1759,7 @@ def latest_gain(opt, fit=True):
             if opt.pending_batch and opt.pending_batch_no is not None:
                 g = bo_views.latest_gain(opt)
             else:
-                g = bo_views.next_gain(opt, layer_model(opt, None))
+                g = bo_views.next_gain(opt, bo_views.next_model(opt))
     except Exception:
         g = None
     st.session_state[GAIN_KEY] = (key, g)

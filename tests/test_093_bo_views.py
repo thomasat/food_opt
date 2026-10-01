@@ -475,3 +475,34 @@ def test_a_display_model_of_other_rows_is_not_used():
     assert wrong.n_rows != len(gen.rows)
     model = bo_views.rebuild(opt, gen, wrong)
     assert model.gp is not wrong.model and model.X.shape[0] == len(gen.rows)
+
+
+
+def test_the_next_rounds_figure_uses_the_model_generate_records():
+    """Final review I-1, coordinator ruling: with no Round open, the figure
+    is worked out on the very model the next Generate fits (botorch's
+    default fit, the next seed, today's rows via model_X). On the Timing
+    check, Round 13's pick 1 valued on the model built BEFORE Generate is
+    its recorded figure after Generate, to 1e-6.
+
+    The two headline figures still differ (0.98 against 1.08): before
+    Generate it is the largest over the 3,000 sampled allowed
+    formulations; Generate's pick 1 comes from optimize_acqf's continuous
+    search for a q = 3 batch, a point the sample does not hold. Same model,
+    different points."""
+    import ui_batch
+    opt = demo.load(demo.TIMING)
+    before = bo_views.next_model(opt)
+    assert before.exact and before.gen.seed == opt.next_formulation_no
+    ahead = bo_views.next_gain(opt, before)
+    ui_batch.ask_alone(opt, n_suggestions=3)
+    after = bo_views.latest_gain(opt)
+    assert after.exact and after.round == opt.pending_batch_no
+    pick1 = insights.at_total(opt, opt.pending_batch[0]["recipe"])
+    on_before = float(bo_views.evaluate(opt, before, bo_views.points(opt, [pick1])).value[0])
+    assert on_before == pytest.approx(after.gain, abs=1e-6)
+    built = bo_views.rebuild(opt, bo_views.generation(opt, opt.pending_batch_no))
+    assert all(torch.equal(a, b) for a, b in zip(before.gp.state_dict().values(),
+                                                 built.gp.state_dict().values()))
+    assert ahead.gain == pytest.approx(0.98, abs=0.02) and after.gain == pytest.approx(
+        1.08, abs=0.02)
