@@ -17,6 +17,18 @@ TIMING = "Timing check - 60 formulations"
 # build_upgrade.py): 2 Round-ahead checks, so the A3 gate holds (polish
 # round, read-through item 2).
 UPGRADE = "Upgrade check - patty 0.7"
+# Insights for a first-time user (spec 2026-10-01 rev. 2, review I17, R-I17):
+# the Snack bar (3 scored, Round 1 only: every gate line), copied unchanged
+# from docs/usability/0.8.0-demo/projects, and a study of process settings
+# alone, built once by tests/process_only_fixture.py (Rounds 5, 4, 4, 4, 3
+# with a Repeat of Best so far in Round 5; Round 6 open, 4 generated picks,
+# with their generation records).
+SNACK = "Snack bar - first round"
+PROCESS_ONLY = "Oven trial - process settings"
+# The six demo projects the first screen is pinned on, then the
+# process-only one, in the order the review's tables list them.
+SIX = (SNACK, LINE_A, LINE_B, LINE_C, UPGRADE, TIMING)
+ALL = (*SIX, PROCESS_ONLY)
 
 
 def load(name):

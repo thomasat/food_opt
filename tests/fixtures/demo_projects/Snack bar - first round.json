@@ -1,0 +1,171 @@
+{
+  "project_name": "Snack bar - first round",
+  "variables": [
+    {
+      "name": "Oat flour",
+      "type": "continuous",
+      "bounds": [
+        20.0,
+        40.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Honey",
+      "type": "continuous",
+      "bounds": [
+        5.0,
+        15.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Water",
+      "type": "continuous",
+      "bounds": [
+        0.0,
+        100.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": true
+    }
+  ],
+  "objectives": [
+    {
+      "name": "Sweetness",
+      "weight": 100.0,
+      "goal": "target",
+      "target": 6.0,
+      "min_val": 0.0,
+      "max_val": 10.0,
+      "unit": "/10",
+      "not_for": []
+    }
+  ],
+  "premixes": {},
+  "ingredient_properties": {},
+  "property_names": [],
+  "constraints": [],
+  "quantity_constraints": [
+    {
+      "ingredients": [
+        "Oat flour",
+        "Honey",
+        "Water"
+      ],
+      "min": 99.5,
+      "max": 100.49999999999999,
+      "source": "formulation_total"
+    }
+  ],
+  "robust": false,
+  "X_history": [
+    [
+      36.21495246887207,
+      12.40644097328186
+    ],
+    [
+      26.03739082813263,
+      5.92018686234951
+    ],
+    [
+      21.541617810726166,
+      13.381285667419434
+    ]
+  ],
+  "Y_history": [
+    96.0,
+    84.00000000000001,
+    96.0
+  ],
+  "recipe_history": [
+    {
+      "Oat flour": 36.21495246887207,
+      "Honey": 12.40644097328186,
+      "Water": 51.37860655784607
+    },
+    {
+      "Oat flour": 26.03739082813263,
+      "Honey": 5.92018686234951,
+      "Water": 68.04242230951786
+    },
+    {
+      "Oat flour": 21.541617810726166,
+      "Honey": 13.381285667419434,
+      "Water": 65.0770965218544
+    }
+  ],
+  "results_history": [
+    {
+      "Sweetness": 6.4
+    },
+    {
+      "Sweetness": 4.4
+    },
+    {
+      "Sweetness": 6.4
+    }
+  ],
+  "timestamps_history": [
+    "2026-09-29T18:58:26.983479+00:00",
+    "2026-09-29T18:58:26.983743+00:00",
+    "2026-09-29T18:58:26.983996+00:00"
+  ],
+  "formulation_ids": [
+    1,
+    2,
+    3
+  ],
+  "batch_history": [
+    1,
+    1,
+    1
+  ],
+  "notes_history": [
+    "",
+    "",
+    ""
+  ],
+  "skipped": [],
+  "next_formulation_no": 4,
+  "next_batch_number": 2,
+  "sobol_seed": 3143763503,
+  "pending_batch_no": null,
+  "pending_batch_created": null,
+  "pending_batch_discarded": [],
+  "pending_batch_total": null,
+  "formulation_total": 100.0,
+  "lots": {},
+  "batch_totals": {
+    "1": 100.0
+  },
+  "amount_unit": "g",
+  "targets_source": "",
+  "bench_records": {},
+  "custom_records": {
+    "fields": [],
+    "values": {}
+  },
+  "recorded_fields": {
+    "vendor": false,
+    "sku": false,
+    "lot": false,
+    "actual": false
+  },
+  "method": "",
+  "pending_batch": null,
+  "result_drafts": {},
+  "bo_config": null,
+  "CLASS_VERSION": 16
+}

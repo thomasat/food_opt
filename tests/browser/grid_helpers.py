@@ -39,6 +39,22 @@ def ensure_round(p):
     tab(p, ROUND_TAB)
 
 
+# Insights for a first-time user (spec 2026-10-01 rev. 2, review I17,
+# R-I17): the first-screen pins open at 1280 × 800, not the suite's usual
+# 1280 × 860 (open_sample's default). 02's measure: the app title and the
+# tab bar take the first 227 px, leaving the tab 573 px of the 800.
+FIRST_SCREEN = {"width": 1280, "height": 800}
+
+
+def above_the_fold(locator, viewport=FIRST_SCREEN):
+    """True when the element is drawn and its whole box ends inside the
+    first screen: its bottom at or above the viewport's height, in page
+    coordinates with the page unscrolled. A button half under the fold is
+    not above it."""
+    box = locator.bounding_box()
+    return box is not None and box["y"] + box["height"] <= viewport["height"]
+
+
 def open_sample(pw, viewport=None):
     """A browser on the served copy with the sample project open. Returns
     (browser, page); the caller closes the browser."""
