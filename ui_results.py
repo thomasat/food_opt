@@ -542,7 +542,9 @@ def _missing_panel(opt, number, names, correcting=False):
     if confirm_action(key, wording.MOVE_TO_NOT_SCORED,
                       wording.for_project(opt, wording.never_coming_warning(
                           number, number_list(names))),
-                      confirm_label=wording.MOVE_TO_NOT_SCORED,   # spec §4, review I9
+                      # Names the act (spec §4, review I9), and is not a
+                      # second copy of the button that opened it (01 O13).
+                      confirm_label=wording.YES_MOVE_TO_NOT_SCORED,
                       disabled=other_confirmation(key),
                       help=wording.for_project(opt, wording.move_to_not_scored_help(len(names)))):
         opt.set_aside_formulation(number)

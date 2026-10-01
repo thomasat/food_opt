@@ -252,8 +252,11 @@ def test_move_to_not_scored_says_what_it_does(one_waiting):
     assert "suggestions" not in at.warning[0].value              # review I9
     # The Yes names the act, as every other destructive confirmation does.
     yes = at.button(key="set_aside_4__yes")
-    assert yes.label == wording.MOVE_TO_NOT_SCORED == "Move to Not scored"
+    # 01 O13: not a second "Move to Not scored" beside the one that opened it.
+    assert yes.label == wording.YES_MOVE_TO_NOT_SCORED == "Yes, move to Not scored"
     assert yes.proto.type == "primary"
+    labels = [b.label for b in at.tabs[2].button]
+    assert labels.count(wording.MOVE_TO_NOT_SCORED) == 1
     assert wording.YES_CONTINUE not in [b.label for b in at.tabs[2].button]
 
 
