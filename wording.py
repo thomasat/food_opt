@@ -5075,6 +5075,10 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
     if gap_text is not None:
         gap = f"−{gap_text}" if below else f"+{gap_text}"
         line += f"; mean error {gap} points. More misses than expected"
+        if see_insights:
+            # Said once (final review M-4: "More misses than expected;
+            # measured values: many more misses than expected").
+            return f"{line}; many more in the measured values."
     elif allowed is not None:
         line += f"; {_allow(allowed, total)}"
     else:

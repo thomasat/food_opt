@@ -270,3 +270,26 @@ def test_03_clean_bias_line_reads_points_not_score(standing_of):
     *_, opt, _best = standing_of(E.BAR_CLEAN)
     line = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
     assert "Crumbliness by about 0.4 points" in line and " score;" not in line
+
+
+# ------------------------------------------------------------------ #
+#  M-4: Line B's track line says each thing once
+# ------------------------------------------------------------------ #
+
+def test_the_rough_track_line_says_more_misses_once():
+    line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
+    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; mean "
+                    "error −5.5 points. More misses than expected; many more in the measured "
+                    "values.")
+    assert line.lower().count("misses than expected") == 1
+    # Without the measurements' verdict, as before.
+    assert wording.round_track_rough(13, 16, "5.5", rounds=[2, 3, 4, 5]).endswith(
+        "mean error −5.5 points. More misses than expected.")
+
+
+def test_line_b_track_line(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(D.LINE_B)
+    line = ui_insights.track_text(insights.round_track(opt, insights.check_rounds(opt)))
+    assert "More misses than expected; many more in the measured values." in line
+    assert line.lower().count("misses than expected") == 1
