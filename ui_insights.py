@@ -952,10 +952,15 @@ def steady_bias_text(opt, checks, flagged=None):
     return wording.steady_bias_line(high, low, sorted(rounds))
 
 
-def threshold_text(yard):
+def threshold_text(yard, assumed=True):
     """The noise threshold's one name (03 §3 rule 3): the Repeat SD from 3
-    pairs, else the fixed 1 point."""
-    return wording.beat_by(f"{yard.value:.1f}" if yard.from_repeats else None)
+    pairs, else the fixed 1 point, said to be assumed while fewer than 3
+    pairs exist (0.8.0 e2e fixes, review B2: beat_by's third form).
+    `assumed` False: the plain form, where the screen has said it above."""
+    if yard.from_repeats:
+        return wording.beat_by(f"{yard.value:.1f}")
+    return wording.beat_by(None, assumed=assumed and getattr(yard, "assumed", False),
+                           pairs=yard.pairs)
 
 
 def skill_value(value):
@@ -1455,20 +1460,42 @@ def _path_captions(opt, path, number, fitted, near=None):
     return lines
 
 
-def stand_text(answer):
+def stand_text(answer, yard=None):
     """The Yes / Barely / Not lately answer (§2.3, review I5, M3). One
     decimal, unless the rise would read 0.0 or the same as what it is
     judged against: then hundredths, so the words never contradict the
-    numbers (Task 6 review M-1)."""
+    numbers (Task 6 review M-1). `yard` (noise_yardstick): when its 1 point
+    is assumed, the line says so (0.8.0 e2e fixes, review B2); this is the
+    first line on the tab that names the threshold."""
     if answer.state == "not_lately":
         return wording.stand_not_lately(answer.rounds)
     threshold = 1.0 if answer.sd is None else answer.sd
     d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
     rise = f"{answer.rise:.{d}f}"
     sd = None if answer.sd is None else f"{answer.sd:.{d}f}"
+    assumed = (sd is None and yard is not None and getattr(yard, "assumed", False))
     if answer.state == "yes":
-        return wording.stand_yes(rise, wording.beat_by(sd))
-    return wording.stand_barely(rise, sd)
+        return wording.stand_yes(rise, wording.beat_by(sd, assumed=assumed,
+                                                       pairs=yard.pairs if assumed else 0))
+    line = wording.stand_barely(rise, sd)
+    if assumed:
+        line = line.replace(wording.beat_by(), wording.beat_by(None, assumed=True,
+                                                               pairs=yard.pairs))
+    return line
+
+
+def says_threshold(answer):
+    """Whether Progress's line 1 names the noise threshold: Rising and
+    Within noise do."""
+    return answer is not None and answer.state in ("yes", "barely")
+
+
+def repeats_text(yard):
+    """The Repeat SD line under a rise, with its degrees of freedom and the
+    formulations made more than once (0.8.0 e2e fixes, review I13)."""
+    return wording.stand_repeats(f"{yard.sd:.1f}", yard.pairs,
+                                 df=getattr(yard, "df", 0) or None,
+                                 groups=getattr(yard, "groups", 0) or None)
 
 
 def _stand_first(opt, yard):
@@ -1579,11 +1606,11 @@ def _stand_lines(opt, yard):
               else wording.STAND_LATEST if f.latest and f.rounds_since == 0
               else wording.stand_since(f.rounds_since) if f.rounds_since else "")
     line = wording.stand_best(f"{f.score:.2f}", f.formulation, f.round, number_list(f.without))
-    head = stand_text(answer) + " " if answer is not None else ""
+    head = stand_text(answer, yard) + " " if answer is not None else ""
     st.write(_say(opt, head + line + (" " + second if second else "")))
-    if (answer is not None and answer.state in ("yes", "barely")
+    if (says_threshold(answer)
             and yard.sd is not None and yard.sd >= insights.REPEAT_SD_SHOWN):
-        st.write(_say(opt, wording.stand_repeats(f"{yard.sd:.1f}", yard.pairs)))
+        st.write(_say(opt, repeats_text(yard)))
     return f
 
 
@@ -1725,7 +1752,10 @@ def standing_text(opt, standing, yard):
     predicted Repeat, in whole points, in one of four texts."""
     p = standing.best.score
     mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
-    by = threshold_text(yard)
+    # An assumed threshold is said once on Progress (review B2): here only
+    # when line 1 did not name it.
+    by = threshold_text(yard, assumed=not says_threshold(insights.improvement(
+        opt, yardstick=yard)))
     values = not opt.has_ingredients()
     if standing.higher:
         close = standing.best.close
@@ -1940,16 +1970,34 @@ def gain_text(opt, computed, yard, standing=None):
                 and best is not None else None)
     # The next Round's figure is today's, never "recomputed" (final review I-1).
     recomputed = g.round is not None and not g.exact
+    # Lines 1 and 2 above it have said whether the threshold is assumed.
+    by = threshold_text(yard, assumed=False)
     if g.gain < 0.005:
         # Not "0.00 points … beats … by about 0.00 points" (T56 m3).
-        return wording.gain_line_tiny(g.round, threshold_text(yard), recomputed=recomputed)
-    return wording.gain_line(f"{g.gain:.2f}", g.round, threshold_text(yard),
+        return wording.gain_line_tiny(g.round, by, recomputed=recomputed)
+    return wording.gain_line(f"{g.gain:.2f}", g.round, by,
                              above=g.gain > yard.value, recomputed=recomputed,
                              measured_text=measured,
                              predicted_none=standing is not None and not standing.higher)
 
 
+# Next step's rows that end by asking for a Repeat of Best so far while the
+# noise threshold is assumed (0.8.0 e2e fixes, review B2, I5).
+_ASK_REPEAT = ("close", "explore", "see", "rising")
+
+
 def next_step_text(opt, step, rounds=None):
+    """(sentence, Set up button label or None): _next_step_text's, with
+    the Repeat sentence appended to the close, explore, see and rising
+    rows while the noise threshold is assumed (review B2, I5). A sentence,
+    not a button."""
+    text, change = _next_step_text(opt, step, rounds)
+    if step.kind in _ASK_REPEAT and getattr(step, "assumed", False):
+        text = f"{text} {wording.NEXT_REPEAT_TO_MEASURE}"
+    return text, change
+
+
+def _next_step_text(opt, step, rounds=None):
     """(sentence, Set up button label or None) for insights.next_step's
     answer (§2.4, review I2, I3, I14, M17; BO views I1; 0.8.0 e2e fixes,
     review I2). `rounds`: the verdict's Rounds, named in the misses row (03

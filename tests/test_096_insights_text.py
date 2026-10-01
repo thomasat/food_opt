@@ -181,14 +181,17 @@ def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
     "close to the top" but the explore row."""
     at, opt = timing_generated
     md, _ = _texts(at)
-    assert any("Predicted gain over Best so far: none beyond the 1-point noise threshold."
-               in m for m in md)
+    # 0.8.0 e2e fixes (review B2): no Repeats yet, so the 1 point is said to
+    # be assumed, once: here, since line 1 does not name the threshold.
+    assert any("Predicted gain over Best so far: none beyond "
+               + wording.beat_by(None, assumed=True) + "." in m for m in md)
     [line] = [m for m in md if m.startswith("Expected improvement")]
     assert line.startswith(f"Expected improvement, Round {opt.pending_batch_no}: ")
     assert line.endswith("above the 1-point noise threshold. It comes from the model's "
                          "uncertainty, not from a higher predicted score.")
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
-    assert after == wording.next_explore(opt.pending_batch_no, 3)
+    assert after == (wording.next_explore(opt.pending_batch_no, 3) + " "
+                     + wording.NEXT_REPEAT_TO_MEASURE)
     assert not any(m.startswith("Within these") for m in md)
 
 
@@ -271,7 +274,8 @@ def test_a_machine_zero_reads_under_one_hundredth(monkeypatch):
     monkeypatch.setattr(ui_insights, "latest_gain", lambda *a, **k: bo_views.RoundGain(
         6, 90.45, None, 3.5e-21, True, None))
     got = ui_insights.gain_text(opt, {"checks": (), "fitted": {}}, yard)
-    assert got == wording.gain_line_tiny(6, ui_insights.threshold_text(yard))
+    # Lines 1-2 above it say whether the threshold is assumed (review B2).
+    assert got == wording.gain_line_tiny(6, ui_insights.threshold_text(yard, assumed=False))
 
 
 def test_the_layers_name_best_so_far_as_their_anchor():

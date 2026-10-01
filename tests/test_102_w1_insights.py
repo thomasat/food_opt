@@ -326,3 +326,94 @@ def test_only_the_repeat_row_says_check_and_it_is_conditional(order):
     for kind in ("misses", "early", "see", "rising", "explore"):
         other, _ = ui_insights.next_step_text(order.opt, insights.NextStep(kind, gap=-3.0))
         assert wording.CHECK_IF_CHANGED not in other and "Check" not in other, kind
+
+
+# ------------------------------------------------------------------ #
+#  B2: the 1-point threshold is assumed below 3 pairs; Next step asks for
+#  a Repeat of Best so far. I13: the Repeat SD says its df.
+# ------------------------------------------------------------------ #
+
+def test_the_yardstick_is_assumed_below_three_pairs():
+    opt = _patty(rows=6)
+    y = insights.noise_yardstick(opt)
+    assert (y.value, y.pairs, y.assumed) == (1.0, 0, True)
+    _repeat_of(opt, 0, 3)
+    y = insights.noise_yardstick(opt)
+    assert (y.value, y.pairs, y.assumed, y.df, y.groups) == (1.0, 1, True, 1, 1)
+
+
+def test_three_pairs_measure_the_threshold_and_say_their_df():
+    opt = _patty(rows=6)
+    for dst in (1, 2):
+        _repeat_of(opt, 0, dst)
+    for i, v in zip((0, 1, 2), (70.0, 72.0, 71.0)):
+        opt.Y_history[i] = v
+    y = insights.noise_yardstick(opt)
+    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, True, False, 2, 1)
+    assert ui_insights.repeats_text(y) == wording.stand_repeats(
+        f"{y.sd:.1f}", 3, df=2, groups=1)
+    assert "(3 results of 1 formulation, 2 df)" in ui_insights.repeats_text(y)
+
+
+def test_the_threshold_text_says_assumed_below_three_pairs():
+    assumed = insights.Yardstick(1.0, None, 0, False, assumed=True)
+    assert ui_insights.threshold_text(assumed) == wording.beat_by(None, assumed=True, pairs=0)
+    assert "(assumed: no Repeats yet;" in ui_insights.threshold_text(assumed)
+    assert ui_insights.threshold_text(assumed, assumed=False) == wording.beat_by()
+    two = insights.Yardstick(1.0, 0.8, 2, False, assumed=True)
+    assert "(assumed: 2 pairs of Repeats, 3 needed;" in ui_insights.threshold_text(two)
+    measured = insights.Yardstick(2.7, 2.7, 3, True)
+    assert ui_insights.threshold_text(measured) == wording.beat_by("2.7")
+
+
+def test_rising_and_within_noise_say_the_threshold_is_assumed():
+    """The 02 Round 3 pin's words (review B2): '…above the 1-point noise
+    threshold (assumed …)'."""
+    yard = insights.Yardstick(1.0, None, 0, False, assumed=True)
+    yes = ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0), yard)
+    assert yes == wording.stand_yes("6.3", wording.beat_by(None, assumed=True))
+    barely = ui_insights.stand_text(insights.Improvement("barely", 0.4, None, 0), yard)
+    assert barely == ("Within noise: up 0.4 points in the last Round, under "
+                      + wording.beat_by(None, assumed=True) + ".")
+    # Measured, or not said to be assumed: today's words.
+    assert ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0)) == \
+        wording.stand_yes("6.3", wording.beat_by())
+    _clean(yes, barely)
+
+
+def test_the_assumed_form_is_said_once_on_progress(monkeypatch):
+    """Line 2 says "assumed" only when line 1 did not name the threshold:
+    the reader is told once (the owner's sparse-screen rule)."""
+    opt = _patty(rows=6)
+    yard = insights.Yardstick(1.0, None, 0, False, assumed=True)
+    p = insights.Prediction(80.0, 75.0, 85.0, 80.0, 2.0)
+    best = insights.PredictedBest({}, p, None, 0, 1.0, p)
+    standing = SimpleNamespace(best=best, higher=False, tested_near=True, binding=[],
+                               close_no=None, luck=False)
+    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
+        "yes", 6.3, None, 0))
+    assert "(assumed" not in ui_insights.standing_text(opt, standing, yard)
+    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
+        "not_lately", None, None, 3))
+    assert "(assumed: no Repeats yet;" in ui_insights.standing_text(opt, standing, yard)
+
+
+@pytest.mark.parametrize("kind", ["close", "explore", "see", "rising"])
+def test_next_step_asks_for_a_repeat_while_the_threshold_is_assumed(kind):
+    opt = _patty(rows=6)
+    text, _ = ui_insights.next_step_text(opt, insights.NextStep(kind, assumed=True))
+    plain, _ = ui_insights.next_step_text(opt, insights.NextStep(kind))
+    assert text == f"{plain} {wording.NEXT_REPEAT_TO_MEASURE}"
+    assert wording.NEXT_REPEAT_TO_MEASURE not in plain
+
+
+@pytest.mark.parametrize("kind", ["misses", "early", "untested"])
+def test_the_other_rows_do_not_ask_for_a_repeat(kind):
+    opt = _patty(rows=6)
+    text, _ = ui_insights.next_step_text(opt, insights.NextStep(kind, assumed=True))
+    assert wording.NEXT_REPEAT_TO_MEASURE not in text
+
+
+def test_next_step_carries_the_assumed_threshold(order):
+    assert order(verdict="within").assumed
+

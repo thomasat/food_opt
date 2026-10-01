@@ -809,6 +809,12 @@ class Yardstick:
     sd: float | None        # the pooled sd between Repeats, a disagreeing one left out
     pairs: int              # how many pairs of Repeats sd rests on
     from_repeats: bool      # value is sd (3+ pairs, at least REPEAT_SD_SHOWN)
+    # 0.8.0 e2e fixes (review B2): the Overall score's 1 point is assumed,
+    # not measured, while fewer than YARDSTICK_PAIRS pairs exist; the screen
+    # says so and Next step asks for a Repeat of Best so far.
+    assumed: bool = False
+    df: int = 0             # sd's degrees of freedom (review I13)
+    groups: int = 0         # formulations made more than once
 
 
 @dataclass
@@ -863,7 +869,9 @@ def noise_yardstick(opt, checks=(), name=SCORE):
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
               and spread.pairs >= YARDSTICK_PAIRS)
     fallback = 1.0 if name == SCORE else None
-    return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable)
+    return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
+                     assumed=name == SCORE and spread.pairs < YARDSTICK_PAIRS,
+                     df=spread.df, groups=spread.groups)
 
 
 def verdict_state(opt, h, checks):
@@ -906,6 +914,9 @@ class NextStep:
     skill: object = None                        # "no_skill": the SkillFact (BO views, I1)
     gain: float | None = None                   # "explore": the expected improvement, points
     bias_rounds: list = dataclasses.field(default_factory=list)  # "misses": gap's Rounds
+    # "close", "explore", "see", "rising": the noise threshold is assumed (fewer
+    # than 3 Repeat pairs), so the row asks for a Repeat of Best so far (B2, I5).
+    assumed: bool = False
 
 
 def next_step(opt, checks, standing=None, gain=None):
@@ -945,19 +956,21 @@ def next_step(opt, checks, standing=None, gain=None):
     if fact is not None and fact.state == "no_skill":
         return NextStep("no_skill", skill=fact)
     answer = improvement(opt, yardstick=yard)
+    assumed = bool(getattr(yard, "assumed", False))
     if standing is not None:
         if standing.higher and not standing.tested_near:
             return NextStep("untested")
         if (not standing.higher and answer is not None
                 and answer.state in ("not_lately", "barely")):
             if gain is not None and gain > yard.value:
-                return NextStep("explore", gain=gain)
-            return NextStep("close", binding=standing.binding[0] if standing.binding else None)
+                return NextStep("explore", gain=gain, assumed=assumed)
+            return NextStep("close", binding=standing.binding[0] if standing.binding else None,
+                            assumed=assumed)
     if answer is not None and answer.state == "yes":
         # Said with the width caution the verdict gives (answer-key
         # read-through, Line C).
-        return NextStep("rising", wide=list(h.wide or []))
-    return NextStep("see")
+        return NextStep("rising", wide=list(h.wide or []), assumed=assumed)
+    return NextStep("see", assumed=assumed)
 
 
 _EPS = 1e-9
@@ -1329,6 +1342,12 @@ def _same(opt, a, b):
 class RepeatSpread:
     sd: float | None        # pooled sd between Repeats; None without any
     pairs: int              # how many pairs of Repeats it rests on
+    # Its degrees of freedom, Σ(n − 1) over the groups, and how many
+    # formulations were made more than once (0.8.0 e2e fixes, review I13;
+    # 03 I7: "8 pairs" of one formulation made four times is 5 df with two
+    # others).
+    df: int = 0
+    groups: int = 0
 
 
 def _matches(opt, rows):
@@ -1389,7 +1408,7 @@ def repeat_sd(opt, name, matches=None, without=()):
         ss += sum((y - mean) ** 2 for y in ys)
         dof += len(ys) - 1
         pairs += len(ys) * (len(ys) - 1) // 2
-    return RepeatSpread(math.sqrt(ss / dof), pairs)
+    return RepeatSpread(math.sqrt(ss / dof), pairs, dof, len(groups))
 
 
 # Wave C: two measurements against each other (measured values only).

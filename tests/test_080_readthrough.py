@@ -231,13 +231,15 @@ def test_rising_names_the_outputs_whose_range_is_still_wide(monkeypatch):
     step = insights.next_step(opt, checks, None)
     assert step.kind == "rising" and step.wide == ["Firmness"]
     text, _ = ui_insights.next_step_text(opt, step)
+    # 0.8.0 e2e fixes (review B2): no Repeats, so the 1 point is assumed and
+    # the row asks for a Repeat of Best so far.
     assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
-                    "Make the next Round.")
+                    "Make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text, _ = ui_insights.next_step_text(opt, step)
     assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
                     f"Record the formulation still open in Round {opt.pending_batch_no}, "
-                    "then make the next Round.")
+                    "then make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
     three = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None,
                             wide=["Firmness", "Juiciness", insights.SCORE])
     text, _ = ui_insights.next_step_text(opt, three)
