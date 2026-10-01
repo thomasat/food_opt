@@ -340,6 +340,10 @@ LAYER_START_KEY = "insights_layer_start"
 PATH_LAYER_CACHE = "_insights_path_layer"
 PROGRESS_KEY = "insights_progress_fold"
 HOW_KEY = "insights_how_fold"
+# Insights for a first-time user (spec 2026-10-01 rev. 2, review M3, R-I14):
+# the two new folds' keys, here so W1's link and W3's fold agree.
+EXPLORED_KEY = "insights_explored"
+MORE_KEY = "insights_more"
 _LAYERS = (wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN)
 # The "Predicted above Best so far" outline: Okabe-Ito orange, which holds
 # its contrast on white and on Streamlit's dark background (review M14).
@@ -1031,6 +1035,32 @@ def _setup_button(change):
                             disabled=confirmation_open()):
         st.session_state[SETUP_CALLOUT_KEY] = change
         go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
+
+
+
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W1: the first
+#  screen's draw helpers. T0 stubs with their final signatures; W1 fills
+#  them in and wires them into render.
+# ------------------------------------------------------------------ #
+
+def _status_lines(opt, facts):
+    """W1 (§1, review R-B1, R-I8): the three status lines from
+    insights.StatusFacts, each with W2's tooltip_for help. T0 stub."""
+    return None
+
+
+def _why_link(opt):
+    """W1 (review R-I4): "Why the model suggested Round N", only with a warm
+    Round open holding at least one generated pick; the one tertiary link
+    above the fold. T0 stub."""
+    return None
+
+
+def _repeat_link(opt, facts):
+    """W1 (review R-I3): an owner item, not drawn unless the owner accepts
+    the link (wording.repeat_link). T0 stub."""
+    return None
 
 
 def _try_one_label(opt):
@@ -2804,6 +2834,34 @@ def layer_model(opt, fitted):
         return bo_views.rebuild(opt, gen, score if gen.rows == rows else None)
 
 
+
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W3: the
+#  "Explored and unexplored" fold (§8, review R-I14 to R-I16). T0 stubs with
+#  their final signatures; W3 fills them in.
+# ------------------------------------------------------------------ #
+
+def explored_fold(opt, computed):
+    """W3: the fold under the button and its one link, above the detail
+    sections (R-I14), keyed EXPLORED_KEY: the strips, the map, the pointer.
+    T0 stub."""
+    return None
+
+
+def strips_chart(opt, strips):
+    """W3: one horizontal strip per insights.Strip, through show_chart's
+    privacy wrapper, theme-aware, at least 3:1. T0 stub: returns None."""
+    return None
+
+
+def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
+    """W3 (review R-I16): the mean × model-sd map both folds draw (Insights'
+    Explored and unexplored, Make a round's Why these suggestions, whose
+    ui_batch.why_chart becomes a thin caller). `opt`: for the project's own
+    word in the tooltip. T0 stub: returns None."""
+    return None
+
+
 def layer_values(opt, fitted, recipes, layer):
     """The layer's number at each recipe (points at the Formulation total):
     the suggestion model's sd, or its acquisition in points; None without
@@ -3199,3 +3257,50 @@ def widen_cell(opt, r, checks):
         if wording.widen_text(top) != wording.widen_text(1.0):
             return wording.score_widen_text(r.widen, top)
     return wording.widen_text(r.widen)
+
+
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W2: the expert
+#  layer (§3, §7, review R-B2, R-I6, R-I12, R-I13). T0 stubs with their
+#  final signatures; W2 fills them in.
+# ------------------------------------------------------------------ #
+
+# The lines a tooltip is asked for by (W1's and W3's draw helpers pass one).
+TIP_LINES = (
+    "predictions", "progress", "next",                        # the status lines
+    "basis_predictions", "verdict", "score_line", "steady_bias", "skill", "disagreement",
+    "basis_progress", "stand_line", "repeats", "tie", "standing", "limits", "luck", "gain",
+    "basis_next", "next_reasoning",
+    "basis_explored", "strips", "gaps", "limit_hits", "map",
+)
+
+
+def tooltip_for(opt, line_id, facts=None):
+    """W2 (review R-I6): the one help text of the line `line_id` (a
+    TIP_LINES entry), plain reading first, then the BO term, joining the
+    wording.TIP_* texts of every statistic the line names, in screen order;
+    the status lines' exact rules from `facts` (insights.StatusFacts). None
+    for a line with no help. T0 stub: returns None."""
+    return None
+
+
+def _model_and_method(opt, computed):
+    """W2 (§7, R-I13): Method and definitions' first part,
+    wording.model_summary(insights.model_summary(opt)), then the known
+    limits. The only drawer, with _glossary, of the allowlisted Model-and-
+    method text (tests/test_food_bo._FTUE_ALLOWED). T0 stub."""
+    return None
+
+
+def _status_table(opt, computed):
+    """W2 (I13, R-I13): "How each status is decided", insights.status_rules.
+    T0 stub."""
+    return None
+
+
+def _glossary(opt):
+    """W2 (§3, R-B2, M4, M8): the glossary in the project's own form,
+    wording.glossary_rows(not opt.has_ingredients()), never through
+    for_project. T0 stub."""
+    return None
+

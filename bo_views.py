@@ -656,6 +656,17 @@ def next_model(opt):
     return rebuild(opt, Generation(None, int(opt.next_formulation_no), rows, regime, True))
 
 
+
+def map_values(opt, model):
+    """W3, Insights for a first-time user (spec 2026-10-01 rev. 2 §8.2,
+    review R-I16): the explored–unexplored map's values, from `model` (the
+    open Round's rebuilt model, else next_model; ui_insights.layer_model)
+    over feasible_pool(opt) and the tested formulations, through evaluate()
+    so the global RNG never moves. T0 stub with its final signature:
+    returns None."""
+    return None
+
+
 # ask()'s own optimizer settings (food_bo._ask_optimize; a test ties them).
 ASK_RESTARTS = 20
 ASK_RAW_SAMPLES = 1024

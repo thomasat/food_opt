@@ -997,6 +997,72 @@ def next_step(opt, checks, standing=None, gain=None):
     return NextStep("see", assumed=assumed)
 
 
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W1: the three
+#  status lines' facts. T0 stub with its final signature; W1 fills it in.
+#  The words are wording's (PREDICTIONS_WORDS, PROGRESS_WORDS, pred_*,
+#  progress_*, next_plain_*); W2's tooltips read these facts.
+# ------------------------------------------------------------------ #
+
+# Review R-B1: the Predictions rows, worst first. The first that holds sets
+# the status; PREDICTION_STATUS gives its word's key.
+PREDICTION_ROWS = ("off_repeat", "off_coverage", "gate", "too_few", "caution", "wide",
+                   "no_skill", "unclear", "reliable")
+PREDICTION_STATUS = {row: ("off" if row.startswith("off") else
+                           "reliable" if row == "reliable" else "not_yet")
+                     for row in PREDICTION_ROWS}
+# Review R-B1, R-I10: the Progress words' keys. improvement()'s "yes",
+# "barely" and "not_lately" are rising, within_noise and flat; None is
+# too_early (one Round, or no earlier candidate) or no_new_best (one Round
+# since).
+PROGRESS_STATES = ("rising", "within_noise", "flat", "too_early", "no_new_best")
+
+
+@dataclass
+class StatusFacts:
+    """What the three status lines say, and the numbers behind each
+    (review R-B1). None in place of the whole when there are no status
+    lines (nothing scored, a failed fit)."""
+    scored: int                                  # complete_count()
+    prediction_row: str | None = None            # a PREDICTION_ROWS key
+    clauses: list = dataclasses.field(default_factory=list)
+    # ("wide", [names]) · ("over_wide",) · ("bias", gap_points) · ("guard",)
+    headline: object = None                      # Headline
+    verdict: str | None = None                   # verdict_state()
+    skill: object = None                         # SkillFact or None
+    disagreement: object = None                  # Disagreement or None
+    bias: float | None = None                    # the Overall score's steady bias, points
+    guard: object = None                         # Guard or None
+    yardstick: object = None                     # Yardstick
+    progress: str | None = None                  # a PROGRESS_STATES key
+    improvement: object = None                   # Improvement or None
+    best: object = None                          # BestFacts
+    tie: int | None = None                       # row of an equal-score runner-up (R-I9)
+    luck: bool = False                           # said at level 0 only when Reliable
+    next: object = None                          # NextStep, or None at the gate
+
+    @property
+    def predictions(self):
+        """'reliable', 'not_yet' or 'off'; None without a row."""
+        return PREDICTION_STATUS.get(self.prediction_row)
+
+
+def status_facts(opt, checks, standing=None, gain=None):
+    """W1 (review R-B1): the facts of the three status lines, worst rule
+    first, from headline, verdict_state, skill, disagreeing_repeat,
+    score_steady_bias, noise_guard, improvement, best_facts and tie_partner;
+    `standing` and `gain` as next_step takes them. T0 stub: returns None."""
+    return None
+
+
+def tie_partner(opt, best):
+    """W1 (review R-I9): ui_results._tie_partner's rule, moved here so
+    Results and Insights ask one place: the row Best so far (row `best`) is
+    compared with for a tie, the next highest DIFFERENT formulation (a
+    Repeat is never a tie). None without one. T0 stub: returns None."""
+    return None
+
+
 _EPS = 1e-9
 
 
@@ -1924,6 +1990,76 @@ def binding_limits(opt, recipe):
     return out
 
 
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W3: "Where you
+#  have tested", model-free (§8.1, review R-I15). T0 stubs with their final
+#  signatures; W3 fills them in. The words are wording's (strips_caption,
+#  gap_*, strip_gaps_line, limit_hit_line, STRIP_*).
+# ------------------------------------------------------------------ #
+
+@dataclass
+class StripTick:
+    value: float            # at the Formulation total (start_recipe), the row's own unit
+    formulation: int
+    round: int | None
+    score: float | None     # Overall score; None while waiting or Not scored
+    state: str              # "tested", "waiting", "not_scored" or "suggested"
+    latest: bool = False    # from the latest Round (highlighted)
+
+
+@dataclass
+class Strip:
+    name: str
+    unit: str
+    low: float              # Lowest–Highest; the Fill-to-total row: 0–total
+    high: float
+    reach: tuple | None     # (lowest, highest) over bo_views.feasible_pool, else (low, high)
+    ticks: list             # [StripTick]
+    fill: bool = False      # the Fill-to-total row: drawn, never given a gap line
+    setting: bool = False   # a process setting (its own unit)
+    options: dict | None = None   # a choice row: {option: times tested}
+
+
+@dataclass
+class StripGap:
+    name: str
+    kind: str               # "above", "below", "between" or "option"
+    low: float | None       # the stretch's ends, in the row's unit
+    high: float | None
+    size: float             # its length as a share of Highest − Lowest
+    option: str | None = None
+
+
+@dataclass
+class LimitHit:
+    round: int
+    hits: int               # picks at this limit (binding_limits, BINDING)
+    picks: int              # generated picks counted (own formulations and Repeats left out)
+    binding: Binding
+
+
+def tested_strips(opt, pool=None):
+    """W3: one Strip per varying ingredient and process setting (review
+    R-I15). `pool`: bo_views.feasible_pool(opt) when the caller has it, for
+    the reachable part. T0 stub: returns None."""
+    return None
+
+
+def strip_gaps(opt, strips, k=2):
+    """W3: the `k` largest untested stretches of the reachable parts, each at
+    least CLOSE_TO_THE_BEST of its span, largest first; the Fill-to-total
+    row left out; an option never tested (review R-I15). T0 stub: returns
+    None."""
+    return None
+
+
+def limit_hits(opt):
+    """W3: the limits at least half of the open Round's generated picks sit
+    at (else the last warm Round's), from 2 picks (review R-I15); [LimitHit].
+    T0 stub: returns None."""
+    return None
+
+
 @dataclass
 class Standing:
     best: PredictedBest
@@ -2472,3 +2608,59 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
         if gate is not None:
             reasons.append("skill")
     return Guard(reasons, gate)
+
+
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W2: the facts
+#  "Model and method" and "How each status is decided" are written from
+#  (§7, review R-I12, R-I13). T0 stubs with their final signatures; W2
+#  fills them in. The words are wording's (model_summary, status_rule_rows).
+# ------------------------------------------------------------------ #
+
+@dataclass
+class ModelFacts:
+    """Read off a model actually built by FoodOptimizer._build_gp on this
+    project's own xy(opt, SCORE, rows), never from hard-coded defaults
+    (review R-I13), plus the settings that are not in bo_config.
+    wording.model_summary(facts) writes the sentences."""
+    cold: bool                       # fewer than COLD_START_RUNS scored: the model is to come
+    scored: int                      # formulations with all results in
+    cold_start: int                  # COLD_START_RUNS
+    values: bool                     # process settings alone
+    total: bool                      # the project has a Formulation total
+    recommended: bool = True         # bo_config is None
+    inputs: int = 0                  # model columns
+    kernel: str = "rbf"              # a wording.KERNEL_NAMES key, else the class name
+    ard: bool = True
+    lengthscale_prior: str | None = None    # "LogNormal(1.89, 1.73)"
+    lengthscale_floor: float | None = None
+    outputscale: bool = False        # a ScaleKernel wraps the kernel
+    outputscale_prior: str | None = None
+    noise: str = "fitted"            # "fitted" or "fixed"
+    noise_prior: str | None = None
+    noise_floor: float | None = None
+    standardised: bool = True        # Standardize(m=1)
+    acquisition: str = "qlognei"     # bo_views.acquisition(opt)
+    beta: float | None = None        # qUCB's beta
+    q: int | None = None             # the open or last Round's number generated
+    restarts: int = 0                # bo_views.ASK_RESTARTS
+    raw_samples: int = 0             # bo_views.ASK_RAW_SAMPLES
+    mc_samples: int = 0              # the QMC sample count
+    folds: int = FOLDS
+    fit_tolerance: float = FIT_OPTIONS["ftol"]
+    robust: bool = False             # opt.robust: Input Warping in ask() only
+
+
+def model_summary(opt):
+    """W2 (review R-I13): ModelFacts for this project, from a model built
+    on its own rows (milliseconds, no fit). Never calls ask(). T0 stub:
+    returns None."""
+    return None
+
+
+def status_rules(opt, checks=None):
+    """W2 (review I13, R-I13): "How each status is decided", one row per
+    state of review B1's table and per Next row, in first-match order:
+    [(line, status, exact rule)], from wording.status_rule_rows with this
+    project's cut and form. T0 stub: returns None."""
+    return None
