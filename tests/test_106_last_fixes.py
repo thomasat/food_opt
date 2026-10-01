@@ -443,3 +443,32 @@ def test_a_new_setting_without_a_baseline_brings_the_column_back(burger):
         wording.named_row_error("Cook temperature", wording.ADD_BASELINE_ERROR)]
     assert wording.BASELINE_LABEL in _shown_columns(at)
     assert "Cook temperature" in list(_grid_frame(at, 0)["Name"])
+
+
+# ------------------------------------------------------------------ #
+#  01 O9: a withheld expected improvement has no "Recomputed" line
+# ------------------------------------------------------------------ #
+
+def _why_fold_captions(monkeypatch, gate, reasons=("skill",)):
+    import dataclasses
+
+    import bo_views
+    from tests.test_105_integration import _why_caption
+    real = bo_views.why
+    monkeypatch.setattr(bo_views, "why",
+                        lambda *a, **k: dataclasses.replace(real(*a, **k), exact=False))
+    return _why_caption(monkeypatch, gate, reasons)
+
+
+def test_a_withheld_expected_improvement_is_not_said_to_be_recomputed(monkeypatch):
+    gate = insights.SkillGate("wait", 6)
+    captions = _why_fold_captions(monkeypatch, gate)
+    assert wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6)) in captions
+    assert wording.WHY_RECOMPUTED not in captions
+
+
+def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch):
+    captions = _why_fold_captions(monkeypatch, None, reasons=())
+    if any(c.startswith("Expected improvement is not shown") for c in captions):
+        pytest.skip("the fixture's own checks withhold it")
+    assert wording.WHY_RECOMPUTED in captions

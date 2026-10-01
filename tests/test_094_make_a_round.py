@@ -454,5 +454,10 @@ def test_the_why_fold_does_not_refit_on_a_rerun(monkeypatch):
     for _ in range(2):
         at.session_state[ui_batch.WHY_KEY] = True      # AppTest does not keep it open
         _rerun(at)
-        assert wording.WHY_RECOMPUTED in [c.value for c in _fold(at).caption]
+        captions = [c.value for c in _fold(at).caption]
+        assert _fold(at).dataframe                      # the recomputed fold is drawn
+        # 01 O9: the Recomputed line goes with the expected improvement it
+        # recomputed; withheld, neither is shown (tests/test_106_last_fixes.py).
+        withheld = any(c.startswith("Expected improvement is not shown") for c in captions)
+        assert (wording.WHY_RECOMPUTED in captions) != withheld, captions
     assert fits == []

@@ -1224,7 +1224,9 @@ def _why_these(opt, preds):
                      column_config=why_columns(opt, value_col, help_text))
         if any(r.pending for r in why.rows) and not hide:
             st.caption(wording.for_project(opt, wording.WHY_PENDING))
-        if not why.exact:
+        if not why.exact and not hide:
+            # Said of the expected improvement it recomputed: under one
+            # withheld it explained a number the fold does not show (01 O9).
             st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))
         chart = why_chart(opt, why, ref)
         if chart is None:
