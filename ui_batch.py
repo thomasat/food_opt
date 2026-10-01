@@ -336,8 +336,9 @@ def _no_batch(opt):
 
 
 # Next step's kinds that are something other than "make the next Round"
-# (04 §3; review I1, M12): E3 says them above Generate.
-_E3_KINDS = ("close", "untested", "bias", "misses", "repeat", "no_skill")
+# (04 §3; review I1, M12): E3 says them above Generate. No "bias": the
+# 0.8.0 e2e fixes' Next step makes no such row (review I2; W1).
+_E3_KINDS = ("close", "untested", "misses", "repeat", "no_skill")
 
 
 def _cached_step(opt):
@@ -1182,10 +1183,8 @@ def _why_these(opt, preds):
             reason = ui_insights.withheld(opt, score, checks)
             hide = reason is not None
             if hide:
-                guard = insights.noise_guard(opt, score, checks)
-                st.caption(wording.for_project(opt, wording.why_guard_line(
-                    [_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
-                    skill_only=reason == "skill", verdict=reason == "verdict")))
+                st.caption(wording.for_project(opt, why_withheld_line(opt, score, checks,
+                                                                      reason)))
         frame, value_col = why_frame(opt, why, preds, hide=hide)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
@@ -1206,6 +1205,22 @@ def _why_these(opt, preds):
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
+
+
+def why_withheld_line(opt, score, checks, reason):
+    """The Why fold's line when the expected improvement is withheld
+    (`reason`, ui_insights.withheld's): the verdict; the A3 gate read from
+    insights.skill_gate (W1) and said in Progress's own words (too few
+    checks, skill under 0.20, no skill); or the guard's triggers."""
+    if reason == "verdict":
+        return wording.why_guard_line(verdict=True)
+    if reason == "skill":
+        gate = insights.skill_gate(opt, checks)
+        if gate is None:
+            return wording.why_guard_line(skill_only=True)
+        return wording.why_guard_line(gate_reason=ui_insights.gain_reason("skill", gate))
+    guard = insights.noise_guard(opt, score, checks)
+    return wording.why_guard_line([_GUARD_WORDS[r] for r in guard.reasons if r != "skill"])
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):

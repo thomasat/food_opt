@@ -156,7 +156,10 @@ def test_an_own_formulation_is_labelled_and_valued_alone():
 
 @pytest.mark.parametrize("reasons,state,line", [
     (["floor"], "within", wording.why_guard_line([wording.GUARD_FLOOR])),
-    (["floor", "skill"], "within", wording.why_guard_line(skill_only=True)),
+    # Integration of the 0.8.0 e2e fixes: the skill reason is said exactly,
+    # from W1's skill_gate. This 4-Round project has 6 Overall-score checks.
+    (["floor", "skill"], "within",
+     wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))),
     ([], "unreliable", wording.why_guard_line(verdict=True)),
 ])
 def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line):
