@@ -110,7 +110,10 @@ def test_one_caption_and_the_predicted_measurements(warm_round, monkeypatch):
     assert captions.count(wording.PREDICTIONS_ROUND_CAPTION) == 1
     assert wording.PREDICTED_SCORE_HELP not in captions        # tooltip, not a caption
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    frame = exp.table[0].value
+    # Formulation is the table's index, so no 0-3 column is drawn before it
+    # (0.8.0 e2e fixes D3; 01 O4).
+    assert exp.table[0].value.index.name == wording.FORMULATION_CAP
+    frame = exp.table[0].value.reset_index()
     # Results' order: Firmness carries the larger Share of score.
     assert list(frame.columns) == [wording.FORMULATION_CAP, "Firmness (N)", "Juiciness (/10)"]
     expected = _expected("burger")
@@ -181,7 +184,7 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     assert captions.count(trial_caption) == 1
     assert wording.PREDICTIONS_ROUND_CAPTION not in captions
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    frame = exp.table[0].value
+    frame = exp.table[0].value.reset_index()
     assert list(frame.columns) == [wording.TRIAL_CAP, "Acidity (pH)"]
 
 
@@ -238,7 +241,7 @@ def test_recorded_and_not_scored_rows_show_nothing(warm_round):
     cells = dict(zip(table[wording.FORMULATION_CAP], table[wording.PREDICTED_SCORE_COLUMN]))
     assert cells[a] == "" and cells[b] == "" and cells[c] != ""
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    assert list(exp.table[0].value[wording.FORMULATION_CAP]) == [c]
+    assert list(exp.table[0].value.reset_index()[wording.FORMULATION_CAP]) == [c]
 
 
 def test_the_round_tab_closed_fits_nothing(warm_round, monkeypatch):

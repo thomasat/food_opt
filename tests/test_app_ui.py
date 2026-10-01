@@ -5026,11 +5026,13 @@ def test_the_compared_with_column_reads_the_amounts_on_the_table(burger):
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
     # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00, and
-    # the cell reads the table: the best is scaled to the same total.
+    # the cell reads the table: the best is scaled to the same total. The
+    # larger share of its span first (0.8.0 e2e fixes B2): 5 g of an allowed
+    # 0-3 g before 5 g of an allowed 0-25 g.
     table = next(d.value for d in at.dataframe if column in d.value.columns)
     assert table[column].iloc[0] == (
-        "Explores · Pea protein +5.00 g, "
-        "Methylcellulose −5.00 g"), table[column].iloc[0]
+        "Explores · Methylcellulose −5.00 g, "
+        "Pea protein +5.00 g"), table[column].iloc[0]
 
 
 def _uploader_keys(at):

@@ -42,9 +42,11 @@ def _md(at):
 # ------------------------------------------------------------------ #
 
 def _moves(monkeypatch):
-    """The tabs go_to_tab is asked for."""
+    """The tabs go_to_tab is asked for (where on the tab it lands, too, is
+    the move's own business: the Set up button lands on its callout)."""
     moved = []
-    monkeypatch.setattr(ui_insights, "go_to_tab", moved.append)
+    monkeypatch.setattr(ui_insights, "go_to_tab",
+                        lambda tab, section="top": moved.append(tab))
     return moved
 
 

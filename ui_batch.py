@@ -769,8 +769,9 @@ def _predicted_measurements(opt, preds):
         # Formulation as the index (D3, review M9): st.table ignores the
         # Styler's hide(axis="index"), and drew a 0-3 column first (01 O4).
         formulation = cells.columns[0]
-        st.table(cells.set_index(formulation).style.set_tooltips(
-            tips.set_index(formulation)))
+        shown = cells.set_index(formulation)
+        st.table(shown.style.set_tooltips(
+            tips.drop(columns=[formulation]).set_axis(shown.index)))
         st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION))
 
 

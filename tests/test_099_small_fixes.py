@@ -223,13 +223,14 @@ def _columns(at):
     return [list(d.value.columns) for d in _fold(at).dataframe]
 
 
-def test_line_b_opened_before_the_checks_says_why_and_shows_no_roles(monkeypatch):
+def test_line_b_opened_before_the_checks_says_why_and_shows_the_roles(monkeypatch):
     """Line B opened on Make a round while the workers have the Overall
     score's models but not the verdict's: the fold says the Prediction
-    check is still being calculated and shows no role or expected
-    improvement; once the checks are in it gives the verdict's reason. At
-    no point does it show a role (the headless reading saw all four
-    'refines the best', withdrawn once the checks landed)."""
+    check is still being calculated and shows no expected improvement;
+    once the checks are in it gives the verdict's reason. The roles are
+    model-free from the 0.8.0 e2e fixes (A2, review I3; this reverts
+    11152ff's role part), so they are shown at every point, in the
+    Compared with cell's words."""
     _workers(monkeypatch, _Stuck())
     opt = _install(demo.LINE_B)
     at = AppTest.from_file(APP_PATH, default_timeout=300)
@@ -240,24 +241,28 @@ def test_line_b_opened_before_the_checks_says_why_and_shows_no_roles(monkeypatch
     _rerun(at)
     captions = [c.value for c in _fold(at).caption]
     assert wording.WHY_CHECKING in captions
-    assert all(wording.ROLE not in cols and wording.EXPECTED_IMPROVEMENT not in cols
+    assert all(wording.ROLE in cols and wording.EXPECTED_IMPROVEMENT not in cols
                for cols in _columns(at))
+    roles = [list(d.value[wording.ROLE]) for d in _fold(at).dataframe]
     _seed(at, opt, "all")
     _rerun(at)
     captions = [c.value for c in _fold(at).caption]
     assert wording.why_guard_line(verdict=True) in captions
     assert wording.WHY_CHECKING not in captions
-    assert all(wording.ROLE not in cols for cols in _columns(at))
+    # The same words before and after the checks land: nothing withdrawn.
+    assert [list(d.value[wording.ROLE]) for d in _fold(at).dataframe] == roles
 
 
 def test_without_workers_the_open_fold_works_out_its_own_checks():
     """No workers (or they failed): the open fold calculates the checks the
-    withhold rule reads, so Line B says the verdict's reason at once."""
+    withhold rule reads, so Line B says the verdict's reason at once; the
+    roles stay (model-free, 0.8.0 e2e fixes A2)."""
     opt = _install(demo.LINE_B)
     at = _app(opt.project_name)
     captions = [c.value for c in _fold(at).caption]
     assert wording.why_guard_line(verdict=True) in captions
-    assert all(wording.ROLE not in cols for cols in _columns(at))
+    assert all(wording.ROLE in cols and wording.EXPECTED_IMPROVEMENT not in cols
+               for cols in _columns(at))
 
 
 # ------------------------------------------------------------------ #
