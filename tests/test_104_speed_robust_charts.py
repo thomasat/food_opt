@@ -743,3 +743,20 @@ def test_progress_says_calculating_only_while_the_search_is_to_run(burger, monke
     monkeypatch.setattr(ui_insights, "withheld", lambda *a: "guard")
     assert not ui_insights._gain_pending(burger, computed)
     assert wording.gain_pending() == "Expected improvement, next Round: calculating…"
+
+
+def test_a_failed_request_finds_its_pool_already_broken(fresh_pool, monkeypatch):
+    """A Job that sees a request fail must find the pool broken at that
+    moment, so start() replaces it at once instead of handing the screen
+    to a whole in-process fit (C2). The clean-up after it may lag."""
+    import time as _time
+    real = insights_jobs.Pool._break
+    monkeypatch.setattr(insights_jobs.Pool, "_break",
+                        lambda self: (_time.sleep(0.3), real(self))[1])
+    for _ in range(3):
+        insights_jobs._BREAKS.clear()
+        p = insights_jobs.pool()
+        assert p.wait_ready(60)
+        fut = p.submit(0, {"id": 1})
+        assert fut.exception(30) is not None
+        assert p.broken

@@ -169,6 +169,11 @@ class Pool:
                         raise RuntimeError("the Insights worker stopped")
                     fut.set_result(json.loads(line))
                 except BaseException as exc:
+                    # Broken before the failure is seen: a Job that polls it
+                    # finds the pool broken, and start() replaces it at once
+                    # rather than leaving the screen to fit in-process (C2).
+                    with self._lock:
+                        self.broken = True
                     fut.set_exception(exc)
                     raise
                 finally:
