@@ -456,8 +456,9 @@ def test_the_why_fold_does_not_refit_on_a_rerun(monkeypatch):
         _rerun(at)
         captions = [c.value for c in _fold(at).caption]
         assert _fold(at).dataframe                      # the recomputed fold is drawn
-        # 01 O9: the Recomputed line goes with the expected improvement it
-        # recomputed; withheld, neither is shown (tests/test_106_last_fixes.py).
+        # 01 O9 and last-fix review R-1: one Recomputed line, about what the
+        # fold shows (tests/test_106_last_fixes.py).
         withheld = any(c.startswith("Expected improvement is not shown") for c in captions)
-        assert (wording.WHY_RECOMPUTED in captions) != withheld, captions
+        line = wording.WHY_RECOMPUTED_WITHHELD if withheld else wording.WHY_RECOMPUTED
+        assert line in captions, captions
     assert fits == []

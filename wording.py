@@ -5355,6 +5355,10 @@ WHY_TESTED = "Tested"
 WHY_SUGGESTED = "This Round's suggestion"
 WHY_RECOMPUTED = ("Recomputed from today's records: this Round's generation record is missing "
                   "or no longer matches its rows.")
+# Last-fix review R-1: with the expected improvement withheld, the line is
+# about what the fold still shows from the recomputed model.
+WHY_RECOMPUTED_WITHHELD = ("Model sd and the map are recomputed from today's records: this "
+                           "Round's generation record is missing or no longer matches its rows.")
 
 
 HOW_EXPECTED_IMPROVEMENT = (

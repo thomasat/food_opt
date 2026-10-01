@@ -1224,10 +1224,12 @@ def _why_these(opt, preds):
                      column_config=why_columns(opt, value_col, help_text))
         if any(r.pending for r in why.rows) and not hide:
             st.caption(wording.for_project(opt, wording.WHY_PENDING))
-        if not why.exact and not hide:
-            # Said of the expected improvement it recomputed: under one
-            # withheld it explained a number the fold does not show (01 O9).
-            st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))
+        if not why.exact:
+            # One line, about what is shown (01 O9; last-fix review R-1):
+            # under a withheld expected improvement, Model sd and the map
+            # are still the recomputed model's.
+            st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED_WITHHELD if hide
+                                           else wording.WHY_RECOMPUTED))
         chart = why_chart(opt, why, ref)
         if chart is None:
             # No map without a pool; the roles above never needed one.

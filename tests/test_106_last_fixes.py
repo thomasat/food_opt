@@ -507,11 +507,16 @@ def _why_fold_captions(monkeypatch, gate, reasons=("skill",)):
     return _why_caption(monkeypatch, gate, reasons)
 
 
-def test_a_withheld_expected_improvement_is_not_said_to_be_recomputed(monkeypatch):
+def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypatch):
+    """O9, then last-fix review R-1: the expected improvement is withheld,
+    but Model sd and the map still come from the recomputed model, and
+    one line says so."""
     gate = insights.SkillGate("wait", 6)
     captions = _why_fold_captions(monkeypatch, gate)
     assert wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6)) in captions
     assert wording.WHY_RECOMPUTED not in captions
+    assert captions.count(wording.WHY_RECOMPUTED_WITHHELD) == 1
+    assert wording.WHY_RECOMPUTED_WITHHELD.startswith("Model sd and the map are recomputed")
 
 
 def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch):
@@ -519,6 +524,7 @@ def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch):
     if any(c.startswith("Expected improvement is not shown") for c in captions):
         pytest.skip("the fixture's own checks withhold it")
     assert wording.WHY_RECOMPUTED in captions
+    assert wording.WHY_RECOMPUTED_WITHHELD not in captions
 
 
 # ------------------------------------------------------------------ #
