@@ -4419,8 +4419,34 @@ class TestRoundTwoFixes:
             float(opt.Y_history[0]), 2)
 
 
+# Insights for a first-time user (spec 2026-10-01 rev. 2; review B2, R-B2).
+# The owner's §7 directive of 2026-10-01 ("make sure an audience familiar
+# with statistics and bayesian optimization knows what this means and what
+# is going on"), under the 2026-09-10 rule that the optimization mapping
+# lives in ONE collapsed expander: Method and definitions maps the screen's
+# words to the standard BO terms, and four of those terms are words this
+# guard keeps off every other screen. Each is allowed as one exact string,
+# said in the glossary or the Model and method summary and nowhere else
+# (test_the_ftue_allowance_is_scoped). Quotes would not help: the patterns
+# search the whole string. "lengthscale" (the library's spelling) and "BO
+# term" pass unaided, so they need no entry.
+_FTUE_BO_TERMS = {
+    wording.MODEL_SUMMARY_LEAD,              # "Bayesian optimisation", said once
+    wording.GLOSSARY_OVERALL_TERM,           # Overall score: "objective", "weighted"
+    wording.GLOSSARY_ROUND_TERM,             # Round: "batch" (review M5)
+    wording.GLOSSARY_ROUND_MEANING,
+    wording.GLOSSARY_ROUND_MEANING_SETTINGS,
+}
+# The glossary's process-settings form is written out, not made by
+# for_project (review M4: for_project garbles BO definitions), so its cells
+# type "trial" for themselves, as PROCESS_STUDY_INTRO does.
+_FTUE_TRIAL_CELLS = set(wording.GLOSSARY_SETTINGS_TRIAL_CELLS)
+_FTUE_ALLOWED = _FTUE_BO_TERMS | _FTUE_TRIAL_CELLS
+
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # The glossary and Model and method (above): exact strings, one scope.
+    *_FTUE_ALLOWED,
     # Custom records apply to formulations and process-only trials.
     wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
     wording.CUSTOM_SECTION_NAMES["formulation"],
@@ -4610,6 +4636,73 @@ def test_no_old_vocabulary_reaches_the_user():
         offenders += _single_word_offenders(
             name, _single_word_constants(root / name))
     assert offenders == [], offenders
+
+
+# The names that carry the allowed BO terms (review R-B2), and the two
+# Method-and-definitions drawers that may say them (W2's, in ui_insights).
+_FTUE_NAMES = {"MODEL_SUMMARY_LEAD", "model_summary", "GLOSSARY_ROWS",
+               "GLOSSARY_ROWS_SETTINGS", "glossary_rows", "glossary_cells",
+               "GLOSSARY_OVERALL_TERM", "GLOSSARY_ROUND_TERM", "GLOSSARY_ROUND_MEANING",
+               "GLOSSARY_ROUND_MEANING_SETTINGS", "GLOSSARY_SETTINGS_TRIAL_CELLS"}
+_FTUE_DRAWERS = {"_glossary", "_model_and_method"}
+
+
+def _wording_uses(tree):
+    """(enclosing function name or None, attribute) for every
+    `wording.<name>` in `tree` with a name in _FTUE_NAMES."""
+    found = []
+
+    def walk(node, where):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, child.name)
+                continue
+            if (isinstance(child, ast.Attribute) and child.attr in _FTUE_NAMES
+                    and isinstance(child.value, ast.Name) and child.value.id == "wording"):
+                found.append((where, child.attr))
+            walk(child, where)
+
+    walk(tree, None)
+    return found
+
+
+def test_the_ftue_allowance_is_scoped():
+    """Review R-B2, the proof: the BO terms the glossary and Model and method
+    need are allowed as exact strings, each one needed, none spare; they are
+    written in wording.py alone; on screen, only Method and definitions'
+    two drawers read them; and every other prose literal stays scanned."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    bo_text = set(wording.glossary_cells()) | {wording.MODEL_SUMMARY_LEAD}
+
+    def refused(text):
+        return (text not in _ALLOWED_EXACT and not text.startswith(_ALLOWED_PREFIXES)
+                and any(p.search(text) for p in _BANNED))
+
+    # Every entry is glossary or Model-and-method text, and needs its entry.
+    assert _FTUE_ALLOWED <= bo_text
+    assert all(any(p.search(t) for p in _BANNED) for t in _FTUE_ALLOWED)
+    # None spare: every such cell that says a banned word is listed by name.
+    assert {t for t in bo_text if any(p.search(t) for p in _BANNED)} == _FTUE_ALLOWED
+    # Exact strings, not the words: the same text with one word more is
+    # refused, wherever it is written.
+    for text in _FTUE_ALLOWED:
+        assert not refused(text) and refused(text + " here"), text
+    # "Bayesian optimisation" is said in exactly one string (R-B2).
+    named = [t for name in _USER_FACING_SOURCES for t in _prose_constants(root / name)
+             if re.search(r"bayesian optimi[sz]", t, re.I)]
+    assert named == [wording.MODEL_SUMMARY_LEAD]
+    # Written in wording.py alone: no other module carries a copy.
+    for name in _USER_FACING_SOURCES:
+        if name != "wording.py":
+            assert not set(_prose_constants(root / name)) & _FTUE_ALLOWED, name
+    # Read on screen only by Method and definitions' glossary and Model and
+    # method drawers.
+    for name in _USER_FACING_SOURCES:
+        if name == "wording.py":
+            continue
+        uses = _wording_uses(ast.parse((root / name).read_text()))
+        assert all(name == "ui_insights.py" and where in _FTUE_DRAWERS
+                   for where, _ in uses), (name, uses)
 
 
 @pytest.mark.parametrize("word", ["Batch", "batch", "BATCH"])

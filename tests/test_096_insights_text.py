@@ -96,11 +96,13 @@ def test_the_verdict_says_its_miss_count(tabs):
 #  Skill (review I1, I2)
 # ------------------------------------------------------------------ #
 
+# The scale's two ends ride with the number (ftue spec §4, review R-I7,
+# M11; T0).
 @pytest.mark.parametrize("name,text", [
-    (demo.LINE_A, "Overall score, Rounds 2–5: skill 0.36 (n = 15), better than the average of "
-                  "earlier results."),
-    (demo.LINE_C, "Overall score, Rounds 2–5: skill −0.47 (n = 16), no better than the "
-                  "average of earlier results."),
+    (demo.LINE_A, "Overall score, Rounds 2–5: skill 0.36 (n = 15; 0 = as good as the average, "
+                  "1 = perfect), better than the average of earlier results."),
+    (demo.LINE_C, "Overall score, Rounds 2–5: skill −0.47 (n = 16; 0 = as good as the "
+                  "average, 1 = perfect), no better than the average of earlier results."),
 ])
 def test_the_skill_line_sits_under_the_verdict(tabs, name, text):
     md, _ = _texts(tabs[name])

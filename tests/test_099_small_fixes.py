@@ -158,10 +158,16 @@ def test_the_luck_line_says_it_in_plain_words():
 
 
 def test_the_technical_term_is_said_once_in_method_and_details():
+    """Rewritten for Insights for a first-time user (spec 2026-10-01 rev. 2
+    §3, review M11; T0): the term is said in Method and definitions only,
+    now twice there: its paragraph and the glossary's row for "probably
+    helped by luck"; never on the main screen or in a tooltip."""
     import inspect
     source = inspect.getsource(wording)
-    assert len(re.findall(r"regression to the mean", source, re.I)) == 1
+    assert len(re.findall(r"regression to the mean", source, re.I)) == 2
     assert wording.HOW_REGRESSION.startswith("Regression to the mean: ")
+    assert ("probably helped by luck", "regression to the mean") in [
+        row[:2] for row in wording.GLOSSARY_ROWS]
     assert "regression to the mean" not in " ".join(
         str(v) for k, v in vars(wording).items() if isinstance(v, str) and k != "HOW_REGRESSION"
     ).lower()

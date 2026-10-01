@@ -241,9 +241,12 @@ def test_exact_texts_from_the_audit():
 
 def test_the_new_lines_from_the_rulings():
     """Review I2 (skill states), I3 (guard lines), I5 (expected improvement)."""
+    # Insights for a first-time user (ftue spec §4, review R-I7, M11): the
+    # scale's two ends ride with the number, the one sanctioned edit of the
+    # verbatim figures (T0).
     assert W.skill_line("0.36", 15, [2, 3, 4, 5, 6], "skill") == (
-        "Overall score, Rounds 2–6: skill 0.36 (n = 15), better than the average of earlier "
-        "results.")
+        "Overall score, Rounds 2–6: skill 0.36 (n = 15; 0 = as good as the average, 1 = "
+        "perfect), better than the average of earlier results.")
     assert W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill").endswith(
         ", no better than the average of earlier results.")
     # Fix round 1 (ledger ruling on T2 I-1): between the cut and 0.2.

@@ -4648,7 +4648,9 @@ def next_untested(values=False, open_round=True, round_no=None):
     what = "values" if values else "amounts"
     where = (f"{ROUND_CAP} {round_no}" if open_round and round_no is not None
              else f"the {ROUND_CAP}" if open_round else f"the next {ROUND_CAP}")
-    return (f"The predicted best is in untested {what} ({show_its_amounts(values)}, above). "
+    # "under Progress figures" (ftue review R-I5): the fold moved below.
+    return (f"The predicted best is in untested {what} ({show_its_amounts(values)}, under "
+            f"{FOLD_PROGRESS_FIGURES_NAME}). "
             f"To test it directly, add it to {where} as your own {FORMULATION}; suggestions "
             "can also land near it.")
 
@@ -5153,10 +5155,17 @@ _SKILL_READING = {
 
 
 def skill_line(value_text, n, rounds, state):
-    """'Overall score, Rounds 2–6: skill 0.36 (n = 15), better than the
-    average of earlier results.' (review I2: always skill, n and Rounds)."""
-    return (f"{OVERALL_SCORE_COLUMN}, {rounds_span(rounds)}: skill {value_text} (n = {n}), "
-            f"{_SKILL_READING[state]}.")
+    """'Overall score, Rounds 2–6: skill 0.36 (n = 15; 0 = as good as the
+    average, 1 = perfect), better than the average of earlier results.'
+    (review I2: always skill, n and Rounds). The scale's two ends ride with
+    the number (ftue spec §4, review R-I7: the one sanctioned edit inside
+    the verbatim figures folds), so "skill 0.36" never stands alone."""
+    return (f"{OVERALL_SCORE_COLUMN}, {rounds_span(rounds)}: skill {value_text} (n = {n}; "
+            f"{SKILL_SCALE}), {_SKILL_READING[state]}.")
+
+
+# The skill's two ends, said wherever the number is (ftue spec §4).
+SKILL_SCALE = "0 = as good as the average, 1 = perfect"
 
 
 def skill_cell(value_text, n):
@@ -5783,3 +5792,1203 @@ def gain_pending(round_no=None):
 # minutes and Insights calculates in the app's own process.
 INSIGHTS_IN_PROCESS = ("Background checks stopped after repeated failures. Insights now "
                        "calculates in this window, so it is slower until the app is restarted.")
+
+
+# ------------------------------------------------------------------ #
+#  Insights for a first-time user (spec 2026-10-01-insights-first-time-
+#  design.md rev. 2; every "Proposed ruling" of research/2026-10-01-
+#  insights-ftue/spec-review.md). T0: every line W1 (status logic and the
+#  first screen), W2 (the expert layer) and W3 (explored and unexplored)
+#  add, spelled once here in the 03 style guide. The lines they replace
+#  stay above until integration deletes them; the three lines T0 edits in
+#  place are skill_line, next_untested and SKILL_SCALE (above). No later
+#  task edits this file: a missing line is a T0′ commit.
+#
+#  Trial forms. Every builder below is said through for_project, which
+#  turns "formulation" into "trial" on a study of process settings alone;
+#  a line that names amounts or ingredients takes `values` or
+#  `settings_only` for its own form. The glossary is the one exception
+#  (review M4): its two forms are written out, chosen by has_ingredients(),
+#  and never go through for_project.
+# ------------------------------------------------------------------ #
+
+# --- §1, R-B1, R-I10, M7: the three status lines ---------------------
+
+# The labels in front of the three lines. "Next" is a label with no status
+# word (M7); the detail sections below keep their noun headings (Q_TRUST,
+# Q_STAND, Q_NEXT: R-I8, R-I10).
+STATUS_PREDICTIONS = "Predictions"
+STATUS_PROGRESS = "Progress"
+STATUS_NEXT = "Next"
+
+# The owner's words for Predictions (2026-10-01), and the Progress words of
+# R-I10: the existing tags at both levels, plus Too early and No new best.
+# Keyed by the rule that sets them (insights.PREDICTION_ROWS, W1).
+PREDICTIONS_WORDS = {"reliable": "Reliable", "not_yet": "Not yet", "off": "Off"}
+PROGRESS_WORDS = {"rising": "Rising", "within_noise": "Within noise", "flat": "Flat",
+                  "too_early": "Too early", "no_new_best": "No new best"}
+
+
+def status_line(label, sentence, word=None):
+    """'Predictions: **Reliable.** In Rounds 3–5, …'; 'Next: Make the next
+    Round.' for a line with no status word (M7)."""
+    if word:
+        return f"{label}: **{word}.** {sentence}"
+    return f"{label}: {sentence}"
+
+
+# R-I8: each line's place says what it is waiting for until it fills, so
+# the button below moves by at most a line's difference.
+CHECKING_PREDICTIONS = "Checking predictions…"
+CHECKING_PROGRESS = "Checking progress…"
+PREPARING_NEXT_STEP = "Preparing the next step…"
+
+
+def ceiling_text(ceiling):
+    """The score's ceiling as a whole number (M1: opt.utility_ceiling(),
+    100 for any project saved since 0.5.0)."""
+    value = float(ceiling)
+    return f"{int(value)}" if value.is_integer() else f"{value:g}"
+
+
+def _out_of(score_text, ceiling):
+    """'90.45 of 100': two decimals, as Results shows it (M10)."""
+    return f"{score_text} of {ceiling_text(ceiling)}"
+
+
+def _rounds_in(rounds):
+    return f"In {rounds_span(rounds)}"
+
+
+def _misses_normal(allowed):
+    """'up to 3 misses are normal', inside the Reliable sentence's bracket."""
+    if not allowed:
+        return "no miss is normal"
+    return "up to 1 miss is normal" if allowed == 1 else f"up to {allowed} misses are normal"
+
+
+def _where_normal(allowed):
+    """'where up to 4 are normal', after "results fell outside"."""
+    if not allowed:
+        return "where none is normal"
+    return "where up to 1 is normal" if allowed == 1 else f"where up to {allowed} are normal"
+
+
+def _sentence(head, clauses=()):
+    return f"{head}{''.join(clauses)}."
+
+
+# Predictions, R-B1 rows 1–9, worst first. A sentence names its cause in
+# facts and never advises (R-I2): "check" is said only by Next's repeat row.
+# Row 1: a disagreeing Repeat, with the coverage as expected.
+PRED_OFF_REPEAT = ("A Repeat came out far from its original (see Next), so the conditions the "
+                   "predictions learned from may have changed.")
+
+
+def pred_off_coverage(rounds, outside, total, allowed, bias_text=None):
+    """Row 2, the unreliable verdict: 'In Rounds 3–5, 10 of 36 results fell
+    outside the range the app predicted, where up to 4 are normal, and
+    predictions have run about 5.5 points high.' `bias_text`: bias_fact's
+    words when the Overall score has a steady bias."""
+    line = (f"{_rounds_in(rounds)}, {outside} of {total} results fell outside the range the app "
+            f"predicted, {_where_normal(allowed)}")
+    if bias_text:
+        line += f", and {bias_text}"
+    return f"{line}."
+
+
+def pred_gate(n, needed=5):
+    """Row 3, fewer than 5 scored: 'The app starts checking its predictions
+    once 5 formulations have results; 3 have so far.'"""
+    so_far = "none has" if not n else "1 has" if n == 1 else f"{n} have"
+    return (f"The app starts checking its predictions once {needed} {FORMULATION}s have "
+            f"results; {so_far} so far.")
+
+
+def pred_too_few(k, needed=10, clauses=()):
+    """Row 4 (no Round checked, too few values, or skill not yet computed):
+    counted in formulations, the Overall-score checks the skill gate needs
+    (review B1: never the 10 values of the verdict)."""
+    if k:
+        what = f"1 {FORMULATION}" if k == 1 else f"{k} {FORMULATION}s"
+        head = (f"The app has checked its predictions against {what} and needs {needed} before "
+                "it can say how far to trust them")
+    else:
+        head = (f"The app has not checked its predictions against any {FORMULATION} yet and "
+                f"needs {needed} before it can say how far to trust them")
+    return _sentence(head, clauses)
+
+
+def pred_caution(rounds, outside, total, allowed, clauses=()):
+    """Row 5, more misses than expected (the spec was silent; review B1)."""
+    head = (f"{_rounds_in(rounds)}, more results than expected fell outside the range the app "
+            f"predicted ({outside} of {total}, {_where_normal(allowed)})")
+    return _sentence(head, clauses)
+
+
+def pred_wide(clauses=()):
+    """Row 6, every output's 95 % intervals wide (R-B2: "the predicted
+    ranges" is refused by _BANNED, so this is the spec's own sentence)."""
+    return _sentence("The app's predictions are still very uncertain, so results landing inside "
+                     "them prove little yet", clauses)
+
+
+PRED_WIDE = pred_wide()
+
+
+def _score_bias(bias):
+    """" and have run about 4.3 points high": the Overall score's steady
+    bias joined to the Score predictions sentence (Line C). `bias`:
+    (gap_text, below)."""
+    if not bias:
+        return ""
+    gap_text, below = bias
+    return f" and have run about {points_text(gap_text)} {'high' if below else 'low'}"
+
+
+def pred_no_skill(bias=None, clauses=()):
+    """Row 7, skill at or below the cut: 'Score predictions do no better
+    than the average of earlier results and have run about 4.3 points high;
+    those for Firmness, Juiciness and Cook loss are still very uncertain.'"""
+    return _sentence("Score predictions do no better than the average of earlier results"
+                     + _score_bias(bias), clauses)
+
+
+def pred_unclear(bias=None, clauses=()):
+    """Row 8, skill between the cut and 0.20 (review B1: not "no better")."""
+    return _sentence("Score predictions are not yet clearly better than the average of earlier "
+                     "results" + _score_bias(bias), clauses)
+
+
+def pred_reliable(rounds, inside, total, allowed, clauses=()):
+    """Row 9: 'In Rounds 3–5, 32 of 35 results landed inside the range the
+    app predicted (up to 3 misses are normal), and score predictions beat
+    the average of earlier results.'"""
+    head = (f"{_rounds_in(rounds)}, {inside} of {total} results landed inside the range the app "
+            f"predicted ({_misses_normal(allowed)}), and score predictions beat the average of "
+            "earlier results")
+    return _sentence(head, clauses)
+
+
+# The clauses rows 4–9 append, in this order (R-B1, R-I11).
+def clause_wide(names):
+    """Some outputs' 95 % intervals wide, not all: names as said, the
+    Overall score as "the Overall score"."""
+    return f"; those for {_and_join(names)} are still very uncertain"
+
+
+CLAUSE_OVER_WIDE = "; the predicted range was wider than it needed to be"
+
+
+def clause_bias(gap_text, below=True):
+    """'; predictions have run about 4.3 points high' (bias_fact): the
+    Overall score's steady bias only; other outputs' stay in the figures."""
+    return f"; {bias_fact(gap_text, below)}"
+
+
+def clause_guard(settings_only=False):
+    """R-I11: Reliable while the noise guard holds (lengthscale at its floor,
+    or fitted noise under half the Repeat SD)."""
+    what = "process setting" if settings_only else "ingredient"
+    return f"; the app does not yet read what each {what} does"
+
+
+# Progress (R-B1, R-I9, R-I10, M6).
+def vary_threshold(sd_text=None):
+    """The noise threshold in plain words (M6): measured from 3 Repeat
+    pairs, else the assumed 1 point."""
+    if sd_text:
+        return f"the {points_text(sd_text)} results vary between Repeats"
+    return "the 1 point results are assumed to vary until 3 Repeats measure it"
+
+
+def _best_is(score_text, ceiling, no, rnd=None):
+    """'Best so far is 90.09 of 100 (Formulation 11, Round 3)'."""
+    where = f"{FORMULATION_CAP} {no}" + (f", {ROUND_CAP} {rnd}" if rnd is not None else "")
+    return f"Best so far is {_out_of(score_text, ceiling)} ({where})"
+
+
+def progress_tied(best_no, other_no, score_text, ceiling):
+    """A tie at equal scores only (R-I9): 'Formulations 1 and 3 are tied for
+    best at 96.00 of 100.'"""
+    return (f"{FORMULATION_CAP}s {best_no} and {other_no} are tied for best at "
+            f"{_out_of(score_text, ceiling)}.")
+
+
+def progress_one_round(values=False, cold=True):
+    """Too early with one scored Round: the cold start says what it was."""
+    if cold:
+        return (f"One {ROUND_CAP} so far, laid out to cover your allowed "
+                f"{'values' if values else 'amounts'}.")
+    return f"One {ROUND_CAP} so far."
+
+
+def progress_too_early(score_text, ceiling, no, rnd=None, one_round=False, values=False,
+                       cold=True, tie_no=None):
+    """Too early (improvement() None: one Round, or no earlier candidate).
+    Snack bar: 'One Round so far, laid out to cover your allowed amounts.
+    Formulations 1 and 3 are tied for best at 96.00 of 100.' Upgrade:
+    'Best so far is 90.50 of 100 (Formulation 6, Round 3); no earlier scored
+    formulation to compare it with.'"""
+    if tie_no is not None:
+        best = progress_tied(no, tie_no, score_text, ceiling)
+    elif one_round:
+        best = f"{_best_is(score_text, ceiling, no, rnd)}."
+    else:
+        best = (f"{_best_is(score_text, ceiling, no, rnd)}; no earlier scored {FORMULATION} to "
+                "compare it with.")
+    if one_round:
+        return f"{progress_one_round(values, cold)} {best}"
+    return best
+
+
+def progress_no_new_best(last_round, score_text, ceiling, no, rnd, tie_no=None):
+    """No new best (one Round since): 'Round 5 did not beat Best so far,
+    90.45 of 100 (Formulation 15, Round 4).'"""
+    if tie_no is not None:
+        return (f"{ROUND_CAP} {last_round} did not beat Best so far: "
+                f"{progress_tied(no, tie_no, score_text, ceiling)}")
+    return (f"{ROUND_CAP} {last_round} did not beat Best so far, "
+            f"{_out_of(score_text, ceiling)} ({FORMULATION_CAP} {no}, {ROUND_CAP} {rnd}).")
+
+
+def progress_luck(repeat_text, of_no=None):
+    """R-I9: said at level 0 only while Predictions is Reliable. `of_no`:
+    the formulation, named when a tie leaves "it" unclear."""
+    who = "it" if of_no is None else f"{FORMULATION_CAP} {of_no}"
+    return f", probably helped by luck: a Repeat of {who} is predicted near {repeat_text}"
+
+
+def progress_flat(k, score_text, ceiling, no, rnd, luck_text=None, tie_no=None):
+    """Flat: 'No higher score in 7 Rounds. Best so far is 92.50 of 100
+    (Formulation 24, Round 5), probably helped by luck: a Repeat of it is
+    predicted near 90.' `luck_text`: the predicted Repeat, rounded."""
+    head = f"No higher score in {k} {ROUND_CAP}s."
+    if tie_no is not None:
+        best = progress_tied(no, tie_no, score_text, ceiling)[:-1]
+        luck = progress_luck(luck_text, no) if luck_text is not None else ""
+    else:
+        best = _best_is(score_text, ceiling, no, rnd)
+        luck = progress_luck(luck_text) if luck_text is not None else ""
+    return f"{head} {best}{luck}."
+
+
+def _raised(rnd, rise_text, score_text, ceiling, no):
+    return (f"{ROUND_CAP} {rnd} raised Best so far by {points_text(rise_text)}, to "
+            f"{_out_of(score_text, ceiling)} ({FORMULATION_CAP} {no})")
+
+
+def progress_rising(rnd, rise_text, score_text, ceiling, no, sd_text=None):
+    """Rising: 'Round 5 raised Best so far by 2.5 points, to 89.84 of 100
+    (Formulation 18), more than the 1 point results are assumed to vary
+    until 3 Repeats measure it.'"""
+    return f"{_raised(rnd, rise_text, score_text, ceiling, no)}, more than {vary_threshold(sd_text)}."
+
+
+def progress_within_noise(rnd, rise_text, score_text, ceiling, no, sd_text=None):
+    """Within noise: the same, "less than"."""
+    return f"{_raised(rnd, rise_text, score_text, ceiling, no)}, less than {vary_threshold(sd_text)}."
+
+
+def tie_runner_up(no, score_text, threshold_text):
+    """R-I9: the runner-up within the noise threshold, said in Progress
+    figures only (level 0 names equal scores alone). `threshold_text`:
+    beat_by's words. 'Formulation 18 (90.12) is within the 1-point noise
+    threshold of Best so far, so the two are tied.'"""
+    return (f"{FORMULATION_CAP} {no} ({score_text}) is within {threshold_text} of Best so far, "
+            "so the two are tied.")
+
+
+# Next, R-I5: one plain sentence per next_step row. Today's sentence
+# follows it verbatim inside Next-step reasoning.
+def next_plain_tail(no=None, left=0):
+    """The early row, and the tail of the others: 'Make the next Round.' or
+    'Record the 4 formulations still open in Round 6, then make the next
+    Round.'"""
+    if left:
+        return f"{record_open_round(no, left)}, then make the next {ROUND_CAP}."
+    return f"Make the next {ROUND_CAP}."
+
+
+def next_plain_repeat_ask(no, open_round=False, after_results=False, values=False):
+    """R-I5's Repeat sentence while the threshold is assumed: 'Include a
+    Repeat of Formulation 15 (the same amounts again) to measure how much
+    results vary.' `open_round`: 'In the next Round, include …' (a Round is
+    open, so this one goes in the next); `after_results`: the sentence before
+    already said "results" (explore: '… to measure how much they vary.')."""
+    lead = f"In the next {ROUND_CAP}, include" if open_round else "Include"
+    gloss = "" if after_results else f" (the same {'values' if values else 'amounts'} again)"
+    what = "they" if after_results else "results"
+    return f"{lead} a Repeat of {FORMULATION_CAP} {no}{gloss} to measure how much {what} vary."
+
+
+def next_plain_repeat(later, earlier, diff_text, lower=True, half_text=None, values=False):
+    """Row repeat (Line B): 'Formulation 21, a Repeat of Formulation 11,
+    scored 10.5 points lower, more than two makes of one formulation should
+    differ (up to 7.4). If something changed (panel, supplier, equipment),
+    check it before relying on the next suggestions.' The one "check" on
+    the first screen (R-I2)."""
+    makes = "runs" if values else "makes"
+    limit = f" (up to {half_text})" if half_text is not None else ""
+    return (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, scored "
+            f"{points_text(diff_text)} {'lower' if lower else 'higher'}, more than two {makes} "
+            f"of one {FORMULATION} should differ{limit}. {CHECK_IF_CHANGED}")
+
+
+def next_plain_misses(no=None, left=0):
+    """Row misses (R-I5; "treat new predictions as rough" said without the
+    style guide's retired words)."""
+    return ("Recent results fell outside the range the app predicted more often than they "
+            "should, so new predictions can miss by more than their range shows. "
+            f"{next_plain_tail(no, left)}")
+
+
+def next_plain_no_skill(no=None, left=0):
+    """Row no_skill (Line C; "treat the suggestions as" said without the
+    retired word)."""
+    return (f"{next_plain_tail(no, left)} Until predictions beat the average, the suggestions are "
+            "a guided search, not a forecast.")
+
+
+def next_plain_untested(round_no=None, open_round=True, values=False):
+    """Row untested: the predicted best in amounts not tried, added as the
+    user's own formulation to the open Round, or to the next."""
+    what = "values" if values else "amounts"
+    where = (f"{ROUND_CAP} {round_no}" if open_round and round_no is not None
+             else f"the next {ROUND_CAP}")
+    return (f"The model's highest prediction is in {what} you have not tried yet (its {what} are "
+            f"under {FOLD_PROGRESS_FIGURES_NAME}). To test it directly, add it to {where} as your "
+            f"own {FORMULATION}.")
+
+
+def next_plain_explore(gain_text, assumed=True, no=None, left=0, repeat_no=None, values=False):
+    """Row explore (Timing check): 'Make the next Round. The app still
+    expects about 1.1 points of gain on average from amounts it has not
+    tried, more than results are assumed to vary. Include a Repeat of
+    Formulation 24 to measure how much they vary.' `gain_text`: shown_gain
+    to 1 decimal; `repeat_no`: Best so far, while the threshold is assumed."""
+    vary = "are assumed to vary" if assumed else "vary between Repeats"
+    line = (f"{next_plain_tail(no, left)} The app still expects about {points_text(gain_text)} of "
+            f"gain on average from {'values' if values else 'amounts'} it has not tried, more "
+            f"than results {vary}.")
+    if repeat_no is not None:
+        line += " " + next_plain_repeat_ask(repeat_no, open_round=bool(left), after_results=True,
+                                            values=values)
+    return line
+
+
+def next_plain_close(change_text="", settings_only=False, repeat_no=None, values=False):
+    """Row close: 'You are close to the top within these ingredients and
+    limits: no formulation is predicted to beat Best so far by more than
+    results vary. To look further, raise the Highest of X.' (R-I5, with
+    "nothing is predicted to" said as the style guide allows). The Set up
+    button under it is today's secondary."""
+    what = "process settings" if settings_only else "ingredients"
+    line = (f"You are close to the top within these {what} and limits: no {FORMULATION} is "
+            "predicted to beat Best so far by more than results vary.")
+    if change_text:
+        line += f" To look further, {change_text}."
+    else:
+        new = "a new process setting" if settings_only else "a new ingredient or process setting"
+        line += f" To look further, add {new}."
+    if repeat_no is not None:
+        line += " " + next_plain_repeat_ask(repeat_no, values=values)
+    return line
+
+
+def next_plain_see(no=None, left=0, repeat_no=None, values=False):
+    """Row see (Line A): 'Record the 4 formulations still open in Round 6.
+    In the next Round, include a Repeat of Formulation 15 (the same amounts
+    again) to measure how much results vary.'"""
+    if repeat_no is None:
+        return next_plain_tail(no, left)
+    if left:
+        return (f"{record_open_round(no, left)}. "
+                f"{next_plain_repeat_ask(repeat_no, open_round=True, values=values)}")
+    return f"Make the next {ROUND_CAP}. {next_plain_repeat_ask(repeat_no, values=values)}"
+
+
+def next_plain_rising(no=None, left=0, repeat_no=None, values=False):
+    """Row rising: 'Best so far is rising. Make the next Round.'"""
+    return f"Best so far is rising. {next_plain_see(no, left, repeat_no, values)}"
+
+
+# --- §2, R-I8, M3: the folds, named by what they hold ----------------
+FOLD_PREDICTION_FIGURES = "Prediction figures — 95 % intervals, mean error, skill"
+FOLD_PROGRESS_FIGURES_NAME = "Progress figures"
+FOLD_PROGRESS_FIGURES = (f"{FOLD_PROGRESS_FIGURES_NAME} — expected improvement, Repeats, noise "
+                         "threshold")
+FOLD_NEXT_REASONING = "Next-step reasoning"
+FOLD_MEASURED_CHART = "Measured against predicted (chart)"
+FOLD_PROGRESS_CHART = "Progress chart"
+FOLD_METHOD = "Method and definitions"
+FOLD_EXPLORED = "Explored and unexplored"
+
+
+def try_one_fold(has_settings, has_ingredients=True):
+    """'Try one ingredient or process setting' (§2; "setting" alone is not
+    the app's word)."""
+    if not has_ingredients:
+        return "Try one process setting"
+    return "Try one ingredient or process setting" if has_settings else "Try one ingredient"
+
+
+def trade_offs_fold(has_triangle=True):
+    """Was More charts (02 §4): the triangle needs three ingredients."""
+    if has_triangle:
+        return "Trade-offs: two measurements, three ingredients"
+    return "Trade-offs: two measurements"
+
+
+# §7, R-I6, R-I12: each figures fold opens with its technical basis; the
+# fold labels carry no tooltip, so the help sits on these lines.
+BASIS_PREDICTIONS = (
+    f"Basis: each {ROUND_CAP} predicted by models fitted only to the {ROUND_CAP}s before it, "
+    "recomputed with today's settings (rolling-origin, pseudo-prospective validation); 95 % "
+    "posterior predictive intervals widened by 5-fold cross-validation; skill against the "
+    f"average of the {FORMULATION}s recorded before each {ROUND_CAP}.")
+BASIS_PROGRESS = (
+    f"Basis: Best so far is the highest measured Overall score among {FORMULATION}s with all "
+    "results in; a rise counts from the noise threshold up, the pooled Repeat SD from 3 pairs, "
+    "else 1 point; expected improvement is the suggestion model's acquisition value.")
+BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
+              "definitions, and the first that holds is shown; its full sentence follows.")
+
+
+def basis_explored(values=False, total=True):
+    """The Explored and unexplored fold's first line (§7 for §8)."""
+    at = ("at the values run" if values
+          else "at the Formulation total" if total else "at the amounts made")
+    return (f"Basis: the strips are model-free, one input at a time, {at}; the map is the "
+            "suggestion model's posterior mean and sd over a sample of the allowed "
+            f"{FORMULATION}s.")
+
+
+# --- §3, R-I6: tooltips, the plain reading first, then the BO term ----
+# One "?" per line: a line's help joins the tips of the statistics it
+# names, in screen order (W2's tooltip_for). Method and definitions holds
+# every one of them too (M12: hover is hard on touch and keyboard).
+TIP_INTERVAL = (
+    "95 % interval: the range a new result should land in about 19 times in 20. BO term: 95 % "
+    "posterior predictive interval of the Gaussian process (observation noise included), "
+    "widened by a calibration factor from 5-fold cross-validation and cut at the Range.")
+TIP_VERDICT = (
+    "As expected, More misses than expected, Many more misses than expected: whether results "
+    "land outside their 95 % intervals more often than 1 in 20. BO term: a coverage check, "
+    "misses counted against a binomial at 5 % per value (as expected from 1 in 10 up, many "
+    "more below 1 in 100).")
+TIP_NOT_JUDGED = (
+    "Not judged yet: fewer than 10 values checked, or every 95 % interval so wide that nearly "
+    "any result lands inside. BO term: too small a validation sample, or uninformative "
+    "intervals.")
+TIP_SKILL = (
+    f"Skill: how much better score predictions are than the average of earlier results; "
+    f"{SKILL_SCALE}, below 0 = worse. BO term: out-of-sample skill score 1 − SSE/SSE(running "
+    f"mean), pooled over {ROUND_CAP}s; a Q²-type score, not R².")
+TIP_ROUND_AHEAD = (
+    f"Round-ahead check: each {ROUND_CAP} predicted from the {ROUND_CAP}s before it only, then "
+    "compared with what was measured. BO term: rolling-origin (pseudo-prospective) validation, "
+    f"recomputed with today's settings, not frozen when the {ROUND_CAP} was made.")
+TIP_MEAN_ERROR = (
+    "Mean error: how far results came in above (+) or below (−) prediction on average. BO "
+    "term: mean prediction error (measured − predicted); a steady bias when its size exceeds "
+    "the noise threshold and 2 standard errors.")
+TIP_NOISE_THRESHOLD = (
+    f"Noise threshold: the smallest difference counted as more than chance: how much Repeats "
+    f"of one {FORMULATION} differ, or 1 point, assumed, until 3 Repeat pairs exist. BO term: "
+    "pooled replicate (pure-error) SD; not the Gaussian process's fitted noise.")
+
+
+def tip_repeats(values=False):
+    """Repeat, pair, df."""
+    made = "values run" if values else "amounts made"
+    return (f"Repeat: the same {made} again; a Repeat and its original are a pair. df: the "
+            f"pooled SD's degrees of freedom, results minus {FORMULATION}s made more than once. "
+            "BO term: replicates.")
+
+
+TIP_PROGRESS_WORDS = (
+    f"Rising: Best so far went up by at least the noise threshold in the last {ROUND_CAP}. "
+    f"Within noise: up by less. Flat: no higher score in 2 or more {ROUND_CAP}s. Too early: "
+    f"one {ROUND_CAP}, or no earlier {FORMULATION} to compare with. No new best: the one "
+    f"{ROUND_CAP} since did not beat it. BO term: improvement of the best observed value, "
+    "judged against replicate noise.")
+
+
+def tip_predicted_score(values=False):
+    return (f"Predicted score: the model's single best guess at these "
+            f"{'values' if values else 'amounts'}. BO term: posterior mean of the Gaussian "
+            "process.")
+
+
+TIP_MODEL_SD = (
+    "Model sd: how unsure the model is about its own guess here, without the noise of one "
+    "result. BO term: latent posterior standard deviation (no observation noise, no "
+    "calibration), narrower than the 95 % interval.")
+TIP_PREDICTED_BEST = (
+    f"Predicted best: the allowed {FORMULATION} the model scores highest. BO term: maximiser of "
+    "the posterior mean over the feasible region, its interval widened by the Round-ahead "
+    "record.")
+TIP_EXPECTED_IMPROVEMENT = (
+    f"Expected improvement: what one new {FORMULATION} is expected to add over the model's best, "
+    "on average, counting no gain as zero; an estimate, not a promise. BO term: the acquisition "
+    "value, qLogNEI by default (qLogEI: over the best measured score; qUCB gives an optimistic "
+    "score instead), conditional on the model.")
+
+
+def tip_untested(values=False):
+    what = "values" if values else "amounts"
+    return (f"Untested {what}: no {FORMULATION} with all results in lies within 15 % of each "
+            "varying row's Lowest–Highest span, all rows at once. BO term: outside an L∞ "
+            "neighbourhood of the design points.")
+
+
+def tip_local_effect(settings_only=False):
+    what = "process setting" if settings_only else "ingredient"
+    return (f"Local effect: how much the predicted score moves when only this {what} changes, "
+            "near what you have made. BO term: range of the posterior mean along a one-factor "
+            "trace over the tested stretch; unsigned, not a coefficient.")
+
+
+TIP_ACTIVE_BOUNDS = (
+    "At the Highest or Lowest of a row: the predicted best is pressed against that limit "
+    "(within 1 % of its span), so widening it may let it go further. BO term: active bounds of "
+    "the constrained maximiser.")
+# The term itself is said in Method and definitions only (HOW_REGRESSION
+# and the glossary; answer-key refresh item 7), so this tip points there.
+TIP_LUCK = (
+    "Probably helped by luck: Best so far is the highest of many scores, each with its own "
+    "noise, so a Repeat of it is predicted lower. The statistics term is in Method and "
+    "definitions.")
+TIP_ROLES = (
+    f"Refines the best, balanced, explores: how far a suggestion is from what was made: within "
+    f"15 % of Best so far, more than 30 % from every {FORMULATION} recorded, or in between. BO "
+    "term: distance labels; not the acquisition's exploitation–exploration split.")
+TIP_NEAREST_TESTED = (
+    f"Nearest tested: the scored {FORMULATION} closest to this suggestion, by its largest "
+    "difference as a share of each span. BO term: nearest design point in the L∞ distance.")
+
+
+# The status lines' exact-rule tooltips (§7, R-B1, I13: each output and
+# window named on its own).
+def tip_coverage(names, rounds, inside, total, allowed):
+    """Line A: 'Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 32
+    of 35 Round-ahead values inside their 95 % posterior predictive
+    intervals (5-fold cross-validation widening); a binomial count at 5 % per
+    value allows up to 3 misses in 35 at the 1-in-10 level.'"""
+    misses = "1 miss" if allowed == 1 else f"{allowed} misses"
+    return (f"Measurements ({', '.join(names)}), {rounds_span(rounds)}: {inside} of {total} "
+            "Round-ahead values inside their 95 % posterior predictive intervals (5-fold "
+            f"cross-validation widening); a binomial count at 5 % per value allows up to {misses} "
+            f"in {total} at the 1-in-10 level.")
+
+
+def tip_coverage_early(names, rounds, n):
+    """Fewer than 10 values in the verdict's Rounds."""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    return (f"Measurements ({', '.join(names)}){where}: {_values(n)} checked; the coverage check "
+            "needs 10.")
+
+
+TIP_COVERAGE_NONE = (f"Measurements: no {ROUND_CAP} checked yet; the coverage check starts with "
+                     f"the first {ROUND_CAP} made after 5 {FORMULATION}s have results.")
+
+
+def tip_skill(rounds, value_text, n):
+    """'Overall score, Rounds 2–5: out-of-sample skill 1 − SSE/SSE(mean of
+    the rows before each Round) = 0.36 over 15 formulations, at least 0.20
+    over at least 10 needed.'"""
+    return (f"{OVERALL_SCORE_COLUMN}, {rounds_span(rounds)}: out-of-sample skill 1 − SSE/SSE(mean "
+            f"of the rows before each {ROUND_CAP}) = {value_text} over {n} {FORMULATION}s, at "
+            "least 0.20 over at least 10 needed.")
+
+
+def tip_skill_too_few(n):
+    return (f"{OVERALL_SCORE_COLUMN}: out-of-sample skill needs 10 Round-ahead checks; {n} so "
+            "far.")
+
+
+TIP_REFITTED = f"Each {ROUND_CAP} is predicted by models refitted today on earlier {ROUND_CAP}s only."
+# R-I11: what "Reliable" can and cannot promise, in its own tooltip.
+TIP_RELIABLE_LIMITS = (
+    f"Reliable can change between {ROUND_CAP}s by chance: a model whose true skill is 0.20 or "
+    "more reads below 0.20 about 15 % of the time at n = 10, and 12 % at n = 15. On projects "
+    "built by the app's suggestions, the 95 % intervals have covered about 91 % of measured "
+    "values and 89 % of Overall scores.")
+
+
+def tip_repeat_off(later, earlier, diff_text, half_text):
+    """Row 1's rule: the difference against √2 × the later formulation's
+    own Round-ahead half-width (nested widening included)."""
+    return (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, differs by "
+            f"{points_text(diff_text)}: more than ±{half_text}, the 95 % interval for the "
+            "difference of two results (√2 × the later one's Round-ahead half-width). The pair "
+            "is left out of the Repeat SD.")
+
+
+def tip_bias(gap_text, n, rounds):
+    """The Overall score's steady bias. `gap_text` signed (signed())."""
+    return (f"{OVERALL_SCORE_COLUMN}, {rounds_span(rounds)}: mean error {gap_text} points "
+            f"(measured − predicted, n = {n}), beyond the noise threshold and 2 standard errors: "
+            "a steady bias.")
+
+
+def tip_wide(names):
+    return (f"Very uncertain: the median 95 % half-width for {_and_join(names)} is over 25 % of "
+            "its Range.")
+
+
+def tip_guard(reasons):
+    """`reasons`: GUARD_FLOOR and or GUARD_NOISE."""
+    return (f"Noise guard: {'; '.join(reasons)}. Effects and expected improvement are not "
+            "reported; the status itself is unchanged.")
+
+
+def tip_threshold_measured(sd_text, pairs, df=None):
+    tail = f", {df} df" if df is not None else ""
+    return f"pooled Repeat SD {sd_text} points from {pairs_text(pairs)}{tail}"
+
+
+TIP_THRESHOLD_ASSUMED = "1 point, assumed: fewer than 3 Repeat pairs"
+
+
+def tip_progress(threshold_text):
+    """The Progress line's rule (§7): `threshold_text` is
+    tip_threshold_measured's or TIP_THRESHOLD_ASSUMED."""
+    return (f"Rise = Best so far minus the best before the latest scored {ROUND_CAP}, compared "
+            f"to the hundredth with the noise threshold ({threshold_text}). Rising at or above "
+            f"it, Within noise below it, Flat after 2 or more scored {ROUND_CAP}s with no higher "
+            "score.")
+
+
+def tip_next(status_text, rule_text):
+    """The Next line's rule: which row fired, and its condition (a row of
+    status_rule_rows)."""
+    return (f"Next-step rule that holds: {status_text}. {rule_text} The rules are tried in "
+            "order and the first that holds is shown.")
+
+
+# --- §7, R-I12, R-I13, M9: Model and method --------------------------
+MODEL_AND_METHOD = "Model and method"
+# The one sentence that names the field (R-B2: in exactly one allowlisted
+# string, the summary's first).
+MODEL_SUMMARY_LEAD = ("Bayesian optimisation: a Gaussian-process surrogate model of the Overall "
+                      "score chooses each Round's suggestions; this tab also fits one Gaussian "
+                      "process per measurement for its predictions.")
+_ACQUISITION_NAMES = {
+    "qlognei": "qLogNEI (noisy expected improvement over the model's best tested {f}, log form)",
+    "qlogei": "qLogEI (expected improvement over the best measured Overall score, log form)",
+    "qucb": "qUCB (upper confidence bound, β = {beta})",
+}
+
+
+def _small(value):
+    """'1e-6', '0.025': a setting as its library writes it."""
+    return f"{float(value):g}".replace("e-0", "e-")
+
+
+def _kernel_summary(f):
+    name = KERNEL_NAMES.get(f.kernel, f.kernel)
+    if f.kernel == "rbf":
+        name = "squared exponential (RBF)"
+    source = "Recommended settings" if f.recommended else "your model settings"
+    text = f"Kernel ({source}): {name}"
+    if f.ard:
+        text += " with one lengthscale per input (ARD)"
+    if f.lengthscale_prior:
+        text += f", lengthscale prior {f.lengthscale_prior}"
+    if f.lengthscale_floor is not None:
+        text += f", at least {f.lengthscale_floor:g}"
+    if f.outputscale:
+        prior = f", prior {f.outputscale_prior}" if f.outputscale_prior else ""
+        text += f"; outputscale fitted{prior}"
+    else:
+        text += "; no outputscale"
+    return f"{text}."
+
+
+def _noise_summary(f):
+    if f.noise == "fixed":
+        return "Likelihood: Gaussian, noise fixed near zero by your model settings."
+    prior = f", prior {f.noise_prior}" if f.noise_prior else ""
+    floor = f", at least {_small(f.noise_floor)}" if f.noise_floor is not None else ""
+    return f"Likelihood: Gaussian, noise fitted{prior}{floor}."
+
+
+def _inputs_summary(f):
+    if f.values:
+        return ("Inputs: each process setting normalised to [0, 1] by its own Lowest–Highest (a "
+                "box, not the constrained design space).")
+    at = ("amounts brought to the Formulation total, then each column" if f.total
+          else "amounts as made, each column")
+    return (f"Inputs: {at} normalised to [0, 1] by its own Lowest–Highest (a box, not the "
+            "constrained design space); choices one-hot; calculated rows and the "
+            f"{FILL_TO_TOTAL} row have no column of their own.")
+
+
+def model_summary(facts):
+    """Method and definitions' first part (§7, R-I12, R-I13), from facts
+    read off a model actually built for this project (insights.model_summary,
+    W2), never from hard-coded defaults: a list of lines. At the gate (M9)
+    only the cold start and the model to come."""
+    f = facts
+    cold = (f"Cold start: the first {f.cold_start} {FORMULATION}s with all results in come from "
+            f"a space-filling design over the allowed {'values' if f.values else 'amounts'}, not "
+            "from the acquisition.")
+    if f.cold:
+        return [cold, (f"The model to come: a Gaussian process on the Overall score, fitted once "
+                       f"{f.cold_start} {FORMULATION}s have all their results; its predictions are "
+                       f"checked {ROUND_CAP} by {ROUND_CAP} from then on.")]
+    acq = _ACQUISITION_NAMES.get(f.acquisition, f.acquisition).format(
+        f=FORMULATION, beta=f"{f.beta:g}" if f.beta is not None else "")
+    q = (f"q = {f.q} per {ROUND_CAP}" if f.q is not None
+         else f"q = the number of {FORMULATION}s generated")
+    lines = [
+        MODEL_SUMMARY_LEAD,
+        (f"Surrogate: BoTorch SingleTaskGP on the Overall score, fitted to {f.scored} "
+         f"{FORMULATION}s with all results in, {f.inputs} inputs; constant mean; outcome "
+         f"{'standardised (mean 0, SD 1)' if f.standardised else 'as measured'}."),
+        _kernel_summary(f),
+        _noise_summary(f),
+        _inputs_summary(f),
+        ("Hyperparameters: maximum a posteriori (marginal likelihood × the priors above), point "
+         "estimates, not marginalised; the suggestion model uses BoTorch's default fit, the "
+         f"models on this tab L-BFGS-B with ftol {_small(f.fit_tolerance)}."),
+        (f"Acquisition: {acq}; {q}, chosen one at a time (sequential greedy) under the linear "
+         f"limits, {f.restarts} restarts from {f.raw_samples} raw samples, {f.mc_samples} "
+         "quasi-Monte Carlo samples."),
+        cold,
+    ]
+    if f.robust:
+        lines.append("Input warping: on for the suggestion model (robust), not used by the "
+                     "models on this tab.")
+    lines += [
+        (f"Interval calibration: each model's 95 % intervals are multiplied by the "
+         f"root-mean-square of {f.folds}-fold cross-validated standardised errors (at least 1); "
+         f"the Overall score's are widened again by earlier {ROUND_CAP}s' Round-ahead record."),
+        (f"Validation: rolling-origin (pseudo-prospective): each {ROUND_CAP} predicted by models "
+         f"refitted on earlier {ROUND_CAP}s only, recomputed with today's measurements, targets, "
+         "Share of score and model settings. Skill, coverage and bias are defined under How each "
+         "status is decided."),
+    ]
+    return lines
+
+
+MODEL_LIMITS_HEADING = "Known limits"
+# R-I12's known limits, §7's own, R-I11's two figures and §8's reason for
+# drawing no projection of the whole space (02-chart-audit §6).
+MODEL_LIMITS = (
+    ("Coverage: on projects built by the app's suggestions, the 95 % intervals have covered "
+     "about 91 % of measured values and 89 % of Overall scores, short of 95 %."),
+    ("Reliable can change between Rounds by chance: a model whose true skill is 0.20 or more "
+     "reads below 0.20 about 15 % of the time at n = 10, and 12 % at n = 15."),
+    ("The models on this tab are refitted with their own tolerance, so they differ slightly "
+     "from the suggestion model."),
+    "Intervals are cut at 0 and the score ceiling, so coverage near 100 reads high.",
+    f"{FORMULATION_CAP}s still waiting for results are left out of every model.",
+    "Best so far is one noisy maximum, so it tends to read high.",
+    "A noise threshold from few Repeat pairs rests on few degrees of freedom.",
+    "No correction is made for the many comparisons on this tab.",
+    (f"A change at the bench shows only through a Repeat of an earlier {FORMULATION} in each "
+     f"{ROUND_CAP}: the Round-ahead check learns it from its first {ROUND_CAP} on."),
+    ("No 2-D map of the whole space is drawn: a principal-component projection keeps about 35 % "
+     "of its variation, and 75–89 % of nearest neighbours in such a map are wrong."),
+)
+
+
+# --- §7, I13, R-I13: How each status is decided ----------------------
+STATUS_TABLE = "How each status is decided"
+STATUS_TABLE_COLUMNS = ("Line", "Status", "Exact rule")
+
+
+def status_rule_rows(cut_text="−0.20", settings_only=False):
+    """One row per state of review B1's table and per Next row, each line in
+    first-match order, with its exact condition. `cut_text`: the skill
+    cut (insights.skill_cut at n = 10). Said through for_project."""
+    one = "process setting" if settings_only else "ingredient"
+    p, g, n = STATUS_PREDICTIONS, STATUS_PROGRESS, STATUS_NEXT
+    words = PREDICTIONS_WORDS
+    window = (f"the verdict's {ROUND_CAP}s (the last 3 checked, more until 10 measured values)")
+    return [
+        (p, f"{words['off']} (Repeat)",
+         f"A Repeat differs from its original by more than √2 × the later one's Round-ahead 95 % "
+         f"half-width, in {window}. Its pair is then left out of the Repeat SD."),
+        (p, f"{words['off']} (coverage)",
+         f"Many more misses than expected: in {window}, as many misses outside the 95 % "
+         "intervals or more would happen less than 1 time in 100 under a binomial at 5 % per "
+         "value."),
+        (p, f"{words['not_yet']} (gate)", f"Fewer than 5 {FORMULATION}s with all results in."),
+        (p, f"{words['not_yet']} (too few checks)",
+         f"No {ROUND_CAP} checked, fewer than 10 measured values over every {ROUND_CAP} "
+         "checked, or fewer than 10 Round-ahead checks of the Overall score for skill."),
+        (p, f"{words['not_yet']} (more misses)",
+         "More misses than expected: as many misses or more would happen less than 1 time in "
+         "10, and at least 1 time in 100."),
+        (p, f"{words['not_yet']} (very uncertain)",
+         f"Every output's median 95 % half-width over 25 % of its Range in {window}."),
+        (p, f"{words['not_yet']} (no better than the average)",
+         f"Skill at or below the cut ({cut_text}), from 10 checks."),
+        (p, f"{words['not_yet']} (not clearly better)", f"Skill above {cut_text} and below 0.20."),
+        (p, words["reliable"],
+         "As expected (as many misses or more would happen at least 1 time in 10), or wider "
+         "than needed (all inside, at "
+         "least 20 values, median absolute standardised error at most 0.4), and skill 0.20 or "
+         "more from 10 checks."),
+        (p, "Clause: still very uncertain",
+         "Some outputs, not all, have a median 95 % half-width over 25 % of their Range."),
+        (p, "Clause: predictions have run high or low",
+         "The Overall score's mean error is beyond the noise threshold and 2 standard errors "
+         f"(from 4 {ROUND_CAP}s checked, each {ROUND_CAP}'s mean error counts as one value)."),
+        (p, f"Clause: does not yet read what each {one} does",
+         "Reliable while the noise guard holds: the lengthscale at its lower limit, or the "
+         "fitted noise under half the Repeat SD."),
+        (g, PROGRESS_WORDS["rising"],
+         f"Best so far came from the latest scored {ROUND_CAP} and beat the best before it by at "
+         "least the noise threshold, to the hundredth."),
+        (g, PROGRESS_WORDS["within_noise"], "The same, by less than the noise threshold."),
+        (g, PROGRESS_WORDS["flat"], f"No higher score in the last 2 or more scored {ROUND_CAP}s."),
+        (g, PROGRESS_WORDS["no_new_best"], f"No higher score in the one {ROUND_CAP} since."),
+        (g, PROGRESS_WORDS["too_early"],
+         f"One scored {ROUND_CAP}, or no earlier {FORMULATION} to compare Best so far with."),
+        (n, "Repeat", "A Repeat disagrees, as for Off (Repeat)."),
+        (n, "Misses", "Many more misses than expected."),
+        (n, "Early", f"No {ROUND_CAP} checked, fewer than 10 values, or every output very "
+                     "uncertain."),
+        (n, "No better than the average", f"Skill at or below the cut ({cut_text})."),
+        (n, "Untested",
+         "Effects reported (skill 0.20 or more from 10 checks) and not More misses than "
+         "expected; the predicted best beats a Repeat of Best so far by more than the noise "
+         f"threshold; and no {FORMULATION} with all results in lies within 15 % of each span of "
+         "it."),
+        (n, "Explore",
+         "Effects reported and not More misses than expected; no predicted gain beyond the "
+         "noise threshold; Progress Flat or Within noise; expected improvement above the noise "
+         "threshold."),
+        (n, "Close", "The same, with the expected improvement at or under the noise threshold."),
+        (n, "Rising", "Progress Rising."),
+        (n, "See", "Any other case."),
+    ]
+
+
+# --- §3, §7, R-B2, M4, M5, M8: the glossary --------------------------
+# Plain word on screen → the standard BO term → one line of meaning, in one
+# canonical order (M8): the status lines, then the folds top to bottom.
+# Written out in both forms (M4) and as plain literals, never f-strings: the
+# few cells that say a word _BANNED keeps for everything else are allowed
+# as exact strings (tests/test_food_bo._FTUE_ALLOWED), and only here.
+GLOSSARY = "Glossary: word on screen → BO term"
+GLOSSARY_COLUMNS = ("Word on screen", "BO term", "Meaning")
+GLOSSARY_OVERALL_TERM = "objective (an additive desirability, weighted by Share of score)"
+GLOSSARY_ROUND_TERM = "batch of q suggestions"
+GLOSSARY_ROUND_MEANING = ("the formulations made together; in BO texts a “batch” of q generated "
+                          "suggestions")
+GLOSSARY_ROWS = (
+    ("Reliable · Not yet · Off", "validation verdict",
+     "The Predictions status: coverage of the 95 % intervals and out-of-sample skill together. "
+     "Not yet covers the Prediction check's Not judged yet."),
+    ("the range the app predicted · 95 % interval",
+     "95 % posterior predictive interval (calibrated)",
+     "Where one new measured value should land about 19 times in 20: posterior mean ± 1.96 × "
+     "predictive SD × calibration factor, cut at the Range."),
+    ("score predictions beat the average · skill", "out-of-sample skill score (Q²-type, not R²)",
+     "1 − SSE/SSE(running mean of earlier results), pooled over Rounds; 0 = as good as the "
+     "average, 1 = perfect."),
+    ("predictions have run high or low · mean error", "mean prediction error (bias)",
+     "Average of measured − predicted; a steady bias beyond the noise threshold and 2 standard "
+     "errors."),
+    ("Rising · Within noise · Flat · Too early · No new best",
+     "improvement of the best observed value against replicate noise",
+     "The rise of Best so far in the latest Round, compared with the noise threshold."),
+    ("Best so far", "best observed value",
+     "The highest measured Overall score among formulations with all results in. Not the "
+     "acquisition's incumbent under qLogNEI, which is the model's best tested formulation."),
+    ("probably helped by luck", "regression to the mean",
+     "A Repeat of Best so far is predicted below its measured score by more than the noise "
+     "threshold."),
+    ("Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
+     "The same amounts made again; a Repeat and its original are a pair; df = results − "
+     "formulations made more than once."),
+    ("noise threshold", "pooled replicate (pure-error) SD",
+     "Pooled SD of Repeats of the Overall score from 3 pairs (at least 0.05), else 1 point, "
+     "assumed; not the Gaussian process's fitted noise."),
+    ("Where you have tested", "marginal coverage of each input (model-free)",
+     "Each recorded formulation as a tick at its amount, one input at a time; combinations can "
+     "be untested where every strip looks covered."),
+    ("Every allowed formulation (map)", "posterior mean against latent posterior sd",
+     "Each grey dot is an allowed formulation from a hit-and-run sample of the feasible region; "
+     "high = unexplored, right = predicted good."),
+    ("allowed amounts", "design space; with your limits, the feasible region",
+     "Every formulation within each row's Lowest–Highest that meets every limit."),
+    ("Round-ahead check", "rolling-origin (pseudo-prospective) validation",
+     "Each Round predicted by models refitted on earlier Rounds only, recomputed with today's "
+     "settings."),
+    ("As expected · More misses than expected · Many more misses than expected · Not judged yet",
+     "coverage test (binomial at 5 % per value)",
+     "Misses outside the 95 % intervals against a binomial at 5 %: as expected from 1 in 10 up, "
+     "many more below 1 in 100; Not judged yet under 10 values or with every interval wide."),
+    ("calibration factor", "cross-validated calibration factor",
+     "Root-mean-square of 5-fold cross-validated standardised errors, at least 1; every 95 % "
+     "interval is multiplied by it."),
+    ("predicted score · model mean", "posterior mean", "The model's single best guess."),
+    ("predicted best", "maximiser of the posterior mean over the feasible region",
+     "The allowed formulation the model scores highest; at a Highest or Lowest it sits on an "
+     "active bound."),
+    ("expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
+     "Average gain of one new formulation over the model's best tested formulation (qLogEI: "
+     "over the best measured score), counting no gain as zero."),
+    ("model sd · how unsure the model is · Uncertainty", "latent posterior standard deviation",
+     "The model's own uncertainty about its mean, without observation noise or calibration; "
+     "narrower than the 95 % interval."),
+    ("tested near · untested amounts", "inside or outside an L∞ neighbourhood of the design points",
+     "Within 15 % of each varying row's Lowest–Highest span, all rows at once, of a formulation "
+     "with all results in."),
+    ("local effect", "range of the posterior mean along a one-factor trace",
+     "Largest minus smallest predicted score as one ingredient changes, over the tested "
+     "stretch; unsigned, not a coefficient."),
+    ("correlated (|r|)", "collinear inputs (confounded effects)",
+     "|Pearson r| at least 0.8 between two ingredients across formulations with all results in."),
+    ("Overall score", GLOSSARY_OVERALL_TERM,
+     "Sum over measurements of closeness to the goal (0–1) × Share of score, 0–100."),
+    ("measurement", "outcome (response)", "A measured result the Overall score is built from."),
+    ("ingredient · process setting", "input (factor); ingredients are mixture components",
+     "A column of the model, normalised by its own Lowest–Highest."),
+    ("model", "surrogate model: a Gaussian process (BoTorch SingleTaskGP)",
+     "Learns the Overall score from the formulations with all results in; one more per "
+     "measurement for this tab."),
+    ("how smoothly results change", "kernel (covariance function)",
+     "Recommended settings: squared exponential (RBF) with ARD; the kernel in use is named "
+     "under Model and method."),
+    ("correlation length", "lengthscale (one per input: ARD)",
+     "How far an input must move before results change much; at its lower limit, the model is "
+     "fitting noise."),
+    ("Round", GLOSSARY_ROUND_TERM, GLOSSARY_ROUND_MEANING),
+    ("laid out to cover your allowed amounts", "space-filling initial design (cold start)",
+     "The first 5 formulations with all results in come from a space-filling design, not the "
+     "acquisition."),
+    ("suggestions", "candidates that maximise the acquisition",
+     "Chosen one at a time (sequential greedy), each valued with the earlier picks counted as "
+     "pending."),
+    ("refines the best · balanced · explores", "distance labels",
+     "Within 15 % of Best so far, more than 30 % from everything recorded, or in between; not "
+     "the acquisition's exploitation–exploration split."),
+)
+
+# The process-settings form (M4): the rows that name formulations, amounts
+# or ingredients, rewritten; every other row is shared.
+GLOSSARY_ROUND_MEANING_SETTINGS = ("the trials run together; in BO texts a “batch” of q "
+                                   "generated suggestions")
+_GLOSSARY_SETTINGS_FORM = {
+    "Best so far": (
+        "Best so far", "best observed value",
+        "The highest measured Overall score among trials with all results in. Not the "
+        "acquisition's incumbent under qLogNEI, which is the model's best tested trial."),
+    "Repeat · pair · df": (
+        "Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
+        "The same values run again; a Repeat and its original are a pair; df = results − trials "
+        "run more than once."),
+    "Where you have tested": (
+        "Where you have tested", "marginal coverage of each input (model-free)",
+        "Each recorded trial as a tick at its value, one process setting at a time; "
+        "combinations can be untested where every strip looks covered."),
+    "Every allowed formulation (map)": (
+        "Every allowed trial (map)", "posterior mean against latent posterior sd",
+        "Each grey dot is an allowed trial from a hit-and-run sample of the feasible region; "
+        "high = unexplored, right = predicted good."),
+    "allowed amounts": (
+        "allowed values", "design space; with your limits, the feasible region",
+        "Every trial within each setting's Lowest–Highest that meets every limit."),
+    "predicted best": (
+        "predicted best", "maximiser of the posterior mean over the feasible region",
+        "The allowed trial the model scores highest; at a Highest or Lowest it sits on an "
+        "active bound."),
+    "expected improvement": (
+        "expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
+        "Average gain of one new trial over the model's best tested trial (qLogEI: over the "
+        "best measured score), counting no gain as zero."),
+    "tested near · untested amounts": (
+        "tested near · untested values",
+        "inside or outside an L∞ neighbourhood of the design points",
+        "Within 15 % of each varying setting's Lowest–Highest span, all at once, of a trial "
+        "with all results in."),
+    "local effect": (
+        "local effect", "range of the posterior mean along a one-factor trace",
+        "Largest minus smallest predicted score as one process setting changes, over the "
+        "tested stretch; unsigned, not a coefficient."),
+    "correlated (|r|)": (
+        "correlated (|r|)", "collinear inputs (confounded effects)",
+        "|Pearson r| at least 0.8 between two process settings across trials with all results "
+        "in."),
+    "ingredient · process setting": (
+        "process setting", "input (factor)",
+        "A column of the model, normalised by its own Lowest–Highest."),
+    "model": (
+        "model", "surrogate model: a Gaussian process (BoTorch SingleTaskGP)",
+        "Learns the Overall score from the trials with all results in; one more per "
+        "measurement for this tab."),
+    "Round": ("Round", GLOSSARY_ROUND_TERM, GLOSSARY_ROUND_MEANING_SETTINGS),
+    "laid out to cover your allowed amounts": (
+        "laid out to cover your allowed values", "space-filling initial design (cold start)",
+        "The first 5 trials with all results in come from a space-filling design, not the "
+        "acquisition."),
+}
+GLOSSARY_ROWS_SETTINGS = tuple(_GLOSSARY_SETTINGS_FORM.get(row[0], row) for row in GLOSSARY_ROWS)
+
+
+def _says_trial(text):
+    return any(word.strip(".,;:()“”") in ("trial", "trials") for word in text.split())
+
+
+# The process-settings form's cells that type the word for themselves, as
+# PROCESS_STUDY_INTRO does: the one other allowance the glossary needs.
+GLOSSARY_SETTINGS_TRIAL_CELLS = tuple(cell for row in _GLOSSARY_SETTINGS_FORM.values()
+                                      for cell in row if _says_trial(cell))
+
+
+def glossary_rows(settings_only=False):
+    """The glossary in the project's own form, chosen by has_ingredients()
+    (M4), never through for_project."""
+    return GLOSSARY_ROWS_SETTINGS if settings_only else GLOSSARY_ROWS
+
+
+def glossary_cells():
+    """Every cell of both forms, for the guard's scoped allowance."""
+    return [cell for rows in (GLOSSARY_ROWS, GLOSSARY_ROWS_SETTINGS) for row in rows
+            for cell in row]
+
+
+# --- §8, R-I14, R-I15, R-I16: explored and unexplored ----------------
+STRIPS_TITLE = "Where you have tested"
+
+
+def strips_caption(settings_only=False):
+    """Always under the strips (R-I15): a 1-D view hides untested
+    combinations."""
+    what = "process setting" if settings_only else "ingredient"
+    return (f"Each strip shows one {what} at a time: combinations can be untested even where "
+            "every strip looks covered.")
+
+
+def gap_above(name, value_text):
+    """'Coconut oil above 8.1 g': an end gap; `value_text` with its unit."""
+    return f"{name} above {value_text}"
+
+
+def gap_below(name, value_text):
+    return f"{name} below {value_text}"
+
+
+def gap_between(name, low_text, high_text):
+    """'Salt between 0.6 and 1.0 g': `high_text` carries the unit."""
+    return f"{name} between {low_text} and {high_text}"
+
+
+def strip_gaps_line(items):
+    """At most 2, largest first (R-I15): 'Coconut oil above 8.1 g and Salt
+    below 0.6 g have never been tested.'"""
+    verb = "has" if len(items) == 1 else "have"
+    return f"{_and_join(items)} {verb} never been tested."
+
+
+def option_never_tested(name, option):
+    """A choice row's option no formulation with all results in has used."""
+    return f"{name}: {option} has never been tested."
+
+
+def strips_no_gap(settings_only=False):
+    what = "process setting" if settings_only else "ingredient"
+    return f"No {what} has an untested stretch of 15 % of its span or more."
+
+
+def limit_hit_line(hits, picks, round_no, limit_text):
+    """R-I15: from 2 picks, when at least half sit at one row's limit.
+    `limit_text`: limit_highest, limit_lowest or limit_named. '3 of the 4
+    suggestions in Round 6 sit at Textured pea protein's Highest.'"""
+    if hits == picks:
+        who = (f"Both suggestions in {ROUND_CAP} {round_no}" if picks == 2
+               else f"All {picks} suggestions in {ROUND_CAP} {round_no}")
+        return f"{who} sit at {limit_text}."
+    return f"{hits} of the {picks} suggestions in {ROUND_CAP} {round_no} sit at {limit_text}."
+
+
+def limit_highest(name):
+    return f"{name}'s {HIGHEST_LABEL}"
+
+
+def limit_lowest(name):
+    return f"{name}'s {LOWEST_LABEL}"
+
+
+def limit_named(text):
+    """A limit over several rows: 'the limit Fat per 100 g: at most 10 g'."""
+    return f"the limit {text}"
+
+
+# The strips' marks and tooltips.
+STRIP_TESTED = "Tested (all results in)"
+STRIP_WAITING = f"Waiting or {NOT_SCORED}"
+STRIP_SUGGESTED = "This Round's suggestion"
+STRIP_REACHABLE = "Reachable within your limits"
+STRIP_LATEST = "Latest Round"
+STRIP_COUNT = "Times tested"
+
+
+def strip_value_title(values=False):
+    """The tooltip's first field: 'Amount' or 'Value'."""
+    return "Value" if values else "Amount"
+
+
+def tip_strips(values=False, total=True):
+    """The strips' "?" (§8 expert layer): what a tick and the shading are."""
+    at = ("" if values or not total
+          else ", at the Formulation total")
+    return (f"Model-free: each tick is a recorded {FORMULATION}{at}. Shaded: the reachable part, "
+            "the lowest to highest of this row over a hit-and-run sample of the feasible region. "
+            "A gap is a reachable stretch of 15 % of the span or more with no "
+            f"{FORMULATION} with all results in. One input at a time: a marginal view.")
+TIP_LIMIT_HITS = (
+    f"A suggestion sits at a limit when it is within 1 % of the span from it. Counted over the "
+    f"generated picks of the open {ROUND_CAP}, else of the last {ROUND_CAP} the model chose; "
+    f"your own {FORMULATION}s and Repeats are left out. BO term: active bounds.")
+
+# The map (§8.2): the Why fold's chart, shared (explore_map_chart).
+MAP_TITLE = (f"Every allowed {FORMULATION}: predicted score (across) vs how unsure the model is "
+             "(up)")
+MAP_READING = "High = unexplored; right = predicted good; suggestions balance the two."
+# R-I16: shown with this caption under the A3 gate or a caution or
+# unreliable verdict; hidden under the noise guard.
+MAP_NOT_YET = "Up: the model's uncertainty; the model is not yet reliable here."
+MAP_HIDDEN = "Not drawn: the model is reading chance variation as effects."
+MAP_COLD = (f"The map appears once 5 {FORMULATION}s have all their results: until then there "
+            "is no model.")
+TIP_MAP = (
+    "Across: posterior mean of the Overall-score suggestion model; up: latent posterior sd. "
+    "Grey: a hit-and-run sample of the feasible region; rings: tested design points; "
+    f"labelled: this {ROUND_CAP}'s picks; dashed: Best so far's predicted Repeat.")
+
+
+def explored_pointer(fold_label, settings_only=False, triangle=True):
+    """§8.3: the in-context views, said once under the map, shown only when
+    the Uncertainty layer is offered (R-I16). `fold_label`: try_one_fold's
+    words for this project; `triangle`: the triangle can be drawn."""
+    what = "process setting" if settings_only else "ingredient"
+    line = f"The same uncertainty along one {what}: {fold_label}"
+    if triangle and not settings_only:
+        line += "; across three ingredients: the triangle under Trade-offs"
+    return f"{line}. Choose {LAYER_SD} under {LAYER_PICK}."
+
+
+# --- §1, R-I3, R-I4, R-I14: the link labels --------------------------
+def why_link(no):
+    """R-I4: only with a warm Round open with at least one generated pick."""
+    return f"Why the model suggested {ROUND_CAP} {no}"
+
+
+def explored_link(values=False):
+    """R-I14: Next's link to the fold, priority 3 (explore and untested)."""
+    return f"See the {'values' if values else 'amounts'} you have not tried"
+
+
+def repeat_link(no):
+    """R-I3: an owner item. Not drawn unless the owner accepts the link;
+    spelled here so accepting it needs no T0′."""
+    return f"Make a Repeat of {FORMULATION_CAP} {no}"

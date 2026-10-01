@@ -134,7 +134,10 @@ def test_exact_texts_from_the_spec():
     check is conditional, the bias and misses rows advise no check, the
     score line names its own Rounds (every Round checked), the 1-point
     threshold says it is assumed, and the expected improvement is said as
-    the average gain it is."""
+    the average gain it is. Rewritten again for Insights for a first-time
+    user (spec 2026-10-01 rev. 2, review M11; T0): next_untested points
+    under Progress figures; the first screen's own texts are pinned in
+    tests/test_107_t0_wording.py."""
     w = wording
     assert w.insights_header_line(24, 6, 1, "Cook loss") == (
         "Based on 24 scored formulations (all results in), up to Round 6. 1 more is waiting "
@@ -186,10 +189,12 @@ def test_exact_texts_from_the_spec():
         "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
     assert w.stand_higher("94", "89", "99", 18, "90.12") == (
         "Predicted best: 94 (95 % interval 89–99), near Formulation 18 (measured 90.12).")
+    # Insights for a first-time user (review R-I5, M11; T0): Show its
+    # amounts moves below, into Progress figures.
     assert w.next_untested(round_no=6) == (
-        "The predicted best is in untested amounts (Show its amounts, above). To test it "
-        "directly, add it to Round 6 as your own formulation; suggestions can also land near "
-        "it.")
+        "The predicted best is in untested amounts (Show its amounts, under Progress figures). "
+        "To test it directly, add it to Round 6 as your own formulation; suggestions can also "
+        "land near it.")
     assert w.path_what(w.path_head_fill("Coconut oil", "Water"),
                        [("8.04 g", "Fat per 100 g")], [("Salt", "1.5 g")]) == (
         "More Coconut oil in place of Water; stops at 8.04 g (Fat per 100 g). "
