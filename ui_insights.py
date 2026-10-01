@@ -52,11 +52,15 @@ _MARKS = {
     "light": {"bar_latest": ("#3d434d", 1.0),      # 10.0:1 on white
               "bar": ("#8b919c", 1.0),             # 3.2:1
               "reference": (_MUTED_LIGHT, 1.0),    # the path's dotted start, 6.0:1
-              "untested_edge": ("#8b919c", 1.0)},  # the grey band's edges, 3.2:1
+              "untested_edge": ("#8b919c", 1.0),   # the grey band's edges, 3.2:1
+              # "Can you have both?": a waiting formulation's hollow dot, Best
+              # so far's ring, a target line (integration of the e2e fixes).
+              "neutral": ("#8b919c", 1.0)},        # 3.2:1
     "dark": {"bar_latest": ("#c8ccd4", 1.0),       # 11.7:1 on #0e1117
              "bar": ("#8b919c", 1.0),              # 6.0:1
              "reference": (_MUTED_DARK, 1.0),      # 7.9:1
-             "untested_edge": ("#8b919c", 1.0)},   # 6.0:1
+             "untested_edge": ("#8b919c", 1.0),    # 6.0:1
+             "neutral": ("#8b919c", 1.0)},         # 6.0:1
 }
 
 
@@ -2298,9 +2302,6 @@ _TRI_H = math.sqrt(3) / 2
 _MIX_SIZE = 380          # px, the longer side of the drawn region plus its pad: it keeps its shape
 _MIX_PAD = 0.12          # of the region's longer side, around it for the labels
 
-# One hue, light to dark, starting a quarter in: the palest blues read as
-# the light grey of a point that breaks a limit.
-_BLUES = alt.SchemeParams(name="blues", extent=[0.25, 1])
 
 
 def _keep_all_offered(key, options):
@@ -2367,30 +2368,34 @@ def pair_chart(opt, a, b, points):
            alt.Tooltip("score_text:N", title=overall)]
     base = alt.Chart(df)
     layers = []
+    # W3's D1 tokens and scale (integration of the e2e fixes): the old
+    # blues top was about 2.2:1 on the dark page.
+    grey, grey_opacity = mark("neutral")
     for o, enc in ((oa, "x"), (ob, "y")):
         if _target_line(o):
             layers.append(alt.Chart(pd.DataFrame({"t": [float(o['target'])]}))
-                          .mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray",
-                                     tooltip=False)
+                          .mark_rule(strokeDash=[4, 3], strokeWidth=1, color=grey,
+                                     opacity=grey_opacity, tooltip=False)
                           .encode(**{enc: alt.X("t:Q") if enc == "x" else alt.Y("t:Q")}))
     # A hollow grey dot is named in the legend, only when there is one: a
     # one-entry stroke legend under the Overall score colour bar.
     hollow = {}
     if df["waiting"].any():
         hollow["stroke"] = alt.Stroke("state:N",
-                                      scale=alt.Scale(domain=[waiting], range=["gray"]),
+                                      scale=alt.Scale(domain=[waiting], range=[grey]),
                                       legend=alt.Legend(title=None, labelLimit=0))
-    layers.append(base.mark_point(filled=False, color="gray", size=60)
+    layers.append(base.mark_point(filled=False, color=grey, opacity=grey_opacity, size=60)
                   .encode(x=x, y=y, tooltip=tip, **hollow)
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=True)))
     layers.append(base.mark_circle(size=70, opacity=1)
                   .encode(x=x, y=y, tooltip=tip,
                           color=alt.Color("score:Q", title=overall,
-                                          scale=alt.Scale(scheme=_BLUES,
+                                          scale=alt.Scale(scheme=blues(),
                                                           domain=[0, opt.utility_ceiling()])))
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=False)))
     best = base.transform_filter(alt.FieldEqualPredicate(field="best", equal=True))
-    layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color="gray")
+    layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color=grey,
+                                  opacity=grey_opacity)
                   .encode(x=x, y=y, tooltip=tip))
     layers += _labels(best, x, y, alt.value(_say(opt, wording.PAIR_BEST)), align="left", dx=12)
     return alt.layer(*layers).properties(height=320)

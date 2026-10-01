@@ -233,7 +233,8 @@ def test_pair_chart_colours_by_score_and_draws_waiting_rows_hollow(tmp_path, mon
     assert colour["scale"]["domain"] == [0, opt.utility_ceiling()]
     assert colour["scale"]["scheme"] == {"name": "blues", "extent": [0.25, 1]}
     hollow = [l for l in _layers(spec, "point") if l["mark"].get("filled") is False
-              and l["mark"].get("color") == "gray" and l["mark"].get("size") == 60]
+              and l["mark"].get("color") == ui_insights.mark("neutral")[0]  # D1 token (integration)
+              and l["mark"].get("size") == 60]
     assert hollow and hollow[0]["transform"] == [{"filter": {"field": "waiting", "equal": True}}]
     [label] = [l for l in _layers(spec, "text") if not l["mark"].get("stroke")]
     assert label["encoding"]["text"] == {"value": wording.PAIR_BEST}
@@ -1049,7 +1050,8 @@ def test_waiting_dots_are_named_in_the_legend_only_when_there_are_some(tmp_path,
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss", points).to_dict()
     [hollow] = [l for l in _layers(spec, "point") if l["mark"].get("size") == 60]
     stroke = hollow["encoding"]["stroke"]
-    assert stroke["scale"] == {"domain": [wording.PAIR_WAITING], "range": ["gray"]}
+    assert stroke["scale"] == {"domain": [wording.PAIR_WAITING],
+                               "range": [ui_insights.mark("neutral")[0]]}   # D1 token
     assert stroke["legend"]["title"] is None
     done = [p for p in points if p.score is not None]
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss", done).to_dict()
