@@ -6618,12 +6618,12 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
          "intervals or more would happen less than 1 time in 100 under a binomial at 5 % per "
          "value."),
         (p, f"{words['not_yet']} (gate)", f"Fewer than 5 {FORMULATION}s with all results in."),
-        (p, f"{words['not_yet']} (too few checks)",
-         f"No {ROUND_CAP} checked, fewer than 10 measured values over every {ROUND_CAP} "
-         "checked, or fewer than 10 Round-ahead checks of the Overall score for skill."),
         (p, f"{words['not_yet']} (more misses)",
          "More misses than expected: as many misses or more would happen less than 1 time in "
          "10, and at least 1 time in 100."),
+        (p, f"{words['not_yet']} (too few checks)",
+         f"No {ROUND_CAP} checked, fewer than 10 measured values over every {ROUND_CAP} "
+         "checked, or fewer than 10 Round-ahead checks of the Overall score for skill."),
         (p, f"{words['not_yet']} (very uncertain)",
          f"Every output's median 95 % half-width over 25 % of its Range in {window}."),
         (p, f"{words['not_yet']} (no better than the average)",

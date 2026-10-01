@@ -84,8 +84,9 @@ _ROWS = [
     ("early", None, _skill("no_skill"), 12, "too_few"),
     ("within", None, None, 8, "too_few"),
     ("over_wide", None, None, 9, "too_few"),
-    ("caution", None, None, 9, "too_few"),
-    # Row 5: more misses than expected.
+    # Row 5: more misses than expected, said before too few checks
+    # (integration ruling: a warning is never folded).
+    ("caution", None, None, 9, "caution"),
     ("caution", None, _skill("no_skill"), 15, "caution"),
     ("caution", None, _skill("skill"), 15, "caution"),
     # Row 6: every output very uncertain.

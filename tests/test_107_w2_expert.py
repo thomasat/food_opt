@@ -53,60 +53,10 @@ def project():
     return get
 
 
-def _prediction_row(opt, checks, h, state, fact, flagged):
-    """Review R-B1's rows, worst first (W1 owns the real rule; this one is
-    the table's, for the tests)."""
-    if flagged is not None and state != "unreliable":
-        return "off_repeat"
-    if state == "unreliable":
-        return "off_coverage"
-    if opt.complete_count() < insights.MIN_ROWS:
-        return "gate"
-    if state in ("none", "early") or fact is None:
-        return "too_few"
-    if state == "caution":
-        return "caution"
-    if state == "wide":
-        return "wide"
-    if fact.state in ("no_skill", "unclear"):
-        return fact.state
-    return "reliable"
-
-
 def _status(opt, checks):
-    """insights.StatusFacts as W1 hands it to tooltip_for, built from the
-    same functions."""
-    yard = insights.noise_yardstick(opt, checks)
-    best = insights.best_facts(opt)
-    answer = insights.improvement(opt, yardstick=yard)
-    progress = ({"yes": "rising", "barely": "within_noise", "not_lately": "flat"}[answer.state]
-                if answer is not None
-                else "no_new_best" if best is not None and best.rounds_since == 1
-                else "too_early")
-    if opt.complete_count() < insights.MIN_ROWS:
-        return insights.StatusFacts(scored=opt.complete_count(), prediction_row="gate",
-                                    yardstick=yard, progress=progress, improvement=answer,
-                                    best=best)
-    h = insights.headline(opt, checks)
-    state = insights.verdict_state(opt, h, checks)
-    fact = insights.skill(opt, checks)
-    flagged = insights.disagreeing_repeat(opt, checks)
-    bias = insights.score_steady_bias(opt, checks)
-    guard = insights.noise_guard(opt, None, checks, fact=fact)
-    clauses = []
-    window = {c.name for c in checks if c.round in h.rounds}
-    if h.wide and not window <= set(h.wide):
-        clauses.append(("wide", list(h.wide)))
-    if state == "over_wide":
-        clauses.append(("over_wide",))
-    if bias is not None:
-        clauses.append(("bias", bias))
-    return insights.StatusFacts(
-        scored=opt.complete_count(),
-        prediction_row=_prediction_row(opt, checks, h, state, fact, flagged),
-        clauses=clauses, headline=h, verdict=state, skill=fact, disagreement=flagged,
-        bias=bias, guard=guard, yardstick=yard, progress=progress, improvement=answer,
-        best=best, next=insights.next_step(opt, checks))
+    """insights.StatusFacts as W1 hands it to tooltip_for: W1's own
+    status_facts, the one status logic (integration: no copy here)."""
+    return insights.status_facts(opt, checks)
 
 
 def _rule(opt, key):

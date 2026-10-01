@@ -1010,7 +1010,10 @@ def next_step(opt, checks, standing=None, gain=None):
 
 # Review R-B1: the Predictions rows, worst first. The first that holds sets
 # the status; PREDICTION_STATUS gives its word's key.
-PREDICTION_ROWS = ("off_repeat", "off_coverage", "gate", "too_few", "caution", "wide",
+# Integration ruling (ledger): caution sits before too_few, "a warning is
+# never folded": More misses than expected is said even while the skill
+# gate still counts fewer than 10 checks.
+PREDICTION_ROWS = ("off_repeat", "off_coverage", "gate", "caution", "too_few", "wide",
                    "no_skill", "unclear", "reliable")
 PREDICTION_STATUS = {row: ("off" if row.startswith("off") else
                            "reliable" if row == "reliable" else "not_yet")
@@ -1065,7 +1068,9 @@ def prediction_row(scored, verdict, flagged, fact, checked):
     complete_count(); `verdict`: verdict_state(); `flagged`:
     disagreeing_repeat(); `fact`: skill(); `checked`: the Overall-score
     checks the skill gate counts. A disagreeing Repeat beside an unreliable
-    record reads as the coverage (Next carries the Repeat). Ten checks or
+    record reads as the coverage (Next carries the Repeat). More misses than
+    expected comes before too few checks (integration ruling: a warning is
+    never folded). Ten checks or
     more with no skill (every check on its baseline) is not clearly
     better."""
     if scored < MIN_ROWS:
@@ -1074,10 +1079,10 @@ def prediction_row(scored, verdict, flagged, fact, checked):
         return "off_repeat"
     if verdict == "unreliable":
         return "off_coverage"
-    if verdict in ("none", "early") or (fact is None and checked < SKILL_MIN):
-        return "too_few"
     if verdict == "caution":
         return "caution"
+    if verdict in ("none", "early") or (fact is None and checked < SKILL_MIN):
+        return "too_few"
     if verdict == "wide":
         return "wide"
     if fact is not None and fact.state == "no_skill":
