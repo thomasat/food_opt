@@ -16,7 +16,7 @@ import insights_jobs
 import wording
 from food_bo import join_unit, number_list
 from ui_helpers import (SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
-                        TAB_BATCH, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
+                        TAB_BATCH, app_rerun, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
                         open_rows, readiness, table_height)
 
 _BAND = 0.25
@@ -771,7 +771,7 @@ def keep_up(opt, stages=()):
         # screen's own indicator (Plan A review C I-1). Once: drawing()
         # marks nothing without workers.
         if drawn is not None and not all(drawn):
-            st.rerun()
+            app_rerun()
         return
     _catch_up(opt)
     now = _seen(opt, stages)
@@ -781,7 +781,7 @@ def keep_up(opt, stages=()):
         # what it was drawn from), or the workers failed and it is now
         # fitted here: one more run shows it instead of keeping the older
         # state until the next click.
-        st.rerun()
+        app_rerun()
     if _in_flight(opt):
         _poller(opt, tuple(stages))
 
@@ -820,8 +820,9 @@ def _count_moved(opt, stages):
 
 @st.fragment(run_every=POLL_SECS)
 def _poller(opt, stages):
+    # The app's own rerun, not the user's: a sticky flash stays (review I10).
     if _poll_step(opt, stages):
-        st.rerun()
+        app_rerun()
 
 
 def _say(opt, text):

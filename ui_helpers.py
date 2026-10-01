@@ -44,11 +44,12 @@ def flash(kind, message, sticky=False, place=None):
     kind: "success" | "info" | "warning" | "error"
 
     `sticky` (0.8.0 e2e fixes B3, review I10): the message stays on screen
-    through the runs that follow — the reruns the app makes itself as
-    Insights' fits land took a "Round 6 recorded." down after about 2.8 s
-    (01 O3) — until the next flash, the next go_to_tab or a move to another
-    tab. `place`: the keyed slot it is drawn in (render_flash(place=…)),
-    None for the top of the page.
+    through the reruns the app makes itself (app_rerun: Insights' poller
+    and keep_up as fits land took a "Round 6 recorded." down after about
+    2.8 s, 01 O3) and comes down at the user's next action: any rerun the
+    app did not make (a click, a widget, a fold that reruns), the next
+    flash or go_to_tab. `place`: the keyed slot it is drawn in
+    (render_flash(place=…)), None for the top of the page.
     """
     if kind not in ("success", "info", "warning", "error"):
         raise ValueError(f"unknown flash kind {kind!r}")
@@ -95,8 +96,10 @@ def render_flash(box=None, place=None):
 
     `place`: draw only the messages queued for that slot (flash(place=…));
     None, the top of the page. With nothing queued for it, the sticky
-    messages shown there last are drawn again, until flash, go_to_tab or a
-    move to another tab takes them down (review I10).
+    messages shown there last are drawn again on a rerun the app made
+    itself (app_rerun); the top-of-page call, first in every run, takes
+    them down on any other run with nothing newly queued, which is the
+    user's next action (review I10; integration of the e2e fixes).
     """
     again = box is None
     box = st.container() if box is None else box
@@ -105,9 +108,16 @@ def render_flash(box=None, place=None):
     later = [q for q in queue if q[3] != place]
     if later:
         st.session_state[_FLASH_KEY] = later
-    app_made = st.session_state.pop(APP_RERUN_KEY, False) if place is None else False
+    if again and place is None:
+        # The run's first call decides: a run the app made keeps them; a
+        # run that carries a newly queued message is that action's own
+        # (flash() already took the older ones down); any other run is
+        # the user's next action, which takes them down.
+        app_made = st.session_state.pop(APP_RERUN_KEY, False)
+        if not app_made and not queue:
+            st.session_state.pop(_STICKY_KEY, None)
     stay = st.session_state.get(_STICKY_KEY)
-    if stay is not None and stay["tab"] != _shown_tab() and not app_made:
+    if stay is not None and stay["tab"] != _shown_tab():
         st.session_state.pop(_STICKY_KEY, None)
         stay = None
     with box:

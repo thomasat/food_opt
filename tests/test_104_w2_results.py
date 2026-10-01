@@ -30,6 +30,10 @@ FLASH_SCRIPT = """
 import streamlit as st
 from ui_helpers import app_rerun, flash, go_to_tab, render_flash
 st.session_state.setdefault("main_tab", "A")
+# The app's own rerun (the poller's fragment) comes before this run's
+# render_flash, as in app.py; a click comes after it.
+if st.session_state.pop("_poll", False):
+    app_rerun()
 render_flash()
 with st.container(key="slot"):
     render_flash(place="here")
@@ -42,8 +46,6 @@ if st.button("here"):
 if st.button("plain"):
     flash("info", "Once.")
     st.rerun()
-if st.button("poll"):
-    app_rerun()
 if st.button("move"):
     go_to_tab("A")      # a move the app makes, even to the tab on screen
 """
@@ -70,6 +72,13 @@ def _values(block):
     return out
 
 
+def _poll(at):
+    """The poller's rerun: the app's own, no action of the user's."""
+    at.session_state["_poll"] = True
+    at.run()
+    assert not at.exception
+
+
 def _top(at):
     return _values(at.main.children[0])
 
@@ -84,10 +93,14 @@ def test_a_sticky_flash_outlasts_the_apps_own_reruns():
     at = _flash_app()
     _click(at, "save")
     assert _top(at) == ["Round 6 recorded."]
-    _click(at, "poll")                       # the poller's rerun
+    _poll(at)                                # the poller's rerun
     assert _top(at) == ["Round 6 recorded."]
-    at.run()                                 # any other rerun that is no action
+    _poll(at)
     assert _top(at) == ["Round 6 recorded."]
+    # Integration (review I10, "until the next action"): any rerun the
+    # app did not make is the user's, and takes it down.
+    at.run()
+    assert _top(at) == []
 
 
 def test_the_next_flash_replaces_it_and_a_plain_flash_shows_once():
@@ -116,7 +129,7 @@ def test_a_placed_flash_is_drawn_in_its_slot_only():
     at = _flash_app()
     _click(at, "here")
     assert _top(at) == [] and _slot(at) == ["Moved."]
-    _click(at, "poll")
+    _poll(at)
     assert _slot(at) == ["Moved."]
 
 
