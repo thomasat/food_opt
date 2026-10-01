@@ -576,3 +576,27 @@ def test_the_target_line_reaches_3_to_1(monkeypatch, which):
     assert (mark["color"], mark["opacity"]) == ui_insights.mark("neutral")
     assert mark["strokeDash"] == [4, 3]
     assert _contrast_on(mark["color"], mark["opacity"], PAGES[which]) >= 3.0
+
+
+# ------------------------------------------------------------------ #
+#  Last-fix review R-2: a delete-only save keeps equal shares equal
+# ------------------------------------------------------------------ #
+
+def test_deleting_a_row_leaves_the_equal_shares_at_50_50(tmp_path, monkeypatch):
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    frame = opt.measurement_grid_frame()
+    gone = frame.loc[frame.index[2], wording.MEASUREMENT_COLUMN]
+    errors, messages = opt.apply_measurement_grid(frame.drop(index=frame.index[2]))
+    assert errors == []
+    assert gone not in [o['name'] for o in opt.objectives]
+    assert [o['weight'] for o in opt.objectives] == pytest.approx([50.0, 50.0], abs=1e-9)
+    assert list(opt.share_percents().values()) == [50.0, 50.0]
+
+
+def test_deleting_a_row_while_typing_a_share_still_rebalances(tmp_path, monkeypatch):
+    opt = _equal_shares_line_a(tmp_path, monkeypatch)
+    frame = opt.measurement_grid_frame().iloc[:2].copy()
+    frame.loc[frame.index[0], wording.SHARE_COLUMN] = 70.0
+    errors, _ = opt.apply_measurement_grid(frame)
+    assert errors == []
+    assert opt.share_percents()[frame.loc[frame.index[0], wording.MEASUREMENT_COLUMN]] == 70.0

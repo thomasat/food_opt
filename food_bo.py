@@ -12259,12 +12259,14 @@ class FoodOptimizer:
             # showing under its old name.
             was_showing = {name: float(stored_shares.get(old, 0.0))
                            for name, old in was_called.items()}
-            # Final review M-7: only a share typed (a row added is one) or a
-            # row deleted writes the column. Written back untouched, the
-            # tenths on screen replaced the weights stored (33.333 each
-            # became 33.4 / 33.3 / 33.3) and every Overall score moved,
-            # unannounced, under the suggestions.
-            if moved or deleted:
+            # Final review M-7: only a share typed (a row added is one)
+            # writes the column. Written back untouched, the tenths on
+            # screen replaced the weights stored (33.333 each became 33.4 /
+            # 33.3 / 33.3) and every Overall score moved, unannounced, under
+            # the suggestions. A row deleted alone writes nothing either
+            # (last-fix review R-2): remove_objective has already brought
+            # the rest to 100 in proportion, so equal rows stay equal.
+            if moved:
                 self.set_shares(self._rebalanced_shares(typed, moved,
                                                         was_showing))
             final = self.share_percents()
