@@ -26,19 +26,59 @@ from food_bo import (  # noqa: F401  (re-exported)
 from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
 _FLASH_KEY = "_flash_messages"
+# Set up's callout (0.8.0 e2e fixes A7, review I8): the label of the
+# "Change … on Set up" button Insights' Next step offered, and the keyed slot
+# above the ingredient grid that button lands on.
+SETUP_CALLOUT_KEY = "_setup_callout"
+SETUP_CALLOUT_SLOT = "setup_callout"
+# The sticky messages on screen now (0.8.0 e2e fixes B3, review I10): what
+# render_flash showed with sticky=True, the tab it showed them on, and where.
+_STICKY_KEY = "_flash_sticky"
+# Set for one run by a rerun the app makes itself (app_rerun).
+APP_RERUN_KEY = "_app_rerun"
 
 
-def flash(kind, message):
+def flash(kind, message, sticky=False, place=None):
     """Queue a message for the top of the NEXT run. Call right before st.rerun().
 
     kind: "success" | "info" | "warning" | "error"
+
+    `sticky` (0.8.0 e2e fixes B3, review I10): the message stays on screen
+    through the runs that follow — the reruns the app makes itself as
+    Insights' fits land took a "Round 6 recorded." down after about 2.8 s
+    (01 O3) — until the next flash, the next go_to_tab or a move to another
+    tab. `place`: the keyed slot it is drawn in (render_flash(place=…)),
+    None for the top of the page.
     """
     if kind not in ("success", "info", "warning", "error"):
         raise ValueError(f"unknown flash kind {kind!r}")
-    st.session_state.setdefault(_FLASH_KEY, []).append((kind, message))
+    # The next message replaces the one that stayed; it also follows a
+    # save, which Set up's callout lasts until.
+    st.session_state.pop(_STICKY_KEY, None)
+    st.session_state.pop(SETUP_CALLOUT_KEY, None)
+    st.session_state.setdefault(_FLASH_KEY, []).append((kind, message, bool(sticky), place))
 
 
-def render_flash(box=None):
+def app_rerun():
+    """st.rerun() for a rerun the app makes itself, not the user (the
+    Insights poller, as a fit lands): marked for one run, so render_flash
+    keeps the sticky messages on it whatever else that run reads."""
+    st.session_state[APP_RERUN_KEY] = True
+    st.rerun()
+
+
+def clear_sticky():
+    """Take the sticky messages down: an action of the user's own has
+    happened since (go_to_tab, a handler that saves without a flash)."""
+    st.session_state.pop(_STICKY_KEY, None)
+
+
+def _shown_tab():
+    """The tab this run draws: a move go_to_tab asked for lands on it."""
+    return st.session_state.get("_pending_tab") or st.session_state.get("main_tab")
+
+
+def render_flash(box=None, place=None):
     """Show and clear queued messages, and return the container they went into.
 
     The messages always render inside one container, so the page keeps the
@@ -51,12 +91,45 @@ def render_flash(box=None):
     Pass the container back to drain messages queued LATER in the same run —
     the sidebar runs after this point and can discard an unmakeable batch,
     and that notice belongs above the tabs on this run, not the next one.
+    Such a second drain never draws the sticky messages again.
+
+    `place`: draw only the messages queued for that slot (flash(place=…));
+    None, the top of the page. With nothing queued for it, the sticky
+    messages shown there last are drawn again, until flash, go_to_tab or a
+    move to another tab takes them down (review I10).
     """
+    again = box is None
     box = st.container() if box is None else box
+    queue = [_entry(item) for item in st.session_state.pop(_FLASH_KEY, [])]
+    mine = [q for q in queue if q[3] == place]
+    later = [q for q in queue if q[3] != place]
+    if later:
+        st.session_state[_FLASH_KEY] = later
+    app_made = st.session_state.pop(APP_RERUN_KEY, False) if place is None else False
+    stay = st.session_state.get(_STICKY_KEY)
+    if stay is not None and stay["tab"] != _shown_tab() and not app_made:
+        st.session_state.pop(_STICKY_KEY, None)
+        stay = None
     with box:
-        for kind, message in st.session_state.pop(_FLASH_KEY, []):
-            getattr(st, kind)(message)
+        if mine:
+            for kind, message, _, _ in mine:
+                getattr(st, kind)(message)
+            kept = [(k, m, p) for k, m, s, p in mine if s]
+            if kept:
+                items = [i for i in (stay or {}).get("items", []) if i[2] != place] + kept
+                st.session_state[_STICKY_KEY] = {"tab": _shown_tab(), "items": items}
+        elif again and stay is not None:
+            for kind, message, where in stay["items"]:
+                if where == place:
+                    getattr(st, kind)(message)
     return box
+
+
+def _entry(item):
+    """A queued message as (kind, message, sticky, place), whatever shape it
+    was queued in (a session from before sticky messages held pairs)."""
+    item = tuple(item)
+    return item + (False, None)[len(item) - 2:] if len(item) < 4 else item
 
 
 def saved_ok(opt):
@@ -268,8 +341,9 @@ SCROLL_KEY = "_scroll_to"
 INSIGHTS_OPENED_KEY = "_insights_opened"
 
 
-def go_to_tab(label):
-    """Move to another tab and rerun, landing at its top. This is the ONLY
+def go_to_tab(label, section="top"):
+    """Move to another tab and rerun, landing at its top (or, `section`, at
+    the container of that key: Set up's callout, 0.8.0 e2e fixes A7). This is the ONLY
     way a flow changes tabs, and it is called from eight handlers only:
     Next: make a batch, Back to set up, Save results, Save uploaded
     results, Start the next batch, Change a measurement or an ingredient,
@@ -284,9 +358,12 @@ def go_to_tab(label):
     app.py drains it into "main_tab" BEFORE st.tabs renders, which is the one
     moment the widget takes a value from session state. A move made by the
     app used to land where the last tab was scrolled (after Save results,
-    ~1,400 px down: 04 §1), so it now asks app.py to scroll to the top."""
+    ~1,400 px down: 04 §1), so it now asks app.py to scroll to the top.
+    The sticky messages already on screen come down (review I10); one
+    queued by the same handler (Save results' own) is drawn on arrival."""
     st.session_state["_pending_tab"] = label
-    st.session_state[SCROLL_KEY] = "top"
+    st.session_state[SCROLL_KEY] = section
+    st.session_state.pop(_STICKY_KEY, None)
     st.rerun()
 
 
@@ -518,17 +595,18 @@ def best_formulation_no(opt):
     return opt.best_formulation_no()
 
 
-def flash_waiting(opt, numbers):
+def flash_waiting(opt, numbers, sticky=False):
     """One line per set of measurements the formulations just saved still
     wait for — 'Formulations 7–12 saved · waiting for Cook loss.' — not one
-    per formulation. Queued after the round's own line."""
+    per formulation. Queued after the round's own line, and as sticky as
+    it is."""
     groups = {}
     for no in numbers:
         index = opt.index_of_formulation(no)
         if index is not None and not opt.fully_measured(index):
             groups.setdefault(tuple(opt.waiting_on(index)), []).append(no)
     for names, group in groups.items():
-        flash("info", wording.saved_waiting(group, number_list(names)))
+        flash("info", wording.saved_waiting(group, number_list(names)), sticky=sticky)
 
 
 def waiting_text(opt, index):

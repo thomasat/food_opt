@@ -496,6 +496,22 @@ def _held(opt):
     return len(opt.X_history) + len(opt.skipped)
 
 
+def _open_round_text(opt):
+    """What replacing the project loses that the counts above it do not
+    say (0.8.0 e2e fixes B3, review I10; 02 I7): the open Round, its rows
+    and the results typed into it, or ''. A result is typed once any of a
+    formulation's measurements is (its draft, kept as it is typed)."""
+    if not opt.pending_batch:
+        return ""
+    rows = open_rows(opt)
+    numbers = {int(r['formulation']) for r in rows}
+    typed = sum(1 for n, d in (opt.result_drafts or {}).items()
+                if int(n) in numbers
+                and any(v is not None for v in (d.get('results') or {}).values()))
+    return wording.for_project(opt, wording.open_round_lost(
+        opt.pending_batch_no, len(rows), typed))
+
+
 def _batch_line(opt):
     """The one line under the title on tabs 1 and 2 once a batch exists."""
     if opt.pending_batch:
@@ -696,7 +712,7 @@ with st.sidebar:
                     _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
                 st.warning(wording.open_saved_copy_warning(
                     summary['name'], _holds, opt.project_name,
-                    plural(_held(opt), wording.FORMULATION)))
+                    plural(_held(opt), wording.FORMULATION), _open_round_text(opt)))
                 rc1, rc2 = st.columns(2)
                 with rc1:
                     # A confirmation is the one thing to do while it is on

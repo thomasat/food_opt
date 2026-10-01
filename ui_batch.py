@@ -20,7 +20,7 @@ import custom_records
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
-    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_format, amount_range_placeholder,
+    BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_format, amount_range_placeholder,
     best_formulation_no,
     bounds_caution, confirm_action,
     confirmation_open, flash, flash_waiting, fmt_setting, go_to_tab, goal_line,
@@ -656,11 +656,14 @@ def _title(opt):
     """The batch's own heading, and the notice a regenerate owes the numbers
     it retired. Both are about the batch as a whole, so they come before the
     first step rather than inside it."""
-    st.markdown(wording.make_these(opt.pending_batch_no, len(opt.pending_batch)))
+    # In the project's own words (04 M-3): "Round 4 · Make 3 trials" in a
+    # project of process settings alone.
+    st.markdown(wording.for_project(opt, wording.make_these(
+        opt.pending_batch_no, len(opt.pending_batch))))
     if opt.pending_batch_discarded:
-        st.caption(wording.batch_discarded_caption(
+        st.caption(wording.for_project(opt, wording.batch_discarded_caption(
             number_list(opt.pending_batch_discarded),
-            len(opt.pending_batch_discarded) > 1))
+            len(opt.pending_batch_discarded) > 1)))
 
 
 # The predicted column while its models are still being fitted (review I1).
@@ -763,7 +766,11 @@ def _predicted_measurements(opt, preds):
     so a "too uncertain yet" cell keeps its numbers in its tooltip."""
     cells, tips = _measurement_cells(opt, preds)
     with st.expander(wording.PREDICTED_MEASUREMENTS):
-        st.table(cells.style.set_tooltips(tips).hide(axis="index"))
+        # Formulation as the index (D3, review M9): st.table ignores the
+        # Styler's hide(axis="index"), and drew a 0-3 column first (01 O4).
+        formulation = cells.columns[0]
+        st.table(cells.set_index(formulation).style.set_tooltips(
+            tips.set_index(formulation)))
         st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION))
 
 
@@ -1273,7 +1280,8 @@ def _downloads(opt, scale_to, sized, said_size=False):
     rows = opt.pending_batch
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
-    lit = not _any_value_typed(opt) and not confirmation_open()
+    lit = (not _any_value_typed(opt) and not confirmation_open()
+           and not _upload_pending(opt))
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
     # One line, and it follows the box: the file a tick produces has no
     # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
@@ -1522,19 +1530,29 @@ def _save_results(opt, kept, left_out, to_record):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
     saved = [row['formulation'] for row in kept]
+    _after_save(opt)
     if open_rows(opt):
         flash('success', wording.upload_partial_flash(
             len(kept) + len(left_out), len(opt.pending_batch),
-            batch_no, len(open_rows(opt))))
-        flash_waiting(opt, saved)
+            batch_no, len(open_rows(opt))), sticky=True)
+        flash_waiting(opt, saved, sticky=True)
+        # The reader is at Save results, far below the line (01 O3).
+        st.session_state[SCROLL_KEY] = "top"
         st.rerun()
     opt.set_pending_batch(None)
     clear_scale_total()
     if not saved_ok(opt):
         return
-    flash("success", wording.batch_recorded_flash(batch_no))
-    flash_waiting(opt, saved)
+    flash("success", wording.batch_recorded_flash(batch_no), sticky=True)
+    flash_waiting(opt, saved, sticky=True)
     go_to_tab(TAB_RESULTS)
+
+
+def _after_save(opt):
+    """After Save results or Save uploaded results (review I10): Results'
+    View formulation box back on Best so far (ui_results.reset_view)."""
+    import ui_results     # ui_results is a sibling tab, drawn after this one
+    ui_results.reset_view(opt)
 
 
 def _read_results_file(opt, uploaded):
@@ -1643,6 +1661,29 @@ def _blank_or_number(value):
 _SHEETS_DOWNLOADED = "_sheets_downloaded"
 
 
+def _file_mark(opt, sheet_file):
+    """Which file, for which project and Round: read again only when it
+    changes."""
+    return (opt.project_name, hashlib.sha256(sheet_file.getvalue()).hexdigest(),
+            json.dumps(opt.pending_batch, sort_keys=True, default=str))
+
+
+def _upload_key(opt):
+    return f"results_file_{opt.project_name}"
+
+
+def _upload_pending(opt):
+    """Whether an uploaded results file is the next step (02 M5): read and
+    waiting for Save uploaded results, or new and read further down this
+    run. A file already read and refused is not."""
+    if st.session_state.get("_results_upload") is not None:
+        return True
+    sheet_file = st.session_state.get(_upload_key(opt))
+    if sheet_file is None:
+        return False
+    return _file_mark(opt, sheet_file) != st.session_state.get("_results_file_mark")
+
+
 def _upload(opt):
     # Open, once the workbook has left the app in this session. The reader
     # who downloaded the sheets is coming back with a file in their hand,
@@ -1655,12 +1696,11 @@ def _upload(opt):
             wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
-            key=f"results_file_{opt.project_name}")
+            key=_upload_key(opt))
         check_file = sheet_file is not None and st.button(wording.CHECK_THIS_FILE, key="check_sheet")
         file_mark = None
         if sheet_file is not None:
-            file_mark = (opt.project_name, hashlib.sha256(sheet_file.getvalue()).hexdigest(),
-                         json.dumps(opt.pending_batch, sort_keys=True, default=str))
+            file_mark = _file_mark(opt, sheet_file)
         if sheet_file is not None and (check_file or file_mark != st.session_state.get("_results_file_mark")):
             st.session_state["_results_file_mark"] = file_mark
             try:
@@ -1711,7 +1751,12 @@ def _upload(opt):
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
                              hide_index=True, use_container_width=True)
-        if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
+        # The next step once the preview shows (02 M5): lit, and the
+        # download steps aside (_downloads, _upload_pending). Not while
+        # results are typed into the grid: Save results is lit then.
+        lit = not confirmation_open() and not _any_value_typed(opt)
+        if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded",
+                     type="primary" if lit else "secondary"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
             try:
@@ -1757,6 +1802,7 @@ def _upload(opt):
             if extra_records and not parsed and not left_out:
                 flash("success", wording.CUSTOM_SAVED)
                 st.rerun()
+            _after_save(opt)
             # A row ticked Not scored has been dealt with, and open_rows
             # counts only the scored ones — without this the file that
             # finished a batch left it open on a row it had just recorded.
@@ -1769,8 +1815,9 @@ def _upload(opt):
                 # so the whole-batch sentence would be a lie.
                 flash("success", wording.upload_partial_flash(
                     len(parsed) + len(left_out), len(opt.pending_batch),
-                    batch_no, len(left)))
-                flash_waiting(opt, [no for no, _, _ in parsed])
+                    batch_no, len(left)), sticky=True)
+                flash_waiting(opt, [no for no, _, _ in parsed], sticky=True)
+                st.session_state[SCROLL_KEY] = "top"
                 st.rerun()
             opt.set_pending_batch(None)
             clear_scale_total()
@@ -1778,8 +1825,8 @@ def _upload(opt):
                 # A move would rerun past app.py's end-of-script check and
                 # hide it, and the batch is still open on disk.
                 return
-            flash("success", wording.batch_recorded_flash(batch_no))
-            flash_waiting(opt, [no for no, _, _ in parsed])
+            flash("success", wording.batch_recorded_flash(batch_no), sticky=True)
+            flash_waiting(opt, [no for no, _, _ in parsed], sticky=True)
             go_to_tab(TAB_RESULTS)
 
 

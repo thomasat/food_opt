@@ -15,7 +15,8 @@ import insights_cache
 import insights_jobs
 import wording
 from food_bo import join_unit, number_list
-from ui_helpers import (TAB_BATCH, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
+from ui_helpers import (SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
+                        TAB_BATCH, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
                         open_rows, readiness, table_height)
 
 _BAND = 0.25
@@ -878,10 +879,14 @@ def _foot(opt):
 
 def _setup_button(change):
     """The secondary Set up button "What to do next" asked for (its label),
-    under the foot; nothing for None."""
+    under the foot; nothing for None. It lands on Set up's callout above
+    the ingredient grid, which names the row or limit and its value (0.8.0
+    e2e fixes A7, review I8; 01 O3: it landed at the top with nothing
+    pointing at the row)."""
     if change and st.button(change, key="insights_change_setup",
                             disabled=confirmation_open()):
-        go_to_tab(TAB_SETUP)
+        st.session_state[SETUP_CALLOUT_KEY] = change
+        go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
 
 
 def _try_one_label(opt):

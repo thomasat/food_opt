@@ -20,10 +20,10 @@ from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
-    clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
+    SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
     entry_label, go_to_tab, link, number_list, open_rows, other_confirmation,
     park_clear,
-    plural, preserve_tab_forms, readiness, saved_ok, scale_error,
+    plural, preserve_tab_forms, readiness, render_flash, saved_ok, scale_error,
     table_height, take_clear, waiting_text,
 )
 
@@ -108,6 +108,46 @@ def _amount_table(opt, recipe):
 # "nothing chosen", and the box then read "Choose an option".
 BEST_CHOICE = "best"
 
+# Where this tab's own confirmations land (0.8.0 e2e fixes B3, review I10):
+# a keyed slot directly above the View formulation box, scrolled to, so a
+# "Formulation 19 moved to Not scored." no longer appears 501 px above a
+# reader looking at the button they pressed (01 O3). Save results keeps the
+# top of the page: it moves here and lands at the top.
+FLASH_PLACE = "results"
+FLASH_SLOT = "results_flash"
+
+
+def _view_key(opt):
+    return f"result_view_{opt.project_name}"
+
+
+def reset_view(opt):
+    """After Save results or Save uploaded results (review I10; 02 I5, M11):
+    the View formulation box goes back to Best so far — never a stale
+    formulation viewed before, such as one moved to Not scored, which hid
+    the Round summary and its link for every later Round. Set, not popped:
+    a value set here is sent to the browser again, under its new label.
+    Called before the Results tab is drawn on this run."""
+    if opt.best_index() is not None:
+        st.session_state[_view_key(opt)] = BEST_CHOICE
+    else:
+        st.session_state.pop(_view_key(opt), None)
+
+
+def flash_here(kind, message):
+    """A confirmation of something done on this tab, in its slot above the
+    View formulation box, scrolled into view and kept there until the next
+    action (review I10)."""
+    flash(kind, message, sticky=True, place=FLASH_PLACE)
+    st.session_state[SCROLL_KEY] = FLASH_SLOT
+
+
+def _confirmations():
+    """The slot flash_here writes to: always drawn, so the tab keeps its
+    shape whether a message shows or not."""
+    with st.container(key=FLASH_SLOT):
+        render_flash(place=FLASH_PLACE)
+
 
 def _selected_formulation(opt):
     """A default that follows the best score, plus read-only history choices."""
@@ -117,7 +157,7 @@ def _selected_formulation(opt):
     if len(numbers) < 2:
         return numbers[0] if numbers else None
     options = ([BEST_CHOICE] if best_no is not None else []) + [n for n in numbers if n != best_no]
-    key = f"result_view_{opt.project_name}"
+    key = _view_key(opt)
     # The Best so far entry's label names its formulation, and the browser
     # keeps the label it was shown: after Best so far moved, the box kept
     # naming the old one above a heading naming the new one (0.8.0 review,
@@ -306,6 +346,7 @@ def _best(opt):
     if opt.Y_history and opt.best_index() is None:
         # Nothing has all its results, so there is no best to name.
         st.caption(wording.for_project(opt, wording.NO_COMPLETE_FORMULATION))
+    _confirmations()
     number = _selected_formulation(opt)
     if number is None:
         return False, None, False
@@ -339,6 +380,9 @@ def _best(opt):
         st.caption(wording.for_project(opt, wording.BEST_RULE_WITHOUT
                                        if opt.best_scored_without()
                                        else wording.BEST_RULE))
+        repeats = best_repeats_text(opt)
+        if repeats:
+            st.caption(wording.for_project(opt, repeats))
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
@@ -398,6 +442,32 @@ def _best(opt):
     if partial:
         st.caption(_complete_results_caption(opt))
     return partial, missing, waiting is None
+
+
+def best_repeats_text(opt, checks=None):
+    """A6 (review I7): Best so far's Repeats under it, "Repeats of
+    Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).",
+    or "". Two decimals, as Results shows scores; the mean is taken from
+    the stored scores. A Repeat disagreeing_repeat leaves out of the noise
+    is still listed, marked. Display only: Best so far is still the single
+    highest score (ranking by the mean is an owner decision). `checks`:
+    the Round-by-Round checks, when worked out (Results never checks
+    Rounds itself)."""
+    best = opt.best_index()
+    if best is None:
+        return ""
+    group = next((g for g in insights.repeat_groups(opt, opt.best_candidates())
+                  if best in g), None)
+    if not group:
+        return ""
+    checks = ui_insights.cached_checks(opt) if checks is None else checks
+    flagged = insights.disagreeing_repeat(opt, checks) if checks else None
+    others = sorted((i for i in group if i != best), key=lambda i: int(opt.formulation_ids[i]))
+    scores = [wording.repeat_score(f"{float(opt.Y_history[i]):.2f}",
+                                   disagrees=flagged is not None and flagged.row == i)
+              for i in others]
+    mean = sum(float(opt.Y_history[i]) for i in group) / len(group)
+    return wording.best_repeats_line(int(opt.formulation_ids[best]), scores, f"{mean:.2f}")
 
 
 def _waiting_lines(opt):
@@ -461,7 +531,7 @@ def _missing_panel(opt, number, names, correcting=False):
                      disabled=not lit) and lit:
             opt.wait_again(number)
             if saved_ok(opt):
-                flash("success", wording.for_project(
+                flash_here("success", wording.for_project(
                     opt, wording.waiting_again(number, number_list(names))))
                 st.rerun()
         return
@@ -473,7 +543,7 @@ def _missing_panel(opt, number, names, correcting=False):
                       help=wording.for_project(opt, wording.move_to_not_scored_help(len(names)))):
         opt.set_aside_formulation(number)
         if saved_ok(opt):
-            flash("success", wording.for_project(opt, wording.moved_to_not_scored(number)))
+            flash_here("success", wording.for_project(opt, wording.moved_to_not_scored(number)))
             st.rerun()
 
 
@@ -505,7 +575,9 @@ def _save_missing(opt, number, typed):
         first = wording.formulation_scored(number, waiting_text(opt, index))
     sentences = _scored_then_move(number, first,
                                   _move_sentence(opt, before, best_formulation_no(opt)))
-    flash("success", wording.for_project(opt, " ".join(sentences)))
+    # Above the View formulation box, where the reader is (01 O3: the tie
+    # flash was 287 px above the Save Cook loss they had just pressed).
+    flash_here("success", wording.for_project(opt, " ".join(sentences)))
     st.rerun()
 
 
