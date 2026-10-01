@@ -236,10 +236,13 @@ def test_no_skill_is_the_next_step_before_untested_and_close(lines):
     assert step.kind == "no_skill" and step.skill.value == pytest.approx(-0.47, abs=0.02)
 
 
-def test_an_unreliable_verdict_still_comes_first(lines):
-    """Line B: the panel shift is the verdict's (bias), not "no skill"."""
+def test_the_disagreeing_repeat_then_the_verdict_come_before_no_skill(lines):
+    """Line B: the panel shift is said through its disagreeing Repeat (F21),
+    the one row that says to check (0.8.0 e2e fixes, review B1, I2), not
+    "no skill"."""
     opt, checks, _ = lines[demo.LINE_B]
-    assert insights.next_step(opt, checks).kind == "bias"
+    step = insights.next_step(opt, checks)
+    assert step.kind == "repeat" and step.disagreement.later == 21
 
 
 def test_a_model_with_skill_keeps_its_next_step(lines):

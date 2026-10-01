@@ -250,3 +250,79 @@ def test_method_and_details_says_the_bias_both_ways_and_what_checks_cannot_see()
     # Before anything is worked out: the paragraphs that need no checks.
     assert wording.HOW_VERDICT in ui_insights.how_texts(opt, None)
     _clean(*texts)
+
+
+# ------------------------------------------------------------------ #
+#  I2: Next step's order — repeat, unreliable, early, no_skill, the rest;
+#  B1: "check" only from a disagreeing Repeat, worded conditionally
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def order(monkeypatch):
+    """next_step with the verdict, the Repeat, the bias and the skill set
+    directly."""
+    opt = _patty(rows=6)
+    state = {"verdict": "within", "gap": None, "repeat": None, "skill": None}
+
+    def headline(o, checks):
+        score = (None if state["gap"] is None
+                 else insights.ScoreRecord(10, 10, state["gap"], rounds=[3, 4, 5]))
+        return insights.Headline("verdict", [4, 5], 10, 10, "holding", score, [])
+    monkeypatch.setattr(insights, "headline", headline)
+    monkeypatch.setattr(insights, "verdict_state", lambda o, h, c: state["verdict"])
+    monkeypatch.setattr(insights, "disagreeing_repeat", lambda o, c, m=None: state["repeat"])
+    monkeypatch.setattr(insights, "skill", lambda o, c, name=insights.SCORE: state["skill"])
+    monkeypatch.setattr(insights, "improvement",
+                        lambda o, facts=None, spread=None, yardstick=None: None)
+
+    def run(standing=None, **kw):
+        state.update(kw)
+        return insights.next_step(opt, [], standing)
+    run.opt = opt
+    return run
+
+
+def _fact(value, n=16):
+    return insights.SkillFact(value, n, [3, 4, 5], insights._skill_state(value, n))
+
+
+_REPEAT = insights.Disagreement(21, 11, -10.5, 20, 7.4)
+
+
+def test_a_disagreeing_repeat_comes_before_an_unreliable_verdict(order):
+    step = order(verdict="unreliable", gap=-5.4, repeat=_REPEAT, skill=_fact(-1.2))
+    assert (step.kind, step.disagreement) == ("repeat", _REPEAT)
+
+
+def test_unreliable_is_the_misses_row_and_carries_a_steady_bias_as_a_fact(order):
+    step = order(verdict="unreliable", gap=-4.1)
+    assert (step.kind, step.gap, step.bias_rounds) == ("misses", -4.1, [3, 4, 5])
+    text, change = ui_insights.next_step_text(order.opt, step, rounds=[4, 5])
+    assert text == wording.next_misses([4, 5], bias_text=wording.next_bias(
+        "4.1", below=True, rounds=[3, 4, 5]))
+    assert change is None and "check" not in text.lower()
+    assert order(verdict="unreliable", gap=None).gap is None
+
+
+def test_there_is_no_bias_row_any_more(order):
+    for verdict in ("unreliable", "within", "caution"):
+        assert order(verdict=verdict, gap=-6.0).kind != "bias"
+
+
+def test_unreliable_comes_before_early_and_no_skill(order):
+    assert order(verdict="unreliable", skill=_fact(-1.2)).kind == "misses"
+
+
+def test_early_comes_before_no_skill(order):
+    assert order(verdict="early", skill=_fact(-1.2)).kind == "early"
+    assert order(verdict="within", skill=_fact(-1.2)).kind == "no_skill"
+
+
+def test_only_the_repeat_row_says_check_and_it_is_conditional(order):
+    step = order(repeat=_REPEAT)
+    text, _ = ui_insights.next_step_text(order.opt, step)
+    assert text.endswith(wording.CHECK_IF_CHANGED)
+    assert "Formulation 21, a Repeat of Formulation 11" in text
+    for kind in ("misses", "early", "see", "rising", "explore"):
+        other, _ = ui_insights.next_step_text(order.opt, insights.NextStep(kind, gap=-3.0))
+        assert wording.CHECK_IF_CHANGED not in other and "Check" not in other, kind

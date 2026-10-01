@@ -897,18 +897,23 @@ def median_z(h, checks):
 
 @dataclass
 class NextStep:
-    kind: str       # "bias", "misses", "repeat", "early", "no_skill", "untested",
+    kind: str       # "repeat", "misses", "early", "no_skill", "untested",
                     # "explore", "close", "rising" or "see"
-    gap: float | None = None                    # "bias": the Overall score's average miss
+    gap: float | None = None                    # "misses": the Overall score's steady bias
     disagreement: Disagreement | None = None    # "repeat"
     binding: object = None                      # "close": what binds the predicted best
     wide: list = dataclasses.field(default_factory=list)   # "rising": outputs still wide
     skill: object = None                        # "no_skill": the SkillFact (BO views, I1)
     gain: float | None = None                   # "explore": the expected improvement, points
+    bias_rounds: list = dataclasses.field(default_factory=list)  # "misses": gap's Rounds
 
 
 def next_step(opt, checks, standing=None, gain=None):
-    """What to do next (review I2), first match wins. `standing`: the
+    """What to do next, first match wins (0.8.0 e2e fixes, review I2):
+    a disagreeing Repeat ("repeat", the one row that says to check the
+    bench, conditionally: review B1); an unreliable verdict ("misses", with
+    the Overall score's steady bias as a fact, never advice); too early;
+    no skill; then the rest. `standing`: the
     predicted best against Best so far (an object with .higher,
     .tested_near and .binding), or None when it could not be worked out;
     the rows that need it are then skipped. `gain`: the expected
@@ -923,14 +928,13 @@ def next_step(opt, checks, standing=None, gain=None):
     h = headline(opt, checks)
     state = verdict_state(opt, h, checks)
     yard = noise_yardstick(opt, checks)
-    if state == "unreliable":
-        gap = score_bias(opt, checks, h, yard)
-        if gap is not None:
-            return NextStep("bias", gap=gap)
-        return NextStep("misses")
     flagged = disagreeing_repeat(opt, checks)
     if flagged is not None:
         return NextStep("repeat", disagreement=flagged)
+    if state == "unreliable":
+        gap = score_bias(opt, checks, h, yard)
+        return NextStep("misses", gap=gap,
+                        bias_rounds=list(h.score.rounds or []) if gap is not None else [])
     # "none" here is past the gate with no Round checked yet, so it reads
     # as row 3; the ruling's "none" (row 9) is the no-data gate the caller says.
     if state in ("none", "early", "wide"):

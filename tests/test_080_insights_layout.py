@@ -251,7 +251,9 @@ def test_line_three_names_what_the_predicted_best_sits_at():
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("step,text,button", [
-    (insights.NextStep("bias", gap=-5.0), wording.next_bias("5.0", True), None),
+    # 0.8.0 e2e fixes (review I2): the steady bias rides on the misses row.
+    (insights.NextStep("misses", gap=-5.0),
+     wording.next_misses(bias_text=wording.next_bias("5.0", True)), None),
     (insights.NextStep("misses"), wording.NEXT_MISSES, None),
     (insights.NextStep("early"), wording.NEXT_TOO_EARLY, None),
     (insights.NextStep("untested"), wording.next_untested(open_round=False), None),

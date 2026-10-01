@@ -243,9 +243,11 @@ def _standing(higher=False, tested_near=True, binding=()):
     return SimpleNamespace(higher=higher, tested_near=tested_near, binding=list(binding))
 
 
-def test_row1_unreliable_with_a_score_gap_beyond_the_yardstick_is_the_bias(table):
+def test_row1_unreliable_with_a_score_gap_beyond_the_yardstick_carries_the_bias(table):
+    """0.8.0 e2e fixes (review I2): no "bias" row; the misses row says the
+    steady bias as a fact."""
     step = table(verdict="unreliable", gap=-5.0)
-    assert (step.kind, step.gap) == ("bias", -5.0)
+    assert (step.kind, step.gap) == ("misses", -5.0)
 
 
 def test_row1_unreliable_without_such_a_gap_names_the_misses(table):

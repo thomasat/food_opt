@@ -1951,18 +1951,22 @@ def gain_text(opt, computed, yard, standing=None):
 
 def next_step_text(opt, step, rounds=None):
     """(sentence, Set up button label or None) for insights.next_step's
-    answer (§2.4, review I2, I3, I14, M17; BO views I1). `rounds`: the
-    verdict's Rounds, named in the bias and misses rows (03 §5.4)."""
+    answer (§2.4, review I2, I3, I14, M17; BO views I1; 0.8.0 e2e fixes,
+    review I2). `rounds`: the verdict's Rounds, named in the misses row (03
+    §5.4); its steady bias names its own Rounds."""
     values = not opt.has_ingredients()
     settings_only = not insights.has_ingredient_choice(opt)
     # A Round still open: record it first, as the foot says (final review M-1).
     left = len(open_rows(opt)) if opt.pending_batch else 0
     no = opt.pending_batch_no
-    if step.kind == "bias":
-        return wording.next_bias(f"{abs(step.gap):.1f}", below=step.gap < 0,
-                                 rounds=rounds), None
     if step.kind == "misses":
-        return wording.next_misses(rounds), None
+        # Review I2: the intervals are too narrow; a steady bias of the
+        # Overall score is added as a fact over its own Rounds, no advice.
+        gap = getattr(step, "gap", None)
+        bias = ("" if gap is None else
+                wording.next_bias(f"{abs(gap):.1f}", below=gap < 0,
+                                  rounds=getattr(step, "bias_rounds", None) or None))
+        return wording.next_misses(rounds, bias_text=bias), None
     if step.kind == "repeat":
         return disagreement_text(step.disagreement), None
     if step.kind == "early":
