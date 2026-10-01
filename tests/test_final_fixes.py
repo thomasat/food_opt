@@ -241,6 +241,16 @@ from tests.test_insights_wave_c_ui import _rerun_on  # noqa: E402
 from tests.test_spread_fixes import _three  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _a_model_with_skill(monkeypatch):
+    """These tests are about the effect lines, so they stand in a model
+    whose Round-ahead skill lets them be said: the 0.8.0 e2e fixes' A3 gate
+    (review I4) withholds them below 10 checks or skill 0.20, which these
+    small projects are. tests/test_102_w1_insights.py covers the gate."""
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
+
+
+
 def test_a_row_that_only_carries_float_noise_did_not_vary():
     """Salt stays at 1 g but for noise of 1e-7 (an Excel round-trip),
     rising with Pea: it is not named as moved together with Pea."""

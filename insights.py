@@ -957,7 +957,10 @@ def next_step(opt, checks, standing=None, gain=None):
         return NextStep("no_skill", skill=fact)
     answer = improvement(opt, yardstick=yard)
     assumed = bool(getattr(yard, "assumed", False))
-    if standing is not None:
+    # Review I4: while the A3 gate withholds effect claims, the rows that
+    # cite the model's predicted best (untested, close, explore) fall
+    # through to rising or see.
+    if standing is not None and skill_gate(opt, checks, fact) is None:
         if standing.higher and not standing.tested_near:
             return NextStep("untested")
         if (not standing.higher and answer is not None
@@ -2336,8 +2339,40 @@ EXPERT_FLOOR = 0.05
 
 
 @dataclass
+class SkillGate:
+    """Why the Overall score's Round-ahead record withholds ingredient-effect
+    claims (0.8.0 e2e fixes A3, review I4): "wait" (fewer than SKILL_MIN
+    checks, `n` so far), "unclear" (skill under SKILL_SMALL) or "no_skill"
+    (at or below the cut)."""
+    state: str
+    n: int
+    fact: SkillFact | None = None
+
+
+def skill_gate(opt, checks, fact=None):
+    """The A3 rule (review I4): effect claims — the ranking, near-ties,
+    Compare all's bars, the expected improvement, the layers — need the
+    Overall score's skill at SKILL_SMALL or more, over SKILL_MIN checks or
+    more. None when they may be made; else why not. `fact`: skill() when
+    the caller has it. Kept apart from the no-skill cut: Next step's
+    no_skill row and the track line still use the cut alone."""
+    fact = skill(opt, checks) if fact is None else fact
+    if fact is None:
+        n = sum(1 for c in checks if c.name == SCORE and c.fully_measured)
+        # SKILL_MIN or more checks with no skill: every check sat on its
+        # baseline, nothing to divide by. Not "waiting" for checks it has.
+        return SkillGate("wait", n) if n < SKILL_MIN else None
+    if fact.state in ("no_skill", "unclear"):
+        return SkillGate(fact.state, fact.n, fact)
+    return None
+
+
+@dataclass
 class Guard:
     reasons: list       # "floor", "noise", "skill", in that order
+    # "skill": the A3 gate behind it (0.8.0 e2e fixes, review I4): no skill,
+    # skill not clearly better than the average, or too few checks yet.
+    gate: SkillGate | None = None
 
     @property
     def fires(self):
@@ -2385,8 +2420,10 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
     I3): (a) its correlation length at its lower limit; (b) its fitted
     noise sd below GUARD_NOISE × the Repeat SD of `name`, from
     YARDSTICK_PAIRS pairs or more, never under fixed_tiny; (c) for the
-    Overall score only, Round-ahead skill at or below its cut (`fact`:
-    skill() when the caller has it). `fitted`: insights.Fitted, or None."""
+    Overall score only, the A3 skill gate (0.8.0 e2e fixes, review I4):
+    fewer than SKILL_MIN checks, or skill under SKILL_SMALL — said as
+    "not reported until…", never as "fitting noise" (`fact`: skill() when
+    the caller has it). `fitted`: insights.Fitted, or None."""
     reasons = []
     gp = getattr(fitted, "model", None)
     if gp is not None:
@@ -2402,8 +2439,9 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
         if (yard is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
                 and sd < GUARD_NOISE * yard.sd):
             reasons.append("noise")
+    gate = None
     if name == SCORE:
-        fact = skill(opt, checks) if fact is None else fact
-        if fact is not None and fact.state == "no_skill":
+        gate = skill_gate(opt, checks, fact)
+        if gate is not None:
             reasons.append("skill")
-    return Guard(reasons)
+    return Guard(reasons, gate)

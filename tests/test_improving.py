@@ -189,7 +189,7 @@ def test_repeats_that_matched_exactly_count_as_no_repeats():
     opt = _rounds([[70.0], [70.4, 70.4]])
     opt.recipe_history[2] = dict(opt.recipe_history[1])
     opt.X_history[2] = list(opt.X_history[1])
-    assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(0.0, 1)
+    assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(0.0, 1, 1, 1)
     a = insights.improvement(opt)
     assert (a.state, a.sd) == ("barely", None)
     assert ui_insights.stand_text(a) == (

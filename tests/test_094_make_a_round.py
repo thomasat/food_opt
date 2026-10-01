@@ -110,7 +110,10 @@ def test_the_fold_is_collapsed_and_costs_nothing_until_opened(monkeypatch):
     assert not [b for b in _links(at) if b.proto.type == "primary"]
 
 
-def test_the_opened_fold_explains_each_row():
+def test_the_opened_fold_explains_each_row(monkeypatch):
+    # A model with skill: the A3 gate (0.8.0 e2e fixes, review I4) would
+    # withhold the fold's model columns on this small project.
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
     opt = _open_round()
     at = _app(opt)
     at.session_state[ui_batch.WHY_KEY] = True

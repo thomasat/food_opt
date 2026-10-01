@@ -214,9 +214,29 @@ def timing_recorded_flat(tmp_path_factory):
             opt.set_pending_batch(None)
             opt.save()
             got = _open(demo.TIMING), FoodOptimizer(opt.project_name), r
+            # The flat Round brings skill to 0.16: the A3 gate (0.8.0 e2e
+            # fixes, review I4) withholds the figure. Also opened with a model
+            # whose skill lets it through, for final review I-1's check.
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(insights, "skill_gate", lambda o, c, fact=None: None)
+                got = got + (_open(demo.TIMING),)
     finally:
         os.chdir(here)
     return got
+
+
+def test_a_round_recorded_flat_withholds_the_figure_under_the_a3_gate(timing_recorded_flat):
+    """0.8.0 e2e fixes (review I4): skill 0.16 is not clearly better than the
+    average, so the expected improvement is withheld, saying why, and Next
+    step does not offer "close to the top" from the model's predicted best."""
+    at, opt, r, _ = timing_recorded_flat
+    md, _ = _texts(at)
+    fact = insights.skill(opt, ui_insights.checks_for(opt, "trust") or insights.check_rounds(opt))
+    assert fact.state == "unclear"
+    assert wording.gain_unreliable(wording.gain_reason_unclear(
+        ui_insights.skill_value(fact.value), fact.n)) in md
+    after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
+    assert not after.startswith("Within these")
 
 
 def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
@@ -224,7 +244,7 @@ def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
     next Round's, from today's rows (ask()'s own first-pick search on the
     model the next Generate fits), not Round 13's pre-results 1.08. It is
     under the noise threshold, so Next step is close to the top."""
-    at, opt, r = timing_recorded_flat
+    _, opt, r, at = timing_recorded_flat
     md, _ = _texts(at)
     [line] = [m for m in md if m.startswith("Expected improvement")]
     assert line.startswith("Expected improvement, next Round: ")
@@ -271,6 +291,8 @@ def test_a_machine_zero_reads_under_one_hundredth(monkeypatch):
     about 0.00 points"."""
     opt = demo.load(demo.LINE_A)
     yard = insights.noise_yardstick(opt)
+    # Line A has skill (0.36, n = 15); no checks are handed in here.
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
     monkeypatch.setattr(ui_insights, "latest_gain", lambda *a, **k: bo_views.RoundGain(
         6, 90.45, None, 3.5e-21, True, None))
     got = ui_insights.gain_text(opt, {"checks": (), "fitted": {}}, yard)

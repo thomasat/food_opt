@@ -417,3 +417,252 @@ def test_the_other_rows_do_not_ask_for_a_repeat(kind):
 def test_next_step_carries_the_assumed_threshold(order):
     assert order(verdict="within").assumed
 
+
+
+# ------------------------------------------------------------------ #
+#  I4 (A3): effect claims need 10 Overall-score checks and skill 0.20
+# ------------------------------------------------------------------ #
+
+def _skill_checks(n, value_error=1.0):
+    """`n` fully measured Overall-score checks of Round 3 on _patty(6),
+    each `value_error` from its prediction (a skill set by the spread of
+    the measured scores around the earlier rows' average)."""
+    return [_check(insights.SCORE, 3, 100 + k, 60.0 + (k % 5) * 3 + value_error,
+                   60.0 + (k % 5) * 3, 5.0) for k in range(n)]
+
+
+def test_below_ten_checks_effects_wait_with_the_count():
+    opt = _patty(rows=6)
+    gate = insights.skill_gate(opt, _skill_checks(6))
+    assert (gate.state, gate.n) == ("wait", 6)
+    assert insights.skill_gate(opt, ()).n == 0
+
+
+@pytest.mark.parametrize("value,state", [(-0.5, "no_skill"), (-0.1, "unclear"),
+                                         (0.19, "unclear"), (0.2, None), (0.9, None)])
+def test_effects_need_skill_point_two(value, state):
+    opt = _patty(rows=6)
+    gate = insights.skill_gate(opt, [], fact=_fact(value, 24))
+    assert (None if gate is None else gate.state) == state
+    if gate is not None:
+        assert gate.n == 24 and gate.fact.value == value
+
+
+def test_the_noise_guard_withholds_effects_by_the_skill_gate():
+    opt = _patty(rows=6)
+    for value, fires in ((0.09, True), (0.36, False)):
+        g = insights.noise_guard(opt, None, [], fact=_fact(value, 24))
+        assert g.fires == fires and (g.reasons == ["skill"]) == fires
+        assert (g.gate is not None) == fires
+    wait = insights.noise_guard(opt, None, _skill_checks(6))
+    assert wait.skill_only and wait.gate.state == "wait"
+    # A measurement's own guard has no skill trigger (review I3 scope).
+    assert insights.noise_guard(opt, None, _skill_checks(6), name="Firmness").reasons == []
+
+
+def test_the_guard_line_says_why_effects_wait():
+    opt = _patty(rows=6)
+    wait = insights.noise_guard(opt, None, _skill_checks(6))
+    assert ui_insights.guard_text(wait) == wording.effects_wait_line(6)
+    assert ui_insights.guard_text(wait, settings_only=True) == wording.effects_wait_line(6, True)
+    unclear = insights.noise_guard(opt, None, [], fact=_fact(0.09, 24))
+    assert ui_insights.guard_text(unclear) == wording.effects_unclear_line("0.09", 24)
+    none = insights.noise_guard(opt, None, [], fact=_fact(-0.47, 16))
+    assert ui_insights.guard_text(none) == wording.guard_skill_line()
+    both = insights.Guard(["floor", "skill"], insights.SkillGate("unclear", 24, _fact(0.09, 24)))
+    assert ui_insights.guard_text(both) == wording.guard_line([wording.GUARD_FLOOR])
+
+
+def test_the_path_says_why_its_bends_are_not_read():
+    opt = _patty(rows=6)
+    assert ui_insights.path_guard_line(insights.noise_guard(opt, None, _skill_checks(6))) == \
+        wording.PATH_GUARD_WAIT
+    assert ui_insights.path_guard_line(insights.noise_guard(
+        opt, None, [], fact=_fact(0.09, 24))) == wording.PATH_GUARD_UNCLEAR
+    assert ui_insights.path_guard_line(insights.noise_guard(
+        opt, None, [], fact=_fact(-0.5, 24))) == wording.PATH_GUARD_SKILL
+    assert ui_insights.path_guard_line(insights.Guard(["floor"])) == wording.PATH_GUARD
+    assert ui_insights.path_guard_line(insights.Guard([])) == ""
+
+
+def test_the_expected_improvement_says_why_it_is_withheld():
+    gate = insights.SkillGate("wait", 6)
+    assert ui_insights.gain_reason("skill", gate) == wording.gain_reason_too_few(6)
+    gate = insights.SkillGate("unclear", 24, _fact(0.09, 24))
+    assert ui_insights.gain_reason("skill", gate) == wording.gain_reason_unclear("0.09", 24)
+    assert ui_insights.gain_reason("skill", insights.SkillGate("no_skill", 16, _fact(-0.5))) \
+        == wording.GAIN_REASON_SKILL
+    assert ui_insights.gain_reason("verdict", None) == wording.GAIN_REASON_VERDICT
+    assert ui_insights.gain_reason("guard", None) == wording.GAIN_REASON_GUARD
+
+
+@pytest.mark.parametrize("value", [None, 0.09])
+def test_next_step_under_the_gate_falls_through_to_rising_or_see(order, monkeypatch, value):
+    """Review I4: untested, close and explore cite the model's predicted
+    best; while effects are withheld they fall through."""
+    fact = None if value is None else _fact(value, 24)
+    untested = SimpleNamespace(higher=True, tested_near=False, binding=[])
+    assert order(untested, skill=fact).kind == "see"
+    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
+        "barely", 0.5, None, 0))
+    close = SimpleNamespace(higher=False, tested_near=True, binding=[])
+    assert order(close, skill=fact).kind == "see"
+    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
+        "yes", 3.0, None, 0))
+    assert order(untested, skill=fact).kind == "rising"
+
+
+def test_with_skill_the_model_rows_stay(order):
+    untested = SimpleNamespace(higher=True, tested_near=False, binding=[])
+    assert order(untested, skill=_fact(0.36, 24)).kind == "untested"
+
+
+# ------------------------------------------------------------------ #
+#  Pins on the campaign's own projects and the demo projects (slow: each
+#  project's Round-ahead checks are fitted once per module)
+# ------------------------------------------------------------------ #
+
+from tests import demo_projects as D  # noqa: E402
+from tests import e2e_fixtures as E  # noqa: E402
+
+NOISY_RECOMMENDED = "03_bar_noisy (Recommended)"
+
+
+def _load(name, last_round=None):
+    if name == NOISY_RECOMMENDED:
+        return E.load(E.BAR_NOISY, last_round=last_round, recommended=True)
+    if name in E.NAMES:
+        return E.load(name, last_round=last_round)
+    return D.load(name)
+
+
+@pytest.fixture(scope="module")
+def project():
+    """name -> (project, its Round-ahead checks), fitted once. A Round's
+    checks depend only on the rows before it and its own rows, so a
+    project stopped at Round r has the checks of Rounds up to r
+    (`upto`)."""
+    seen = {}
+
+    def get(name):
+        if name not in seen:
+            opt = _load(name)
+            seen[name] = (opt, insights.check_rounds(opt))
+        return seen[name]
+    return get
+
+
+def upto(project, name, r):
+    opt, checks = project(name)
+    return _load(name, last_round=r), [c for c in checks if c.round <= r]
+
+
+def _said(opt, checks):
+    """What Prediction check and Next step say from the checks alone."""
+    h = insights.headline(opt, checks)
+    state = insights.verdict_state(opt, h, checks)
+    step = insights.next_step(opt, checks, None)
+    texts = [ui_insights.verdict_text(opt, h, state, checks=checks),
+             ui_insights.score_line(opt, checks), ui_insights.steady_bias_text(opt, checks),
+             ui_insights.skill_text(opt, checks),
+             ui_insights.next_step_text(opt, step, h.rounds)[0]]
+    flagged = insights.disagreeing_repeat(opt, checks)
+    if flagged is not None:
+        texts.append(ui_insights.disagreement_text(flagged))
+    return step, [t for t in texts if t]
+
+
+@pytest.mark.parametrize("name", [E.PATTY, E.BAR_CLEAN, E.BAR_DRIFT])
+def test_no_check_advice_at_any_round_of_02_clean_or_drift(project, name):
+    """Ruling B1: 02 and 03 clean show no "check" at any Round (their
+    biases are the model's), and the drift run makes no causal claim: the
+    Round-ahead check cannot see a change it learned from its first Round."""
+    for r in range(3, 9):
+        opt, checks = upto(project, name, r)
+        step, texts = _said(opt, checks)
+        assert step.kind != "repeat", (name, r)
+        for t in texts:
+            assert wording.CHECK_IF_CHANGED not in t and "Check" not in t, (name, r, t)
+            assert "changed" not in t and "panel" not in t, (name, r, t)
+
+
+def test_the_drift_runs_repeat_is_reported_with_its_numbers(project):
+    """03 drift: F20, a Repeat of F14 across the drift, agrees, so it is
+    part of the Repeat SD the screen states with its basis, not a check."""
+    opt, checks = project(E.BAR_DRIFT)
+    assert insights.disagreeing_repeat(opt, checks) is None
+    yard = insights.noise_yardstick(opt, checks)
+    assert (yard.pairs, yard.df, yard.groups, yard.from_repeats) == (4, 4, 4, True)
+    assert ui_insights.repeats_text(yard) == (
+        "Repeat SD of the Overall score: 0.7 points from 4 pairs (8 results of 4 "
+        "formulations, 4 df); this is the noise threshold.")
+
+
+def test_line_b_keeps_check_through_its_disagreeing_repeat(project):
+    opt, checks = project(D.LINE_B)
+    step, texts = _said(opt, checks)
+    assert (step.kind, step.disagreement.later, step.disagreement.earlier) == ("repeat", 21, 11)
+    text = ui_insights.next_step_text(opt, step)[0]
+    assert text.startswith("Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower.")
+    assert text.endswith(wording.CHECK_IF_CHANGED)
+
+
+def test_02_round_3_reads_assumed_and_asks_for_a_repeat(project):
+    """Ruling B2's pin: 02 R3 (the app's own copy after Round 3) reads
+    '…above the 1-point noise threshold (assumed …)' and Next step asks
+    for a Repeat. F11's +6.3 was a +7 noise draw; only a Repeat tells."""
+    opt, checks = project(E.PATTY_ROUND3)
+    yard = insights.noise_yardstick(opt, checks)
+    answer = insights.improvement(opt, yardstick=yard)
+    assert ui_insights.stand_text(answer, yard) == (
+        "Rising: up 6.3 points in the last Round, above the 1-point noise threshold "
+        "(assumed: no Repeats yet; a Repeat of Best so far would measure it).")
+    step = insights.next_step(opt, checks, None)
+    assert step.kind == "rising"
+    assert ui_insights.next_step_text(opt, step)[0].endswith(wording.NEXT_REPEAT_TO_MEASURE)
+
+
+@pytest.mark.parametrize("name,state", [
+    (NOISY_RECOMMENDED, "unclear"), (E.PATTY, "unclear"), (E.PATTY_ROUND3, "wait"),
+    (D.LINE_A, None), (D.TIMING, None), (E.BAR_CLEAN, None), (E.BAR_DRIFT, None)])
+def test_the_a3_gate(project, name, state):
+    """Ruling I4's pins: the 03 noisy run (Recommended settings) and 02 lose
+    their effect claims, and say why; Line A, the Timing check, 03 clean and
+    03 drift keep them."""
+    opt, checks = project(name)
+    gate = insights.skill_gate(opt, checks)
+    assert (None if gate is None else gate.state) == state
+    guard = insights.noise_guard(opt, None, checks)
+    assert ("skill" in guard.reasons) == (state is not None)
+    if name == E.PATTY:
+        assert ui_insights.guard_text(guard) == wording.effects_unclear_line("0.09", 24)
+    if name == NOISY_RECOMMENDED:
+        assert ui_insights.guard_text(guard) == wording.effects_unclear_line("0.08", 20)
+
+
+def test_02_falls_through_to_rising_or_see_under_the_gate(project):
+    """02 at Round 5: skill −0.10 (not clearly better than the average), so
+    a predicted best in untested amounts is not offered as the next step."""
+    opt, checks = upto(project, E.PATTY, 5)
+    untested = SimpleNamespace(higher=True, tested_near=False, binding=[])
+    assert insights.skill_gate(opt, checks).state == "unclear"
+    assert insights.next_step(opt, checks, untested).kind in ("rising", "see")
+
+
+@pytest.mark.parametrize("name,line", [
+    (E.PATTY, "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)."),
+    (E.BAR_DRIFT, ""),
+    (D.LINE_A, ""),
+])
+def test_the_steady_bias_on_the_campaign_projects(project, name, line):
+    """02's predictions ran about 4 points high from its first checked Round
+    (the model's optimism at its maximum): a fact, no advice."""
+    opt, checks = project(name)
+    assert ui_insights.steady_bias_text(opt, checks) == line
+
+
+def test_03_clean_says_its_bias_both_ways_without_advice(project):
+    opt, checks = project(E.BAR_CLEAN)
+    line = ui_insights.steady_bias_text(opt, checks)
+    assert line.startswith("Predictions have run high: Crumbliness")
+    assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")

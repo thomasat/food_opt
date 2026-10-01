@@ -118,12 +118,11 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     at.session_state[ui_insights.CACHE_KEY] = (key, {"fitted": {}, "checks": _five_score_checks()})
     at.run()
     # Insights' own wording for the Overall score's line (answer-key
-    # read-through: one wording for one fact); five equal gaps are a bias.
-    # Two ASCII fragments of the line (the help's proto escapes the minus sign).
-    text = wording.score_gap_line(5, 5, -2.0, wording.beat_by())
-    line = "Overall score, same Rounds: 5 of 5 inside their 95 % interval; mean error"
-    action = "and 2 standard errors: new predictions read about 2.0 points high"
-    assert line in text and action in text
+    # read-through: one wording for one fact); five equal gaps are a steady
+    # bias, said as Insights says it (0.8.0 e2e fixes, review B1, I1).
+    # Two ASCII fragments (the help's proto escapes the minus sign).
+    line = "Overall score, Round 3: 5 of 5 inside their 95 % interval; mean error"
+    action = "Predictions have run high: Overall score by about 2.0 points (Round 3)"
     assert line in str(_batch_table(at).proto)
     assert action.rstrip(".") in str(_batch_table(at).proto)
     at.session_state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": _five_score_checks()})

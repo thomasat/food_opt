@@ -16,6 +16,16 @@ from tests.test_insights_wave_c_ui import _rerun_on
 
 
 @pytest.fixture(autouse=True)
+def _a_model_with_skill(monkeypatch):
+    """These tests are about the effect lines, so they stand in a model
+    whose Round-ahead skill lets them be said: the 0.8.0 e2e fixes' A3 gate
+    (review I4) withholds them below 10 checks or skill 0.20, which these
+    small projects are. tests/test_102_w1_insights.py covers the gate."""
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
+
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

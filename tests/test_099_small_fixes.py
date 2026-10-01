@@ -274,6 +274,9 @@ def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
     the next Round's expected improvement is calculated (about 1.5 s at
     60 x 4), so the first answers never wait for it."""
     opt = _burger(rounds=5, noise=0.6)
+    # A model with skill, so the figure is worked out at all (A3 gate, 0.8.0
+    # e2e fixes, review I4).
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
     order = []
     real_trust, real_gain = ui_insights._trust, ui_insights.latest_gain
     monkeypatch.setattr(ui_insights, "_trust",

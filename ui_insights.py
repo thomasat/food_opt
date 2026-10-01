@@ -902,11 +902,14 @@ def score_record_help(opt):
     """The Overall score's own record for Make a round's column help, or
     '' — only from checks already worked out for the data on screen, by
     this tab or from the workers' models (§9 I6): Make a round never fits
-    for it."""
+    for it. A steady bias follows it, in Insights' words (0.8.0 e2e fixes,
+    review B1): one wording for one fact."""
     checks = checks_for(opt, "trust")
     if checks is None:
         return ""
-    return score_line(opt, checks)
+    line = score_line(opt, checks)
+    bias = steady_bias_text(opt, checks) if line else ""
+    return f"{line} {bias}" if bias else line
 
 
 def score_line(opt, checks, h=None, yard=None):
@@ -1311,11 +1314,34 @@ def _guard(opt, fitted, name=insights.SCORE):
 def guard_text(guard, settings_only=False):
     """The guard's one line, naming its trigger (review I3): "fitting
     noise" for the correlation length or the fitted noise; trigger (c)
-    alone reads "not reported until…"."""
+    alone reads "not reported until…", by its A3 gate (0.8.0 e2e fixes,
+    review I4): too few checks yet, skill not clearly better than the
+    average, or no skill."""
     if guard.skill_only:
+        gate = getattr(guard, "gate", None)
+        if gate is not None and gate.state == "wait":
+            return wording.effects_wait_line(gate.n, settings_only)
+        if gate is not None and gate.state == "unclear":
+            return wording.effects_unclear_line(skill_value(gate.fact.value), gate.fact.n,
+                                                settings_only)
         return wording.guard_skill_line(settings_only)
     return wording.guard_line([_GUARD_WORDS[r] for r in guard.reasons if r != "skill"],
                               settings_only)
+
+
+def path_guard_line(guard):
+    """The path's caption while the guard fires (review I3, I4), or '':
+    the curve still draws; its bends are not to be read as effects."""
+    if not guard.fires:
+        return ""
+    if not guard.skill_only:
+        return wording.PATH_GUARD
+    gate = getattr(guard, "gate", None)
+    if gate is not None and gate.state == "wait":
+        return wording.PATH_GUARD_WAIT
+    if gate is not None and gate.state == "unclear":
+        return wording.PATH_GUARD_UNCLEAR
+    return wording.PATH_GUARD_SKILL
 
 
 def _compare_all(opt, moved, settings_only, fitted, recipe):
@@ -1456,7 +1482,7 @@ def _path_captions(opt, path, number, fitted, near=None):
     # to be read as effects.
     guard = _guard(opt, fitted)
     if guard.fires:
-        lines.append(wording.PATH_GUARD_SKILL if guard.skill_only else wording.PATH_GUARD)
+        lines.append(path_guard_line(guard))
     return lines
 
 
@@ -1482,6 +1508,20 @@ def stand_text(answer, yard=None):
         line = line.replace(wording.beat_by(), wording.beat_by(None, assumed=True,
                                                                pairs=yard.pairs))
     return line
+
+
+# (id of the project, Repeat pairs, whether Progress's line 1 named the
+# noise threshold), set by _stand_lines, which every run draws before line 2.
+_LINE1_KEY = "_insights_line1_threshold"
+
+
+def _line1_named(opt, yard):
+    """Whether line 1 named the noise threshold: as _stand_lines recorded it
+    in this run, else worked out (a caller outside the tab)."""
+    hit = st.session_state.get(_LINE1_KEY)
+    if hit is not None and hit[0] == id(opt) and hit[1] == yard.pairs:
+        return hit[2]
+    return says_threshold(insights.improvement(opt, yardstick=yard))
 
 
 def says_threshold(answer):
@@ -1607,6 +1647,9 @@ def _stand_lines(opt, yard):
               else wording.stand_since(f.rounds_since) if f.rounds_since else "")
     line = wording.stand_best(f"{f.score:.2f}", f.formulation, f.round, number_list(f.without))
     head = stand_text(answer, yard) + " " if answer is not None else ""
+    # Whether this line named the threshold, for line 2 in this same run
+    # (standing_text): an assumed threshold is said once (review B2).
+    st.session_state[_LINE1_KEY] = (id(opt), yard.pairs, says_threshold(answer))
     st.write(_say(opt, head + line + (" " + second if second else "")))
     if (says_threshold(answer)
             and yard.sd is not None and yard.sd >= insights.REPEAT_SD_SHOWN):
@@ -1754,8 +1797,8 @@ def standing_text(opt, standing, yard):
     mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
     # An assumed threshold is said once on Progress (review B2): here only
     # when line 1 did not name it.
-    by = threshold_text(yard, assumed=not says_threshold(insights.improvement(
-        opt, yardstick=yard)))
+    by = threshold_text(yard, assumed=getattr(yard, "assumed", False)
+                        and not _line1_named(opt, yard))
     values = not opt.has_ingredients()
     if standing.higher:
         close = standing.best.close
@@ -1921,7 +1964,8 @@ def gain_state(opt, score, checks, fit=True):
 
 def withheld(opt, score, checks):
     """Why the model's gains are not reported, or None (review I4): "verdict"
-    (a caution or unreliable verdict), "skill" (no skill), "guard" (the
+    (a caution or unreliable verdict), "skill" (the A3 gate: no skill, skill
+    under 0.20, or fewer than 10 checks; 0.8.0 e2e fixes), "guard" (the
     noise guard). Progress's expected improvement and the Why fold's
     expected improvement and roles follow this one rule (fix round 1)."""
     h = insights.headline(opt, checks)
@@ -1958,9 +2002,8 @@ def gain_text(opt, computed, yard, standing=None):
     if why == "ucb":
         return wording.GAIN_UCB
     if why is not None:
-        return wording.gain_unreliable({"verdict": wording.GAIN_REASON_VERDICT,
-                                        "skill": wording.GAIN_REASON_SKILL,
-                                        "guard": wording.GAIN_REASON_GUARD}[why])
+        gate = insights.skill_gate(opt, checks) if why == "skill" else None
+        return wording.gain_unreliable(gain_reason(why, gate))
     if g is None or g.why_none == "own":
         return ""
     if g.why_none == "cold":
@@ -1984,6 +2027,18 @@ def gain_text(opt, computed, yard, standing=None):
 # Next step's rows that end by asking for a Repeat of Best so far while the
 # noise threshold is assumed (0.8.0 e2e fixes, review B2, I5).
 _ASK_REPEAT = ("close", "explore", "see", "rising")
+
+
+def gain_reason(why, gate=None):
+    """withheld()'s reason in words for Progress's expected improvement:
+    "skill" by its A3 gate (0.8.0 e2e fixes, review I4): too few checks,
+    skill not clearly better than the average, or no skill."""
+    if why == "skill" and gate is not None and gate.state == "wait":
+        return wording.gain_reason_too_few(gate.n)
+    if why == "skill" and gate is not None and gate.state == "unclear":
+        return wording.gain_reason_unclear(skill_value(gate.fact.value), gate.fact.n)
+    return {"verdict": wording.GAIN_REASON_VERDICT, "skill": wording.GAIN_REASON_SKILL,
+            "guard": wording.GAIN_REASON_GUARD}[why]
 
 
 def next_step_text(opt, step, rounds=None):

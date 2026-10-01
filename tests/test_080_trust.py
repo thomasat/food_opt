@@ -226,6 +226,9 @@ def table(monkeypatch):
         return state["given"]
     monkeypatch.setattr(insights, "noise_yardstick", yardstick)
     monkeypatch.setattr(insights, "disagreeing_repeat", lambda o, c, m=None: state["repeat"])
+    # A model with skill: the A3 gate (0.8.0 e2e fixes, review I4) lets the
+    # rows that cite the predicted best through; tests/test_102 covers it.
+    monkeypatch.setattr(insights, "skill_gate", lambda o, c, fact=None: None)
 
     def improvement(o, facts=None, spread=None, yardstick=None):
         state["seen"] = yardstick
