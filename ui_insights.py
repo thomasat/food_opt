@@ -1107,7 +1107,7 @@ def threshold_text(yard, assumed=True):
     if yard.from_repeats:
         return wording.beat_by(f"{yard.value:.1f}")
     return wording.beat_by(None, assumed=assumed and getattr(yard, "assumed", False),
-                           pairs=yard.pairs)
+                           pairs=yard.pairs, left_out=getattr(yard, "left_out", 0))
 
 
 def skill_value(value):
@@ -1497,9 +1497,9 @@ def path_guard_line(guard):
         return wording.PATH_GUARD
     gate = getattr(guard, "gate", None)
     if gate is not None and gate.state == "wait":
-        return wording.PATH_GUARD_WAIT
+        return wording.path_guard_wait(gate.n)
     if gate is not None and gate.state == "unclear":
-        return wording.PATH_GUARD_UNCLEAR
+        return wording.path_guard_unclear(skill_value(gate.fact.value), gate.fact.n)
     return wording.PATH_GUARD_SKILL
 
 
@@ -1660,12 +1660,13 @@ def stand_text(answer, yard=None):
     sd = None if answer.sd is None else f"{answer.sd:.{d}f}"
     assumed = (sd is None and yard is not None and getattr(yard, "assumed", False))
     if answer.state == "yes":
-        return wording.stand_yes(rise, wording.beat_by(sd, assumed=assumed,
-                                                       pairs=yard.pairs if assumed else 0))
+        return wording.stand_yes(rise, wording.beat_by(
+            sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
+            left_out=getattr(yard, "left_out", 0) if assumed else 0))
     line = wording.stand_barely(rise, sd)
     if assumed:
-        line = line.replace(wording.beat_by(), wording.beat_by(None, assumed=True,
-                                                               pairs=yard.pairs))
+        line = line.replace(wording.beat_by(), wording.beat_by(
+            None, assumed=True, pairs=yard.pairs, left_out=getattr(yard, "left_out", 0)))
     return line
 
 
@@ -1949,11 +1950,16 @@ def binding_text(b):
             else wording.at_lowest(b.name) if b.kind == "lowest" else wording.at_limit(b.text))
 
 
-def standing_text(opt, standing, yard):
+def standing_text(opt, standing, yard, withheld=None):
     """Line 2 (§2.3, review I7): the predicted best against Best so far's
-    predicted Repeat, in whole points, in one of four texts."""
+    predicted Repeat, in whole points, in one of four texts. `withheld`
+    (claims_withheld_reason): the gain is not claimed, and the line says
+    why (polish round)."""
     p = standing.best.score
     mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
+    if withheld:
+        return wording.stand_withheld(mean, low, high, withheld, standing.close_no,
+                                      values=not opt.has_ingredients())
     # An assumed threshold is said once on Progress (review B2): here only
     # when line 1 did not name it.
     by = threshold_text(yard, assumed=getattr(yard, "assumed", False)
@@ -1971,6 +1977,18 @@ def standing_text(opt, standing, yard):
                                     "" if close is None else f"{opt.Y_history[close]:.2f}",
                                     gain_text=gain, by_text=by, values=values)
     return wording.stand_not_higher(by, mean, low, high, standing.close_no, values=values)
+
+
+def claims_withheld_reason(opt, score, checks):
+    """Why the model's gains are not claimed, in Progress's words, or None:
+    the expected improvement's own rule (withheld, gain_reason). The
+    predicted gain over Best so far, its amounts and the triangle's
+    Predicted above Best so far outline follow it too (polish round: the
+    upgrade file withheld the one and claimed +9.3 points beside it)."""
+    why = withheld(opt, score, checks)
+    if why is None:
+        return None
+    return gain_reason(why, insights.skill_gate(opt, checks) if why == "skill" else None)
 
 
 def standing_for(opt, best, checks, yard):
@@ -2004,7 +2022,8 @@ def _stand(opt, computed, yard, spinner=True):
         st.caption(_say(opt, wording.BEST_FAILED))
         return None
     standing = standing_for(opt, best, computed["checks"], yard)
-    st.write(_say(opt, standing_text(opt, standing, yard)))
+    held_back = claims_withheld_reason(opt, score, computed["checks"])
+    st.write(_say(opt, standing_text(opt, standing, yard, withheld=held_back)))
     if standing.binding:
         st.write(_say(opt, wording.stand_limits([binding_text(b) for b in standing.binding])))
     top = opt.best_index()
@@ -2025,7 +2044,7 @@ def _stand(opt, computed, yard, spinner=True):
         slot.write(_say(opt, line))
     else:
         slot.empty()
-    if standing.higher and not standing.tested_near:
+    if standing.higher and not standing.tested_near and not held_back:
         with st.expander(_say(opt, wording.show_its_amounts(not opt.has_ingredients()))):
             try:
                 frame = best_frame(opt, best, fitted)
@@ -2603,7 +2622,9 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     if mix.dots:
         dots = pd.DataFrame([{**dict(zip(("X", "Y"), _xy(d.x))), "no": d.formulation}
                              for d in mix.dots])
-        layers.append(alt.Chart(dots).mark_point(filled=True, fill="white", stroke="gray",
+        # The neutral token (polish round: 3:1 or better in both themes).
+        layers.append(alt.Chart(dots).mark_point(filled=True, fill="white",
+                                                 stroke=mark("neutral")[0],
                                                  strokeWidth=1.5, size=45, opacity=1)
                       .encode(x=x, y=y, tooltip=[alt.Tooltip("no:Q", title=formulation)]))
     s_amounts = [float(mix.start.get(n, 0.0)) for n in mix.names]
@@ -2615,8 +2636,9 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
         "sum": round(sum(s_amounts), 2),
         "pred": "" if start_pred is None else score_text(start_pred)}])
     own = [] if start_pred is None else [alt.Tooltip("pred:N", title=tip_title)]
+    ring_c, ring_o = mark("neutral")
     layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
-                                              color="gray")
+                                              color=ring_c, opacity=ring_o)
                   .encode(x=x, y=y,
                           tooltip=[alt.Tooltip("no:Q", title=formulation)] + amounts + own))
     layers += _labels(alt.Chart(start), x, y, "t:N", align="left", dx=12)
@@ -2828,7 +2850,11 @@ def _mixture_cached(opt, fitted, names, number, start, layer=wording.LAYER_SCORE
     three, start and layer. `extra`: the layer's values; for the Predicted
     score layer, the Predicted above Best so far outline and the colour
     span against the model's own uncertainty (review I6, M7)."""
-    key = (insights.setup_key(opt), tuple(names), number, layer)
+    checks = checks_for(opt, "trust") or ()
+    # Whether the outline may be drawn is part of the answer (polish round).
+    held_back = (layer == wording.LAYER_SCORE
+                 and withheld(opt, fitted.get(insights.SCORE), checks) is not None)
+    key = (insights.setup_key(opt), tuple(names), number, layer, held_back)
     hit = st.session_state.get(MIXTURE_KEY)
     if hit and hit[0] == key:
         return hit[1]
@@ -2837,7 +2863,7 @@ def _mixture_cached(opt, fitted, names, number, start, layer=wording.LAYER_SCORE
             mix = insights.mixture_slice(opt, names, start)
             preds = insights.mixture_predictions(opt, fitted, mix)
             value = (mix, preds, _start_prediction(opt, fitted, mix, start),
-                     _mixture_extra(opt, fitted, mix, preds, layer))
+                     _mixture_extra(opt, fitted, mix, preds, layer, checks))
         except Exception:
             value = _FAILED
     st.session_state[MIXTURE_KEY] = (key, value)
@@ -2861,7 +2887,7 @@ def repeat_of_best(opt, fitted):
     return p.mean
 
 
-def _mixture_extra(opt, fitted, mix, preds, layer):
+def _mixture_extra(opt, fitted, mix, preds, layer, checks=None):
     """What the chart needs beyond the predictions, per point (None where
     blocked): a layer's values; or, on the Predicted score layer, the
     outline (the model's mean − 1.96 × its own sd above Best so far's
@@ -2881,11 +2907,15 @@ def _mixture_extra(opt, fitted, mix, preds, layer):
     it = spread(low)
     top = opt.best_index()
     measured_top = None if top is None else float(opt.Y_history[top])
-    yard = insights.noise_yardstick(opt, checks_for(opt, "trust") or ()).value
+    checks = (checks_for(opt, "trust") or ()) if checks is None else checks
+    yard = insights.noise_yardstick(opt, checks).value
+    # The outline is a gain claim: none while the model's gains are withheld
+    # (polish round; the expected improvement's rule).
+    held_back = withheld(opt, fitted.get(insights.SCORE), checks) is not None
     ring = []
     for p, pred in zip(mix.points, preds or [None] * len(mix.points)):
         lo = next(it) if p.recipe is not None else None
-        ring.append(p.recipe is not None and insights.above_best(
+        ring.append(not held_back and p.recipe is not None and insights.above_best(
             lo, None if pred is None else pred.mean, ref, measured_top, yard))
     means = [p.mean for p in preds if p is not None]
     half = sorted((insights.Z95 * got.sd).tolist())[len(allowed) // 2]

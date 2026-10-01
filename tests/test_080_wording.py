@@ -231,12 +231,13 @@ def test_singular_and_plural_forms():
         "used them yet, so a suggestion may nearly repeat them.")
     assert "lower" in w.repeat_disagrees(21, 11, "4.0")
     assert "higher" in w.repeat_disagrees(21, 11, "4.0", lower=False)
+    # Polish round 8: the bias as one fact, no reading clause.
     assert w.score_gap_line(6, 12, -5.2, w.beat_by("1.3")).endswith(
-        "This exceeds the noise threshold (Repeat SD 1.3 points) and 2 standard errors: new "
-        "predictions read about 5.2 points high.")
+        "This exceeds the noise threshold (Repeat SD 1.3 points) and 2 standard errors: "
+        "Overall-score predictions have run about 5.2 points high.")
     assert w.score_gap_line(6, 12, 2.0, w.beat_by()).endswith(
-        "This exceeds the 1-point noise threshold and 2 standard errors: new predictions read "
-        "about 2.0 points low.")
+        "This exceeds the 1-point noise threshold and 2 standard errors: Overall-score "
+        "predictions have run about 2.0 points low.")
     assert w.insights_header_line(0, None, 1, "Aroma") == "1 formulation is waiting for Aroma."
     assert w.insights_header_line(1, 1) == (
         "Based on 1 scored formulation (all results in), up to Round 1.")

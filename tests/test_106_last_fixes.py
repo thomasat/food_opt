@@ -10,6 +10,8 @@ done" (02 I8, M1, M6, M10; 01 O9, O10, O13, O16; 04 M-7).
 - M-7: an unchanged measurements grid leaves the stored shares, and so
   every Overall score, exactly as they were.
 """
+import os
+
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -283,13 +285,14 @@ def test_03_clean_bias_line_reads_points_not_score(standing_of):
 
 def test_the_rough_track_line_says_more_misses_once():
     line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
-    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; mean "
-                    "error −5.5 points. More misses than expected; many more in the measured "
-                    "values.")
+    # The bias as one fact (polish round 8).
+    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
+                    "Overall-score predictions have run about 5.5 points high. More misses "
+                    "than expected; many more in the measured values.")
     assert line.lower().count("misses than expected") == 1
     # Without the measurements' verdict, as before.
     assert wording.round_track_rough(13, 16, "5.5", rounds=[2, 3, 4, 5]).endswith(
-        "mean error −5.5 points. More misses than expected.")
+        "predictions have run about 5.5 points high. More misses than expected.")
 
 
 def test_line_b_track_line(tmp_path, monkeypatch):
@@ -496,8 +499,12 @@ def test_a_new_setting_without_a_baseline_brings_the_column_back(burger):
 #  01 O9: a withheld expected improvement has no "Recomputed" line
 # ------------------------------------------------------------------ #
 
-def _why_fold_captions(monkeypatch, gate, reasons=("skill",)):
+def _why_fold_captions(monkeypatch, gate, reasons=("skill",), folder=None):
     import dataclasses
+    # Its own folder: _burger names projects insights_test_N in the working
+    # folder, and a file left there by another run would be resumed.
+    if folder is not None:
+        monkeypatch.chdir(folder)
 
     import bo_views
     from tests.test_105_integration import _why_caption
@@ -507,20 +514,20 @@ def _why_fold_captions(monkeypatch, gate, reasons=("skill",)):
     return _why_caption(monkeypatch, gate, reasons)
 
 
-def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypatch):
+def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypatch, tmp_path):
     """O9, then last-fix review R-1: the expected improvement is withheld,
     but Model sd and the map still come from the recomputed model, and
     one line says so."""
     gate = insights.SkillGate("wait", 6)
-    captions = _why_fold_captions(monkeypatch, gate)
+    captions = _why_fold_captions(monkeypatch, gate, folder=tmp_path)
     assert wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6)) in captions
     assert wording.WHY_RECOMPUTED not in captions
     assert captions.count(wording.WHY_RECOMPUTED_WITHHELD) == 1
     assert wording.WHY_RECOMPUTED_WITHHELD.startswith("Model sd and the map are recomputed")
 
 
-def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch):
-    captions = _why_fold_captions(monkeypatch, None, reasons=())
+def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch, tmp_path):
+    captions = _why_fold_captions(monkeypatch, None, reasons=(), folder=tmp_path)
     if any(c.startswith("Expected improvement is not shown") for c in captions):
         pytest.skip("the fixture's own checks withhold it")
     assert wording.WHY_RECOMPUTED in captions
@@ -626,3 +633,258 @@ def test_the_untested_start_line_without_a_nearest():
     assert wording.near_start_untested("Best so far") == (
         "Nothing has been tested within 15 % of each span of Best so far, so nothing "
         "is ranked.")
+
+
+# ------------------------------------------------------------------ #
+#  Polish 5: the A3 gate holds back the predicted gain, its amounts and
+#  the triangle's outline too (the upgrade file, 2 checks)
+# ------------------------------------------------------------------ #
+
+@pytest.fixture(scope="module")
+def upgrade():
+    import tempfile
+    here = os.getcwd()
+    os.chdir(tempfile.mkdtemp())
+    try:
+        opt = D.load(D.UPGRADE)
+        checks = insights.check_rounds(opt)
+        fitted = insights.fit_all(opt)
+    finally:
+        os.chdir(here)
+    return opt, checks, fitted
+
+
+def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
+    opt, checks, fitted = upgrade
+    yard = insights.noise_yardstick(opt, checks)
+    best = insights.predicted_best(opt, {insights.SCORE: fitted[insights.SCORE]}, checks)
+    standing = ui_insights.standing_for(opt, best, checks, yard)
+    assert standing.higher and not standing.tested_near        # what it claimed before
+    reason = ui_insights.claims_withheld_reason(opt, fitted[insights.SCORE], checks)
+    assert reason == wording.gain_reason_too_few(2)
+    line = ui_insights.standing_text(opt, standing, yard, withheld=reason)
+    assert "Predicted gain" not in line and "+9.3" not in line
+    assert line.startswith("Predicted best: 100 (95 % interval 93–100), in untested amounts.")
+    assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
+                         "Round-ahead checks of the Overall score so far (2).")
+
+
+def test_the_upgrade_files_triangle_has_no_outline(upgrade, monkeypatch):
+    opt, checks, fitted = upgrade
+    names = insights.mixture_choices(opt)[:3]
+    best = opt.best_index()
+    start = insights.start_recipe(opt, best)
+    mix = insights.mixture_slice(opt, names, start)
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    gated = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE, checks)
+    assert gated["outline"] and not any(gated["outline"])
+    monkeypatch.setattr(ui_insights, "withheld", lambda *a, **k: None)
+    open_ = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE, checks)
+    assert any(open_["outline"])                       # the gate is what removes it
+
+
+def test_the_upgrade_files_progress_shows_no_amounts_fold(tmp_path, monkeypatch):
+    import json
+    monkeypatch.chdir(tmp_path)
+    state = json.loads((D.HERE / f"{D.UPGRADE}.json").read_text())
+    saved = FoodOptimizer(state["project_name"])
+    saved.import_json(state)
+    saved.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=600)
+    at.session_state["_loaded_project"] = state["project_name"]
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    tab = at.tabs[3]
+    said = [m.value for m in tab.markdown]
+    assert not any("Predicted gain over" in m for m in said), said
+    assert any("Its gain over Best so far is not reported" in m for m in said), said
+    labels = [e.label for e in tab.expander]
+    assert wording.show_its_amounts(False) not in labels, labels
+
+
+# ------------------------------------------------------------------ #
+#  Polish 6: "assumed" says why when the only Repeat disagrees (Line B)
+# ------------------------------------------------------------------ #
+
+def test_beat_by_says_the_only_repeat_disagrees():
+    assert wording.beat_by(assumed=True, pairs=0, left_out=1) == (
+        "the 1-point noise threshold (assumed: the only Repeat disagrees; a Repeat of Best "
+        "so far would measure it)")
+    assert wording.beat_by(assumed=True, pairs=1, left_out=1) == (
+        "the 1-point noise threshold (assumed: 1 pair of Repeats, 3 needed, and 1 left out "
+        "as it disagrees; a Repeat of Best so far would measure it)")
+    assert wording.beat_by(assumed=True) == wording.beat_by(assumed=True, pairs=0, left_out=0)
+
+
+def test_line_b_never_says_no_repeats_yet(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(D.LINE_B)
+    checks = insights.check_rounds(opt)
+    yard = insights.noise_yardstick(opt, checks)
+    assert (yard.pairs, yard.left_out, yard.assumed) == (0, 1, True)
+    text = ui_insights.threshold_text(yard)
+    assert "the only Repeat disagrees" in text and "no Repeats yet" not in text
+
+
+# ------------------------------------------------------------------ #
+#  Polish 7: one wording for the effect gate's reason, both lines name
+#  the 0.20 rule
+# ------------------------------------------------------------------ #
+
+def _gates():
+    from tests.test_102_w1_insights import _fact, _patty, _skill_checks
+    opt = _patty(rows=6)
+    return [insights.noise_guard(opt, None, _skill_checks(6)),
+            insights.noise_guard(opt, None, [], fact=_fact(0.09, 24)),
+            insights.noise_guard(opt, None, [], fact=_fact(-0.5, 24))]
+
+
+def _reason(line):
+    for cut in (" reported ", " read as effects "):
+        if cut in line:
+            return line.split(cut, 1)[1].split(" ", 1)[1]
+    raise AssertionError(line)
+
+
+def test_the_path_caption_and_the_effect_line_give_one_reason():
+    for guard in _gates():
+        main = ui_insights.guard_text(guard)
+        path = ui_insights.path_guard_line(guard)
+        assert path.startswith("The curve's bends are "), path
+        assert _reason(main) == _reason(path), (main, path)
+        assert "0.20" in main and "0.20" in path
+        assert "beat the average" not in path
+
+
+def test_line_b_says_the_gate_reason_once_in_one_wording(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(D.LINE_B)
+    checks = insights.check_rounds(opt)
+    guard = insights.noise_guard(opt, None, checks)
+    assert _reason(ui_insights.guard_text(guard)) == _reason(ui_insights.path_guard_line(guard))
+
+
+# ------------------------------------------------------------------ #
+#  Polish 8: the steady bias is one fact, with no reading clause, on
+#  Insights and Make a round alike (Lines B and C)
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("name,gap", [(D.LINE_B, "5.5"), (D.LINE_C, "4.3")])
+def test_the_steady_bias_reads_as_one_fact_on_both_screens(tmp_path, monkeypatch, name, gap):
+    monkeypatch.chdir(tmp_path)
+    opt = D.load(name)
+    checks = insights.check_rounds(opt)
+    track = ui_insights.track_text(insights.round_track(opt, checks))
+    insights_line = ui_insights.steady_bias_text(opt, checks)
+    fact = wording.bias_fact(gap)
+    assert fact == f"predictions have run about {gap} points high"
+    assert f"; Overall-score {fact}" in track, track
+    assert f"Overall score by about {gap} points" in insights_line
+    for line in (track, insights_line):
+        assert "read about" not in line and "so new predictions" not in line, line
+    assert "mean error −" not in track, track
+
+
+# ------------------------------------------------------------------ #
+#  Polish 9: one Water caption once the batch size is set
+# ------------------------------------------------------------------ #
+
+def test_a_new_project_shows_one_water_caption_after_the_batch_size(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("new_water")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Pea protein", 15, 25)
+    opt.add_ingredient("Oil", 5, 10)
+    opt.add_ingredient("Water", 0, 0)
+    opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formula("Water", "= rest")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "new_water"
+    at.run()
+    at.number_input(key="formulation_total").set_value(100.0).run()
+    assert not at.exception
+    water = [c.value for c in at.caption if c.value.startswith("Water ")]
+    assert len(water) == 1, water
+    assert water[0].startswith("Water is calculated to bring the total to the 100 g")
+    said = [c.value for c in at.caption]
+    assert wording.rest_row_keeps_the_others("100 g") in said, said
+    assert wording.rest_row_keeps_the_others("100 g") == (
+        "At 100 g, the other rows keep their amounts. To keep the same proportions, "
+        "widen Lowest and Highest too.")
+
+
+# ------------------------------------------------------------------ #
+#  Polish 10: the grey rings of tested formulations reach 3:1 in both
+#  themes (Why map, triangle)
+# ------------------------------------------------------------------ #
+
+def _point_layers(spec):
+    from tests.test_104_speed_robust_charts import _all_layers
+    out = []
+    for layer in _all_layers(spec):
+        mark = layer.get("mark")
+        if isinstance(mark, dict) and mark.get("type") == "point":
+            out.append(mark)
+    return out
+
+
+def _seen(mark):
+    colour = mark.get("stroke") or mark.get("color")
+    # Vega draws a point at opacity 0.7 unless told otherwise.
+    return colour, mark.get("strokeOpacity", mark.get("opacity", 0.7))
+
+
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_the_why_maps_tested_rings_reach_3_to_1(tmp_path, monkeypatch, which):
+    import bo_views
+    import ui_batch
+    from tests.test_104_speed_robust_charts import PAGES, _contrast_on
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ui_insights, "theme", lambda: which)
+    opt = D.load(D.LINE_A)
+    spec = ui_batch.why_chart(opt, bo_views.why(opt, None), 89.6).to_dict()
+    rings = [m for m in _point_layers(spec) if not m.get("filled", True)]
+    assert rings
+    for mark in rings:
+        colour, opacity = _seen(mark)
+        assert _contrast_on(colour, opacity, PAGES[which]) >= 3.0, (which, mark)
+
+
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_the_triangles_rings_reach_3_to_1(tmp_path, monkeypatch, which):
+    from tests.test_104_speed_robust_charts import PAGES, _contrast_on
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ui_insights, "theme", lambda: which)
+    opt = D.load(D.LINE_A)
+    fitted = insights.fit_all(opt)
+    names = insights.mixture_choices(opt)[:3]
+    best = opt.best_index()
+    start = insights.start_recipe(opt, best)
+    mix = insights.mixture_slice(opt, names, start)
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    number = int(opt.formulation_ids[best])
+    spec = ui_insights.mixture_chart(opt, mix, preds, number).to_dict()
+    marks = _point_layers(spec)
+    assert marks
+    for mark in marks:
+        colour, opacity = _seen(mark)
+        assert _contrast_on(colour, opacity, PAGES[which]) >= 3.0, (which, mark)
+
+
+# ------------------------------------------------------------------ #
+#  Polish 11: the Role tooltip and the Method text say what the rule says
+# ------------------------------------------------------------------ #
+
+def test_the_role_tooltip_says_or_a_repeat_of_it():
+    help_text = wording.role_help()
+    assert ("Refines the best: every varying row within 15 % of its span of Best so far "
+            "or a Repeat of it.") in help_text
+    assert "recorded before its Round" in help_text
+
+
+def test_the_method_text_says_at_the_formulation_total():
+    rule = wording.why_role_rule()
+    assert "Amounts are compared at the Formulation total." in rule
+    assert "default batch size" not in rule

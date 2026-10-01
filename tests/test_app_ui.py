@@ -7264,10 +7264,8 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
     at.run()
     assert not at.exception
     said = [c.value for c in at.caption]
-    assert any(line.startswith("Water takes up the difference:")
-               and "in a 250 g formulation" in line
-               and "widen Lowest and Highest too" in line
-               for line in said), said
+    assert wording.rest_row_keeps_the_others("250 g") in said, said
+    assert sum(1 for line in said if line.startswith("Water ")) == 1, said
     # ...and the consequence under the grid is read at the new size on the
     # very run the number moved, not on the next visit to the tab.
     assert any(line.startswith("Water is calculated to bring the total to "

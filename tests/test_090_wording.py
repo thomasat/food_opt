@@ -195,7 +195,8 @@ def test_exact_texts_from_the_audit():
     assert W.round_track_holding(11, 12, True, rounds=[3, 4, 5]).endswith(
         "; measured values: many more misses than expected.")
     assert W.round_track_rough(9, 12, "2.0", rounds=[3, 4, 5]).endswith(
-        "; mean error −2.0 points. More misses than expected.")
+        "; Overall-score predictions have run about 2.0 points high. More misses than "
+        "expected.")
     # T0 review I-4: |r|, across the formulations with all results in.
     assert W.moved_together("Pea", "Soy", "0.86") == (
         "Pea and Soy are correlated across the formulations with all results in (|r| = 0.86), "
@@ -211,8 +212,8 @@ def test_exact_texts_from_the_audit():
         "points (measured minus predicted).")
     assert W.score_gap_line(10, 10, -1.2, W.beat_by()) == (
         "Overall score, same Rounds: 10 of 10 inside their 95 % interval; mean error −1.2 "
-        "points (n = 10). This exceeds the 1-point noise threshold and 2 standard errors: new "
-        "predictions read about 1.2 points high.")
+        "points (n = 10). This exceeds the 1-point noise threshold and 2 standard errors: "
+        "Overall-score predictions have run about 1.2 points high.")    # polish round 8
     assert W.repeat_disagrees(21, 11, "10.5", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
         "interval for the difference of two results is ±7.4 points. If something changed "

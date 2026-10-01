@@ -1155,6 +1155,7 @@ def why_chart(opt, why, ref=None):
     x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
     y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
     formulation = wording.for_project(opt, wording.FORMULATION_CAP)
+    ring_c, ring_o = ui_insights.mark("neutral")
     line = pd.DataFrame({"ref": [ref], "label": [wording.WHY_REFERENCE]})
     rule = [] if ref is None else [
         alt.Chart(line).mark_rule(strokeDash=[4, 3], color="gray", tooltip=False)
@@ -1165,7 +1166,10 @@ def why_chart(opt, why, ref=None):
     layers = [
         alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
         .encode(x=x, y=y),
-        alt.Chart(tested).mark_point(size=40, color="gray", filled=False, tooltip=False)
+        # The neutral token (polish round): gray at Vega's default 0.7 was
+        # 2.94:1 on the dark page.
+        alt.Chart(tested).mark_point(size=40, color=ring_c, opacity=ring_o, filled=False,
+                                     tooltip=False)
         .encode(x=x, y=y),
         *rule,
         alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)

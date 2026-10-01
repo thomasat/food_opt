@@ -13,6 +13,10 @@ from food_bo import FoodOptimizer
 HERE = pathlib.Path(__file__).parent / "fixtures" / "demo_projects"
 LINE_A, LINE_B, LINE_C = (f"Plant patty - Line {x}" for x in "ABC")
 TIMING = "Timing check - 60 formulations"
+# The 0.7.2 upgrade file (docs/usability/0.8.0-demo/projects072,
+# build_upgrade.py): 2 Round-ahead checks, so the A3 gate holds (polish
+# round, read-through item 2).
+UPGRADE = "Upgrade check - patty 0.7"
 
 
 def load(name):

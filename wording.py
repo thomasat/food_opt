@@ -3112,17 +3112,18 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     return f"{span}."
 
 
-def rest_row_takes_the_difference(name, low_text, high_text, size_text):
-    """'Water takes up the difference: between 152.00 and 220.00 g in a
-    250 g formulation. To keep the same proportions, widen Lowest and
-    Highest too.' — said under the Default batch size box the moment that
-    number moves, for a project with a row written = rest.
+def rest_row_keeps_the_others(size_text):
+    """'At 250 g, the other rows keep their amounts. To keep the same
+    proportions, widen Lowest and Highest too.' — said under the Default
+    batch size box the moment that number moves, for a project with a row
+    written = rest.
 
     Amounts written in grams do not follow the batch size and that row
     does: a burger turns into soup one number at a time, and the only
-    thing the app said about it was that a limit had been deleted."""
-    return (f"{name} takes up the difference: between {low_text} and "
-            f"{high_text} in a {size_text} {FORMULATION}. To keep the same "
+    thing the app said about it was that a limit had been deleted. What the
+    rest row now takes is the grid's own caption (worked_out_caption); it
+    is not said twice (polish round: two Water captions)."""
+    return (f"At {size_text}, the other rows keep their amounts. To keep the same "
             f"proportions, widen {LOWEST_LABEL} and {HIGHEST_LABEL} too.")
 
 
@@ -4316,17 +4317,26 @@ def points_text(text):
     return "1 point" if text in ("1", "1.0") else f"{text} points"
 
 
-def beat_by(sd_text=None, assumed=False, pairs=0):
+def beat_by(sd_text=None, assumed=False, pairs=0, left_out=0):
     """The noise threshold's one name (spec review I5; 03 §5.3): the Repeat
     SD from 3 pairs or more, else the fixed 1 point. `assumed` (0.8.0 e2e
     fixes, review B2): the 1 point is said to be assumed, with the Repeat
-    that would measure it, while there are fewer than 3 pairs (`pairs`)."""
+    that would measure it, while there are fewer than 3 pairs (`pairs`).
+    `left_out`: pairs left out because a Repeat disagrees (polish round:
+    "no Repeats yet" beside Line B's one Repeat read as false)."""
     if sd_text:
         return f"the noise threshold (Repeat SD {sd_text} points)"
     if not assumed:
         return "the 1-point noise threshold"
-    basis = ("no Repeats yet" if not pairs
-             else f"{pairs_text(pairs)} of Repeats, 3 needed")
+    if not pairs:
+        basis = ("no Repeats yet" if not left_out
+                 else "the only Repeat disagrees" if left_out == 1
+                 else "every Repeat disagrees")
+    else:
+        basis = f"{pairs_text(pairs)} of Repeats, 3 needed"
+        if left_out:
+            basis += (f", and {left_out} left out as "
+                      f"{'it disagrees' if left_out == 1 else 'they disagree'}")
     return (f"the 1-point noise threshold (assumed: {basis}; a Repeat of Best so far would "
             "measure it)")
 
@@ -4454,10 +4464,8 @@ def score_gap_line(inside, total, gap, beyond="", n=None, rounds=None):
         return f"{head} 0.0 points."
     if not beyond:
         return f"{head} {signed(gap)} points (measured minus predicted)."
-    way = "high" if gap < 0 else "low"
     return (f"{head} {signed(gap)} points (n = {total if n is None else n}). This exceeds "
-            f"{beyond} and 2 standard errors: new predictions read about {points_text(size)} "
-            f"{way}.")
+            f"{beyond} and 2 standard errors: Overall-score {bias_fact(size, gap < 0)}.")
 
 
 def repeat_disagrees(later, earlier, diff_text, lower=True, half_text=None):
@@ -4544,6 +4552,15 @@ def stand_not_higher(by_text, mean_text, low_text, high_text, close_no=None, val
             f"{by_text}.")
 
 
+def stand_withheld(mean_text, low_text, high_text, reason, close_no=None, values=False):
+    """The predicted best while the model's gains are withheld (polish
+    round: the A3 gate, the verdict or the noise guard, as for the expected
+    improvement): no gain is claimed either way, and `reason` says why."""
+    return (f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), "
+            f"{_where_best(close_no, values)}. Its gain over Best so far is not reported: "
+            f"{reason}.")
+
+
 def stand_higher(mean_text, low_text, high_text, close_no=None, close_score_text="",
                  gain_text=None, by_text=None, values=False):
     """A predicted gain beyond the noise threshold (spec review I7 c, d; 03
@@ -4593,14 +4610,21 @@ def _in_rounds(rounds):
     return rounds_span(rounds) if rounds else f"the verdict's {ROUND_CAP}s"
 
 
+def bias_fact(gap_text, below=True):
+    """'predictions have run about 4.3 points high': the Overall score's
+    steady bias as a fact, with no reading clause, the one form Next step
+    and Make a round's track line use, as Insights' steady_bias_line does
+    (polish round: it was said three ways)."""
+    return f"predictions have run about {points_text(gap_text)} {'high' if below else 'low'}"
+
+
 def next_bias(gap_text, below=True, rounds=None):
     """The steady bias of the Overall score as one sentence, no advice
     (0.8.0 e2e fixes, review B1, I1, I2): appended to next_misses when a
     bias holds. `below`: results came in below prediction, so predictions
     ran high. `rounds`: every Round checked."""
     where = f" ({rounds_span(rounds)})" if rounds else ""
-    return (f"Overall-score predictions have run about {points_text(gap_text)} "
-            f"{'high' if below else 'low'}{where}.")
+    return f"Overall-score {bias_fact(gap_text, below)}{where}."
 
 
 def next_misses(rounds=None, bias_text=""):
@@ -5071,12 +5095,9 @@ def round_track_holding(inside, total, see_insights=False, rounds=None):
 
 
 def round_track_bias(inside, total, gap_text, below=True, see_insights=False, rounds=None):
-    """The same line when the record holds but is a bias: Insights' own
-    sentence (answer-key read-through; 03 §5.8)."""
-    gap = f"−{gap_text}" if below else f"+{gap_text}"
-    way = "high" if below else "low"
-    line = (f"{_track_head(inside, total, rounds)}; mean error {gap} points, so new "
-            f"predictions read about {points_text(gap_text)} {way}")
+    """The same line when the record holds but is a bias, as one fact
+    (polish round: bias_fact, no reading clause)."""
+    line = f"{_track_head(inside, total, rounds)}; Overall-score {bias_fact(gap_text, below)}"
     return f"{line}{_MEASURED_MORE if see_insights else ''}."
 
 
@@ -5086,8 +5107,7 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
     mean error when it is a bias, else the misses the 95 % rule allows."""
     line = _track_head(inside, total, rounds)
     if gap_text is not None:
-        gap = f"−{gap_text}" if below else f"+{gap_text}"
-        line += f"; mean error {gap} points. More misses than expected"
+        line += f"; Overall-score {bias_fact(gap_text, below)}. More misses than expected"
         if see_insights:
             # Said once (final review M-4: "More misses than expected;
             # measured values: many more misses than expected").
@@ -5212,11 +5232,27 @@ def guard_line(reasons, settings_only=False):
             f"{what.lower()} effects are not reported.")
 
 
+# The A3 gate's reason, one wording for the effect line and the path's
+# caption (polish round: the caption said "do not beat the average … yet"
+# under an effect line naming the 0.20 rule). Each names the rule.
+A3_UNTIL = ("until Round-ahead predictions are clearly better than the average of earlier "
+            "results (skill 0.20 needed)")
+
+
+def a3_once_wait(n):
+    return (f"once Round-ahead checks show the {OVERALL_SCORE_COLUMN}'s predictions clearly "
+            f"better than the average (skill 0.20 over 10 checked {FORMULATION}s; {n} so far)")
+
+
+def a3_once_unclear(value_text, n):
+    return ("once Round-ahead predictions are clearly better than the average of earlier "
+            f"results (skill {value_text}, n = {n}; 0.20 needed)")
+
+
 def guard_skill_line(settings_only=False):
     """Trigger (c) alone (review I3): not "fitting noise"."""
     what = "Setting" if settings_only else "Ingredient"
-    return (f"{what} effects are not reported until Round-ahead predictions are clearly "
-            "better than the average of earlier results (skill 0.20 needed).")
+    return f"{what} effects are not reported {A3_UNTIL}."
 
 
 def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None):
@@ -5244,8 +5280,7 @@ WHY_CHECKING = "Expected improvement is not shown until the Prediction check is 
 
 
 PATH_GUARD = "The curve's bends are not reliable: the model is fitting noise in these results."
-PATH_GUARD_SKILL = ("The curve's bends are not reliable: Round-ahead predictions do not beat "
-                    "the average of earlier results yet.")
+PATH_GUARD_SKILL = f"The curve's bends are not read as effects {A3_UNTIL}."
 
 
 # §3.1 (review I5, I9, I12, M4, M5, M9, M15): Why these suggestions.
@@ -5328,8 +5363,10 @@ def why_role_rule(values=False, total=True, close_pct=15, far_pct=30):
     project has a default batch size, the amounts' common footing;
     `close_pct`, `far_pct`: CLOSE_TO_THE_BEST and twice it, in %."""
     rows = "process settings" if values else "ingredients and process settings"
+    # "Formulation total", as the rest of Method and details says it
+    # (how_checks; polish round).
     footing = ("" if values or not total
-               else f" Amounts are compared at the {FORMULATION_TOTAL_NOUN}.")
+               else " Amounts are compared at the Formulation total.")
     return (f"Role, and the first words of the Compared with column: how far a suggestion is "
             f"from what was made, by its largest difference over the varying {rows}, each as a "
             f"share of its {LOWEST_LABEL}–{HIGHEST_LABEL} span (calculated rows and the "
@@ -5344,10 +5381,12 @@ def why_role_rule(values=False, total=True, close_pct=15, far_pct=30):
 def role_help(close_pct=15, far_pct=30):
     """The Role column's and the Compared with column's tooltip (D2, review
     M8): the three words in one line each."""
+    # The Method rule's own words (polish round): "or a Repeat of it" and
+    # "before its Round".
     return (f"{SUGGESTION_CLOSE.capitalize()}: every varying row within {close_pct} % of its "
-            f"span of Best so far. {SUGGESTION_DIFFERENT.capitalize()}: over {far_pct} % of a "
-            f"span from every recorded {FORMULATION}. {SUGGESTION_BALANCED.capitalize()}: in "
-            "between.")
+            f"span of Best so far or a Repeat of it. {SUGGESTION_DIFFERENT.capitalize()}: over "
+            f"{far_pct} % of a span from every {FORMULATION} recorded before its {ROUND_CAP}. "
+            f"{SUGGESTION_BALANCED.capitalize()}: in between.")
 
 
 # The Why fold's other two columns, kept visible at 1280 px with their full
@@ -5608,16 +5647,13 @@ def effects_wait_line(n, settings_only=False):
     The rule named whole (final review M-2): after 10 checks a skill of
     0.10 "beats the average" and is still withheld."""
     what = "Setting effects" if settings_only else "Ingredient effects"
-    return (f"{what} are reported once Round-ahead checks show the {OVERALL_SCORE_COLUMN}'s "
-            f"predictions clearly better than the average (skill 0.20 over 10 checked "
-            f"{FORMULATION}s; {n} so far).")
+    return f"{what} are reported {a3_once_wait(n)}."
 
 
 def effects_unclear_line(value_text, n, settings_only=False):
     """0 < skill < 0.20 (or the cut < skill < 0.20): not clearly better."""
     what = "Setting effects" if settings_only else "Ingredient effects"
-    return (f"{what} are reported once Round-ahead predictions are clearly better than the "
-            f"average of earlier results (skill {value_text}, n = {n}; 0.20 needed).")
+    return f"{what} are reported {a3_once_unclear(value_text, n)}."
 
 
 def gain_reason_too_few(n):
@@ -5631,10 +5667,15 @@ def gain_reason_unclear(value_text, n):
             f"results (skill {value_text}, n = {n})")
 
 
-PATH_GUARD_UNCLEAR = ("The curve's bends are not reliable: Round-ahead predictions are not "
-                      "clearly better than the average of earlier results.")
-PATH_GUARD_WAIT = ("The curve's bends are not checked yet: fewer than 10 Round-ahead checks of "
-                   f"the {OVERALL_SCORE_COLUMN}.")
+def path_guard_unclear(value_text, n):
+    """The path's caption under the A3 gate's "unclear" state, in the effect
+    line's words (polish round)."""
+    return f"The curve's bends are read as effects {a3_once_unclear(value_text, n)}."
+
+
+def path_guard_wait(n):
+    """The same, below 10 checks."""
+    return f"The curve's bends are read as effects {a3_once_wait(n)}."
 
 
 # A4 (review B2, I5): while the 1-point threshold is assumed (fewer than 3

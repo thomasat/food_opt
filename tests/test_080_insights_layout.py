@@ -333,6 +333,10 @@ def _fake_best(monkeypatch, close, gap):
 
 def test_the_amounts_fold_only_when_clearly_higher_and_untested(insights_scored, monkeypatch):
     label = wording.show_its_amounts()
+    # The fold's own rule, with the model's gains not withheld: this small
+    # fixture is below the A3 gate, which holds the fold back too (polish
+    # round; tests/test_106_last_fixes.py).
+    monkeypatch.setattr(ui_insights, "claims_withheld_reason", lambda *a, **k: None)
     _fake_best(monkeypatch, None, 5.0)
     at = _open_insights(_app())
     assert not at.exception
@@ -345,6 +349,7 @@ def test_the_amounts_fold_only_when_clearly_higher_and_untested(insights_scored,
 
 
 def test_a_failed_amounts_table_is_one_line(insights_scored, monkeypatch):
+    monkeypatch.setattr(ui_insights, "claims_withheld_reason", lambda *a, **k: None)
     _fake_best(monkeypatch, None, 5.0)
     monkeypatch.setattr(ui_insights, "best_frame",
                         lambda opt, best, fitted: (_ for _ in ()).throw(RuntimeError()))

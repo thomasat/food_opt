@@ -121,8 +121,8 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error "
-        "−1.5 points, so new predictions read about 1.5 points high.")
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall-score "
+        "predictions have run about 1.5 points high.")      # one fact (polish round)
     _clean(verdict, line, ui_insights.track_text(t))
 
 

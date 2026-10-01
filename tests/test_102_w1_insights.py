@@ -475,10 +475,11 @@ def test_the_guard_line_says_why_effects_wait():
 
 def test_the_path_says_why_its_bends_are_not_read():
     opt = _patty(rows=6)
+    # One wording with the effect line (polish round, tests/test_106_last_fixes.py).
     assert ui_insights.path_guard_line(insights.noise_guard(opt, None, _skill_checks(6))) == \
-        wording.PATH_GUARD_WAIT
+        wording.path_guard_wait(6)
     assert ui_insights.path_guard_line(insights.noise_guard(
-        opt, None, [], fact=_fact(0.09, 24))) == wording.PATH_GUARD_UNCLEAR
+        opt, None, [], fact=_fact(0.09, 24))) == wording.path_guard_unclear("0.09", 24)
     assert ui_insights.path_guard_line(insights.noise_guard(
         opt, None, [], fact=_fact(-0.5, 24))) == wording.PATH_GUARD_SKILL
     assert ui_insights.path_guard_line(insights.Guard(["floor"])) == wording.PATH_GUARD

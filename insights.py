@@ -832,6 +832,9 @@ class Yardstick:
     assumed: bool = False
     df: int = 0             # sd's degrees of freedom (review I13)
     groups: int = 0         # formulations made more than once
+    # Pairs left out because a Repeat disagrees (polish round: Line B's
+    # only Repeat disagrees, and "no Repeats yet" read as false).
+    left_out: int = 0
 
 
 @dataclass
@@ -886,9 +889,10 @@ def noise_yardstick(opt, checks=(), name=SCORE):
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
               and spread.pairs >= YARDSTICK_PAIRS)
     fallback = 1.0 if name == SCORE else None
+    left_out = 0 if flagged is None else repeat_sd(opt, name, None).pairs - spread.pairs
     return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
                      assumed=name == SCORE and spread.pairs < YARDSTICK_PAIRS,
-                     df=spread.df, groups=spread.groups)
+                     df=spread.df, groups=spread.groups, left_out=max(0, left_out))
 
 
 def verdict_state(opt, h, checks):

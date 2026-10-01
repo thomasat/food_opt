@@ -9174,10 +9174,11 @@ class TestFormulaRows:
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= rest")
         opt.set_formulation_total(250)
+        # Water's own range is the grid's caption; this line does not say
+        # it again (polish round, tests/test_106_last_fixes.py).
         assert opt.batch_size_consequence() == (
-            "Water takes up the difference: between 172.00 and 220.00 g in "
-            "a 250 g formulation. To keep the same proportions, widen "
-            "Lowest and Highest too.")
+            "At 250 g, the other rows keep their amounts. To keep the same "
+            "proportions, widen Lowest and Highest too.")
         # Nothing to say for a project with no rest row.
         opt.clear_formula("Water")
         assert opt.batch_size_consequence() == ""

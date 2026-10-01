@@ -9022,13 +9022,11 @@ class FoodOptimizer:
             return ""
         name = row['name']
         try:
-            low, high = self._achievable_range(
-                lambda n: 1.0 if n == name else 0.0)
+            self._achievable_range(lambda n: 1.0 if n == name else 0.0)
         except (FormulaError, ValueError):
             return ""
-        unit = self._unit_of(row)
-        return wording.rest_row_takes_the_difference(
-            name, f"{max(low, 0.0):.2f}", join_unit(f"{high:.2f}", unit),
+        # The rest row's own range is the grid's caption (polish round).
+        return wording.rest_row_keeps_the_others(
             self.batch_total_text(self.formulation_total))
 
     def balance_row_name(self):
