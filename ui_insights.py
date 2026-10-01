@@ -391,7 +391,8 @@ POLL_SECS = 0.5
 
 def memo(opt):
     """This project's fitted models, read from beside the project (with
-    its Round checks and predicted best) the first time it is asked for."""
+    its Round checks, predicted best and next Round's expected
+    improvement) the first time it is asked for."""
     hit = st.session_state.get(MEMO_KEY)
     if hit is None or hit[0] != opt.project_name:
         saved = insights_cache.load(opt.project_name)
@@ -401,6 +402,10 @@ def memo(opt):
             rounds.setdefault(key, checks)
         if saved.best is not None and BEST_KEY not in st.session_state:
             st.session_state[BEST_KEY] = saved.best
+        # The next Round's expected improvement (C1): latest_gain takes it
+        # when its key is still this setup's, instead of searching again.
+        if saved.gain is not None:
+            st.session_state[NEXT_GAIN_KEY] = saved.gain
     return st.session_state[MEMO_KEY][1]
 
 
@@ -495,7 +500,8 @@ def checks_here(opt):
 
 def save(opt):
     """Write what is worked out for this project's data beside the project:
-    its fitted models, its Round checks and its predicted best, pruned to
+    its fitted models, its Round checks, its predicted best and the next
+    Round's expected improvement (C1), pruned to
     what this data uses. Once per state; a failed write only means the next
     open fits again."""
     mem = memo(opt)
@@ -504,12 +510,15 @@ def save(opt):
     rounds = {k: v for k, v in st.session_state.get(ROUNDS_KEY, {}).items() if k in keys}
     best = st.session_state.get(BEST_KEY)
     best = best if best and best[0] == insights.setup_key(opt) else None
+    gain = st.session_state.get(NEXT_GAIN_KEY)
+    gain = gain if gain and gain[0] == bo_views.next_gain_key(opt) else None
     kept = {s.key: mem[s.key] for s in specs if s.key in mem}
-    mark = (insights.data_key(opt), len(kept), tuple(sorted(rounds)), best is not None)
+    mark = (insights.data_key(opt), len(kept), tuple(sorted(rounds)), best is not None,
+            None if gain is None else gain[0])
     if st.session_state.get(SAVED_KEY) == mark:
         return
     try:
-        insights_cache.save(opt.project_name, insights_cache.Saved(kept, rounds, best))
+        insights_cache.save(opt.project_name, insights_cache.Saved(kept, rounds, best, gain))
     except Exception:
         pass
     st.session_state[SAVED_KEY] = mark
@@ -1867,13 +1876,22 @@ def _stand(opt, computed, yard, spinner=True):
 # and generation record, worked out once (fix round 1, C1: Progress, Next
 # step and Make a round's E3 read the same number).
 GAIN_KEY = "_insights_gain"
+# (bo_views.next_gain_key, bo_views.RoundGain): the next Round's figure as
+# it is written beside the project (spec 2026-10-01 C1, review I11), read
+# back by memo() on a reopen so it is neither fitted nor searched for again.
+NEXT_GAIN_KEY = "_insights_next_gain"
 
 
 def _gain_key(opt):
+    """What the figure on screen depends on: the setup, the acquisition,
+    the open Round and its record, and (no Round open) the seed the next
+    Generate uses and robust, which move without the data (review I11)."""
     record = (getattr(opt, "round_generation", None) or {}).get(opt.pending_batch_no)
     return insights._digest({"setup": insights.setup_key(opt),
                              "acquisition": bo_views.acquisition(opt),
-                             "open": opt.pending_batch, "record": record})
+                             "open": opt.pending_batch, "record": record,
+                             "seed": int(opt.next_formulation_no),
+                             "robust": bool(getattr(opt, "robust", False))})
 
 
 def _gain_needs_no_fit(opt, mem):
@@ -1905,7 +1923,8 @@ def latest_gain(opt, fit=True, wait=True):
     record): the open Round's own (bo_views.latest_gain); with no Round
     open, the next Round's from today's rows (bo_views.next_gain under
     bo_views.next_model, the default fit ask() makes, final review I-1),
-    worked out here under the lock. `fit`
+    worked out here under the lock, unless it was saved beside the project
+    or worked out by another session (C1). `fit`
     False (Make a round's E3): only what is already worked out; None, not
     stored, otherwise. While another run works the same figure out:
     `wait` (a screen that shows it) waits for that run's answer; else None."""
@@ -1914,6 +1933,14 @@ def latest_gain(opt, fit=True, wait=True):
     if hit and hit[0] == key:
         return hit[1]
     mem = memo(opt)
+    nxt = not (opt.pending_batch and opt.pending_batch_no is not None)
+    if nxt:
+        # Saved beside the project, or worked out by another session (C1):
+        # neither a fit nor a search, nor a wait for another run.
+        known = bo_views.saved_next_gain(opt, st.session_state.get(NEXT_GAIN_KEY))
+        if known is not None:
+            _keep_next_gain(opt, key, known)
+            return known
     if not fit and not _gain_needs_no_fit(opt, mem):
         return None
     with _GAIN_RUNS_LOCK:
@@ -1933,19 +1960,29 @@ def latest_gain(opt, fit=True, wait=True):
     try:
         try:
             with insights.memo_in_use(mem):
-                if opt.pending_batch and opt.pending_batch_no is not None:
+                if not nxt:
                     g = bo_views.latest_gain(opt)
                 else:
-                    g = bo_views.next_gain(opt, bo_views.next_model(opt))
+                    g = bo_views.next_gain_for(opt, st.session_state.get(NEXT_GAIN_KEY))
         except Exception:
             g = None
-        st.session_state[GAIN_KEY] = (key, g)
+        if nxt and g is not None:
+            _keep_next_gain(opt, key, g)
+        else:
+            st.session_state[GAIN_KEY] = (key, g)
     finally:
         # Stored first, then the runs waiting for it are let go.
         with _GAIN_RUNS_LOCK:
             _GAIN_RUNS.pop(key, None)
         done.set()
     return g
+
+
+def _keep_next_gain(opt, key, g):
+    """The next Round's figure for this session (GAIN_KEY) and for the
+    file beside the project (NEXT_GAIN_KEY, written by save())."""
+    st.session_state[GAIN_KEY] = (key, g)
+    st.session_state[NEXT_GAIN_KEY] = (bo_views.next_gain_key(opt), g)
 
 
 def gain_state(opt, score, checks, fit=True):

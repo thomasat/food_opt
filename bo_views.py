@@ -733,6 +733,70 @@ def next_gain(opt, model):
     return RoundGain(None, best, None, gain, False, None)
 
 
+# ------------------------------------------------------------------ #
+#  C1 (spec 2026-10-01; 04 I-1, review I11): the next Round's figure is
+#  kept beside the project (insights_cache, `gain`), so a reopen neither
+#  fits next_model nor searches: 1.6 s at 60 x 4, 2.4 s at 120 x 6.
+# ------------------------------------------------------------------ #
+
+# Part of next_gain_key: bump it whenever a change here, in next_model or
+# in ask()'s first-pick search could change the figure, and a saved one
+# from before is never used again.
+GAIN_SALT = "0.8.0-e2e-1"
+
+
+def next_gain_key(opt):
+    """Everything the next Round's figure depends on (review I11): the
+    setup (insights.setup_key: the rows and results, model settings,
+    Lowest/Highest, calculations and fixed rows, every limit, the total,
+    the ingredient properties, pre-mixes and Not scored), the seed the
+    next Generate uses (next_formulation_no: "Generate a different batch"
+    or a discarded Round moves it with the data unchanged), robust, the
+    model settings, the library versions, ask()'s search settings, the
+    cold-start count and GAIN_SALT."""
+    return insights._digest({
+        "setup": insights.setup_key(opt), "seed": int(opt.next_formulation_no),
+        "robust": bool(getattr(opt, "robust", False)), "cfg": getattr(opt, "bo_config", None),
+        "versions": list(_VERSIONS), "restarts": ASK_RESTARTS, "raw": ASK_RAW_SAMPLES,
+        "cold": COLD_START_RUNS, "salt": GAIN_SALT})
+
+
+def _gain_cache_key(key):
+    return insights._digest({"next_gain": key})
+
+
+def saved_next_gain(opt, saved=None):
+    """The next Round's figure without a fit or a search, when it is known:
+    `saved`, a (next_gain_key, RoundGain) read from beside the project,
+    when its key is this setup's; else this process's output cache (a
+    figure another session or run of the app worked out). None otherwise."""
+    key = next_gain_key(opt)
+    if saved is not None and saved[0] == key and saved[1] is not None:
+        _remember(_gain_cache_key(key), saved[1])
+        return saved[1]
+    with _CACHE_LOCK:
+        hit = _CACHE.get(_gain_cache_key(key))
+        if hit is not None:
+            _CACHE.move_to_end(_gain_cache_key(key))
+        return hit
+
+
+def next_gain_for(opt, saved=None):
+    """next_gain under next_model, unless saved_next_gain knows it: what a
+    screen shows with no Round open. A figure worked out is kept in the
+    process's cache under next_gain_key (a failure, None, is not), beside
+    next_optimum's own entry, which still serves a run that has fitted its
+    model."""
+    known = saved_next_gain(opt, saved)
+    if known is not None:
+        return known
+    key = next_gain_key(opt)
+    got = next_gain(opt, next_model(opt))
+    if got is not None:
+        _remember(_gain_cache_key(key), got)
+    return got
+
+
 @contextlib.contextmanager
 def fresh():
     """Tests: empty the output cache before and after."""
