@@ -157,7 +157,7 @@ def test_predicted_measurements_carry_their_caption(warm_round):
 
 def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insights_scored):
     at = _open_how(_open_insights(AppTest.from_file(APP_PATH, default_timeout=180)))
-    [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
+    [how] = [e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD]
     assert wording.HOW_SAME_PROCESS in [m.value for m in how.markdown]
     assert wording.HOW_SAME_PROCESS == (
         "Predictions assume your ingredients, suppliers and equipment behave as before.")

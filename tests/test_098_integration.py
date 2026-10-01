@@ -19,7 +19,7 @@ import ui_insights
 import wording
 from tests import speed_projects
 from tests.test_app_ui import APP_PATH
-from tests.test_food_bo import _BANNED
+from tests.test_food_bo import _BANNED, _FTUE_ALLOWED
 from tests.test_insights import _burger
 from ui_helpers import INSIGHTS_OPENED_KEY
 
@@ -87,7 +87,10 @@ def test_the_new_screens_say_no_retired_word():
     retired = re.compile(r"\b(likely|On track|though|treat|Barely|Not lately|stands out|"
                          r"worth|some luck|too few to be sure|[Kk]eep in mind|[Rr]ough|[Aa] little)\b")
     assert [t for t in said if retired.search(t)] == []
-    assert [t for t in said if any(p.search(t) for p in _BANNED)] == []
+    # The one scoped allowance (first-time wave, review R-B2): Model and
+    # method's lead, said as the exact string the guard allows.
+    assert [t for t in said if t not in _FTUE_ALLOWED
+            and any(p.search(t) for p in _BANNED)] == []
 
 
 def test_the_lines_the_wave_retired_are_gone():

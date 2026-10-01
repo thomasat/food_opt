@@ -3083,34 +3083,47 @@ def _more_charts(opt, computed):
 
 
 def _how(opt, computed):
-    """"How these insights are made" (§2.5; review M5, M6, M10): plain
-    paragraphs, the two method lines that were under the verdict (audit
-    V23), then the details table with its window named and a "Likely range
-    widened by" column, and the lines that read it."""
-    with st.expander(_say(opt, wording.HOW_WORKED_OUT), key=HOW_KEY,
+    """Method and definitions (spec 2026-10-01 rev. 2 §2, §3, §7; review
+    M3, M12): Model and method read off the project's own model, with its
+    known limits; How each status is decided; the plain paragraphs, the
+    details table with its window named and the lines that read it; the
+    glossary last. Everything a tooltip says is here too (M12)."""
+    with st.expander(_say(opt, wording.FOLD_METHOD), key=HOW_KEY,
                      on_change="rerun") as fold:
         # Keyed and worked out only while open (T56 I5; binding I15).
         if not fold.open:
             return
-        for text in how_paragraphs(opt, computed):
-            st.markdown(_say(opt, text))
-        if computed is None:
-            return
-        checks = computed["checks"]
-        skipped = insights.rounds_not_checked(opt)
-        if skipped and checks:
-            st.caption(_say(opt, wording.rounds_not_checked(skipped)))
-        frame, config = details_frame(opt, computed)
-        if frame is None:
-            st.caption(_say(opt, wording.DETAILS_NONE))
-            return
-        h = insights.headline(opt, checks)
-        st.caption(_say(opt, wording.details_window(insights._ordered_rounds(checks),
-                                                    len(h.rounds), h.rounds)))
-        st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
-                     column_config=config)
-        for text in how_notes(opt, computed):
-            st.caption(_say(opt, text))
+        _model_and_method(opt, computed)
+        _status_table(opt, computed)
+        _how_details(opt, computed)
+        _glossary(opt)
+
+
+def _how_details(opt, computed):
+    """Method and definitions' paragraphs and details table (0.8.0 §2.5;
+    review M5, M6, M10): plain paragraphs, the two method lines that were
+    under the verdict (audit V23), then the details table with its window
+    named and a "Likely range widened by" column, and the lines that read
+    it."""
+    for text in how_paragraphs(opt, computed):
+        st.markdown(_say(opt, text))
+    if computed is None:
+        return
+    checks = computed["checks"]
+    skipped = insights.rounds_not_checked(opt)
+    if skipped and checks:
+        st.caption(_say(opt, wording.rounds_not_checked(skipped)))
+    frame, config = details_frame(opt, computed)
+    if frame is None:
+        st.caption(_say(opt, wording.DETAILS_NONE))
+        return
+    h = insights.headline(opt, checks)
+    st.caption(_say(opt, wording.details_window(insights._ordered_rounds(checks),
+                                                len(h.rounds), h.rounds)))
+    st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
+                 column_config=config)
+    for text in how_notes(opt, computed):
+        st.caption(_say(opt, text))
 
 
 def how_paragraphs(opt, computed):
@@ -3173,10 +3186,26 @@ def details_frame(opt, computed, rows=None):
         wording.SKILL_COLUMN: skill_cell(opt, checks, r.name),
         wording.FITTED_NOISE_COLUMN: fitted_noise_text(opt, r),
     } for r in rows], columns=list(DETAILS_ORDER))
-    config = {c: st.column_config.Column(_say(opt, c), help=_say(opt, wording.DETAILS_HELP[c]),
-                                         width="small")
+    config = {c: st.column_config.Column(_say(opt, c), help=details_help(opt, c), width="small")
               for c in frame.columns if c in wording.DETAILS_HELP}
     return frame, config
+
+
+# The details columns that name a statistic, with its standard term after
+# the plain help (§3, R-I6).
+_DETAILS_TERMS = {
+    wording.DETAILS_COLUMNS_2[1]: wording.TIP_ROUND_AHEAD,
+    wording.DETAILS_COLUMNS_2[2]: wording.TIP_INTERVAL,
+    wording.MEAN_ERROR_COLUMN: wording.TIP_MEAN_ERROR,
+    wording.SKILL_COLUMN: wording.TIP_SKILL,
+}
+
+
+def details_help(opt, column):
+    """A details column's "?": its plain help (wording.DETAILS_HELP), then
+    the BO term of the statistic it shows, where it shows one."""
+    term = bo_term(_DETAILS_TERMS[column]) if column in _DETAILS_TERMS else ""
+    return _say(opt, " ".join(t for t in (wording.DETAILS_HELP[column], term) if t))
 
 
 def how_notes(opt, computed, rows=None):
@@ -3275,32 +3304,286 @@ TIP_LINES = (
 )
 
 
+def bo_term(tip):
+    """A tooltip's standard term alone, from "BO term: " on; '' without one."""
+    at = tip.find("BO term: ")
+    return tip[at:] if at >= 0 else ""
+
+
+def _joined(opt, texts):
+    """One help text in the project's own words, or None for nothing."""
+    text = " ".join(t for t in texts if t)
+    return _say(opt, text) if text else None
+
+
+def _verdict_names(opt, h):
+    """The measurements the verdict's Rounds checked, in Results' order:
+    from the checks already worked out, else every measurement."""
+    names = [o['name'] for o in opt.measurements_by_importance()]
+    try:
+        checks = cached_checks(opt)
+    except Exception:   # outside a session: every measurement
+        checks = ()
+    window = {c.name for c in checks if h is not None and c.round in h.rounds}
+    return [n for n in names if n in window] if window else names
+
+
+def _coverage_tip(opt, h):
+    """The measurements' coverage with its window and numbers (tip_coverage
+    and its early and none forms)."""
+    if h is None or h.state == "none":
+        return wording.TIP_COVERAGE_NONE
+    names = _verdict_names(opt, h)
+    if h.state == "early":
+        return wording.tip_coverage_early(names, h.rounds, h.total)
+    return wording.tip_coverage(names, h.rounds, h.inside, h.total,
+                                insights.allowed_misses(h.total))
+
+
+def _skill_tip(opt, facts):
+    """The Overall score's skill with its window and n, or the count it
+    still needs."""
+    fact = facts.skill
+    if fact is not None:
+        return wording.tip_skill(fact.rounds, skill_value(fact.value), fact.n)
+    gate = getattr(facts.guard, "gate", None)
+    if gate is not None and gate.state == "wait":
+        n = gate.n
+    else:
+        h = facts.headline
+        n = h.score.total if h is not None and h.score is not None else 0
+    return wording.tip_skill_too_few(n)
+
+
+def _repeat_tip(d):
+    return wording.tip_repeat_off(d.later, d.earlier, f"{abs(d.diff):.1f}",
+                                  "" if d.limit is None else f"{d.limit:.1f}")
+
+
+def _bias_tip(facts):
+    h = facts.headline
+    if facts.bias is None or h is None or h.score is None:
+        return ""
+    return wording.tip_bias(wording.signed(facts.bias, 1), h.score.total, h.score.rounds)
+
+
+def _wide_label(name):
+    return wording.OVERALL_SCORE_COLUMN if name == insights.SCORE else name
+
+
+def _clause_tips(opt, facts):
+    """The clauses' rules, in the order the line says them."""
+    out = []
+    for clause in facts.clauses or ():
+        kind = clause[0]
+        if kind == "wide":
+            out.append(wording.tip_wide([_wide_label(n) for n in clause[1]]))
+        elif kind == "over_wide":
+            out.append(insights.status_rule(opt, ("predictions", "reliable")))
+    out.append(_bias_tip(facts))
+    reasons = [_GUARD_WORDS[r] for r in getattr(facts.guard, "reasons", None) or ()
+               if r in _GUARD_WORDS]
+    if reasons and any(c[0] == "guard" for c in facts.clauses or ()):
+        out.append(wording.tip_guard(reasons))
+    return out
+
+
+def _rule_text(opt, key):
+    """'Not yet (gate): Fewer than 5 formulations with all results in.'"""
+    return f"{insights.status_label(opt, key)}: {insights.status_rule(opt, key)}"
+
+
+def _threshold_tip(yard):
+    if yard is not None and yard.from_repeats:
+        return wording.tip_threshold_measured(f"{yard.value:.1f}", yard.pairs, yard.df or None)
+    return wording.TIP_THRESHOLD_ASSUMED
+
+
+def _predictions_tip(opt, facts):
+    """The Predictions line's exact rule (§7, R-B1, I13): the numbers it
+    rests on, each output and window named on its own, then the row that
+    holds and its condition; Reliable's own limits last (R-I11)."""
+    row = facts.prediction_row
+    if row is None:
+        return None
+    parts = []
+    if row == "off_repeat" and facts.disagreement is not None:
+        parts.append(_repeat_tip(facts.disagreement))
+    parts += [_coverage_tip(opt, facts.headline if row != "gate" else None),
+              _skill_tip(opt, facts)]
+    if row != "gate":
+        parts.append(wording.TIP_REFITTED)
+    parts += _clause_tips(opt, facts)
+    parts.append(_rule_text(opt, ("predictions", row)))
+    if row == "reliable":
+        parts.append(wording.TIP_RELIABLE_LIMITS)
+    return _joined(opt, parts)
+
+
+def _progress_tip(opt, facts):
+    """The Progress line's rule (§7): the word that holds and its condition,
+    then the rise rule against the noise threshold and its basis."""
+    if facts.progress is None:
+        return None
+    yard = facts.yardstick if facts.yardstick is not None else insights.noise_yardstick(opt)
+    return _joined(opt, [_rule_text(opt, ("progress", facts.progress)),
+                         wording.tip_progress(_threshold_tip(yard))])
+
+
+def _next_tip(opt, facts):
+    """Which Next-step row fired and its condition (§7, I13), with the
+    numbers it rests on; at the gate, the gate."""
+    step = facts.next
+    if step is None:
+        key = ("predictions", "gate")
+        return _joined(opt, [wording.tip_next(insights.status_label(opt, key),
+                                              insights.status_rule(opt, key))])
+    key = ("next", step.kind)
+    parts = [wording.tip_next(insights.status_label(opt, key), insights.status_rule(opt, key))]
+    yard = facts.yardstick
+    if step.kind == "repeat":
+        d = step.disagreement or facts.disagreement
+        if d is not None:
+            parts.append(_repeat_tip(d))
+    elif step.kind in ("misses", "early"):
+        parts.append(_coverage_tip(opt, facts.headline))
+        if step.kind == "misses":
+            parts.append(_bias_tip(facts))
+    elif step.kind == "no_skill":
+        fact = step.skill or facts.skill
+        if fact is not None:
+            parts.append(wording.tip_skill(fact.rounds, skill_value(fact.value), fact.n))
+    elif step.kind in ("untested", "explore", "close", "rising"):
+        parts.append(wording.tip_progress(_threshold_tip(yard)))
+    return _joined(opt, parts)
+
+
+def _next_terms(opt, facts):
+    """The terms Next-step reasoning's sentence names, by the row it says."""
+    if facts is None or facts.next is None:
+        return []
+    values = not opt.has_ingredients()
+    return {
+        "repeat": [wording.tip_repeats(values), wording.TIP_INTERVAL],
+        "misses": [wording.TIP_VERDICT, wording.TIP_MEAN_ERROR],
+        "early": [wording.TIP_NOT_JUDGED, wording.TIP_ROUND_AHEAD],
+        "no_skill": [wording.TIP_SKILL],
+        "untested": [wording.TIP_PREDICTED_BEST, wording.tip_untested(values)],
+        "explore": [wording.TIP_EXPECTED_IMPROVEMENT, wording.TIP_NOISE_THRESHOLD],
+        "close": [wording.TIP_PREDICTED_BEST, wording.TIP_ACTIVE_BOUNDS,
+                  wording.TIP_NOISE_THRESHOLD],
+        "rising": [wording.TIP_PROGRESS_WORDS, wording.TIP_NOISE_THRESHOLD],
+        "see": [wording.TIP_PROGRESS_WORDS, wording.TIP_NOISE_THRESHOLD],
+    }.get(facts.next.kind, [])
+
+
+def _term_tips(opt, line_id, facts):
+    """The TIP_* texts of every statistic the line names, in screen order,
+    with the line's own numbers where `facts` has them."""
+    values = not opt.has_ingredients()
+    total = opt.has_formulation_total()
+    judged = facts is not None and facts.verdict not in (None, "none", "early", "wide")
+    with_facts = facts is not None
+    tips = {
+        "basis_predictions": [wording.TIP_ROUND_AHEAD, wording.TIP_INTERVAL,
+                              wording.TIP_MEAN_ERROR, wording.TIP_SKILL],
+        "verdict": [wording.TIP_INTERVAL, wording.TIP_VERDICT,
+                    "" if judged else wording.TIP_NOT_JUDGED,
+                    _coverage_tip(opt, facts.headline) if with_facts else ""],
+        "score_line": [wording.TIP_ROUND_AHEAD, wording.TIP_INTERVAL, wording.TIP_MEAN_ERROR],
+        "steady_bias": [wording.TIP_MEAN_ERROR, _bias_tip(facts) if with_facts else ""],
+        "skill": [wording.TIP_SKILL, _skill_tip(opt, facts) if with_facts else ""],
+        "disagreement": [wording.tip_repeats(values), wording.TIP_INTERVAL,
+                         _repeat_tip(facts.disagreement)
+                         if with_facts and facts.disagreement is not None else ""],
+        "basis_progress": [wording.TIP_NOISE_THRESHOLD, wording.tip_repeats(values),
+                           wording.TIP_PROGRESS_WORDS, wording.TIP_PREDICTED_BEST,
+                           wording.TIP_EXPECTED_IMPROVEMENT],
+        "stand_line": [wording.TIP_PROGRESS_WORDS, wording.TIP_NOISE_THRESHOLD],
+        "repeats": [wording.tip_repeats(values), wording.TIP_NOISE_THRESHOLD],
+        "tie": [wording.TIP_NOISE_THRESHOLD],
+        "standing": [wording.TIP_PREDICTED_BEST, wording.TIP_INTERVAL,
+                     wording.tip_untested(values)],
+        "limits": [wording.TIP_ACTIVE_BOUNDS],
+        "luck": [wording.TIP_LUCK],
+        "gain": [wording.TIP_EXPECTED_IMPROVEMENT],
+        "next_reasoning": _next_terms(opt, facts),
+        "basis_explored": [wording.tip_strips(values, total), wording.TIP_MAP,
+                           wording.tip_predicted_score(values), wording.TIP_MODEL_SD],
+        "strips": [wording.tip_strips(values, total)],
+        "gaps": [wording.tip_strips(values, total), wording.tip_untested(values)],
+        "limit_hits": [wording.TIP_LIMIT_HITS],
+        "map": [wording.tip_predicted_score(values), wording.TIP_MODEL_SD, wording.TIP_MAP],
+    }
+    return tips.get(line_id)
+
+
 def tooltip_for(opt, line_id, facts=None):
     """W2 (review R-I6): the one help text of the line `line_id` (a
     TIP_LINES entry), plain reading first, then the BO term, joining the
     wording.TIP_* texts of every statistic the line names, in screen order;
-    the status lines' exact rules from `facts` (insights.StatusFacts). None
-    for a line with no help. T0 stub: returns None."""
-    return None
+    the status lines' exact rules from `facts` (insights.StatusFacts), with
+    this project's numbers. None for a line with no help, and for a status
+    line without its facts. In the project's own words (for_project)."""
+    if line_id in ("predictions", "progress", "next", "basis_next"):
+        if facts is None:
+            return None
+        draw = {"predictions": _predictions_tip, "progress": _progress_tip,
+                "next": _next_tip, "basis_next": _next_tip}[line_id]
+        return draw(opt, facts)
+    tips = _term_tips(opt, line_id, facts)
+    return None if tips is None else _joined(opt, tips)
+
+
+def basis_line(opt, which, facts=None):
+    """(text, help) of a figures fold's first line (§7, R-I6): "predictions",
+    "progress" or "next". The fold label carries no tooltip, so the help
+    sits here. W1 draws it first inside each figures fold:
+    st.caption(text, help=help)."""
+    text = {"predictions": wording.BASIS_PREDICTIONS, "progress": wording.BASIS_PROGRESS,
+            "next": wording.BASIS_NEXT}[which]
+    return _say(opt, text), tooltip_for(opt, f"basis_{which}", facts)
 
 
 def _model_and_method(opt, computed):
-    """W2 (§7, R-I13): Method and definitions' first part,
-    wording.model_summary(insights.model_summary(opt)), then the known
-    limits. The only drawer, with _glossary, of the allowlisted Model-and-
-    method text (tests/test_food_bo._FTUE_ALLOWED). T0 stub."""
-    return None
+    """W2 (§7, R-I12, R-I13): Method and definitions' first part,
+    wording.model_summary(insights.model_summary(opt)) read off a model
+    built for this project, then the known limits (at the gate, M9, the
+    cold start alone). The only drawer, with _glossary, of the allowlisted
+    Model-and-method text (tests/test_food_bo._FTUE_ALLOWED)."""
+    st.markdown(f"**{_say(opt, wording.MODEL_AND_METHOD)}**")
+    try:
+        facts = insights.model_summary(opt)
+    except Exception:   # a model that cannot be built must not take the tab down
+        st.caption(_say(opt, wording.WHY_FAILED))
+        return
+    # One line each, as written (the allowlisted lead stays an exact string).
+    for line in wording.model_summary(facts):
+        st.markdown(_say(opt, line))
+    if facts.cold:
+        return
+    st.markdown(f"**{_say(opt, wording.MODEL_LIMITS_HEADING)}**")
+    for line in wording.MODEL_LIMITS:
+        st.markdown(_say(opt, line))
 
 
 def _status_table(opt, computed):
-    """W2 (I13, R-I13): "How each status is decided", insights.status_rules.
-    T0 stub."""
-    return None
+    """W2 (I13, R-I13): "How each status is decided", insights.status_rules,
+    one row per state and per Next row with its exact condition."""
+    checks = (computed or {}).get("checks")
+    rows = insights.status_rules(opt, checks)
+    st.markdown(f"**{_say(opt, wording.STATUS_TABLE)}**")
+    columns = [_say(opt, c) for c in wording.STATUS_TABLE_COLUMNS]
+    frame = pd.DataFrame([[_say(opt, c) for c in row] for row in rows], columns=columns)
+    st.table(frame.set_index(columns[0]))
 
 
 def _glossary(opt):
     """W2 (§3, R-B2, M4, M8): the glossary in the project's own form,
     wording.glossary_rows(not opt.has_ingredients()), never through
-    for_project. T0 stub."""
-    return None
-
+    for_project, in its one canonical order."""
+    st.markdown(f"**{wording.GLOSSARY}**")
+    columns = list(wording.GLOSSARY_COLUMNS)
+    frame = pd.DataFrame(list(wording.glossary_rows(not opt.has_ingredients())),
+                         columns=columns)
+    st.table(frame.set_index(columns[0]))

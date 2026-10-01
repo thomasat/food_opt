@@ -76,7 +76,7 @@ def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scor
     at = _open_insights(_app())
     assert not at.exception
     labels = [e.label for e in at.tabs[3].expander]
-    assert labels.index(wording.MORE_CHARTS) == labels.index(wording.HOW_WORKED_OUT) - 1
+    assert labels.index(wording.MORE_CHARTS) == labels.index(wording.FOLD_METHOD) - 1
     assert _more(at).proto.expanded is False
     md, _ = _tab_text(at)
     assert md.index(f"##### {wording.Q_NEXT}") < md.index(f"##### {wording.Q_PAIR}")
@@ -177,7 +177,7 @@ def test_a_failed_chart_is_one_line_and_the_tab_stands(insights_scored, monkeypa
     at = _open_insights(_app())
     assert not at.exception
     assert [c.value for c in _more(at).caption] == [wording.CHART_FAILED]
-    assert wording.HOW_WORKED_OUT in [e.label for e in at.tabs[3].expander]
+    assert wording.FOLD_METHOD in [e.label for e in at.tabs[3].expander]
 
 
 def _pair_opt(tmp_path, monkeypatch):

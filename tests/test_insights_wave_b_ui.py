@@ -644,7 +644,7 @@ def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypat
     md, caps = _tab_text(at)
     assert "Effect of one process setting" in [e.label for e in at.tabs[3].expander]
     assert "Nothing to change yet: every process setting is fixed." in caps
-    [how] = [e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT]
+    [how] = [e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD]
     checks = next(m.value for m in how.markdown if m.value.startswith("Round-ahead check:"))
     assert "at the values it was run at" in checks and "amounts" not in checks
     assert "ngredient" not in " ".join(md + caps)

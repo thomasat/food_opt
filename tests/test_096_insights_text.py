@@ -119,7 +119,7 @@ def test_no_skill_is_the_next_step_on_line_c(tabs):
 
 def test_each_output_has_its_skill_in_the_details_table(tabs):
     how = next(e for e in tabs["A how"].tabs[3].expander
-               if e.label == wording.HOW_WORKED_OUT)
+               if e.label == wording.FOLD_METHOD)
     [frame] = [d.value for d in how.dataframe if wording.SKILL_COLUMN in d.value.columns]
     cells = dict(zip(frame[wording.DETAILS_COLUMNS_2[0]], frame[wording.SKILL_COLUMN]))
     assert cells[wording.OVERALL_SCORE_COLUMN] == "0.36 (n = 15)"
@@ -128,7 +128,7 @@ def test_each_output_has_its_skill_in_the_details_table(tabs):
 
 def test_method_and_details_define_the_new_terms(tabs):
     how = next(e for e in tabs["A how"].tabs[3].expander
-               if e.label == wording.HOW_WORKED_OUT)
+               if e.label == wording.FOLD_METHOD)
     said = [m.value for m in how.markdown] + [c.value for c in how.caption]
     # T0 review I-1: Line A has a Formulation total.
     assert wording.how_checks() in said
@@ -354,9 +354,9 @@ def test_the_guard_says_setting_effects_for_a_process_only_study():
 def test_method_and_details_is_drawn_only_while_open(tabs):
     """T56 I5: keyed, and worked out only while open."""
     fold = next(e for e in tabs[demo.LINE_A].tabs[3].expander
-                if e.label == wording.HOW_WORKED_OUT)
+                if e.label == wording.FOLD_METHOD)
     assert not fold.markdown and not fold.caption and not fold.dataframe
-    fold = next(e for e in tabs["A how"].tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    fold = next(e for e in tabs["A how"].tabs[3].expander if e.label == wording.FOLD_METHOD)
     assert fold.markdown and fold.dataframe
 
 

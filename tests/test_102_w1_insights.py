@@ -779,7 +779,7 @@ def test_the_drift_tab_makes_no_causal_claim(tabs):
 
 def test_the_02_method_and_details(tabs):
     at = tabs["02 how"]
-    how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
     said = [c.value for c in how.caption] + [m.value for m in how.markdown]
     for want in (wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT, wording.HOW_FITTED_NOISE,
                  wording.how_models()):

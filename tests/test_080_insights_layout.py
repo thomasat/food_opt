@@ -61,8 +61,8 @@ def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypat
                  "Which formulation is predicted to score highest?"):
         assert f"##### {gone}" not in md
     folds = [e.label for e in at.tabs[3].expander
-             if e.label in (wording.try_one(False), wording.MORE_CHARTS, wording.HOW_WORKED_OUT)]
-    assert folds == [wording.try_one(False), wording.MORE_CHARTS, wording.HOW_WORKED_OUT]
+             if e.label in (wording.try_one(False), wording.MORE_CHARTS, wording.FOLD_METHOD)]
+    assert folds == [wording.try_one(False), wording.MORE_CHARTS, wording.FOLD_METHOD]
     assert all(not e.proto.expanded for e in at.tabs[3].expander)
     foot = next(b for b in at.tabs[3].button if b.key == "insights_foot")
     assert foot.label == wording.START_NEXT_BATCH and foot.proto.type == "primary"
@@ -296,7 +296,7 @@ def test_a_process_only_project_names_settings(tmp_path):
 def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored):
     at = _open_how(_open_insights(_app()))
     assert not at.exception
-    how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
     said = [c.value for c in how.caption]
     assert wording.rounds_not_checked([1, 2]) in said
     assert wording.details_window([3], 1, [3]) in said

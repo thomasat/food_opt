@@ -968,12 +968,17 @@ def _compared_second(opt, frame):
 def _score_help(opt):
     """The Predicted Overall score column's "?" with its basis (03 §5.8):
     the scored formulations it was fitted to and, once the checks are
-    worked out, the Round-ahead widening it carries."""
+    worked out, the Round-ahead widening it carries; then the standard
+    terms of the two statistics it shows (spec 2026-10-01 §3, R-I6): the
+    posterior mean and the 95 % posterior predictive interval."""
     checks = ui_insights.checks_for(opt, "column")
     factor = None if not checks else insights.column_factor(opt, checks)
     widened = factor is not None and f"{factor:.2f}" != "1.00"
-    return wording.predicted_score_help(opt.complete_count(),
-                                        f"{factor:.2f}" if widened else None)
+    basis = wording.predicted_score_help(opt.complete_count(),
+                                         f"{factor:.2f}" if widened else None)
+    values = not opt.has_ingredients()
+    return " ".join([basis, ui_insights.bo_term(wording.tip_predicted_score(values)),
+                     ui_insights.bo_term(wording.TIP_INTERVAL)])
 
 
 def _draw_table(opt, slot, frame):
@@ -1010,7 +1015,8 @@ def _show_predictions(opt, later):
     with notes:
         t = _track(opt)
         if t is not None:
-            st.caption(wording.for_project(opt, ui_insights.track_text(t)))
+            st.caption(wording.for_project(opt, ui_insights.track_text(t)),
+                       help=track_help(opt, t))
             if _warns(t):
                 # E2 (04 §3, review I1, I7): the one link on this screen.
                 link(wording.LINK_PREDICTION_CHECK, wording.TAB_INSIGHTS, key="link_trust")
@@ -1027,6 +1033,21 @@ def _track(opt):
     (Make a round never fits for its line)."""
     checks = ui_insights.checks_for(opt, "trust")
     return None if checks is None else insights.round_track(opt, checks)
+
+
+def track_help(opt, t):
+    """The track line's "?" (spec 2026-10-01 §3, R-I6): every statistic the
+    line names, plain reading first, then the BO term: the Round-ahead
+    check and its 95 % intervals, the mean error when it says a bias, the
+    skill when it says no skill."""
+    tips = [wording.TIP_ROUND_AHEAD]
+    if t.record:
+        tips.append(wording.TIP_INTERVAL)
+        if t.gap is not None:
+            tips.append(wording.TIP_MEAN_ERROR)
+    if t.no_skill is not None:
+        tips.append(wording.TIP_SKILL)
+    return wording.for_project(opt, " ".join(tips))
 
 
 def _warns(t):
@@ -1125,14 +1146,24 @@ def why_columns(opt, value_col, help_text):
     widest — with the full meaning in each header's tooltip."""
     say = lambda text: wording.for_project(opt, text)
     col = st.column_config.Column
+    values = not opt.has_ingredients()
+    term = ui_insights.bo_term
+    # Spec 2026-10-01 §3, §7 (R-I6): each header names its statistic, the
+    # plain reading first, then the standard term: posterior mean and the
+    # 95 % interval, latent posterior sd, the acquisition value, the
+    # distance labels and the nearest design point.
     return {
         wording.FORMULATION_CAP: col(say(wording.FORMULATION_CAP), width="small"),
-        wording.ROLE: col(wording.ROLE, width="small", help=say(wording.role_help())),
-        wording.PREDICTED_SCORE_COLUMN: col(wording.PREDICTED_SCORE_COLUMN, width="small"),
-        wording.MODEL_SD: col(wording.MODEL_SD, width="small", help=wording.MODEL_SD_HELP),
-        value_col: col(say(value_col), width="small", help=say(help_text)),
+        wording.ROLE: col(wording.ROLE, width="small",
+                          help=say(f"{wording.role_help()} {term(wording.TIP_ROLES)}")),
+        wording.PREDICTED_SCORE_COLUMN: col(
+            wording.PREDICTED_SCORE_COLUMN, width="small",
+            help=say(f"{wording.tip_predicted_score(values)} {wording.TIP_INTERVAL}")),
+        wording.MODEL_SD: col(wording.MODEL_SD, width="small", help=say(wording.TIP_MODEL_SD)),
+        value_col: col(say(value_col), width="small",
+                       help=say(f"{help_text} {term(wording.TIP_EXPECTED_IMPROVEMENT)}")),
         wording.NEAREST_TESTED: col(wording.NEAREST_TESTED, width="small",
-                                    help=say(wording.NEAREST_TESTED_HELP)),
+                                    help=say(wording.TIP_NEAREST_TESTED)),
         wording.LARGEST_DIFFERENCES: col(wording.LARGEST_DIFFERENCES, width="medium",
                                          help=say(wording.LARGEST_DIFFERENCES_HELP)),
     }

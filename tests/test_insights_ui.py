@@ -244,7 +244,7 @@ def test_insights_sections_and_expanders(insights_scored):
         assert q in text
     labels = [e.label for e in tab.expander]
     for lab in (wording.SHOW_PREDICTIONS, wording.SHOW_PROGRESS, wording.try_one(False),
-                wording.HOW_WORKED_OUT):
+                wording.FOLD_METHOD):
         assert lab in labels, labels
     # One lit button: the foot (spec 2026-09-30 §2.4).
     assert [b.label for b in tab.button if b.proto.type == "primary"] == [

@@ -2651,16 +2651,170 @@ class ModelFacts:
     robust: bool = False             # opt.robust: Input Warping in ask() only
 
 
+# Read off the built objects (review R-I13): the kernel's class, and its
+# smoothness for a Matérn or its degree for a polynomial, as the
+# wording.KERNEL_NAMES key the expert box would choose; another class is
+# said by its own name.
+_KERNEL_KEYS = {"RBFKernel": "rbf", "LinearKernel": "linear"}
+_ACQUISITION_KEYS = {"qLogNoisyExpectedImprovement": "qlognei",
+                     "qLogExpectedImprovement": "qlogei", "qUpperConfidenceBound": "qucb"}
+
+
+def _number(value):
+    return float(torch.as_tensor(value).reshape(-1)[0])
+
+
+def _prior_text(prior):
+    """'LogNormal(2.39, 1.73)', 'Gamma(3.00, 6.00)': a prior as its
+    parameters are set on the object; None without one."""
+    if prior is None:
+        return None
+    kind = type(prior).__name__.removesuffix("Prior")
+    # The distribution's own parameters, in its own order (torch's
+    # arg_constraints): LogNormal's location and its log-sd, Gamma's
+    # concentration and rate.
+    names = list(getattr(prior, "arg_constraints", None) or ())
+    if len(names) != 2:
+        return kind
+    return "{}({}, {})".format(kind, *(f"{_number(getattr(prior, k)):.2f}".replace("-", "−")
+                                       for k in names))
+
+
+def _floor(module, name):
+    """A positive lower limit of a constrained hyperparameter, else None
+    (gpytorch's Positive() has 0)."""
+    constraint = getattr(module, f"raw_{name}_constraint", None)
+    low = getattr(constraint, "lower_bound", None)
+    if low is None:
+        return None
+    low = _number(low)
+    return low if low > 0 else None
+
+
+def _kernel_facts(covar):
+    """(kernel key, ARD, lengthscale prior, its floor, outputscale, its
+    prior) of a built covar_module."""
+    scaled = type(covar).__name__ == "ScaleKernel"
+    base = covar.base_kernel if scaled else covar
+    cls = type(base).__name__
+    if cls == "MaternKernel":
+        nu = float(base.nu)
+        key = {2.5: "matern52", 1.5: "matern32"}.get(nu, f"Matérn {nu:g}")
+    elif cls == "PolynomialKernel":
+        key = "poly2" if int(base.power) == 2 else f"{cls} {int(base.power)}"
+    else:
+        key = _KERNEL_KEYS.get(cls, cls)
+    lengths = bool(getattr(base, "has_lengthscale", False))
+    ard = lengths and (getattr(base, "ard_num_dims", None) or 0) > 1
+    return (key, ard,
+            _prior_text(getattr(base, "lengthscale_prior", None)) if lengths else None,
+            _floor(base, "lengthscale") if lengths else None,
+            scaled, _prior_text(getattr(covar, "outputscale_prior", None)) if scaled else None)
+
+
+def _generated(opt):
+    """q: the number the open Round's generation record asked for, else the
+    last Round's; None without a record."""
+    records = opt.generation_records()
+    record = records.get(opt.pending_batch_no) if opt.pending_batch_no is not None else None
+    if record is None and records:
+        record = records[max(records)]
+    try:
+        return None if record is None else int(record["n"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def model_summary(opt):
-    """W2 (review R-I13): ModelFacts for this project, from a model built
-    on its own rows (milliseconds, no fit). Never calls ask(). T0 stub:
-    returns None."""
-    return None
+    """W2 (review R-I13): ModelFacts for this project, read off the
+    Overall-score model FoodOptimizer._build_gp builds on the project's own
+    xy(opt, SCORE, rows) and the acquisition _build_acqf builds on it
+    (milliseconds, no fit, inside _isolated so the global RNG never moves),
+    plus the settings that are not in bo_config. Never calls ask(). Below
+    COLD_START_RUNS scored there is no model yet: the cold facts alone."""
+    import bo_views   # bo_views imports this module
+    from food_bo import COLD_START_RUNS
+    scored = opt.complete_count()
+    facts = ModelFacts(cold=scored < COLD_START_RUNS, scored=scored,
+                       cold_start=COLD_START_RUNS, values=not opt.has_ingredients(),
+                       total=opt.has_formulation_total(),
+                       recommended=not getattr(opt, "bo_config", None),
+                       restarts=bo_views.ASK_RESTARTS, raw_samples=bo_views.ASK_RAW_SAMPLES,
+                       robust=bool(getattr(opt, "robust", False)), q=_generated(opt))
+    if facts.cold:
+        return facts
+    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    X, Y = xy(opt, SCORE, rows)
+    import warnings
+    with _isolated(), warnings.catch_warnings():
+        # An unfitted model's baseline posterior may need jitter: said once
+        # per build on the console, and nothing to the reader.
+        warnings.simplefilter("ignore")
+        gp = opt._build_gp(X, Y, X.shape[-1], None)
+        acqf = opt._build_acqf(gp, X, Y)
+    facts.inputs = int(X.shape[-1])
+    (facts.kernel, facts.ard, facts.lengthscale_prior, facts.lengthscale_floor,
+     facts.outputscale, facts.outputscale_prior) = _kernel_facts(gp.covar_module)
+    likelihood = gp.likelihood
+    if type(likelihood).__name__.startswith("Fixed"):
+        facts.noise = "fixed"
+    else:
+        noise = likelihood.noise_covar
+        facts.noise = "fitted"
+        facts.noise_prior = _prior_text(getattr(noise, "noise_prior", None))
+        facts.noise_floor = _floor(noise, "noise")
+    facts.standardised = type(getattr(gp, "outcome_transform", None)).__name__ == "Standardize"
+    name = type(acqf).__name__
+    facts.acquisition = _ACQUISITION_KEYS.get(name, name)
+    if facts.acquisition == "qucb":
+        # qUpperConfidenceBound keeps √(β π / 2) only.
+        facts.beta = round(2.0 * float(acqf.beta_prime) ** 2 / math.pi, 6)
+    sampler = getattr(acqf, "sampler", None)
+    facts.mc_samples = int(sampler.sample_shape[0]) if sampler is not None else 0
+    return facts
+
+
+# "How each status is decided" (review I13, R-I13): one key per row of
+# wording.status_rule_rows, in its order: R-B1's Predictions rows worst
+# first, the three clauses, the Progress words, then next_step's rows in
+# their first-match order (NEXT_ROWS).
+NEXT_ROWS = ("repeat", "misses", "early", "no_skill", "untested", "explore", "close",
+             "rising", "see")
+RULE_KEYS = (*(("predictions", k) for k in PREDICTION_ROWS),
+             ("clause", "wide"), ("clause", "bias"), ("clause", "guard"),
+             *(("progress", k) for k in ("rising", "within_noise", "flat", "no_new_best",
+                                         "too_early")),
+             *(("next", k) for k in NEXT_ROWS))
+
+
+def _rule_rows(opt, checks=None):
+    """[(key, (line, status, exact rule))], every row, this project's cut
+    (skill_cut at its checks' n) and form."""
+    fact = skill(opt, checks) if checks else None
+    cut = fact.cut if fact is not None else skill_cut(SKILL_MIN)
+    rows = wording.status_rule_rows(wording.signed(cut, 2).lstrip("+"),
+                                    settings_only=not opt.has_ingredients())
+    return list(zip(RULE_KEYS, rows))
+
+
+def status_rule(opt, key, checks=None):
+    """The exact rule of one RULE_KEYS row, e.g. ("next", "explore")."""
+    return dict(_rule_rows(opt, checks))[key][2]
+
+
+def status_label(opt, key, checks=None):
+    """The status column of one RULE_KEYS row: 'Not yet (gate)', 'Explore'."""
+    return dict(_rule_rows(opt, checks))[key][1]
 
 
 def status_rules(opt, checks=None):
     """W2 (review I13, R-I13): "How each status is decided", one row per
     state of review B1's table and per Next row, in first-match order:
     [(line, status, exact rule)], from wording.status_rule_rows with this
-    project's cut and form. T0 stub: returns None."""
-    return None
+    project's cut and form. At the gate (M9) only what applies: the gate
+    row and the Progress rows; no Next row is tried before it."""
+    rows = _rule_rows(opt, checks)
+    if opt.complete_count() < MIN_ROWS:
+        rows = [(k, r) for k, r in rows
+                if k == ("predictions", "gate") or k[0] == "progress"]
+    return [r for _, r in rows]

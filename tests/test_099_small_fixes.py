@@ -192,7 +192,7 @@ def test_method_and_details_says_the_term():
     at.session_state[ui_insights.HOW_KEY] = True
     at.run()
     assert not at.exception
-    how = next(e for e in at.tabs[3].expander if e.label == wording.HOW_WORKED_OUT)
+    how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
     assert wording.HOW_REGRESSION in [m.value for m in how.markdown]
 
 
