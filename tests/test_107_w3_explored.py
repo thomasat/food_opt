@@ -665,7 +665,7 @@ def test_the_fold_sits_under_the_button_and_above_the_folds_below():
     fold = labels.index(wording.FOLD_EXPLORED)
     assert labels.index("insights_foot") < labels.index("insights_explored_link") < fold
     assert fold < labels.index(ui_insights._try_one_label(D.load(D.TIMING)))
-    assert fold < labels.index(wording.MORE_CHARTS) < labels.index(wording.HOW_WORKED_OUT)
+    assert fold < labels.index(wording.MORE_CHARTS) < labels.index(wording.FOLD_METHOD)
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert not explored.proto.expanded
     assert not list(explored.children.values())      # nothing worked out until opened
@@ -677,7 +677,7 @@ def test_at_the_gate_the_fold_is_under_the_foot():
     at = _insights(D.SNACK, **{ui_insights.EXPLORED_KEY: True})
     labels = [x for _, x in _walk(at.tabs[3], [])]
     assert labels.index("insights_foot") < labels.index(wording.FOLD_EXPLORED) < labels.index(
-        wording.HOW_WORKED_OUT)
+        wording.FOLD_METHOD)
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert [c.value for c in explored.caption][-1] == wording.MAP_COLD
     assert GAP_LINES[D.SNACK] in [m.value for m in explored.markdown]
