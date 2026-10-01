@@ -2038,26 +2038,190 @@ class LimitHit:
     binding: Binding
 
 
+def _strip_rows(opt):
+    """The rows a strip is drawn for, ingredients first, then process
+    settings, each group in project order: every varying row (continuous or
+    a choice) and the Fill to total row (review R-I15: drawn, never given a
+    gap line). Calculated and fixed rows have nothing to show."""
+    fill = opt.balance_row_name()
+    rows = [v for v in opt.variables
+            if v['name'] == fill or (not opt.has_formula(v) and not opt.is_fixed(v))]
+    return ([v for v in rows if _is_ingredient(v)]
+            + [v for v in rows if not _is_ingredient(v)])
+
+
+def _strip_reach(opt, pool):
+    """{row: (lowest, highest)} over the allowed pool (bo_views.feasible_pool,
+    normalised), decoded as ask() decodes a point, so the Fill to total row
+    reads what is left of the total; {} without a pool."""
+    if pool is None or pool.shape[0] == 0:
+        return {}
+    numeric = [v['name'] for v in _strip_rows(opt) if v.get('type') == 'continuous']
+    low, high = {}, {}
+    for point in unnormalize(pool, opt._get_bounds()):
+        recipe = opt._decode(point.numpy())
+        for name in numeric:
+            x = recipe.get(name)
+            if x is None:
+                continue
+            x = float(x)
+            low[name] = min(low.get(name, x), x)
+            high[name] = max(high.get(name, x), x)
+    return {name: (low[name], high[name]) for name in low}
+
+
+def _strip_ticks(opt):
+    """[(recipe at the total, StripTick)]: every recorded formulation —
+    with all results in ("tested"), waiting ("waiting") or moved to Not
+    scored ("not_scored") — every Not scored suggestion that kept its
+    make-up, and the open Round's rows still to make ("suggested")."""
+    from food_bo import ROUND_FIELD
+    rounds = [r for r in opt.batch_history if r is not None]
+    latest = max(rounds) if rounds else None
+    out = []
+    for i in range(len(opt.Y_history)):
+        r = opt.batch_history[i] if i < len(opt.batch_history) else None
+        if opt.fully_measured(i):
+            state, score = "tested", float(opt.Y_history[i])
+        else:
+            state, score = ("not_scored" if opt.is_set_aside(i) else "waiting"), None
+        out.append((start_recipe(opt, i),
+                    StripTick(0.0, int(opt.formulation_ids[i]), r, score, state,
+                              latest is not None and r == latest)))
+    for row in getattr(opt, "skipped", []) or []:
+        if row.get('recipe'):
+            out.append((at_total(opt, row['recipe']),
+                        StripTick(0.0, int(row['formulation']), row.get(ROUND_FIELD), None,
+                                  "not_scored")))
+    recorded = {int(n) for n in opt.formulation_ids}
+    recorded |= {int(row['formulation']) for row in getattr(opt, "skipped", []) or []}
+    for row in opt.pending_batch or []:
+        if int(row['formulation']) not in recorded:
+            out.append((at_total(opt, row['recipe']),
+                        StripTick(0.0, int(row['formulation']), opt.pending_batch_no, None,
+                                  "suggested")))
+    return out
+
+
 def tested_strips(opt, pool=None):
-    """W3: one Strip per varying ingredient and process setting (review
-    R-I15). `pool`: bo_views.feasible_pool(opt) when the caller has it, for
-    the reachable part. T0 stub: returns None."""
-    return None
+    """W3: one Strip per varying ingredient and process setting, and the
+    Fill to total row (review R-I15), model-free. Each tick is a formulation
+    at the Formulation total (start_recipe, at_total: the make-up the models
+    learn), in the row's own unit. The strip spans the row's Lowest–Highest;
+    its reachable part is the lowest to highest of the row over `pool`
+    (bo_views.feasible_pool(opt), normalised), else Lowest–Highest. A choice
+    row counts the formulations with all results in per option."""
+    reach = _strip_reach(opt, pool)
+    made = _strip_ticks(opt)
+    fill = opt.balance_row_name()
+    out = []
+    for v in _strip_rows(opt):
+        name = v['name']
+        setting = not _is_ingredient(v)
+        if v.get('type') != 'continuous':
+            options = {o: 0 for o in v.get('options', [])}
+            for recipe, tick in made:
+                if tick.state == "tested" and recipe.get(name) in options:
+                    options[recipe.get(name)] += 1
+            out.append(Strip(name, "", 0.0, 0.0, None, [], False, setting, options))
+            continue
+        low, high = (float(b) for b in v['bounds'])
+        if name == fill and opt.has_formulation_total() and high <= low:
+            low, high = 0.0, float(opt.formulation_total)
+        ticks = [dataclasses.replace(tick, value=float(recipe.get(name, 0.0) or 0.0))
+                 for recipe, tick in made]
+        out.append(Strip(name, opt.unit_of(name), low, high, reach.get(name, (low, high)),
+                         ticks, name == fill, setting))
+    return out
+
+
+def _stretches(strip):
+    """The untested stretches of a strip's reachable part (review R-I15):
+    between consecutive tested values, or between a reachable end and the
+    nearest tested value, each at least CLOSE_TO_THE_BEST of Highest −
+    Lowest. A tested value outside the reachable part (made before a limit
+    changed) counts at the nearer end. Nothing without a tested value."""
+    span = strip.high - strip.low
+    lo, hi = strip.reach if strip.reach is not None else (strip.low, strip.high)
+    values = sorted(min(max(t.value, lo), hi) for t in strip.ticks if t.state == "tested")
+    if span <= 0 or hi <= lo or not values:
+        return []
+    least = CLOSE_TO_THE_BEST * span - _EPS
+    out = []
+    if values[0] - lo >= least:
+        out.append(StripGap(strip.name, "below", lo, values[0], (values[0] - lo) / span))
+    for a, b in zip(values, values[1:]):
+        if b - a >= least:
+            out.append(StripGap(strip.name, "between", a, b, (b - a) / span))
+    if hi - values[-1] >= least:
+        out.append(StripGap(strip.name, "above", values[-1], hi, (hi - values[-1]) / span))
+    return out
 
 
 def strip_gaps(opt, strips, k=2):
-    """W3: the `k` largest untested stretches of the reachable parts, each at
-    least CLOSE_TO_THE_BEST of its span, largest first; the Fill-to-total
-    row left out; an option never tested (review R-I15). T0 stub: returns
-    None."""
-    return None
+    """W3: the `k` largest untested stretches of the strips' reachable parts
+    (_stretches: the 1-D rule of review R-I15, never a stretch the limits
+    rule out), largest first, the Fill to total row left out; then up to
+    `k` options of a choice row no formulation with all results in has
+    used ("option"). Model-free."""
+    stretches = [g for s in strips if not s.fill and s.options is None for g in _stretches(s)]
+    stretches.sort(key=lambda g: -g.size)
+    options = [StripGap(s.name, "option", None, None, 1.0, o)
+               for s in strips if s.options is not None
+               for o, n in s.options.items() if n == 0]
+    return stretches[:k] + options[:k]
+
+
+def _round_picks(opt, r):
+    """The make-ups (at the total) of Round `r`'s generated picks, own
+    formulations and Repeats left out: from its generation record's picks
+    when it has them (bo_views._picks), else the rows without a note of
+    their own, as bo_views._first_pick counts them (an edited row counts,
+    at the make-up it was issued with)."""
+    import bo_views     # bo_views imports this module
+    from food_bo import ROUND_FIELD
+    gen = bo_views.generation(opt, r)
+    if gen.picks:
+        numbers = list(gen.picks)
+    elif r == opt.pending_batch_no and opt.pending_batch:
+        own, numbers = bo_views._picks(opt, gen, list(opt.pending_batch))
+    else:
+        mine = lambda note: bool(note) and note not in (wording.EDITED_FORMULATION,
+                                                       wording.NOT_SCORED)
+        numbers = [int(n) for n, b, note in zip(opt.formulation_ids, opt.batch_history,
+                                                 opt.notes_history)
+                   if b == r and not mine(note)]
+        numbers += [int(s['formulation']) for s in getattr(opt, "skipped", []) or []
+                    if s.get(ROUND_FIELD) == r and not mine(s.get('note'))]
+    recipes = [bo_views._issued(opt, n) for n in numbers]
+    return gen, [x for x in recipes if x is not None]
 
 
 def limit_hits(opt):
-    """W3: the limits at least half of the open Round's generated picks sit
-    at (else the last warm Round's), from 2 picks (review R-I15); [LimitHit].
-    T0 stub: returns None."""
-    return None
+    """W3 (review R-I15): the limits at least half of a Round's generated
+    picks sit at — binding_limits, BINDING of the span or bound — counted
+    from 2 picks: the open Round's, else the last Round the model chose
+    (warm); most hits first. [LimitHit], [] without such a Round."""
+    import bo_views     # bo_views imports this module
+    r = opt.pending_batch_no if opt.pending_batch else None
+    if r is None:
+        warm = [n for n, _ in round_order(opt) if bo_views.generation(opt, n).regime == "warm"]
+        if not warm:
+            return []
+        r = warm[-1]
+    gen, recipes = _round_picks(opt, r)
+    if gen.regime != "warm" or len(recipes) < 2:
+        return []
+    counts, first = {}, {}
+    for recipe in recipes:
+        for b in binding_limits(opt, recipe):
+            key = (b.kind, b.name)
+            counts[key] = counts.get(key, 0) + 1
+            first.setdefault(key, b)
+    hits = [LimitHit(r, n, len(recipes), first[key]) for key, n in counts.items()
+            if 2 * n >= len(recipes)]
+    hits.sort(key=lambda h: -h.hits)
+    return hits
 
 
 @dataclass

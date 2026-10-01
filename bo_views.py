@@ -657,14 +657,49 @@ def next_model(opt):
 
 
 
+@dataclass
+class MapValues:
+    """The explored–unexplored map's numbers (§8.2, review R-I16), all from
+    one suggestion model: its own mean and sd (no Repeat noise, no
+    calibration) over the allowed pool, at the rows it learned from, and at
+    the open Round's rows when the model is that Round's."""
+    pool_mean: object       # tensors over feasible_pool, or None without a pool
+    pool_sd: object
+    tested_mean: object     # at the model's training rows
+    tested_sd: object
+    tested: list            # their Formulation numbers, in the same order
+    picks: list             # [(Formulation number, mean, sd)] of the open Round's rows
+    exact: bool             # the model is the Round's own, rebuilt exactly
+    round: int | None       # the open Round the picks are from; None: the next Generate's
+
+
 def map_values(opt, model):
     """W3, Insights for a first-time user (spec 2026-10-01 rev. 2 §8.2,
     review R-I16): the explored–unexplored map's values, from `model` (the
-    open Round's rebuilt model, else next_model; ui_insights.layer_model)
-    over feasible_pool(opt) and the tested formulations, through evaluate()
-    so the global RNG never moves. T0 stub with its final signature:
-    returns None."""
-    return None
+    open Round's rebuilt model, else next_model) over feasible_pool(opt),
+    the rows it learned from and — the open Round's model only — that
+    Round's rows at their amounts as they stand, as the Why fold values
+    them. Through evaluate(), so the global RNG never moves and a question
+    the Why fold already asked is answered from the cache. None without a
+    model."""
+    if model is None:
+        return None
+    pool = feasible_pool(opt)
+    pool_values = evaluate(opt, model, pool) if pool is not None else None
+    tested = evaluate(opt, model, model.X)
+    picks = []
+    r = model.gen.round if model.gen is not None else None
+    if r is not None and r == opt.pending_batch_no and opt.pending_batch:
+        rows = list(opt.pending_batch)
+        got = evaluate(opt, model, points(opt, [insights.at_total(opt, row['recipe'])
+                                                for row in rows]))
+        picks = [(int(row['formulation']), float(got.mean[k]), float(got.sd[k]))
+                 for k, row in enumerate(rows)]
+    ids = [int(n) for n in opt.formulation_ids]
+    return MapValues(None if pool_values is None else pool_values.mean,
+                     None if pool_values is None else pool_values.sd,
+                     tested.mean, tested.sd, [ids[i] for i in model.gen.rows], picks,
+                     model.exact, r if picks else None)
 
 
 # ask()'s own optimizer settings (food_bo._ask_optimize; a test ties them).
