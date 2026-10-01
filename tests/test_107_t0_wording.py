@@ -130,7 +130,7 @@ def _explored_lines():
             W.STRIP_TESTED, W.STRIP_WAITING, W.STRIP_SUGGESTED, W.STRIP_REACHABLE,
             W.STRIP_LATEST, W.STRIP_COUNT, W.strip_value_title(), W.strip_value_title(True),
             W.tip_strips(), W.tip_strips(values=True), W.tip_strips(total=False),
-            W.TIP_LIMIT_HITS, W.MAP_TITLE, W.MAP_READING, W.MAP_NOT_YET, W.MAP_HIDDEN,
+            W.TIP_LIMIT_HITS, W.tip_design_space("3,000"), W.MAP_TITLE, W.MAP_READING, W.MAP_NOT_YET, W.MAP_HIDDEN,
             W.MAP_COLD, W.TIP_MAP, W.explored_pointer(W.try_one_fold(True)),
             W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
             W.explored_pointer(W.try_one_fold(False), triangle=False),

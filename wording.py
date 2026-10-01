@@ -6966,6 +6966,15 @@ TIP_MAP = (
     f"labelled: this {ROUND_CAP}'s picks; dashed: Best so far's predicted Repeat.")
 
 
+def tip_design_space(n_text):
+    """T0′ for W3 (§8 expert layer: "design space, feasible region sampled
+    by get_polytope_samples"): added to the strips' and the map's "?".
+    `n_text`: the pool's size, "3,000"."""
+    return ("Lowest–Highest of every row: the design space; the part of it where every limit "
+            "holds: the feasible region, sampled by hit-and-run (BoTorch get_polytope_samples, "
+            f"{n_text} points).")
+
+
 def explored_pointer(fold_label, settings_only=False, triangle=True):
     """§8.3: the in-context views, said once under the map, shown only when
     the Uncertainty layer is offered (R-I16). `fold_label`: try_one_fold's
