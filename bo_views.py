@@ -678,11 +678,46 @@ def next_model(opt):
     return rebuild(opt, Generation(None, int(opt.next_formulation_no), rows, regime, True))
 
 
+# ask()'s own optimizer settings (food_bo._ask_optimize; a test ties them).
+ASK_RESTARTS = 20
+ASK_RAW_SAMPLES = 1024
+
+
+def next_optimum(opt, model):
+    """The expected improvement, in points, of the formulation the next
+    Generate would pick first (final review I-1, coordinator ruling): a
+    q = 1 optimize_acqf on `model`'s acquisition with ask()'s bounds,
+    limits, fixed rows and settings, from the RNG state ask() has there
+    (sequential=True makes ask()'s first pick this very search), then the
+    point decoded, snapped and stepped as ask() issues it and valued at the
+    total, as the Why fold values pick 1. In this process, inside
+    insights._isolated: the global RNG never moves. Raises if the search
+    fails (the caller falls back to the pool)."""
+    from botorch.optim import optimize_acqf
+    from botorch.utils.transforms import unnormalize
+    dim = model.X.shape[-1]
+    with opt._premixes_for_generation(None):
+        bounds = opt._get_bounds()
+        ineq = opt._get_botorch_constraints()
+        fixed = opt._get_fixed_features() or None
+        with insights._isolated():
+            acqf = build_acqf(model.cfg, model.gp, model.X, model.Y, model.rng)
+            x, _ = optimize_acqf(
+                acq_function=acqf, bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+                q=1, num_restarts=ASK_RESTARTS, raw_samples=ASK_RAW_SAMPLES, sequential=True,
+                inequality_constraints=ineq, fixed_features=fixed)
+        recipe = opt._decode(unnormalize(x[0], bounds).detach().numpy().flatten())
+        if opt.has_formulation_total():
+            recipe = opt._snapped_if_it_still_fits(recipe)
+    recipe = opt._settings_on_their_step(recipe)
+    return float(evaluate(opt, model, points(opt, [insights.at_total(opt, recipe)])).value[0])
+
+
 def next_gain(opt, model):
-    """§3.2's figure with no Round open (final review I-1): the largest
-    expected improvement over the allowed pool under `model`, the
-    suggestion model the next Generate fits (next_model), as
-    RoundGain(None, …). A Round already
+    """§3.2's figure with no Round open (final review I-1): the expected
+    improvement of the formulation the next Generate picks first under
+    `model` (next_model), by ask()'s own search (next_optimum); the largest
+    over the allowed pool only if that search fails. RoundGain(None, …). A Round already
     made is history, in round_history; its figure was for formulations
     since measured. None without a pool or a model."""
     rows = _complete_rows(opt)
@@ -690,11 +725,17 @@ def next_gain(opt, model):
     best = max((float(opt.Y_history[i]) for i in rows if i in candidates), default=None)
     if len(rows) < COLD_START_RUNS:
         return RoundGain(None, best, None, None, False, "cold")
-    pool = feasible_pool(opt)
-    if model is None or pool is None:
+    if model is None:
         return None
-    got = evaluate(opt, model, pool)
-    return RoundGain(None, best, float(got.mean.max()), float(got.value.max()), False, None)
+    try:
+        gain = next_optimum(opt, model)
+    except Exception:
+        # The search failed: the largest over the allowed pool instead.
+        pool = feasible_pool(opt)
+        if pool is None:
+            return None
+        gain = float(evaluate(opt, model, pool).value.max())
+    return RoundGain(None, best, None, gain, False, None)
 
 
 @contextlib.contextmanager

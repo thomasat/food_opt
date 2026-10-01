@@ -218,9 +218,9 @@ def timing_recorded_flat(tmp_path_factory):
 
 def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
     """Final review I-1: with no Round open the expected improvement is the
-    next Round's, from today's rows (the largest over the allowed pool under
-    the model the next Generate fits), not Round 13's pre-results 1.08. It
-    is under the noise threshold, so Next step is close to the top."""
+    next Round's, from today's rows (ask()'s own first-pick search on the
+    model the next Generate fits), not Round 13's pre-results 1.08. It is
+    under the noise threshold, so Next step is close to the top."""
     at, opt, r = timing_recorded_flat
     md, _ = _texts(at)
     [line] = [m for m in md if m.startswith("Expected improvement")]
@@ -230,17 +230,37 @@ def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
     assert after.startswith("Within these ingredients and limits, no predicted gain exceeds "
                             "the noise threshold.")
-    # The figure is the pool's largest under the model the next Generate
-    # fits (botorch's default fit, the next seed: coordinator ruling).
+    # The figure is ask()'s own first-pick search on the model the next
+    # Generate fits (botorch's default fit, the next seed: coordinator rulings).
     with bo_views.fresh():
-        model = bo_views.next_model(opt)
-        want = float(bo_views.evaluate(opt, model, bo_views.feasible_pool(opt)).value.max())
+        want = bo_views.next_optimum(opt, bo_views.next_model(opt))
     assert at.session_state[ui_insights.GAIN_KEY][1].gain == pytest.approx(want, abs=1e-9)
     assert line.startswith(f"Expected improvement, next Round: {want:.2f} points")
     # Round 13's own figure stays as history, in Expected improvement by Round.
     with insights.memo_in_use({}):
         history = bo_views.round_history(opt)
     assert history[-1].round == r and history[-1].gain > 1.0
+
+
+def test_the_next_rounds_figure_is_worked_out_after_the_page(monkeypatch):
+    """Final review I-1: the search (about 1.5 s at 60 x 4) is precomputed
+    with the predicted best after the page is drawn, once per data, so no
+    screen waits on it; never while a Round is open."""
+    from types import SimpleNamespace
+    state = {}
+    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(session_state=state))
+    monkeypatch.setattr(ui_insights, "memo", lambda o: {})
+    calls = []
+    real = bo_views.next_optimum
+    monkeypatch.setattr(bo_views, "next_optimum", lambda *a: calls.append(1) or real(*a))
+    opt = demo.load(demo.LINE_A)
+    ui_insights.warm_gain(opt)                      # Round 6 open: nothing
+    assert calls == [] and ui_insights.GAIN_KEY not in state
+    opt.set_pending_batch(None)
+    with bo_views.fresh():
+        ui_insights.warm_gain(opt)
+        ui_insights.warm_gain(opt)
+    assert calls == [1] and state[ui_insights.GAIN_KEY][1].round is None
 
 
 def test_a_machine_zero_reads_under_one_hundredth(monkeypatch):

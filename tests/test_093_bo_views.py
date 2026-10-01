@@ -478,31 +478,46 @@ def test_a_display_model_of_other_rows_is_not_used():
 
 
 
-def test_the_next_rounds_figure_uses_the_model_generate_records():
-    """Final review I-1, coordinator ruling: with no Round open, the figure
-    is worked out on the very model the next Generate fits (botorch's
-    default fit, the next seed, today's rows via model_X). On the Timing
-    check, Round 13's pick 1 valued on the model built BEFORE Generate is
-    its recorded figure after Generate, to 1e-6.
-
-    The two headline figures still differ (0.98 against 1.08): before
-    Generate it is the largest over the 3,000 sampled allowed
-    formulations; Generate's pick 1 comes from optimize_acqf's continuous
-    search for a q = 3 batch, a point the sample does not hold. Same model,
-    different points."""
+def test_the_next_rounds_figure_is_the_pick_generate_makes():
+    """Final review I-1, coordinator rulings: with no Round open, the figure
+    is ask()'s own first-pick search (q = 1 optimize_acqf, ask()'s bounds,
+    limits and settings, from ask()'s RNG state) on the model the next
+    Generate fits. On the Timing check it is at least — in fact exactly —
+    Round 13's pick-1 figure after Generate: sequential=True makes ask()'s
+    first pick this very search. The global torch, numpy and random states
+    do not move."""
+    import random
+    import numpy as np
     import ui_batch
     opt = demo.load(demo.TIMING)
+    states = (torch.get_rng_state(), np.random.get_state()[1].copy(), random.getstate())
     before = bo_views.next_model(opt)
     assert before.exact and before.gen.seed == opt.next_formulation_no
     ahead = bo_views.next_gain(opt, before)
+    assert torch.equal(states[0], torch.get_rng_state())
+    assert (states[1] == np.random.get_state()[1]).all() and states[2] == random.getstate()
     ui_batch.ask_alone(opt, n_suggestions=3)
     after = bo_views.latest_gain(opt)
     assert after.exact and after.round == opt.pending_batch_no
+    assert ahead.gain >= after.gain - 1e-6
+    assert ahead.gain == pytest.approx(after.gain, abs=1e-6) == pytest.approx(1.08, abs=0.02)
+    # The same model: pick 1 valued on the model built before Generate.
     pick1 = insights.at_total(opt, opt.pending_batch[0]["recipe"])
     on_before = float(bo_views.evaluate(opt, before, bo_views.points(opt, [pick1])).value[0])
     assert on_before == pytest.approx(after.gain, abs=1e-6)
-    built = bo_views.rebuild(opt, bo_views.generation(opt, opt.pending_batch_no))
-    assert all(torch.equal(a, b) for a, b in zip(before.gp.state_dict().values(),
-                                                 built.gp.state_dict().values()))
-    assert ahead.gain == pytest.approx(0.98, abs=0.02) and after.gain == pytest.approx(
-        1.08, abs=0.02)
+
+
+def test_the_search_uses_asks_own_settings():
+    import inspect
+    src = inspect.getsource(FoodOptimizer._ask_optimize)
+    assert f"num_restarts={bo_views.ASK_RESTARTS}," in src
+    assert f"raw_samples={bo_views.ASK_RAW_SAMPLES}," in src and "sequential=True" in src
+
+
+def test_a_failed_search_falls_back_to_the_pool(monkeypatch):
+    opt = _project("fallback", rows=9)
+    model = bo_views.next_model(opt)
+    monkeypatch.setattr(bo_views, "next_optimum", lambda *a: 1 / 0)
+    got = bo_views.next_gain(opt, model)
+    want = float(bo_views.evaluate(opt, model, bo_views.feasible_pool(opt)).value.max())
+    assert got.round is None and got.gain == pytest.approx(want)

@@ -518,6 +518,19 @@ def warm_best(opt):
     save(opt)
 
 
+def warm_gain(opt):
+    """§3.2's next-Round figure (ask()'s own first-pick search, about 1.5 s
+    at 60 x 4) worked out after the page is drawn, with the predicted
+    best, so neither Insights nor Make a round's E3 waits on it (final
+    review I-1). Once per _gain_key; only with no Round open."""
+    if opt is None or opt.pending_batch or opt.complete_count() < insights.MIN_ROWS:
+        return
+    hit = st.session_state.get(GAIN_KEY)
+    if hit and hit[0] == _gain_key(opt):
+        return
+    latest_gain(opt)
+
+
 def fits_here(opt):
     """Whether Make a round's predictions would be fitted in this process
     now: no workers (or they failed) and its models not all in."""
@@ -605,6 +618,7 @@ def _catch_up(opt):
         return
     if _in_memo(opt, "column"):
         warm_best(opt)
+        warm_gain(opt)
     if _in_memo(opt, "all") and _cached(opt) is None:
         _computed(opt, quiet=True)
         save(opt)
