@@ -9,8 +9,9 @@ from streamlit.testing.v1 import AppTest
 
 import wording
 from food_bo import FoodOptimizer
-from tests.test_app_ui import (APP_PATH, MEAS_GRID, _save_grid, _submit_button,  # noqa: F401
-                               burger, open_batch, scored)
+from tests.test_app_ui import (APP_PATH, ING_GRID, MEAS_GRID, _grid_frame,  # noqa: F401
+                               _ingredient_row, _save_grid, _submit_button, burger,
+                               mid_run, open_batch, scored)
 
 # ------------------------------------------------------------------ #
 #  N1: Set up's measurement save keeps the typed results
@@ -403,3 +404,42 @@ def test_the_draft_line_shows_under_typed_values(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180).run()
     at.number_input(key='f1_Firmness').set_value(6).run()
     assert wording.RESULT_DRAFT_SAVED in [c.value for c in at.caption]
+
+
+# ------------------------------------------------------------------ #
+#  02 M10: no empty Baseline column
+# ------------------------------------------------------------------ #
+
+def _shown_columns(at, which=0):
+    return list(at.dataframe[which].proto.column_order)
+
+
+def test_an_empty_baseline_column_is_not_shown(burger):
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    assert wording.HIGHEST_LABEL in _shown_columns(at)
+    assert wording.BASELINE_LABEL not in _shown_columns(at)
+
+
+def test_a_baseline_a_setting_has_is_shown(mid_run):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mid_run"
+    at.run()
+    assert wording.BASELINE_LABEL in _shown_columns(at)
+
+
+def test_a_new_setting_without_a_baseline_brings_the_column_back(burger):
+    """After results exist a new process setting needs its baseline: the
+    refusal says so, and the column it is typed in appears, with the row
+    the reader typed still there."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    row = _ingredient_row("Cook temperature", kind=wording.KIND_SETTING,
+                          low=150.0, high=200.0, unit="°C")
+    _save_grid(at, ING_GRID, added=[row])
+    assert [e.value for e in at.error] == [
+        wording.named_row_error("Cook temperature", wording.ADD_BASELINE_ERROR)]
+    assert wording.BASELINE_LABEL in _shown_columns(at)
+    assert "Cook temperature" in list(_grid_frame(at, 0)["Name"])

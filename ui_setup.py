@@ -575,6 +575,7 @@ def _variables(opt, storage):
     _callout(opt)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
+    hidden = (GRID_ID,) if _baseline_shown(opt, saved) else (GRID_ID, wording.BASELINE_LABEL)
     edited = st.data_editor(
         calculation_editor.display_frame(opening), key=grid_key(ING_GRID_KEY),
         num_rows="dynamic",
@@ -582,7 +583,7 @@ def _variables(opt, storage):
         column_order=[wording.NAME_LABEL, wording.FORMULA_LABEL,
                       wording.LOWEST_LABEL, wording.HIGHEST_LABEL, wording.UNIT_LABEL,
                       wording.TYPE_LABEL, wording.MADE_AS_LABEL] +
-                     [c for c in saved.columns if c not in (GRID_ID, wording.NAME_LABEL,
+                     [c for c in saved.columns if c not in hidden + (wording.NAME_LABEL,
                       wording.FORMULA_LABEL, wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
                       wording.UNIT_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL)],
         use_container_width=True,
@@ -834,6 +835,23 @@ def _remember_armed_deletions(key, deletions):
         st.session_state.pop(_armed_deletions_key(key), None)
 
 
+# 02 M10: the Baseline column is drawn only when it holds something, or
+# once a new process setting has asked for one (the project it was asked
+# in, so another project does not inherit it).
+_BASELINE_ASKED = "_baseline_asked"
+
+
+def _baseline_shown(opt, saved):
+    """True when the ingredients grid shows its Baseline column: a value
+    is stored in it, or a save has just asked for one. Read off the saved
+    frame, never the edit: the grid's column order is part of the editor's
+    identity, and a column appearing mid-edit would throw the edit away."""
+    if wording.BASELINE_LABEL not in saved.columns:
+        return False
+    return (saved[wording.BASELINE_LABEL].notna().any()
+            or st.session_state.get(_BASELINE_ASKED) == opt.project_name)
+
+
 def _apply_ingredient_grid(opt, edited, force=()):
     """Hand the finished grid to the model, and say what it did.
 
@@ -856,6 +874,14 @@ def _apply_ingredient_grid(opt, edited, force=()):
         # st.rerun() does not return: the errors are drawn into the slot
         # under the grid on the run it raises.
         st.session_state[_ING_ERRORS] = errors
+        if (any(message == wording.ADD_BASELINE_ERROR for _, message in errors)
+                and not _baseline_shown(opt, opt.ingredient_grid_frame())):
+            # 02 M10: the refusal asks for a Baseline the grid is not
+            # showing. The column appears on a new editor, drawn from the
+            # edit parked here, so the row just typed is still there.
+            st.session_state[_BASELINE_ASKED] = opt.project_name
+            park_grid(ING_GRID_KEY, edited)
+            rekey_grid(ING_GRID_KEY)
         st.rerun()
     if not saved_ok(opt):
         return
