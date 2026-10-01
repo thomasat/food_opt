@@ -911,16 +911,45 @@ def score_record_help(opt):
 
 def score_line(opt, checks, h=None, yard=None):
     """The Overall score's line, in one wording for Insights' answer 1 and
-    Make a round's column help (spec §0.3): what to do only when the gap is
-    a bias by the shared rule (insights.bias_gap). '' without a record."""
+    Make a round's column help (spec §0.3): its 95 % intervals and mean
+    error over every Round checked, naming them (0.8.0 e2e fixes, review
+    I1). A steady bias is said once, by steady_bias_text, so this line
+    never says it. '' without a record. `yard` is not read (kept for
+    callers)."""
     h = insights.headline(opt, checks) if h is None else h
     if h.score is None:
         return ""
-    yard = insights.noise_yardstick(opt, checks) if yard is None else yard
-    bias = insights.score_bias(opt, checks, h, yard)
-    beyond = "" if bias is None else threshold_text(yard)
-    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, beyond,
-                                  n=h.score.total)
+    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
+                                  n=h.score.total, rounds=h.score.rounds)
+
+
+def _bias_size(opt, b):
+    """A steady bias's size as the line says it: points to one decimal for
+    the Overall score; a measurement's own decimals, at least one."""
+    d = 1 if b.name == insights.SCORE else max(1, decimals(opt, b.name))
+    return f"{abs(b.mean):.{d}f}"
+
+
+def _unit(opt, name):
+    obj = next((o for o in opt.objectives if o['name'] == name), {})
+    return obj.get('unit') or ""
+
+
+def steady_bias_text(opt, checks, flagged=None):
+    """Prediction check's one steady-bias line (0.8.0 e2e fixes, review B1):
+    every output whose predictions ran steadily high or low over every Round
+    checked, as a fact with no advice; '' when none did. Results below
+    prediction (a negative error) mean predictions ran high."""
+    found = insights.steady_bias(opt, checks, flagged)
+    if not found:
+        return ""
+    high, low, rounds = [], [], []
+    for b in found:
+        name = wording.OVERALL_SCORE_COLUMN if b.name == insights.SCORE else b.name
+        unit = "points" if b.name == insights.SCORE else _unit(opt, b.name)
+        (high if b.mean < 0 else low).append(wording.bias_item(name, _bias_size(opt, b), unit))
+        rounds.extend(r for r in b.rounds if r not in rounds)
+    return wording.steady_bias_line(high, low, sorted(rounds))
 
 
 def threshold_text(yard):
@@ -1025,6 +1054,10 @@ def _trust(opt, computed, h, yard, repeat=True):
     st.write(_say(opt, verdict_text(opt, h, state, checks=checks)))
     if h.score is not None:
         st.write(_say(opt, score_line(opt, checks, h, yard)))
+    # Every output's steady bias, one line, a fact (review B1).
+    bias = steady_bias_text(opt, checks) if state != "none" else ""
+    if bias:
+        st.write(_say(opt, bias))
     # Skill, the Overall score's own fact under the verdict (review I1): in
     # every state past the gate but "none".
     skill = skill_text(opt, checks) if state != "none" else ""
@@ -2634,14 +2667,7 @@ def _how(opt, computed):
         # Keyed and worked out only while open (T56 I5; binding I15).
         if not fold.open:
             return
-        tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
-        for text in (wording.HOW_MODELS,
-                     wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
-                     wording.how_checks(values=not opt.has_ingredients(),
-                                        total=opt.has_formulation_total()),
-                     wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.HOW_REGRESSION,
-                     wording.how_same_process(values=not opt.has_ingredients()),
-                     wording.HOW_NO_P):
+        for text in how_paragraphs(opt, computed):
             st.markdown(_say(opt, text))
         if computed is None:
             return
@@ -2649,39 +2675,136 @@ def _how(opt, computed):
         skipped = insights.rounds_not_checked(opt)
         if skipped and checks:
             st.caption(_say(opt, wording.rounds_not_checked(skipped)))
-        flagged = insights.disagreeing_repeat(opt, checks)
-        rows = insights.details(opt, checks, computed["fitted"], flagged)
-        if not rows:
+        frame, config = details_frame(opt, computed)
+        if frame is None:
             st.caption(_say(opt, wording.DETAILS_NONE))
             return
         h = insights.headline(opt, checks)
         st.caption(_say(opt, wording.details_window(insights._ordered_rounds(checks),
                                                     len(h.rounds), h.rounds)))
-        columns = wording.DETAILS_COLUMNS_2
-        st.dataframe(pd.DataFrame([{
-            columns[0]: panel_label(opt, r.name),
-            columns[1]: r.checked,
-            columns[2]: r.inside,
-            columns[3]: f"± {_num(r.half_width)}",
-            columns[4]: _num(r.typical_miss),
-            columns[5]: _say(opt, widen_cell(opt, r, checks)),
-            columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out),
-            # Each output's own skill (spec 2026-09-30-bo-views §2.1, I2).
-            wording.SKILL_COLUMN: skill_cell(opt, checks, r.name),
-        } for r in rows]), hide_index=True, height=table_height(len(rows)))
-        # The Overall-score row carries a second factor when its cell is
-        # more than its own fit's factor (the sentence's words are wording's).
-        top = any(r.name == insights.SCORE and r.widen is not None
-                  and widen_cell(opt, r, checks) != wording.widen_text(r.widen)
-                  for r in rows)
-        for text in (wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
-                     wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS,
-                     how_skill_text(),
-                     wording.HOW_EXPECTED_IMPROVEMENT,
-                     wording.why_role_rule(values=not opt.has_ingredients(),
-                                           total=bool(opt.formulation_total))):
-            if text:
-                st.caption(_say(opt, text))
+        st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
+                     column_config=config)
+        for text in how_notes(opt, computed):
+            st.caption(_say(opt, text))
+
+
+def how_paragraphs(opt, computed):
+    """Method and details' paragraphs above the table: the models with the
+    kernel in use (0.8.0 e2e fixes D5), the interval, the checks, the
+    verdict rule with this project's own example (review M11), the noise
+    threshold and the rest. `computed` None: nothing is worked out yet."""
+    cfg = getattr(opt, "bo_config", None) or {}
+    tiny = cfg.get("noise") == "fixed_tiny"
+    verdict = wording.HOW_VERDICT
+    checks = (computed or {}).get("checks")
+    if checks:
+        h = insights.headline(opt, checks)
+        if h.total:
+            verdict = wording.how_verdict(h.total, insights.allowed_misses(h.total))
+    return [wording.how_models(cfg.get("kernel"), cfg.get("noise")),
+            wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
+            wording.how_checks(values=not opt.has_ingredients(),
+                               total=opt.has_formulation_total()),
+            verdict, wording.HOW_NOISE_THRESHOLD, wording.HOW_REGRESSION,
+            wording.how_same_process(values=not opt.has_ingredients()),
+            wording.HOW_NO_P]
+
+
+def _details_rows(opt, computed):
+    checks = computed["checks"]
+    return insights.details(opt, checks, computed["fitted"],
+                            insights.disagreeing_repeat(opt, checks))
+
+
+# The details table's columns, in order (0.8.0 e2e fixes, review B1, B2,
+# M8): the mean error beside the median absolute error, the fitted noise SD
+# last, as context, so Error ÷ Repeat noise and Skill stay in view.
+DETAILS_ORDER = (*wording.DETAILS_COLUMNS_2[:5], wording.MEAN_ERROR_COLUMN,
+                 *wording.DETAILS_COLUMNS_2[5:], wording.SKILL_COLUMN,
+                 wording.FITTED_NOISE_COLUMN)
+
+
+def details_frame(opt, computed, rows=None):
+    """(the details table, its column_config) or (None, {}) with no row.
+    The mean error and fitted noise SD columns (review B1, B2) sit after
+    Skill's neighbours so Error ÷ Repeat noise and Skill stay in view at
+    1280 px; every column is narrow, with its full meaning in its tooltip
+    (D2, review M8: wording.DETAILS_HELP)."""
+    checks = computed["checks"]
+    rows = _details_rows(opt, computed) if rows is None else rows
+    if not rows:
+        return None, {}
+    columns = wording.DETAILS_COLUMNS_2
+    frame = pd.DataFrame([{
+        columns[0]: panel_label(opt, r.name),
+        columns[1]: r.checked,
+        columns[2]: r.inside,
+        columns[3]: f"± {_num(r.half_width)}",
+        columns[4]: _num(r.typical_miss),
+        wording.MEAN_ERROR_COLUMN: mean_error_text(opt, r),
+        columns[5]: _say(opt, widen_cell(opt, r, checks)),
+        columns[6]: wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out),
+        # Each output's own skill (spec 2026-09-30-bo-views §2.1, I2).
+        wording.SKILL_COLUMN: skill_cell(opt, checks, r.name),
+        wording.FITTED_NOISE_COLUMN: fitted_noise_text(opt, r),
+    } for r in rows], columns=list(DETAILS_ORDER))
+    config = {c: st.column_config.Column(_say(opt, c), help=_say(opt, wording.DETAILS_HELP[c]),
+                                         width="small")
+              for c in frame.columns if c in wording.DETAILS_HELP}
+    return frame, config
+
+
+def how_notes(opt, computed, rows=None):
+    """The captions under the details table: how each column is read, the
+    steady bias both ways and what the Round-ahead check cannot see (review
+    B1, M2), the fitted noise as context (B2), skill, the expected
+    improvement and the role rule."""
+    checks = computed["checks"]
+    rows = _details_rows(opt, computed) if rows is None else rows
+    # The Overall-score row carries a second factor when its cell is
+    # more than its own fit's factor (the sentence's words are wording's).
+    top = any(r.name == insights.SCORE and r.widen is not None
+              and widen_cell(opt, r, checks) != wording.widen_text(r.widen)
+              for r in rows)
+    texts = [wording.HOW_WIDENED, wording.HOW_WIDENED_SCORE if top else "",
+             wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS, wording.HOW_BIAS,
+             wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT, wording.HOW_FITTED_NOISE,
+             how_skill_text(settings_only=not insights.has_ingredient_choice(opt)),
+             wording.HOW_EXPECTED_IMPROVEMENT,
+             wording.why_role_rule(values=not opt.has_ingredients(),
+                                   total=bool(opt.formulation_total))]
+    return [t for t in texts if t]
+
+
+def how_texts(opt, computed):
+    """Every paragraph and caption Method and details says, in order, for
+    a check of its words (the table's window line aside)."""
+    out = how_paragraphs(opt, computed)
+    if computed is not None and computed.get("checks"):
+        out += how_notes(opt, computed)
+    return out
+
+
+def mean_error_text(opt, r):
+    """A details row's Mean error cell (review B1): signed, in the Overall
+    score's tenths of a point or the measurement's own decimals (at least
+    one), marked "(bias)" when it is a steady bias; '' without one."""
+    if r.mean_error is None:
+        return ""
+    d = 1 if r.name == insights.SCORE else max(1, decimals(opt, r.name))
+    return wording.mean_error_cell(wording.signed(r.mean_error, d), bias=r.bias)
+
+
+def fitted_noise_text(opt, r):
+    """A details row's Fitted noise SD cell (review B2): the model's own
+    estimate in the output's units, context only; "fixed near zero" under
+    the fixed_tiny model setting; '' without a model."""
+    if r.noise_fixed:
+        return wording.fitted_noise_cell(None)
+    if r.fitted_noise is None:
+        return ""
+    d = 1 if r.name == insights.SCORE else max(1, decimals(opt, r.name))
+    return wording.fitted_noise_cell(f"{r.fitted_noise:.{d}f}")
 
 
 def how_skill_text(settings_only=False):

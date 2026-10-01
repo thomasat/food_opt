@@ -110,10 +110,14 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     # "though" tail on the verdict).
     assert verdict.startswith("Measurements, ") and "though" not in verdict
     line = ui_insights.score_line(opt, checks)
-    # Both halves of the rule, in plain words (re-review R3).
-    assert line == ("Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean "
-                    "error −1.5 points (n = 11). This exceeds the 1-point noise threshold and "
-                    "2 standard errors: new predictions read about 1.5 points high.")
+    # 0.8.0 e2e fixes (review B1, I1): the line names its Rounds; the bias
+    # is said once, as a fact, on the steady-bias line.
+    assert line == ("Overall score, Round 2: 11 of 11 inside their 95 % interval; mean "
+                    "error −1.5 points (measured minus predicted).")
+    # (Firmness's constant +0.1 is steady too: a measurement has no floor
+    # without 3 Repeat pairs, review I2.)
+    assert ui_insights.steady_bias_text(opt, checks).startswith(
+        "Predictions have run high: Overall score by about 1.5 points;")
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
@@ -148,7 +152,7 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
     opt = _patty(rows=6)
     checks = _values(2) + _scores(2, 11, -0.4)
     assert ui_insights.score_line(opt, checks) == (
-        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −0.4 "
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error −0.4 "
         "points (measured minus predicted).")
 
 

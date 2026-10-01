@@ -124,11 +124,15 @@ def test_the_score_record_line_says_which_way():
     assert wording.score_gap_line(8, 8, 0.02).endswith("mean error 0.0 points.")
 
 
-def test_the_headline_carries_the_record_for_its_own_rounds():
+def test_the_headline_carries_the_record_for_every_round_checked():
+    """0.8.0 e2e fixes (review I1): the Overall score's record spans every
+    Round checked, not the verdict's window."""
     opt = _burger(rounds=5, noise=0.3)
     checks = insights.check_rounds(opt)
     h = insights.headline(opt, checks)
-    want = insights.score_record(checks, h.rounds)
+    want = insights.score_record(checks, None)
+    assert want.rounds == insights._ordered_rounds(
+        [c for c in checks if c.name == insights.SCORE])
     assert h.score is not None and h.score.total >= insights.SCORE_RECORD_MIN
     assert h.score == want
     assert not hasattr(wording, "SCORE_BELOW")
@@ -269,9 +273,12 @@ def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project)
     verdict = ui_insights.verdict_text(opt, h, state)
     assert verdict.endswith(" " + wording.wide_line("Firmness and Juiciness")), verdict
     assert verdict in text, text
-    assert wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss,
-                                  ui_insights._beyond(h.score.mean_miss,
-                                                      insights.noise_yardstick(opt))) in text
+    # 0.8.0 e2e fixes (review I1): the line spans every Round checked and
+    # names them; a steady bias is its own line (steady_bias_text).
+    assert wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
+                                  n=h.score.total, rounds=h.score.rounds) in text
+    bias = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
+    assert bias == "" or bias in text
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

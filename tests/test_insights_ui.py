@@ -323,7 +323,7 @@ def test_how_section_default_wording(insights_scored):
     body = " ".join(m.value for m in at.tabs[3].markdown)
     assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
     [frame] = _details_frames(at)
-    assert list(frame.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]
+    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
     assert frame.iloc[-1][wording.DETAILS_COLUMNS_2[0]] == wording.OVERALL_SCORE_COLUMN
 
 
@@ -439,7 +439,7 @@ def _details_frames(at):
     """The details table in "How these insights are made". Question 4's
     table (wave B) is drawn above it, so it is found by its columns."""
     return [d.value for d in at.tabs[3].dataframe
-            if list(d.value.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]]
+            if list(d.value.columns) == list(ui_insights.DETAILS_ORDER)]
 
 
 def _tab_text(at):

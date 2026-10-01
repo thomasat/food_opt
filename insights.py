@@ -526,15 +526,24 @@ def binomial_tail(m, n, p=0.05):
 
 @dataclass
 class ScoreRecord:
-    """How the Overall score's own predictions did in the headline's Rounds:
-    fully measured formulations only (0.8.0 review fixes §3.3, §9 I7)."""
+    """How one output's own predictions did, fully measured formulations
+    only (0.8.0 review fixes §3.3, §9 I7). The headline's is the Overall
+    score's over every Round checked (0.8.0 e2e fixes, review I1)."""
     inside: int
     total: int
     mean_miss: float        # measured minus predicted, on average: < 0 is below
     gap_sd: float | None = None   # the spread of those gaps (sample sd); None for one
+    rounds: list = None     # the Rounds it spans, in order
+    # The standard error of mean_miss with the Round as the unit from
+    # ROUND_UNIT_MIN Rounds (review B1); None: gap_sd / √total is used.
+    se: float | None = None
 
 
 SCORE_RECORD_MIN = 5
+# From this many Rounds checked, a steady bias is judged with each Round's
+# mean error as one value (review B1): a Round's formulations sit close
+# together and share the model's error, so their errors are not independent.
+ROUND_UNIT_MIN = 4
 # A likely range whose typical half-width is over this share of the
 # measurement's Range says little when results land inside it (§3.2, §9 I8).
 WIDE = 0.25
@@ -571,7 +580,9 @@ def headline(opt, checks):
         k += 1
         chosen = rounds[-k:]
     picked = [c for c in values if c.round in chosen]
-    record = score_record(checks, chosen)
+    # The Overall score's own line spans every Round checked (0.8.0 e2e
+    # fixes, review I1), not the verdict's window.
+    record = score_record(checks, score_rounds)
     wide = wide_ranges(opt, [c for c in checks if c.round in chosen])
     if len(picked) < 10:
         return Headline("early", chosen, sum(c.inside for c in picked),
@@ -583,38 +594,107 @@ def headline(opt, checks):
     return Headline("verdict", chosen, inside, len(picked), verdict, record, wide)
 
 
-def score_record(checks, rounds):
-    """The Overall score's checks in `rounds`, fully measured formulations
-    only; None with fewer than SCORE_RECORD_MIN. It replaced the 0.8.0
-    "most came in below" line, which needed 8 in 10 below and almost never
-    showed while the score ran optimistic in 7 checks out of 10."""
-    mine = [c for c in checks if c.name == SCORE and c.round in rounds and c.fully_measured]
+def error_record(checks, name, rounds=None):
+    """How `name`'s Round-ahead predictions did over `rounds` (every Round
+    checked when None), fully measured formulations only; None with fewer
+    than SCORE_RECORD_MIN. Its standard error takes each Round's mean error
+    as one value from ROUND_UNIT_MIN Rounds, else each value (review B1)."""
+    mine = [c for c in checks if c.name == name and c.fully_measured
+            and (rounds is None or c.round in rounds)]
     if len(mine) < SCORE_RECORD_MIN:
         return None
     gaps = [c.measured - c.predicted for c in mine]
-    return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps),
-                       statistics.stdev(gaps) if len(gaps) > 1 else None)
+    sd = statistics.stdev(gaps) if len(gaps) > 1 else None
+    order = _ordered_rounds(mine)
+    if len(order) >= ROUND_UNIT_MIN:
+        means = [statistics.fmean(c.measured - c.predicted for c in mine if c.round == r)
+                 for r in order]
+        se = statistics.stdev(means) / math.sqrt(len(means))
+    else:
+        se = None if sd is None else sd / math.sqrt(len(gaps))
+    return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps), sd,
+                       order, se)
+
+
+def score_record(checks, rounds):
+    """The Overall score's checks in `rounds` (every Round checked when
+    None), fully measured formulations only; None with fewer than
+    SCORE_RECORD_MIN. It replaced the 0.8.0 "most came in below" line,
+    which needed 8 in 10 below and almost never showed while the score ran
+    optimistic in 7 checks out of 10."""
+    return error_record(checks, SCORE, rounds)
 
 
 def bias_gap(record, yardstick):
-    """The Overall score's average gap when it is a bias worth saying, else
-    None (answer-key read-through: one rule for Insights and Make a round).
-    It must be more than `yardstick` (how much Repeats differ, 1 point
-    without them) AND clear of noise: more than 2 x sd / sqrt(n) of the
-    gaps themselves, so a few large misses either way are not a bias."""
+    """The average gap when it is a steady bias, else None (answer-key
+    read-through: one rule for Insights and Make a round; review B1). It
+    must be more than `yardstick` (the noise threshold: how much Repeats
+    differ, 1 point without them for the Overall score; 0 for a measurement
+    with no Repeat SD, so no floor) AND more than 2 standard errors: the
+    record's Round-unit one (record.se), else 2 x sd / sqrt(n) of the gaps,
+    so a few large misses, or one off Round, are not a bias."""
     if record is None or yardstick is None or abs(record.mean_miss) <= yardstick:
         return None
-    if record.gap_sd is not None and abs(record.mean_miss) <= (
-            2 * record.gap_sd / math.sqrt(record.total)):
+    se = getattr(record, "se", None)
+    if se is None and record.gap_sd is not None:
+        se = record.gap_sd / math.sqrt(record.total)
+    if se is not None and abs(record.mean_miss) <= 2 * se:
         return None
     return record.mean_miss
 
 
 def score_bias(opt, checks, h=None, yard=None):
-    """bias_gap for the Overall score's record in the verdict's Rounds."""
+    """bias_gap for the Overall score's record over every Round checked."""
     h = headline(opt, checks) if h is None else h
     yard = noise_yardstick(opt, checks) if yard is None else yard
     return bias_gap(h.score, yard.value)
+
+
+@dataclass
+class Bias:
+    """One output's steady bias (review B1): measured minus predicted on
+    average over `rounds`; below 0, predictions ran high."""
+    name: str
+    mean: float
+    rounds: list
+    record: ScoreRecord = None
+
+
+def _noise_floor(opt, name, matches=None, without=()):
+    """The noise threshold of `name` for the bias rule (review I2): the
+    Repeat SD from YARDSTICK_PAIRS pairs (at least REPEAT_SD_SHOWN), else 1
+    point for the Overall score and no floor (0) for a measurement."""
+    spread = repeat_sd(opt, name, matches, without)
+    if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
+            and spread.pairs >= YARDSTICK_PAIRS):
+        return spread.sd
+    return 1.0 if name == SCORE else 0.0
+
+
+def steady_bias(opt, checks, flagged=None):
+    """Every output whose predictions ran steadily high or low over every
+    Round checked (review B1): bias_gap of its error_record against its
+    noise floor, a disagreeing Repeat left out of the Repeat SD. The Overall
+    score first, then the measurements in Results' order. A fact for one
+    line, never advice: a steady bias is the model's (its optimism at its
+    own maximum, or its mean shrinking towards the average), not the
+    bench's. `flagged`: disagreeing_repeat's answer when the caller has it."""
+    if not checks:
+        return []
+    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
+    without = () if not flagged else (flagged.row,)
+    out, matches = [], None
+    for name in [SCORE] + [o['name'] for o in opt.measurements_by_importance()]:
+        record = error_record(checks, name)
+        if record is None:
+            continue
+        if matches is None:
+            matches = _matches(opt, [i for i in range(len(opt.Y_history))
+                                     if opt.fully_measured(i)])
+        gap = bias_gap(record, _noise_floor(opt, name, matches, without))
+        if gap is not None:
+            out.append(Bias(name, gap, list(record.rounds), record))
+    return out
 
 
 def wide_ranges(opt, checks):
@@ -642,6 +722,14 @@ class DetailRow:
     widen: float | None = None  # the current fit's widening; None without a model
     pairs: int = 0              # pairs of Repeats repeat_sd rests on
     left_out: int = 0           # pairs left out because a Repeat disagreed
+    # 0.8.0 e2e fixes (review B1, B2): the mean error over every Round
+    # checked (None without a fully measured check) and whether it is a
+    # steady bias; the model's fitted noise sd in the output's units, as
+    # context (None without one), and whether the noise is fixed instead.
+    mean_error: float | None = None
+    bias: bool = False
+    fitted_noise: float | None = None
+    noise_fixed: bool = False
 
 
 # The median absolute value of a standard normal: a typical miss (a median)
@@ -658,9 +746,12 @@ def details(opt, checks, fitted=None, flagged=None):
     like with like (spec 2026-09-30 review M6). `fitted`: the current
     models, for the "Likely range widened by" column (review M5).
     `flagged`: disagreeing_repeat's answer, left out of every output's
-    Repeats (review I4)."""
+    Repeats (review I4). Each row also carries its mean error over every
+    Round checked, whether that is a steady bias (steady_bias's rule), and
+    the model's fitted noise sd (0.8.0 e2e fixes, review B1, B2)."""
     rows = []
     matches = None
+    tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
     ordered = [o['name'] for o in opt.measurements_by_importance()] + [SCORE]
     for name in ordered:
         mine = [c for c in checks if c.name == name]
@@ -677,13 +768,21 @@ def details(opt, checks, fitted=None, flagged=None):
                     else repeat_sd(opt, name, matches).pairs - spread.pairs)
         sd = spread.sd
         f = (fitted or {}).get(name)
+        full = [c.measured - c.predicted for c in mine if c.fully_measured]
+        floor = (spread.sd if spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
+                 and spread.pairs >= YARDSTICK_PAIRS else 1.0 if name == SCORE else 0.0)
+        gp = f.model if f is not None else None
+        noise = None if gp is None or tiny else fitted_noise_sd(gp)
         rows.append(DetailRow(
             name, len(mine), sum(c.inside for c in mine),
             statistics.median((c.high - c.low) / 2 for c in mine), miss,
             # sd 0: the Repeats agreed exactly, and there is no ratio.
             sd, None if not sd else miss / (MAD_OF_NORMAL * sd),
             f.widen if f is not None and f.model is not None else None, spread.pairs,
-            left_out))
+            left_out,
+            mean_error=statistics.fmean(full) if full else None,
+            bias=bias_gap(error_record(checks, name), floor) is not None,
+            fitted_noise=noise, noise_fixed=gp is not None and noise is None))
     return rows
 
 
@@ -2077,7 +2176,8 @@ class RoundTrack:
 
 def round_track(opt, checks):
     """Make a round's line under its table, from the Overall score's own
-    record in the verdict's Rounds (review I16): rough only when fewer
+    record over every Round checked (review I16; 0.8.0 e2e fixes, review
+    I1): rough only when fewer
     landed inside than 1 in 20 misses explains (binomial tail under 0.10);
     the gap when it is a bias by Insights' own rule (bias_gap), so the two
     screens say one thing (answer-key read-through); holding otherwise. None — no line — without a record (fewer than
@@ -2105,8 +2205,9 @@ def round_track(opt, checks):
         return RoundTrack(False, 0, 0, None, state == "unreliable", no_skill,
                           list(h.rounds), record=False)
     rough = binomial_tail(record.total - record.inside, record.total) < 0.10
+    # The record's own Rounds, every Round checked (0.8.0 e2e fixes, I1).
     return RoundTrack(rough, record.inside, record.total, score_bias(opt, checks, h),
-                      state == "unreliable", no_skill, list(h.rounds))
+                      state == "unreliable", no_skill, list(record.rounds or h.rounds))
 
 
 # ------------------------------------------------------------------ #

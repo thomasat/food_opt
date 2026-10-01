@@ -1,0 +1,252 @@
+"""W1 of the 0.8.0 e2e fixes (spec 2026-10-01-e2e-fixes-design.md rev. 2;
+research/2026-10-01-e2e/spec-review.md, rulings B1, B2, I1, I2, I4, I5,
+I6, I7, I13, D4): Insights' logic and text.
+
+- B1: a steady bias, per output, over every Round checked, with the Round
+  as the unit from 4 Rounds; said once as a fact; never "check" advice. The
+  "check" sentence comes only from a disagreeing Repeat, conditionally.
+- B2: the noise threshold is unchanged; below 3 pairs it is said to be
+  assumed, and Next step asks for a Repeat of Best so far.
+- I2: Next step's order is repeat, unreliable, early, no_skill, the rest.
+- I4: ingredient-effect claims need 10 Overall-score checks and skill 0.20.
+- I13: the Repeat SD says its degrees of freedom.
+
+The pins on the campaign's own projects (tests/e2e_fixtures.py) and the
+demo projects come last; they fit models, so they are slow."""
+import math
+from types import SimpleNamespace
+
+import pytest
+
+import insights
+import ui_insights
+import wording
+from tests.test_complete_results import _patty
+from tests.test_food_bo import _BANNED
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+
+def _check(name, rnd, no, measured, predicted=50.0, sd=1.0, full=True):
+    low, high = predicted - insights.Z95 * sd, predicted + insights.Z95 * sd
+    return insights.Check(no, rnd, name, predicted, low, high, measured,
+                          low <= measured <= high, full, predicted, sd)
+
+
+def _errors(name, by_round, predicted=50.0, sd=5.0, no=100):
+    """Checks of `name` with the given errors (measured − predicted), one
+    list per Round, Rounds numbered from 2."""
+    out = []
+    for r, errors in enumerate(by_round, start=2):
+        for k, e in enumerate(errors):
+            out.append(_check(name, r, no + 10 * r + k, predicted + e, predicted, sd))
+    return out
+
+
+def _repeat_of(opt, src, dst):
+    opt.recipe_history[dst] = dict(opt.recipe_history[src])
+    opt.X_history[dst] = list(opt.X_history[src])
+
+
+def _clean(*texts):
+    for t in texts:
+        assert not any(p.search(t) for p in _BANNED), t
+
+
+# ------------------------------------------------------------------ #
+#  B1: the error record, with the Round as the unit from 4 Rounds
+# ------------------------------------------------------------------ #
+
+def test_the_score_record_spans_every_round_checked():
+    """Overrides I1: the Overall score's line, mean error and steady bias use
+    every Round checked, not the verdict's last 3, and name their Rounds."""
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.1] * 10] * 5, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0] * 3, [-4.0] * 3, [0.0] * 3, [0.0] * 3,
+                                         [0.0] * 3]))
+    h = insights.headline(opt, checks)
+    assert h.rounds == [4, 5, 6]
+    assert h.score.rounds == [2, 3, 4, 5, 6]
+    assert (h.score.total, h.score.mean_miss) == (15, pytest.approx(-1.6))
+
+
+def test_from_four_rounds_the_round_is_the_unit_of_the_standard_error():
+    """Ruling B1: a Round's formulations share the model's error, so its mean
+    counts once: the SE is the spread of the Round means ÷ √Rounds."""
+    four = _errors(insights.SCORE, [[-3.0, -3.2, -2.8], [-1.0, -1.1, -0.9],
+                                    [-5.0, -5.1, -4.9], [-3.0, -3.1, -2.9]])
+    rec = insights.error_record(four, insights.SCORE)
+    means = [-3.0, -1.0, -5.0, -3.0]
+    assert rec.se == pytest.approx(__import__("statistics").stdev(means) / 2)
+    three = four[:9]
+    rec3 = insights.error_record(three, insights.SCORE)
+    gaps = [c.measured - c.predicted for c in three]
+    assert rec3.se == pytest.approx(__import__("statistics").stdev(gaps) / 3)
+
+
+def test_a_steady_bias_needs_the_threshold_and_two_round_unit_standard_errors():
+    """Within-Round values agree closely, so the value SE is tiny; but the
+    Round means swing, so with the Round as the unit it is not a bias."""
+    swinging = _errors(insights.SCORE, [[-6.0] * 3, [2.0] * 3, [-7.0] * 3, [1.0] * 3])
+    assert insights.bias_gap(insights.error_record(swinging, insights.SCORE), 1.0) is None
+    steady = _errors(insights.SCORE, [[-3.0] * 3, [-3.5] * 3, [-2.5] * 3, [-3.2] * 3])
+    assert insights.bias_gap(insights.error_record(steady, insights.SCORE),
+                             1.0) == pytest.approx(-3.05)
+
+
+def test_the_bias_rule_still_reads_a_record_with_no_round_se():
+    rec = insights.ScoreRecord(11, 11, -1.1, 1.36)
+    assert insights.bias_gap(rec, 1.0) == pytest.approx(-1.1)
+    assert insights.bias_gap(insights.ScoreRecord(11, 11, -1.1, 3.0), 1.0) is None
+
+
+def test_steady_bias_is_per_output_and_a_measurement_has_no_floor_without_repeats():
+    """Ruling I2: a measurement's floor is its Repeat SD from 3 pairs, else
+    none (2 SE alone). The Overall score keeps the noise threshold."""
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
+              + _errors("Juiciness", [[0.0, 0.1, -0.1]] * 2, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-0.8, -0.9, -0.7]] * 2))
+    found = insights.steady_bias(opt, checks)
+    # Firmness +0.4 is a bias with no floor; the score's −0.8 is under 1 point.
+    assert [(b.name, round(b.mean, 2), b.rounds) for b in found] == [("Firmness", 0.4, [2, 3])]
+
+
+def test_steady_bias_lists_the_overall_score_first():
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 2))
+    assert [b.name for b in insights.steady_bias(opt, checks)] == [insights.SCORE, "Firmness"]
+
+
+def test_the_steady_bias_line_names_every_biased_output_once():
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
+              + _errors("Juiciness", [[-0.6, -0.62, -0.58]] * 2, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 2))
+    line = ui_insights.steady_bias_text(opt, checks)
+    assert line == wording.steady_bias_line(
+        high=[wording.bias_item(wording.OVERALL_SCORE_COLUMN, "4.0"),
+              wording.bias_item("Juiciness", "0.6", "")],
+        low=[wording.bias_item("Firmness", "0.4", "")], rounds=[2, 3])
+    assert "check" not in line.lower()
+    _clean(line)
+
+
+def test_no_steady_bias_no_line():
+    opt = _patty(rows=6)
+    assert ui_insights.steady_bias_text(opt, _errors(insights.SCORE, [[0.1, -0.1, 0.0]] * 2)) == ""
+
+
+def test_the_score_line_names_its_rounds_and_leaves_the_bias_to_its_own_line():
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.1] * 10] * 3, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 3))
+    line = ui_insights.score_line(opt, checks)
+    assert line == wording.score_gap_line(9, 9, -4.0, "", n=9, rounds=[2, 3, 4])
+    assert line.startswith("Overall score, Rounds 2–4: ") and "read about" not in line
+
+
+def test_make_a_rounds_track_line_names_every_round_checked():
+    """Overrides I1 (speed review I16): the track line is the Overall score's
+    record over every Round checked, so it names those Rounds."""
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, -0.4] * 5] * 5, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 5))
+    t = insights.round_track(opt, checks)
+    assert t.rounds == [2, 3, 4, 5, 6] and t.total == 15
+    assert t.gap == pytest.approx(-4.0)
+    assert ui_insights.track_text(t).startswith("Overall score, Rounds 2–6: 15 of 15")
+
+
+# ------------------------------------------------------------------ #
+#  B1, B2: Method and details' Mean error and Fitted noise SD columns
+# ------------------------------------------------------------------ #
+
+class _Gp:
+    """A display model whose fitted noise sd is `sd` in the output's units."""
+    def __init__(self, sd):
+        import torch
+        self.likelihood = SimpleNamespace(noise=torch.tensor([sd ** 2]))
+        self.outcome_transform = SimpleNamespace(stdvs=torch.tensor([1.0]))
+
+
+def test_details_carry_each_outputs_mean_error_and_its_bias():
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
+              + _errors("Juiciness", [[0.3, -0.5, 0.1]] * 2, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 2))
+    rows = {r.name: r for r in insights.details(opt, checks)}
+    assert rows["Firmness"].mean_error == pytest.approx(0.4) and rows["Firmness"].bias
+    assert rows["Juiciness"].mean_error == pytest.approx(-0.0333, abs=1e-3)
+    assert not rows["Juiciness"].bias
+    assert rows[insights.SCORE].mean_error == pytest.approx(-4.0) and rows[insights.SCORE].bias
+
+
+def test_details_carry_the_fitted_noise_sd_or_say_it_is_fixed():
+    opt = _patty(rows=6)
+    checks = _errors(insights.SCORE, [[0.1, -0.1, 0.0]] * 2)
+    fitted = {insights.SCORE: insights.Fitted(insights.SCORE, _Gp(1.3), None, 6, 0.0, 100.0)}
+    [row] = insights.details(opt, checks, fitted)
+    assert row.fitted_noise == pytest.approx(1.3) and not row.noise_fixed
+    opt.bo_config = {"kernel": "rbf", "noise": "fixed_tiny"}
+    [row] = insights.details(opt, checks, fitted)
+    assert row.fitted_noise is None and row.noise_fixed
+
+
+def test_the_details_cells_say_the_mean_error_signed_and_the_noise_in_units():
+    opt = _patty(rows=6)
+    row = insights.DetailRow(insights.SCORE, 6, 6, 9.0, 4.0, None, None, mean_error=-4.04,
+                             bias=True, fitted_noise=1.234)
+    assert ui_insights.mean_error_text(opt, row) == "−4.0 (bias)"
+    assert ui_insights.fitted_noise_text(opt, row) == "1.2"
+    firm = insights.DetailRow("Firmness", 6, 6, 0.9, 0.4, None, None, mean_error=0.04)
+    assert ui_insights.mean_error_text(opt, firm) == "0.0"
+    assert ui_insights.fitted_noise_text(opt, firm) == ""
+    fixed = insights.DetailRow("Firmness", 6, 6, 0.9, 0.4, None, None, noise_fixed=True)
+    assert ui_insights.fitted_noise_text(opt, fixed) == wording.FITTED_NOISE_FIXED
+
+
+def _computed(opt, checks, fitted=None):
+    return {"checks": checks, "fitted": fitted or {}}
+
+
+def test_the_details_table_has_mean_error_and_fitted_noise_columns_with_help():
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 2))
+    frame, config = ui_insights.details_frame(opt, _computed(opt, checks))
+    cols = list(frame.columns)
+    assert wording.MEAN_ERROR_COLUMN in cols and wording.FITTED_NOISE_COLUMN in cols
+    # D2: Error ÷ Repeat noise and Skill stay ahead of the context column.
+    assert cols.index(wording.SKILL_COLUMN) < cols.index(wording.FITTED_NOISE_COLUMN)
+    score = frame[frame[cols[0]] == ui_insights.panel_label(opt, insights.SCORE)].iloc[0]
+    assert score[wording.MEAN_ERROR_COLUMN] == "−4.0 (bias)"
+    # D2 (review M8): every column has its tooltip, the long words there.
+    for col in cols[1:]:
+        assert col in config, col
+
+
+def test_method_and_details_says_the_bias_both_ways_and_what_checks_cannot_see():
+    """Ruling B1 / M2: the bias note runs both ways, and the limit sentence:
+    a change at the bench is learned from its first Round on. B2: the
+    fitted noise is context. D5: the chosen kernel; M11: this project's
+    verdict example."""
+    opt = _patty(rows=6)
+    checks = (_errors("Firmness", [[0.4, -0.4] * 5] * 3, predicted=5.0, sd=0.5)
+              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 3))
+    texts = ui_insights.how_texts(opt, _computed(opt, checks))
+    for want in (wording.HOW_BIAS, wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT,
+                 wording.HOW_FITTED_NOISE, wording.how_models(),
+                 wording.how_verdict(30, insights.allowed_misses(30))):
+        assert want in texts, want
+    opt.bo_config = {"kernel": "matern52", "noise": "fixed_tiny"}
+    texts = ui_insights.how_texts(opt, _computed(opt, checks))
+    assert wording.how_models("matern52", "fixed_tiny") in texts
+    assert wording.HOW_RANGE_FIXED_TINY in texts
+    # Before anything is worked out: the paragraphs that need no checks.
+    assert wording.HOW_VERDICT in ui_insights.how_texts(opt, None)
+    _clean(*texts)

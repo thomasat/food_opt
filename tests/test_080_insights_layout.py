@@ -299,7 +299,8 @@ def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored)
     assert wording.rounds_not_checked([1, 2]) in said
     assert wording.details_window([3], 1, [3]) in said
     frame = how.dataframe[0].value
-    assert list(frame.columns) == [*wording.DETAILS_COLUMNS_2, wording.SKILL_COLUMN]
+    # 0.8.0 e2e fixes (review B1, B2): Mean error and Fitted noise SD.
+    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
     assert all(v == "" or v.startswith("×") for v in frame[wording.DETAILS_COLUMNS_2[5]])
     assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "under 3 pairs"}
     for line in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
