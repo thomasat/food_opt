@@ -387,3 +387,19 @@ def test_generate_after_a_round_keeps_its_count(open_batch):
     _submit_button(at, wording.SAVE_RESULTS).click().run()
     assert FoodOptimizer("burger").pending_batch is None
     assert at.number_input(key="how_many").value == 4
+
+
+# ------------------------------------------------------------------ #
+#  02 M6: the line beside Save results cannot be read as saving
+# ------------------------------------------------------------------ #
+
+def test_the_draft_line_is_not_a_second_save():
+    line = wording.RESULT_DRAFT_SAVED
+    assert "saved" not in line.lower()
+    assert wording.SAVE_RESULTS in line and "not recorded" in line
+
+
+def test_the_draft_line_shows_under_typed_values(open_batch):
+    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
+    at.number_input(key='f1_Firmness').set_value(6).run()
+    assert wording.RESULT_DRAFT_SAVED in [c.value for c in at.caption]

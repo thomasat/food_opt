@@ -3558,7 +3558,10 @@ def premix_needs_parts(name, here=False):
     return f"Add at least one {PART_LABEL.lower()} to {name} {where} before making a {ROUND_CAP}."
 
 
-RESULT_DRAFT_SAVED = "Measurements and notes are saved as you type."
+# 02 M6: beside Save results, "saved as you type" read as a second Save.
+# The values are kept on this computer and are not results until recorded.
+RESULT_DRAFT_SAVED = ("Typed values are kept if you leave this tab, but are not recorded "
+                      f"until you click {SAVE_RESULTS}.")
 SAVE_RESULTS_HELP = "Saves completed results. Unfinished formulations remain open."
 UPLOAD_AMOUNTS_HEADING = "Amounts from the file"
 UPLOAD_LOTS_HEADING = "Lot numbers from the file"
