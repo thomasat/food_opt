@@ -687,7 +687,24 @@ def next_optimum(opt, model):
     point decoded, snapped and stepped as ask() issues it and valued at the
     total, as the Why fold values pick 1. In this process, inside
     insights._isolated: the global RNG never moves. Raises if the search
-    fails (the caller falls back to the pool)."""
+    fails (the caller falls back to the pool).
+
+    Kept in this process's output cache, keyed by the model and the setup
+    (answer-key refresh item 2): a page rerun can leave the run that
+    started the search finishing in its own thread, with its session-state
+    write dropped; its answer still serves the next run."""
+    key = insights._digest({"next_optimum": _key(opt, model, torch.zeros(0), None),
+                            "setup": insights.setup_key(opt)})
+    with _CACHE_LOCK:
+        if key in _CACHE:
+            _CACHE.move_to_end(key)
+            return _CACHE[key]
+    value = _next_optimum_here(opt, model)
+    _remember(key, value)
+    return value
+
+
+def _next_optimum_here(opt, model):
     from botorch.optim import optimize_acqf
     from botorch.utils.transforms import unnormalize
     dim = model.X.shape[-1]

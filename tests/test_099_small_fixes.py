@@ -258,3 +258,68 @@ def test_without_workers_the_open_fold_works_out_its_own_checks():
     captions = [c.value for c in _fold(at).caption]
     assert wording.why_guard_line(verdict=True) in captions
     assert all(wording.ROLE not in cols for cols in _columns(at))
+
+
+# ------------------------------------------------------------------ #
+#  4. The next Round's figure never holds up the first answers (item 2)
+# ------------------------------------------------------------------ #
+
+def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
+    """Insights draws the Prediction check and Best so far's lines before
+    the next Round's expected improvement is calculated (about 1.5 s at
+    60 x 4), so the first answers never wait for it."""
+    opt = _burger(rounds=5, noise=0.6)
+    order = []
+    real_trust, real_gain = ui_insights._trust, ui_insights.latest_gain
+    monkeypatch.setattr(ui_insights, "_trust",
+                        lambda *a, **k: order.append("verdict") or real_trust(*a, **k))
+    monkeypatch.setattr(ui_insights, "latest_gain",
+                        lambda *a, **k: order.append("gain") or real_gain(*a, **k))
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.session_state["_loaded_project"] = opt.project_name
+    at.run()
+    _rerun(at, wording.TAB_INSIGHTS)
+    assert "verdict" in order and "gain" in order
+    assert order.index("verdict") < order.index("gain")
+
+
+def test_while_the_workers_fit_the_figure_is_worked_out_after_the_page(monkeypatch):
+    """Right after launch the workers are still fitting the Overall score's
+    models: the app's process would only wait, so keep_up works out the
+    next Round's figure then, after the page is drawn, and the answers
+    find it ready when the models land."""
+    _workers(monkeypatch, _Stuck())
+    opt = _burger(rounds=5, noise=0.6)
+    calls = []
+    monkeypatch.setattr(ui_insights, "warm_gain", lambda o: calls.append(o.project_name))
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.session_state["_loaded_project"] = opt.project_name
+    at.run()
+    assert not at.exception
+    assert opt.project_name in calls
+
+
+def test_a_search_left_running_by_a_rerun_still_serves_the_next_run(monkeypatch):
+    """A click reruns the page while the first run is still in the search
+    (Streamlit lets it finish in its own thread, its session-state write
+    dropped): the next run takes its answer from the process's cache, and a
+    run that only warms the figure never queues behind it."""
+    opt = demo.load(demo.TIMING)
+    searches = []
+    real = bo_views._next_optimum_here
+    monkeypatch.setattr(bo_views, "_next_optimum_here",
+                        lambda *a: searches.append(1) or real(*a))
+    model = bo_views.next_model(opt)
+    first = bo_views.next_optimum(opt, model)
+    again = bo_views.next_optimum(opt, bo_views.next_model(opt))
+    assert searches == [1] and again == first
+
+    from types import SimpleNamespace
+    state = {}
+    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(session_state=state))
+    monkeypatch.setattr(ui_insights, "memo", lambda o: {})
+    key = ui_insights._gain_key(opt)
+    import threading
+    monkeypatch.setitem(ui_insights._GAIN_RUNS, key, threading.Event())   # another run's
+    assert ui_insights.latest_gain(opt, wait=False) is None
+    assert ui_insights.GAIN_KEY not in state and searches == [1]

@@ -3,6 +3,7 @@ and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import contextlib
 import itertools
 import math
+import threading
 
 import altair as alt
 import pandas as pd
@@ -534,15 +535,16 @@ def warm_best(opt):
 
 def warm_gain(opt):
     """§3.2's next-Round figure (ask()'s own first-pick search, about 1.5 s
-    at 60 x 4) worked out after the page is drawn, with the predicted
-    best, so neither Insights nor Make a round's E3 waits on it (final
-    review I-1). Once per _gain_key; only with no Round open."""
+    at 60 x 4) worked out after the page is drawn, so neither Insights nor
+    Make a round's E3 waits on it (final review I-1). Once per _gain_key;
+    only with no Round open; nothing while another run of this app is
+    already working it out (it never waits for that run)."""
     if opt is None or opt.pending_batch or opt.complete_count() < insights.MIN_ROWS:
         return
     hit = st.session_state.get(GAIN_KEY)
     if hit and hit[0] == _gain_key(opt):
         return
-    latest_gain(opt)
+    latest_gain(opt, wait=False)
 
 
 def fits_here(opt):
@@ -627,12 +629,19 @@ def _catch_up(opt):
     conditioning only, about a second in all — and write it beside the
     project. Never a fit: when the workers fail, what is missing is fitted
     by the screen that shows it, behind its own indicator (Plan A review C
-    I-1). Only with workers; in a script run of this session."""
+    I-1). Only with workers; in a script run of this session.
+
+    The next Round's expected improvement (warm_gain, about 1.5 s at
+    60 x 4) needs no display model: it is worked out at once, while the
+    workers are still fitting the Overall score's models — time this
+    process would only wait — so the predicted best and the first answers
+    never queue behind it (answer-key refresh item 2: 5.0 s to the first
+    answer right after launch at 60 x 4)."""
     if not insights_jobs.workers_on():
         return
     if _in_memo(opt, "column"):
         warm_best(opt)
-        warm_gain(opt)
+    warm_gain(opt)
     if _in_memo(opt, "all") and _cached(opt) is None:
         _computed(opt, quiet=True)
         save(opt)
@@ -779,6 +788,14 @@ def render(opt):
     h = insights.headline(opt, checks)
     yard = insights.noise_yardstick(opt, checks)
     _restate(opt, lines, first_yard, yard)
+    with trust:
+        _question(opt, wording.Q_TRUST)
+        # The disagreeing Repeat is said once: here, unless "What to do
+        # next" already says it. Drawn first: answer 1 never waits for the
+        # predicted best or the expected improvement, and whether Next step
+        # is the Repeat row does not depend on either (item 2).
+        _trust(opt, computed, h, yard,
+               repeat=insights.next_step(opt, checks, None).kind != "repeat")
     with rest:
         # The bar, when it showed, stays up through the predicted best's
         # search: one indicator per wait (V28, Plan A review C M-2).
@@ -789,11 +806,6 @@ def render(opt):
         step = insights.next_step(opt, checks, standing, gain=shown_gain(
             opt, computed["fitted"].get(insights.SCORE), checks))
         change = _next_step(opt, step)
-    with trust:
-        _question(opt, wording.Q_TRUST)
-        # The disagreeing Repeat is said once: here, unless "What to do
-        # next" already says it.
-        _trust(opt, computed, h, yard, repeat=step.kind != "repeat")
     with below:
         _setup_button(change)
     # The folds, collapsed (§2.5), each with a key of its own.
@@ -829,6 +841,11 @@ def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
     yard = insights.noise_yardstick(opt, checks)
     _restate(opt, lines, first_yard, yard)
     step = insights.next_step(opt, checks, None)
+    # Answer 1 first (item 2): the Repeat row does not depend on answers 2-3.
+    with trust:
+        _question(opt, wording.Q_TRUST)
+        _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
+               yard, repeat=step.kind != "repeat")
     if not waiting(opt, "stand"):
         with insights.memo_in_use(mem):
             score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
@@ -842,10 +859,6 @@ def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
             change = _next_step(opt, step)
         with below:
             _setup_button(change)
-    with trust:
-        _question(opt, wording.Q_TRUST)
-        _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
-               yard, repeat=step.kind != "repeat")
 
 
 def _foot(opt):
@@ -1767,14 +1780,24 @@ def _gain_needs_no_fit(opt, mem):
     return insights.model_key(opt, insights.SCORE, use) in mem
 
 
-def latest_gain(opt, fit=True):
+# _gain_key -> threading.Event, set once that figure is stored: a page
+# rerun while an earlier run of the session still works the figure out
+# (Streamlit lets the earlier run finish in its own thread) waits for it,
+# or skips it, instead of a second search queued behind the first on
+# RNG_LOCK (answer-key refresh item 2: 3.8 s in the second run).
+_GAIN_RUNS = {}
+_GAIN_RUNS_LOCK = threading.Lock()
+
+
+def latest_gain(opt, fit=True, wait=True):
     """§3.2's figure once per _gain_key (the data, the open Round and its
     record): the open Round's own (bo_views.latest_gain); with no Round
     open, the next Round's from today's rows (bo_views.next_gain under
     bo_views.next_model, the default fit ask() makes, final review I-1),
     worked out here under the lock. `fit`
     False (Make a round's E3): only what is already worked out; None, not
-    stored, otherwise."""
+    stored, otherwise. While another run works the same figure out:
+    `wait` (a screen that shows it) waits for that run's answer; else None."""
     key = _gain_key(opt)
     hit = st.session_state.get(GAIN_KEY)
     if hit and hit[0] == key:
@@ -1782,15 +1805,35 @@ def latest_gain(opt, fit=True):
     mem = memo(opt)
     if not fit and not _gain_needs_no_fit(opt, mem):
         return None
+    with _GAIN_RUNS_LOCK:
+        running = _GAIN_RUNS.get(key)
+        if running is None:
+            _GAIN_RUNS[key] = done = threading.Event()
+    if running is not None:
+        if not wait:
+            return None
+        running.wait()
+        hit = st.session_state.get(GAIN_KEY)
+        if hit and hit[0] == key:
+            return hit[1]
+        # Its write did not land in this session (another session's run, or
+        # one Streamlit had stopped): again here, its search from the cache.
+        return latest_gain(opt, fit, wait)
     try:
-        with insights.memo_in_use(mem):
-            if opt.pending_batch and opt.pending_batch_no is not None:
-                g = bo_views.latest_gain(opt)
-            else:
-                g = bo_views.next_gain(opt, bo_views.next_model(opt))
-    except Exception:
-        g = None
-    st.session_state[GAIN_KEY] = (key, g)
+        try:
+            with insights.memo_in_use(mem):
+                if opt.pending_batch and opt.pending_batch_no is not None:
+                    g = bo_views.latest_gain(opt)
+                else:
+                    g = bo_views.next_gain(opt, bo_views.next_model(opt))
+        except Exception:
+            g = None
+        st.session_state[GAIN_KEY] = (key, g)
+    finally:
+        # Stored first, then the runs waiting for it are let go.
+        with _GAIN_RUNS_LOCK:
+            _GAIN_RUNS.pop(key, None)
+        done.set()
     return g
 
 
