@@ -315,9 +315,10 @@ def _tie_partner(opt, best):
     """The row Best so far (row `best`) is compared with for a tie: the next
     highest DIFFERENT formulation — a Repeat of it is the same make-up,
     never a tie (Plan B parked item). The line and the flash both ask
-    here, so they never disagree (re-review R-2). None without one."""
-    ranked = sorted(opt.best_candidates(), key=lambda i: float(opt.Y_history[i]), reverse=True)
-    return next((i for i in ranked if i != best and not _same_formulation(opt, best, i)), None)
+    here, so they never disagree (re-review R-2). None without one. The
+    rule is insights.tie_partner's, which Insights asks too (ftue review
+    R-I9)."""
+    return insights.tie_partner(opt, best)
 
 
 def _same_formulation(opt, i, j):

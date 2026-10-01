@@ -981,7 +981,11 @@ def next_step(opt, checks, standing=None, gain=None):
     # Review I4: while the A3 gate withholds effect claims, the rows that
     # cite the model's predicted best (untested, close, explore) fall
     # through to rising or see.
-    if standing is not None and skill_gate(opt, checks, fact) is None:
+    # Ftue review R-I11 (display only): under More misses than expected the
+    # record does not back the predicted best either, so they fall through
+    # too.
+    if (standing is not None and state != "caution"
+            and skill_gate(opt, checks, fact) is None):
         if standing.higher and not standing.tested_near:
             return NextStep("untested")
         if (not standing.higher and answer is not None
@@ -1040,6 +1044,15 @@ class StatusFacts:
     tie: int | None = None                       # row of an equal-score runner-up (R-I9)
     luck: bool = False                           # said at level 0 only when Reliable
     next: object = None                          # NextStep, or None at the gate
+    # W1: the Overall-score checks the skill gate counts (row 4 says them:
+    # formulations, never the verdict's values; review B1).
+    checked: int = 0
+    # W1 (R-I9): the predicted Repeat of Best so far the luck clause names,
+    # points; None when luck is not said.
+    luck_repeat: float | None = None
+    # W1 (R-I8): the lines whose facts are still being worked out while the
+    # workers fit ("progress", "next"): their places keep their captions.
+    pending: tuple = ()
 
     @property
     def predictions(self):
@@ -1047,20 +1060,117 @@ class StatusFacts:
         return PREDICTION_STATUS.get(self.prediction_row)
 
 
+def prediction_row(scored, verdict, flagged, fact, checked):
+    """R-B1's Predictions rows, worst first: the first that holds. `scored`:
+    complete_count(); `verdict`: verdict_state(); `flagged`:
+    disagreeing_repeat(); `fact`: skill(); `checked`: the Overall-score
+    checks the skill gate counts. A disagreeing Repeat beside an unreliable
+    record reads as the coverage (Next carries the Repeat). Ten checks or
+    more with no skill (every check on its baseline) is not clearly
+    better."""
+    if scored < MIN_ROWS:
+        return "gate"
+    if flagged is not None and verdict != "unreliable":
+        return "off_repeat"
+    if verdict == "unreliable":
+        return "off_coverage"
+    if verdict in ("none", "early") or (fact is None and checked < SKILL_MIN):
+        return "too_few"
+    if verdict == "caution":
+        return "caution"
+    if verdict == "wide":
+        return "wide"
+    if fact is not None and fact.state == "no_skill":
+        return "no_skill"
+    if fact is None or fact.state == "unclear":
+        return "unclear"
+    return "reliable"
+
+
+# R-B1: the rows the clauses are appended to (4-9), and the guard's two
+# "fitting noise" triggers (R-I11; trigger (c) is the skill gate, which a
+# Reliable row has passed).
+_CLAUSED = ("too_few", "caution", "wide", "no_skill", "unclear", "reliable")
+_NOISE_TRIGGERS = ("floor", "noise")
+_PROGRESS_WORD = {"yes": "rising", "barely": "within_noise", "not_lately": "flat"}
+
+
 def status_facts(opt, checks, standing=None, gain=None):
     """W1 (review R-B1): the facts of the three status lines, worst rule
     first, from headline, verdict_state, skill, disagreeing_repeat,
     score_steady_bias, noise_guard, improvement, best_facts and tie_partner;
-    `standing` and `gain` as next_step takes them. T0 stub: returns None."""
-    return None
+    `standing` and `gain` as next_step takes them. None when nothing is
+    scored or waiting (every formulation moved to Not scored).
+
+    - Predictions: prediction_row's row; clauses on rows 4-9 in the
+      ruling's order: some outputs (not all) wide, over_wide, the Overall
+      score's steady bias (row 2 too, as its own clause), and the noise
+      guard's floor or noise trigger under Reliable alone (R-I11).
+    - Progress: improvement()'s answer as its word; with none, No new best
+      after one Round since, else Too early. `tie`: an equal-score runner-up
+      at two decimals (R-I9); `luck`: Best so far's luck line, said at level
+      0 only while Predictions is Reliable with no guard clause (R-I9, I7).
+    - Next: next_step's row past the gate (None at it).
+    `guard`: the full noise guard under Reliable (its model from the memo
+    in use, else fitted); the skill gate alone otherwise."""
+    rows = list(range(len(opt.Y_history)))
+    if not rows or all(opt.is_set_aside(i) for i in rows):
+        return None
+    checks = list(checks or ())
+    scored = opt.complete_count()
+    h = headline(opt, checks)
+    verdict = verdict_state(opt, h, checks)
+    flagged = disagreeing_repeat(opt, checks) if checks else None
+    fact = skill(opt, checks) if checks else None
+    checked = sum(1 for c in checks if c.name == SCORE and c.fully_measured)
+    yard = noise_yardstick(opt, checks)
+    bias = score_steady_bias(opt, checks, flagged) if checks else None
+    row = prediction_row(scored, verdict, flagged, fact, checked)
+    clauses, guard = [], None
+    if row in _CLAUSED:
+        wide = list(h.wide or [])
+        if wide and row != "wide":
+            clauses.append(("wide", wide))
+        if verdict == "over_wide":
+            clauses.append(("over_wide",))
+        if bias is not None:
+            clauses.append(("bias", bias))
+    elif row == "off_coverage" and bias is not None:
+        clauses.append(("bias", bias))
+    if row != "gate":
+        model = fit(opt, SCORE, rows) if row == "reliable" else None
+        guard = noise_guard(opt, model, checks, fact=fact)
+        if row == "reliable" and any(r in guard.reasons for r in _NOISE_TRIGGERS):
+            clauses.append(("guard",))
+    best = best_facts(opt)
+    progress = answer = tie = None
+    if best is not None:
+        answer = improvement(opt, best, yardstick=yard)
+        progress = (_PROGRESS_WORD[answer.state] if answer is not None
+                    else "no_new_best" if best.rounds_since == 1 else "too_early")
+        top = opt.best_index()
+        other = None if top is None else tie_partner(opt, top)
+        if (other is not None
+                and f"{float(opt.Y_history[other]):.2f}" == f"{float(opt.Y_history[top]):.2f}"):
+            tie = other
+    luck = bool(row == "reliable" and ("guard",) not in clauses and standing is not None
+                and getattr(standing, "luck", False)
+                and getattr(standing.best, "repeat", None) is not None)
+    step = None if row == "gate" else next_step(opt, checks, standing, gain)
+    return StatusFacts(scored, row, clauses, h, verdict, fact, flagged, bias, guard, yard,
+                       progress, answer, best, tie, luck, step, checked,
+                       float(standing.best.repeat.mean) if luck else None)
 
 
 def tie_partner(opt, best):
     """W1 (review R-I9): ui_results._tie_partner's rule, moved here so
     Results and Insights ask one place: the row Best so far (row `best`) is
     compared with for a tie, the next highest DIFFERENT formulation (a
-    Repeat is never a tie). None without one. T0 stub: returns None."""
-    return None
+    Repeat is never a tie). None without one."""
+    ranked = sorted(opt.best_candidates(), key=lambda i: float(opt.Y_history[i]), reverse=True)
+    return next((i for i in ranked
+                 if i != best and not _same(opt, start_recipe(opt, best), start_recipe(opt, i))),
+                None)
 
 
 _EPS = 1e-9
