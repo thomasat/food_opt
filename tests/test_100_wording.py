@@ -209,7 +209,8 @@ def test_exact_texts_from_the_rulings():
     # I4: effect claims withheld below n = 10 and below skill 0.20.
     assert W.effects_wait_line(6) == (
         "Ingredient effects are reported once Round-ahead checks show the Overall score's "
-        "predictions beat the average (10 checked formulations needed; 6 so far).")
+        "predictions clearly better than the average (skill 0.20 over 10 checked "
+        "formulations; 6 so far).")
     assert W.effects_unclear_line("0.09", 24) == (
         "Ingredient effects are reported once Round-ahead predictions are clearly better than "
         "the average of earlier results (skill 0.09, n = 24; 0.20 needed).")

@@ -258,9 +258,10 @@ def test_the_new_lines_from_the_rulings():
         "The model is fitting noise in these results (the model's correlation length is at its "
         "lower limit), so ingredient effects are not reported.")
     assert "setting effects" in W.guard_line([W.GUARD_NOISE], settings_only=True)
+    # Final review M-2: the rule is named (tests/test_106_last_fixes.py).
     assert W.guard_skill_line() == (
-        "Ingredient effects are not reported until Round-ahead predictions beat the average of "
-        "earlier results.")
+        "Ingredient effects are not reported until Round-ahead predictions are clearly "
+        "better than the average of earlier results (skill 0.20 needed).")
     assert W.EXPECTED_IMPROVEMENT == "Expected improvement (model, one formulation)"
     # 0.8.0 e2e fixes A5 (review I6): what the statistic is.
     assert W.gain_line("0.12", 6, W.beat_by()) == (

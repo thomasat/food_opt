@@ -5198,8 +5198,8 @@ def guard_line(reasons, settings_only=False):
 def guard_skill_line(settings_only=False):
     """Trigger (c) alone (review I3): not "fitting noise"."""
     what = "Setting" if settings_only else "Ingredient"
-    return (f"{what} effects are not reported until Round-ahead predictions beat the average "
-            "of earlier results.")
+    return (f"{what} effects are not reported until Round-ahead predictions are clearly "
+            "better than the average of earlier results (skill 0.20 needed).")
 
 
 def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None):
@@ -5510,11 +5510,16 @@ def first_sentence(text):
 # below prediction mean predictions ran high.
 def bias_item(name, size_text, unit="points"):
     """'Overall score by about 4.3 points', 'Firmness by about 3.0 N',
-    'Juiciness by about 0.4' (a measurement with no unit)."""
-    if unit == "points":
+    'Juiciness by about 0.4' (a measurement with no unit, or a '/10' one,
+    which its label carries). A panel's 'score' is points after a number
+    (final review M-3: "by about 0.4 score")."""
+    unit = str(unit or "").strip()
+    if unit.lower() in ("points", "point", "score", "scores"):
         size = points_text(size_text)
+    elif unit and not unit.startswith("/"):
+        size = f"{size_text} {unit}"
     else:
-        size = f"{size_text} {unit}" if unit else size_text
+        size = size_text
     return f"{name} by about {size}"
 
 
@@ -5577,11 +5582,14 @@ DETAILS_HELP = {
 # all, the layers), in place of guard_skill_line.
 def effects_wait_line(n, settings_only=False):
     """Fewer than 10 checks: 'Ingredient effects are reported once
-    Round-ahead checks show the Overall score's predictions beat the
-    average (10 checked formulations needed; 6 so far).'"""
+    Round-ahead checks show the Overall score's predictions clearly better
+    than the average (skill 0.20 over 10 checked formulations; 6 so far).'
+    The rule named whole (final review M-2): after 10 checks a skill of
+    0.10 "beats the average" and is still withheld."""
     what = "Setting effects" if settings_only else "Ingredient effects"
     return (f"{what} are reported once Round-ahead checks show the {OVERALL_SCORE_COLUMN}'s "
-            f"predictions beat the average (10 checked {FORMULATION}s needed; {n} so far).")
+            f"predictions clearly better than the average (skill 0.20 over 10 checked "
+            f"{FORMULATION}s; {n} so far).")
 
 
 def effects_unclear_line(value_text, n, settings_only=False):

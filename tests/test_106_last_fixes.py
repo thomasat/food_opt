@@ -228,3 +228,45 @@ def test_the_app_saves_a_unit_without_moving_any_overall_score(burger):
     assert next(o['unit'] for o in saved.objectives if o['name'] == 'Firmness') == "kN"
     assert [o['weight'] for o in saved.objectives] == weights
     assert list(saved.Y_history) == scores
+
+
+# ------------------------------------------------------------------ #
+#  M-2: the A3 lines name the 0.20 rule
+# ------------------------------------------------------------------ #
+
+def test_the_a3_wait_line_names_the_rule():
+    assert wording.effects_wait_line(4) == (
+        "Ingredient effects are reported once Round-ahead checks show the Overall score's "
+        "predictions clearly better than the average (skill 0.20 over 10 checked "
+        "formulations; 4 so far).")
+    assert wording.effects_wait_line(4, settings_only=True).startswith("Setting effects")
+
+
+def test_the_a3_no_skill_line_names_the_rule():
+    assert wording.guard_skill_line() == (
+        "Ingredient effects are not reported until Round-ahead predictions are clearly "
+        "better than the average of earlier results (skill 0.20 needed).")
+    for line in (wording.effects_wait_line(4), wording.guard_skill_line()):
+        assert "beat the average" not in line
+
+
+# ------------------------------------------------------------------ #
+#  M-3: a measurement's unit reads naturally after its number
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("unit,said", [
+    ("score", "Crumbliness by about 0.4 points"),
+    ("Score", "Crumbliness by about 0.4 points"),
+    ("points", "Crumbliness by about 0.4 points"),
+    ("/10", "Crumbliness by about 0.4"),
+    ("", "Crumbliness by about 0.4"),
+    ("N", "Crumbliness by about 0.4 N"),
+])
+def test_bias_item_units(unit, said):
+    assert wording.bias_item("Crumbliness", "0.4", unit) == said
+
+
+def test_03_clean_bias_line_reads_points_not_score(standing_of):
+    *_, opt, _best = standing_of(E.BAR_CLEAN)
+    line = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
+    assert "Crumbliness by about 0.4 points" in line and " score;" not in line
