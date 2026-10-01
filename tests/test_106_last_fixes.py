@@ -472,3 +472,19 @@ def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch):
     if any(c.startswith("Expected improvement is not shown") for c in captions):
         pytest.skip("the fixture's own checks withhold it")
     assert wording.WHY_RECOMPUTED in captions
+
+
+# ------------------------------------------------------------------ #
+#  01 O16: the "not tested near here" band shows in dark mode
+# ------------------------------------------------------------------ #
+
+def test_the_untested_band_is_visible_on_the_dark_page(monkeypatch):
+    from tests.test_104_speed_robust_charts import PAGES, _all_layers, _contrast_on
+    colour, opacity = ui_insights._FILLS["dark"]["untested"]
+    assert _contrast_on(colour, opacity, PAGES["dark"]) >= 1.7      # was 1.14:1
+    assert _contrast_on(*ui_insights._FILLS["light"]["untested"], PAGES["light"]) >= 1.1
+    monkeypatch.setattr(ui_insights, "theme", lambda: "dark")
+    import altair as alt
+    [rect, *_] = ui_insights._untested_layers(alt.Chart())
+    mark = rect.to_dict()["mark"]
+    assert (mark["color"], mark["opacity"]) == (colour, opacity)

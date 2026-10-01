@@ -20,7 +20,6 @@ from ui_helpers import (SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
                         open_rows, readiness, table_height)
 
 _BAND = 0.25
-_GREY = 0.12
 # Text drawn on a chart (labels, the band's name): at least 4.5:1 against
 # the page in each theme. No single grey reaches that on both white and
 # Streamlit's dark background, so the theme picks (0.8.0 review fixes §6).
@@ -67,6 +66,16 @@ _MARKS = {
 def mark(name):
     """(colour, opacity) of the mark `name` in the reader's theme."""
     return _MARKS[theme()][name]
+
+
+# Fills under the marks: visible as a region, kept light enough that the
+# line and its 95 % interval drawn over them still read, so not held to the
+# marks' 3:1 (the band's edge rules carry that). 01 O16: grey at 0.12 was
+# 1.14:1 on the dark page; #8b919c at 0.35 is 1.8:1 there.
+_FILLS = {
+    "light": {"untested": ("#808080", 0.12)},       # CSS gray, 1.14:1 on white, as before
+    "dark": {"untested": ("#8b919c", 0.35)},        # 1.8:1 on #0e1117
+}
 
 
 # The colour scales' range in Vega's "blues", per theme, darker for higher.
@@ -151,8 +160,9 @@ def _untested_layers(base):
     the theme's token, which carries the 3:1 (D1; O16: the band alone was
     1.13:1)."""
     edge_c, edge_o = mark("untested_edge")
+    fill_c, fill_o = _FILLS[theme()]["untested"]
     grey = _only("grey")
-    return [base.mark_rect(opacity=_GREY, color="gray", tooltip=False)
+    return [base.mark_rect(opacity=fill_o, color=fill_c, tooltip=False)
             .encode(x="x:Q", x2="x2:Q").transform_filter(grey),
             base.mark_rule(color=edge_c, opacity=edge_o, strokeWidth=1, tooltip=False)
             .encode(x="x:Q").transform_filter(grey),
