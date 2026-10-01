@@ -1,14 +1,24 @@
-"""The last fix wave of the 0.8.0 e2e campaign (final review I-1, M-2 … M-10;
-re-check 05 N1 and the rows left "not done").
+"""The last fix wave of the 0.8.0 e2e campaign: final review I-1, M-2,
+M-3, M-4, M-6, M-7 and M-10; re-check 05 N1, and the rows it left "not
+done" (02 I8, M1, M6, M10; 01 O9, O10, O13, O16; 04 M-7).
 
 - N1: a measurement saved on Set up keeps every result typed on the open
   Round. Only a measurement deleted takes its typed results with it, and
   the flash says so.
+- I-1: no luck line when the Overall score's steady low bias covers the
+  gap between Best so far and its predicted Repeat.
+- M-7: an unchanged measurements grid leaves the stored shares, and so
+  every Overall score, exactly as they were.
 """
+import pytest
 from streamlit.testing.v1 import AppTest
 
+import insights
+import ui_insights
 import wording
 from food_bo import FoodOptimizer
+from tests import demo_projects as D
+from tests import e2e_fixtures as E
 from tests.test_app_ui import (APP_PATH, ING_GRID, MEAS_GRID, _grid_frame,  # noqa: F401
                                _ingredient_row, _save_grid, _submit_button, burger,
                                mid_run, open_batch, scored)
@@ -83,12 +93,6 @@ def test_deleting_a_measurement_nobody_typed_says_nothing_more(open_batch):
 #  I-1: no luck line when the Overall score's steady bias explains it
 # ------------------------------------------------------------------ #
 
-import pytest  # noqa: E402
-
-import insights  # noqa: E402
-import ui_insights  # noqa: E402
-from tests import demo_projects as D  # noqa: E402
-from tests import e2e_fixtures as E  # noqa: E402
 
 NOISY_RECOMMENDED = "03_bar_noisy (Recommended)"
 
