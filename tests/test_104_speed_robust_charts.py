@@ -296,6 +296,15 @@ def jobs(monkeypatch):
     monkeypatch.setattr(insights_jobs, "_INFLIGHT", {})
 
 
+@pytest.fixture
+def skilled(monkeypatch):
+    """A model with skill (integration with W1's A3 gate, review I4): this
+    5-Round project has fewer than 10 Overall-score checks, so the gate
+    would withhold the expected improvement these tests persist. Stood in
+    the way W1 stands it in for the effect lines (test_080_try_one)."""
+    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
+
+
 def _app(project):
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.session_state["_loaded_project"] = project
@@ -315,7 +324,7 @@ def _texts(at):
             + [e.label for e in tab.expander])
 
 
-def test_insights_writes_the_figure_beside_the_project(burger, jobs):
+def test_insights_writes_the_figure_beside_the_project(burger, jobs, skilled):
     at = _open(_app(burger.project_name))
     assert not at.exception
     saved = insights_cache.load(burger.project_name)
@@ -323,7 +332,7 @@ def test_insights_writes_the_figure_beside_the_project(burger, jobs):
     assert saved.gain[1] == at.session_state[ui_insights.GAIN_KEY][1]
 
 
-def test_a_reopened_project_shows_the_figure_without_a_fit_or_a_search(burger, jobs,
+def test_a_reopened_project_shows_the_figure_without_a_fit_or_a_search(burger, jobs, skilled,
                                                                          monkeypatch):
     """04 I-1: the reopen time was the next Round's search (2.8 s at
     120 x 6), worked out again in every new session and after a restart."""
@@ -339,7 +348,7 @@ def test_a_reopened_project_shows_the_figure_without_a_fit_or_a_search(burger, j
     assert _texts(again) == _texts(first)
 
 
-def test_a_new_seed_is_never_served_the_old_figure(burger, jobs, monkeypatch):
+def test_a_new_seed_is_never_served_the_old_figure(burger, jobs, skilled, monkeypatch):
     """A discarded Round moves the next seed with the data unchanged."""
     _open(_app(burger.project_name))
     burger.next_formulation_no += 1
@@ -354,7 +363,7 @@ def test_a_new_seed_is_never_served_the_old_figure(burger, jobs, monkeypatch):
         at.session_state["optimizer"])
 
 
-def test_make_a_round_reads_a_saved_figure_without_working_it_out(burger, jobs, monkeypatch):
+def test_make_a_round_reads_a_saved_figure_without_working_it_out(burger, jobs, skilled, monkeypatch):
     """E3 (fit=False) shows only what is worked out: a saved figure is."""
     _open(_app(burger.project_name))
     bo_views._CACHE.clear()
@@ -409,9 +418,13 @@ def test_rounds_already_checked_count_as_done_from_the_start(burger, jobs, monke
     at = _open(_app(burger.project_name))
     assert not at.exception and wording.MORE_CHARTS in _texts(at)
     assert bars, "the current models are fitted: one line"
-    counts = [int(t.split(": ")[1].split(" of ")[0]) for t in bars]
+    # Integration (T0′): with every Round checked, the line says the model
+    # of the latest results is being updated, never "N of N checked…".
+    done = wording.insights_progress(total, total)
+    assert all(f"{total} of {total}" not in t for t in bars)
+    counts = [total if t == done else int(t.split(": ")[1].split(" of ")[0]) for t in bars]
     assert counts[0] >= total - 1 and counts == sorted(counts)
-    assert all(t.endswith(f"of {total} Rounds checked…") for t in bars)
+    assert all(t == done or t.endswith(f"of {total} Rounds checked…") for t in bars)
 
 
 def test_the_poller_reruns_the_filling_tab_when_a_round_lands(burger, monkeypatch):

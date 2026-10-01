@@ -4462,7 +4462,7 @@ def repeat_disagrees(later, earlier, diff_text, lower=True, half_text=None):
 # Measured against predicted (§2.2, M4; 03 §5.2).
 MVP_CAPTION = (f"One dot per {FORMULATION}: Round-ahead prediction (across) against measured value "
                "(up). Dashed diagonal: measured = predicted. Bar: 95 % interval; filled dot "
-               f"inside it, hollow outside. Darker: latest {ROUND_CAP}.")
+               f"inside it, hollow outside. The latest {ROUND_CAP}'s bars are highlighted.")
 
 
 # Progress (§2.3, spec review I5, I7, M1; 03 §5.3).
@@ -5011,7 +5011,14 @@ CHANGE_WHOLE = "Whole trace"
 
 def insights_progress(done, total):
     """Insights' one progress line while the workers fit (V28): Rounds
-    whose checks are all in, of the Rounds to check."""
+    whose checks are all in, of the Rounds to check. With every Round
+    checked, what is still running is the model of the latest results
+    (after Save results), never "12 of 12 Rounds checked…" (integration
+    of the 0.8.0 e2e fixes, T0′)."""
+    if total and done >= total:
+        head = (f"The {ROUND_CAP} is checked" if total == 1
+                else f"All {total} {ROUND_CAP}s are checked")
+        return f"{head}; updating the model with your latest results…"
     rounds = ROUND_CAP if total == 1 else f"{ROUND_CAP}s"
     return f"Checking predictions against your results: {done} of {total} {rounds} checked…"
 
@@ -5185,14 +5192,18 @@ def guard_skill_line(settings_only=False):
             "of earlier results.")
 
 
-def why_guard_line(reasons=(), skill_only=False, verdict=False):
+def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None):
     """The Why fold when the model's gains are withheld (review I4; T47
     review minor 5): what it withholds, and the same reason Progress gives.
     Roles are model-free from the 0.8.0 e2e fixes (review I3) and always
-    shown, so only the expected improvement is withheld."""
+    shown, so only the expected improvement is withheld. `gate_reason`:
+    the A3 gate's reason in Progress's own words (gain_reason_too_few,
+    gain_reason_unclear or GAIN_REASON_SKILL; integration, T0′)."""
     if verdict:
         return ("Expected improvement is not shown: the measurements miss their 95 % "
                 "intervals more often than expected.")
+    if gate_reason:
+        return f"Expected improvement is not shown: {gate_reason}."
     if skill_only:
         return ("Expected improvement is not shown until Round-ahead predictions are "
                 "clearly better than the average of earlier results.")
