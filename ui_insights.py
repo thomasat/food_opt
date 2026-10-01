@@ -285,7 +285,10 @@ def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
     if hit and hit[0] == key:
         return hit[1]
     if bar is not None:
-        bar.progress(0.0, text=_say(opt, wording.insights_progress(0, len(_checked(opt)))))
+        order = _checked(opt)
+        done = len(_done_already(opt))
+        bar.progress(done / (len(order) + 1),
+                     text=_say(opt, wording.insights_progress(done, len(order))))
     quiet = bar is not None or working is None
     with (contextlib.nullcontext() if quiet else st.spinner(working)), \
             insights.memo_in_use(memo(opt)):
@@ -303,18 +306,44 @@ def _checked(opt):
     return [r for r, first in insights.round_order(opt) if first >= insights.MIN_ROWS]
 
 
+def _done_already(opt):
+    """The checked Rounds counted done before anything is fitted here
+    (spec 2026-10-01 C1, review I11; 04 M-1): those whose checks are kept,
+    and those whose models are all in the memo — the workers' own count
+    (insights_jobs.rounds_done) — so the line never starts at 0 for a
+    project already checked, nor goes back when the workers fail."""
+    keys = insights.round_keys(opt)
+    kept = st.session_state.get(ROUNDS_KEY, {})
+    mem = memo(opt)
+    models = {}
+    for s in _plan(opt):
+        if s.stage != insights_jobs.NOW:
+            models.setdefault(s.stage, []).append(s.key in mem)
+    return {r for r in _checked(opt)
+            if keys.get(r) in kept or (r in models and all(models[r]))}
+
+
+def _nothing_to_fit(opt):
+    """Every model this data needs is in the memo: what is left is
+    conditioning, with no progress line (04 I-1)."""
+    return insights_jobs.ready(_plan(opt), memo(opt))
+
+
 def _stepper(opt, bar):
     """check_rounds' `checking`: moves the one progress bar on as each Round
     is checked (0.8.0 review fixes §6, §9 I11), with the count the workers'
-    line shows (Plan A review C I-1): "3 of 9 Rounds checked…"."""
+    line shows (Plan A review C I-1): "3 of 9 Rounds checked…". A Round
+    already done counts from the start (C1), so the count never goes back."""
     order = _checked(opt)
+    done = _done_already(opt)
 
     @contextlib.contextmanager
     def checking(r, last):
-        done = order.index(r) if r in order else 0
-        bar.progress(min(1.0, (done + 1) / (len(order) + 1)),
-                     text=_say(opt, wording.insights_progress(done, len(order))))
+        bar.progress(min(1.0, (len(done) + 1) / (len(order) + 1)),
+                     text=_say(opt, wording.insights_progress(len(done), len(order))))
         yield
+        if r in order:
+            done.add(r)
     return checking
 
 
@@ -387,6 +416,12 @@ SAVED_KEY = "_insights_saved"
 SEEN_KEY = "_insights_seen"
 # How often a screen waiting for the workers looks again (seconds).
 POLL_SECS = 0.5
+# (data_key, Rounds done) on the progress line Insights drew last while
+# filling in: the poller reruns the page when a Round lands (C1).
+PROGRESS_SEEN_KEY = "_insights_progress_seen"
+# The parts of the Insights tab (app._insights_stages): the only screen
+# with the progress line.
+_INSIGHTS_STAGES = ("stand", "all")
 
 
 def memo(opt):
@@ -710,7 +745,20 @@ def _poll_step(opt, stages):
     more, so the fragment (which only a full run stops calling) stops and
     no screen polls once everything is in (Plan A review C I-3)."""
     _catch_up(opt)
-    return not _in_flight(opt) or _seen(opt, stages) != st.session_state.get(SEEN_KEY)
+    return (not _in_flight(opt) or _seen(opt, stages) != st.session_state.get(SEEN_KEY)
+            or _count_moved(opt, stages))
+
+
+def _count_moved(opt, stages):
+    """Whether Insights' progress line, drawn while filling in, is behind
+    the Rounds the workers have returned (C1: it moves per Round returned,
+    not only when a part of the screen lands; 01 F2)."""
+    drawn = st.session_state.get(PROGRESS_SEEN_KEY)
+    if drawn is None or not all(s in stages for s in _INSIGHTS_STAGES):
+        return False
+    if drawn[0] != insights.data_key(opt):
+        return False
+    return insights_jobs.rounds_done(opt, _plan(opt), memo(opt))[0] != drawn[1]
 
 
 @st.fragment(run_every=POLL_SECS)
@@ -786,8 +834,12 @@ def render(opt):
         _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below)
         _how(opt, None)
         return
+    st.session_state.pop(PROGRESS_SEEN_KEY, None)
     cold = _cached(opt) is None
-    computed = _computed(opt, bar)
+    # Nothing to fit (a reopen, everything beside the project): no progress
+    # line, which said "0 of 23 Rounds checked…" while none was (04 I-1).
+    quiet = cold and _nothing_to_fit(opt)
+    computed = _computed(opt, bar, quiet=quiet)
     if computed.get("failed"):
         # The model answers come off; one line says so, where the bar was.
         bar.empty()
@@ -809,7 +861,7 @@ def render(opt):
     with rest:
         # The bar, when it showed, stays up through the predicted best's
         # search: one indicator per wait (V28, Plan A review C M-2).
-        standing = _stand(opt, computed, yard, spinner=not cold)
+        standing = _stand(opt, computed, yard, spinner=not cold or quiet)
     bar.empty()
     with nxt:
         _question(opt, wording.Q_NEXT)
@@ -845,6 +897,8 @@ def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
     done, total = insights_jobs.rounds_done(opt, specs, mem)
     fraction = sum(s.key in mem for s in specs) / max(1, len(specs))
     bar.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
+    # The poller reruns the page when this count moves (C1; 01 F2).
+    st.session_state[PROGRESS_SEEN_KEY] = (insights.data_key(opt), done)
     checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
     if checks is None:
         return
@@ -1854,9 +1908,16 @@ def _stand(opt, computed, yard, spinner=True):
                                              f"{opt.Y_history[top]:.2f}")))
     # Expected improvement by Round (spec 2026-09-30-bo-views §3.2; review
     # I5, M8): its line here, its chart in the Progress chart fold.
+    slot = st.empty()
+    if _gain_pending(opt, computed):
+        # Its place says it is coming while ask()'s search runs (C1): the
+        # lines above are already drawn and never wait for it.
+        slot.write(_say(opt, wording.gain_pending()))
     line = gain_text(opt, computed, yard, standing)
     if line:
-        st.write(_say(opt, line))
+        slot.write(_say(opt, line))
+    else:
+        slot.empty()
     if standing.higher and not standing.tested_near:
         with st.expander(_say(opt, wording.show_its_amounts(not opt.has_ingredients()))):
             try:
@@ -1916,6 +1977,21 @@ def _gain_needs_no_fit(opt, mem):
 # RNG_LOCK (answer-key refresh item 2: 3.8 s in the second run).
 _GAIN_RUNS = {}
 _GAIN_RUNS_LOCK = threading.Lock()
+
+
+def _gain_pending(opt, computed):
+    """Whether Progress's expected-improvement line is about to be worked
+    out here (the next Round's search, about 1.6 s at 60 x 4): no Round
+    open, the figure neither in this session nor saved, and not withheld."""
+    if opt.pending_batch or bo_views.acquisition(opt) == "qucb":
+        return False
+    hit = st.session_state.get(GAIN_KEY)
+    if hit and hit[0] == _gain_key(opt):
+        return False
+    if bo_views.saved_next_gain(opt, st.session_state.get(NEXT_GAIN_KEY)) is not None:
+        return False
+    return withheld(opt, computed["fitted"].get(insights.SCORE),
+                    computed.get("checks") or ()) is None
 
 
 def latest_gain(opt, fit=True, wait=True):

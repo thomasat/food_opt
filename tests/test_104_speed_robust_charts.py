@@ -364,3 +364,76 @@ def test_make_a_round_reads_a_saved_figure_without_working_it_out(burger, jobs, 
     monkeypatch.setattr(ui_insights, "st", SimpleNamespace(session_state=state))
     got = ui_insights.latest_gain(burger, fit=False)
     assert got is not None and got.gain is not None
+
+
+# ------------------------------------------------------------------ #
+#  C1: the progress line counts only what is really being fitted
+#  (review I11; 04 I-1, M-1; 01 F2)
+# ------------------------------------------------------------------ #
+
+def _bars(monkeypatch):
+    """Every progress bar's text from now on."""
+    from streamlit.delta_generator import DeltaGenerator
+    texts = []
+    real = DeltaGenerator.progress
+
+    def progress(self, value, text=None, **k):
+        texts.append(text)
+        return real(self, value, text=text, **k)
+    monkeypatch.setattr(DeltaGenerator, "progress", progress)
+    return texts
+
+
+def test_a_reopen_with_everything_cached_shows_no_progress_line(burger, jobs, monkeypatch):
+    """04 I-1: "0 of 23 Rounds checked…" for 3 s while nothing was."""
+    _open(_app(burger.project_name))
+    bars = _bars(monkeypatch)
+    at = _open(_app(burger.project_name))
+    assert not at.exception and wording.MORE_CHARTS in _texts(at)
+    assert bars == []
+
+
+def test_rounds_already_checked_count_as_done_from_the_start(burger, jobs, monkeypatch):
+    """After a new Round only it is checked: the line never starts at 0."""
+    _open(_app(burger.project_name))
+    import torch
+    g = torch.Generator().manual_seed(5)
+    for no in range(16, 19):
+        u = torch.rand(2, generator=g).tolist()
+        pea, oil = 4 + 4 * u[0], 2 + 4 * u[1]
+        burger.tell(burger.fill_formulas({"Pea": pea, "Oil": oil}),
+                    {"Firmness": 0.8 * pea, "Juiciness": 1.2 * oil + 1}, formulation_no=no,
+                    batch_no=6)
+    total = len(ui_insights._checked(burger))
+    bars = _bars(monkeypatch)
+    at = _open(_app(burger.project_name))
+    assert not at.exception and wording.MORE_CHARTS in _texts(at)
+    assert bars, "the current models are fitted: one line"
+    counts = [int(t.split(": ")[1].split(" of ")[0]) for t in bars]
+    assert counts[0] >= total - 1 and counts == sorted(counts)
+    assert all(t.endswith(f"of {total} Rounds checked…") for t in bars)
+
+
+def test_the_poller_reruns_the_filling_tab_when_a_round_lands(burger, monkeypatch):
+    """01 F2: the count sat on "0 of 11" while Rounds came back; it now
+    moves per Round returned, on the Insights tab only."""
+    from types import SimpleNamespace
+    state = {}
+    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(session_state=state))
+    monkeypatch.setattr(ui_insights, "_catch_up", lambda o: None)
+    monkeypatch.setattr(ui_insights, "_in_flight", lambda o: True)
+    monkeypatch.setattr(ui_insights, "_seen", lambda o, s: (False,) * len(s))
+    monkeypatch.setattr(ui_insights, "_plan", lambda o: [])
+    monkeypatch.setattr(ui_insights, "memo", lambda o: {})
+    done = [2]
+    monkeypatch.setattr(insights_jobs, "rounds_done", lambda *a: (done[0], 6))
+    insights_tab = ("column", "trust", "stand", "all")
+    batch_tab = ("column", "trust", "now", "all")
+    state[ui_insights.SEEN_KEY] = (False,) * 4
+    state[ui_insights.PROGRESS_SEEN_KEY] = (insights.data_key(burger), 2)
+    assert not ui_insights._poll_step(burger, insights_tab)
+    done[0] = 3
+    assert ui_insights._poll_step(burger, insights_tab)
+    assert not ui_insights._poll_step(burger, batch_tab)
+    state.pop(ui_insights.PROGRESS_SEEN_KEY)
+    assert not ui_insights._poll_step(burger, insights_tab)
