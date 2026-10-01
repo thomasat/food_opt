@@ -12197,6 +12197,12 @@ class FoodOptimizer:
         # which shares the reader moved and for how far the rest give way.
         stored_shares = self.share_percents()
         rescored = self._plan_rescores(plan)
+        # 05 N1: a deleted measurement takes its typed results on the open
+        # Round with it, and only those; said, never silent.
+        lost = {name: sum(name in d.get('results', {})
+                          for d in self.result_drafts.values())
+                for name in deleted}
+        lost = {name: n for name, n in lost.items() if n}
         for name in deleted:
             self.remove_objective(name)
         added, changed = [], []
@@ -12276,6 +12282,10 @@ class FoodOptimizer:
         if deleted:
             messages.append(("success", wording.measurement_deleted(
                 number_list(deleted))))
+        if lost:
+            messages.append(("info", wording.typed_results_deleted(
+                number_list(list(lost)), sum(lost.values()),
+                self.pending_batch_no, many=len(lost) > 1)))
         if rescored and self.Y_history:
             # Said once, on the last green line, whatever mix of edits
             # caused it: a rescore is one thing that happened, not four.

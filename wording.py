@@ -1353,6 +1353,16 @@ def measurement_deleted(name):
     return f"{name} deleted."
 
 
+def typed_results_deleted(names_text, n, round_no, many=False):
+    """05 N1: what a measurement deleted on Set up takes from the open
+    Round. Every other result typed there is kept."""
+    what = "1 result" if n == 1 else f"{n} results"
+    verb = "was" if n == 1 else "were"
+    return (f"{what} typed for {names_text} on {ROUND_CAP} {round_no} {verb} "
+            f"deleted with {'them' if many else 'it'}. The other typed "
+            "results are kept.")
+
+
 MEASUREMENTS_HEADER = "Measurements and targets"
 MEASUREMENT_COLUMN = "Measurement"
 RANGE_COLUMN = "Range"

@@ -1400,6 +1400,24 @@ def _record_results(opt):
             st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
             st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
         st.session_state['_result_draft_seed'] = seed
+    else:
+        # 05 N1: a save on Set up reruns from ABOVE this tab, and Streamlit
+        # drops the state of every box that run did not reach. The seed is
+        # unchanged (a Highest widened, a unit corrected), so without this
+        # the boxes came back empty and the empty boxes were then saved over
+        # the drafts on file. Only a box with no state at all is filled, and
+        # only from what was saved: one the reader is typing in is theirs.
+        for row in to_record:
+            number = row['formulation']
+            draft = opt.result_drafts.get(number, {})
+            for obj in ordered:
+                key = _result_key(number, obj['name'])
+                if key not in st.session_state:
+                    st.session_state[key] = draft.get('results', {}).get(obj['name'])
+            if f'f{number}_note' not in st.session_state:
+                st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
+            if f'f{number}_leave_out' not in st.session_state:
+                st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
     st.caption(wording.RECORD_RESULTS_LINE)
     left_out, entered, partly = set(), 0, 0
 
