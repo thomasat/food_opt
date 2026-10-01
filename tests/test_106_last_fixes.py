@@ -513,3 +513,17 @@ def test_a_run_logs_no_width_deprecation(open_batch, caplog):
         at.number_input(key='f1_Firmness').set_value(6).run()
     assert not at.exception
     assert not [r for r in caplog.records if "use_container_width" in r.getMessage()]
+
+
+# ------------------------------------------------------------------ #
+#  The Effect chart's target line takes the neutral token (3:1 or better)
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_the_target_line_reaches_3_to_1(monkeypatch, which):
+    from tests.test_104_speed_robust_charts import PAGES, _contrast_on
+    monkeypatch.setattr(ui_insights, "theme", lambda: which)
+    mark = ui_insights._target_layer().to_dict()["mark"]
+    assert (mark["color"], mark["opacity"]) == ui_insights.mark("neutral")
+    assert mark["strokeDash"] == [4, 3]
+    assert _contrast_on(mark["color"], mark["opacity"], PAGES[which]) >= 3.0

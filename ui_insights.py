@@ -171,9 +171,12 @@ def _untested_layers(base):
 
 
 def _target_layer():
-    # Dashed, thin and grey: never mistaken for a likely-range bar.
-    return (alt.Chart().mark_rule(strokeDash=[4, 3], strokeWidth=1, color="gray", opacity=0.6,
-                                  tooltip=False)
+    # Dashed, thin and grey: never mistaken for a likely-range bar. The
+    # neutral token, as on "Can you have both?": gray at 0.6 was 2.5:1 on
+    # the dark page and 2.1:1 on white (last fix wave).
+    colour, opacity = mark("neutral")
+    return (alt.Chart().mark_rule(strokeDash=[4, 3], strokeWidth=1, color=colour,
+                                  opacity=opacity, tooltip=False)
             .encode(y="target:Q").transform_filter(_only("target")))
 
 
