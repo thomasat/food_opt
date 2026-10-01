@@ -1,0 +1,1319 @@
+{
+  "project_name": "Pea burger patty",
+  "variables": [
+    {
+      "name": "Textured pea protein",
+      "type": "continuous",
+      "bounds": [
+        15.0,
+        30.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false,
+      "unit": "g"
+    },
+    {
+      "name": "Coconut oil",
+      "type": "continuous",
+      "bounds": [
+        5.0,
+        20.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false,
+      "unit": "g"
+    },
+    {
+      "name": "Methylcellulose",
+      "type": "continuous",
+      "bounds": [
+        0.5,
+        4.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false,
+      "unit": "g"
+    },
+    {
+      "name": "Beet juice powder",
+      "type": "continuous",
+      "bounds": [
+        0.2,
+        1.5
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false,
+      "unit": "g"
+    },
+    {
+      "name": "Salt",
+      "type": "continuous",
+      "bounds": [
+        0.5,
+        2.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false,
+      "unit": "g"
+    },
+    {
+      "name": "Water",
+      "type": "continuous",
+      "bounds": [
+        40.0,
+        80.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "= rest",
+      "balance": true,
+      "unit": "g"
+    },
+    {
+      "name": "Mixing time",
+      "type": "continuous",
+      "bounds": [
+        2.0,
+        12.0
+      ],
+      "category": "process",
+      "unit": "min",
+      "step": null
+    }
+  ],
+  "objectives": [
+    {
+      "name": "Firmness",
+      "weight": 34.0,
+      "goal": "target",
+      "target": 40.0,
+      "min_val": 10.0,
+      "max_val": 70.0,
+      "unit": "N",
+      "not_for": []
+    },
+    {
+      "name": "Juiciness",
+      "weight": 29.75,
+      "goal": "max",
+      "target": null,
+      "min_val": 1.0,
+      "max_val": 9.0,
+      "unit": "score",
+      "not_for": []
+    },
+    {
+      "name": "Cook loss",
+      "weight": 21.25,
+      "goal": "min",
+      "target": null,
+      "min_val": 10.0,
+      "max_val": 35.0,
+      "unit": "%",
+      "not_for": []
+    },
+    {
+      "name": "Redness",
+      "weight": 15.0,
+      "goal": "target",
+      "target": 12.0,
+      "min_val": 0.0,
+      "max_val": 20.0,
+      "unit": "a*",
+      "not_for": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    }
+  ],
+  "premixes": {},
+  "ingredient_properties": {
+    "Textured pea protein": {
+      "Fat per 100 g": 6.0
+    },
+    "Coconut oil": {
+      "Fat per 100 g": 99.0
+    },
+    "Methylcellulose": {
+      "Fat per 100 g": 0.0
+    },
+    "Beet juice powder": {
+      "Fat per 100 g": 0.5
+    },
+    "Salt": {
+      "Fat per 100 g": 0.0
+    },
+    "Water": {
+      "Fat per 100 g": 0.0
+    }
+  },
+  "property_names": [
+    "Fat per 100 g",
+    "Sodium per 100 g",
+    "Water per 100 g",
+    "Cost per 100 g"
+  ],
+  "constraints": [],
+  "quantity_constraints": [
+    {
+      "ingredients": [
+        "Textured pea protein",
+        "Coconut oil",
+        "Methylcellulose",
+        "Beet juice powder",
+        "Salt",
+        "Water"
+      ],
+      "min": 99.5,
+      "max": 100.49999999999999,
+      "source": "formulation_total"
+    }
+  ],
+  "robust": false,
+  "X_history": [
+    [
+      29.782760739326477,
+      18.834247589111328,
+      2.348562002182007,
+      0.7086161077022552,
+      1.8941543102264404,
+      2.3705324605107307
+    ],
+    [
+      16.119786947965622,
+      7.3875842243433,
+      1.6936141848564148,
+      0.9879602491855621,
+      1.144584983587265,
+      7.661410689353943
+    ],
+    [
+      22.420632541179657,
+      14.60960566997528,
+      3.2498541176319122,
+      0.4282940924167633,
+      0.7101421356201172,
+      11.16935920715332
+    ],
+    [
+      23.551838994026184,
+      10.662595182657242,
+      0.8465880863368511,
+      1.2763780057430267,
+      1.4386187493801117,
+      6.499284625053406
+    ],
+    [
+      24.928435385227203,
+      13.618427515029907,
+      1.841282993555069,
+      1.3842532932758331,
+      1.4025529623031616,
+      4.38251805305481
+    ],
+    [
+      19.110559970140457,
+      10.138682872056961,
+      2.9388581812381744,
+      0.3128015980124474,
+      0.6517253443598747,
+      8.46192491054535
+    ],
+    [
+      17.555723190307617,
+      17.835176587104797,
+      1.1023461148142815,
+      1.0221931159496307,
+      0.9935518950223923,
+      10.720407485961914
+    ],
+    [
+      26.530307829380035,
+      6.855085380375385,
+      3.9516573548316956,
+      0.6820003896951676,
+      1.7646696865558624,
+      4.760736644268036
+    ],
+    [
+      110.60317891698816,
+      50.4649516105711,
+      12.294078716302032,
+      7.462948777440061,
+      6.1336212502759935,
+      3.722340670238383
+    ],
+    [
+      139.23241316356433,
+      80.2833440844606,
+      6.593102254317156,
+      7.5,
+      4.868530890950017,
+      3.541455403212037
+    ],
+    [
+      115.71179368539852,
+      70.95806569296467,
+      13.569339979669408,
+      7.5,
+      9.178103751004361,
+      4.826375849434899
+    ],
+    [
+      78.14085497500687,
+      69.12533788358795,
+      6.704671205288162,
+      6.736594797692837,
+      7.269187393083676,
+      3.345487017178283
+    ],
+    [
+      25.416030336803153,
+      14.098889481805424,
+      3.231886493889646,
+      1.4999999999999918,
+      1.945875362554781,
+      3.440553366925064
+    ],
+    [
+      24.6039583245864,
+      14.433718878591405,
+      3.453931230046796,
+      1.4999999999999856,
+      1.8850412188881958,
+      8.221540664321251
+    ],
+    [
+      23.78862598318129,
+      14.755671529770416,
+      1.855659733722784,
+      1.5,
+      1.999999999999997,
+      2.0396985889739865
+    ],
+    [
+      23.14,
+      14.19,
+      2.71,
+      1.5,
+      1.84,
+      4.83
+    ],
+    [
+      22.114760581855876,
+      14.595998380400403,
+      2.498966632384091,
+      1.033436586233007,
+      1.4382043727406135,
+      4.313891947691108
+    ],
+    [
+      22.405978579227288,
+      14.63231350787154,
+      0.6388089165391841,
+      1.5,
+      2.0,
+      4.534463048394159
+    ],
+    [
+      22.286274705592664,
+      14.577780687046333,
+      3.9099555337958627,
+      1.5,
+      0.8654663093466697,
+      4.2651054015783565
+    ],
+    [
+      21.930368061665604,
+      13.701787084005822,
+      4.0,
+      0.6819921877729365,
+      1.999999999999999,
+      4.632977232086447
+    ],
+    [
+      22.22117886300358,
+      14.647187598300901,
+      2.3371650731439084,
+      1.5,
+      2.0,
+      4.792891649699595
+    ],
+    [
+      22.58028517840703,
+      14.204611998734865,
+      2.3271561519135906,
+      0.20000000000000087,
+      2.0,
+      4.894404572691452
+    ],
+    [
+      22.604208410105077,
+      16.197348432618867,
+      2.3956323050143,
+      1.5,
+      2.0,
+      4.30060729791513
+    ],
+    [
+      21.2400582667988,
+      13.38026581166758,
+      2.4436932707428425,
+      1.499999999999993,
+      1.9999999999999885,
+      5.597490921973343
+    ]
+  ],
+  "Y_history": [
+    68.225,
+    68.78750000000001,
+    64.74583333333334,
+    70.50833333333334,
+    76.7125,
+    74.88333333333334,
+    56.170833333333334,
+    43.18333333333333,
+    70.55416666666666,
+    69.47083333333333,
+    83.00833333333334,
+    66.73333333333333,
+    74.234375,
+    69.74520833333332,
+    76.35166666666666,
+    78.42041666666665,
+    80.44749999999999,
+    73.3925,
+    72.08999999999999,
+    72.98104166666667,
+    76.89666666666666,
+    71.27374999999999,
+    78.9975,
+    77.03666666666666
+  ],
+  "recipe_history": [
+    {
+      "Textured pea protein": 29.782760739326477,
+      "Coconut oil": 18.834247589111328,
+      "Methylcellulose": 2.348562002182007,
+      "Beet juice powder": 0.7086161077022552,
+      "Salt": 1.8941543102264404,
+      "Mixing time": 2.3705324605107307,
+      "Water": 46.43165925145149
+    },
+    {
+      "Textured pea protein": 16.119786947965622,
+      "Coconut oil": 7.3875842243433,
+      "Methylcellulose": 1.6936141848564148,
+      "Beet juice powder": 0.9879602491855621,
+      "Salt": 1.144584983587265,
+      "Mixing time": 7.661410689353943,
+      "Water": 72.66646941006184
+    },
+    {
+      "Textured pea protein": 22.420632541179657,
+      "Coconut oil": 14.60960566997528,
+      "Methylcellulose": 3.2498541176319122,
+      "Beet juice powder": 0.4282940924167633,
+      "Salt": 0.7101421356201172,
+      "Mixing time": 11.16935920715332,
+      "Water": 58.58147144317627
+    },
+    {
+      "Textured pea protein": 23.551838994026184,
+      "Coconut oil": 10.662595182657242,
+      "Methylcellulose": 0.8465880863368511,
+      "Beet juice powder": 1.2763780057430267,
+      "Salt": 1.4386187493801117,
+      "Mixing time": 6.499284625053406,
+      "Water": 62.223980981856585
+    },
+    {
+      "Textured pea protein": 24.928435385227203,
+      "Coconut oil": 13.618427515029907,
+      "Methylcellulose": 1.841282993555069,
+      "Beet juice powder": 1.3842532932758331,
+      "Salt": 1.4025529623031616,
+      "Mixing time": 4.38251805305481,
+      "Water": 56.825047850608826
+    },
+    {
+      "Textured pea protein": 19.110559970140457,
+      "Coconut oil": 10.138682872056961,
+      "Methylcellulose": 2.9388581812381744,
+      "Beet juice powder": 0.3128015980124474,
+      "Salt": 0.6517253443598747,
+      "Mixing time": 8.46192491054535,
+      "Water": 66.84737203419209
+    },
+    {
+      "Textured pea protein": 17.555723190307617,
+      "Coconut oil": 17.835176587104797,
+      "Methylcellulose": 1.1023461148142815,
+      "Beet juice powder": 1.0221931159496307,
+      "Salt": 0.9935518950223923,
+      "Mixing time": 10.720407485961914,
+      "Water": 61.49100909680128
+    },
+    {
+      "Textured pea protein": 26.530307829380035,
+      "Coconut oil": 6.855085380375385,
+      "Methylcellulose": 3.9516573548316956,
+      "Beet juice powder": 0.6820003896951676,
+      "Salt": 1.7646696865558624,
+      "Mixing time": 4.760736644268036,
+      "Water": 60.21627935916185
+    },
+    {
+      "Textured pea protein": 110.60317891698816,
+      "Coconut oil": 50.4649516105711,
+      "Methylcellulose": 12.294078716302032,
+      "Beet juice powder": 7.462948777440061,
+      "Salt": 6.1336212502759935,
+      "Mixing time": 3.722340670238383,
+      "Water": 313.0412207284227
+    },
+    {
+      "Textured pea protein": 139.23241316356433,
+      "Coconut oil": 80.2833440844606,
+      "Methylcellulose": 6.593102254317156,
+      "Beet juice powder": 7.5,
+      "Salt": 4.868530890950017,
+      "Mixing time": 3.541455403212037,
+      "Water": 261.52260960670793
+    },
+    {
+      "Textured pea protein": 115.71179368539852,
+      "Coconut oil": 70.95806569296467,
+      "Methylcellulose": 13.569339979669408,
+      "Beet juice powder": 7.5,
+      "Salt": 9.178103751004361,
+      "Mixing time": 4.826375849434899,
+      "Water": 283.08269689096306
+    },
+    {
+      "Textured pea protein": 78.14085497500687,
+      "Coconut oil": 69.12533788358795,
+      "Methylcellulose": 6.704671205288162,
+      "Beet juice powder": 6.736594797692837,
+      "Salt": 7.269187393083676,
+      "Mixing time": 3.345487017178283,
+      "Water": 332.0233537453406
+    },
+    {
+      "Textured pea protein": 25.416030336803153,
+      "Coconut oil": 14.098889481805424,
+      "Methylcellulose": 3.231886493889646,
+      "Beet juice powder": 1.4999999999999918,
+      "Salt": 1.945875362554781,
+      "Mixing time": 3.440553366925064,
+      "Water": 53.80731832494701
+    },
+    {
+      "Textured pea protein": 24.6039583245864,
+      "Coconut oil": 14.433718878591405,
+      "Methylcellulose": 3.453931230046796,
+      "Beet juice powder": 1.4999999999999856,
+      "Salt": 1.8850412188881958,
+      "Mixing time": 8.221540664321251,
+      "Water": 54.12335034788721
+    },
+    {
+      "Textured pea protein": 23.78862598318129,
+      "Coconut oil": 14.755671529770416,
+      "Methylcellulose": 1.855659733722784,
+      "Beet juice powder": 1.5,
+      "Salt": 1.999999999999997,
+      "Mixing time": 2.0396985889739865,
+      "Water": 56.10004275332551
+    },
+    {
+      "Textured pea protein": 23.14,
+      "Coconut oil": 14.19,
+      "Methylcellulose": 2.71,
+      "Beet juice powder": 1.5,
+      "Salt": 1.84,
+      "Mixing time": 4.83,
+      "Water": 56.62
+    },
+    {
+      "Textured pea protein": 22.114760581855876,
+      "Coconut oil": 14.595998380400403,
+      "Methylcellulose": 2.498966632384091,
+      "Beet juice powder": 1.033436586233007,
+      "Salt": 1.4382043727406135,
+      "Mixing time": 4.313891947691108,
+      "Water": 58.31863344638601
+    },
+    {
+      "Textured pea protein": 22.405978579227288,
+      "Coconut oil": 14.63231350787154,
+      "Methylcellulose": 0.6388089165391841,
+      "Beet juice powder": 1.5,
+      "Salt": 2.0,
+      "Mixing time": 4.534463048394159,
+      "Water": 58.82289899636199
+    },
+    {
+      "Textured pea protein": 22.286274705592664,
+      "Coconut oil": 14.577780687046333,
+      "Methylcellulose": 3.9099555337958627,
+      "Beet juice powder": 1.5,
+      "Salt": 0.8654663093466697,
+      "Mixing time": 4.2651054015783565,
+      "Water": 56.86052276421847
+    },
+    {
+      "Textured pea protein": 21.930368061665604,
+      "Coconut oil": 13.701787084005822,
+      "Methylcellulose": 4.0,
+      "Beet juice powder": 0.6819921877729365,
+      "Salt": 1.999999999999999,
+      "Mixing time": 4.632977232086447,
+      "Water": 57.68585266655565
+    },
+    {
+      "Textured pea protein": 22.22117886300358,
+      "Coconut oil": 14.647187598300901,
+      "Methylcellulose": 2.3371650731439084,
+      "Beet juice powder": 1.5,
+      "Salt": 2.0,
+      "Mixing time": 4.792891649699595,
+      "Water": 57.2944684655516
+    },
+    {
+      "Textured pea protein": 22.58028517840703,
+      "Coconut oil": 14.204611998734865,
+      "Methylcellulose": 2.3271561519135906,
+      "Beet juice powder": 0.20000000000000087,
+      "Salt": 2.0,
+      "Mixing time": 4.894404572691452,
+      "Water": 58.68794667094452
+    },
+    {
+      "Textured pea protein": 22.604208410105077,
+      "Coconut oil": 16.197348432618867,
+      "Methylcellulose": 2.3956323050143,
+      "Beet juice powder": 1.5,
+      "Salt": 2.0,
+      "Mixing time": 4.30060729791513,
+      "Water": 55.30281085226176
+    },
+    {
+      "Textured pea protein": 21.2400582667988,
+      "Coconut oil": 13.38026581166758,
+      "Methylcellulose": 2.4436932707428425,
+      "Beet juice powder": 1.499999999999993,
+      "Salt": 1.9999999999999885,
+      "Mixing time": 5.597490921973343,
+      "Water": 59.4359826507908
+    }
+  ],
+  "results_history": [
+    {
+      "Firmness": 49.0,
+      "Juiciness": 5.6,
+      "Cook loss": 20.9
+    },
+    {
+      "Firmness": 36.1,
+      "Juiciness": 6.3,
+      "Cook loss": 26.8
+    },
+    {
+      "Firmness": 52.4,
+      "Juiciness": 6.1,
+      "Cook loss": 24.3
+    },
+    {
+      "Firmness": 36.0,
+      "Juiciness": 6.0,
+      "Cook loss": 23.7
+    },
+    {
+      "Firmness": 47.5,
+      "Juiciness": 7.7,
+      "Cook loss": 22.6
+    },
+    {
+      "Firmness": 44.6,
+      "Juiciness": 7.0,
+      "Cook loss": 23.3
+    },
+    {
+      "Firmness": 24.9,
+      "Juiciness": 6.7,
+      "Cook loss": 33.7
+    },
+    {
+      "Firmness": 64.1,
+      "Juiciness": 5.4
+    },
+    {
+      "Firmness": 48.6,
+      "Juiciness": 6.3,
+      "Cook loss": 21.9
+    },
+    {
+      "Firmness": 46.4,
+      "Juiciness": 5.9,
+      "Cook loss": 22.7
+    },
+    {
+      "Firmness": 43.4,
+      "Juiciness": 7.6,
+      "Cook loss": 18.6
+    },
+    {
+      "Firmness": 26.7,
+      "Juiciness": 7.4,
+      "Cook loss": 27.4
+    },
+    {
+      "Firmness": 56.2,
+      "Juiciness": 7.1,
+      "Cook loss": 18.2,
+      "Redness": 15.4
+    },
+    {
+      "Firmness": 58.7,
+      "Juiciness": 6.7,
+      "Cook loss": 21.3,
+      "Redness": 14.0
+    },
+    {
+      "Firmness": 39.8,
+      "Juiciness": 6.6,
+      "Cook loss": 24.1,
+      "Redness": 15.5
+    },
+    {
+      "Firmness": 49.5,
+      "Juiciness": 7.6,
+      "Cook loss": 20.9,
+      "Redness": 14.3
+    },
+    {
+      "Firmness": 45.1,
+      "Juiciness": 7.8,
+      "Cook loss": 24.0,
+      "Redness": 12.4
+    },
+    {
+      "Firmness": 35.2,
+      "Juiciness": 7.0,
+      "Cook loss": 26.0,
+      "Redness": 15.8
+    },
+    {
+      "Firmness": 57.7,
+      "Juiciness": 7.4,
+      "Cook loss": 22.8,
+      "Redness": 13.4
+    },
+    {
+      "Firmness": 59.1,
+      "Juiciness": 7.1,
+      "Cook loss": 18.8,
+      "Redness": 9.8
+    },
+    {
+      "Firmness": 48.9,
+      "Juiciness": 7.4,
+      "Cook loss": 21.6,
+      "Redness": 15.0
+    },
+    {
+      "Firmness": 49.9,
+      "Juiciness": 6.8,
+      "Cook loss": 22.1,
+      "Redness": 5.8
+    },
+    {
+      "Firmness": 45.4,
+      "Juiciness": 7.0,
+      "Cook loss": 19.8,
+      "Redness": 14.9
+    },
+    {
+      "Firmness": 48.9,
+      "Juiciness": 7.4,
+      "Cook loss": 21.7,
+      "Redness": 14.7
+    }
+  ],
+  "timestamps_history": [
+    "2026-10-01T07:58:05.872623+00:00",
+    "2026-10-01T07:58:05.873550+00:00",
+    "2026-10-01T07:58:05.874197+00:00",
+    "2026-10-01T07:58:05.874787+00:00",
+    "2026-10-01T07:58:57.267769+00:00",
+    "2026-10-01T07:58:57.270220+00:00",
+    "2026-10-01T07:58:57.271994+00:00",
+    "2026-10-01T07:58:57.273510+00:00",
+    "2026-10-01T08:00:21.852996+00:00",
+    "2026-10-01T08:00:21.853931+00:00",
+    "2026-10-01T08:00:21.854506+00:00",
+    "2026-10-01T08:00:21.855136+00:00",
+    "2026-10-01T08:04:08.888857+00:00",
+    "2026-10-01T08:04:08.890016+00:00",
+    "2026-10-01T08:04:08.890681+00:00",
+    "2026-10-01T08:04:08.891367+00:00",
+    "2026-10-01T08:06:31.438936+00:00",
+    "2026-10-01T08:06:31.439997+00:00",
+    "2026-10-01T08:06:31.440852+00:00",
+    "2026-10-01T08:06:31.442000+00:00",
+    "2026-10-01T08:09:14.795830+00:00",
+    "2026-10-01T08:09:14.797015+00:00",
+    "2026-10-01T08:09:14.797969+00:00",
+    "2026-10-01T08:09:14.798947+00:00"
+  ],
+  "formulation_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "batch_history": [
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5,
+    5,
+    6,
+    6,
+    6,
+    6
+  ],
+  "notes_history": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "Repeat of Formulation 11",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "skipped": [],
+  "set_aside": [
+    8
+  ],
+  "next_formulation_no": 29,
+  "next_batch_number": 8,
+  "sobol_seed": 2302109391,
+  "pending_batch_no": 7,
+  "pending_batch_created": "2026-10-01",
+  "pending_batch_discarded": [],
+  "pending_batch_total": null,
+  "formulation_total": 100.0,
+  "lots": {},
+  "batch_totals": {
+    "1": 100.0,
+    "2": 100.0,
+    "3": 500.0,
+    "4": 100.0,
+    "5": 100.0,
+    "6": 100.0
+  },
+  "batch_generated_totals": {
+    "3": {
+      "9": 100.0,
+      "10": 100.0,
+      "11": 100.0,
+      "12": 100.0
+    }
+  },
+  "round_generation": {
+    "1": {
+      "seed": 1,
+      "rows": [],
+      "n": 4,
+      "regime": "cold",
+      "key": "",
+      "picks": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "2": {
+      "seed": 5,
+      "rows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "n": 4,
+      "regime": "cold",
+      "key": "",
+      "picks": [
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    "3": {
+      "seed": 9,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        7
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "ae21cfa057de3a1f8abaa0f57d2a31fdbfee63c86df511707d3106fac8eafba9",
+      "picks": [
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    "4": {
+      "seed": 13,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12
+      ],
+      "n": 3,
+      "regime": "warm",
+      "key": "027925f75868586f92c12cd7c4fb6b00deb09979cf50dfdf8dc356d073ec185d",
+      "picks": [
+        13,
+        14,
+        15
+      ]
+    },
+    "5": {
+      "seed": 17,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "345a9c114dbd343fdc848c089378ccd80e8934636cea62eef47c56a900b839b8",
+      "picks": [
+        17,
+        18,
+        19,
+        20
+      ]
+    },
+    "6": {
+      "seed": 21,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "12a99ec539383ae3a95ab1fac1db3e279f27006eb3dd1e14a03cade01766f511",
+      "picks": [
+        21,
+        22,
+        23,
+        24
+      ]
+    },
+    "7": {
+      "seed": 25,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "60fe6e1a43243ba8c7eb62d0515d6445dc40d2a79b5f98dad6fdbd1f94725a70",
+      "picks": [
+        25,
+        26,
+        27,
+        28
+      ]
+    }
+  },
+  "amount_unit": "g",
+  "targets_source": "",
+  "bench_records": {
+    "1": [
+      {
+        "sheet": "Results",
+        "cell": "B7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "49"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "36.1"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "52.4"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "36"
+      },
+      {
+        "sheet": "Results",
+        "cell": "B8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "5.6"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "6.3"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "6.1"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "6"
+      },
+      {
+        "sheet": "Results",
+        "cell": "B9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "20.9"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "26.8"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "24.3"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "23.7"
+      }
+    ],
+    "6": [
+      {
+        "sheet": "Results",
+        "cell": "B7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "48.9"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "49.9"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "45.4"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H7",
+        "label": "Firmness (N) · Target 40 N",
+        "value": "48.9"
+      },
+      {
+        "sheet": "Results",
+        "cell": "B8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "7.4"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "6.8"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "7"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H8",
+        "label": "Juiciness (score) · Prefer higher values",
+        "value": "7.4"
+      },
+      {
+        "sheet": "Results",
+        "cell": "B9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "21.6"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "22.1"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "19.8"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H9",
+        "label": "Cook loss (%) · Prefer lower values",
+        "value": "21.7"
+      },
+      {
+        "sheet": "Results",
+        "cell": "B10",
+        "label": "Redness (a*) · Target 12 a*",
+        "value": "15"
+      },
+      {
+        "sheet": "Results",
+        "cell": "D10",
+        "label": "Redness (a*) · Target 12 a*",
+        "value": "5.8"
+      },
+      {
+        "sheet": "Results",
+        "cell": "F10",
+        "label": "Redness (a*) · Target 12 a*",
+        "value": "14.9"
+      },
+      {
+        "sheet": "Results",
+        "cell": "H10",
+        "label": "Redness (a*) · Target 12 a*",
+        "value": "14.7"
+      }
+    ]
+  },
+  "custom_records": {
+    "fields": [],
+    "values": {}
+  },
+  "recorded_fields": {
+    "vendor": false,
+    "sku": false,
+    "lot": false,
+    "actual": false
+  },
+  "method": "",
+  "pending_batch": [
+    {
+      "formulation": 25,
+      "recipe": {
+        "Textured pea protein": 22.458270071717973,
+        "Coconut oil": 15.499027279048233,
+        "Methylcellulose": 2.678529669834781,
+        "Beet juice powder": 1.5,
+        "Salt": 1.6107631505481603,
+        "Mixing time": 4.146950249404577,
+        "Water": 56.25340982885085
+      }
+    },
+    {
+      "formulation": 26,
+      "recipe": {
+        "Textured pea protein": 23.204642877451434,
+        "Coconut oil": 16.503459991215045,
+        "Methylcellulose": 2.6158282164870394,
+        "Beet juice powder": 1.2219131466561892,
+        "Salt": 1.5792210348430806,
+        "Mixing time": 4.124161600276423,
+        "Water": 54.87493473334721
+      }
+    },
+    {
+      "formulation": 27,
+      "recipe": {
+        "Textured pea protein": 22.031148148692303,
+        "Coconut oil": 14.60356227152461,
+        "Methylcellulose": 2.788970245960811,
+        "Beet juice powder": 1.4561423749791176,
+        "Salt": 1.5758681141033775,
+        "Mixing time": 5.050644052928053,
+        "Water": 57.54430884473979
+      }
+    },
+    {
+      "formulation": 28,
+      "recipe": {
+        "Textured pea protein": 21.7277527024524,
+        "Coconut oil": 15.39431573855137,
+        "Methylcellulose": 2.9241970992136364,
+        "Beet juice powder": 1.5,
+        "Salt": 1.6315822423311648,
+        "Mixing time": 3.161670775558253,
+        "Water": 56.82215221745144
+      }
+    }
+  ],
+  "result_drafts": {},
+  "bo_config": null,
+  "CLASS_VERSION": 17
+}
