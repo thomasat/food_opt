@@ -243,8 +243,9 @@ def test_insights_sections_and_expanders(insights_scored):
     for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT):
         assert q in text
     labels = [e.label for e in tab.expander]
-    for lab in (wording.SHOW_PREDICTIONS, wording.SHOW_PROGRESS, wording.try_one(False),
-                wording.FOLD_METHOD):
+    for lab in (wording.FOLD_PREDICTION_FIGURES, wording.FOLD_MEASURED_CHART,
+                wording.FOLD_PROGRESS_FIGURES, wording.FOLD_PROGRESS_CHART,
+                wording.FOLD_NEXT_REASONING, wording.try_one(False), wording.FOLD_METHOD):
         assert lab in labels, labels
     # One lit button: the foot (spec 2026-09-30 §2.4).
     assert [b.label for b in tab.button if b.proto.type == "primary"] == [
@@ -307,8 +308,10 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     at = _open_insights(_app())
     assert not at.exception
     tab = at.tabs[3]
-    captions = [c.value for c in tab.caption]
-    assert captions.count(wording.insights_gate(2)) == 1       # once on the tab
+    # Once on the tab: the Predictions status line's (ftue W1, R-B1 row 3).
+    md_lines = [m.value for m in tab.markdown]
+    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
+    assert sum(wording.pred_gate(2) in m for m in md_lines) == 1
     assert any("Best so far:" in m.value for m in tab.markdown)   # "Where do you stand?" shows
     md = " ".join(m.value for m in tab.markdown)
     assert wording.Q_TRUST not in md and wording.Q_NEXT not in md

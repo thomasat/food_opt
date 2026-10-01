@@ -89,7 +89,7 @@ def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     tab = at.tabs[3]
-    shown = next(e for e in tab.expander if e.label == wording.SHOW_PREDICTIONS)
+    shown = next(e for e in tab.expander if e.label == wording.FOLD_MEASURED_CHART)
     assert [c.value for c in shown.caption] == [wording.MVP_CAPTION]
     best = mixture_scored.best_formulation_no()
     assert any(c.value.endswith(f"Dotted: Formulation {best}; dashed: target.")

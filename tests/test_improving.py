@@ -106,9 +106,12 @@ def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_s
 def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     tab = at.tabs[3]
-    assert [c.value for c in tab.caption].count(wording.insights_gate(2)) == 1
-    assert wording.insights_gate(2) == (
-        "Prediction check and Next step start at 5 scored formulations. Scored so far: 2.")
+    # Since ftue W1 (R-B1 row 3) the gate is said once, by the Predictions
+    # status line; the old gate line is gone from the tab.
+    said = [m.value for m in tab.markdown if wording.pred_gate(2) in m.value]
+    assert said == [wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2),
+                                        wording.PREDICTIONS_WORDS["not_yet"])]
+    assert wording.insights_gate(2) not in [c.value for c in tab.caption]
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():
@@ -219,7 +222,9 @@ def test_the_section_works_out_best_so_far_once(insights_scored, monkeypatch):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
-    assert len(calls) == 1
+    # Twice since ftue W1: Progress figures' line 1 and the Progress status
+    # line (insights.status_facts) each read it once per run, no more.
+    assert len(calls) == 2
 
 
 def test_question_4_without_a_score_model_says_it_could_not_be_worked_out(

@@ -63,8 +63,9 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     assert captions[0] == (
         f"Based on {complete} scored formulations (all results in), up to Round 1. "
         "1 more is waiting for Juiciness and is not used yet."), captions
-    gates = [c for c in captions if "start at 5 scored" in c]
-    assert gates == [wording.insights_gate(complete)], captions      # said once (Task 6)
+    # Said once (Task 6), by the Predictions status line since ftue W1.
+    gates = [m.value for m in at.tabs[3].markdown if "once 5 formulations have results" in m.value]
+    assert gates == [wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(complete), wording.PREDICTIONS_WORDS["not_yet"])], gates
 
 
 # ------------------------------------------------------------------ #

@@ -362,10 +362,10 @@ def test_method_and_details_is_drawn_only_while_open(tabs):
 
 def test_measured_against_predicted_is_drawn_only_while_open(tabs):
     fold = next(e for e in tabs[demo.LINE_A].tabs[3].expander
-                if e.label == wording.SHOW_PREDICTIONS)
+                if e.label == wording.FOLD_MEASURED_CHART)
     assert not fold.caption
     at = _open(demo.LINE_A, ui_insights.EACH_KEY)
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.SHOW_PREDICTIONS)
+    fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
     assert [c.value for c in fold.caption] == [wording.MVP_CAPTION]
 
 

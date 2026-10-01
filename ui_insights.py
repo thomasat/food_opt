@@ -15,7 +15,7 @@ import insights_cache
 import insights_jobs
 import wording
 from food_bo import fmt_setting, join_unit, number_list
-from ui_helpers import (SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
+from ui_helpers import (SCROLL_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
                         TAB_BATCH, app_rerun, TAB_SETUP, amount_format, ask_tab, confirmation_open,
                         go_to_tab, link, open_rows, readiness, table_height)
 
@@ -862,18 +862,35 @@ def _question(opt, text):
     st.markdown(f"##### {_say(opt, text)}")
 
 
-def render(opt):
-    """The tab (spec 2026-09-30 §2): the header, three answers — "Can you
-    trust the predictions?", "Where do you stand?", "What to do next" — the
-    foot button, then three folds. At the gate (fewer than MIN_ROWS
-    scored), after a failed fit and with nothing scored, the header (or
-    one line), Best so far and the foot (review M8).
+# Ftue spec §2, review R-I8, M3: each detail section is its noun heading and
+# one figures fold holding today's exact lines; the folds that were there
+# keep their keys (EACH_KEY, PROGRESS_KEY) and now sit inside these.
+PREDICTION_FIGURES_KEY = "insights_prediction_figures"
+PROGRESS_FIGURES_KEY = "insights_progress_figures"
+NEXT_REASONING_KEY = "insights_next_reasoning"
+# Where the first screen's links go (R-I4, R-I14): Make a round's Why fold
+# (ui_batch.WHY_KEY: ui_batch imports this module, so the key is named here
+# and a test ties the two).
+WHY_FOLD_KEY = "why_these"
 
-    Drawn at once, before anything is fitted or worked out (review I15):
-    the header, "Where do you stand?" line 1 and the foot. The verdict,
-    lines 2-3 and "What to do next" fill their places as they are ready —
-    here in this run when the tab fits in this process, part by part
-    behind one progress line while the workers are still fitting."""
+
+def render(opt):
+    """The tab (ftue spec §1-§2, rev. 2; review R-B1, R-I4, R-I8): the
+    header, the three status lines (Predictions, Progress, Next), Next's
+    primary button (the foot) with its Set up secondary when there is one,
+    at most one tertiary link, the Explored and unexplored fold, then the
+    detail sections — each its noun heading and one figures fold with
+    today's exact lines — and the folds below. At the gate (fewer than
+    MIN_ROWS scored) the same order with the model-free parts; with nothing
+    scored, one line and the foot; after a failed fit, one line and the
+    model-free Progress line.
+
+    Drawn at once, before anything is fitted (review I15, R-I8): the header,
+    each status line's place with its caption, the button under them, the
+    link, and Progress's figures. The places fill as their facts are ready —
+    here in this run when the tab fits in this process, part by part while
+    the workers are still fitting — so the button moves by at most a line's
+    difference per line and never jumps over a filled screen."""
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
         st.caption(_say(opt, wording.INSIGHTS_NONE))
@@ -888,37 +905,20 @@ def render(opt):
         # C2 (review M5): the workers broke too often; everything is now
         # worked out here, behind each screen's own indicator.
         st.caption(_say(opt, wording.INSIGHTS_IN_PROCESS))
+    _land()
     if n < insights.MIN_ROWS:
-        _question(opt, wording.Q_STAND)
-        _stand_first(opt, insights.noise_yardstick(opt))
-        st.caption(_say(opt, wording.insights_gate(n)))
-        _foot(opt)
-        explored_fold(opt, None)        # W3 (§8, R-I14): under the button
-        _how(opt, None)
+        _gate(opt)
         return
     filling = waiting(opt, "all")
-    # The page in screen order, before any fit (review I15, Plan B Task 6
-    # review I-1): the progress line's place, answer 1's, line 1, the
-    # places of lines 2-3 and of answer 3, the foot, the Set up button's.
-    bar = st.empty()
-    # Keyed, so a link from another tab can land on them (04 §5).
-    trust = st.container(key=TRUST_SECTION)
-    stand = st.container(key=STAND_SECTION)
-    with stand:
-        _question(opt, wording.Q_STAND)
-        first_yard = insights.noise_yardstick(opt)
-        lines = st.empty()
-        with lines.container():
-            facts = _stand_lines(opt, first_yard)
-        if facts is not None:
-            _progress_fold(opt)
-        rest = st.container()
-    nxt = st.container()
-    _foot(opt)
-    below = st.container()
+    # The page in screen order, before any fit (R-I8): the three places,
+    # the button, its secondary's place and the link's, the progress line's
+    # place (under the button, so it never moves it), the Explored fold's,
+    # then the sections.
+    places = _places(opt)
     if filling:
-        _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below)
-        explored_fold(opt, None)        # W3 (§8, R-I14): under the button
+        _fill_in(opt, places)
+        with places.explored:
+            explored_fold(opt, None)    # W3 (§8, R-I14): under the button
         _how(opt, None)
         return
     st.session_state.pop(PROGRESS_SEEN_KEY, None)
@@ -926,40 +926,39 @@ def render(opt):
     # Nothing to fit (a reopen, everything beside the project): no progress
     # line, which said "0 of 23 Rounds checked…" while none was (04 I-1).
     quiet = cold and _nothing_to_fit(opt)
-    computed = _computed(opt, bar, quiet=quiet)
+    computed = _computed(opt, places.bar, quiet=quiet)
     if computed.get("failed"):
-        # The model answers come off; one line says so, where the bar was.
-        bar.empty()
-        bar.caption(_say(opt, wording.INSIGHTS_FAILED))
-        explored_fold(opt, computed)    # W3 (§8, R-I14): under the button
+        # The model lines come off; one line says so, in their place, with
+        # the model-free Progress line under it (review B1's table).
+        places.bar.empty()
+        with places.lines.container():
+            st.caption(_say(opt, wording.INSIGHTS_FAILED))
+            _status_line(opt, insights.status_facts(opt, ()), "progress")
+        with places.explored:
+            explored_fold(opt, computed)    # W3 (§8, R-I14): under the button
         _how(opt, None)
         return
     checks = computed["checks"]
     h = insights.headline(opt, checks)
     yard = insights.noise_yardstick(opt, checks)
-    _restate(opt, lines, first_yard, yard)
-    with trust:
-        _question(opt, wording.Q_TRUST)
-        # The disagreeing Repeat is said once: here, unless "What to do
-        # next" already says it. Drawn first: answer 1 never waits for the
-        # predicted best or the expected improvement, and whether Next step
-        # is the Repeat row does not depend on either (item 2).
-        _trust(opt, computed, h, yard,
-               repeat=insights.next_step(opt, checks, None).kind != "repeat")
-    with rest:
+    _restate(opt, places.line1, places.first_yard, yard)
+    with places.trust:
+        # The disagreeing Repeat is said once: in Prediction figures, unless
+        # Next step already says it (its row does not depend on the
+        # predicted best or the expected improvement: item 2).
+        _prediction_section(opt, computed, h, yard,
+                            repeat=insights.next_step(opt, checks, None).kind != "repeat")
+    with places.rest:
         # The bar, when it showed, stays up through the predicted best's
         # search: one indicator per wait (V28, Plan A review C M-2).
         standing = _stand(opt, computed, yard, spinner=not cold or quiet)
-    bar.empty()
-    with nxt:
-        _question(opt, wording.Q_NEXT)
-        step = insights.next_step(opt, checks, standing, gain=shown_gain(
-            opt, computed["fitted"].get(insights.SCORE), checks))
-        change = _next_step(opt, step)
-    with below:
-        _setup_button(change)
-        explored_link(opt, step)        # W3 (R-I14): explore and untested rows
-    explored_fold(opt, computed)        # W3 (§8, R-I14): under the button and its link
+    places.bar.empty()
+    gain = shown_gain(opt, computed["fitted"].get(insights.SCORE), checks)
+    with insights.memo_in_use(memo(opt)):
+        facts = insights.status_facts(opt, checks, standing, gain)
+    _finish(opt, places, facts)
+    with places.explored:
+        explored_fold(opt, computed)
     # The folds, collapsed (§2.5), each with a key of its own.
     with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one",
                      on_change="rerun"):        # W3: the §8.3 pointer opens it
@@ -967,6 +966,109 @@ def render(opt):
     _more_charts(opt, computed)
     _how(opt, computed)
     save(opt)
+
+
+class _Places:
+    """The places render draws before anything is worked out, in screen
+    order (R-I8), for _fill_in and the rest of render to fill."""
+
+
+def _places(opt):
+    p = _Places()
+    p.lines = st.empty()
+    with p.lines.container():
+        _status_lines(opt, None)
+    _foot(opt)
+    p.change = st.empty()
+    p.link = st.empty()
+    with p.link.container():
+        p.why = _why_link(opt)
+    p.bar = st.empty()
+    p.explored = st.container()
+    # Keyed, so a link from another tab can land on them (04 §5).
+    p.trust = st.container(key=TRUST_SECTION)
+    stand = st.container(key=STAND_SECTION)
+    with stand:
+        _question(opt, wording.Q_STAND)
+        with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
+            _basis(opt, wording.BASIS_PROGRESS, "basis_progress")
+            p.first_yard = insights.noise_yardstick(opt)
+            p.line1 = st.empty()
+            with p.line1.container():
+                best = _stand_lines(opt, p.first_yard)
+            p.rest = st.container()
+            if best is not None:
+                _progress_fold(opt)
+    p.nxt = st.container()
+    return p
+
+
+def _land():
+    """A link that lands on a section opens the figures fold the lines it
+    points at now sit in (ftue M2): E1 at Prediction check with Measured
+    against predicted open; E3's Next step at Progress. Only on arrival
+    (ui_helpers.SCROLL_KEY, drained by app.py after the tab is drawn), so
+    a fold the reader closed stays closed."""
+    where = st.session_state.get(SCROLL_KEY)
+    if where == TRUST_SECTION and st.session_state.get(EACH_KEY):
+        st.session_state[PREDICTION_FIGURES_KEY] = True
+    elif where == STAND_SECTION:
+        st.session_state[PROGRESS_FIGURES_KEY] = True
+
+
+def _gate(opt):
+    """Fewer than MIN_ROWS scored (review M8, R-B1 row 3): the three status
+    lines with no model behind them, the button, then Progress's figures
+    and Method and definitions."""
+    with insights.memo_in_use(memo(opt)):
+        facts = insights.status_facts(opt, ())
+    _status_lines(opt, facts)
+    _foot(opt)
+    _why_link(opt)
+    explored_fold(opt, None)
+    with st.container(key=STAND_SECTION):
+        _question(opt, wording.Q_STAND)
+        with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
+            _basis(opt, wording.BASIS_PROGRESS, "basis_progress")
+            _stand_first(opt, insights.noise_yardstick(opt))
+    _how(opt, None)
+
+
+def _finish(opt, places, facts):
+    """The status lines, Next step's section, the Set up secondary and, when
+    no Why link was drawn, the Explored link: everything that waits for the
+    predicted best and the expected improvement."""
+    with places.lines.container():
+        _status_lines(opt, facts)
+    with places.nxt:
+        _question(opt, wording.Q_NEXT)
+        with _figures(opt, wording.FOLD_NEXT_REASONING, NEXT_REASONING_KEY):
+            _basis(opt, wording.BASIS_NEXT, "basis_next")
+            change = _next_step(opt, facts.next)
+    with places.change.container():
+        _setup_button(change)
+    if not places.why:
+        with places.link.container():
+            explored_link(opt, facts.next)
+
+
+def _figures(opt, label, key):
+    """A figures fold (§2, R-I8): keyed, so a link can open it; never lazy,
+    so its lines are worked out with the status lines they detail."""
+    return st.expander(_say(opt, label), key=key, on_change="rerun")
+
+
+def _basis(opt, text, line_id):
+    """A figures fold's first line, its technical basis, with W2's help
+    (R-I6: a fold label carries no tooltip)."""
+    st.caption(_say(opt, text), help=tooltip_for(opt, line_id))
+
+
+def _line(opt, text, line_id, slot=None, facts=None):
+    """One of today's exact lines in its figures fold, with W2's help for
+    the statistics it names (R-I6: st.markdown, which renders as st.write
+    did and takes help=)."""
+    (slot or st).markdown(_say(opt, text), help=tooltip_for(opt, line_id, facts))
 
 
 def _restate(opt, lines, first_yard, yard):
@@ -977,49 +1079,52 @@ def _restate(opt, lines, first_yard, yard):
             _stand_lines(opt, yard)
 
 
-def _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below):
+def _fill_in(opt, places):
     """The tab while the workers are still fitting (spec 2026-09-30 §10.3,
-    review I15), into the places render drew: one progress line with a
-    count, then answer 1 once every Round's Overall score and the verdict's
-    Rounds are in, answers 2 and 3 once the current Overall-score model is
-    in too. Each is drawn once, final; the folds wait for everything.
-    keep_up's poller reruns the page as parts land."""
+    review I15, ftue R-I8), into the places render drew: one progress line
+    with a count under the button, then Prediction figures once every
+    Round's Overall score and the verdict's Rounds are in, then the status
+    lines, Progress's figures and Next step together once the current
+    Overall-score model is in too (each status line needs it: the guard
+    under Reliable, the luck clause, the Next row). Each is drawn once,
+    final; the folds wait for everything. keep_up's poller reruns the page
+    as parts land."""
     specs, mem = _plan(opt), memo(opt)
     done, total = insights_jobs.rounds_done(opt, specs, mem)
     fraction = sum(s.key in mem for s in specs) / max(1, len(specs))
-    bar.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
+    places.bar.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
     # The poller reruns the page when this count moves (C1; 01 F2).
     st.session_state[PROGRESS_SEEN_KEY] = (insights.data_key(opt), done)
     checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
     if checks is None:
         return
     yard = insights.noise_yardstick(opt, checks)
-    _restate(opt, lines, first_yard, yard)
+    _restate(opt, places.line1, places.first_yard, yard)
     step = insights.next_step(opt, checks, None)
-    # Answer 1 first (item 2): the Repeat row does not depend on answers 2-3.
-    with trust:
-        _question(opt, wording.Q_TRUST)
-        _trust(opt, {"checks": checks, "partial": True}, insights.headline(opt, checks),
-               yard, repeat=step.kind != "repeat")
-    if not waiting(opt, "stand"):
-        with insights.memo_in_use(mem):
-            score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
-        computed = {"fitted": {insights.SCORE: score}, "checks": checks, "partial": True}
-        with rest:
-            standing = _stand(opt, computed, yard)
-        with nxt:
-            _question(opt, wording.Q_NEXT)
-            step = insights.next_step(opt, checks, standing,
-                                      gain=shown_gain(opt, score, checks))
-            change = _next_step(opt, step)
-        with below:
-            _setup_button(change)
+    # Prediction figures first (item 2): the Repeat row does not depend on
+    # the predicted best.
+    with places.trust:
+        _prediction_section(opt, {"checks": checks, "partial": True},
+                            insights.headline(opt, checks), yard,
+                            repeat=step.kind != "repeat")
+    if waiting(opt, "stand"):
+        return
+    with insights.memo_in_use(mem):
+        score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
+    computed = {"fitted": {insights.SCORE: score}, "checks": checks, "partial": True}
+    with places.rest:
+        standing = _stand(opt, computed, yard)
+    gain = shown_gain(opt, score, checks)
+    with insights.memo_in_use(mem):
+        facts = insights.status_facts(opt, checks, standing, gain)
+    _finish(opt, places, facts)
 
 
 def _foot(opt):
     """The foot Results uses, in its words and by its rule, with a key of its
     own (spec 2026-09-30 §2.4, review M13): back to the open Round, else
-    the next one. Needs no model: drawn before anything is worked out."""
+    the next one. Needs no model: drawn before anything is worked out,
+    under the three status lines' places (ftue §1: Next's primary)."""
     if opt.pending_batch:
         label = wording.back_to_batch_label(opt.pending_batch_no, len(open_rows(opt)))
     else:
@@ -1045,28 +1150,217 @@ def _setup_button(change):
 
 
 # ------------------------------------------------------------------ #
-#  Insights for a first-time user (spec 2026-10-01 rev. 2), W1: the first
-#  screen's draw helpers. T0 stubs with their final signatures; W1 fills
-#  them in and wires them into render.
+#  Insights for a first-time user (spec 2026-10-01 rev. 2), W1: the three
+#  status lines (review R-B1, R-I5, R-I9, R-I10, M1, M7, M10) and the one
+#  tertiary link (R-I3, R-I4, R-I14).
 # ------------------------------------------------------------------ #
+
+_PLACEHOLDERS = {"predictions": wording.CHECKING_PREDICTIONS,
+                 "progress": wording.CHECKING_PROGRESS, "next": wording.PREPARING_NEXT_STEP}
+_STATUS_ORDER = ("predictions", "progress", "next")
+
+
+def _wide_clause_names(names):
+    """The wide clause's names: measurements as said, the Overall score as
+    "the Overall score"."""
+    return [f"the {wording.OVERALL_SCORE_COLUMN}" if n == insights.SCORE else n for n in names]
+
+
+def prediction_sentence(opt, facts):
+    """The Predictions line's sentence for facts.prediction_row (R-B1 rows
+    1-9), its clauses in the ruling's order. The Overall score's steady bias
+    joins rows 7-8's sentence ("and have run about …") and row 2's (", and
+    predictions have run …"), and is a clause on the others."""
+    row, h = facts.prediction_row, facts.headline
+    bias = next((c[1] for c in facts.clauses if c[0] == "bias"), None)
+    gap = None if bias is None else (f"{abs(bias):.1f}", bias < 0)
+    tail = []
+    for c in facts.clauses:
+        if c[0] == "wide":
+            tail.append(wording.clause_wide(_wide_clause_names(c[1])))
+        elif c[0] == "over_wide":
+            tail.append(wording.CLAUSE_OVER_WIDE)
+        elif c[0] == "bias" and row not in ("no_skill", "unclear"):
+            tail.append(wording.clause_bias(*gap))
+        elif c[0] == "guard":
+            tail.append(wording.clause_guard(settings_only=not opt.has_ingredients()))
+    if row == "off_repeat":
+        return wording.PRED_OFF_REPEAT
+    if row == "gate":
+        return wording.pred_gate(facts.scored, insights.MIN_ROWS)
+    if row == "too_few":
+        return wording.pred_too_few(facts.checked, insights.SKILL_MIN, tail)
+    if row == "wide":
+        return wording.pred_wide(tail)
+    if row == "no_skill":
+        return wording.pred_no_skill(gap, tail)
+    if row == "unclear":
+        return wording.pred_unclear(gap, tail)
+    allowed = insights.allowed_misses(h.total)
+    if row == "off_coverage":
+        return wording.pred_off_coverage(h.rounds, h.total - h.inside, h.total, allowed,
+                                         None if gap is None else wording.bias_fact(*gap))
+    if row == "caution":
+        return wording.pred_caution(h.rounds, h.total - h.inside, h.total, allowed, tail)
+    return wording.pred_reliable(h.rounds, h.inside, h.total, allowed, tail)
+
+
+def one_round(opt):
+    """Whether every formulation with all its results is from one Round
+    (ftue §4: "It came from the latest Round" and "One Round so far" say
+    nothing else). Counted over every scored formulation, not only Best so
+    far's candidates: a project whose earlier Rounds are scored without a
+    measurement has had more than one Round."""
+    rounds = {opt.batch_history[i] for i in range(len(opt.Y_history)) if opt.fully_measured(i)}
+    return len(rounds) == 1
+
+
+def _one_round_cold(opt, r):
+    """Whether Round `r` was laid out to cover the allowed amounts (the cold
+    start), not chosen by the model."""
+    try:
+        return r is not None and bo_views.generation(opt, r).regime == "cold"
+    except Exception:
+        return False
+
+
+def progress_sentence(opt, facts):
+    """The Progress line's sentence (R-B1, R-I9, M1, M10): the status reason
+    and Best so far to two decimals of the score's ceiling; an equal-score
+    tie named; the luck clause only when facts.luck (Reliable)."""
+    f = facts.best
+    if f is None:
+        return wording.NO_COMPLETE_FORMULATION
+    ceiling = opt.utility_ceiling()
+    score = f"{f.score:.2f}"
+    tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
+    a = facts.improvement
+    if facts.progress in ("rising", "within_noise"):
+        threshold = 1.0 if a.sd is None else a.sd
+        d = 2 if f"{a.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+        sd = None if a.sd is None else f"{a.sd:.{d}f}"
+        build = (wording.progress_rising if facts.progress == "rising"
+                 else wording.progress_within_noise)
+        return build(f.round, f"{a.rise:.{d}f}", score, ceiling, f.formulation, sd)
+    if facts.progress == "flat":
+        luck = None if facts.luck_repeat is None else _whole(facts.luck_repeat)
+        return wording.progress_flat(a.rounds, score, ceiling, f.formulation, f.round,
+                                     luck_text=luck, tie_no=tie)
+    order = insights.scored_rounds(opt)
+    if facts.progress == "no_new_best":
+        return wording.progress_no_new_best(order[-1][0], score, ceiling, f.formulation,
+                                            f.round, tie_no=tie)
+    one = one_round(opt)
+    return wording.progress_too_early(score, ceiling, f.formulation, f.round, one_round=one,
+                                      values=not opt.has_ingredients(),
+                                      cold=one and _one_round_cold(opt, f.round), tie_no=tie)
+
+
+def _close_change(b):
+    """The close row's change in its words: raise a Highest, lower a Lowest,
+    widen a limit; '' when nothing binds."""
+    if b is None:
+        return ""
+    if b.kind == "limit":
+        return wording.widen_limit(b.text)
+    return wording.raise_highest(b.name) if b.kind == "highest" else wording.lower_lowest(b.name)
+
+
+def next_sentence(opt, facts):
+    """The Next line's sentence (R-I5): one plain sentence per next_step
+    row, the Repeat of Best so far asked for while the noise threshold is
+    assumed; at the gate, the record-or-make tail alone. Today's sentence
+    follows it verbatim in Next-step reasoning."""
+    no = opt.pending_batch_no
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    values = not opt.has_ingredients()
+    step = facts.next
+    if step is None:
+        return wording.next_plain_tail(no, left)
+    ask = (facts.best.formulation if getattr(step, "assumed", False) and facts.best is not None
+           else None)
+    if step.kind == "repeat":
+        d = step.disagreement
+        return wording.next_plain_repeat(d.later, d.earlier, f"{abs(d.diff):.1f}",
+                                         lower=d.diff < 0,
+                                         half_text=None if d.limit is None else f"{d.limit:.1f}",
+                                         values=values)
+    if step.kind == "misses":
+        return wording.next_plain_misses(no, left)
+    if step.kind == "early":
+        return wording.next_plain_tail(no, left)
+    if step.kind == "no_skill":
+        return wording.next_plain_no_skill(no, left)
+    if step.kind == "untested":
+        return wording.next_plain_untested(no, open_round=bool(opt.pending_batch), values=values)
+    if step.kind == "explore":
+        return wording.next_plain_explore(f"{step.gain:.1f}", assumed=step.assumed, no=no,
+                                          left=left, repeat_no=ask, values=values)
+    if step.kind == "close":
+        return wording.next_plain_close(_close_change(step.binding),
+                                        settings_only=not insights.has_ingredient_choice(opt),
+                                        repeat_no=ask, values=values)
+    if step.kind == "rising":
+        return wording.next_plain_rising(no, left, repeat_no=ask, values=values)
+    return wording.next_plain_see(no, left, repeat_no=ask, values=values)
+
+
+def status_texts(opt, facts):
+    """{line: its full text, through for_project}: 'Predictions: **Not
+    yet.** …', 'Progress: **Flat.** …', 'Next: …' (M7: no word). The
+    lines facts.pending names are left out."""
+    out = {}
+    if "predictions" not in facts.pending:
+        out["predictions"] = wording.status_line(
+            wording.STATUS_PREDICTIONS, prediction_sentence(opt, facts),
+            wording.PREDICTIONS_WORDS[facts.predictions])
+    if "progress" not in facts.pending:
+        word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+        out["progress"] = wording.status_line(wording.STATUS_PROGRESS,
+                                              progress_sentence(opt, facts), word)
+    if "next" not in facts.pending:
+        out["next"] = wording.status_line(wording.STATUS_NEXT, next_sentence(opt, facts))
+    return {k: _say(opt, v) for k, v in out.items()}
+
+
+def _status_line(opt, facts, which):
+    """One status line, with W2's exact-rule tooltip; its caption while its
+    facts are still being worked out (R-I8)."""
+    text = None if facts is None else status_texts(opt, facts).get(which)
+    if text is None:
+        st.caption(_say(opt, _PLACEHOLDERS[which]))
+    else:
+        st.markdown(text, help=tooltip_for(opt, which, facts))
+
 
 def _status_lines(opt, facts):
     """W1 (§1, review R-B1, R-I8): the three status lines from
-    insights.StatusFacts, each with W2's tooltip_for help. T0 stub."""
-    return None
+    insights.StatusFacts, each with W2's tooltip_for help, in their order;
+    for None (nothing worked out yet), the three captions that hold their
+    places."""
+    for which in _STATUS_ORDER:
+        _status_line(opt, facts, which)
 
 
 def _why_link(opt):
     """W1 (review R-I4): "Why the model suggested Round N", only with a warm
-    Round open holding at least one generated pick; the one tertiary link
-    above the fold. T0 stub."""
-    return None
+    Round open holding at least one generated pick (_why_link_offered); the
+    one tertiary link above the fold. Lands on Make a round's Why fold,
+    opened. Returns whether it was drawn."""
+    if not _why_link_offered(opt):
+        return False
+    link(_say(opt, wording.why_link(opt.pending_batch_no)), TAB_BATCH, section=WHY_FOLD_KEY,
+         fold=WHY_FOLD_KEY, key="insights_why_link")
+    return True
 
 
 def _repeat_link(opt, facts):
-    """W1 (review R-I3): an owner item, not drawn unless the owner accepts
-    the link (wording.repeat_link). T0 stub."""
-    return None
+    """W1 (review R-I3): an owner item (wording.repeat_link), not drawn:
+    e2e B2 ruled the Repeat a sentence in the Next line, with no new
+    button. Accepting it needs Make a round's Add expander keyed and a
+    one-shot Start from Best so far, and it would show only with no Round
+    open. Returns whether it was drawn: never, until the owner accepts it."""
+    return False
 
 
 def _try_one_label(opt):
@@ -1233,34 +1527,44 @@ def disagreement_text(d):
                                     half_text=None if d.limit is None else f"{d.limit:.1f}")
 
 
+def _prediction_section(opt, computed, h, yard, repeat=True):
+    """Prediction check (ftue §2, R-I8): its noun heading and one fold,
+    Prediction figures, opening with its basis, then today's exact lines."""
+    _question(opt, wording.Q_TRUST)
+    with _figures(opt, wording.FOLD_PREDICTION_FIGURES, PREDICTION_FIGURES_KEY):
+        _basis(opt, wording.BASIS_PREDICTIONS, "basis_predictions")
+        _trust(opt, computed, h, yard, repeat)
+
+
 def _trust(opt, computed, h, yard, repeat=True):
-    """Answer 1 (§2.2): one verdict, the Overall score's own line, a
-    disagreeing Repeat (`repeat`), one line on how, and measured against
-    predicted in its fold."""
+    """Prediction figures' lines (§2.2, verbatim since ftue R-I8): one
+    verdict, the Overall score's own line, a disagreeing Repeat
+    (`repeat`), one line on how, and Measured against predicted in its
+    fold. Each line with W2's help (R-I6)."""
     checks = computed["checks"]
     state = insights.verdict_state(opt, h, checks)
-    st.write(_say(opt, verdict_text(opt, h, state, checks=checks)))
+    _line(opt, verdict_text(opt, h, state, checks=checks), "verdict")
     if h.score is not None:
-        st.write(_say(opt, score_line(opt, checks, h, yard)))
+        _line(opt, score_line(opt, checks, h, yard), "score_line")
     # Every output's steady bias, one line, a fact (review B1).
     bias = steady_bias_text(opt, checks) if state != "none" else ""
     if bias:
-        st.write(_say(opt, bias))
+        _line(opt, bias, "steady_bias")
     # Skill, the Overall score's own fact under the verdict (review I1): in
     # every state past the gate but "none".
     skill = skill_text(opt, checks) if state != "none" else ""
     if skill:
-        st.write(_say(opt, skill))
+        _line(opt, skill, "skill")
     flagged = insights.disagreeing_repeat(opt, checks) if repeat else None
     if flagged is not None:
-        st.write(_say(opt, disagreement_text(flagged)))
+        _line(opt, disagreement_text(flagged), "disagreement")
     st.caption(_say(opt, wording.TRUST_BEFOREHAND))
     # While the rest are still being fitted the chart would gain dots: it
     # waits for them (a part of the tab is drawn once, final). Keyed, so a
     # link can open it (E1, EACH_KEY); drawn only while open (04 §5).
     if computed.get("partial") or not checks:
         return
-    with st.expander(_say(opt, wording.SHOW_PREDICTIONS), key=EACH_KEY,
+    with st.expander(_say(opt, wording.FOLD_MEASURED_CHART), key=EACH_KEY,
                      on_change="rerun") as each:
         if not each.open:
             return
@@ -1735,7 +2039,7 @@ def repeats_text(yard):
 
 
 def _stand_first(opt, yard):
-    """"Where do you stand?" line 1 (§2.3) and the Progress chart's fold.
+    """Progress figures' line 1 (§2.3) and the Progress chart's fold.
     Needs no model: drawn at the gate too."""
     if _stand_lines(opt, yard) is not None:
         _progress_fold(opt)
@@ -1745,7 +2049,7 @@ def _progress_fold(opt):
     """The Progress chart fold (review M8): Best so far by formulation, then
     Expected improvement by Round — worked out only once the fold is open
     (binding I15), and only from what the tab has worked out already."""
-    with st.expander(_say(opt, wording.SHOW_PROGRESS), key=PROGRESS_KEY,
+    with st.expander(_say(opt, wording.FOLD_PROGRESS_CHART), key=PROGRESS_KEY,
                      on_change="rerun") as fold:
         if not fold.open:
             return
@@ -1829,28 +2133,51 @@ def _gain_chart_body(opt):
 
 
 def _stand_lines(opt, yard):
-    """Line 1's text (§2.3): the answer, Best so far to two decimals as
-    Results shows it (review M1), and the Repeats line only after a rise
-    (audit V24). Returns insights.best_facts (None: nothing is scored)."""
+    """Progress figures' first lines (§2.3, verbatim since ftue R-I8): the
+    answer, Best so far to two decimals as Results shows it (review M1),
+    the Repeats line only after a rise (audit V24), then the runner-up
+    within the noise threshold (R-I9: the tie said here; level 0 names
+    equal scores only). "It came from the latest Round" is not said when
+    there is only one Round (ftue §4). Returns insights.best_facts (None:
+    nothing is scored)."""
     f = insights.best_facts(opt)
     if f is None:
         # Everything recorded still waits, in the words Results uses.
-        st.write(_say(opt, wording.NO_COMPLETE_FORMULATION))
+        _line(opt, wording.NO_COMPLETE_FORMULATION, "stand_line")
         return None
     answer = insights.improvement(opt, f, yardstick=yard)
     second = ("" if answer is not None
-              else wording.STAND_LATEST if f.latest and f.rounds_since == 0
+              else wording.STAND_LATEST if f.latest and f.rounds_since == 0 and not one_round(opt)
               else wording.stand_since(f.rounds_since) if f.rounds_since else "")
     line = wording.stand_best(f"{f.score:.2f}", f.formulation, f.round, number_list(f.without))
     head = stand_text(answer, yard) + " " if answer is not None else ""
     # Whether this line named the threshold, for line 2 in this same run
     # (standing_text): an assumed threshold is said once (review B2).
     st.session_state[_LINE1_KEY] = (id(opt), yard.pairs, says_threshold(answer))
-    st.write(_say(opt, head + line + (" " + second if second else "")))
+    _line(opt, head + line + (" " + second if second else ""), "stand_line")
     if (says_threshold(answer)
             and yard.sd is not None and yard.sd >= insights.REPEAT_SD_SHOWN):
-        st.write(_say(opt, repeats_text(yard)))
+        _line(opt, repeats_text(yard), "repeats")
+    tie = tie_text(opt, yard)
+    if tie:
+        _line(opt, tie, "tie")
     return f
+
+
+def tie_text(opt, yard):
+    """R-I9's tie line for Progress figures: Best so far's runner-up
+    (insights.tie_partner, a Repeat never one) when it is within the noise
+    threshold, equal scores included; '' otherwise."""
+    top = opt.best_index()
+    other = None if top is None else insights.tie_partner(opt, top)
+    if other is None or yard.value is None:
+        return ""
+    lead = float(opt.Y_history[top]) - float(opt.Y_history[other])
+    if round(lead, 2) >= round(yard.value, 2):
+        return ""
+    return wording.tie_runner_up(int(opt.formulation_ids[other]),
+                                 f"{float(opt.Y_history[other]):.2f}",
+                                 threshold_text(yard, assumed=False))
 
 
 def progress_frame(opt):
@@ -2059,25 +2386,25 @@ def _stand(opt, computed, yard, spinner=True):
         return None
     standing = standing_for(opt, best, computed["checks"], yard)
     held_back = claims_withheld_reason(opt, score, computed["checks"])
-    st.write(_say(opt, standing_text(opt, standing, yard, withheld=held_back)))
+    _line(opt, standing_text(opt, standing, yard, withheld=held_back), "standing")
     if standing.binding:
-        st.write(_say(opt, wording.stand_limits([binding_text(b) for b in standing.binding])))
+        _line(opt, wording.stand_limits([binding_text(b) for b in standing.binding]), "limits")
     top = opt.best_index()
     if standing.luck and best.repeat is not None and top is not None:
         r = best.repeat
-        st.write(_say(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
-                                             _whole(r.low), _whole(r.high),
-                                             f"{opt.Y_history[top]:.2f}")))
+        _line(opt, wording.best_luck(int(opt.formulation_ids[top]), _whole(r.mean),
+                                     _whole(r.low), _whole(r.high),
+                                     f"{opt.Y_history[top]:.2f}"), "luck")
     # Expected improvement by Round (spec 2026-09-30-bo-views §3.2; review
     # I5, M8): its line here, its chart in the Progress chart fold.
     slot = st.empty()
     if _gain_pending(opt, computed):
         # Its place says it is coming while ask()'s search runs (C1): the
         # lines above are already drawn and never wait for it.
-        slot.write(_say(opt, wording.gain_pending()))
+        _line(opt, wording.gain_pending(), "gain", slot)
     line = gain_text(opt, computed, yard, standing)
     if line:
-        slot.write(_say(opt, line))
+        _line(opt, line, "gain", slot)
     else:
         slot.empty()
     if standing.higher and not standing.tested_near and not held_back:
@@ -2374,13 +2701,13 @@ def _next_step_text(opt, step, rounds=None):
 
 
 def _next_step(opt, step):
-    """Answer 3: one sentence, naming the verdict's Rounds where it says a
-    bias or misses (from the checks already worked out). Returns the Set up
-    button's label, or None."""
+    """Next-step reasoning's sentence (verbatim since ftue R-I8), naming the
+    verdict's Rounds where it says a bias or misses (from the checks
+    already worked out). Returns the Set up button's label, or None."""
     checks = checks_for(opt, "trust")
     rounds = insights.headline(opt, checks).rounds if checks else None
     text, change = next_step_text(opt, step, rounds)
-    st.write(_say(opt, text))
+    _line(opt, text, "next_reasoning")
     return change
 
 
@@ -3276,14 +3603,16 @@ def _explored_pointer(opt, computed):
 
 def _why_link_offered(opt):
     """Review R-I4's condition for the Why link, which outranks this fold's
-    link: a warm Round open holding at least one generated pick."""
+    link: a warm Round open still holding at least one generated pick (one
+    rule, which _why_link draws by)."""
     if not opt.pending_batch or opt.pending_batch_no is None:
         return False
-    gen = bo_views.generation(opt, opt.pending_batch_no)
-    if gen.regime != "warm":
+    try:
+        gen = bo_views.generation(opt, opt.pending_batch_no)
+        own, _ = bo_views._picks(opt, gen, list(opt.pending_batch))
+    except Exception:
         return False
-    _, issued = bo_views._picks(opt, gen, list(opt.pending_batch))
-    return bool(issued)
+    return gen.regime == "warm" and not all(own)
 
 
 def explored_link(opt, step):

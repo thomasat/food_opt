@@ -443,7 +443,9 @@ def test_section_4_gate(scored):          # 2 formulations with all their result
     at = _open_insights(_app())
     md, caps = _tab_text(at)
     assert f"##### {wording.Q_NEXT}" not in md               # under 5: the gate line instead
-    assert caps.count(wording.insights_gate(2)) == 1
+    # Since ftue W1 the gate is the Predictions status line's (R-B1 row 3).
+    assert md.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
+    assert wording.insights_gate(2) not in caps
 
 
 def test_a_limit_edit_works_out_the_best_again(insights_scored, monkeypatch):

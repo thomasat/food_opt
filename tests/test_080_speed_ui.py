@@ -511,7 +511,9 @@ def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rou
     at.run()
     assert not at.exception
     before, after = _drawn_first(log)
-    assert before == ["render", "header", "line 1", "foot"]
+    # Ftue R-I8: the button sits under the three status lines' places, so
+    # it is drawn before Progress figures' line 1.
+    assert before == ["render", "header", "foot", "line 1"]
     assert "foot" not in after
     # Then filled in, in screen order, each once.
     md = [m.value for m in at.tabs[3].markdown]
@@ -538,7 +540,7 @@ def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(
     at.run()
     assert not at.exception
     before, _ = _drawn_first(log)
-    assert before == ["render", "header", "line 1", "foot"]
+    assert before == ["render", "header", "foot", "line 1"]       # ftue R-I8
     texts = " ".join(_texts(at))
     assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
 

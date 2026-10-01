@@ -90,15 +90,19 @@ def test_the_header_is_counts_only(insights_scored):
 
 
 def test_the_gate_is_header_best_so_far_the_gate_line_and_the_foot(tmp_path):
-    """Review M8."""
+    """Review M8; since ftue W1 (R-B1 row 3, T0 §5) the gate line is the
+    Predictions status line's, and Best so far sits in Progress figures."""
     opt = _patty(rows=3)
     at = _tab(opt.project_name)
     assert not at.exception
     md = _md(at)
-    assert md[0] == f"##### {wording.Q_STAND}" and md[1].startswith("Best so far: ")
+    assert md[0] == wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(3),
+                                        wording.PREDICTIONS_WORDS["not_yet"])
+    assert md[1].startswith("Progress: **") and md[2].startswith("Next: ")
+    assert md[3] == f"##### {wording.Q_STAND}" and md[4].startswith("Best so far: ")
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0] == ui_insights.header_text(opt)
-    assert wording.insights_gate(3) in captions
+    assert wording.insights_gate(3) not in captions
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
 
 

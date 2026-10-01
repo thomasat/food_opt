@@ -137,10 +137,13 @@ def test_e1_asks_whether_the_last_round_came_out_as_predicted():
     assert not at.exception
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     assert at.session_state[ui_insights.EACH_KEY] is True
-    assert any("scrollTop = 0" in s for s in _scripts(at))
+    # Ftue M2: it lands on Prediction check, and its figures fold opens
+    # with the chart fold inside it.
+    assert any(f".st-key-{ui_insights.TRUST_SECTION}" in s for s in _scripts(at))
+    assert at.session_state[ui_insights.PREDICTION_FIGURES_KEY] is True
     # T47 review I-2: the fold is drawn open — its content is there (it is
     # worked out only while open).
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.SHOW_PREDICTIONS)
+    fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
     assert [c.value for c in fold.caption] == [wording.MVP_CAPTION]
 
 

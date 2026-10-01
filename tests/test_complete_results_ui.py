@@ -73,7 +73,9 @@ def test_insights_with_no_complete_formulation(six_waiting):
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0] == "6 formulations are waiting for Juiciness.", captions
-    assert wording.insights_gate(0) in captions, captions
+    texts = [m.value for m in at.tabs[3].markdown]
+    # The gate, said by the Predictions status line since ftue W1.
+    assert wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(0), wording.PREDICTIONS_WORDS["not_yet"]) in texts, texts
     # "Where do you stand?" is not left empty (final review M-5).
     texts = [m.value for m in at.tabs[3].markdown]
     at_q = texts.index(f"##### {wording.Q_STAND}")
