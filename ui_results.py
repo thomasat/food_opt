@@ -115,6 +115,10 @@ BEST_CHOICE = "best"
 # top of the page: it moves here and lands at the top.
 FLASH_PLACE = "results"
 FLASH_SLOT = "results_flash"
+# The correction part of "Correct, delete or add past formulations", which
+# "Change a measurement or an ingredient" scrolls to while a recorded
+# formulation is being corrected (05 I8).
+CORRECTION_SLOT = "results_correction"
 
 
 def _view_key(opt):
@@ -1512,6 +1516,14 @@ def _import(opt):
     st.rerun()
 
 
+def _correcting(opt, pending):
+    """True while the correction part holds a RECORDED formulation (not a
+    Not-scored one being scored for the first time)."""
+    return (pending is not None and pending.get("index") is not None
+            and not any(int(r['formulation']) == int(pending.get("choice", -1))
+                        for r in opt.skipped))
+
+
 def _edit_past(opt, storage):
     """`Correct, delete or add past formulations`: one collapsed section for
     every way the record is fixed after the fact. Returns the open
@@ -1529,8 +1541,12 @@ def _edit_past(opt, storage):
         picked = st.session_state.get("correct_formulation")
         scoring = picked is not None and any(
             int(row['formulation']) == int(picked) for row in opt.skipped)
-        st.markdown(wording.for_project(opt, wording.SCORE_A_FORMULATION_HEADING if scoring
-                    else wording.CORRECT_A_FORMULATION_HEADING))
+        # The anchor "Change a measurement or an ingredient" scrolls to
+        # while a correction is open (05 I8): the heading, not the boxes.
+        with st.container(key=CORRECTION_SLOT):
+            st.markdown(wording.for_project(opt, wording.SCORE_A_FORMULATION_HEADING
+                                            if scoring
+                                            else wording.CORRECT_A_FORMULATION_HEADING))
         pending = _correct(opt)
         st.divider()
         st.markdown(wording.for_project(opt, wording.DELETE_FORMULATIONS_HEADING))
@@ -1599,6 +1615,13 @@ def render(opt, storage):
         if settled and st.button(wording.change_setup_from_results(
                 settings_only=not opt.has_ingredients()),
                                  key="change_setup_from_results", disabled=not lit) and lit:
+            if _correcting(opt, pending):
+                # 05 I8: a recorded formulation is open for correction, so a
+                # measurement to change is one of its values, not Set up's;
+                # and leaving the tab would drop what is typed there.
+                preserve_tab_forms()
+                st.session_state[SCROLL_KEY] = CORRECTION_SLOT
+                st.rerun()
             go_to_tab(TAB_SETUP)
     with foot:
         typed = missing is not None and any(

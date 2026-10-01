@@ -9,8 +9,8 @@ from streamlit.testing.v1 import AppTest
 
 import wording
 from food_bo import FoodOptimizer
-from tests.test_app_ui import (APP_PATH, MEAS_GRID, _save_grid, burger,  # noqa: F401
-                               open_batch)
+from tests.test_app_ui import (APP_PATH, MEAS_GRID, _save_grid, _submit_button,  # noqa: F401
+                               burger, open_batch, scored)
 
 # ------------------------------------------------------------------ #
 #  N1: Set up's measurement save keeps the typed results
@@ -320,3 +320,34 @@ def test_both_ends_of_the_blues_scale_reach_3_to_1(which):
     for end in (low, high):
         assert _contrast_on(_vega_blues(end), 1.0, PAGES[which]) >= 3.0, (which, end)
     assert high - low >= 0.4          # still a scale, not one colour
+
+
+# ------------------------------------------------------------------ #
+#  05 I8: "Change a measurement or an ingredient" while correcting a
+#  recorded formulation goes to the correction, not to Set up
+# ------------------------------------------------------------------ #
+
+def test_change_while_correcting_goes_to_the_correction(scored):
+    import ui_results
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    at.selectbox(key="correct_formulation").set_value(2).run()
+    at.number_input(key="correct_2_Firmness").set_value(8.5).run()
+    _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON).click().run()
+    assert not at.exception
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
+    assert at.session_state["correct_formulation"] == 2
+    assert at.number_input(key="correct_2_Firmness").value == 8.5
+    # The page was asked to bring the correction into view.
+    scripts = [h.proto.body for h in at.get("html")]
+    assert any(f".st-key-{ui_results.CORRECTION_SLOT}" in b for b in scripts), scripts
+    assert FoodOptimizer("burger").results_history[1]["Firmness"] == 8.0   # nothing saved
+
+
+def test_change_without_a_correction_still_goes_to_set_up(scored):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON).click().run()
+    assert at.session_state["main_tab"] == wording.TAB_SETUP
