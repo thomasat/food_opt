@@ -4541,14 +4541,17 @@ def next_close_to_top(change_text="", settings_only=False):
     return f"{head} To look further, add {new}."
 
 
-def next_explore(gain_text, no=None, n=0):
+def next_explore(no=None, n=0):
     """Next step "explore" (fix round 1, ledger ruling C1): no predicted
-    gain beyond the noise threshold, an expected improvement above it."""
-    head = (f"No predicted mean clears the noise threshold, but the model still expects about "
-            f"{gain_text} points from {FORMULATION}s it is unsure about.")
-    tail = (f"{record_open_round(no, n)} to test them." if n
-            else f"Make the next {ROUND_CAP} to test them.")
-    return f"{head} {tail}"
+    gain beyond the noise threshold, an expected improvement above it.
+    Said once, not as Progress says it (final review M-2); the number is
+    Progress's."""
+    why = ("the model's uncertainty, not a higher predicted score, puts their expected "
+           "improvement above the noise threshold.")
+    if n:
+        return f"{record_open_round(no, n)}: {why}"
+    return (f"Make the next {ROUND_CAP}: the model's uncertainty, not a higher predicted score, "
+            "puts its expected improvement above the noise threshold.")
 
 
 NEXT_RISING = f"Best so far is rising. Make the next {ROUND_CAP}."
@@ -5107,7 +5110,7 @@ PATH_GUARD_SKILL = ("The curve's bends are not reliable: Round-ahead predictions
 WHY_THESE = "Why these suggestions"
 EXPECTED_IMPROVEMENT = "Expected improvement (model, one formulation)"
 OPTIMISTIC_SCORE = "Optimistic score (mean + 0.45 × sd)"
-MODEL_SD = "Model sd"
+MODEL_SD = "Model sd (points)"
 NEAREST_TESTED = "Nearest tested"
 LARGEST_DIFFERENCES = "Largest differences"
 ROLE = "Role"
@@ -5206,16 +5209,17 @@ def gain_line(value_text, round_no, threshold_text, above=False, recomputed=Fals
     projects, whose reference it is. `predicted_none` (above the threshold
     while no predicted gain is, fix round 1, ledger ruling C1): one
     sentence says where the number comes from — the model's uncertainty,
-    not a higher predicted mean."""
-    which = f"{ROUND_CAP} {round_no}"
+    not a higher predicted score (final review M-2). `round_no` None: the
+    next Round's figure, from today's rows (final review I-1)."""
+    which = _gain_which(round_no)
     how = "above" if above else "under"
     ref = (f"Best so far's measured {measured_text}" if measured_text is not None
            else f"the model's best tested {FORMULATION}")
     head = (f"Expected improvement, {which}: {value_text} points (model, one {FORMULATION}), "
             f"{how} {threshold_text}.")
     if above and predicted_none:
-        line = (f"{head} No predicted mean clears the noise threshold, but the model still "
-                f"expects about {value_text} points from {FORMULATION}s it is unsure about.")
+        line = (f"{head[:-1]}; it comes from the model's uncertainty, not from a higher "
+                "predicted score.")
     else:
         line = (f"{head} If the model is right, the best single new {FORMULATION} beats {ref} "
                 f"by about {value_text} points, before Repeat noise.")
@@ -5224,10 +5228,15 @@ def gain_line(value_text, round_no, threshold_text, above=False, recomputed=Fals
     return line
 
 
+def _gain_which(round_no):
+    """'Round 13', or 'next Round' for the figure from today's rows."""
+    return f"next {ROUND_CAP}" if round_no is None else f"{ROUND_CAP} {round_no}"
+
+
 def gain_line_tiny(round_no, threshold_text, recomputed=False):
     """The Progress line when the figure rounds to 0.00 (T56 m3): said as
     under 0.01 points, with no plain reading of a machine zero."""
-    line = (f"Expected improvement, {ROUND_CAP} {round_no}: under 0.01 points (model, one "
+    line = (f"Expected improvement, {_gain_which(round_no)}: under 0.01 points (model, one "
             f"{FORMULATION}), under {threshold_text}.")
     if recomputed:
         line += " Recomputed from today's records."
@@ -5239,8 +5248,11 @@ GAIN_UCB = ("Expected improvement: your model settings choose suggestions by an 
 
 
 def gain_cold(round_no, values=False):
-    return (f"{ROUND_CAP} {round_no} was chosen to cover the allowed "
-            f"{'values' if values else 'amounts'}: no expected improvement yet.")
+    what = 'values' if values else 'amounts'
+    if round_no is None:
+        return (f"The next {ROUND_CAP} will be chosen to cover the allowed {what}: no expected "
+                "improvement yet.")
+    return f"{ROUND_CAP} {round_no} was chosen to cover the allowed {what}: no expected improvement yet."
 
 
 def gain_unreliable(reason):
@@ -5267,7 +5279,7 @@ LAYER_PICK = "Show"
 LAYER_SCORE = "Predicted score"
 LAYER_SD = "Uncertainty"
 LAYER_GAIN = "Expected gain"
-LAYER_SD_LEGEND = "Model sd (narrower than the 95 % interval)"
+LAYER_SD_LEGEND = "Model sd (points; narrower than the 95 % interval)"
 LAYER_GAIN_LEGEND = "Expected improvement (points)"
 OVERLAY_NAME = "Predicted above Best so far"
 

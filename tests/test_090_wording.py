@@ -98,7 +98,8 @@ def _new_lines():
         W.gain_line("0.12", 6, W.beat_by()), W.gain_line("1.40", 6, W.beat_by("1.2"), above=True),
         W.gain_line("0.12", 5, W.beat_by(), recomputed=True),
         W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True),
-        W.next_explore("1.08", 13, 3), W.next_explore("1.08"),
+        W.next_explore(13, 3), W.next_explore(), W.gain_line("0.37", None, W.beat_by()),
+        W.gain_cold(None), W.gain_line_tiny(None, W.beat_by()),
         W.gain_line("0.30", 6, W.beat_by(), measured_text="90.45"),
         W.GAIN_UCB, W.gain_cold(2), W.gain_unreliable(W.GAIN_REASON_VERDICT),
         W.gain_unreliable(W.GAIN_REASON_SKILL), W.gain_unreliable(W.GAIN_REASON_GUARD),
@@ -265,15 +266,26 @@ def test_the_new_lines_from_the_rulings():
         "1-point noise threshold. If the model is right, the best single new formulation beats "
         "the model's best tested formulation by about 0.12 points, before Repeat noise.")
     # Fix round 1 (ledger ruling C1): above the threshold with no predicted gain.
-    assert W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True) == (
+    # Final review M-2: precise, the number once, and not the same sentence twice.
+    progress = W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True)
+    assert progress == (
         "Expected improvement, Round 13: 1.08 points (model, one formulation), above the "
-        "1-point noise threshold. No predicted mean clears the noise threshold, but the model "
-        "still expects about 1.08 points from formulations it is unsure about.")
-    assert W.next_explore("1.08", 13, 3) == (
-        "No predicted mean clears the noise threshold, but the model still expects about 1.08 "
-        "points from formulations it is unsure about. Record the 3 formulations still open in "
-        "Round 13 to test them.")
-    assert W.next_explore("1.08").endswith("Make the next Round to test them.")
+        "1-point noise threshold; it comes from the model's uncertainty, not from a higher "
+        "predicted score.")
+    assert progress.count("1.08") == 1
+    nxt = W.next_explore(13, 3)
+    assert nxt == (
+        "Record the 3 formulations still open in Round 13: the model's uncertainty, not a "
+        "higher predicted score, puts their expected improvement above the noise threshold.")
+    assert nxt not in progress and "1.08" not in nxt
+    assert W.next_explore() == (
+        "Make the next Round: the model's uncertainty, not a higher predicted score, puts its "
+        "expected improvement above the noise threshold.")
+    # Final review I-1: with no Round open the figure is the next Round's.
+    assert W.gain_line("0.37", None, W.beat_by()).startswith(
+        "Expected improvement, next Round: 0.37 points (model, one formulation), under the "
+        "1-point noise threshold.")
+    assert W.MODEL_SD == "Model sd (points)"                        # final review M-3
     # T56 m3: a machine zero is said as under 0.01 points, with no reading.
     assert W.gain_line_tiny(12, W.beat_by()) == (
         "Expected improvement, Round 12: under 0.01 points (model, one formulation), under "

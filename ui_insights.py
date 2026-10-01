@@ -1725,16 +1725,13 @@ def _gain_key(opt):
 
 
 def _gain_needs_no_fit(opt, mem):
-    """Whether bo_views.latest_gain needs no display-model fit: a cold
+    """Whether the open Round's figure needs no display-model fit: a cold
     Round, an exact one (one default fit of the suggestion model, as the
     Why fold makes), or a recomputed one whose display model is in the
-    memo."""
+    memo. With no Round open the figure needs the pool: never here."""
     r = opt.pending_batch_no if opt.pending_batch else None
     if r is None:
-        order = insights.round_order(opt)
-        r = order[-1][0] if order else None
-    if r is None:
-        return True
+        return False
     gen = bo_views.generation(opt, r)
     if gen.regime != "warm" or gen.exact:
         return True
@@ -1743,8 +1740,12 @@ def _gain_needs_no_fit(opt, mem):
 
 
 def latest_gain(opt, fit=True):
-    """bo_views.latest_gain once per _gain_key. `fit` False (Make a round):
-    None, not stored, when it would need a display-model fit."""
+    """§3.2's figure once per _gain_key (the data, the open Round and its
+    record): the open Round's own (bo_views.latest_gain); with no Round
+    open, the next Round's from today's rows (bo_views.next_gain under
+    layer_model, final review I-1), worked out here under the lock. `fit`
+    False (Make a round's E3): only what is already worked out; None, not
+    stored, otherwise."""
     key = _gain_key(opt)
     hit = st.session_state.get(GAIN_KEY)
     if hit and hit[0] == key:
@@ -1754,7 +1755,10 @@ def latest_gain(opt, fit=True):
         return None
     try:
         with insights.memo_in_use(mem):
-            g = bo_views.latest_gain(opt)
+            if opt.pending_batch and opt.pending_batch_no is not None:
+                g = bo_views.latest_gain(opt)
+            else:
+                g = bo_views.next_gain(opt, layer_model(opt, None))
     except Exception:
         g = None
     st.session_state[GAIN_KEY] = (key, g)
@@ -1824,11 +1828,13 @@ def gain_text(opt, computed, yard, standing=None):
     best = opt.best_index()
     measured = (f"{opt.Y_history[best]:.2f}" if bo_views.acquisition(opt) == "qlogei"
                 and best is not None else None)
+    # The next Round's figure is today's, never "recomputed" (final review I-1).
+    recomputed = g.round is not None and not g.exact
     if g.gain < 0.005:
         # Not "0.00 points … beats … by about 0.00 points" (T56 m3).
-        return wording.gain_line_tiny(g.round, threshold_text(yard), recomputed=not g.exact)
+        return wording.gain_line_tiny(g.round, threshold_text(yard), recomputed=recomputed)
     return wording.gain_line(f"{g.gain:.2f}", g.round, threshold_text(yard),
-                             above=g.gain > yard.value, recomputed=not g.exact,
+                             above=g.gain > yard.value, recomputed=recomputed,
                              measured_text=measured,
                              predicted_none=standing is not None and not standing.higher)
 
@@ -1858,7 +1864,7 @@ def next_step_text(opt, step, rounds=None):
         return wording.next_untested(values, open_round=bool(opt.pending_batch),
                                      round_no=no), None
     if step.kind == "explore":
-        return wording.next_explore(f"{step.gain:.2f}", no, left), None
+        return wording.next_explore(no, left), None
     if step.kind == "close":
         b = step.binding
         if b is None:

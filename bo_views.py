@@ -666,6 +666,25 @@ def latest_gain(opt, fitted=None):
     return None if r is None else round_gain(opt, r, fitted, highest=False)
 
 
+def next_gain(opt, model):
+    """§3.2's figure with no Round open (final review I-1): the largest
+    expected improvement over the allowed pool under `model`, the
+    suggestion model the next Generate would fit (ui_insights.layer_model:
+    today's rows, the next seed), as RoundGain(None, …). A Round already
+    made is history, in round_history; its figure was for formulations
+    since measured. None without a pool or a model."""
+    rows = _complete_rows(opt)
+    candidates = set(opt.best_candidates())
+    best = max((float(opt.Y_history[i]) for i in rows if i in candidates), default=None)
+    if len(rows) < COLD_START_RUNS:
+        return RoundGain(None, best, None, None, False, "cold")
+    pool = feasible_pool(opt)
+    if model is None or pool is None:
+        return None
+    got = evaluate(opt, model, pool)
+    return RoundGain(None, best, float(got.mean.max()), float(got.value.max()), False, None)
+
+
 @contextlib.contextmanager
 def fresh():
     """Tests: empty the output cache before and after."""

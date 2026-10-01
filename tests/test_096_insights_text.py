@@ -185,12 +185,60 @@ def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
                in m for m in md)
     [line] = [m for m in md if m.startswith("Expected improvement")]
     assert line.startswith(f"Expected improvement, Round {opt.pending_batch_no}: ")
-    assert "above the 1-point noise threshold. No predicted mean clears the noise " \
-           "threshold, but the model still expects about" in line
+    assert line.endswith("above the 1-point noise threshold; it comes from the model's "
+                         "uncertainty, not from a higher predicted score.")
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
-    assert after.startswith("No predicted mean clears the noise threshold, but the model "
-                            "still expects about")
+    assert after == wording.next_explore(opt.pending_batch_no, 3)
     assert not any(m.startswith("Within these") for m in md)
+
+
+@pytest.fixture(scope="module")
+def timing_recorded_flat(tmp_path_factory):
+    """The final review's p_stale: the Timing check, Generate 3, every pick
+    recorded at the median formulation's results, so no Round is open."""
+    import ui_batch
+    here = os.getcwd()
+    os.chdir(tmp_path_factory.mktemp("timing_flat"))
+    try:
+        with bo_views.fresh():
+            opt = _install(demo.TIMING)
+            ui_batch.ask_alone(opt, n_suggestions=3)
+            r = opt.pending_batch_no
+            order = sorted(range(len(opt.Y_history)), key=lambda i: opt.Y_history[i])
+            results = dict(opt.results_history[order[len(order) // 2]])
+            for row in list(opt.pending_batch):
+                opt.tell(row["recipe"], results, formulation_no=row["formulation"], batch_no=r)
+            opt.set_pending_batch(None)
+            opt.save()
+            got = _open(demo.TIMING), FoodOptimizer(opt.project_name), r
+    finally:
+        os.chdir(here)
+    return got
+
+
+def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
+    """Final review I-1: with no Round open the expected improvement is the
+    next Round's, from today's rows (the largest over the allowed pool under
+    the model the next Generate fits), not Round 13's pre-results 1.08. It
+    is under the noise threshold, so Next step is close to the top."""
+    at, opt, r = timing_recorded_flat
+    md, _ = _texts(at)
+    [line] = [m for m in md if m.startswith("Expected improvement")]
+    assert line.startswith("Expected improvement, next Round: ")
+    assert "under the 1-point noise threshold" in line
+    assert not any("still expects" in m or "model's uncertainty" in m for m in md)
+    after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
+    assert after.startswith("Within these ingredients and limits, no predicted gain exceeds "
+                            "the noise threshold.")
+    # The figure is the pool's largest under today's suggestion model.
+    with bo_views.fresh(), insights.memo_in_use({}):
+        model = ui_insights.layer_model(opt, None)
+        want = float(bo_views.evaluate(opt, model, bo_views.feasible_pool(opt)).value.max())
+    assert line.startswith(f"Expected improvement, next Round: {want:.2f} points")
+    # Round 13's own figure stays as history, in Expected improvement by Round.
+    with insights.memo_in_use({}):
+        history = bo_views.round_history(opt)
+    assert history[-1].round == r and history[-1].gain > 1.0
 
 
 def test_a_machine_zero_reads_under_one_hundredth(monkeypatch):
