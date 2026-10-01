@@ -803,6 +803,10 @@ def render(opt):
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
     st.caption(_say(opt, header_text(opt)))
+    if insights_jobs.stopped():
+        # C2 (review M5): the workers broke too often; everything is now
+        # worked out here, behind each screen's own indicator.
+        st.caption(_say(opt, wording.INSIGHTS_IN_PROCESS))
     if n < insights.MIN_ROWS:
         _question(opt, wording.Q_STAND)
         _stand_first(opt, insights.noise_yardstick(opt))

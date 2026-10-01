@@ -437,3 +437,125 @@ def test_the_poller_reruns_the_filling_tab_when_a_round_lands(burger, monkeypatc
     assert not ui_insights._poll_step(burger, batch_tab)
     state.pop(ui_insights.PROGRESS_SEEN_KEY)
     assert not ui_insights._poll_step(burger, insights_tab)
+
+
+# ------------------------------------------------------------------ #
+#  C2: a broken pool is replaced on the next need, at most 3 times in
+#  10 minutes (04 I-3, review M5)
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def fresh_pool(monkeypatch, tmp_path):
+    """pool() from scratch, with workers that print ready and die at their
+    first request: each pool breaks after becoming ready."""
+    dies = tmp_path / "dies_worker.py"
+    dies.write_text("import json, sys\nprint(json.dumps({'ready': True}), flush=True)\n"
+                    "sys.stdin.readline()\nsys.exit(1)\n")
+    monkeypatch.setattr(insights_jobs, "WORKER", str(dies))
+    monkeypatch.setattr(insights_jobs, "_POOL", None)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", False)
+    monkeypatch.setattr(insights_jobs, "_STOPPED", False)
+    monkeypatch.setattr(insights_jobs, "_BREAKS", [])
+    monkeypatch.setattr(insights_jobs, "_INFLIGHT", {})
+    monkeypatch.setattr(insights_jobs, "_JOBS", {})
+    monkeypatch.setenv("FOODOPT_INSIGHTS_WORKERS", "1")
+    yield
+    if insights_jobs._POOL is not None:
+        insights_jobs._POOL.close()
+
+
+def _break(p):
+    assert p.wait_ready(60)
+    with pytest.raises(Exception):
+        p.submit(0, {"id": 1}).result(30)
+    assert p.broken
+
+
+def test_a_pool_that_broke_after_starting_is_replaced_on_the_next_need(fresh_pool):
+    first = insights_jobs.pool()
+    _break(first)
+    again = insights_jobs.pool()
+    assert again is not None and again is not first and not again.broken
+    assert insights_jobs.workers_on() and not insights_jobs.stopped()
+
+
+def test_after_three_restarts_in_ten_minutes_it_calculates_here(fresh_pool):
+    pools = []
+    for _ in range(4):
+        p = insights_jobs.pool()
+        assert p is not None and p not in pools
+        pools.append(p)
+        _break(p)
+    assert insights_jobs.pool() is None and insights_jobs.pool() is None
+    assert not insights_jobs.workers_on() and insights_jobs.stopped()
+
+
+def test_breaks_more_than_ten_minutes_apart_never_stop_the_workers(fresh_pool, monkeypatch):
+    clock = [1000.0]
+    real = insights_jobs.time.monotonic
+    monkeypatch.setattr(insights_jobs.time, "monotonic", lambda: real() + clock[0])
+    for _ in range(6):
+        p = insights_jobs.pool()
+        assert p is not None
+        _break(p)
+        clock[0] += insights_jobs.RESTART_WINDOW / 2 + 1     # two in any ten minutes
+    assert insights_jobs.workers_on() and not insights_jobs.stopped()
+
+
+def test_a_pool_that_never_started_is_given_up_on_at_once(fresh_pool, monkeypatch, tmp_path):
+    """Review M5: as before; no restart, and not the cap's indicator."""
+    bad = tmp_path / "broken_worker.py"
+    bad.write_text("raise SystemExit(3)\n")
+    monkeypatch.setattr(insights_jobs, "WORKER", str(bad))
+    first = insights_jobs.pool()
+    assert not first.wait_ready(60)
+    assert insights_jobs.pool() is None
+    assert not insights_jobs.workers_on() and not insights_jobs.stopped()
+
+
+class _Pool:
+    """A stand-in pool: never answers, or fails everything once broken."""
+
+    def __init__(self):
+        self.broken = self.closed = False
+        self.sent = []
+
+    def submit(self, priority, request):
+        import concurrent.futures as cf
+        fut = cf.Future()
+        if self.broken:
+            fut.set_exception(RuntimeError("the Insights workers stopped"))
+        self.sent.append(request["kind"])
+        return fut
+
+    def idle(self):
+        return False
+
+
+def test_a_failed_job_is_sent_again_to_the_new_pool(burger, jobs):
+    """The project's fits go to the replacement instead of staying in this
+    process for the rest of the session (04 I-3: 64-84 s per change)."""
+    old = _Pool()
+    memo = {}
+    job = insights_jobs.job_for(burger, old, memo)
+    old.broken = True
+    for futs in job.futures.values():
+        for f in futs:
+            f.set_exception(RuntimeError("stopped"))
+    job.poll(memo)
+    assert job.failed
+    new = _Pool()
+    again = insights_jobs.job_for(burger, new, memo)
+    assert again is not job and not again.failed and new.sent
+    assert insights_jobs.job_for(burger, new, memo) is again
+
+
+def test_the_indicator_shows_once_the_workers_are_stopped(burger, jobs, monkeypatch):
+    monkeypatch.setattr(insights_jobs, "_STOPPED", True)
+    monkeypatch.setattr(insights_jobs, "_GAVE_UP", True)
+    at = _open(_app(burger.project_name))
+    assert not at.exception
+    assert wording.INSIGHTS_IN_PROCESS in [c.value for c in at.tabs[3].caption]
+    monkeypatch.setattr(insights_jobs, "_STOPPED", False)
+    at = _open(_app(burger.project_name))
+    assert wording.INSIGHTS_IN_PROCESS not in [c.value for c in at.tabs[3].caption]

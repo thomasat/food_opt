@@ -39,6 +39,12 @@ START_SECS = 60
 # is taken to have hung and is stopped (re-review N-1). The slowest measured
 # fit, 120 rows x 6 measurements, takes a few seconds: this is generous.
 REQUEST_SECS = 120
+# C2 (spec 2026-10-01; 04 I-3, review M5): a pool that broke after a worker
+# had started (one killed by memory pressure, say) is replaced on the next
+# need, at most RESTART_CAP times in RESTART_WINDOW seconds; after that the
+# app process fits in-process, and Insights says so (INSIGHTS_IN_PROCESS).
+RESTART_CAP = 3
+RESTART_WINDOW = 600
 
 
 def worker_count():
@@ -77,6 +83,7 @@ class Pool:
         self.n = n
         self.broken = False
         self.closed = False
+        self.became_ready = False  # a worker finished its imports (not set by _break)
         self._running = 0          # requests a worker is fitting now
         self._since = {}           # worker process -> when its request started
         self.started = self.last_used = time.monotonic()
@@ -143,6 +150,7 @@ class Pool:
                 raise RuntimeError("the Insights worker did not start")
             with self._lock:
                 self.last_used = max(self.last_used, time.monotonic())
+                self.became_ready = True
             self._ready.set()
             while True:
                 _, _, request, fut = self._queue.get()
@@ -201,23 +209,50 @@ _POOL_LOCK = threading.Lock()
 # model key -> [Future] of every spec in flight, shared by every Job that
 # wants it (a result saved while one runs); emptied with the pool.
 _INFLIGHT = {}
-# Set once a pool broke (a worker would not start, or stopped): this app
-# process fits in-process from then on rather than starting workers again.
+# Set once workers are given up on (a worker would not start, or pools
+# broke more than RESTART_CAP times in RESTART_WINDOW): this app process
+# fits in-process from then on rather than starting workers again.
 _GAVE_UP = False
+# When each pool that had started broke, for the restart cap.
+_BREAKS = []
+# Given up on by the cap (not because no worker could start): the one case
+# Insights names with its indicator.
+_STOPPED = False
+
+
+def _broke(p):
+    """pool()'s step for a pool found broken: given up on at once if no
+    worker ever started (as before); else counted, and given up on only
+    past RESTART_CAP breaks in RESTART_WINDOW seconds."""
+    global _GAVE_UP, _STOPPED
+    if not p.became_ready:
+        _GAVE_UP = True
+        return
+    now = time.monotonic()
+    _BREAKS[:] = [t for t in _BREAKS if now - t < RESTART_WINDOW] + [now]
+    if len(_BREAKS) > RESTART_CAP:
+        _GAVE_UP = _STOPPED = True
+
+
+def stopped():
+    """Whether the workers were given up on after repeated failures."""
+    return _STOPPED
 
 
 def pool():
     """The app process's Pool, started on first use; None when workers are
-    off (worker_count() is 0) or they failed in this process (the caller
-    then fits in its own process). A pool closes itself after IDLE_SECS
-    idle (Pool._watch); the next call starts a new one. A healthy pool is
-    never closed here: handing it out counts as using it."""
+    off (worker_count() is 0) or were given up on in this process (the
+    caller then fits in its own process). A pool closes itself after
+    IDLE_SECS idle (Pool._watch); the next call starts a new one. A broken
+    pool is replaced here, on the next need, within the restart cap
+    (_broke). A healthy pool is never closed here: handing it out counts
+    as using it."""
     global _POOL, _GAVE_UP
     with _POOL_LOCK:
         if _POOL is not None:
             _POOL.check_start()
             if _POOL.broken:
-                _GAVE_UP = True
+                _broke(_POOL)
             if _POOL.broken or _POOL.closed:
                 _POOL.close()
                 _POOL = None
@@ -433,6 +468,7 @@ class Job:
 
     def __init__(self, opt, pool, memo, specs=None):
         self.specs = plan(opt) if specs is None else specs
+        self.pool = pool
         self.results = {}           # model key -> memo entry, for every session polling
         self.futures = {}           # model key -> [Future]
         self.failed = False
@@ -500,10 +536,14 @@ def current_job(opt):
 def job_for(opt, pool, memo, specs=None):
     """The Job for this project's data, started on first call and topped up
     with what this caller's memo lacks on every later one; an earlier Job of
-    the same project gives up what the new state does not need."""
+    the same project gives up what the new state does not need. A Job that
+    failed with a pool since replaced (C2) is started again on the new one."""
     key = (opt.project_name, insights.data_key(opt))
     with _JOBS_LOCK:
         job = _JOBS.get(key)
+        if job is not None and job.failed and job.pool is not pool:
+            del _JOBS[key]
+            job = None
         if job is None:
             job = Job(opt, pool, memo, specs)
             for old in [k for k in _JOBS if k[0] == opt.project_name]:
