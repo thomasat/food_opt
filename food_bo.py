@@ -808,6 +808,35 @@ def _file_text(row, column, present=True):
     return str(value).strip()
 
 
+def _file_formula(row, present=True):
+    """A Calculation cell of an ingredient file, as the grid reads it, with
+    the spellings a bench writes for Fill to total read as '= rest' (0.8.0
+    e2e fixes B1, review I9): "Fill to total" in any case was refused as
+    "Start a calculation with =." Anything else is the cell as typed."""
+    text = _file_text(row, wording.FORMULA_LABEL, present)
+    if text.lower() in wording.FILL_TO_TOTAL_IMPORT_ALIASES:
+        return f"= {wording.REST_TOKEN}"
+    return text
+
+
+def _refuse_file_limits(name, row):
+    """Refuse, by name, an ordinary row of an ingredient file whose Lowest
+    or Highest would load as NaN (03 I8: a blank cell, or an Excel '= rest'
+    read as its missing cached value, loaded silently with no limits), and
+    one that holds a spreadsheet formula with no value saved (a file
+    written by a script). The row's own words, never "row 7"."""
+    labels = {'Min': wording.LOWEST_LABEL, 'Max': wording.HIGHEST_LABEL}
+    blank = []
+    for column, label in labels.items():
+        value = row.get(column)
+        if isinstance(value, str) and value.strip().startswith('='):
+            raise ValueError(wording.import_spreadsheet_formula(name, label, value.strip()))
+        if _cell(row, column) is None or (isinstance(value, str) and not value.strip()):
+            blank.append(label)
+    if blank:
+        raise ValueError(wording.import_limits_not_numbers(name, tuple(blank)))
+
+
 def _file_range(row):
     """(Lowest, Highest) for a row of an ingredient file that carries a
     formula: the two cells when both hold numbers, and (0, 0) when either is
@@ -2071,8 +2100,7 @@ class FoodOptimizer:
                 'made_as': made_as, 'share': 0.0 if share is None else share,
                 # A formula is data a bench can bring in a file: the cell
                 # is read exactly as the grid's own is.
-                'formula': _file_text(row, wording.FORMULA_LABEL,
-                                      present[wording.FORMULA_LABEL]),
+                'formula': _file_formula(row, present[wording.FORMULA_LABEL]),
                 'unit': unit, 'props': props, 'cells': row})
         return rows
 
@@ -2145,6 +2173,7 @@ class FoodOptimizer:
             # row with none.
             min_val, max_val = _file_range(row)
         else:
+            _refuse_file_limits(name, row)
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
@@ -8889,6 +8918,11 @@ class FoodOptimizer:
         lines = []
         for var in self._formula_rows():
             name = var['name']
+            if var.get('balance') and not self.has_formulation_total():
+                # Nothing to fill to yet (03 M4): "between 0.00 and
+                # −43.00 g" was arithmetic on a size of 0.
+                lines.append(wording.rest_needs_batch_size(name))
+                continue
             try:
                 low, high = self._achievable_range(
                     lambda n, row=name: 1.0 if n == row else 0.0)
@@ -9154,8 +9188,12 @@ class FoodOptimizer:
             trouble = self._rule_names_a_setting(form)
             if trouble:
                 raise FormulaError(trouble)
-            if form.rest and not self.has_formulation_total():
-                raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
+            # '= rest' without a default batch size is let in, as the file
+            # door (_check_file_formulas) always let it in (0.8.0 e2e fixes
+            # B1, review I9): a blank project could not reach one without
+            # it — the size is refused until a row fills to it — and the
+            # state is one the app already says what to do about
+            # (worked_out_captions, best_needs_batch_size).
             rest = form.rest
         else:
             rest = formula_is_rest(text)
@@ -9179,8 +9217,11 @@ class FoodOptimizer:
         if not in_grid:
             try:
                 self._formula_order()  # refuses a loop, naming the chain
-                if self._form_reach(self._linear_form(name),
-                                    self._batch_size())[1] < 0:
+                # A Fill-to-total row with no size yet fills nothing; the
+                # size it is given later is asked against it then.
+                waits = rest and not self.has_formulation_total()
+                if not waits and self._form_reach(self._linear_form(name),
+                                                  self._batch_size())[1] < 0:
                     raise ValueError(wording.formula_below_zero(
                         name, self._unit_of(var)))
             except ValueError:
@@ -11219,6 +11260,11 @@ class FoodOptimizer:
             for row_no, spec in rows:
                 if not spec['formula']:
                     continue
+                if (formula_is_rest(spec['formula'])
+                        and not self.has_formulation_total()):
+                    # Fill to total with no size yet fills nothing (0.8.0
+                    # e2e fixes B1): the size is asked against it when set.
+                    continue
                 reach = self._form_reach(self._linear_form(spec['name']),
                                          self._batch_size())
                 if reach[1] < 0:
@@ -11400,15 +11446,11 @@ class FoodOptimizer:
             trouble = self._rule_names_a_setting(form, rows=names)
             if trouble:
                 return None, trouble
-            if form.rest and not self.has_formulation_total():
-                # The file door (_check_file_formulas) is deliberately
-                # looser about this one: a file is loaded before a size can
-                # be set at all — there are no ingredients to reach one —
-                # so it lets '= rest' in and the reader sets the size
-                # after. The grid is the other way round: by the time
-                # anyone types in it the project can have a size, and a
-                # rest row without one has nothing to be the rest OF.
-                return None, wording.FORMULA_NEEDS_BATCH_SIZE
+            # '= rest' (Fill to total) without a default batch size is let
+            # in, as the file door lets it in (0.8.0 e2e fixes B1, review
+            # I9). Refusing it here was a loop on a blank project: the size
+            # is refused until a row fills to it (02 C2). The reader sets
+            # the size after; the row's caption says so meanwhile.
         if made_as_was == PREMIX_WEIGHED:
             row = row.copy()
             parts = self.premixes[premix_was]['parts']

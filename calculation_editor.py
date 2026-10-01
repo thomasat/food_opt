@@ -131,6 +131,12 @@ def _preview(opt, plan, name):
         var = opt._var_by_name(name)
         if not opt.has_formula(var):
             return
+        if var.get('balance') and not opt.has_formulation_total():
+            # Fill to total before a default batch size (0.8.0 e2e fixes B1,
+            # 03 M4): nothing to fill to yet, so no range — never "0.00 to
+            # −43.00 g".
+            st.caption(wording.rest_needs_batch_size(name))
+            return
         low, high = opt._form_reach(opt._linear_form(name), opt._batch_size())
         unit = opt.unit_of(name)
         st.caption(wording.calculated_range_caption(f"{low:.2f}", f"{high:.2f}", unit))

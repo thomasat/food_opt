@@ -17,6 +17,7 @@ things to reach one. Exactly one coloured button lives here — `Next: make a
 round` at the foot, or a grid's `Save changes`, or the `Yes` of a question
 that is up.
 """
+import io
 import json
 import os
 
@@ -1104,8 +1105,43 @@ def _read_ingredients_file(uploaded):
     """An ingredient list in either shape: the template workbook's first
     sheet, or a comma-separated file with the same columns."""
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
-        return pd.read_excel(uploaded, sheet_name=0)
+        return _read_ingredients_workbook(uploaded)
     return pd.read_csv(uploaded)
+
+
+def _read_ingredients_workbook(uploaded):
+    """The workbook's first sheet, read twice (0.8.0 e2e fixes B1, review
+    I9): the values a spreadsheet saved, and its formulas. A Calculation
+    cell holding `= rest` is a spreadsheet formula, and read for its saved
+    value it came back blank, so the row loaded as an ordinary ingredient
+    with no limits (03 I8). That column is read as written; every other
+    cell keeps its saved value, and a formula with none saved (a file
+    written by a script) is handed on as written, for the loader to name
+    (wording.import_spreadsheet_formula)."""
+    from openpyxl import load_workbook
+    data = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
+    values = load_workbook(io.BytesIO(data), data_only=True).worksheets[0]
+    formulas = load_workbook(io.BytesIO(data), data_only=False).worksheets[0]
+    rows = []
+    for saved, typed in zip(values.iter_rows(values_only=True),
+                            formulas.iter_rows(values_only=True)):
+        rows.append([t if isinstance(t, str) and t.startswith("=") and (v is None or calc)
+                     else v
+                     for v, t, calc in zip(saved, typed, _calculation_columns(rows, saved))])
+    rows = [r for r in rows if any(c is not None and str(c).strip() for c in r)]
+    if not rows:
+        return pd.DataFrame()
+    header = [str(c).strip() if c is not None else f"Unnamed: {k}"
+              for k, c in enumerate(rows[0])]
+    return pd.DataFrame(rows[1:], columns=header)
+
+
+def _calculation_columns(rows, saved):
+    """For one row of the sheet, whether each cell is in the Calculation
+    column (any of its headings), by the header row read first."""
+    head = rows[0] if rows else saved
+    names = {wording.FORMULA_LABEL.lower(), "rule", "formula"}
+    return [str(c or "").strip().lower() in names for c in head]
 
 
 def _upload_ingredients(opt):
