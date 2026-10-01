@@ -1176,42 +1176,14 @@ def why_chart(opt, why, ref=None):
     Round's rows labelled; a dashed line, labelled, at `ref`: Best so far's
     predicted Repeat, the reference the Insights outline uses, for every
     acquisition (answer-key refresh item 6). No line when `ref` is None.
-    None without a pool."""
+    None without a pool. Drawn by ui_insights.explore_map_chart, the one
+    map Insights' Explored and unexplored draws too (review R-I16)."""
     if why.pool_mean is None:
         return None
-    pool = pd.DataFrame({"mean": why.pool_mean.tolist(), "sd": why.pool_sd.tolist()})
-    tested = pd.DataFrame({"mean": why.tested_mean.tolist(), "sd": why.tested_sd.tolist()})
-    mine = pd.DataFrame([{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)}
-                         for r in why.rows])
-    x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
-    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
-    formulation = wording.for_project(opt, wording.FORMULATION_CAP)
-    ring_c, ring_o = ui_insights.mark("neutral")
-    line = pd.DataFrame({"ref": [ref], "label": [wording.WHY_REFERENCE]})
-    rule = [] if ref is None else [
-        alt.Chart(line).mark_rule(strokeDash=[4, 3], color="gray", tooltip=False)
-        .encode(x="ref:Q"),
-        alt.Chart(line).mark_text(align="left", baseline="top", dx=4, color=ui_insights.muted(),
-                                  tooltip=False)
-        .encode(x="ref:Q", y=alt.value(4), text="label:N")]
-    layers = [
-        alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
-        .encode(x=x, y=y),
-        # The neutral token (polish round): gray at Vega's default 0.7 was
-        # 2.94:1 on the dark page.
-        alt.Chart(tested).mark_point(size=40, color=ring_c, opacity=ring_o, filled=False,
-                                     tooltip=False)
-        .encode(x=x, y=y),
-        *rule,
-        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)
-        .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=formulation),
-                                   alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,
-                                               format=".1f"),
-                                   alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]),
-        alt.Chart(mine).mark_text(dy=-12, color=ui_insights.muted(), tooltip=False)
-        .encode(x=x, y=y, text="no:N"),
-    ]
-    return alt.layer(*layers).properties(height=280)
+    tested = [{"mean": m, "sd": s}
+              for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
+    picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)} for r in why.rows]
+    return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt)
 
 
 def _why_these(opt, preds):

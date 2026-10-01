@@ -14,10 +14,10 @@ import insights
 import insights_cache
 import insights_jobs
 import wording
-from food_bo import join_unit, number_list
+from food_bo import fmt_setting, join_unit, number_list
 from ui_helpers import (SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
-                        TAB_BATCH, app_rerun, TAB_SETUP, amount_format, confirmation_open, go_to_tab,
-                        open_rows, readiness, table_height)
+                        TAB_BATCH, app_rerun, TAB_SETUP, amount_format, ask_tab, confirmation_open,
+                        go_to_tab, link, open_rows, readiness, table_height)
 
 _BAND = 0.25
 # Text drawn on a chart (labels, the band's name): at least 4.5:1 against
@@ -893,6 +893,7 @@ def render(opt):
         _stand_first(opt, insights.noise_yardstick(opt))
         st.caption(_say(opt, wording.insights_gate(n)))
         _foot(opt)
+        explored_fold(opt, None)        # W3 (§8, R-I14): under the button
         _how(opt, None)
         return
     filling = waiting(opt, "all")
@@ -917,6 +918,7 @@ def render(opt):
     below = st.container()
     if filling:
         _fill_in(opt, bar, trust, lines, first_yard, rest, nxt, below)
+        explored_fold(opt, None)        # W3 (§8, R-I14): under the button
         _how(opt, None)
         return
     st.session_state.pop(PROGRESS_SEEN_KEY, None)
@@ -929,6 +931,7 @@ def render(opt):
         # The model answers come off; one line says so, where the bar was.
         bar.empty()
         bar.caption(_say(opt, wording.INSIGHTS_FAILED))
+        explored_fold(opt, computed)    # W3 (§8, R-I14): under the button
         _how(opt, None)
         return
     checks = computed["checks"]
@@ -955,8 +958,11 @@ def render(opt):
         change = _next_step(opt, step)
     with below:
         _setup_button(change)
+        explored_link(opt, step)        # W3 (R-I14): explore and untested rows
+    explored_fold(opt, computed)        # W3 (§8, R-I14): under the button and its link
     # The folds, collapsed (§2.5), each with a key of its own.
-    with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one"):
+    with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one",
+                     on_change="rerun"):        # W3: the §8.3 pointer opens it
         _change(opt, computed, yard)
     _more_charts(opt, computed)
     _how(opt, computed)
@@ -2787,17 +2793,26 @@ def _model_guard(opt, fitted):
 
 
 def layers_offered(opt, fitted):
-    """The three layers (review I6), or the Predicted score layer alone:
-    while the model's gains are withheld — the noise guard (review I4), or
-    a caution or unreliable verdict, as Progress withholds its expected
-    improvement (fix round 1) — and without a model yet."""
+    """The three layers (review I6), or fewer: the Predicted score layer
+    alone without a model yet, and under the noise guard's (a) or (b);
+    Predicted score and Uncertainty while the gains are otherwise withheld
+    — the A3 gate, or a caution or unreliable verdict, as Progress withholds
+    its expected improvement (fix round 1). The Uncertainty layer follows
+    the explored–unexplored map's rule (explore_withheld; review R-I16,
+    which overrides e2e I4 for this layer only); Expected improvement stays
+    withheld."""
     rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
-    if len(rows) < insights.MIN_ROWS or withheld(
-            opt, (fitted or {}).get(insights.SCORE), checks_for(opt, "trust") or ()):
+    if len(rows) < insights.MIN_ROWS:
+        return (wording.LAYER_SCORE,)
+    rule = explore_withheld(opt, (fitted or {}).get(insights.SCORE),
+                            checks_for(opt, "trust") or ())
+    if rule == "hidden":
         return (wording.LAYER_SCORE,)
     if opt.pending_batch and opt.pending_batch_no is not None:
         if bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
             return (wording.LAYER_SCORE,)
+    if rule == "not_yet":
+        return (wording.LAYER_SCORE, wording.LAYER_SD)
     if bo_views.acquisition(opt) == "qucb":
         # qUCB has no expected improvement: its value is an optimistic
         # score, not a gain (T56 I2).
@@ -2814,8 +2829,20 @@ def _layer_pick(opt, fitted, key):
     if st.session_state.get(key) == wording.LAYER_GAIN_FORMER:
         # A session from before the rename (review I6): the same layer.
         st.session_state[key] = wording.LAYER_GAIN
+    # Explored and unexplored's pointer (§8.3) asked for Uncertainty: once
+    # per radio, set before the radio is drawn.
+    asked = st.session_state.get(LAYER_PRESELECT_KEY) or ()
+    if key in asked:
+        st.session_state[LAYER_PRESELECT_KEY] = tuple(k for k in asked if k != key)
+        if wording.LAYER_SD in offered:
+            st.session_state[key] = wording.LAYER_SD
     _keep_if_offered(key, offered)
-    return st.radio(_say(opt, wording.LAYER_PICK), offered, key=key, horizontal=True)
+    picked = st.radio(_say(opt, wording.LAYER_PICK), offered, key=key, horizontal=True)
+    if picked == wording.LAYER_SD and wording.LAYER_GAIN not in offered and explore_withheld(
+            opt, (fitted or {}).get(insights.SCORE), checks_for(opt, "trust") or ()):
+        # R-I16: shown under the A3 gate or the verdict, with the map's caption.
+        st.caption(_say(opt, wording.MAP_NOT_YET))
+    return picked
 
 
 def layer_model(opt, fitted):
@@ -2841,25 +2868,477 @@ def layer_model(opt, fitted):
 #  their final signatures; W3 fills them in.
 # ------------------------------------------------------------------ #
 
-def explored_fold(opt, computed):
-    """W3: the fold under the button and its one link, above the detail
-    sections (R-I14), keyed EXPLORED_KEY: the strips, the map, the pointer.
-    T0 stub."""
-    return None
+# The fold's own keys: Next step's link to it (R-I14), the pointer (§8.3)
+# and its one-shot request that the layer radios open on Uncertainty.
+EXPLORED_LINK_KEY = "insights_explored_link"
+POINTER_KEY = "insights_explored_pointer"
+LAYER_PRESELECT_KEY = "_insights_layer_preselect"
+TRY_ONE_KEY = "insights_try_one"
+# The Next-step rows whose sentence points at untried amounts (R-I14).
+_EXPLORED_ROWS = ("explore", "untested")
+# At most this many limit-hit lines (R-I15 counts them; the screen stays sparse).
+_LIMIT_LINES = 2
+
+# The strips' Round colours (§8.1): a ramp from the first Round to the
+# latest, each stop at least 3:1 on its theme's page (WCAG 1.4.11), the
+# latest the strongest. Light: #5b8ec9 is 3.4:1 on white, #0b2e59 13.6:1.
+# Dark: #3d6fa8 is 3.6:1 on #0e1117, #dbe9f8 15.3:1.
+_ROUND_RAMP = {"light": ("#5b8ec9", "#0b2e59"), "dark": ("#3d6fa8", "#dbe9f8")}
+# The reachable part's shading: a region under the ticks, as _FILLS.
+_REACH_FILL = {"light": ("#c6d4e6", 1.0), "dark": ("#2c3a4f", 1.0)}
+# The marks' shapes: a tick (a vertical line), a taller one for the latest
+# Round, a ring for waiting or Not scored, a triangle for a suggestion.
+_TICK = "M0,-1L0,1"
+_SHAPES = {wording.STRIP_TESTED: _TICK, wording.STRIP_LATEST: _TICK,
+           wording.STRIP_WAITING: "circle", wording.STRIP_SUGGESTED: "triangle-down"}
+_SIZES = {wording.STRIP_TESTED: 160, wording.STRIP_LATEST: 420,
+          wording.STRIP_WAITING: 50, wording.STRIP_SUGGESTED: 70}
+
+
+def _tip(opt, line_id, fallback=None):
+    """W2's help for this line (tooltip_for), else W3's own texts."""
+    got = tooltip_for(opt, line_id)
+    return got if got else fallback
+
+
+def _mix(a, b, t):
+    """The colour a share `t` of the way from hex `a` to hex `b`."""
+    ca = [int(a[k:k + 2], 16) for k in (1, 3, 5)]
+    cb = [int(b[k:k + 2], 16) for k in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + t * (y - x)):02x}" for x, y in zip(ca, cb))
+
+
+def round_colours(n, which=None):
+    """`n` Round colours, the first Round's to the latest's (the latest the
+    strongest), in the reader's theme or `which`."""
+    a, b = _ROUND_RAMP[which or theme()]
+    if n <= 1:
+        return [b] * max(n, 0)
+    return [_mix(a, b, k / (n - 1)) for k in range(n)]
+
+
+def _round_label(r):
+    return wording.IMPORTED_NOTE if r is None else str(r)
+
+
+def _strip_number(opt, strip, v, unit=True, d=None):
+    """A strip's value as the screens write it: a process setting by
+    fmt_setting, an amount to `d` decimals (else `_num`'s rule)."""
+    if strip.setting:
+        return fmt_setting(v, strip.unit if unit else "")
+    text = _num(v) if d is None else f"{v:.{d}f}"
+    return join_unit(text, strip.unit) if unit and strip.unit else text
+
+
+def _gap_text(opt, gap, strip):
+    """'Coconut oil above 8.1 g', 'Salt below 0.6 g', 'Salt between 0.6 and
+    1.0 g': an end gap names the nearest tested value."""
+    if gap.kind == "above":
+        return wording.gap_above(gap.name, _strip_number(opt, strip, gap.low))
+    if gap.kind == "below":
+        return wording.gap_below(gap.name, _strip_number(opt, strip, gap.high))
+    d = None if strip.setting else _shared_decimals([gap.low, gap.high])
+    return wording.gap_between(gap.name, _strip_number(opt, strip, gap.low, False, d),
+                               _strip_number(opt, strip, gap.high, True, d))
+
+
+def strip_gap_lines(opt, strips):
+    """The plain lines above the strips (review R-I15): the largest untested
+    stretches (at most 2), or that there is none; then each option never
+    tested. Nothing while no formulation has all its results."""
+    if not any(t.state == "tested" for s in strips for t in s.ticks) and not any(
+            n for s in strips if s.options for n in s.options.values()):
+        return []
+    by_name = {s.name: s for s in strips}
+    gaps = insights.strip_gaps(opt, strips)
+    stretches = [_gap_text(opt, g, by_name[g.name]) for g in gaps if g.kind != "option"]
+    out = []
+    if stretches:
+        out.append(wording.strip_gaps_line(stretches))
+    elif any(not s.fill and s.options is None for s in strips):
+        out.append(wording.strips_no_gap(settings_only=not opt.has_ingredients()))
+    out += [wording.option_never_tested(g.name, g.option) for g in gaps if g.kind == "option"]
+    return out
+
+
+def limit_hit_lines(opt, hits=None):
+    """'3 of the 4 suggestions in Round 6 sit at Textured pea protein's
+    Highest.' (review R-I15), most hits first, at most _LIMIT_LINES."""
+    hits = insights.limit_hits(opt) if hits is None else hits
+    out = []
+    for h in hits[:_LIMIT_LINES]:
+        b = h.binding
+        text = (wording.limit_highest(b.name) if b.kind == "highest"
+                else wording.limit_lowest(b.name) if b.kind == "lowest"
+                else wording.limit_named(b.text))
+        out.append(wording.limit_hit_line(h.hits, h.picks, h.round, text))
+    return out
+
+
+def _strip_kind(tick):
+    if tick.state == "suggested":
+        return wording.STRIP_SUGGESTED
+    if tick.state in ("waiting", "not_scored"):
+        return wording.STRIP_WAITING
+    return wording.STRIP_LATEST if tick.latest else wording.STRIP_TESTED
+
+
+def _tick_score(opt, tick):
+    """The tooltip's Overall score: two decimals, or what the formulation
+    is waiting for, Not scored, or "This Round's suggestion"."""
+    if tick.state == "tested":
+        return f"{tick.score:.2f}"
+    if tick.state == "suggested":
+        return wording.STRIP_SUGGESTED
+    if tick.state == "not_scored":
+        return wording.NOT_SCORED
+    i = opt.index_of_formulation(tick.formulation)
+    return wording.waiting_for(number_list(opt.waiting_on(i) if i is not None else []))
+
+
+def _strip_frame(opt, strip):
+    return pd.DataFrame([{"value": t.value, "value_text": _strip_number(opt, strip, t.value),
+                          "no": t.formulation, "round": _round_label(t.round),
+                          "score_text": _tick_score(opt, t), "mark": _strip_kind(t)}
+                         for t in strip.ticks],
+                        columns=["value", "value_text", "no", "round", "score_text", "mark"])
+
+
+def _strip_title(strip):
+    return f"{strip.name} ({strip.unit})" if strip.unit else strip.name
+
+
+def _option_chart(opt, strips, colour):
+    """The choice rows: one bar per option, the times it was tested."""
+    df = pd.DataFrame([{"row": s.name, "option": o, "n": n, "which": f"{s.name}: {o}"}
+                       for s in strips for o, n in s.options.items()])
+    tip = [alt.Tooltip("which:N", title=_say(opt, wording.INGREDIENT_OR_SETTING)),
+           alt.Tooltip("n:Q", title=_say(opt, wording.STRIP_COUNT), format="d")]
+    return (alt.Chart(df).mark_bar(color=colour, opacity=1)
+            .encode(x=alt.X("n:Q", title=_say(opt, wording.STRIP_COUNT),
+                            axis=alt.Axis(tickMinStep=1, format="d")),
+                    y=alt.Y("option:N", title=None, sort=None),
+                    row=alt.Row("row:N", title=None, sort=[s.name for s in strips],
+                                header=alt.Header(labelAngle=0, labelAlign="left",
+                                                  labelAnchor="start")),
+                    tooltip=tip)
+            .properties(height=alt.Step(18)))
+
+
+def _share(strip, v):
+    """Where `v` sits along the strip, 0 at its Lowest, 1 at its Highest."""
+    span = strip.high - strip.low
+    return 0.5 if span <= 0 else min(1.0, max(0.0, (float(v) - strip.low) / span))
+
+
+def _numeric_strips(opt, strips, labels, colours):
+    """The numeric strips as one chart (so it takes the column's width):
+    one band per row, its Lowest–Highest across (written at its ends),
+    the reachable part shaded, the formulations as marks."""
+    rows = [_strip_title(s) for s in strips]
+    present = {_strip_kind(t) for s in strips for t in s.ticks}
+    kinds = [k for k in _SHAPES if k in present]
+    shape = alt.Scale(domain=kinds or [wording.STRIP_TESTED],
+                      range=[_SHAPES[k] for k in kinds] or [_TICK])
+    size = alt.Scale(domain=kinds or [wording.STRIP_TESTED],
+                     range=[_SIZES[k] for k in kinds] or [_SIZES[wording.STRIP_TESTED]])
+    stroke = alt.Scale(domain=labels or [""], range=colours or [mark("neutral")[0]])
+    grey, grey_o = mark("neutral")
+    fill, fill_o = _REACH_FILL[theme()]
+    value_title = _say(opt, wording.strip_value_title(not opt.has_ingredients()))
+    tips = [alt.Tooltip("value_text:N", title=value_title),
+            alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP), format="d"),
+            alt.Tooltip("round:N", title=wording.ROUND_CAP),
+            alt.Tooltip("score_text:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN))]
+    y = alt.Y("row:N", sort=rows, title=None,
+              scale=alt.Scale(paddingInner=0.25, paddingOuter=0.1),
+              axis=alt.Axis(ticks=False, domain=False, labelLimit=260, labelFontSize=12))
+    x = alt.X("t:Q", scale=alt.Scale(domain=[-0.01, 1.01], nice=False, zero=False), axis=None)
+    bands, ends, made, picks = [], [], [], []
+    for s, row in zip(strips, rows):
+        lo, hi = s.reach if s.reach is not None else (s.low, s.high)
+        number = lambda v, _s=s: _strip_number(opt, _s, v)
+        bands.append({"row": row, "t": _share(s, lo), "t2": _share(s, hi),
+                      "reach": range_text(lo, hi, lambda v, _s=s: _strip_number(opt, _s, v, False))
+                      + (f" {s.unit}" if s.unit else "")})
+        ends += [{"row": row, "t": 0.0, "label": number(s.low), "end": "low"},
+                 {"row": row, "t": 1.0, "label": number(s.high), "end": "high"}]
+        for _, r in _strip_frame(opt, s).iterrows():
+            item = dict(r, row=row, t=_share(s, r["value"]))
+            (picks if r["mark"] == wording.STRIP_SUGGESTED else made).append(item)
+    bands = pd.DataFrame(bands)
+    ends = pd.DataFrame(ends)
+    muted_c = _MUTED_DARK if theme() == "dark" else _MUTED_LIGHT
+    layers = [
+        alt.Chart(bands).mark_bar(height=12, color=fill, opacity=fill_o)
+        .encode(x=x, x2="t2:Q", y=y,
+                tooltip=[alt.Tooltip("reach:N", title=_say(opt, wording.STRIP_REACHABLE))]),
+        alt.Chart(bands.assign(t=0.0, t2=1.0)).mark_bar(height=2, color=grey, opacity=grey_o,
+                                                        tooltip=False)
+        .encode(x=x, x2="t2:Q", y=y),
+        alt.Chart(ends[ends["end"] == "low"]).mark_text(
+            align="left", baseline="top", dy=12, fontSize=10, color=muted_c, tooltip=False)
+        .encode(x=x, y=y, text="label:N"),
+        alt.Chart(ends[ends["end"] == "high"]).mark_text(
+            align="right", baseline="top", dy=12, fontSize=10, color=muted_c, tooltip=False)
+        .encode(x=x, y=y, text="label:N"),
+    ]
+    if made:
+        layers.append(
+            alt.Chart(pd.DataFrame(made)).mark_point(filled=False, strokeWidth=2, opacity=1)
+            .encode(x=x, y=y,
+                    shape=alt.Shape("mark:N", scale=shape,
+                                    legend=alt.Legend(title=None, orient="bottom",
+                                                      labelLimit=0, symbolStrokeWidth=2,
+                                                      symbolStrokeColor=muted_c)),
+                    size=alt.Size("mark:N", scale=size, legend=None),
+                    stroke=alt.Stroke("round:N", scale=stroke,
+                                      legend=alt.Legend(title=wording.ROUND_CAP, orient="bottom",
+                                                        direction="horizontal",
+                                                        columns=min(12, max(1, len(labels))))),
+                    tooltip=tips))
+    if picks:
+        layers.append(
+            alt.Chart(pd.DataFrame(picks)).mark_point(filled=True, color=outline_colour(),
+                                                      opacity=1, yOffset=-11)
+            .encode(x=x, y=y, shape=alt.Shape("mark:N", scale=shape),
+                    size=alt.Size("mark:N", scale=size, legend=None), tooltip=tips))
+    return alt.layer(*layers).properties(height=alt.Step(46))
 
 
 def strips_chart(opt, strips):
-    """W3: one horizontal strip per insights.Strip, through show_chart's
-    privacy wrapper, theme-aware, at least 3:1. T0 stub: returns None."""
-    return None
+    """W3 (§8.1, review R-I15): one horizontal strip per insights.Strip, its
+    Lowest–Highest across, the reachable part shaded; a tick per recorded
+    formulation at its amount, coloured by Round (the latest the strongest
+    and tallest), a ring while it waits or is Not scored, a triangle above
+    for each of the open Round's suggestions; the choice rows as count
+    bars. Every colour at least 3:1 on its theme's page. Drawn through
+    show_chart by the caller. None without a strip."""
+    if not strips:
+        return None
+    rounds = sorted({t.round for s in strips for t in s.ticks if t.state != "suggested"},
+                    key=lambda r: (r is not None, r or 0))
+    labels = [_round_label(r) for r in rounds]
+    colours = round_colours(len(labels))
+    numeric = [s for s in strips if s.options is None]
+    choices = [s for s in strips if s.options is not None]
+    charts = []
+    if numeric:
+        charts.append(_numeric_strips(opt, numeric, labels, colours))
+    if choices:
+        charts.append(_option_chart(opt, choices, round_colours(1)[0]))
+    if len(charts) == 1:
+        return charts[0]
+    return alt.vconcat(*charts, spacing=16).resolve_scale(x="independent", y="independent")
 
 
 def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
     """W3 (review R-I16): the mean × model-sd map both folds draw (Insights'
     Explored and unexplored, Make a round's Why these suggestions, whose
-    ui_batch.why_chart becomes a thin caller). `opt`: for the project's own
-    word in the tooltip. T0 stub: returns None."""
-    return None
+    ui_batch.why_chart is a thin caller): every sampled allowed formulation
+    as a grey dot, the suggestion model's mean across and its sd up;
+    `tested` ({"mean", "sd"}, with "no" for a tooltip) as rings; `picks`
+    ({"mean", "sd", "no"}) as labelled diamonds; a dashed line, labelled,
+    at `ref` (Best so far's predicted Repeat). `opt`: for the project's own
+    word in the tooltip. None without a pool."""
+    if pool_mean is None:
+        return None
+    pool = pd.DataFrame({"mean": list(map(float, pool_mean.tolist())),
+                         "sd": list(map(float, pool_sd.tolist()))})
+    tested = pd.DataFrame(list(tested), columns=None if tested else ["mean", "sd"])
+    mine = pd.DataFrame(list(picks), columns=None if picks else ["mean", "sd", "no"])
+    x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
+    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
+    word = wording.FORMULATION_CAP if opt is None else _say(opt, wording.FORMULATION_CAP)
+    ring_c, ring_o = mark("neutral")
+    line = pd.DataFrame({"ref": [ref], "label": [wording.WHY_REFERENCE]})
+    rule = [] if ref is None else [
+        alt.Chart(line).mark_rule(strokeDash=[4, 3], color="gray", tooltip=False)
+        .encode(x="ref:Q"),
+        alt.Chart(line).mark_text(align="left", baseline="top", dx=4, color=muted(),
+                                  tooltip=False)
+        .encode(x="ref:Q", y=alt.value(4), text="label:N")]
+    numbered = "no" in tested.columns
+    ring_tip = ({"tooltip": [alt.Tooltip("no:Q", title=word, format="d"),
+                             alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN, format=".1f"),
+                             alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]}
+                if numbered else {})
+    layers = [
+        alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
+        .encode(x=x, y=y),
+        # The neutral token (polish round): gray at Vega's default 0.7 was
+        # 2.94:1 on the dark page.
+        alt.Chart(tested).mark_point(size=40, color=ring_c, opacity=ring_o, filled=False,
+                                     **({} if numbered else {"tooltip": False}))
+        .encode(x=x, y=y, **ring_tip),
+        *rule,
+        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)
+        .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=word),
+                                   alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,
+                                               format=".1f"),
+                                   alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]),
+        alt.Chart(mine).mark_text(dy=-12, color=muted(), tooltip=False)
+        .encode(x=x, y=y, text="no:N"),
+    ]
+    return alt.layer(*layers).properties(height=280)
+
+
+def explore_withheld(opt, score, checks):
+    """The map's and the Uncertainty layer's one rule (review R-I16):
+    "hidden" under the noise guard's (a) correlation length at its floor
+    or (b) fitted noise well under the Repeat SD — the model sd is high
+    everywhere but at the data, so the map would show everything as
+    unexplored; "not_yet" under the A3 gate or a caution or unreliable
+    verdict (shown, with MAP_NOT_YET); None when nothing is withheld."""
+    guard = insights.noise_guard(opt, score, checks)
+    if "floor" in guard.reasons or "noise" in guard.reasons:
+        return "hidden"
+    return None if withheld(opt, score, checks) is None else "not_yet"
+
+
+def _map_model(opt, fitted):
+    """The suggestion model the map shows (review R-I16): the open Round's,
+    rebuilt (layer_model), else the one the next Generate fits
+    (bo_views.next_model); None while cold."""
+    if opt.pending_batch and opt.pending_batch_no is not None:
+        model = layer_model(opt, fitted)
+        if model is not None:
+            return model
+    return bo_views.next_model(opt)
+
+
+def _explored_map(opt, computed):
+    """§8.2: the map, its plain title and reading, under the withhold rule
+    of R-I16."""
+    if opt.complete_count() < insights.MIN_ROWS:
+        st.caption(_say(opt, wording.MAP_COLD))
+        return
+    if computed is None:
+        # The Prediction check is still being calculated: the rule waits for it.
+        st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
+        return
+    if computed.get("failed"):
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    fitted = computed["fitted"]
+    score = fitted.get(insights.SCORE)
+    rule = explore_withheld(opt, score, computed["checks"])
+    if rule == "hidden":
+        st.caption(_say(opt, wording.MAP_HIDDEN), help=_tip(opt, "map", wording.TIP_MAP))
+        return
+    values = bo_views.map_values(opt, _map_model(opt, fitted))
+    if values is None or values.pool_mean is None:
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    try:
+        ref = repeat_of_best(opt, fitted)
+    except Exception:
+        ref = None
+    tested = [{"mean": float(m), "sd": float(s), "no": n}
+              for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
+                                 values.tested)]
+    picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
+    help_text = _tip(opt, "map", " ".join((
+        _say(opt, wording.TIP_MAP), wording.TIP_MODEL_SD,
+        wording.tip_design_space(f"{len(values.pool_mean):,}"))))
+    st.markdown(f"**{_say(opt, wording.MAP_TITLE)}**")
+    st.caption(_say(opt, wording.MAP_READING), help=help_text)
+    if rule == "not_yet":
+        st.caption(_say(opt, wording.MAP_NOT_YET))
+    show_chart(explore_map_chart(values.pool_mean, values.pool_sd, tested, picks, ref, opt))
+    if picks:
+        st.caption(_say(opt, wording.why_chart_caption(f"{len(values.pool_mean):,}",
+                                                       line=ref is not None)))
+
+
+def _point_to_uncertainty():
+    """The pointer's on_click: Try one opens, both layer radios open on
+    Uncertainty the next time each is drawn (_layer_pick), the page lands
+    on Try one (ui_helpers.ask_tab)."""
+    st.session_state[LAYER_PRESELECT_KEY] = (PATH_LAYER_KEY, LAYER_KEY)
+    ask_tab(wording.TAB_INSIGHTS, section=TRY_ONE_KEY, fold=TRY_ONE_KEY)
+
+
+def _explored_pointer(opt, computed):
+    """§8.3: one line to the in-context views, a link, shown only when the
+    Uncertainty layer is offered (review R-I16)."""
+    if computed is None or computed.get("failed") or not insights.path_choices(opt):
+        return
+    if wording.LAYER_SD not in layers_offered(opt, computed["fitted"]):
+        return
+    triangle = (opt.has_ingredients() and more_charts_offered(opt, computed)
+                and len(insights.mixture_choices(opt)) >= 3)
+    text = wording.explored_pointer(_try_one_label(opt), settings_only=not opt.has_ingredients(),
+                                    triangle=triangle)
+    st.button(_say(opt, text), type="tertiary", key=POINTER_KEY,
+              disabled=confirmation_open(), on_click=_point_to_uncertainty)
+
+
+def _why_link_offered(opt):
+    """Review R-I4's condition for the Why link, which outranks this fold's
+    link: a warm Round open holding at least one generated pick."""
+    if not opt.pending_batch or opt.pending_batch_no is None:
+        return False
+    gen = bo_views.generation(opt, opt.pending_batch_no)
+    if gen.regime != "warm":
+        return False
+    _, issued = bo_views._picks(opt, gen, list(opt.pending_batch))
+    return bool(issued)
+
+
+def explored_link(opt, step):
+    """R-I14: Next step's link to this fold on its explore and untested rows,
+    the one tertiary link (R-I4: only when the Why link is not shown)."""
+    if step is None or step.kind not in _EXPLORED_ROWS or _why_link_offered(opt):
+        return False
+    link(_say(opt, wording.explored_link(not opt.has_ingredients())), wording.TAB_INSIGHTS,
+         section=EXPLORED_KEY, fold=EXPLORED_KEY, key=EXPLORED_LINK_KEY)
+    return True
+
+
+def _explored_body(opt, computed):
+    values = not opt.has_ingredients()
+    total = opt.has_formulation_total()
+    st.caption(_say(opt, wording.basis_explored(values, total)),
+               help=_tip(opt, "basis_explored"))
+    # 1. Where you have tested: model-free, drawn whatever the checks say.
+    st.markdown(f"**{_say(opt, wording.STRIPS_TITLE)}**")
+    pool = bo_views.feasible_pool(opt)
+    strips = insights.tested_strips(opt, pool)
+    n_text = f"{bo_views.POOL_SIZE:,}"
+    strip_help = _tip(opt, "strips", " ".join((
+        _say(opt, wording.tip_strips(values, total)), _say(opt, wording.tip_untested(values)),
+        wording.tip_design_space(n_text))))
+    for k, line in enumerate(strip_gap_lines(opt, strips)):
+        st.markdown(_say(opt, line), help=_tip(opt, "gaps", strip_help) if k == 0 else None)
+    for k, line in enumerate(limit_hit_lines(opt)):
+        st.markdown(_say(opt, line),
+                    help=_tip(opt, "limit_hits", wording.TIP_LIMIT_HITS) if k == 0 else None)
+    chart = strips_chart(opt, strips)
+    if chart is not None:
+        show_chart(chart)
+    st.caption(_say(opt, wording.strips_caption(values)), help=strip_help)
+    # 2. The map, from the suggestion model, under the withhold rule.
+    _explored_map(opt, computed)
+    # 3. The pointer to the in-context views.
+    _explored_pointer(opt, computed)
+
+
+def explored_fold(opt, computed):
+    """W3 (§8, review R-I14 to R-I16): "Explored and unexplored", one fold
+    row under the button and its one link, above the detail sections, keyed
+    EXPLORED_KEY, collapsed, and nothing in it worked out until it is
+    opened (as the Why fold). It holds the strips (model-free), the map and
+    the pointer. `computed`: render's, or None while the checks are still
+    being calculated (and at the gate)."""
+    with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
+                     on_change="rerun") as fold:
+        if not fold.open:
+            return
+        try:
+            _explored_body(opt, computed)
+        except Exception:   # one fold failing must not take the tab down
+            st.caption(_say(opt, wording.CHART_FAILED))
 
 
 def layer_values(opt, fitted, recipes, layer):
