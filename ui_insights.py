@@ -37,6 +37,46 @@ def muted():
     return _MUTED_DARK if dark else _MUTED_LIGHT
 
 
+def theme():
+    """"dark" or "light": the theme the reader has on (light when unknown)."""
+    return "dark" if muted() == _MUTED_DARK else "light"
+
+
+# D1 (spec 2026-10-01; 01 F1, O16; review M7): every mark that carries
+# meaning, as (colour, opacity) together per theme, at least 3:1 against
+# that theme's page once blended (WCAG 1.4.11, graphics). The interval bars
+# were drawn black at opacity 0.25/0.6 — invisible on #0e1117 — and at
+# opacity 0.25 no colour reaches 3:1 there, so each bar is opaque and the
+# latest Round's is the stronger one in either theme.
+_MARKS = {
+    "light": {"bar_latest": ("#3d434d", 1.0),      # 10.0:1 on white
+              "bar": ("#8b919c", 1.0),             # 3.2:1
+              "reference": (_MUTED_LIGHT, 1.0),    # the path's dotted start, 6.0:1
+              "untested_edge": ("#8b919c", 1.0)},  # the grey band's edges, 3.2:1
+    "dark": {"bar_latest": ("#c8ccd4", 1.0),       # 11.7:1 on #0e1117
+             "bar": ("#8b919c", 1.0),              # 6.0:1
+             "reference": (_MUTED_DARK, 1.0),      # 7.9:1
+             "untested_edge": ("#8b919c", 1.0)},   # 6.0:1
+}
+
+
+def mark(name):
+    """(colour, opacity) of the mark `name` in the reader's theme."""
+    return _MARKS[theme()][name]
+
+
+# The colour scales' range in Vega's "blues": from 0.25 (light) to the top.
+# On the dark page the top of the scheme, rgb(10,74,144), is about 2:1 (O16):
+# it stops at 0.8 there (3.6:1), still darker for higher.
+_BLUES_TOP = {"light": 1.0, "dark": 0.8}
+
+
+def blues(which=None):
+    """The colour scheme of the triangle's layers for a theme (the reader's
+    when not given)."""
+    return alt.SchemeParams(name="blues", extent=[0.25, _BLUES_TOP[which or theme()]])
+
+
 def decimals(opt, name):
     """One number of decimals for everything this measurement shows — a
     prediction, its likely range, a tooltip — from the width of its Range:
@@ -97,6 +137,21 @@ def _only(mark):
     layer given a frame of its own is drawn whole in EVERY facet panel, so a
     target, a grey interval or a start marker would show up everywhere."""
     return alt.FieldEqualPredicate(field="mark", equal=mark)
+
+
+def _untested_layers(base):
+    """"Grey: not tested near here": a light band, kept light so the line
+    and the interval band over it still read, with a rule at each edge in
+    the theme's token, which carries the 3:1 (D1; O16: the band alone was
+    1.13:1)."""
+    edge_c, edge_o = mark("untested_edge")
+    grey = _only("grey")
+    return [base.mark_rect(opacity=_GREY, color="gray", tooltip=False)
+            .encode(x="x:Q", x2="x2:Q").transform_filter(grey),
+            base.mark_rule(color=edge_c, opacity=edge_o, strokeWidth=1, tooltip=False)
+            .encode(x="x:Q").transform_filter(grey),
+            base.mark_rule(color=edge_c, opacity=edge_o, strokeWidth=1, tooltip=False)
+            .encode(x="x2:Q").transform_filter(grey)]
 
 
 def _target_layer():
@@ -160,9 +215,11 @@ def measured_vs_predicted_chart(opt, checks):
                 .encode(x=alt.X("a:Q", scale=scale, title=predicted),
                         y=alt.Y("b:Q", scale=scale, title=measured)))
         base = alt.Chart(df)
+        (new_c, new_o), (old_c, old_o) = mark("bar_latest"), mark("bar")
         bars = base.mark_rule(strokeWidth=2).encode(
             x=x, y=alt.Y(f"{low}:Q", scale=scale, title=measured), y2=f"{high}:Q",
-            opacity=alt.condition(latest_first, alt.value(0.6), alt.value(0.25)), tooltip=tip)
+            color=alt.condition(latest_first, alt.value(new_c), alt.value(old_c)),
+            opacity=alt.condition(latest_first, alt.value(new_o), alt.value(old_o)), tooltip=tip)
         rings = base.mark_point(size=50, strokeWidth=1.5).encode(
             x=x, y=y, opacity=alt.condition(latest_first, alt.value(1.0), alt.value(0.45)),
             tooltip=tip)
@@ -215,12 +272,12 @@ def path_chart(opt, path, preds, near=None):
             .transform_filter(_only("curve")))
     line = (alt.Chart().mark_line().encode(x=x, y="mean:Q", tooltip=tip)
             .transform_filter(_only("curve")))
-    start = (alt.Chart().mark_rule(strokeDash=[2, 2], tooltip=False).encode(x="x:Q")
-             .transform_filter(_only("start")))
+    ref_c, ref_o = mark("reference")
+    start = (alt.Chart().mark_rule(strokeDash=[2, 2], tooltip=False, color=ref_c, opacity=ref_o)
+             .encode(x="x:Q").transform_filter(_only("start")))
     layers = [band, line, start]
     if any(r["mark"] == "grey" for r in rows):
-        layers.insert(0, alt.Chart().mark_rect(opacity=_GREY, color="gray", tooltip=False)
-                      .encode(x="x:Q", x2="x2:Q").transform_filter(_only("grey")))
+        layers[:0] = _untested_layers(alt.Chart())
     if targets:
         layers.append(_target_layer())
     return _faceted(layers, df, [panel_label(opt, n) for n in names])
@@ -1280,11 +1337,11 @@ def path_layer_chart(opt, path, values, near, layer):
                   tooltip=[alt.Tooltip("amount:N", title=path.name),
                            alt.Tooltip("v:Q", title=_say(opt, title), format=".2f")])
               .transform_filter(_only("curve")),
-              alt.Chart(df).mark_rule(strokeDash=[2, 2], tooltip=False).encode(x="x:Q")
+              alt.Chart(df).mark_rule(strokeDash=[2, 2], tooltip=False, color=mark("reference")[0],
+                                      opacity=mark("reference")[1]).encode(x="x:Q")
               .transform_filter(_only("start"))]
     if any(r["mark"] == "grey" for r in rows):
-        layers.insert(0, alt.Chart(df).mark_rect(opacity=_GREY, color="gray", tooltip=False)
-                      .encode(x="x:Q", x2="x2:Q").transform_filter(_only("grey")))
+        layers[:0] = _untested_layers(alt.Chart(df))
     return alt.layer(*layers).properties(height=200)
 
 
@@ -2400,9 +2457,15 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     df, cols, unit = mixture_frame(opt, mix, preds, values, outline)
     kinds = _mixture_kinds(opt)
     formulation = _say(opt, wording.FORMULATION_CAP)
+    # The Predicted score layer's colour is the model mean, not an interval
+    # (02 M8, 03 M5; review I13).
     predicted = _say(opt, {wording.LAYER_SD: wording.LAYER_SD_LEGEND,
                            wording.LAYER_GAIN: wording.LAYER_GAIN_LEGEND}.get(
-                               layer, wording.PREDICTED_SCORE_COLUMN))
+                               layer, wording.LAYER_SCORE_LEGEND))
+    # A tooltip under Predicted score reads "78 (70–85)", with its interval:
+    # it keeps the column's name; the legend names the colour alone.
+    tip_title = (predicted if layer in (wording.LAYER_SD, wording.LAYER_GAIN)
+                 else _say(opt, wording.PREDICTED_SCORE_COLUMN))
     allowed = df[df["state"] != kinds[2]]["score"]
     lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
     # Zoomed to the drawn region (0.8.0 review fixes §5.1): the domains are
@@ -2446,10 +2509,10 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     grid = (alt.Chart(df).mark_circle(opacity=1)
             .encode(x=x, y=y, size=size,
                     color=alt.Color("score:Q", title=predicted,
-                                    scale=alt.Scale(scheme=_BLUES,
+                                    scale=alt.Scale(scheme=blues(),
                                                     domain=[lo, hi]),
                                     legend=alt.Legend(titleLimit=0)),
-                    tooltip=amounts + [alt.Tooltip("pred:N", title=predicted)])
+                    tooltip=amounts + [alt.Tooltip("pred:N", title=tip_title)])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
     # An invisible layer, off the drawn area, whose only job is the legend:
     # sharing the "state" field with `size` above merges the two into one
@@ -2504,7 +2567,7 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
         "a0": round(s_amounts[0], 2), "a1": round(s_amounts[1], 2), "a2": round(s_amounts[2], 2),
         "sum": round(sum(s_amounts), 2),
         "pred": "" if start_pred is None else score_text(start_pred)}])
-    own = [] if start_pred is None else [alt.Tooltip("pred:N", title=predicted)]
+    own = [] if start_pred is None else [alt.Tooltip("pred:N", title=tip_title)]
     layers.append(alt.Chart(start).mark_point(filled=False, size=260, strokeWidth=2.5,
                                               color="gray")
                   .encode(x=x, y=y,
@@ -2645,10 +2708,13 @@ def layers_offered(opt, fitted):
 
 def _layer_pick(opt, fitted, key):
     """The one radio (review I6): Predicted score, Uncertainty, Expected
-    gain. Not drawn when only the first is offered."""
+    improvement. Not drawn when only the first is offered."""
     offered = layers_offered(opt, fitted)
     if len(offered) == 1:
         return wording.LAYER_SCORE
+    if st.session_state.get(key) == wording.LAYER_GAIN_FORMER:
+        # A session from before the rename (review I6): the same layer.
+        st.session_state[key] = wording.LAYER_GAIN
     _keep_if_offered(key, offered)
     return st.radio(_say(opt, wording.LAYER_PICK), offered, key=key, horizontal=True)
 

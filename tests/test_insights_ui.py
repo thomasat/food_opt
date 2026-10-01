@@ -95,10 +95,12 @@ def test_path_chart_marks_stay_in_their_own_panel():
     # Grey: exactly this chart's untested stretches, once in each panel.
     want = insights.untested_runs(p, insights.tested_near(opt, p))
     assert want                                   # this fixture has some
-    [(_, grey)] = layers["grey"]
-    assert sorted(grey) == sorted(labels)
-    for v in grey.values():
-        assert sorted((r["x"], r["x2"]) for r in v) == sorted(want)
+    # The band and its two edges (spec 2026-10-01 D1), each once per panel.
+    assert [m["type"] for m, _ in layers["grey"]] == ["rect", "rule", "rule"]
+    for _, grey in layers["grey"]:
+        assert sorted(grey) == sorted(labels)
+        for v in grey.values():
+            assert sorted((r["x"], r["x2"]) for r in v) == sorted(want)
     # The curve: one point per amount in each panel, for band and line alike.
     for _, by in layers["curve"]:
         assert sorted(by) == sorted(labels)

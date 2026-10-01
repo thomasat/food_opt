@@ -559,3 +559,187 @@ def test_the_indicator_shows_once_the_workers_are_stopped(burger, jobs, monkeypa
     monkeypatch.setattr(insights_jobs, "_STOPPED", False)
     at = _open(_app(burger.project_name))
     assert wording.INSIGHTS_IN_PROCESS not in [c.value for c in at.tabs[3].caption]
+
+
+# ------------------------------------------------------------------ #
+#  D1: dark mode (01 F1, O16; review M7): every mark that carries
+#  meaning has a colour and an opacity per theme, at 3:1 or more
+# ------------------------------------------------------------------ #
+
+PAGES = {"light": "#ffffff", "dark": "#0e1117"}
+
+
+def _rgb(hex_colour):
+    h = hex_colour.lstrip("#")
+    return [int(h[k:k + 2], 16) for k in (0, 2, 4)]
+
+
+def _luminance(rgb):
+    def lin(c):
+        c /= 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def _contrast_on(colour, opacity, page):
+    """The mark blended onto the page at its opacity, against the page."""
+    fg, bg = _rgb(colour), _rgb(page)
+    seen = [opacity * f + (1 - opacity) * b for f, b in zip(fg, bg)]
+    la, lb = sorted((_luminance(seen), _luminance(bg)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+# Vega's own "blues" scheme (vega-scale): eleven stops, linear between them.
+_VEGA_BLUES = ("cfe1f2bed8eca8cee58fc1de74b2d75ba3cf4592c63181bd206fb2125ca40a4a90")
+
+
+def _vega_blues(t):
+    stops = [_rgb(_VEGA_BLUES[i:i + 6]) for i in range(0, len(_VEGA_BLUES), 6)]
+    x = t * (len(stops) - 1)
+    k = min(int(x), len(stops) - 2)
+    f = x - k
+    return "#" + "".join(f"{round(a + f * (b - a)):02x}" for a, b in zip(stops[k], stops[k + 1]))
+
+
+def test_every_token_reaches_3_to_1_in_its_theme():
+    for theme, page in PAGES.items():
+        for name, (colour, opacity) in ui_insights._MARKS[theme].items():
+            assert _contrast_on(colour, opacity, page) >= 3.0, (theme, name)
+
+
+def test_the_colour_scales_highest_end_reaches_3_to_1_in_both_themes():
+    """O16: the Uncertainty scale's high end, rgb(10,74,144), was about
+    2:1 on the dark page."""
+    assert _vega_blues(1.0) == "#0a4a90"
+    for theme, page in PAGES.items():
+        top = ui_insights.blues(theme).extent[1]
+        assert _contrast_on(_vega_blues(top), 1.0, page) >= 3.0, theme
+
+
+@pytest.fixture(params=["light", "dark"])
+def theme(request, monkeypatch):
+    monkeypatch.setattr(ui_insights, "theme", lambda: request.param)
+    return request.param
+
+
+def _all_layers(spec):
+    out = []
+    for key in ("concat", "layer"):
+        for part in spec.get(key, []):
+            out += _all_layers(part)
+    if "spec" in spec:
+        out += _all_layers(spec["spec"])
+    if "mark" in spec:
+        out.append(spec)
+    return out
+
+
+def _mark(layer):
+    return layer["mark"] if isinstance(layer["mark"], dict) else {"type": layer["mark"]}
+
+
+@pytest.fixture
+def scored():
+    opt = _burger(rounds=4, noise=0.4)
+    return opt, insights.fit_all(opt), insights.check_rounds(opt)
+
+
+def test_the_interval_bars_take_the_themes_tokens(scored, theme):
+    opt, _, checks = scored
+    spec = ui_insights.measured_vs_predicted_chart(opt, checks).to_dict()
+    bars = [l for l in _all_layers(spec) if _mark(l)["type"] == "rule" and "y2" in l["encoding"]]
+    assert bars
+    latest, older = ui_insights._MARKS[theme]["bar_latest"], ui_insights._MARKS[theme]["bar"]
+    for bar in bars:
+        colour, opacity = bar["encoding"]["color"], bar["encoding"]["opacity"]
+        assert colour["condition"]["value"] == latest[0] and colour["value"] == older[0]
+        assert opacity["condition"]["value"] == latest[1] and opacity["value"] == older[1]
+
+
+def test_the_paths_reference_line_and_untested_edges_take_the_tokens(scored, theme):
+    opt, fitted, _ = scored
+    path = insights.build_path(opt, "Oil", insights.start_recipe(opt, opt.best_index()))
+    near = [False] * (len(path.amounts) // 2) + [True] * (len(path.amounts) - len(path.amounts) // 2)
+    for chart in (ui_insights.path_chart(opt, path, insights.path_predictions(opt, fitted, path),
+                                         near),
+                  ui_insights.path_layer_chart(opt, path, [0.5] * len(path.amounts), near,
+                                               wording.LAYER_SD)):
+        layers = _all_layers(chart.to_dict())
+        start = [l for l in layers if _mark(l).get("strokeDash") == [2, 2]]
+        assert start and all(_mark(l)["color"] == ui_insights._MARKS[theme]["reference"][0]
+                             and _mark(l)["opacity"] == ui_insights._MARKS[theme]["reference"][1]
+                             for l in start)
+        edges = [l for l in layers if _mark(l)["type"] == "rule"
+                 and _mark(l).get("color") == ui_insights._MARKS[theme]["untested_edge"][0]]
+        assert edges, "the grey band's edges carry its contrast"
+        assert not any(_mark(l).get("color") in (None, "black") and _mark(l)["type"] == "rule"
+                       and l["encoding"].get("x") and not l["encoding"].get("y")
+                       for l in layers)
+
+
+def _triangle(scored, **k):
+    opt, fitted, _ = scored
+    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"],
+                                 insights.start_recipe(opt, opt.best_index()))
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    return ui_insights.mixture_chart(opt, mix, preds, 3, **k).to_dict()
+
+
+def _colour_scale(spec):
+    [grid] = [l for l in _all_layers(spec)
+              if l.get("encoding", {}).get("color", {}).get("field") == "score"]
+    return grid["encoding"]["color"]
+
+
+def test_the_triangle_uses_the_themes_scale(scored, theme):
+    for layer in (None, wording.LAYER_SD, wording.LAYER_GAIN):
+        scale = _colour_scale(_triangle(scored, layer=layer))["scale"]
+        assert scale["scheme"]["extent"] == list(ui_insights.blues(theme).extent)
+
+
+# ------------------------------------------------------------------ #
+#  A5 / I13: the layer's new name and the triangle's legend
+# ------------------------------------------------------------------ #
+
+def test_the_triangles_score_legend_says_model_mean(scored):
+    """02 M8 / 03 M5: the colour is the model mean, not an interval."""
+    for layer in (None, wording.LAYER_SCORE):
+        title = _colour_scale(_triangle(scored, layer=layer))["title"]
+        assert title == wording.LAYER_SCORE_LEGEND == "Predicted Overall score (model mean)"
+    assert _colour_scale(_triangle(scored, layer=wording.LAYER_GAIN))["title"] == (
+        wording.LAYER_GAIN_LEGEND)
+
+
+def test_a_session_holding_the_former_layer_name_reads_as_the_new_one(burger, monkeypatch):
+    """Review I6: "Expected gain" is now "Expected improvement"; a session
+    from before the rename must not break the radio or fall back."""
+    from types import SimpleNamespace
+    state = {}
+    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(
+        session_state=state, radio=lambda label, options, key, horizontal: (
+            state[key] if state.get(key) in options else options[0])))
+    monkeypatch.setattr(ui_insights, "layers_offered", lambda o, f: ui_insights._LAYERS)
+    assert wording.LAYER_GAIN in ui_insights._LAYERS
+    assert wording.LAYER_GAIN_FORMER not in ui_insights._LAYERS
+    for key in (ui_insights.LAYER_KEY, ui_insights.PATH_LAYER_KEY):
+        state[key] = wording.LAYER_GAIN_FORMER
+        assert ui_insights._layer_pick(burger, {}, key) == wording.LAYER_GAIN
+        assert state[key] == wording.LAYER_GAIN
+
+
+def test_progress_says_calculating_only_while_the_search_is_to_run(burger, monkeypatch):
+    """C1: the expected-improvement line's place reads "calculating…" while
+    ask()'s search runs, and never when the figure is known."""
+    from types import SimpleNamespace
+    state = {}
+    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(session_state=state))
+    monkeypatch.setattr(ui_insights, "withheld", lambda *a: None)
+    computed = {"fitted": {}, "checks": ()}
+    assert ui_insights._gain_pending(burger, computed)
+    bo_views.next_gain_for(burger)                      # now known in this process
+    assert not ui_insights._gain_pending(burger, computed)
+    bo_views._CACHE.clear()
+    monkeypatch.setattr(ui_insights, "withheld", lambda *a: "guard")
+    assert not ui_insights._gain_pending(burger, computed)
+    assert wording.gain_pending() == "Expected improvement, next Round: calculating…"
