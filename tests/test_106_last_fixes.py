@@ -351,3 +351,39 @@ def test_change_without_a_correction_still_goes_to_set_up(scored):
     at.run()
     _submit_button(at, wording.CHANGE_SETUP_FROM_RESULTS_BUTTON).click().run()
     assert at.session_state["main_tab"] == wording.TAB_SETUP
+
+
+# ------------------------------------------------------------------ #
+#  02 M1: Generate opens on the count the project last used
+# ------------------------------------------------------------------ #
+
+def test_generate_opens_on_the_last_count_used(burger):
+    import ui_batch
+    assert ui_batch.last_generate_count(burger) == 3        # nothing generated yet
+    burger.record_generation(1, {"seed": 1, "rows": [], "n": 4, "regime": "cold", "key": ""})
+    burger.record_generation(2, {"seed": 5, "rows": [], "n": 5, "regime": "cold", "key": ""})
+    assert ui_batch.last_generate_count(burger) == 5
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert at.number_input(key="how_many").value == 5
+    # A count typed on this screen is the reader's until the next Round.
+    at.number_input(key="how_many").set_value(2).run()
+    at.run()
+    assert at.number_input(key="how_many").value == 2
+
+
+def test_generate_after_a_round_keeps_its_count(open_batch):
+    """The box is not drawn while a Round is open, so Streamlit forgot it
+    and it came back at 3 after every Round."""
+    open_batch.record_generation(1, {"seed": 1, "rows": [], "n": 4, "regime": "cold",
+                                     "key": ""})
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    for no in (1, 2):
+        at.number_input(key=f"f{no}_Firmness").set_value(6).run()
+        at.number_input(key=f"f{no}_Juiciness").set_value(7).run()
+    _submit_button(at, wording.SAVE_RESULTS).click().run()
+    assert FoodOptimizer("burger").pending_batch is None
+    assert at.number_input(key="how_many").value == 4

@@ -305,13 +305,40 @@ def _generate(opt, n, batch_no=None, discarded=None):
     st.rerun()   # a rerun, never a tab move: Generate keeps you here
 
 
+# What the Generate count opens on before anything has been generated.
+_FIRST_COUNT = 3
+_COUNT_SEED = "_how_many_seed"
+
+
+def last_generate_count(opt):
+    """How many formulations the project's latest Generate asked for (its
+    Round's generation record), 1–10; 3 before the first (02 M1)."""
+    records = opt.generation_records()
+    if not records:
+        return _FIRST_COUNT
+    try:
+        n = int(records[max(records)].get("n", _FIRST_COUNT))
+    except (TypeError, ValueError):
+        return _FIRST_COUNT
+    return min(10, max(1, n))
+
+
 def _no_batch(opt):
     # The opening value comes from session state (see app.py's _FORM_FRESH):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
     # "how_many", not "batch_size": Batch size is the weight of one
     # formulation, and this box asks how many of them to make.
-    st.session_state.setdefault("how_many", 3)
+    #
+    # 02 M1: it opens on the count the project last generated. The box is
+    # not drawn while a Round is open, so Streamlit forgets it, and it came
+    # back at 3 after every Round. Seeded once per project and latest
+    # Round; a count typed here is the reader's until then.
+    records = opt.generation_records()
+    seed = (opt.project_name, max(records) if records else None)
+    if st.session_state.get(_COUNT_SEED) != seed or "how_many" not in st.session_state:
+        st.session_state["how_many"] = last_generate_count(opt)
+        st.session_state[_COUNT_SEED] = seed
     how_many = st.number_input(wording.for_project(opt, wording.FORMULATIONS_TO_GENERATE), min_value=1,
                                max_value=10, step=1, key="how_many")
     n = int(how_many)
