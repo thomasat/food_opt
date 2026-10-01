@@ -68,8 +68,8 @@ def test_the_predicted_best_and_its_repeat_are_widened_by_the_record():
 
 def test_best_luck_wording():
     assert wording.best_luck(30, "84", "79", "89") == (
-        "A Repeat of Formulation 30 is predicted at 84 (95 % interval 79–89): regression to "
-        "the mean.")
+        "A Repeat of Formulation 30 is predicted at 84 (95 % interval 79–89). Best so far's "
+        "measured score is partly chance, so its Repeat is predicted lower.")
 
 
 def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch):
@@ -94,7 +94,7 @@ def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch
     assert luck in md
     monkeypatch.setattr(insights, "predicted_best", fake(measured - 0.5))
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not [m.value for m in at.tabs[3].markdown if "regression to the mean" in m.value]
+    assert not [m.value for m in at.tabs[3].markdown if "is partly chance" in m.value]
 
 
 # ------------------------------------------------------------------ #

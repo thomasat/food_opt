@@ -2577,7 +2577,7 @@ def _how(opt, computed):
                      wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
                      wording.how_checks(values=not opt.has_ingredients(),
                                         total=opt.has_formulation_total()),
-                     wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD,
+                     wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.HOW_REGRESSION,
                      wording.how_same_process(values=not opt.has_ingredients()),
                      wording.HOW_NO_P):
             st.markdown(_say(opt, text))

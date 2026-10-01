@@ -4005,6 +4005,13 @@ HOW_NOISE_THRESHOLD = ("Noise threshold: the Repeat SD of the Overall score, poo
                        "then, 1 point. Rises, "
                        "ties, local effects and predicted gains are compared with it. It is a "
                        "fixed rule, not a significance test.")
+# The statistics term behind Progress's Repeat line, said here only
+# (answer-key refresh item 7): the main screen says it in plain words.
+HOW_REGRESSION = ("Regression to the mean: Best so far is the highest of the measured Overall "
+                  "scores, so its own noise is more often above zero than below. A Repeat of it "
+                  "is predicted by the Overall-score model at its amounts. Progress gives that "
+                  "prediction when it is below the measured score by more than the noise "
+                  "threshold.")
 
 
 def how_checks(values=False, total=True):
@@ -4129,10 +4136,13 @@ def moved_together(first, second, r_text=None):
 
 def best_luck(n, mean_text, low_text, high_text, measured_text=None):
     """Under the predicted best when a Repeat of Best so far is predicted
-    below its measured score (0.8.0 review fixes §3.6; 03 §5.3)."""
+    below its measured score (0.8.0 review fixes §3.6; 03 §5.3). Plain
+    words on the main screen; the term is in Method and details
+    (HOW_REGRESSION; answer-key refresh item 7)."""
     below = f", below its measured {measured_text}" if measured_text is not None else ""
     return (f"A Repeat of {FORMULATION_CAP} {n} is predicted at {mean_text} (95 % interval "
-            f"{low_text}–{high_text}){below}: regression to the mean.")
+            f"{low_text}–{high_text}){below}. Best so far's measured score is partly chance, so "
+            "its Repeat is predicted lower.")
 
 
 BEST_ROW = "Predicted best"
