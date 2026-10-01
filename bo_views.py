@@ -469,9 +469,6 @@ class Why:
     pool_sd: object
     tested_mean: object
     tested_sd: object
-    reference: float | None   # what the acquisition measures from (T3 M-7): qLogNEI, the
-                              # highest predicted score among tested formulations; qLogEI,
-                              # the highest measured score; qUCB, None
 
 
 def _differences(opt, recipe, other, k=2):
@@ -532,10 +529,10 @@ def why(opt, fitted=None):
     gen = generation(opt, r)
     kind = acquisition(opt)
     if gen.regime != "warm":
-        return Why(kind, False, True, [], None, None, None, None, None)
+        return Why(kind, False, True, [], None, None, None, None)
     model = rebuild(opt, gen, fitted)
     if model is None:
-        return Why(kind, False, True, [], None, None, None, None, None)
+        return Why(kind, False, True, [], None, None, None, None)
     rows = list(opt.pending_batch)
     recipes = [insights.at_total(opt, row['recipe']) for row in rows]
     own, issued = _picks(opt, gen, rows)
@@ -570,12 +567,10 @@ def why(opt, fitted=None):
         out.append(WhyRow(no, own[k], bool(row.get('original_recipe')) and not own[k],
                           pick, float(alone.mean[k]), float(alone.sd[k]), value,
                           pending, near, diffs, who))
-    reference = (None if kind == "qucb" else float(model.Y.max()) if kind == "qlogei"
-                 else float(tested.mean.max()))
     return Why(kind, model.exact, False, out,
                None if pool_values is None else pool_values.mean,
                None if pool_values is None else pool_values.sd,
-               tested.mean, tested.sd, reference)
+               tested.mean, tested.sd)
 
 
 # ------------------------------------------------------------------ #

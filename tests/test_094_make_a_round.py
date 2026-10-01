@@ -133,7 +133,7 @@ def test_the_opened_fold_explains_each_row():
     captions = [c.value for c in fold.caption]
     assert wording.WHY_PENDING in captions
     assert wording.WHY_RECOMPUTED not in captions                        # exact
-    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}", "qlognei") in captions
+    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}") in captions
     [chart] = [c for c in fold.children.values() if getattr(c, "type", "") == "vega_lite_chart"]
     spec = json.loads(chart.proto.spec)
     assert spec["usermeta"] == {"embedOptions": {"actions": False}}      # private
@@ -390,16 +390,16 @@ def test_a_process_only_study_explains_its_trials():
     assert all(t.startswith("Trial ") for t in drawn[wording.NEAREST_TESTED] if t)
 
 
-@pytest.mark.parametrize("kind,tail", [
-    ("qlognei", "; dashed line, the highest predicted score among tested formulations."),
-    ("qlogei", "; dashed line, Best so far's measured score."),
-    ("qucb", "labelled, this Round's suggestions.")])
-def test_the_map_caption_is_one_line_naming_every_mark(kind, tail):
+@pytest.mark.parametrize("line,tail", [
+    (True, "; dashed line, Best so far (predicted Repeat)."),
+    (False, "labelled, this Round's suggestions.")])
+def test_the_map_caption_is_one_line_naming_every_mark(line, tail):
     """T47 review minor 4: one sentence; the grey rings named; the dashed
-    line is the acquisition's own reference (none for qUCB)."""
-    line = wording.why_chart_caption("3,000", kind)
-    assert line.endswith(tail) and line.count(". ") == 0
-    assert "grey rings, tested formulations" in line
+    line, when drawn, is Best so far's predicted Repeat (answer-key
+    refresh item 6)."""
+    text = wording.why_chart_caption("3,000", line=line)
+    assert text.endswith(tail) and text.count(". ") == 0
+    assert "grey rings, tested formulations" in text
 
 
 def test_the_cold_line_says_values_in_a_process_only_study():

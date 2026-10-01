@@ -1014,6 +1014,17 @@ def _why_models(opt):
     return models.get(insights.SCORE), ui_insights.checks_for(opt, "trust") or ()
 
 
+def _best_repeat(opt, score):
+    """Best so far's predicted Repeat from the current Overall-score model
+    (ui_insights.repeat_of_best, the outline's reference), or None."""
+    if score is None or getattr(score, "model", None) is None or opt.best_index() is None:
+        return None
+    try:
+        return ui_insights.repeat_of_best(opt, {insights.SCORE: score})
+    except Exception:
+        return None
+
+
 def _signed_amount(value, unit):
     return join_unit(wording.signed(value, 2), unit) if unit else wording.signed(value, 2)
 
@@ -1050,12 +1061,13 @@ def why_frame(opt, why, preds, hide=False):
     return pd.DataFrame(rows), value_col
 
 
-def why_chart(opt, why):
+def why_chart(opt, why, ref=None):
     """The explore-exploit map (01 #2, 02 §4.3): every sampled allowed
     formulation as a grey dot, predicted Overall score (the suggestion
     model's mean) across, its sd up; tested formulations as rings; this
-    Round's rows labelled; a dashed line at the highest predicted score
-    among tested formulations, what expected improvement is measured from.
+    Round's rows labelled; a dashed line, labelled, at `ref`: Best so far's
+    predicted Repeat, the reference the Insights outline uses, for every
+    acquisition (answer-key refresh item 6). No line when `ref` is None.
     None without a pool."""
     if why.pool_mean is None:
         return None
@@ -1066,9 +1078,13 @@ def why_chart(opt, why):
     x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
     y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
     formulation = wording.for_project(opt, wording.FORMULATION_CAP)
-    rule = ([] if why.reference is None else [
-        alt.Chart(pd.DataFrame({"ref": [why.reference]}))
-        .mark_rule(strokeDash=[4, 3], color="gray", tooltip=False).encode(x="ref:Q")])
+    line = pd.DataFrame({"ref": [ref], "label": [wording.WHY_REFERENCE]})
+    rule = [] if ref is None else [
+        alt.Chart(line).mark_rule(strokeDash=[4, 3], color="gray", tooltip=False)
+        .encode(x="ref:Q"),
+        alt.Chart(line).mark_text(align="left", baseline="top", dx=4, color=ui_insights.muted(),
+                                  tooltip=False)
+        .encode(x="ref:Q", y=alt.value(4), text="label:N")]
     layers = [
         alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
         .encode(x=x, y=y),
@@ -1094,6 +1110,7 @@ def _why_these(opt, preds):
         if not fold.open:
             return
         score, checks = _why_models(opt)
+        ref = _best_repeat(opt, score)
         with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
             try:
                 # The memo: a recomputed Round's display model is rebuilt
@@ -1134,13 +1151,13 @@ def _why_these(opt, preds):
             st.caption(wording.for_project(opt, wording.WHY_PENDING))
         if not why.exact:
             st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED))
-        chart = why_chart(opt, why)
+        chart = why_chart(opt, why, ref)
         if chart is None:
             st.caption(wording.for_project(opt, wording.why_no_roles(0)))
             return
         ui_insights.show_chart(chart)
         st.caption(wording.for_project(opt, wording.why_chart_caption(
-            f"{len(why.pool_mean):,}", why.kind)))
+            f"{len(why.pool_mean):,}", line=ref is not None)))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}

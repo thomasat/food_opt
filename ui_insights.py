@@ -2412,9 +2412,11 @@ def _mixture_cached(opt, fitted, names, number, start, layer=wording.LAYER_SCORE
     return value
 
 
-def _repeat_of_best(opt, fitted):
+def repeat_of_best(opt, fitted):
     """Best so far's predicted Repeat (binding speed-spec I7): the predicted
-    best's when it is worked out, else the display model's at its amounts."""
+    best's when it is worked out, else the display model's at its amounts.
+    The one reference for the Predicted above Best so far outline and the
+    Why map's dashed line (answer-key refresh item 6)."""
     hit = st.session_state.get(BEST_KEY)
     if hit and hit[0] == insights.setup_key(opt) and isinstance(hit[1], insights.PredictedBest) \
             and hit[1].repeat is not None:
@@ -2442,7 +2444,7 @@ def _mixture_extra(opt, fitted, mix, preds, layer):
     if layer != wording.LAYER_SCORE:
         it = spread((got.sd if layer == wording.LAYER_SD else got.value).tolist())
         return {"values": [next(it) if p.recipe is not None else None for p in mix.points]}
-    ref = _repeat_of_best(opt, fitted)
+    ref = repeat_of_best(opt, fitted)
     low = (got.mean - insights.Z95 * got.sd).tolist()
     it = spread(low)
     top = opt.best_index()

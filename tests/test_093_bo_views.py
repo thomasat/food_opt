@@ -252,7 +252,6 @@ def test_why_these_suggestions_on_line_a():
     assert got[22].nearest == 18
     name, diff, unit = got[22].differences[0]
     assert unit == "g" and name in {v["name"] for v in demo.load(demo.LINE_A).variables}
-    assert w.reference == pytest.approx(90.2, abs=0.1)     # the best tested mean (qLogNEI)
     assert w.pool_mean.shape == (bo_views.POOL_SIZE,)
 
 
@@ -335,12 +334,11 @@ def test_qlogei_picks_after_the_first_show_what_they_add():
         before = bo_views.joint_value(model, P[:k])
         assert w.rows[k].value == pytest.approx(max(0.0, joint - before), abs=1e-9)
         assert w.rows[k].value < joint - 1e-6      # never the set's own value
-    assert w.reference == pytest.approx(float(model.Y.max()))   # best_f, measured (M-7)
 
 
 def test_qucb_rows_show_their_own_optimistic_score():
     """T3 I-1: qUCB has no conditional form; every row its q = 1 value,
-    no "·", and no reference line (M-7)."""
+    no "·"."""
     opt = _project("qucb_picks", {"acquisition": "qucb"}, rows=9)
     _ask_and_capture(opt, 3, _grid(8))
     w = bo_views.why(opt)
@@ -351,7 +349,6 @@ def test_qucb_rows_show_their_own_optimistic_score():
     assert [r.value for r in w.rows] == pytest.approx(value.tolist(), abs=1e-12)
     assert [r.value for r in w.rows] == pytest.approx(
         (mean + 0.2 ** 0.5 * sd).tolist(), abs=0.05)
-    assert w.reference is None
 
 
 def test_generate_records_the_numbers_ask_issued():

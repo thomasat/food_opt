@@ -5153,18 +5153,19 @@ def why_difference(name, diff_text):
     return f"{name} {diff_text}"
 
 
-def why_chart_caption(n, kind="qlognei"):
+# The Why map's dashed line (answer-key refresh item 6): Best so far's
+# predicted Repeat, the Insights outline's reference (binding speed-spec I7).
+WHY_REFERENCE = "Best so far (predicted Repeat)"
+
+
+def why_chart_caption(n, line=True):
     """One line (review M9; T47 review minor 4): what each mark is, the
-    rings included, and the dashed line as the acquisition's own reference
-    — none for qUCB. The second fact is in the Model sd help."""
-    line = (f"Predicted Overall score (across) against model sd (up): grey dots, {n} allowed "
+    rings included, and the dashed line when it is drawn. The second fact
+    is in the Model sd help."""
+    text = (f"Predicted Overall score (across) against model sd (up): grey dots, {n} allowed "
             f"{FORMULATION}s sampled evenly; grey rings, tested {FORMULATION}s; labelled, this "
             f"{ROUND_CAP}'s suggestions")
-    if kind == "qlogei":
-        return f"{line}; dashed line, Best so far's measured score."
-    if kind == "qucb":
-        return f"{line}."
-    return f"{line}; dashed line, the highest predicted score among tested {FORMULATION}s."
+    return f"{text}; dashed line, {WHY_REFERENCE}." if line else f"{text}."
 
 
 def why_no_roles(n):

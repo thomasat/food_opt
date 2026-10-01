@@ -82,7 +82,7 @@ def _new_lines():
         W.why_guard_line(verdict=True), W.gain_line_tiny(12, W.beat_by()),
         W.gain_line_tiny(12, W.beat_by(), recomputed=True), W.start_suggested(23, edited=True),
         W.why_cold(), W.why_cold(True), W.gain_cold(3, values=True),
-        W.why_chart_caption("3,000", "qlogei"), W.why_chart_caption("3,000", "qucb"),
+        W.why_chart_caption("3,000", line=False), W.WHY_REFERENCE,
         W.mixture_within_noise("4.1", "5.0"), W.GUARD_FLOOR, W.GUARD_NOISE,
         W.guard_line([W.GUARD_FLOOR]), W.guard_line([W.GUARD_FLOOR, W.GUARD_NOISE], True),
         W.guard_skill_line(), W.guard_skill_line(True), W.PATH_GUARD, W.PATH_GUARD_SKILL,
