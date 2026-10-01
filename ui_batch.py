@@ -1096,7 +1096,10 @@ def _why_these(opt, preds):
         score, checks = _why_models(opt)
         with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
             try:
-                why = bo_views.why(opt, None)
+                # The memo: a recomputed Round's display model is rebuilt
+                # from it, never fitted again on each rerun (final review M-1).
+                with insights.memo_in_use(ui_insights.memo(opt)):
+                    why = bo_views.why(opt, None)
             except Exception:
                 why = None
         if why is None:

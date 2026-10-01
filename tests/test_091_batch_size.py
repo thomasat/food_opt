@@ -433,3 +433,15 @@ def test_a_regenerated_round_keeps_what_its_new_formulations_added_up_to():
     sums = opt.batch_generated_totals[no]
     assert set(again) <= set(sums)
     assert all(sums[n] == pytest.approx(100.0) for n in again)
+
+
+
+@pytest.mark.parametrize("bad", [{"rows": "123"}, {"picks": ["a"]}, {"picks": "12"},
+                                 {"rows": [1, "x"]}])
+def test_a_malformed_generation_record_is_dropped_whole(bad):
+    """Final review M-4: rows and picks are lists of numbers, or the record
+    goes (the Round then reads recomputed)."""
+    import food_bo
+    record = {"seed": 7, "rows": [1, 2], "n": 2, "regime": "warm", "key": "k", "picks": [8, 9]}
+    assert food_bo._generation_records_from({"3": record}) == {3: record}
+    assert food_bo._generation_records_from({"3": {**record, **bad}}) == {}

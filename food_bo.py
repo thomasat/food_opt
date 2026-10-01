@@ -1534,13 +1534,20 @@ def _generation_records_from(raw):
     out = {}
     for k, record in (raw or {}).items() if isinstance(raw, dict) else ():
         try:
-            out[int(k)] = {"seed": int(record["seed"]),
-                           "rows": [int(n) for n in record["rows"]],
-                           "n": int(record["n"]), "regime": str(record["regime"]),
-                           "key": str(record.get("key") or "")}
+            # Lists, not anything iterable: "123" is not rows 1, 2, 3; and a
+            # damaged picks drops the whole record (final review M-4).
+            picks = record.get("picks")
+            if not isinstance(record["rows"], list) or (
+                    picks is not None and not isinstance(picks, list)):
+                raise TypeError("rows and picks are lists")
+            rec = {"seed": int(record["seed"]),
+                   "rows": [int(n) for n in record["rows"]],
+                   "n": int(record["n"]), "regime": str(record["regime"]),
+                   "key": str(record.get("key") or "")}
             # The numbers ask() issued (T3 I-2), kept when there are any.
-            if record.get("picks"):
-                out[int(k)]["picks"] = [int(n) for n in record["picks"]]
+            if picks:
+                rec["picks"] = [int(n) for n in picks]
+            out[int(k)] = rec
         # int(float('inf')) raises OverflowError: a damaged entry, dropped,
         # never a reason to refuse the copy (T1 review M1).
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):

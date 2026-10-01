@@ -424,3 +424,23 @@ def test_e3_sits_under_generate(monkeypatch):
             walk(child)
     walk(at.tabs[1])
     assert order == ["generate", "link_next"]
+
+
+def test_the_why_fold_does_not_refit_on_a_rerun(monkeypatch):
+    """Final review M-1: a recomputed Round's display model comes from the
+    memo; reruns with the fold open fit nothing again."""
+    opt = _open_round()
+    opt.round_generation = {}                 # no record: the Round is recomputed
+    opt.save()
+    at = _app(opt)
+    at.session_state[ui_batch.WHY_KEY] = True
+    _rerun(at)
+    assert not bo_views.why(opt).exact
+    fits = []
+    real = insights._fit_gp
+    monkeypatch.setattr(insights, "_fit_gp", lambda *a: fits.append(1) or real(*a))
+    for _ in range(2):
+        at.session_state[ui_batch.WHY_KEY] = True      # AppTest does not keep it open
+        _rerun(at)
+        assert wording.WHY_RECOMPUTED in [c.value for c in _fold(at).caption]
+    assert fits == []

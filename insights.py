@@ -2135,7 +2135,10 @@ SKILL_SMALL = 0.2
 def skill_cut(n):
     """c_n for a skill over `n` checks: the gate's 10th percentile at the
     largest tabulated n at or below it (the percentile rises with n, so
-    this errs towards fewer no-skill warnings), capped at SKILL_CUT_MAX."""
+    this errs towards fewer no-skill warnings), capped at SKILL_CUT_MAX.
+    As measured, every tabulated percentile is above −0.2, so the cut is
+    −0.2 at every n (final review M-5): the table moves it only if a later
+    gate measures a percentile below −0.2."""
     at = max((k for k in SKILL_GATE_Q10 if k <= n), default=min(SKILL_GATE_Q10))
     return min(SKILL_GATE_Q10[at], SKILL_CUT_MAX)
 
