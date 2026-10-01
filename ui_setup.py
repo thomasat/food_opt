@@ -446,7 +446,8 @@ def _measurement_columns():
         wording.UNIT_LABEL: st.column_config.TextColumn(wording.UNIT_LABEL, width=55),
         wording.SHARE_COLUMN: st.column_config.NumberColumn(
             wording.SHARE_COLUMN, min_value=0.0, max_value=100.0,
-            format="%.2f", help=wording.SHARE_HELP, width=145),
+            # As stored, to one decimal (D5, review M11).
+            format="%.1f", help=wording.SHARE_HELP, width=145),
     }
 
 

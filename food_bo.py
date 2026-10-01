@@ -3050,35 +3050,43 @@ class FoodOptimizer:
         return float(obj['weight']) / total if total else 0.0
 
     def share_percents(self):
-        """Every measurement's share of the score as whole percents that add
-        up to 100, keyed by name.
+        """Every measurement's share of the score in percent, to one
+        decimal, adding up to 100, keyed by name.
+
+        One decimal, as stored (0.8.0 e2e fixes D5, review M11; 03 M1):
+        whole percents showed 50 / 30 / 20 while 50.4 / 29.6 / 20 was
+        stored, and typing 50 over the 50 shown was not seen as a change.
 
         Largest remainder, not one round() each: three equally important
-        measurements are 33.33 % apiece, and rounding them one at a time put
-        "33 %" three times in a column headed Share of score — a column the
-        reader adds up. The odd point goes to the measurement the screens
-        list first, so the table reads top-heavy rather than arbitrarily."""
+        measurements are 33.333 % apiece, and rounding them one at a time
+        put "33.3 %" three times in a column headed Share of score — a
+        column the reader adds up. The odd tenth goes to the measurement
+        the screens list first, so the table reads top-heavy rather than
+        arbitrarily."""
         ordered = self.measurements_by_importance()
         if not ordered:
             return {}
-        exact = [100 * self.share_of_score(o['name']) for o in ordered]
-        whole = [int(v) for v in exact]          # floor: every share is >= 0
-        left = 100 - sum(whole)
+        exact = [1000 * self.share_of_score(o['name']) for o in ordered]
+        # Floor in tenths (every share is >= 0); the 1e-6 keeps 50.4 stored
+        # from reading as 503.999… tenths.
+        tenths = [int(math.floor(v + 1e-6)) for v in exact]
+        left = 1000 - sum(tenths)
         # Biggest fraction first; a tie goes to the one listed first.
         order = sorted(range(len(ordered)),
-                       key=lambda i: (-(exact[i] - whole[i]), i))
+                       key=lambda i: (-(exact[i] - tenths[i]), i))
         for i in order[:max(0, left)]:
-            whole[i] += 1
-        return {o['name']: whole[i] for i, o in enumerate(ordered)}
+            tenths[i] += 1
+        return {o['name']: tenths[i] / 10 for i, o in enumerate(ordered)}
 
     def share_text(self, name):
-        """'60 %' — this measurement's share of the score, as a whole
-        percent."""
+        """'60 %', '50.4 %' — this measurement's share of the score as
+        stored, to one decimal, a whole share without its '.0'."""
         shares = self.share_percents()
         if name not in shares:
             # Keeps share_of_score's own refusal for an unknown name.
             self.share_of_score(name)
-        return join_unit(f"{shares[name]:d}", "%")
+        text = f"{shares[name]:.1f}"
+        return join_unit(text[:-2] if text.endswith(".0") else text, "%")
 
     def score_function_line(self):
         """The one line under the measurements grid that writes the score

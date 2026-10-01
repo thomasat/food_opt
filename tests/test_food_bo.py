@@ -2358,14 +2358,16 @@ class TestUnitsAndImportance:
             opt.add_objective(name, 1.0, goal="max", min_val=0, max_val=10)
         shares = [opt.share_text(o['name'])
                   for o in opt.measurements_by_importance()]
-        assert shares == ["34 %", "33 %", "33 %"], shares
-        assert sum(opt.share_percents().values()) == 100
-        # Seven equal measurements: 14.28 % apiece, so six get the point.
+        # One decimal, as stored (0.8.0 e2e fixes D5, review M11).
+        assert shares == ["33.4 %", "33.3 %", "33.3 %"], shares
+        assert round(sum(opt.share_percents().values()), 6) == 100
+        # Seven equal measurements: 14.285 % apiece, so six get the tenth.
         opt2 = FoodOptimizer("sevenths")
         opt2.add_ingredient("Water", 0, 100)
         for i in range(7):
             opt2.add_objective(f"M{i}", 1.0, goal="max", min_val=0, max_val=10)
-        assert sum(opt2.share_percents().values()) == 100
+        assert round(sum(opt2.share_percents().values()), 6) == 100
+        assert sorted(opt2.share_percents().values()) == [14.2] + [14.3] * 6
 
     def test_share_of_score_names_the_missing_measurement(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
