@@ -389,8 +389,12 @@ def _next_step_line(opt):
     if step is None or step.kind not in _E3_KINDS:
         return
     # The same sentence Insights says (its builder is Insights' own), the
-    # skill with its own Rounds (T47 review I-3).
-    text, _ = ui_insights.next_step_text(opt, step)
+    # skill with its own Rounds (T47 review I-3), and the verdict's Rounds
+    # named as Insights names them ("Rounds 6–8", not "the verdict's
+    # Rounds": integration consistency printout, 02 final).
+    checks = ui_insights.checks_for(opt, "trust")
+    rounds = insights.headline(opt, checks).rounds if checks else None
+    text, _ = ui_insights.next_step_text(opt, step, rounds)
     st.caption(wording.for_project(opt, wording.first_sentence(text)))
     if st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
         return

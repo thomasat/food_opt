@@ -273,7 +273,10 @@ def test_e3_says_next_step_above_generate(monkeypatch, kind, label):
     [e3] = _links(at)
     assert (e3.key, e3.label, e3.proto.type) == ("link_next", label, "tertiary")
     caps = [c.value for c in at.tabs[1].caption]
-    text, _ = ui_insights.next_step_text(opt, insights.NextStep(kind))
+    # Integration: the verdict's Rounds named as Insights names them.
+    checks = ui_insights.checks_for(opt, "trust") or insights.check_rounds(opt)
+    text, _ = ui_insights.next_step_text(opt, insights.NextStep(kind),
+                                         insights.headline(opt, checks).rounds)
     assert wording.first_sentence(text) in caps
     [generate] = [b for b in at.tabs[1].button if b.key == "generate"]
     assert generate.proto.type == "primary"

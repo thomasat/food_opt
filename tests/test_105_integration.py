@@ -337,3 +337,37 @@ def test_pair_charts_grey_marks_reach_3_to_1(theme):
     for colour, opacity in colours:
         assert colour.startswith("#"), colour
         assert _contrast_on(colour, opacity, PAGES[theme]) >= 3.0, (colour, theme)
+
+
+# ------------------------------------------------------------------ #
+#  One message: Make a round's E3 line names the Rounds as Insights does
+#  (consistency printout, 02 final)
+# ------------------------------------------------------------------ #
+
+def test_make_a_rounds_next_step_line_names_insights_rounds(tmp_path, monkeypatch):
+    import bo_views
+    from food_bo import FoodOptimizer
+    from tests.test_app_ui import APP_PATH
+    monkeypatch.chdir(tmp_path)
+    state = E.state(E.PATTY)
+    opt = FoodOptimizer(state["project_name"])
+    opt.import_json(state)
+    opt.save()
+    with bo_views.fresh():
+        checks = insights.check_rounds(opt)
+        step = insights.next_step(opt, checks, None)
+        assert step.kind == "misses"
+        rounds = insights.headline(opt, checks).rounds
+        said = wording.first_sentence(ui_insights.next_step_text(opt, step, rounds)[0])
+        assert "Rounds 6–8" in said
+        at = AppTest.from_file(APP_PATH, default_timeout=600)
+        at.session_state["_loaded_project"] = opt.project_name
+        at.run()
+        at.session_state["main_tab"] = wording.TAB_INSIGHTS     # Insights works it out
+        at.run()
+        at.session_state["main_tab"] = wording.TAB_BATCH
+        at.run()
+        assert not at.exception
+        captions = [c.value for c in at.tabs[1].caption]
+        assert said in captions
+        assert not any("the verdict's Rounds" in c for c in captions)
