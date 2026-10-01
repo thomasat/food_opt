@@ -331,17 +331,16 @@ def test_qucb_offers_no_expected_gain_layer():
         wording.LAYER_SCORE, wording.LAYER_SD)
 
 
-def test_try_one_stays_on_best_so_far_under_a_layer():
-    """T56 I3: the path follows the layers' anchor; the answer line and
-    Compare all stay on Best so far."""
+def test_try_one_has_one_anchor_under_a_layer():
+    """01 O10 (over T56 I3): the path follows the layers' anchor, and so do
+    the answer line and Compare all: one anchor per headline."""
     opt = _open_round()
     first = ui_insights.suggested_numbers(opt)[0]
-    best_no = int(opt.formulation_ids[opt.best_index()])
     at = _insights(opt, insights_try_one=True, **{ui_insights.PATH_LAYER_KEY: wording.LAYER_SD})
     fold = _try_one(at)
     said = [m.value for m in fold.markdown]
-    assert any(wording.start_best(best_no) in m or "Best so far" in m for m in said), said
-    assert not any(wording.start_suggested(first) in m for m in said)
+    assert any(wording.start_suggested(first) in m for m in said), said
+    assert not any("Best so far" in m for m in said), said
     assert wording.path_layer_caption(wording.LAYER_SD, wording.start_suggested(first)) in [
         c.value for c in fold.caption]
 

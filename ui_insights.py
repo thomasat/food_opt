@@ -1265,16 +1265,14 @@ def _change(opt, computed, yard):
         recipe = anchor_recipe(opt, number)
     except Exception:   # no start: the path says it could not be drawn, below
         recipe = None
-    # The answer line, Compare all and the choice's default stay on Best so
-    # far (or Section 2's own Start from) whatever the layer: only the path
-    # and its caption follow the layers' anchor (T56 I3).
-    ranked_no = _start_number(opt) if layered else number
+    # One anchor per headline (01 O10, over T56 I3): the answer line,
+    # Compare all and the choice's default rank from the start the chart
+    # draws from, under every layer. Under Uncertainty or Expected
+    # improvement that may be a suggestion still to make, named as the
+    # chart's caption names it.
+    ranked_no = number
     try:
-        ranked_recipe = recipe if ranked_no == number else anchor_recipe(opt, ranked_no)
-    except Exception:
-        ranked_recipe = None
-    try:
-        found = insights.tested_near_changes(opt, fitted, ranked_recipe)
+        found = insights.tested_near_changes(opt, fitted, recipe)
     except Exception:   # the answer line is left out; the path still draws
         found = insights.NearChanges([], [], False)
     # The box opens on the largest change near what has been tested; after
@@ -1283,7 +1281,8 @@ def _change(opt, computed, yard):
     if found.moved and CHOICE_KEY not in st.session_state:
         st.session_state[CHOICE_KEY] = found.moved[0].name
     with answer:
-        _near_answer(opt, found, ranked_no == best_no, ranked_no, fitted, ranked_recipe, yard)
+        _near_answer(opt, found, ranked_no == best_no, ranked_no, fitted, recipe, yard,
+                     start_text=None if ranked_no in ids else anchor_text(opt, ranked_no))
     name = left.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOICE_KEY)
     try:
         if recipe is None:
@@ -1381,13 +1380,13 @@ def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
 _FLAT = 0.1
 
 
-def _near_answer(opt, found, from_best, number, fitted, recipe, yard):
+def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text=None):
     """The fold's first line (§2.5, review I8): the choice that changes the
     predicted Overall score most near what has been tested — two when they
     are nearly tied — only when that change is more than Repeats differ
     (the yardstick); a line naming any choice the limits hold in place, one
     naming two ingredients moved together, and the Compare all fold."""
-    start = wording.spread_from(from_best, number)
+    start = start_text or wording.spread_from(from_best, number)
     # With no ingredient to change, every choice is a process setting: it
     # has values, not amounts, and the lines name process settings alone.
     settings_only = not insights.has_ingredient_choice(opt)
