@@ -12,6 +12,7 @@ reads as empty. Nothing here leaves the machine or touches the suggestions.
 """
 import dataclasses
 import json
+import math
 import os
 import tempfile
 
@@ -42,6 +43,97 @@ def enabled():
 
 def path(project, folder="."):
     return os.path.join(folder, FOLDER, f"{project}{SUFFIX}")
+
+
+# ------------------------------------------------------------------ #
+#  C3 (spec 2026-10-01; 04 M-2, review M6): a number that is not finite
+#  never comes back as a model, a check or a figure. JSON reads NaN and
+#  Infinity bare, so a damaged but well-formed file would otherwise load;
+#  the entry holding one is dropped (and so fitted again), the rest of the
+#  file still loads, and nothing dropped is written back.
+# ------------------------------------------------------------------ #
+
+def _finite(value):
+    """Every number in `value` (nested dicts and lists) is finite."""
+    if value is None or isinstance(value, (bool, str)):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_finite(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite(v) for v in value)
+    return False
+
+
+def _number(value, optional=False):
+    """A finite number; None only where the dataclass allows it."""
+    if value is None:
+        return optional
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _no_nan(value):
+    """No NaN anywhere in `value` (nested lists); infinities allowed."""
+    if isinstance(value, float):
+        return not math.isnan(value)
+    if isinstance(value, (list, tuple)):
+        return all(_no_nan(v) for v in value)
+    return True
+
+
+# A GP's state holds infinite numbers of its own: a constraint with no
+# upper (or lower) bound stores it as a buffer of inf.
+_BOUNDS = ("_constraint.lower_bound", "_constraint.upper_bound")
+
+
+def _good_state(state):
+    """hyper_state's {name: [dtype, values]}: finite values, but for a
+    constraint's open bound, which only may be infinite (never NaN)."""
+    for name, item in state.items():
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            return False
+        values = item[1]
+        if not (_no_nan(values) if name.endswith(_BOUNDS) else _finite(values)):
+            return False
+    return True
+
+
+def _good_model(entry):
+    return (isinstance(entry, dict) and isinstance(entry.get("state"), dict)
+            and _number(entry.get("widen")) and _good_state(entry["state"]))
+
+
+def _good_check(c):
+    return (isinstance(c, dict)
+            and all(_number(c.get(k)) for k in ("predicted", "low", "high", "measured"))
+            and all(_number(c.get(k), optional=True) for k in ("raw_mean", "sd"))
+            and _number(c.get("widen", 1.0)) and _finite(c))
+
+
+def _good_prediction(d, optional=False):
+    if d is None:
+        return optional
+    return (isinstance(d, dict) and all(_number(d.get(k)) for k in ("mean", "low", "high"))
+            and all(_number(d.get(k), optional=True) for k in ("raw_mean", "sd")))
+
+
+def _good_best(d):
+    if not isinstance(d, dict):
+        return False
+    if "refusal" in d:
+        return isinstance(d["refusal"], str)
+    return (_good_prediction(d.get("score")) and _good_prediction(d.get("repeat"), optional=True)
+            and _number(d.get("factor", 1.0)) and isinstance(d.get("recipe"), dict)
+            and _finite(d) and isinstance(d.get("compare"), int)
+            and (d.get("close") is None or isinstance(d["close"], int)))
+
+
+def _good_rounds(rounds):
+    """{key: [check dicts]} with every Round holding a bad check left out."""
+    return {k: v for k, v in rounds.items()
+            if isinstance(v, list) and all(_good_check(c) for c in v)}
 
 
 def _best_to_json(best):
@@ -78,10 +170,12 @@ def load(project, folder="."):
             payload = json.load(fh)
         if payload.get("version") != VERSION or payload.get("salt") != insights.MODEL_SALT:
             return empty()
-        memo = {k: v for k, v in payload["memo"].items()
-                if isinstance(v, dict) and "state" in v and "widen" in v}
-        rounds = {k: [insights.Check(**c) for c in v] for k, v in payload["rounds"].items()}
-        return Saved(memo, rounds, _best_from_json(payload.get("best")))
+        memo = {k: v for k, v in payload["memo"].items() if _good_model(v)}
+        rounds = {k: [insights.Check(**c) for c in v]
+                  for k, v in _good_rounds(payload["rounds"]).items()}
+        best = payload.get("best")
+        best = _best_from_json(best) if best and _good_best(best[1]) else None
+        return Saved(memo, rounds, best)
     except Exception:
         return empty()
 
@@ -94,10 +188,12 @@ def save(project, saved, folder="."):
         return None
     target = path(project, folder)
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    best = _best_to_json(saved.best)
     payload = {"version": VERSION, "salt": insights.MODEL_SALT,
-               "memo": {k: v for k, v in saved.memo.items() if "state" in v},
-               "rounds": {k: [dataclasses.asdict(c) for c in v] for k, v in saved.rounds.items()},
-               "best": _best_to_json(saved.best)}
+               "memo": {k: v for k, v in saved.memo.items() if _good_model(v)},
+               "rounds": _good_rounds({k: [dataclasses.asdict(c) for c in v]
+                                       for k, v in saved.rounds.items()}),
+               "best": best if best and _good_best(best[1]) else None}
     # A temp file of its own: two tabs of one project may save at once
     # (review B M-2).
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target),
