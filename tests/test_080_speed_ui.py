@@ -236,6 +236,9 @@ def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatc
     at.run()
     _seed(at, five_rounds, "stand")
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    # Method and details open, so its first line marks where the folds
+    # start (it is drawn only while open, T56 I5).
+    at.session_state[ui_insights.HOW_KEY] = True
     at.run()
     part = [m.value for m in at.tabs[3].markdown]
     answers = part[:part.index(wording.HOW_MODELS)]        # up to the folds, which wait

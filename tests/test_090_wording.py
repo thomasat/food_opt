@@ -302,3 +302,17 @@ def test_dead_lines_are_gone():
     """03 §5.7: unused lines that still carried the old words."""
     for name in ("score_record_line", "CHECKING", "TRACK_INSIDE"):
         assert not hasattr(W, name), name
+
+
+def test_the_t0_review_minors():
+    """Fix round 1 (T0 review M-1, M-6, M-8)."""
+    assert "median absolute standardised error of 0.31 (0.67 expected)" in W.trust_over_wide(
+        36, [3, 4, 5], 0.31)
+    many = W.trust_misses(3, [3, 4, 5], 26, 36, many=True, allowed=4)
+    assert many.endswith("the intervals are too narrow for these results.")
+    assert "recent" not in many
+    assert "more often than 95 % intervals allow." in W.next_misses([3, 4, 5])
+    assert W.details_window([2, 3, 4, 5], 1, [5]).endswith("Verdict: the last Round (Round 5).")
+    assert "±7.4 points." in W.repeat_disagrees(21, 11, "10.5", half_text="7.4")
+    assert "3 Repeat pairs and it is at least 0.05" in W.HOW_NOISE_THRESHOLD
+    assert "average Overall score of the formulations" in W.how_skill()

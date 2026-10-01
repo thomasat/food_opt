@@ -49,6 +49,7 @@ def test_the_how_table_carries_the_factor_the_screens_use():
     at.session_state["_loaded_project"] = opt.project_name
     at.run()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.session_state[ui_insights.HOW_KEY] = True       # drawn only while open (T56 I5)
     at.run()
     assert not at.exception
     [table] = [d for d in at.tabs[3].dataframe
