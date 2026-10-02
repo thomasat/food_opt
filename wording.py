@@ -7012,3 +7012,93 @@ def repeat_link(no):
     """R-I3: an owner item. Not drawn unless the owner accepts the link;
     spelled here so accepting it needs no T0′."""
     return f"Make a Repeat of {FORMULATION_CAP} {no}"
+
+
+# --- ftue fix C ---
+# The Why fold in plain words, the BO term in each tooltip (early
+# walkthrough rulings; 05-walkthrough-retest-early §5 items 2-3;
+# statistician cold read I1), and the Repeat link's landing (§5 item 5).
+# Every string here is new; the ones it stands in for on screen are named
+# beside it and are left as they were for the wording round to retire.
+
+# The Why fold's first line: the three role words, each read once.
+WHY_ROLE_KEY = (f"{SUGGESTION_CLOSE.capitalize()} = a small change to your best. "
+                f"{SUGGESTION_DIFFERENT.capitalize()} = far from anything made so far. "
+                f"{SUGGESTION_BALANCED.capitalize()} = in between.")
+
+# Stands in for EXPECTED_IMPROVEMENT as the Why fold's column header.
+EXPECTED_GAIN = "Expected gain over your best (points)"
+
+
+def tip_expected_gain(kind="qlognei"):
+    """The gain column's "?" (stands in for EXPECTED_IMPROVEMENT_HELP and
+    EXPECTED_IMPROVEMENT_EI_HELP there): the plain reading, then the BO
+    term. qLogNEI has no single incumbent (statistician I1): in each
+    posterior draw the gain is over the highest latent value among the
+    tested formulations. Both are shown as exp of the log value."""
+    plain = (f"Expected gain over your best: what one new {FORMULATION} is expected to add to "
+             "your best score, in points. It is an average that counts no gain as zero: an "
+             "estimate, not a promise.")
+    if kind == "qlogei":
+        term = ("BO term: expected improvement (the acquisition value, qLogEI) over Best so "
+                "far's measured score, averaged over 512 quasi-Monte Carlo draws; from the "
+                "second pick on, valued together with the earlier picks. Shown as the "
+                "exponential of the log value, so approximate.")
+    else:
+        term = ("BO term: expected improvement (the acquisition value, qLogNEI). In each "
+                "posterior draw it is measured against the noisy incumbent, the highest latent "
+                f"value among the tested {FORMULATION}s, then averaged over 512 quasi-Monte "
+                "Carlo draws; there is no single incumbent, and from the second pick on the "
+                "earlier picks count as tested. Shown as the exponential of the log value, so "
+                "approximate.")
+    return f"{plain} {term}"
+
+
+def why_picked_after(numbers):
+    """Stands in for WHY_PENDING: the picks marked · named by number."""
+    each = "each adds" if len(numbers) > 1 else "it adds"
+    return (f"{formulations_span(numbers)} (marked {PENDING_MARK}): what {each} on top of the "
+            "ones picked before it.")
+
+
+TIP_PICKED_AFTER = (
+    "BO term: sequential greedy selection. Each later pick's value is computed with the earlier "
+    "picks as pending points, so it is what that pick adds to them.")
+
+# Stands in for WHY_RECOMPUTED and WHY_RECOMPUTED_WITHHELD; the reason
+# moves to the tooltip.
+WHY_RECALCULATED = "Figures recalculated from today's results."
+TIP_RECALCULATED = (
+    f"This {ROUND_CAP}'s generation record is missing or no longer matches its rows, so these "
+    f"figures come from a model refitted to today's results, not from the model that chose the "
+    f"{ROUND_CAP}.")
+
+# Stands in for NEAREST_TESTED, TIP_NEAREST_TESTED and LARGEST_DIFFERENCES_HELP.
+CLOSEST_MADE = f"Closest {FORMULATION} already made"
+TIP_CLOSEST_MADE = (
+    f"Closest {FORMULATION} already made: the scored {FORMULATION} nearest this suggestion, by "
+    "its largest difference as a share of each span. It can differ from Best so far, which "
+    "Compared with uses. BO term: nearest design point in the L∞ distance.")
+LARGEST_DIFFERENCES_FROM_CLOSEST = (
+    f"The two largest differences from the closest {FORMULATION} already made, largest share of "
+    "its span first, in each row's own unit.")
+
+
+def why_compared_with(best_no):
+    """Under the Why table: the Round table's Compared with names Best so
+    far, while the closest formulation can be another (walkthrough Line A:
+    15 against 18)."""
+    return f"The Compared with column above is always Best so far ({FORMULATION_CAP} {best_no})."
+
+
+def why_gain_said(line):
+    """A withheld line (WHY_CHECKING, why_guard_line) in the fold's own
+    column name: the gain, not the BO term."""
+    return line.replace("Expected improvement is not shown", "Expected gain is not shown", 1)
+
+
+def repeat_after_generate(no):
+    """Make a round with no Round open, reached by the Repeat link: the
+    Repeat waits for Generate, so the app's suggestions still come first."""
+    return (f"Click Generate first: the Repeat of {FORMULATION_CAP} {no} then opens, filled in, "
+            f"under {ADD_OWN_EXPANDER}.")
