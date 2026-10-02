@@ -235,6 +235,7 @@ def test_insights_is_the_last_tab(insights_scored):
     assert [t.label for t in at.tabs][-1] == wording.TAB_INSIGHTS
 
 
+@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
 def test_insights_sections_and_expanders(insights_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -473,6 +474,7 @@ def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, mon
     assert not at.exception and calls == [1]
 
 
+@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
 @pytest.mark.parametrize("where", ["build_path", "path_predictions", "start_recipe"])
 def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, where):
     real = getattr(insights, where)
@@ -492,6 +494,7 @@ def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, 
     assert any("Best so far:" in m for m in md)
 
 
+@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
 def test_section_2_says_when_there_is_nothing_to_change(insights_scored, monkeypatch):
     monkeypatch.setattr(insights, "path_choices", lambda opt: [])
     at = _open_insights(_app())

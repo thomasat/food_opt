@@ -1062,8 +1062,11 @@ def render(opt):
     with places.more:
         explored_fold(opt, computed)
         with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one",
-                         on_change="rerun"):        # W3: the §8.3 pointer opens it
-            _change(opt, computed, yard)
+                         on_change="rerun") as fold:   # W3: the §8.3 pointer opens it
+            # Review profiler: one profiler in place of Try one's path and
+            # Compare all, worked out only while the fold is open.
+            if fold.open:
+                _profiler(opt, computed)
         _more_charts(opt, computed)
         _how(opt, computed)
     save(opt)
@@ -2092,6 +2095,11 @@ def _keep_if_offered(key, options):
         del st.session_state[key]
 
 
+# Review profiler (prototype): Try one's body below (_change, its answer
+# line, Compare all, the path layer) is no longer drawn; the profiler at the
+# end of this file replaces it. Kept for the pins that still call it
+# (test_104_speed_robust_charts and the skip-marked ones) and for path_chart,
+# which test_review_plots pins; remove at the final merge.
 def _change(opt, computed, yard):
     """"Try one ingredient or process setting" (§2.5): its first line ranks
     the choices near what has been tested (review I8), then the two boxes,
@@ -6055,3 +6063,504 @@ def tried_fold(opt):
             _tried(opt, title=False)
         except Exception:   # one fold failing must not take the tab down
             st.caption(_say(opt, wording.CHART_FAILED))
+
+
+# ------------------------------------------------------------------ #
+#  Review profiler (prototype, 2026-10-02): a JMP-style prediction
+#  profiler, adapted for BO. It replaces Try one's path and Compare all in
+#  the same fold. Columns: each ingredient or process setting the path
+#  choices offer (fixed rows, choices and the Fill to total row have none),
+#  each moved alone from its Lowest to its Highest through the reference
+#  formulation along Try one's own path (insights.build_path: the Fill to
+#  total row follows, as it does there). Rows: the Overall score, each
+#  measurement (largest Share of score first) and, when the hero draws it,
+#  the expected gain. All points of all columns go through each display
+#  model in one posterior call, and through the suggestion model once.
+# ------------------------------------------------------------------ #
+
+PROFILE_POINTS = 25         # per column, plus the reference's own amount and the path's ends
+PROFILE_COLUMNS = 6         # shown at once at 1280 x 800; the rest under "+N more"
+PROFILE_ROWS = 4            # measurement rows shown at once
+PROFILE_CACHE = "_insights_profile"
+PROFILE_CHART_CACHE = "_insights_profile_chart"
+PROFILE_REF_KEY = "insights_profile_ref"
+PROFILE_MORE_KEY = "insights_profile_more"
+PROFILE_MORE_ROWS_KEY = "insights_profile_more_rows"
+_PANEL_W = 104
+_PANEL_H = {"score": 100, "measure": 80, "gain": 72}
+
+
+class ProfileColumn:
+    """One ingredient or process setting: its path through the reference,
+    the display models' predictions along it, the expected gain (None when
+    withheld), which points are tested near, the tested formulations near
+    it, and its effect (the Overall score's predicted rise and fall)."""
+
+    def __init__(self, path, preds, gain, near, rings, lo, hi, end):
+        self.path, self.preds, self.gain, self.near = path, preds, gain, near
+        self.rings, self.lo, self.hi, self.end = rings, lo, hi, end
+        score = [p.mean for p in preds.get(insights.SCORE, [])]
+        self.effect = (max(score) - min(score)) if score else 0.0
+        # The rise and fall near what has been tested (Compare all's dark
+        # bar): what the columns are ranked by, so a large swing that is
+        # all guesswork does not lead.
+        near_score = [m for m, ok in zip(score, near) if ok]
+        self.near_effect = (max(near_score) - min(near_score)) if near_score else 0.0
+
+    @property
+    def name(self):
+        return self.path.name
+
+
+class Profile:
+    def __init__(self, columns, rows, ref_label, ref_no, is_pick, reason, fill, fixed,
+                 failed):
+        self.columns, self.rows = columns, rows
+        self.ref_label, self.ref_no, self.is_pick = ref_label, ref_no, is_pick
+        self.reason, self.fill, self.fixed, self.failed = reason, fill, fixed, failed
+
+
+def _near_flags(opt, recipes, tested):
+    """For each recipe, whether a tested make-up lies within
+    CLOSE_TO_THE_BEST of it (insights.distance's rule, vectorised: the
+    largest change of a varying row as a share of its span; a categorical
+    row must match), and for each tested one whether it is near any."""
+    import numpy as np
+    cont, cats = [], []
+    for v in opt.varying_variables():
+        if v.get('type') == 'continuous':
+            lo, hi = (float(t) for t in v['bounds'])
+            cont.append((v['name'], hi - lo))
+        else:
+            cats.append(v['name'])
+    if not recipes or not tested:
+        return [False] * len(recipes), [False] * len(tested)
+
+    def mat(rows):
+        return np.array([[float(r.get(n, 0.0) or 0.0) for n, _ in cont] for r in rows])
+    spans = np.array([s for _, s in cont]) if cont else np.ones(0)
+    a, b = mat(recipes), mat(tested)
+    if cont:
+        d = (np.abs(a[:, None, :] - b[None, :, :]) / spans).max(axis=2)
+    else:
+        d = np.zeros((len(recipes), len(tested)))
+    ok = d <= insights.CLOSE_TO_THE_BEST + insights._EPS
+    for n in cats:
+        same = np.array([[r.get(n) == t.get(n) for t in tested] for r in recipes])
+        ok &= same
+    return ok.any(axis=1).tolist(), ok.any(axis=0).tolist()
+
+
+def profile_data(opt, fitted, recipe, ref_label, ref_no, is_pick=False, reason=None,
+                 points=PROFILE_POINTS):
+    """The profiler's numbers through `recipe` (at the Formulation total).
+    `reason`: why the expected gain is withheld (chooses_reason), None to
+    draw it."""
+    fitted = fitted or {}
+    paths, failed = [], []
+    for name in insights.path_choices(opt):
+        try:
+            path = insights.build_path(opt, name, recipe, points=points)
+        except Exception:
+            failed.append(name)
+            continue
+        if path.start_breaks or not path.recipes:
+            failed.append(name)
+            continue
+        paths.append(path)
+    recipes = [r for p in paths for r in p.recipes]
+    X = [opt._encode(r) for r in recipes]
+    # One posterior call per display model over every column's points.
+    allp = {n: insights.predict(opt, f, X) for n, f in fitted.items()
+            if f is not None and f.model is not None}
+    gain = None
+    if reason is None and recipes:
+        model = suggestion_model(opt, fitted)
+        if model is not None:
+            gain = bo_views.evaluate(opt, model, bo_views.points(opt, recipes)).value.tolist()
+    rows_tested = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    tested = [insights.start_recipe(opt, i) for i in rows_tested]
+    columns, k = [], 0
+    for path in paths:
+        n = len(path.recipes)
+        near, hit = _near_flags(opt, path.recipes, tested)
+        rings = [(i, float(t.get(path.name, 0.0) or 0.0), float(opt.Y_history[i]))
+                 for i, t, h in zip(rows_tested, tested, hit) if h]
+        var = insights._var(opt, path.name)
+        lo, hi = (float(b) for b in var['bounds'])
+        lo, hi = min(lo, path.start_amount), max(hi, path.start_amount)
+        columns.append(ProfileColumn(
+            path, {name: p[k:k + n] for name, p in allp.items()},
+            None if gain is None else gain[k:k + n], near, rings, lo, hi,
+            limit_end(opt, path.name, path.start_amount)))
+        k += n
+    columns.sort(key=lambda c: (-c.near_effect, -c.effect))
+    rows = [insights.SCORE] + [o['name'] for o in opt.measurements_by_importance()
+                               if o['name'] in allp]
+    if insights.SCORE not in allp:
+        rows = rows[1:]
+    return Profile(columns, rows, ref_label, ref_no, is_pick,
+                   None if gain is not None else (reason or wording.CHOOSES_REASON_COLD),
+                   opt.balance_row_name(), [v['name'] for v in opt.fixed_variables()], failed)
+
+
+def _row_title(opt, name):
+    """A row's y title, two short lines: the result and its aim."""
+    if name == insights.SCORE:
+        return ["Overall score", "(of 100)"]
+    # (The Overall row's "zoomed" is added by profile_chart, from its domain.)
+    obj = next(o for o in opt.objectives if o['name'] == name)
+    unit = str(obj.get('unit') or "")
+    if obj.get('goal') == 'target' and obj.get('target') is not None:
+        aim = wording.profiler_row_target(join_unit(f"{float(obj['target']):g}", unit))
+    elif obj.get('goal') == 'min':
+        aim = wording.PROFILER_ROW_LOWER
+    else:
+        aim = wording.PROFILER_ROW_HIGHER
+    # Rotated beside a short panel: the name on at most two lines.
+    return _wrap(obj['name'], 13).split("\n")[:2] + [aim]
+
+
+def _row_domain(opt, profile, columns, name):
+    vals = []
+    for c in columns:
+        for p in c.preds.get(name, []):
+            vals += [p.low, p.high]
+    if name == insights.SCORE:
+        vals += [s for c in columns for _, _, s in c.rings]
+        lo_cap, hi_cap = 0.0, float(opt.utility_ceiling())
+    else:
+        obj = next(o for o in opt.objectives if o['name'] == name)
+        if obj.get('goal') == 'target' and obj.get('target') is not None:
+            vals.append(float(obj['target']))
+        lo_cap, hi_cap = float(obj['min_val']), float(obj['max_val'])
+    if not vals:
+        return [lo_cap, hi_cap]
+    lo, hi = min(vals), max(vals)
+    pad = 0.06 * max(hi - lo, 1e-6 + 0.02 * (hi_cap - lo_cap))
+    return [max(lo_cap, lo - pad), min(hi_cap, hi + pad)]
+
+
+def _x_title(path):
+    return f"{path.name} ({path.unit})" if path.unit else path.name
+
+
+def _x_text(opt, path, t):
+    if insights.is_setting(opt, path.name):
+        return fmt_setting(float(t), path.unit)
+    return _amount(t, path.unit)
+
+
+def _profile_row_frame(opt, cols, kind, name, labels, texts):
+    """One row's long frame: for each column (`labels`, its header) the
+    curve, the grey stretches, the reference, two invisible points at its
+    Lowest and Highest (so each column's x runs over exactly that), the
+    target, the at-a-limit note and the rings."""
+    ref_name, target_name, untested_name, tested_name, band_name = texts
+    d = 2 if kind == "gain" else decimals(opt, name)
+    fmt = lambda v: f"{v:.{d}f}"
+    target = None
+    if kind == "measure":
+        obj = next(o for o in opt.objectives if o['name'] == name)
+        if obj.get('goal') == 'target' and obj.get('target') is not None:
+            target = float(obj['target'])
+    recs = []
+    for c in cols:
+        col, path = labels[c.name], c.path
+        for idx, t in enumerate(path.amounts):
+            rec = {"col": col, "mark": "curve", "x": t, "amount": _x_text(opt, path, t),
+                   "factor": path.name, "band": band_name}
+            if kind == "gain":
+                g = c.gain[idx]
+                rec.update(v=g, low=0.0, high=g, text=f"{g:.2f}", bo=wording.profiler_bo_gain(g))
+            else:
+                p = c.preds[name][idx]
+                rec.update(v=p.mean, low=p.low, high=p.high,
+                           text=f"{fmt(p.mean)} ({range_text(p.low, p.high, fmt)})",
+                           bo=wording.profiler_bo(p.mean, p.low, p.high))
+            recs.append(rec)
+        for lo, hi in insights.untested_runs(path, c.near):
+            recs.append({"col": col, "mark": "grey", "x": lo, "x2": hi, "region": untested_name})
+        recs.append({"col": col, "mark": "ref", "x": path.start_amount, "role": ref_name})
+        recs += [{"col": col, "mark": "ends", "x": e} for e in (c.lo, c.hi)]
+        if target is not None:
+            recs.append({"col": col, "mark": "target", "target": target, "role": target_name})
+        if kind == "score" and c.end is not None:
+            recs.append({"col": col, "mark": "note_" + c.end, "x": path.start_amount,
+                         "note": wording.profiler_at_end(c.end)})
+        # A line that stops short of Lowest or Highest: a limit holds it
+        # (the Fill to total row, a property limit); said where it stops.
+        if kind == "score":
+            for e, side in ((path.low_end, "Lowest"), (path.high_end, "Highest")):
+                if e.reason:
+                    recs.append({"col": col, "mark": "stop", "x": e.amount,
+                                 "note": wording.PROFILER_STOPPED, "why": e.reason,
+                                 "align": "left" if side == "Highest" else "right"})
+        if kind == "score":
+            recs += [{"col": col, "mark": "ring", "x": a, "score": round(sc, 2),
+                      "no": int(opt.formulation_ids[i]), "what": tested_name,
+                      "bo": wording.PLOT_BO_MODEL_FREE} for i, a, sc in c.rings]
+    return pd.DataFrame(recs)
+
+
+def profile_chart(opt, profile, columns=None, rows=None, gain=True):
+    """The prediction profiler: a grid of small panels, one row per result
+    (shared y within a row), one column per ingredient or process setting
+    (its own Lowest-Highest on x, named under the bottom row). In each: the
+    display model's mean (blue) and its 95 % likely range of a result; the
+    measurement's target dashed; grey where nothing was tested near; the
+    reference's own amount as a vertical line (ink for Best so far, orange
+    for a suggestion); on the Overall row, grey rings at the tested
+    formulations near the line and a note where the reference sits at a
+    limit. The bottom row, when the gain is shown: the expected gain along
+    each line. Each row is one faceted layer (fast to build and draw).
+    `columns`, `rows`: names to draw, in order (all when None)."""
+    cols = [c for c in profile.columns if columns is None or c.name in columns]
+    if columns is not None:
+        cols.sort(key=lambda c: list(columns).index(c.name))
+    names = [n for n in profile.rows if rows is None or n in rows or n == insights.SCORE]
+    if not cols or not names:
+        return None
+    with_gain = gain and profile.reason is None and all(c.gain is not None for c in cols)
+    blue = model_blue()
+    band_c, band_o = _BAND_FILL[theme()]
+    grey_c, grey_o = _FILLS[theme()]["untested"]
+    ink, _ = mark("bar_latest")
+    ref_c = outline_colour() if profile.is_pick else ink
+    tgt_c, tgt_o = mark("neutral")
+    ring_c, ring_o = mark("neutral")
+    texts = (_say(opt, profile.ref_label), _say(opt, wording.PLOT_TARGET),
+             _say(opt, wording.PLOT_UNTESTED), _say(opt, wording.PROFILER_TESTED),
+             _say(opt, wording.PLOT_INTERVAL))
+    ref_name, target_name, untested_name, tested_name, band_name = texts
+    # The header under each column: its name and unit, wrapped to the panel.
+    labels = {c.name: _wrap(_x_title(c.path), 14) for c in cols}
+    order = [labels[c.name] for c in cols]
+    any_grey = any(not all(c.near) for c in cols)
+    any_target = any(o.get('goal') == 'target' and o.get('target') is not None
+                     for o in opt.objectives if o['name'] in names)
+    regions = alt.Scale(domain=[band_name] + ([untested_name] if any_grey else []),
+                        range=[band_c] + ([grey_c] if any_grey else []))
+    role_dom = [ref_name] + ([target_name] if any_target else [])
+    roles = alt.Scale(domain=role_dom, range=[ref_c, tgt_c][:len(role_dom)])
+    dashes = alt.Scale(domain=role_dom, range=[[1, 0], [4, 3]][:len(role_dom)])
+    rings_s = alt.Scale(domain=[tested_name], range=["circle"])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolOpacity=0.7)
+    predicted = _say(opt, wording.PREDICTED)
+    row_kinds = [("score" if n == insights.SCORE else "measure", n) for n in names]
+    if with_gain:
+        row_kinds.append(("gain", None))
+    gain_top = max(max(max(c.gain) for c in cols), 0.05) if with_gain else None
+    out_rows = []
+    for r, (kind, name) in enumerate(row_kinds):
+        last_row = r == len(row_kinds) - 1
+        if kind == "gain":
+            ys = alt.Scale(domain=[0.0, gain_top * 1.05], nice=False)
+            y_title = [wording.PROFILER_GAIN_ROW, "(points)"]
+        else:
+            domain = _row_domain(opt, profile, cols, name)
+            ys = alt.Scale(domain=domain, nice=False, zero=False)
+            y_title = _row_title(opt, name)
+            if kind == "score":
+                ceiling = float(opt.utility_ceiling())
+                y_title = [y_title[0], zoomed("(of 100)", domain[0], domain[1], ceiling)
+                           .replace("((", "(").replace("))", ")")]
+        df = _profile_row_frame(opt, cols, kind, name, labels, texts)
+        x = alt.X("x:Q", title=None, scale=alt.Scale(nice=False, zero=False),
+                  axis=alt.Axis(labelFontSize=9, tickCount=3, labelFlush=True, grid=False,
+                                labels=last_row, ticks=last_row))
+        y_axis = alt.Axis(title=y_title, labelFontSize=9, tickCount=3, titleFontSize=10,
+                          titleFontWeight="normal", titleLimit=_PANEL_H[kind])
+        y = alt.Y("v:Q", scale=ys, axis=y_axis)
+        base = alt.Chart()
+        tip_title = (wording.GAIN_TOOLTIP_TITLE if kind == "gain"
+                     else f"{predicted} ({wording.CHOOSES_BAND})")
+        tip = [alt.Tooltip("amount:N", title=_say(opt, wording.INGREDIENT_OR_SETTING)),
+               alt.Tooltip("text:N", title=tip_title), bo_tip()]
+        layers = [base.mark_point(opacity=0, tooltip=False).encode(x=x)
+                  .transform_filter(_only("ends"))]
+        if any_grey and (df["mark"] == "grey").any():
+            layers.append(base.mark_rect(opacity=grey_o, tooltip=False)
+                          .encode(x=x, x2="x2:Q",
+                                  fill=alt.Fill("region:N", scale=regions, legend=legend))
+                          .transform_filter(_only("grey")))
+        if kind == "gain":
+            layers.append(base.mark_area(color=blue, opacity=0.25, tooltip=False)
+                          .encode(x=x, y=y).transform_filter(_only("curve")))
+        else:
+            layers.append(base.mark_area(opacity=band_o, tooltip=False)
+                          .encode(x=x, y=alt.Y("low:Q", scale=ys, axis=y_axis), y2="high:Q",
+                                  fill=alt.Fill("band:N", scale=regions, legend=legend))
+                          .transform_filter(_only("curve")))
+        layers += [base.mark_line(color=blue, strokeWidth=2)
+                   .encode(x=x, y=y, tooltip=tip).transform_filter(_only("curve")),
+                   # Wide invisible points: the hover reads anywhere along the line.
+                   base.mark_point(size=80, opacity=0, filled=True)
+                   .encode(x=x, y=y, tooltip=tip).transform_filter(_only("curve"))]
+        if (df["mark"] == "target").any():
+            layers.append(base.mark_rule(strokeWidth=1.2, opacity=tgt_o, tooltip=False)
+                          .encode(y=alt.Y("target:Q", scale=ys, axis=y_axis),
+                                  stroke=alt.Stroke("role:N", scale=roles, legend=legend),
+                                  strokeDash=alt.StrokeDash("role:N", scale=dashes, legend=legend))
+                          .transform_filter(_only("target")))
+        layers.append(base.mark_rule(strokeWidth=1.5, tooltip=False)
+                      .encode(x=x, stroke=alt.Stroke("role:N", scale=roles, legend=legend),
+                              strokeDash=alt.StrokeDash("role:N", scale=dashes, legend=legend))
+                      .transform_filter(_only("ref")))
+        if (df["mark"] == "ring").any():
+            layers.append(base.mark_point(filled=False, size=26, strokeWidth=1.2,
+                                          opacity=ring_o, color=ring_c)
+                          .encode(x=x, y=alt.Y("score:Q", scale=ys, axis=y_axis),
+                                  shape=alt.Shape("what:N", scale=rings_s, legend=legend),
+                                  tooltip=[alt.Tooltip("no:Q", format="d", title=_say(
+                                               opt, wording.FORMULATION_CAP)),
+                                           alt.Tooltip("score:Q", format=".1f", title=_say(
+                                               opt, wording.OVERALL_SCORE_COLUMN)),
+                                           bo_tip()])
+                          .transform_filter(_only("ring")))
+        for end, align, dx in (("Highest", "right", -3), ("Lowest", "left", 3)):
+            if (df["mark"] == "note_" + end).any():
+                layers.append(base.mark_text(fontSize=9, color=muted(), baseline="top", dy=2,
+                                             dx=dx, align=align, tooltip=False)
+                              .encode(x=x, y=alt.value(0), text="note:N")
+                              .transform_filter(_only("note_" + end)))
+        if (df["mark"] == "stop").any():
+            stop_c, stop_o = mark("neutral")
+            stop_tip = [alt.Tooltip("why:N", title=_say(opt, wording.PROFILER_STOPPED))]
+            layers += [base.mark_rule(strokeDash=[2, 2], color=stop_c, opacity=stop_o)
+                       .encode(x=x, tooltip=stop_tip).transform_filter(_only("stop")),
+                       base.mark_text(fontSize=9, color=muted(), baseline="bottom", dy=-2,
+                                      dx=-3, align="right")
+                       .encode(x=x, y=alt.value(_PANEL_H[kind]), text="note:N", tooltip=stop_tip)
+                       .transform_filter(_only("stop"))]
+        # Each column named once, above the top row (a header under the
+        # bottom row's tick labels overlapped them in Streamlit's renderer).
+        header = (alt.Header(labelOrient="top", labelFontSize=10, labelLimit=_PANEL_W + 8,
+                             labelExpr="split(datum.label, '\\n')", labelPadding=4,
+                             labelBaseline="bottom")
+                  if r == 0 else alt.Header(labels=False))
+        out_rows.append(
+            alt.layer(*layers, data=df).properties(width=_PANEL_W, height=_PANEL_H[kind])
+            .facet(column=alt.Column("col:N", sort=order, title=None, header=header),
+                   spacing=8, bounds="flush")
+            .resolve_scale(x="independent"))
+    chart = alt.vconcat(*out_rows, spacing=8).resolve_scale(
+        fill="shared", stroke="shared", strokeDash="shared")
+    return titled(chart, _say(opt, wording.PLOT_PROFILER))
+
+
+def profile_shown(profile, order=None):
+    """(columns shown, columns under "+N more", measurement rows shown,
+    rows under "+N more"): the PROFILE_COLUMNS columns that move the
+    predicted Overall score most, the PROFILE_ROWS measurements with the
+    largest Share of score; the rest offered. `order`: the columns in this
+    order instead (Set up's, while the noise guard withholds any ranking)."""
+    names = [c.name for c in profile.columns]
+    if order is not None:
+        names = [n for n in order if n in names]
+    measures = [n for n in profile.rows if n != insights.SCORE]
+    return (names[:PROFILE_COLUMNS], names[PROFILE_COLUMNS:],
+            measures[:PROFILE_ROWS], measures[PROFILE_ROWS:])
+
+
+def profile_refs(opt):
+    """[(label, Formulation number, make-up at the total, is a suggestion)]:
+    Best so far, then the open Round's Suggestion 1 when there is one."""
+    best = opt.best_index()
+    out = []
+    if best is not None:
+        out.append((wording.PROFILER_REF_BEST, int(opt.formulation_ids[best]),
+                    insights.start_recipe(opt, best), False))
+    first = _first_pick(opt)
+    if first is not None:
+        out.append((wording.PROFILER_REF_PICK, first[0], first[1], True))
+    return out
+
+
+def profile_cached(opt, fitted, ref):
+    """profile_data once per data, setup, reference and its make-up (the
+    Try one pattern: the session keeps the latest)."""
+    label, number, recipe, is_pick = ref
+    reason = chooses_reason(opt, fitted)
+    key = (insights.data_key(opt), insights.setup_key(opt), label, number,
+           insights._digest(recipe), opt.pending_batch_no, len(opt.pending_batch or []),
+           reason)
+    hit = st.session_state.get(PROFILE_CACHE)
+    if hit and hit[0] == key:
+        return hit[1]
+    with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
+        value = profile_data(opt, fitted, recipe, label, number, is_pick, reason)
+    st.session_state[PROFILE_CACHE] = (key, value)
+    return value
+
+
+def _profiler(opt, computed):
+    """The fold's body: the reference selector (with a suggestion to draw
+    through), the profiler, its caption, the lines it needs, and "+N more"
+    for the columns and rows left out."""
+    if not insights.path_choices(opt):
+        st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
+        return
+    fitted = computed["fitted"]
+    refs = profile_refs(opt)
+    if not refs:
+        return
+    if len(refs) > 1:
+        labels = [r[0] for r in refs]
+        _keep_if_offered(PROFILE_REF_KEY, labels)
+        picked = st.segmented_control(_say(opt, wording.PROFILER_THROUGH), labels,
+                                      key=PROFILE_REF_KEY, default=labels[0])
+        ref = next((r for r in refs if r[0] == picked), refs[0])
+    else:
+        ref = refs[0]
+    try:
+        profile = profile_cached(opt, fitted, ref)
+    except Exception:   # the profiler failing must not take the tab down
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    # The noise guard (review I3): no ranking while the Overall-score model
+    # is likely fitting noise; the columns keep Set up's order.
+    guard = _guard(opt, fitted)
+    shown, extra_cols, rows_shown, extra_rows = profile_shown(
+        profile, insights.path_choices(opt) if guard.fires else None)
+    chart_place = st.container()
+    if extra_cols or extra_rows:
+        left, right = st.columns(2)
+        if extra_cols:
+            _keep_all_offered(PROFILE_MORE_KEY, extra_cols)
+            shown += left.multiselect(_say(opt, wording.profiler_more(len(extra_cols))),
+                                      extra_cols, key=PROFILE_MORE_KEY,
+                                      help=_say(opt, wording.profiler_more_help(
+                                          not opt.has_ingredients())))
+        if extra_rows:
+            _keep_all_offered(PROFILE_MORE_ROWS_KEY, extra_rows)
+            rows_shown += right.multiselect(_say(opt, wording.profiler_more(len(extra_rows))),
+                                            extra_rows, key=PROFILE_MORE_ROWS_KEY,
+                                            help=_say(opt, wording.profiler_more_help(
+                                                rows=True)))
+    # The chart too, once per profile, picks and theme: building it is most
+    # of the profiler's time (about 0.3 s of Altair on the yogurt pilot).
+    chart_key = ((st.session_state.get(PROFILE_CACHE) or (None,))[0], tuple(shown),
+                 tuple(rows_shown), theme())
+    hit = st.session_state.get(PROFILE_CHART_CACHE)
+    if hit and hit[0] == chart_key:
+        chart = hit[1]
+    else:
+        chart = profile_chart(opt, profile, shown, rows_shown)
+        st.session_state[PROFILE_CHART_CACHE] = (chart_key, chart)
+    with chart_place:
+        if chart is None:
+            st.caption(_say(opt, wording.CHART_FAILED))
+            return
+        show_chart(chart, width="content")
+        st.caption(_say(opt, wording.PROFILER_CAPTION),
+                   help=_say(opt, wording.profiler_help(
+                       profile.ref_label, profile.ref_no, profile.fill, profile.fixed,
+                       gain=profile.reason is None, settings_only=not opt.has_ingredients())))
+        if profile.fill:
+            st.caption(_say(opt, wording.profiler_fill_note(profile.fill)))
+        if guard.fires:
+            st.caption(_say(opt, path_guard_line(guard)))
+        if profile.reason is not None:
+            st.caption(_say(opt, wording.HERO_WITHHELD[hero_reason_key(profile.reason)]),
+                       help=_say(opt, wording.tip_chooses_withheld(profile.reason)))
