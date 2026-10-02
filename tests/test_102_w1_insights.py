@@ -349,7 +349,8 @@ def test_three_pairs_measure_the_threshold_and_say_their_df():
     for i, v in zip((0, 1, 2), (70.0, 72.0, 71.0)):
         opt.Y_history[i] = v
     y = insights.noise_yardstick(opt)
-    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, True, False, 2, 1)
+    # Ftue fix A (cold read I11): 3 pairs on 2 df do not yet measure it.
+    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, False, True, 2, 1)
     assert ui_insights.repeats_text(y) == wording.stand_repeats(
         f"{y.sd:.1f}", 3, df=2, groups=1)
     assert "(3 results of 1 formulation, 2 df)" in ui_insights.repeats_text(y)

@@ -1520,6 +1520,31 @@ class Improvement:
     rise: float | None      # the latest Round's best minus the Best so far before it
     sd: float | None        # the Overall score's spread between Repeats
     rounds: int             # Rounds since Best so far ("not_lately")
+    # Ftue fix A (cold read I6): what the rise is judged against,
+    # rise_threshold(noise SD, q), and q, the scored formulations of the
+    # latest Round the rise is the top of. None and 0 for "not_lately".
+    threshold: float | None = None
+    q: int = 0
+
+
+# The one-sided false-alarm rate of Rising (ftue fix A, cold read I6).
+RISE_ALPHA = 0.05
+
+
+def rise_z(q):
+    """z_q = Φ⁻¹((1 − RISE_ALPHA)^(1/q)): the one-sided normal quantile at
+    which the top of q results as good as the old best beats it by chance
+    with probability RISE_ALPHA (Šidák). 1.645 at q = 1, 2.23 at q = 4."""
+    return float(ndtri((1.0 - RISE_ALPHA) ** (1.0 / max(1, int(q)))))
+
+
+def rise_threshold(sd, q):
+    """What a rise must beat to read Rising (ftue fix A, cold read I6): the
+    noise SD × √2 (a difference of two results) × rise_z(q) (the top of q
+    new results). With 4 new formulations as good as the old best, Rising
+    then shows about 1 time in 20 by chance; against one noise SD it
+    showed about 1 time in 2."""
+    return sd * math.sqrt(2) * rise_z(q)
 
 
 # A spread between Repeats under this reads 0.0 on screen, so the tab
@@ -1536,10 +1561,13 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
     - Not lately: no higher score in the last 2 or more Rounds.
     - When Best so far came from the latest Round, the rise is its score
       minus the Best so far before that Round: Barely when it is below
-      the Overall score's spread between Repeats (1 point without Repeats,
-      or with a spread under REPEAT_SD_SHOWN), Yes otherwise. Both are
-      compared to the hundredth, as the answer can print them, so its
-      words never contradict its numbers.
+      rise_threshold(noise SD, q) (ftue fix A, cold read I6), Yes
+      otherwise. The noise SD is the Overall score's spread between
+      Repeats (1 point without Repeats, or with a spread under
+      REPEAT_SD_SHOWN); q is how many scored formulations the latest Round
+      has, the rise being the top of them. Both are compared to the
+      hundredth, as the answer can print them, so its words never
+      contradict its numbers.
     - Anything else (one Round only, or no higher score in just the
       Round since): None, and Best so far's own line says it.
 
@@ -1565,9 +1593,10 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
     if not earlier:
         return None
     rise = f.score - max(earlier)
-    threshold = sd if sd is not None else 1.0
+    q = sum(1 for i in opt.best_candidates() if opt.batch_history[i] == f.round)
+    threshold = rise_threshold(sd if sd is not None else 1.0, q)
     barely = round(rise, 2) < round(threshold, 2)
-    return Improvement("barely" if barely else "yes", rise, sd, 0)
+    return Improvement("barely" if barely else "yes", rise, sd, 0, threshold, q)
 
 
 def _same(opt, a, b):

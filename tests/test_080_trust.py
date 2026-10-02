@@ -338,14 +338,22 @@ def test_barely_is_judged_against_one_point_under_three_pairs():
 
 
 def test_barely_uses_the_repeats_sd_from_three_pairs():
+    """Ftue fix A (cold read I6): against the Repeat SD × √2 × z_3 (Round 2
+    has 3 formulations): 0.3 × 3.00 = 0.90. A rise of 0.5 is within noise,
+    1.0 is Rising."""
     opt = _patty(rows=6)
-    yard = insights.Yardstick(0.3, 0.3, 4, True)
+    yard = insights.Yardstick(0.3, 0.3, 4, True, df=4)
     f = insights.BestFacts(71.0, 6, 2, 0, True, [])
     for i in opt.best_candidates():
         if opt.batch_history[i] != 2:
             opt.Y_history[i] = 70.5
     a = insights.improvement(opt, f, yardstick=yard)
-    assert (a.state, a.sd) == ("yes", 0.3)
+    assert (a.state, a.sd, a.q) == ("barely", 0.3, 3)
+    assert a.threshold == pytest.approx(0.9, abs=0.01)
+    for i in opt.best_candidates():
+        if opt.batch_history[i] != 2:
+            opt.Y_history[i] = 70.0
+    assert insights.improvement(opt, f, yardstick=yard).state == "yes"
 
 
 def test_details_compare_like_with_like_and_show_the_widening():

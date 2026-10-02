@@ -146,3 +146,72 @@ def test_the_noise_guard_judges_against_the_repeat_sd_from_three_df(_cwd, monkey
     opt.results_history[4]["Firmness"] = opt.results_history[3]["Firmness"] + 0.6
     opt._recompute_utilities()
     assert "noise" in insights.noise_guard(opt, fitted, name="Firmness").reasons
+
+
+# ------------------------------------------------------------------ #
+#  I6: Rising beats noise SD × √2 × z_q, z_q = Φ⁻¹(0.95^(1/q))
+# ------------------------------------------------------------------ #
+
+def _rounds(scores_by_round):
+    from tests.test_complete_results import _patty, _tell
+    opt = _patty(rows=0)
+    no = 0
+    for r, scores in enumerate(scores_by_round, start=1):
+        for y in scores:
+            no += 1
+            _tell(opt, no, r)
+            opt.Y_history[-1] = y
+    return opt
+
+
+def test_the_rise_threshold():
+    assert insights.rise_z(1) == pytest.approx(1.6449, abs=1e-4)
+    assert insights.rise_threshold(1.0, 1) == pytest.approx(math.sqrt(2) * 1.6449, abs=1e-4)
+    z4 = NormalDist().inv_cdf(0.95 ** 0.25)
+    assert insights.rise_threshold(2.0, 4) == pytest.approx(2.0 * math.sqrt(2) * z4)
+    assert insights.rise_threshold(1.0, 4) == pytest.approx(3.159, abs=1e-3)
+
+
+def test_one_new_formulation_rises_past_root_two_times_1_645(_cwd):
+    opt = _rounds([[70.0, 72.0], [74.3]])           # rise 2.3 < 2.33
+    a = insights.improvement(opt)
+    assert (a.state, a.q) == ("barely", 1)
+    assert a.threshold == pytest.approx(2.326, abs=1e-3)
+    a = insights.improvement(_rounds([[70.0, 72.0], [74.4]]))
+    assert a.state == "yes"
+
+
+def test_the_threshold_grows_with_the_round_size(_cwd):
+    """Line C's case: a rise of 2.5 from the top of a Round of 4, against
+    the assumed 1 point: under √2 × z_4 = 3.16, so Within noise."""
+    opt = _rounds([[70.0, 72.0], [74.5, 60.0, 61.0, 62.0]])
+    a = insights.improvement(opt, yardstick=insights.noise_yardstick(opt))
+    assert (a.state, a.q, a.sd) == ("barely", 4, None)
+    assert a.threshold == pytest.approx(3.159, abs=1e-3)
+    opt = _rounds([[70.0, 72.0], [75.2, 60.0, 61.0, 62.0]])
+    assert insights.improvement(opt).state == "yes"
+
+
+def test_the_threshold_scales_with_the_repeat_sd(_cwd, monkeypatch):
+    opt = _rounds([[86.0], [87.0]])
+    monkeypatch.setattr(insights, "repeat_sd",
+                        lambda o, name: insights.RepeatSpread(0.4, 3, 3, 3))
+    a = insights.improvement(opt)
+    assert a.threshold == pytest.approx(0.4 * math.sqrt(2) * 1.6449, abs=1e-3)
+    assert a.state == "yes"                         # 1.0 ≥ 0.93
+
+
+def test_rising_fires_about_one_time_in_twenty_by_chance():
+    """With q new formulations exactly as good as the old Best so far, the
+    rise beats the threshold about 5 % of the time (a little under: the
+    old best's own error is shared). The old 1-SD rule fired about half
+    the time at q = 4 (cold read I6)."""
+    import numpy as np
+    rng = np.random.default_rng(1)
+    n = 200_000
+    for q in (1, 2, 4, 8):
+        rise = rng.standard_normal((n, q)).max(1) - rng.standard_normal(n)
+        rate = float(np.mean(rise >= insights.rise_threshold(1.0, q)))
+        assert 0.035 < rate < 0.055, (q, rate)
+    rise = rng.standard_normal((n, 4)).max(1) - rng.standard_normal(n)
+    assert 0.48 < float(np.mean(rise >= 1.0)) < 0.53
