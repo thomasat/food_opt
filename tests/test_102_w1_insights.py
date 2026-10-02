@@ -582,6 +582,16 @@ def test_no_check_advice_at_any_round_of_02_clean_or_drift(project, name):
     for r in range(3, 9):
         opt, checks = upto(project, name, r)
         step, texts = _said(opt, checks)
+        if name == E.BAR_CLEAN and r in (4, 5, 6):
+            # Ftue fix A (cold read I7; an open owner decision against B1):
+            # F16, a Repeat of F12, scores 2.84 points apart, beyond √2 ×
+            # 1.96 × the assumed 1 point (2.77) while the Repeat SD (F16
+            # left out) has under 3 df, until Round 4 leaves the verdict's
+            # Rounds. 03 clean's true score noise is about 1.3 points.
+            d = step.disagreement
+            assert step.kind == "repeat" and (d.later, d.earlier, d.basis) == (16, 12, "assumed")
+            assert d.diff == pytest.approx(2.84, abs=0.01)
+            continue
         assert step.kind != "repeat", (name, r)
         for t in texts:
             assert wording.CHECK_IF_CHANGED not in t and "Check" not in t, (name, r, t)

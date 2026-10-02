@@ -199,6 +199,10 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
 #  The review's own texts (R-B1, R-I5), word for word
 # ------------------------------------------------------------------ #
 
+# Ftue fix A (statistician's cold read I5, I6, I7, I9) changed the facts
+# of Lines A-C; the texts below are the review's words on the new facts.
+# Line C's Within-noise sentence still names the 1-point noise SD, not the
+# 3.16 points (1 × √2 × z_4) the rise is judged against: B's to reword.
 _EXACT = {
     "Snack bar": (
         "The app starts checking its predictions once 5 formulations have results; 3 have so far.",
@@ -206,22 +210,22 @@ _EXACT = {
         "for best at 96.00 of 100.",
         "Make the next Round."),
     "Line A": (
-        "In Rounds 3–5, 32 of 35 results landed inside the range the app predicted (up to 3 "
+        "In Rounds 3–5, 33 of 35 results landed inside the range the app predicted (up to 3 "
         "misses are normal), and score predictions beat the average of earlier results.",
         "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4).",
         "Record the 4 formulations still open in Round 6. In the next Round, include a Repeat of "
         "Formulation 15 (the same amounts again) to measure how much results vary."),
     "Line B": (
-        "In Rounds 3–5, 10 of 36 results fell outside the range the app predicted, where up to 4 "
-        "are normal, and predictions have run about 5.5 points high.",
+        "In Rounds 3–5, 8 of 36 results fell outside the range the app predicted, where up to 4 "
+        "are normal.",
         "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3).",
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower, more than two "
-        "makes of one formulation should differ (up to 7.4). If something changed (panel, "
+        "makes of one formulation should differ (up to 2.8). If something changed (panel, "
         "supplier, equipment), check it before relying on the next suggestions."),
     "Line C": (
-        "Score predictions do no better than the average of earlier results and have run about "
-        "4.3 points high; those for Firmness, Juiciness and Cook loss are still very uncertain.",
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18), more than "
+        "Score predictions do no better than the average of earlier results; those for "
+        "Firmness, Juiciness and Cook loss are still very uncertain.",
+        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18), less than "
         "the 1 point results are assumed to vary until 3 Repeats measure it.",
         # The review: "…treat the suggestions as a guided search…" (style
         # guide rule 7 retires "treat … as"; t0-report).

@@ -35,17 +35,21 @@ _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C
           D.UPGRADE: "Upgrade check", D.TIMING: "Timing check"}
 
 # The process-only study (T0's fixture): Not yet (skill −0.03, n = 16),
-# Rising, and Next's rising row with the Repeat sentence, in Trial forms.
+# the Overall score's intervals wide, Within noise and Next's see row with
+# the Repeat sentence, in Trial forms. Ftue fix A: the rise of 1.9 from a
+# Round of 4 is under 1 × √2 × z_4 = 3.16 (cold read I6; it read Rising),
+# and the Round-grouped folds widen the Overall score's intervals (I9).
 _PROCESS_ONLY = (
-    "not_yet", wording.pred_unclear(),
-    "rising", wording.progress_rising(5, "1.9", "87.92", 100, 21),
-    wording.next_plain_rising(6, 4, repeat_no=21, values=True))
+    "not_yet", wording.pred_unclear(clauses=[wording.clause_wide(["the Overall score"])]),
+    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21),
+    wording.next_plain_see(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
 # link), pinned per project as they stand.
 _BUDGET = 130
-_WORDS = {D.SNACK: 65, D.LINE_A: 118, D.LINE_B: 113, D.LINE_C: 119, D.UPGRADE: 79,
-          D.TIMING: 126, D.PROCESS_ONLY: 109}
+# Ftue fix A: Line B 113 -> 105, Line C 119 -> 113, process-only 109 -> 114.
+_WORDS = {D.SNACK: 65, D.LINE_A: 118, D.LINE_B: 105, D.LINE_C: 113, D.UPGRADE: 79,
+          D.TIMING: 126, D.PROCESS_ONLY: 114}
 
 
 def _install(name):

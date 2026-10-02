@@ -671,7 +671,9 @@ def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
     assert reason == wording.gain_reason_too_few(2)
     line = ui_insights.standing_text(opt, standing, yard, withheld=reason)
     assert "Predicted gain" not in line and "+9.3" not in line
-    assert line.startswith("Predicted best: 100 (95 % interval 93–100), in untested amounts.")
+    # 87–100 since ftue fix A's Round-grouped folds (cold read I9); 93–100
+    # before.
+    assert line.startswith("Predicted best: 100 (95 % interval 87–100), in untested amounts.")
     assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
                          "Round-ahead checks of the Overall score so far (2).")
 
@@ -730,9 +732,11 @@ def test_line_b_never_says_no_repeats_yet(tmp_path, monkeypatch):
     opt = D.load(D.LINE_B)
     checks = insights.check_rounds(opt)
     yard = insights.noise_yardstick(opt, checks)
-    assert (yard.pairs, yard.left_out, yard.assumed) == (0, 1, True)
+    # Ftue fix A (cold read I7): the disagreeing Repeat stays in the Repeat
+    # SD, so Line B counts its one pair (1 df, 3 needed).
+    assert (yard.pairs, yard.left_out, yard.assumed, yard.df) == (1, 0, True, 1)
     text = ui_insights.threshold_text(yard)
-    assert "the only Repeat disagrees" in text and "no Repeats yet" not in text
+    assert "1 pair of Repeats, 3 needed" in text and "no Repeats yet" not in text
 
 
 # ------------------------------------------------------------------ #
