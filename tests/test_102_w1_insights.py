@@ -662,8 +662,14 @@ def test_the_steady_bias_on_the_campaign_projects(project, name, line):
     assert ui_insights.steady_bias_text(opt, checks) == line
 
 
-def test_03_clean_says_its_bias_both_ways_without_advice(project):
+def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
+    """Under the t rule (ftue fix A, cold read I5) 03 clean's Crumbliness
+    bias no longer shows; its Overall score's still does. The both-ways
+    wording is checked under the earlier 2-standard-error rule."""
     opt, checks = project(E.BAR_CLEAN)
+    assert ui_insights.steady_bias_text(opt, checks) == (
+        "Predictions have run low: Overall score by about 2.1 points (Rounds 3–8).")
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     line = ui_insights.steady_bias_text(opt, checks)
     assert line.startswith("Predictions have run high: Crumbliness")
     assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")

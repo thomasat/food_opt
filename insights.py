@@ -25,6 +25,7 @@ from botorch.fit import fit_gpytorch_mll
 from botorch.optim import optimize_acqf
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from scipy.special import ndtri, stdtrit
 
 import wording
 from food_bo import CLOSE_TO_THE_BEST, FoodOptimizer, number_list
@@ -537,6 +538,10 @@ class ScoreRecord:
     # The standard error of mean_miss with the Round as the unit from
     # ROUND_UNIT_MIN Rounds (review B1); None: gap_sd / √total is used.
     se: float | None = None
+    # se's degrees of freedom (ftue fix A, cold read I5): Rounds − 1 when
+    # each Round's mean error is one value, else values − 1. None: worked
+    # out from rounds and total (bias_df).
+    df: int | None = None
 
 
 SCORE_RECORD_MIN = 5
@@ -610,10 +615,12 @@ def error_record(checks, name, rounds=None):
         means = [statistics.fmean(c.measured - c.predicted for c in mine if c.round == r)
                  for r in order]
         se = statistics.stdev(means) / math.sqrt(len(means))
+        df = len(means) - 1
     else:
         se = None if sd is None else sd / math.sqrt(len(gaps))
+        df = len(gaps) - 1
     return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps), sd,
-                       order, se)
+                       order, se, df)
 
 
 def score_record(checks, rounds):
@@ -625,20 +632,49 @@ def score_record(checks, rounds):
     return error_record(checks, SCORE, rounds)
 
 
+def t_critical(df, p=0.975):
+    """Student's t quantile t_{p, df}: 3.18 at 3 df, 2.57 at 5, 1.96 in the
+    limit (ftue fix A, cold read I5)."""
+    return float(stdtrit(df, p))
+
+
+def bias_df(record):
+    """The degrees of freedom of `record`'s standard error (cold read I5):
+    record.df, else Rounds − 1 from ROUND_UNIT_MIN Rounds (each Round's mean
+    error one value), else values − 1."""
+    df = getattr(record, "df", None)
+    if df is not None:
+        return df
+    rounds = getattr(record, "rounds", None) or []
+    return len(rounds) - 1 if len(rounds) >= ROUND_UNIT_MIN else record.total - 1
+
+
+def bias_t(record):
+    """(t_{0.975, df}, df): how many standard errors a steady bias must
+    beat (ftue fix A, cold read I5), for the screen to say. None for a
+    record with no degrees of freedom."""
+    df = bias_df(record)
+    return None if df is None or df < 1 else (t_critical(df), df)
+
+
 def bias_gap(record, yardstick):
     """The average gap when it is a steady bias, else None (answer-key
     read-through: one rule for Insights and Make a round; review B1). It
     must be more than `yardstick` (the noise threshold: how much Repeats
     differ, 1 point without them for the Overall score; 0 for a measurement
-    with no Repeat SD, so no floor) AND more than 2 standard errors: the
-    record's Round-unit one (record.se), else 2 x sd / sqrt(n) of the gaps,
-    so a few large misses, or one off Round, are not a bias."""
+    with no Repeat SD, so no floor) AND more than t_{0.975, df} standard
+    errors (ftue fix A, cold read I5: 2 standard errors at 4 Rounds, 3 df,
+    flagged a bias that is not there about 1 time in 7): the record's
+    Round-unit one (record.se, df = Rounds − 1), else sd / sqrt(n) of the
+    gaps (df = n − 1), so a few large misses, or one off Round, are not a
+    bias."""
     if record is None or yardstick is None or abs(record.mean_miss) <= yardstick:
         return None
     se = getattr(record, "se", None)
     if se is None and record.gap_sd is not None:
         se = record.gap_sd / math.sqrt(record.total)
-    if se is not None and abs(record.mean_miss) <= 2 * se:
+    t = bias_t(record)
+    if se is not None and t is not None and abs(record.mean_miss) <= t[0] * se:
         return None
     return record.mean_miss
 
@@ -662,11 +698,12 @@ class Bias:
 
 def _noise_floor(opt, name, matches=None, without=()):
     """The noise threshold of `name` for the bias rule (review I2): the
-    Repeat SD from YARDSTICK_PAIRS pairs (at least REPEAT_SD_SHOWN), else 1
-    point for the Overall score and no floor (0) for a measurement."""
+    Repeat SD from YARDSTICK_DF degrees of freedom (at least
+    REPEAT_SD_SHOWN), else 1 point for the Overall score and no floor (0)
+    for a measurement."""
     spread = repeat_sd(opt, name, matches, without)
     if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-            and spread.pairs >= YARDSTICK_PAIRS):
+            and spread.df >= YARDSTICK_DF):
         return spread.sd
     return 1.0 if name == SCORE else 0.0
 
@@ -747,6 +784,9 @@ class DetailRow:
     bias: bool = False
     fitted_noise: float | None = None
     noise_fixed: bool = False
+    # repeat_sd's degrees of freedom (ftue fix A, cold read I11): the Repeat
+    # SD is the noise floor from YARDSTICK_DF of them.
+    df: int = 0
 
 
 # The median absolute value of a standard normal: a typical miss (a median)
@@ -787,7 +827,7 @@ def details(opt, checks, fitted=None, flagged=None):
         f = (fitted or {}).get(name)
         full = [c.measured - c.predicted for c in mine if c.fully_measured]
         floor = (spread.sd if spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-                 and spread.pairs >= YARDSTICK_PAIRS else 1.0 if name == SCORE else 0.0)
+                 and spread.df >= YARDSTICK_DF else 1.0 if name == SCORE else 0.0)
         gp = f.model if f is not None else None
         noise = None if gp is None or tiny else fitted_noise_sd(gp)
         rows.append(DetailRow(
@@ -799,7 +839,8 @@ def details(opt, checks, fitted=None, flagged=None):
             left_out,
             mean_error=statistics.fmean(full) if full else None,
             bias=bias_gap(error_record(checks, name), floor) is not None,
-            fitted_noise=noise, noise_fixed=gp is not None and noise is None))
+            fitted_noise=noise, noise_fixed=gp is not None and noise is None,
+            df=spread.df))
     return rows
 
 
@@ -809,9 +850,11 @@ def details(opt, checks, fitted=None, flagged=None):
 #  here takes the checks as an argument, so they can come from a cache.
 # ------------------------------------------------------------------ #
 
-# A pooled spread between Repeats is the yardstick only from this many pairs
-# (review I5): "don't benchmark on one pair".
-YARDSTICK_PAIRS = 3
+# A pooled spread between Repeats is the yardstick only from this many
+# degrees of freedom (review I5: "don't benchmark on one pair"; ftue fix A,
+# cold read I11: degrees of freedom, not pairs, since one formulation made
+# three times is 3 pairs but 2 df).
+YARDSTICK_DF = 3
 # The over-wide verdict (review I6): every result inside, at least this many
 # checks, and a median |z| this small. Simulated with calibrated misses it
 # fires 2.9 % of the time at 20 checks and 0.4 % at 33.
@@ -821,14 +864,14 @@ OVER_WIDE_Z = 0.4
 
 @dataclass
 class Yardstick:
-    value: float | None     # the threshold: Repeats' sd from 3+ pairs, else 1 point (None
+    value: float | None     # the noise SD: Repeats' sd from 3+ df, else 1 point (None
                             # for a measurement)
-    sd: float | None        # the pooled sd between Repeats, a disagreeing one left out
+    sd: float | None        # the pooled sd between Repeats
     pairs: int              # how many pairs of Repeats sd rests on
-    from_repeats: bool      # value is sd (3+ pairs, at least REPEAT_SD_SHOWN)
+    from_repeats: bool      # value is sd (3+ df, at least REPEAT_SD_SHOWN)
     # 0.8.0 e2e fixes (review B2): the Overall score's 1 point is assumed,
-    # not measured, while fewer than YARDSTICK_PAIRS pairs exist; the screen
-    # says so and Next step asks for a Repeat of Best so far.
+    # not measured, while sd has fewer than YARDSTICK_DF degrees of freedom;
+    # the screen says so and Next step asks for a Repeat of Best so far.
     assumed: bool = False
     df: int = 0             # sd's degrees of freedom (review I13)
     groups: int = 0         # formulations made more than once
@@ -880,18 +923,18 @@ def disagreeing_repeat(opt, checks, matches=None):
 def noise_yardstick(opt, checks=(), name=SCORE):
     """What a difference must beat to be more than chance (review I5): the
     pooled sd between Repeats of `name`, a disagreeing Repeat left out,
-    from YARDSTICK_PAIRS pairs or more and at least REPEAT_SD_SHOWN; else 1
+    from YARDSTICK_DF degrees of freedom or more and at least REPEAT_SD_SHOWN; else 1
     point for the Overall score (None for a measurement). Every rule that
     asks "more than Repeats differ?" asks this. The disagreeing Repeat is
     left out only when `checks` are handed in."""
     flagged = disagreeing_repeat(opt, checks) if checks else None
     spread = repeat_sd(opt, name, None, () if flagged is None else (flagged.row,))
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-              and spread.pairs >= YARDSTICK_PAIRS)
+              and spread.df >= YARDSTICK_DF)
     fallback = 1.0 if name == SCORE else None
     left_out = 0 if flagged is None else repeat_sd(opt, name, None).pairs - spread.pairs
     return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
-                     assumed=name == SCORE and spread.pairs < YARDSTICK_PAIRS,
+                     assumed=name == SCORE and spread.df < YARDSTICK_DF,
                      df=spread.df, groups=spread.groups, left_out=max(0, left_out))
 
 
@@ -1503,7 +1546,7 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
     `facts` and `spread`: best_facts(opt) and repeat_sd(opt, SCORE), when
     the caller has them already. `yardstick` (noise_yardstick, spec
     2026-09-30 review I5), when given, replaces `spread`: the spread
-    between Repeats counts only from YARDSTICK_PAIRS pairs, else 1 point."""
+    between Repeats counts only from YARDSTICK_DF df, else 1 point."""
     f = best_facts(opt) if facts is None else facts
     if f is None:
         return None
@@ -2771,7 +2814,7 @@ def allowed_misses(n):
 
 # The guard's triggers (review I3): the correlation length within this
 # factor of its lower limit; the fitted noise below this share of the
-# Repeat SD (from YARDSTICK_PAIRS pairs).
+# Repeat SD (from YARDSTICK_DF degrees of freedom).
 GUARD_FLOOR = 1.05
 GUARD_NOISE = 0.5
 # A kernel whose own lower limit is 0 (an expert's Matern or RBF, gpytorch's
@@ -2861,7 +2904,7 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
     """Whether the display model of `name` is likely fitting noise (review
     I3): (a) its correlation length at its lower limit; (b) its fitted
     noise sd below GUARD_NOISE × the Repeat SD of `name`, from
-    YARDSTICK_PAIRS pairs or more, never under fixed_tiny; (c) for the
+    YARDSTICK_DF df or more, never under fixed_tiny; (c) for the
     Overall score only, the A3 skill gate (0.8.0 e2e fixes, review I4):
     fewer than SKILL_MIN checks, or skill under SKILL_SMALL — said as
     "not reported until…", never as "fitting noise" (`fact`: skill() when
@@ -2878,7 +2921,7 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
         sd = None if tiny else fitted_noise_sd(gp)
         # The yardstick only when there is a fitted noise to judge (T2 m-5).
         yard = None if sd is None else noise_yardstick(opt, checks, name)
-        if (yard is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
+        if (yard is not None and yard.sd and yard.df >= YARDSTICK_DF
                 and sd < GUARD_NOISE * yard.sd):
             reasons.append("noise")
     gate = None

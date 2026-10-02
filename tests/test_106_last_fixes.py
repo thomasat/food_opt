@@ -273,7 +273,10 @@ def test_bias_item_units(unit, said):
     assert wording.bias_item("Crumbliness", "0.4", unit) == said
 
 
-def test_03_clean_bias_line_reads_points_not_score(standing_of):
+def test_03_clean_bias_line_reads_points_not_score(standing_of, monkeypatch):
+    # Crumbliness's bias shows under the earlier 2-standard-error rule only
+    # (ftue fix A, cold read I5); its wording is checked under that rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     *_, opt, _best = standing_of(E.BAR_CLEAN)
     line = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
     assert "Crumbliness by about 0.4 points" in line and " score;" not in line
@@ -296,6 +299,10 @@ def test_the_rough_track_line_says_more_misses_once():
 
 
 def test_line_b_track_line(tmp_path, monkeypatch):
+    # Line B's bias line shows under the earlier 2-standard-error rule only
+    # (ftue fix A, cold read I5: t = 2.45 < t_{0.975, 3} = 3.18); the
+    # wording with a bias is checked under that rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     monkeypatch.chdir(tmp_path)
     opt = D.load(D.LINE_B)
     line = ui_insights.track_text(insights.round_track(opt, insights.check_rounds(opt)))
@@ -776,6 +783,13 @@ def test_the_steady_bias_reads_as_one_fact_on_both_screens(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     opt = D.load(name)
     checks = insights.check_rounds(opt)
+    # Ftue fix A (cold read I5): on t_{0.975, 3} = 3.18 standard errors
+    # neither Line shows an Overall-score bias (t = 2.45 and 2.69; Line C's
+    # Cook loss bias still shows) ...
+    assert insights.score_steady_bias(opt, checks) is None
+    assert "Overall score" not in ui_insights.steady_bias_text(opt, checks)
+    # ... so the one-fact wording is checked under the earlier 2-SE rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     track = ui_insights.track_text(insights.round_track(opt, checks))
     insights_line = ui_insights.steady_bias_text(opt, checks)
     fact = wording.bias_fact(gap)

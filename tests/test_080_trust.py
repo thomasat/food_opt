@@ -53,7 +53,7 @@ def test_from_three_pairs_the_yardstick_is_the_repeats_sd():
     opt = _with_repeats()
     y = insights.noise_yardstick(opt)
     spread = insights.repeat_sd(opt, insights.SCORE)
-    assert spread.pairs >= insights.YARDSTICK_PAIRS
+    assert spread.df >= insights.YARDSTICK_DF
     assert (y.value, y.sd, y.from_repeats) == (spread.sd, spread.sd, True)
 
 
