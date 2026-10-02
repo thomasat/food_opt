@@ -185,7 +185,7 @@ def test_the_repeat_row_says_the_limit_in_plain_words(opt):
     d = insights.Disagreement(21, 11, -10.54, 20, 7.42)
     facts = _next(opt, "repeat", disagreement=d)
     assert ui_insights.next_sentence(opt, facts) == wording.next_plain_repeat(
-        21, 11, "10.5", half_text="7.4")
+        21, 11, "10.5", half_text="7.4", round_no=opt.next_batch_no())
 
 
 def test_at_the_gate_next_is_the_tail(opt):

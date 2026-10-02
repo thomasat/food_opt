@@ -117,12 +117,12 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     # (Firmness's constant +0.1 is steady too: a measurement has no floor
     # without 3 Repeat pairs, review I2.)
     assert ui_insights.steady_bias_text(opt, checks).startswith(
-        "Predictions have run high: Overall score by about 1.5 points;")
+        "Results have come in below the predictions: Overall score by about 1.5 points;")
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall-score "
-        "predictions have run about 1.5 points high.")      # one fact (polish round)
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall scores have "
+        "come in about 1.5 points below the predictions.")      # one fact (polish round)
     _clean(verdict, line, ui_insights.track_text(t))
 
 
@@ -163,7 +163,7 @@ def test_how_says_the_bias_rule_in_plain_words():
         "Mean error: the average of measured minus predicted over every Round checked, for "
         "the Overall score and each measurement (formulations with all results in, at least "
         "5). It is a steady bias when its size exceeds the noise threshold (for a measurement, "
-        "its own Repeat SD from 3 pairs, else no floor) and 2 standard errors. From 4 Rounds "
+        "its own Repeat SD once it has 3 df, else no floor) and 2 standard errors. From 4 Rounds "
         "checked, each Round's mean error counts as one value, because a Round's formulations "
         "sit close together and share the model's error; before that, each formulation "
         "counts. A steady bias is reported as a fact, with no advice to check the bench.")

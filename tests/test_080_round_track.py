@@ -62,10 +62,10 @@ def test_the_lines_read_as_the_spec_says():
     assert wording.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert wording.round_track_rough(6, 12, "5.0", rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; Overall-score "
-        "predictions have run about 5.0 points high. More misses than expected.")
+        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; Overall scores have "
+        "come in about 5.0 points below the predictions. More misses than expected.")
     assert wording.round_track_rough(6, 12, "1.0", below=False).endswith(
-        "predictions have run about 1 point low. More misses than expected.")
+        "scores have come in about 1 point above the predictions. More misses than expected.")
     assert wording.round_track_rough(6, 12, see_insights=True, allowed=2).endswith(
         "95 % intervals allow up to 2 misses in 12; measured values: many more misses than "
         "expected.")

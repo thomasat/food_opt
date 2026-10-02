@@ -553,12 +553,15 @@ def test_unchecked_rounds_caption(insights_scored):
 
 def test_how_range_wording_says_the_range_is_widened():
     """03 §5.7: the interval named, for one new value, its formula and its clipping."""
+    # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
+    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
     assert wording.HOW_RANGE == (
         "95 % interval: the model's 95 % prediction interval for one new measured value, "
         "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
         "noise, so the interval covers a single result, not the long-run mean. Its ends are "
-        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: about "
-        "19 in 20 new results fall inside.")
+        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: Aims for "
+        "95 %; measured about 91 % (measurements) / 89 % (Overall score) on simulated "
+        "projects.")
     assert wording.HOW_RANGE_FIXED_TINY == (
         "95 % interval: your model settings fix Repeat noise near zero, so the interval "
         "reflects model uncertainty only, times the calibration factor.")

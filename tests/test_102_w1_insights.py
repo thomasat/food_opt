@@ -353,7 +353,9 @@ def test_three_pairs_measure_the_threshold_and_say_their_df():
     assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, False, True, 2, 1)
     assert ui_insights.repeats_text(y) == wording.stand_repeats(
         f"{y.sd:.1f}", 3, df=2, groups=1)
-    assert "(3 results of 1 formulation, 2 df)" in ui_insights.repeats_text(y)
+    # Fix round B (statistician I11): the df, not the pairs; fix round A
+    # moves the gate itself to 3 df.
+    assert ", 2 df (3 results of 1 formulation)" in ui_insights.repeats_text(y)
 
 
 def test_the_threshold_text_says_assumed_below_three_pairs():
@@ -596,8 +598,8 @@ def test_the_drift_runs_repeat_is_reported_with_its_numbers(project):
     yard = insights.noise_yardstick(opt, checks)
     assert (yard.pairs, yard.df, yard.groups, yard.from_repeats) == (4, 4, 4, True)
     assert ui_insights.repeats_text(yard) == (
-        "Repeat SD of the Overall score: 0.7 points from 4 pairs (8 results of 4 "
-        "formulations, 4 df); this is the noise threshold.")
+        "Repeat SD of the Overall score: 0.7 points, 4 df (8 results of 4 "
+        "formulations); this is the noise threshold.")
 
 
 def test_line_b_keeps_check_through_its_disagreeing_repeat(project):
@@ -652,7 +654,8 @@ def test_02_falls_through_to_rising_or_see_under_the_gate(project):
 
 
 @pytest.mark.parametrize("name,line", [
-    (E.PATTY, "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)."),
+    (E.PATTY, "Results have come in below the predictions: Overall score by about 3.7 points "
+              "(Rounds 3–8)."),
     (E.BAR_DRIFT, ""),
     (D.LINE_A, ""),
 ])
@@ -672,8 +675,9 @@ def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
         "Predictions have run low: Overall score by about 2.1 points (Rounds 3–8).")
     monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     line = ui_insights.steady_bias_text(opt, checks)
-    assert line.startswith("Predictions have run high: Crumbliness")
-    assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")
+    assert line.startswith("Results have come in below the predictions: Crumbliness")
+    assert "; above them: Overall score by about 2.1 points" in line and line.endswith(
+        "(Rounds 3–8).")
 
 
 # ------------------------------------------------------------------ #
@@ -681,12 +685,13 @@ def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("acquisition,ref", [
-    (None, "the model's best tested formulation"),
+    (None, "the highest the model draws for the tested formulations (approximate)"),
     ("qlogei", "Best so far's measured {best}")])
 def test_the_expected_improvement_is_an_average_gain_over_its_reference(
         monkeypatch, acquisition, ref):
-    """Review I6: under qLogNEI (the default) the reference is the model's
-    best tested formulation; under qLogEI, Best so far's measured score.
+    """Review I6: under qLogNEI (the default) the reference is the highest
+    the model draws for the tested formulations (fix round B, statistician
+    I1: no single incumbent); under qLogEI, Best so far's measured score.
     Never "the best single new formulation beats … by"."""
     import bo_views
     opt = _patty(rows=6)
@@ -770,12 +775,14 @@ def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
 
 def test_the_02_final_tab_states_its_bias_and_never_says_check(tabs):
     texts = _tab_texts(tabs[E.PATTY])
-    assert "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)." in texts
+    assert ("Results have come in below the predictions: Overall score by about 3.7 points "
+            "(Rounds 3–8).") in texts
     said = " ".join(texts)
     assert wording.CHECK_IF_CHANGED not in said and "Check the panel" not in said
     nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
     assert nxt.startswith("Measured values in Rounds 6–8 fell outside")
-    assert nxt.endswith("Overall-score predictions have run about 3.7 points high (Rounds 3–8).")
+    assert nxt.endswith("Overall scores have come in about 3.7 points below the predictions "
+                        "(Rounds 3–8).")
     assert wording.gain_unreliable(wording.GAIN_REASON_VERDICT) in texts
 
 

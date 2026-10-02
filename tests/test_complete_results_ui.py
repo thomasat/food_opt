@@ -209,9 +209,11 @@ def test_a_row_recorded_before_a_measurement_was_added_is_not_missing_it(open_ba
 def test_insights_header_counts_the_waiting(one_waiting):
     at = _app(wording.TAB_INSIGHTS)
     assert not at.exception
+    # Ledger, early five-second re-test (fix round B): the header names the
+    # waiting formulation(s) by number instead of counting "N more".
     assert any(c.value == (
-        "Based on 2 scored formulations (all results in), up to Round 1. 1 more is waiting "
-        "for Juiciness and is not used yet.")
+        "Based on 2 scored formulations (all results in), up to Round 1. Formulation 4 is "
+        "waiting for Juiciness and is not used yet.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
 
 
