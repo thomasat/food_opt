@@ -87,7 +87,8 @@ def test_one_radio_offers_the_three_layers():
     opt = _open_round()
     assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (
         wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN)
-    at = _insights(opt, insights_try_one=True)
+    # Charts proto: the triangle's radio is in Explored and unexplored.
+    at = _insights(opt, insights_try_one=True, **{ui_insights.EXPLORED_KEY: True})
     radios = [r for r in at.tabs[3].radio if r.key in (ui_insights.LAYER_KEY,
                                                        ui_insights.PATH_LAYER_KEY)]
     assert {r.key for r in radios} == {ui_insights.LAYER_KEY, ui_insights.PATH_LAYER_KEY}
@@ -122,8 +123,10 @@ def test_the_uncertainty_layer_goes_through_the_first_suggestion():
     make, named in the caption; the Predicted score layer keeps Best so far."""
     opt = _open_round()
     first = ui_insights.suggested_numbers(opt)[0]
-    at = _insights(opt, **{ui_insights.LAYER_KEY: wording.LAYER_SD})
-    more = _more(at)
+    # Charts proto: the triangle is in Explored and unexplored.
+    at = _insights(opt, **{ui_insights.LAYER_KEY: wording.LAYER_SD,
+                           ui_insights.EXPLORED_KEY: True})
+    more = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     titles = [l["encoding"]["color"]["title"] for s in _specs(more) for l in _all_layers(s)
               if l.get("encoding", {}).get("color", {}).get("field") == "score"
               and "scheme" in l["encoding"]["color"].get("scale", {})
@@ -204,7 +207,8 @@ def test_the_outline_is_drawn_where_the_rule_holds(monkeypatch):
     assert [a[1] for a in seen] == [p.mean for p in preds if p is not None]
     spec = ui_insights.mixture_chart(opt, mix, preds, 3, None, None, None,
                                      extra["outline"]).to_dict()
-    assert any(l.get("mark", {}).get("stroke") == ui_insights.outline_colour()
+    # Charts proto: an ink ring; orange is for suggestions alone.
+    assert any(l.get("mark", {}).get("stroke") == ui_insights.mark("bar_latest")[0]
                and l["mark"].get("filled") is False for l in _all_layers(spec))
     monkeypatch.setattr(insights, "above_best", lambda *a: False)
     extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)

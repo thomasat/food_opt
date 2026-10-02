@@ -146,9 +146,9 @@ def test_the_whole_answer_needs_no_spread(insights_scored):
 def test_more_charts_has_no_misses_chart(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
-    more = next(e for e in at.tabs[3].expander if e.label.startswith("Trade-offs"))
-    assert [m.value for m in more.markdown] == [f"##### {wording.Q_PAIR}",
-                                                 f"##### {wording.Q_MIXTURE}"]
+    # Charts proto: the triangle moved to Explored and unexplored.
+    more = next(e for e in at.tabs[3].expander if e.label == wording.PAIR_FOLD)
+    assert [m.value for m in more.markdown] == [f"##### {wording.Q_PAIR}"]
     assert not hasattr(insights, "misses") and not hasattr(ui_insights, "misses_chart")
 
 

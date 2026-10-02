@@ -170,7 +170,7 @@ def test_a_project_with_everything_cached_starts_no_workers(five_rounds, monkeyp
     monkeypatch.setattr(insights_jobs, "pool", lambda: started.append(1) or _Stuck())
     at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     assert not at.exception and started == []
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
 
 
 def test_the_cache_holds_what_this_data_uses_and_no_more(five_rounds, monkeypatch):
@@ -196,7 +196,7 @@ def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_r
     assert bar.proto.text == wording.insights_progress(0, total)
     texts = " ".join(_texts(at))
     assert f"##### {wording.Q_STAND}" in texts and "Best so far" in texts
-    for later in (wording.Q_TRUST, wording.Q_NEXT, wording.trade_offs_fold()):
+    for later in (wording.Q_TRUST, wording.Q_NEXT, wording.PAIR_FOLD):
         assert later not in texts
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
     assert spins == []
@@ -225,7 +225,7 @@ def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, 
     at.run()
     texts = " ".join(_texts(at))
     assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
-    assert wording.trade_offs_fold() not in texts
+    assert wording.PAIR_FOLD not in texts
     assert spins == []                  # the predicted best's search has no spinner of its own
 
 
@@ -255,7 +255,7 @@ def test_with_everything_in_the_whole_tab_and_no_progress_line(stuck, five_round
     _seed(at, five_rounds, "all")
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
     assert at.tabs[3].get("progress") == []
 
 
@@ -268,7 +268,7 @@ def test_a_failed_worker_falls_back_to_fitting_here(five_rounds, monkeypatch):
     _workers(monkeypatch, _Broken())
     at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     assert not at.exception
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
 
 
 def test_the_predicted_best_is_searched_once_its_models_are_in_whatever_the_tab(
@@ -313,7 +313,7 @@ def test_a_part_that_lands_while_the_page_is_drawn_is_drawn_by_one_more_run(
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception and landed
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
     assert at.tabs[3].get("progress") == []
 
 
@@ -374,7 +374,7 @@ def test_workers_that_fail_mid_fill_hand_insights_to_the_counted_bar(
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
-    assert wording.trade_offs_fold() in _texts(at)             # the whole tab, fitted here
+    assert wording.PAIR_FOLD in _texts(at)             # the whole tab, fitted here
     assert fits and not [f for f in fits if f[2] == "catch-up"]
     total = insights_jobs.rounds_done(five_rounds, insights_jobs.plan(five_rounds), {})[1]
     assert bars and all(t is not None and t.startswith("Checking predictions against your "
@@ -402,7 +402,7 @@ def test_workers_that_stop_while_the_page_is_drawn_rerun_it_once(stuck, five_rou
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception and stopped
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
 
 
 def test_the_poller_polls_while_fits_are_in_flight_and_stops_once_they_are_in(
@@ -524,7 +524,7 @@ def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rou
     [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
     assert line_1 == md.index(f"##### {wording.Q_STAND}") + 1
     [foot] = [b for b in at.tabs[3].button if b.key == "insights_foot"]
-    assert wording.trade_offs_fold() in _texts(at)
+    assert wording.PAIR_FOLD in _texts(at)
 
 
 def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(

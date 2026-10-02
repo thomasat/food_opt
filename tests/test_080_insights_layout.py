@@ -62,9 +62,11 @@ def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypat
         assert f"##### {gone}" not in md
     folds = [e.label for e in at.tabs[3].expander
              if e.label in (wording.try_one_fold(False), wording.FOLD_METHOD)
-             or e.label.startswith("Trade-offs")]
-    assert folds == [wording.try_one_fold(False), wording.trade_offs_fold(False),
-                     wording.FOLD_METHOD]
+             or e.label.startswith("Trade-offs") or e.label == wording.PAIR_FOLD]
+    # Charts proto: the triangle moved to Explored and unexplored; the
+    # fold left holds the two-measurement chart alone, when there is one.
+    assert folds[0] == wording.try_one_fold(False) and folds[-1] == wording.FOLD_METHOD
+    assert set(folds[1:-1]) <= {wording.PAIR_FOLD}
     assert all(not e.proto.expanded for e in at.tabs[3].expander)
     foot = next(b for b in at.tabs[3].button if b.key == "insights_foot")
     assert foot.label == wording.START_NEXT_BATCH and foot.proto.type == "primary"
