@@ -400,8 +400,11 @@ def test_every_chart_in_the_fold_goes_through_the_privacy_wrapper(monkeypatch):
                         lambda *a, **k: pytest.fail("a bare st.altair_chart"))
     opt = D.load(D.LINE_A)
     computed = ui_insights._computed(opt, quiet=True)
+    _three_picked(monkeypatch)
     ui_insights._explored_body(opt, computed)
-    assert len(drawn) == 2                                   # the strips and the map
+    # Charts proto: What you've tried, How the app chooses, the triangle,
+    # the map.
+    assert len(drawn) == 4
     for chart in drawn:
         assert "usermeta" not in chart.to_dict()             # show_chart adds it
         assert ui_insights._private(chart).to_dict()["usermeta"] == \
@@ -541,6 +544,13 @@ def test_the_withhold_rule_on_the_demo_projects(name, rule, monkeypatch):
         assert wording.LAYER_SD in offered and wording.LAYER_GAIN in offered
 
 
+def _three_picked(monkeypatch):
+    """The triangle's three boxes, picked (bare mode's multiselect returns
+    none): the first three offered."""
+    monkeypatch.setattr(ui_insights.st, "multiselect",
+                        lambda label, options, **k: list(options[:3]))
+
+
 def _fold_text(monkeypatch, opt, computed):
     said = []
     for kind in ("caption", "markdown"):
@@ -548,6 +558,7 @@ def _fold_text(monkeypatch, opt, computed):
                             lambda text, help=None, _k=kind, **k: said.append((_k, text)))
     monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: said.append(("chart", c)))
     monkeypatch.setattr(ui_insights.st, "button", lambda label, **k: said.append(("button", label)))
+    _three_picked(monkeypatch)
     ui_insights._explored_body(opt, computed)
     return said
 
@@ -559,7 +570,9 @@ def test_hidden_under_the_noise_guard_no_pointer(monkeypatch):
     texts = [t for k, t in said if k != "chart"]
     assert wording.MAP_HIDDEN in texts
     assert wording.MAP_TITLE not in [t.strip("*") for t in texts]
-    assert len([1 for k, _ in said if k == "chart"]) == 1           # the strips only
+    # Charts proto: the lines, the figure's top panel, the triangle; no map.
+    assert len([1 for k, _ in said if k == "chart"]) == 3
+    assert wording.CHOOSES_WITHHELD in texts                        # its gain withheld
     assert not [t for k, t in said if k == "button"]
 
 
@@ -570,28 +583,35 @@ def test_captioned_under_the_verdict(monkeypatch):
     texts = [t for k, t in said if k != "chart"]
     assert f"**{wording.MAP_TITLE}**" in texts and wording.MAP_READING in texts
     assert wording.MAP_NOT_YET in texts
-    assert len([1 for k, _ in said if k == "chart"]) == 2
+    # Charts proto: the lines, the figure (gain withheld), triangle, map.
+    assert len([1 for k, _ in said if k == "chart"]) == 4
+    assert wording.CHOOSES_WITHHELD in texts
     # The pointer: the Uncertainty layer is offered here (R-I16).
     assert [t for k, t in said if k == "button"]
 
 
 def test_the_order_inside_the_fold(monkeypatch):
-    """§8: the strips (title, gap line, limit hits, chart, caption), the
-    map, then the pointer."""
+    """Charts proto: What you've tried (title, gap line, limit hits, chart,
+    caption), How the app chooses, the triangle, the map, then the
+    pointer."""
     opt, computed, _ = _rule(D.LINE_A)
     monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
     said = _fold_text(monkeypatch, opt, computed)
     kinds = [k for k, _ in said]
     texts = [t if k != "chart" else "chart" for k, t in said]
-    assert texts[0] == wording.basis_explored()
-    assert texts[1] == f"**{wording.STRIPS_TITLE}**"
+    assert texts[0] == wording.basis_charts()
+    assert texts[1] == f"**{wording.TRIED_TITLE}**"
     assert texts[2] == GAP_LINES[D.LINE_A]
     assert texts[3].startswith("All 4 suggestions")
-    strips_chart_at = texts.index("chart")
-    assert texts[strips_chart_at + 1] == wording.strips_caption()
-    assert texts[strips_chart_at + 2] == f"**{wording.MAP_TITLE}**"
+    tried_at = texts.index("chart")
+    assert texts[tried_at + 1] == wording.tried_caption()
+    assert texts[tried_at + 2] == f"**{wording.CHOOSES_TITLE}**"
+    chooses_at = texts.index("chart", tried_at + 1)
+    assert texts[chooses_at + 1] == wording.CHOOSES_CAPTION
+    triangle_at = texts.index(f"**{wording.Q_MIXTURE}**")
+    assert chooses_at < triangle_at < texts.index(f"**{wording.MAP_TITLE}**")
     assert kinds[-1] == "button"
-    assert texts[-1] == wording.explored_pointer(ui_insights._try_one_label(opt))
+    assert texts[-1] == wording.explored_pointer(ui_insights._try_one_label(opt), triangle=False)
 
 
 # ------------------------------------------------------------------ #
@@ -675,7 +695,7 @@ def test_the_fold_sits_under_the_button_and_above_the_folds_below(monkeypatch):
     fold = labels.index(wording.FOLD_EXPLORED)
     assert labels.index("insights_foot") < labels.index("insights_explored_link") < fold
     assert fold < labels.index(ui_insights._try_one_label(D.load(D.TIMING)))
-    assert fold < labels.index(wording.trade_offs_fold()) < labels.index(wording.FOLD_METHOD)
+    assert fold < labels.index(wording.PAIR_FOLD) < labels.index(wording.FOLD_METHOD)
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert not explored.proto.expanded
     assert not list(explored.children.values())      # nothing worked out until opened
@@ -703,7 +723,7 @@ def test_the_link_lands_on_the_fold_open(monkeypatch):
     assert not at.exception
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert [m.value for m in explored.markdown][:2] == [
-        f"**{wording.STRIPS_TITLE}**", wording.strips_no_gap(has_settings=True)]
+        f"**{wording.TRIED_TITLE}**", wording.strips_no_gap(has_settings=True)]
 
 
 def test_no_link_while_the_why_link_has_the_place():

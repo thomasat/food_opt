@@ -2982,15 +2982,23 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     amounts = ([alt.Tooltip(f"a{k}:Q", title=cols[k]) for k in range(3)]
                + [alt.Tooltip("sum:Q", title=_say(opt, wording.mixture_together(unit)))])
     blocked = alt.FieldEqualPredicate(field="state", equal=kinds[2])
-    grey = (alt.Chart(df).mark_circle(opacity=1, color="lightgray")
+    # Charts proto: the not-allowed points are hollow rings in the neutral
+    # token (3.2:1 on white, 6.0:1 on the dark page); lightgray was 1.5:1
+    # on white.
+    no_c, no_o = mark("neutral")
+    grey = (alt.Chart(df).mark_point(opacity=no_o, color=no_c, filled=False, strokeWidth=1)
             .encode(x=x, y=y, size=size,
                     tooltip=amounts + [alt.Tooltip("why:N", title=kinds[2])])
             .transform_filter(blocked))
     grid = (alt.Chart(df).mark_circle(opacity=1)
             .encode(x=x, y=y, size=size,
+                    # Charts proto: the score layer in the score colours
+                    # (as What you've tried); Uncertainty and Expected
+                    # improvement in blues, the model's colour.
                     color=alt.Color("score:Q", title=predicted,
-                                    scale=alt.Scale(scheme=blues(),
-                                                    domain=[lo, hi]),
+                                    scale=(alt.Scale(scheme=blues(), domain=[lo, hi])
+                                           if layer in (wording.LAYER_SD, wording.LAYER_GAIN)
+                                           else score_scale([lo, hi])),
                                     legend=alt.Legend(titleLimit=0)),
                     tooltip=amounts + [alt.Tooltip("pred:N", title=tip_title)])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
@@ -3003,7 +3011,9 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     # Its rows sit outside the X/Y domains (so they can never be mistaken
     # for real data); `clip=True` keeps Vega from sizing the canvas around
     # them anyway, which "pad" autosize would otherwise do even at opacity 0.
-    state_colors = alt.Scale(domain=kinds, range=["steelblue", "steelblue", "lightgray"])
+    swatch = (model_blue() if layer in (wording.LAYER_SD, wording.LAYER_GAIN)
+              else score_colours()[len(score_colours()) // 2])
+    state_colors = alt.Scale(domain=kinds, range=[swatch, swatch, no_c])
     legend_rows = pd.DataFrame([{"X": -1.0, "Y": -1.0, "state": k} for k in kinds])
     state_legend = (alt.Chart(legend_rows).mark_circle(opacity=0, tooltip=False, clip=True)
                     .encode(x=x, y=y,
@@ -3028,9 +3038,11 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     if df["outline"].any():
         # Predicted above Best so far (review I6, M14): an outline, not a
         # fill, so the colours under it still read.
-        layers.append(alt.Chart(df).mark_circle(filled=False, stroke=outline_colour(),
+        # Charts proto: orange is for suggestions alone; the ring is the
+        # ink token, drawn a size larger than the dot so it sits on the page.
+        layers.append(alt.Chart(df).mark_circle(filled=False, stroke=mark("bar_latest")[0],
                                                 strokeWidth=1.5,
-                                                size=big, opacity=1, tooltip=False)
+                                                size=round(big * 1.9), opacity=1, tooltip=False)
                       .encode(x=x, y=y)
                       .transform_filter(alt.FieldEqualPredicate(field="outline", equal=True)))
     if mix.dots:
@@ -3568,7 +3580,9 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
                                      **({} if numbered else {"tooltip": False}))
         .encode(x=x, y=y, **ring_tip),
         *rule,
-        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True)
+        # Charts proto: orange for suggestions, as on every chart here.
+        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True,
+                                   color=outline_colour(), opacity=1)
         .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=word),
                                    alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,
                                                format=".1f"),
@@ -3638,7 +3652,7 @@ def _explored_map(opt, computed):
     if rule == "hidden":
         st.caption(_say(opt, wording.MAP_HIDDEN), help=tooltip_for(opt, "map"))
         return
-    values = bo_views.map_values(opt, _map_model(opt, fitted))
+    values = bo_views.map_values(opt, suggestion_model(opt, fitted))
     if values is None or values.pool_mean is None:
         st.caption(_say(opt, wording.CHART_FAILED))
         return
@@ -3676,10 +3690,9 @@ def _explored_pointer(opt, computed):
         return
     if wording.LAYER_SD not in layers_offered(opt, computed["fitted"]):
         return
-    triangle = (opt.has_ingredients() and more_charts_offered(opt, computed)
-                and len(insights.mixture_choices(opt)) >= 3)
+    # Charts proto: the triangle is in this fold now, above the map.
     text = wording.explored_pointer(_try_one_label(opt), settings_only=not opt.has_ingredients(),
-                                    triangle=triangle)
+                                    triangle=False)
     st.button(_say(opt, text), type="tertiary", key=POINTER_KEY,
               disabled=confirmation_open(), on_click=_point_to_uncertainty)
 
@@ -3713,25 +3726,15 @@ def explored_link(opt, step):
 def _explored_body(opt, computed):
     values = not opt.has_ingredients()
     total = opt.has_formulation_total()
-    st.caption(_say(opt, wording.basis_explored(values, total)),
+    st.caption(_say(opt, wording.basis_charts(values, total)),
                help=tooltip_for(opt, "basis_explored"))
-    # 1. Where you have tested: model-free, drawn whatever the checks say.
-    st.markdown(f"**{_say(opt, wording.STRIPS_TITLE)}**")
-    pool = bo_views.feasible_pool(opt)
-    strips = insights.tested_strips(opt, pool)
-    strip_help = tooltip_for(opt, "strips")
-    for k, line in enumerate(strip_gap_lines(opt, strips)):
-        st.markdown(_say(opt, line), help=tooltip_for(opt, "gaps") if k == 0 else None)
-    for k, line in enumerate(limit_hit_lines(opt)):
-        st.markdown(_say(opt, line),
-                    help=tooltip_for(opt, "limit_hits") if k == 0 else None)
-    chart = strips_chart(opt, strips)
-    if chart is not None:
-        show_chart(chart)
-    st.caption(_say(opt, wording.strips_caption(values)), help=strip_help)
-    # 2. The map, from the suggestion model, under the withhold rule.
+    # Charts proto: 1. What you've tried (parallel coordinates; model-free,
+    # drawn whatever the checks say), 2. How the app chooses, 3. the
+    # triangle, 4. the map, then the pointer.
+    _tried(opt)
+    _chooses(opt, computed)
+    _triangle(opt, computed)
     _explored_map(opt, computed)
-    # 3. The pointer to the in-context views.
     _explored_pointer(opt, computed)
 
 
@@ -3752,6 +3755,523 @@ def explored_fold(opt, computed):
             _explored_body(opt, computed)
         except Exception:   # one fold failing must not take the tab down
             st.caption(_say(opt, wording.CHART_FAILED))
+
+
+# ------------------------------------------------------------------ #
+#  Charts proto (2026-10-01): What you've tried (parallel coordinates),
+#  How the app chooses (the classic figure along one row through Best so
+#  far), the triangle, then the map — all in Explored and unexplored.
+# ------------------------------------------------------------------ #
+
+# Score colours, low to high, per theme: stops of viridis (a perceptual,
+# colour-blind-safe sequential scheme whose hue moves as well as its
+# lightness, so neighbouring scores separate better than one blue did).
+# Each end is cut so every stop reaches 3:1 on its theme's page: light runs
+# viridis 0.5 → 0 (teal #21918c, 3.8:1 on white, to purple #440154,
+# 15.2:1); dark runs viridis 0.4 → 0.9 (#2a788e, 3.8:1 on #0e1117, to
+# lime #bddf26, 12.4:1). Higher reads stronger in each theme. The top is
+# cut before viridis' yellow, which sits too near the suggestions' orange.
+_SCORE_RAMP = {
+    "light": ["#21918c", "#2a788e", "#355f8d", "#414487", "#482475", "#440154"],
+    "dark": ["#2a788e", "#21918c", "#22a884", "#44bf70", "#7ad151", "#bddf26"],
+}
+# The model's 95 % band (a region: not held to 3:1, as _FILLS) and the
+# expected gain's line and area. Blue means "the model's uncertainty or
+# gain" on every chart here (the triangle's Uncertainty and Expected
+# improvement layers use blues()). Light #2f6db5 is 5.2:1 on white; dark
+# #7fb0e6 is 8.3:1 on #0e1117.
+_MODEL_BLUE = {"light": "#2f6db5", "dark": "#7fb0e6"}
+_BAND_FILL = {"light": ("#2f6db5", 0.18), "dark": ("#7fb0e6", 0.22)}
+_MANY_LINES = 30       # past this many lines, thinner and semi-transparent
+CHOOSES_KEY = "insights_chooses_axis"
+_PROTO_MODEL = "_insights_proto_model"
+
+
+def score_colours(which=None):
+    """The Overall score's colour stops, low to high, in the reader's theme
+    or `which`."""
+    return list(_SCORE_RAMP[which or theme()])
+
+
+def score_scale(domain):
+    return alt.Scale(range=score_colours(), domain=list(domain), interpolate="rgb")
+
+
+def model_blue(which=None):
+    return _MODEL_BLUE[which or theme()]
+
+
+def _axis_label(axis):
+    return f"{axis.name} ({axis.unit})" if axis.unit else axis.name
+
+
+def _axis_end(opt, axis, value, d=None):
+    """An axis value as the screens write it; `d`: decimals shared by the
+    axis' two ends."""
+    if axis.setting:
+        return fmt_setting(value, axis.unit)
+    return join_unit(_num(value) if d is None else f"{value:.{d}f}", axis.unit)
+
+
+def _wrap(text, width=14):
+    """A label broken into lines of about `width` characters, joined by a
+    newline the axis splits on."""
+    out, line = [], ""
+    for word in text.split():
+        if line and len(line) + 1 + len(word) > width:
+            out.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    out.append(line)
+    return "\n".join(out)
+
+
+def _line_kind(line):
+    if line.state == "suggested":
+        return wording.TRIED_SUGGESTED
+    if line.state != "tested":
+        return wording.TRIED_WAITING
+    return wording.TRIED_BEST if line.best else wording.TRIED_SCORED
+
+
+def _line_score_text(opt, line):
+    if line.state == "tested":
+        return f"{line.score:.2f}"
+    if line.state == "suggested":
+        return wording.TRIED_SUGGESTED
+    if line.state == "not_scored":
+        return wording.NOT_SCORED
+    i = opt.index_of_formulation(line.formulation)
+    return wording.waiting_for(number_list(opt.waiting_on(i) if i is not None else []))
+
+
+def tried_frame(opt, axes, lines):
+    """(long frame, axis frame): one row per line per axis it crosses, at
+    its share of that axis (0 Lowest, 1 Highest; the Overall score's axis
+    0 to the ceiling) — a line without a score stops at the last row's
+    axis; one row per axis for its rule and its end labels."""
+    ceiling = float(opt.utility_ceiling())
+    score_label = _say(opt, wording.OVERALL_SCORE_COLUMN)
+    labels = [_wrap(_axis_label(a)) for a in axes] + [score_label]
+    rows = []
+    for order, line in enumerate(lines):
+        amounts = "; ".join(
+            f"{a.name} {line.values[a.name]}" if a.options is not None
+            else f"{a.name} {_axis_end(opt, a, line.values[a.name])}" for a in axes)
+        common = {"no": line.formulation, "round": _round_label(line.round),
+                  "role": _line_kind(line), "best": line.best,
+                  "score": None if line.score is None else round(line.score, 2),
+                  "score_text": _line_score_text(opt, line), "amounts": amounts,
+                  "order": order}
+        for k, a in enumerate(axes):
+            t = insights.axis_share(a, line.values[a.name])
+            if t is not None:
+                rows.append({**common, "axis": labels[k], "k": k, "t": t})
+        if line.score is not None:
+            rows.append({**common, "axis": score_label, "k": len(axes),
+                         "t": line.score / ceiling if ceiling else 0.0})
+    ends = []
+    for k, a in enumerate(axes):
+        if a.options is not None:
+            for o in a.options:
+                ends.append({"axis": labels[k], "t": insights.axis_share(a, o), "text": o,
+                             "where": "option"})
+            continue
+        d = _shared_decimals([a.low, a.high])
+        ends += [{"axis": labels[k], "t": 0.0, "text": _axis_end(opt, a, a.low, d),
+                  "where": "low"},
+                 {"axis": labels[k], "t": 1.0, "text": _axis_end(opt, a, a.high, d),
+                  "where": "high"}]
+    ends += [{"axis": score_label, "t": 0.0, "text": "0", "where": "low"},
+             {"axis": score_label, "t": 1.0, "text": _whole(ceiling), "where": "high"}]
+    cols = ["no", "round", "role", "best", "score", "score_text", "amounts", "order", "axis",
+            "k", "t"]
+    return pd.DataFrame(rows, columns=cols), pd.DataFrame(ends), labels
+
+
+def tried_chart(opt, axes, lines):
+    """What you've tried: parallel coordinates. One vertical axis per
+    varying ingredient and process setting, its Lowest at the bottom and
+    its Highest at the top (written at the ends, with the unit), a choice's
+    options spaced evenly; the last axis the Overall score, 0 to the
+    ceiling. Each scored formulation is a line coloured by its Overall score
+    (score_colours); waiting or Not scored, grey dashed; this Round's
+    suggestions, bold orange, ending before the score; Best so far thick.
+    None without an axis or a line."""
+    if not axes or not lines:
+        return None
+    df, ends, labels = tried_frame(opt, axes, lines)
+    many = len(lines) > _MANY_LINES
+    x = alt.X("axis:N", sort=labels, title=None,
+              scale=alt.Scale(type="point", padding=0.25),
+              axis=alt.Axis(orient="top", labelAngle=0, labelPadding=22, ticks=False,
+                            domain=False, labelLimit=0, labelFontSize=11,
+                            labelExpr="split(datum.label, '\\n')"))
+    lo = min([0.0] + list(df["t"])) if len(df) else 0.0
+    hi = max([1.0] + list(df["t"])) if len(df) else 1.0
+    t_scale = alt.Scale(domain=[lo, hi], nice=False, zero=False)
+    y = alt.Y("t:Q", axis=None, scale=t_scale)
+    word = _say(opt, wording.FORMULATION_CAP)
+    tips = [alt.Tooltip("no:Q", title=word, format="d"),
+            alt.Tooltip("round:N", title=wording.ROUND_CAP),
+            alt.Tooltip("score_text:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN)),
+            alt.Tooltip("amounts:N", title=_say(opt, wording.tried_amounts_title(
+                not opt.has_ingredients())))]
+    grey, grey_o = mark("neutral")
+    ink, _ = mark("bar_latest")
+    text_c = muted()
+    scored = df[df["score"].notna()]
+    dom = ([float(scored["score"].min()), float(scored["score"].max())] if len(scored)
+           else [0.0, float(opt.utility_ceiling())])
+    if dom[1] - dom[0] < 1e-9:
+        dom = [dom[0] - 1, dom[1] + 1]
+    kinds = [k for k in (wording.TRIED_BEST, wording.TRIED_WAITING, wording.TRIED_SUGGESTED)
+             if k in set(df["role"])]
+    look = {wording.TRIED_BEST: (ink, [1, 0]), wording.TRIED_WAITING: (grey, [4, 3]),
+            wording.TRIED_SUGGESTED: (outline_colour(), [1, 0])}
+    stroke = alt.Scale(domain=kinds or [""], range=[look[k][0] for k in kinds] or [grey])
+    dash = alt.Scale(domain=kinds or [""], range=[look[k][1] for k in kinds] or [[1, 0]])
+    kind_legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=3,
+                             symbolType="stroke")
+    axes_df = pd.DataFrame({"axis": labels, "t0": 0.0, "t1": 1.0})
+    layers = [
+        alt.Chart(axes_df).mark_rule(color=grey, opacity=grey_o, strokeWidth=1.5, tooltip=False)
+        .encode(x=x, y=alt.Y("t0:Q", scale=t_scale, axis=None), y2="t1:Q"),
+    ]
+
+    def lines_of(kind_filter, **mark_kw):
+        return (alt.Chart(df).mark_line(**mark_kw)
+                .encode(x=x, y=y, detail="no:N", order=alt.Order("k:Q"), tooltip=tips)
+                .transform_filter(kind_filter))
+
+    plain = alt.FieldOneOfPredicate(field="role", oneOf=[wording.TRIED_SCORED])
+    layers.append(lines_of(plain, strokeWidth=1 if many else 1.6,
+                           opacity=0.55 if many else 0.9)
+                  .encode(color=alt.Color("score:Q", scale=score_scale(dom),
+                                          title=_say(opt, wording.OVERALL_SCORE_COLUMN),
+                                          legend=alt.Legend(orient="right",
+                                                            gradientLength=160))))
+    waiting = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_WAITING)
+    if wording.TRIED_WAITING in kinds:
+        layers.append(lines_of(waiting, strokeWidth=1.5, opacity=1)
+                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
+                              strokeDash=alt.StrokeDash("role:N", scale=dash,
+                                                        legend=kind_legend)))
+    best = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_BEST)
+    if wording.TRIED_BEST in kinds:
+        # A casing in the ink colour, the score colour inside it: thick, and
+        # readable on either page whatever its score colour.
+        layers.append(lines_of(best, strokeWidth=6, opacity=1)
+                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
+                              strokeDash=alt.StrokeDash("role:N", scale=dash,
+                                                        legend=kind_legend)))
+        layers.append(lines_of(best, strokeWidth=3, opacity=1)
+                      .encode(color=alt.Color("score:Q", scale=score_scale(dom), legend=None)))
+    picks = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_SUGGESTED)
+    if wording.TRIED_SUGGESTED in kinds:
+        layers.append(lines_of(picks, strokeWidth=3, opacity=1)
+                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
+                              strokeDash=alt.StrokeDash("role:N", scale=dash,
+                                                        legend=kind_legend)))
+    text = lambda where, **kw: (alt.Chart(ends[ends["where"] == where])
+                                .mark_text(color=text_c, fontSize=10, tooltip=False, **kw)
+                                .encode(x=x, y=alt.Y("t:Q", scale=t_scale, axis=None),
+                                        text="text:N"))
+    layers += [text("low", baseline="top", dy=6), text("high", baseline="bottom", dy=-6)]
+    if (ends["where"] == "option").any():
+        layers.append(text("option", align="left", dx=5, baseline="middle"))
+    return (alt.layer(*layers).resolve_scale(color="independent", stroke="shared")
+            .properties(height=300))
+
+
+def _tried(opt):
+    """§1 of the fold: the title, the gap and limit-hit lines (as the
+    strips had them), the parallel-coordinates chart, its caption."""
+    st.markdown(f"**{_say(opt, wording.TRIED_TITLE)}**")
+    pool = bo_views.feasible_pool(opt)
+    strips = insights.tested_strips(opt, pool)
+    for k, line in enumerate(strip_gap_lines(opt, strips)):
+        st.markdown(_say(opt, line), help=tooltip_for(opt, "gaps") if k == 0 else None)
+    for k, line in enumerate(limit_hit_lines(opt)):
+        st.markdown(_say(opt, line),
+                    help=tooltip_for(opt, "limit_hits") if k == 0 else None)
+    chart = tried_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
+    if chart is None:
+        st.caption(_say(opt, wording.TRIED_NOTHING))
+        return
+    show_chart(chart)
+    settings_only = not opt.has_ingredients()
+    st.caption(_say(opt, wording.tried_caption(settings_only)),
+               help=_say(opt, wording.tip_tried(settings_only)))
+
+
+# ---- How the app chooses ------------------------------------------ #
+
+class Chooses:
+    """What "How the app chooses" draws along one row through Best so far:
+    the path, the suggestion model's mean and sd and its acquisition along
+    it (bo_views.evaluate), the formulations tested near it, where Best so
+    far and this Round's first suggestion sit, and why the gain is
+    withheld (None when it is drawn)."""
+
+    def __init__(self, path, values, tested, best_no, pick, reason):
+        self.path, self.values, self.tested = path, values, tested
+        self.best_no, self.pick, self.reason = best_no, pick, reason
+
+
+def suggestion_model(opt, fitted):
+    """_map_model's model, kept once per data and Round in the session, so
+    the chart, the triangle's layers and the map fit it once a rerun."""
+    key = (insights.data_key(opt), insights.setup_key(opt), opt.pending_batch_no,
+           len(opt.pending_batch or []))
+    hit = st.session_state.get(_PROTO_MODEL)
+    if hit and hit[0] == key:
+        return hit[1]
+    model = _map_model(opt, fitted)
+    st.session_state[_PROTO_MODEL] = (key, model)
+    return model
+
+
+def chooses_reason(opt, fitted):
+    """Why the bottom panel is withheld, in words, or None — the Expected
+    improvement layer's rule (layers_offered), reason by reason."""
+    if wording.LAYER_GAIN in layers_offered(opt, fitted):
+        return None
+    score = (fitted or {}).get(insights.SCORE)
+    checks = checks_for(opt, "trust") or ()
+    rule = explore_withheld(opt, score, checks)
+    if rule == "hidden":
+        return wording.CHOOSES_REASON_NOISE
+    if opt.pending_batch and opt.pending_batch_no is not None and \
+            bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
+        return wording.CHOOSES_REASON_COLD
+    why = withheld(opt, score, checks)
+    if why is not None:
+        gate = insights.skill_gate(opt, checks) if why == "skill" else None
+        return gain_reason(why, gate)
+    return wording.CHOOSES_REASON_UCB
+
+
+def _first_pick(opt):
+    """(number, make-up at the total) of the open Round's first suggestion
+    still to make, or None."""
+    numbers = suggested_numbers(opt)
+    if not numbers:
+        return None
+    return numbers[0], anchor_recipe(opt, numbers[0])
+
+
+def chooses_default(opt):
+    """The row the next Round changes most from Best so far: the open
+    Round's suggestions still to make, else the latest Round's
+    formulations; else the first choice."""
+    choices = insights.path_choices(opt)
+    best = opt.best_index()
+    if not choices or best is None:
+        return choices[0] if choices else None
+    start = insights.start_recipe(opt, best)
+    recipes = [anchor_recipe(opt, n) for n in suggested_numbers(opt)]
+    if not recipes:
+        rounds = [r for r in opt.batch_history if r is not None]
+        if rounds:
+            last = max(rounds)
+            recipes = [insights.start_recipe(opt, i) for i, r in enumerate(opt.batch_history)
+                       if r == last]
+    got = insights.most_changed(opt, start, recipes) if recipes else None
+    return got or choices[0]
+
+
+def chooses_data(opt, fitted, name, model=None):
+    """Chooses for row `name`, or None when the path or the model cannot
+    be had. `model`: the suggestion model (suggestion_model's when None)."""
+    best = opt.best_index()
+    if best is None:
+        return None
+    start = insights.start_recipe(opt, best)
+    path = insights.build_path(opt, name, start)
+    if path.start_breaks or not path.recipes:
+        return None
+    model = suggestion_model(opt, fitted) if model is None else model
+    if model is None:
+        return None
+    values = bo_views.evaluate(opt, model, bo_views.points(opt, path.recipes))
+    pick = None
+    first = _first_pick(opt)
+    if first is not None:
+        pick = (first[0], insights.near_path(opt, path, first[1]))
+    return Chooses(path, values, insights.tested_near_path(opt, path),
+                   int(opt.formulation_ids[best]), pick, chooses_reason(opt, fitted))
+
+
+def chooses_chart(opt, data):
+    """How the app chooses: the classic figure along one row through Best
+    so far. Top: the suggestion model's mean (its posterior mean) with its
+    95 % band, grey where nothing was tested near, the formulations tested
+    near the line as dots coloured by their Overall score. Bottom: the
+    expected gain along the same line (the acquisition the suggestions are
+    chosen by), unless withheld (data.reason). A dashed rule at Best so
+    far; an orange one at this Round's first suggestion when it is near
+    the line."""
+    path, v = data.path, data.values
+    if not path.amounts:
+        return None
+    mean, sd = v.mean.tolist(), v.sd.tolist()
+    gain = v.value.tolist()
+    x_title = f"{path.name} ({path.unit})" if path.unit else path.name
+    xs = alt.Scale(domain=[min(path.amounts), max(path.amounts)], zero=False, nice=False)
+    x = alt.X("x:Q", title=x_title, scale=xs)
+    d = decimals(opt, insights.SCORE)
+    rows = [{"mark": "curve", "x": t, "mean": m, "low": m - insights.Z95 * s,
+             "high": m + insights.Z95 * s, "gain": g, "amount": _amount(t, path.unit),
+             "pred": f"{m:.{d}f} ({range_text(m - insights.Z95 * s, m + insights.Z95 * s, lambda q: f'{q:.{d}f}')})",
+             "gain_text": f"{g:.2f}"}
+            for t, m, s, g in zip(path.amounts, mean, sd, gain)]
+    near = insights.tested_near(opt, path)
+    rows += [{"mark": "grey", "x": lo, "x2": hi} for lo, hi in insights.untested_runs(path, near)]
+    df = pd.DataFrame(rows)
+    ids = [int(n) for n in opt.formulation_ids]
+    dots = pd.DataFrame([{"x": a, "score": round(s, 2), "no": ids[i]}
+                         for i, a, s in data.tested], columns=["x", "score", "no"])
+    marks = [{"x": path.start_amount, "label": _say(opt, wording.TRIED_BEST), "role": "best"}]
+    if data.pick is not None and data.pick[1] is not None:
+        marks.append({"x": data.pick[1], "label": _say(opt, wording.CHOOSES_SUGGESTION),
+                      "role": "pick"})
+    marks = pd.DataFrame(marks)
+    ref_c, ref_o = mark("reference")
+    blue = model_blue()
+    band_c, band_o = _BAND_FILL[theme()]
+    ink, _ = mark("bar_latest")
+    word = _say(opt, wording.FORMULATION_CAP)
+    curve = _only("curve")
+    predicted = _say(opt, wording.CHOOSES_PREDICTED)
+    tip = [alt.Tooltip("amount:N", title=path.name),
+           alt.Tooltip("pred:N", title=f"{predicted} ({wording.CHOOSES_BAND})")]
+    lo_all = min([r["low"] for r in rows if r["mark"] == "curve"]
+                 + (list(dots["score"]) if len(dots) else []))
+    hi_all = max([r["high"] for r in rows if r["mark"] == "curve"]
+                 + (list(dots["score"]) if len(dots) else []))
+    pad = 0.05 * max(hi_all - lo_all, 1.0)
+    ys = alt.Scale(domain=[lo_all - pad, hi_all + pad], zero=False, nice=False)
+
+    def rules(height_title=True):
+        out = []
+        for kind, colour, dash, opacity in (("best", ref_c, [4, 3], ref_o),
+                                            ("pick", outline_colour(), [1, 0], 1.0)):
+            sel = marks[marks["role"] == kind]
+            if not len(sel):
+                continue
+            base = alt.Chart(sel)
+            out.append(base.mark_rule(color=colour, opacity=opacity, strokeDash=dash,
+                                      strokeWidth=2, tooltip=False).encode(x=alt.X("x:Q", scale=xs)))
+            if height_title:
+                out.append(base.mark_text(color=muted(), align="left", dx=4, baseline="top",
+                                          fontSize=10, tooltip=False)
+                           .encode(x=alt.X("x:Q", scale=xs),
+                                   y=alt.value(4 if kind == "best" else 18), text="label:N"))
+        return out
+
+    top_layers = []
+    if (df["mark"] == "grey").any():
+        top_layers += _untested_layers(alt.Chart(df))
+    scored_dom = ([float(dots["score"].min()), float(dots["score"].max())] if len(dots) > 1
+                  else [0.0, float(opt.utility_ceiling())])
+    top_layers += [
+        alt.Chart(df).mark_area(color=band_c, opacity=band_o, tooltip=False)
+        .encode(x=x, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q")
+        .transform_filter(curve),
+        alt.Chart(df).mark_line(color=ink, strokeWidth=2)
+        .encode(x=x, y=alt.Y("mean:Q", scale=ys, title=predicted), tooltip=tip)
+        .transform_filter(curve),
+        *rules(),
+    ]
+    if len(dots):
+        top_layers.append(
+            alt.Chart(dots).mark_point(filled=True, size=70, opacity=1, stroke=ink,
+                                       strokeWidth=1)
+            .encode(x=x, y=alt.Y("score:Q", scale=ys, title=predicted),
+                    color=alt.Color("score:Q", scale=score_scale(scored_dom),
+                                    title=_say(opt, wording.CHOOSES_TESTED),
+                                    legend=alt.Legend(orient="right", gradientLength=90)),
+                    tooltip=[alt.Tooltip("no:Q", title=word, format="d"),
+                             alt.Tooltip("x:Q", title=path.name, format=".2f"),
+                             alt.Tooltip("score:Q", title=_say(opt, wording.OVERALL_SCORE_COLUMN),
+                                         format=".2f")]))
+    top = alt.layer(*top_layers).properties(height=220)
+    if data.reason is not None:
+        return top
+    gain_title = _say(opt, wording.CHOOSES_GAIN)
+    bottom = alt.layer(
+        alt.Chart(df).mark_area(color=blue, opacity=0.25, tooltip=False)
+        .encode(x=x, y=alt.Y("gain:Q", title=gain_title)).transform_filter(curve),
+        alt.Chart(df).mark_line(color=blue, strokeWidth=2)
+        .encode(x=x, y=alt.Y("gain:Q", title=gain_title),
+                tooltip=[alt.Tooltip("amount:N", title=path.name),
+                         alt.Tooltip("gain_text:N", title=gain_title)])
+        .transform_filter(curve),
+        *rules(height_title=False),
+    ).properties(height=130)
+    return alt.vconcat(top, bottom, spacing=8).resolve_scale(x="shared", color="independent")
+
+
+def _chooses(opt, computed):
+    """§2 of the fold: the title, its lead, the selector, the figure, the
+    one-line caption; the withheld reason under it."""
+    st.markdown(f"**{_say(opt, wording.CHOOSES_TITLE)}**")
+    if opt.complete_count() < insights.MIN_ROWS:
+        st.caption(_say(opt, wording.CHOOSES_COLD))
+        return
+    if computed is None:
+        st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
+        return
+    if computed.get("failed"):
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    choices = insights.path_choices(opt)
+    best = opt.best_index()
+    if not choices or best is None:
+        st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
+        return
+    fitted = computed["fitted"]
+    _keep_if_offered(CHOOSES_KEY, choices)
+    if CHOOSES_KEY not in st.session_state:
+        st.session_state[CHOOSES_KEY] = chooses_default(opt)
+    name = st.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOOSES_KEY)
+    try:
+        with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
+            data = chooses_data(opt, fitted, name)
+    except Exception:
+        data = None
+    if data is None:
+        st.caption(_say(opt, wording.panel_failed(name)))
+        return
+    chart = chooses_chart(opt, data)
+    if chart is None:
+        st.caption(_say(opt, wording.panel_failed(name)))
+        return
+    show_chart(chart)
+    st.caption(_say(opt, wording.CHOOSES_CAPTION),
+               help=_say(opt, wording.tip_chooses(data.best_no,
+                                                  settings_only=not opt.has_ingredients())))
+    if data.reason is not None:
+        st.caption(_say(opt, wording.CHOOSES_WITHHELD),
+                   help=_say(opt, wording.tip_chooses_withheld(data.reason)))
+    if data.pick is not None and data.pick[1] is None:
+        st.caption(_say(opt, wording.CHOOSES_OFF_LINE),
+                   help=_say(opt, wording.tip_chooses_off_line(data.pick[0])))
+
+
+def _triangle(opt, computed):
+    """§3 of the fold: the triangle (was under Trade-offs), under its own
+    gate: the models fitted and three ingredients to trade."""
+    if computed is None or computed.get("failed") or opt.complete_count() < insights.MIN_ROWS:
+        return
+    if not opt.has_ingredients():
+        return
+    try:
+        _mixture(opt, computed["fitted"])
+    except Exception:   # one chart failing must not take the fold down
+        st.caption(_say(opt, wording.CHART_FAILED))
 
 
 def layer_values(opt, fitted, recipes, layer):
@@ -3900,7 +4420,7 @@ def _mixture(opt, fitted):
     score = fitted.get(insights.SCORE)
     if len(offered) < 3 or score is None or score.model is None:
         return False
-    _question(opt, wording.Q_MIXTURE)
+    st.markdown(f"**{_say(opt, wording.Q_MIXTURE)}**")
     layer = _layer_pick(opt, fitted, LAYER_KEY)
     layered = layer != wording.LAYER_SCORE
     number = _start_number(opt, layered)
@@ -3958,18 +4478,15 @@ def more_charts_offered(opt, computed):
     score = fitted.get(insights.SCORE)
     # The misses chart is gone (spec 2026-09-30 §2.5): measured against
     # predicted, under "Show each prediction", says the same in the units.
-    return (len(opt.objectives) >= 2
-            or (len(insights.mixture_choices(opt)) >= 3 and score is not None
-                and score.model is not None))
+    # Charts proto: the triangle moved to Explored and unexplored; the
+    # fold holds the two-measurement chart alone.
+    return len(opt.objectives) >= 2
 
 
 def trade_offs_label(opt, computed):
     """The Trade-offs fold's name (ftue §2; was More charts): it names the
     three ingredients only when the triangle can be drawn."""
-    score = computed["fitted"].get(insights.SCORE)
-    triangle = (opt.has_ingredients() and len(insights.mixture_choices(opt)) >= 3
-                and score is not None and score.model is not None)
-    return wording.trade_offs_fold(triangle)
+    return wording.PAIR_FOLD
 
 
 def _more_charts(opt, computed):
@@ -3977,8 +4494,7 @@ def _more_charts(opt, computed):
         return
     # Keyed (M3), so its open state is the reader's across reruns.
     with st.expander(_say(opt, trade_offs_label(opt, computed)), key=MORE_KEY):
-        for draw in (lambda: _pair(opt),
-                     lambda: _mixture(opt, computed["fitted"])):
+        for draw in (lambda: _pair(opt),):
             try:
                 draw()
             except Exception:   # one chart failing must not take the tab down

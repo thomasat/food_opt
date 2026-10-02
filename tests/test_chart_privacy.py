@@ -211,6 +211,9 @@ def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_
     # open (BO views, binding I15): open both.
     at.session_state[ui_insights.EACH_KEY] = True
     at.session_state[ui_insights.PROGRESS_KEY] = True
+    # Charts proto: the triangle sits in Explored and unexplored now, with
+    # What you've tried, How the app chooses and the map: open it too.
+    at.session_state[ui_insights.EXPLORED_KEY] = True
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception

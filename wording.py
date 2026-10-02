@@ -7102,3 +7102,95 @@ def repeat_after_generate(no):
     Repeat waits for Generate, so the app's suggestions still come first."""
     return (f"Click Generate first: the Repeat of {FORMULATION_CAP} {no} then opens, filled in, "
             f"under {ADD_OWN_EXPANDER}.")
+
+
+# --- charts proto ---
+# 2026-10-01 charts prototype (owner: "are the plots we're showing now
+# best?"): the Explored and unexplored fold holds four charts — What
+# you've tried, How the app chooses, the triangle, the map. The owner's
+# concision rule: a caption is about 8 words at most, a title or label 5;
+# the explanation sits in the "?" (help) or the chart's own tooltip.
+TRIED_TITLE = "What you've tried"
+TRIED_BEST = BEST_SO_FAR_COLUMN
+TRIED_WAITING = f"Waiting or {NOT_SCORED}"
+TRIED_SUGGESTED = f"This {ROUND_CAP}'s suggestion"
+TRIED_SCORED = f"Scored {FORMULATION}"
+
+
+def tried_caption(settings_only=False):
+    """Under the parallel-coordinates chart (the owner's 8-word rule)."""
+    return f"One line per {FORMULATION_CAP}; colour: {OVERALL_SCORE_COLUMN}."
+
+
+def tip_tried(settings_only=False):
+    """The caption's "?": how to read a line."""
+    what = "process setting" if settings_only else "ingredient and process setting"
+    return (f"Each line is one {FORMULATION_CAP}. It crosses one axis per {what} at its "
+            f"amount, Lowest at the bottom and Highest at the top, and ends at its "
+            f"{OVERALL_SCORE_COLUMN} on the right (0 at the bottom), coloured by that score. "
+            f"Thick: Best so far. Orange: this {ROUND_CAP}'s suggestions, not yet scored, "
+            f"ending before the score axis. Grey dashed: waiting for results or {NOT_SCORED}. "
+            "Lines that bunch together on an axis show the amounts tried most; empty stretches "
+            "show what has not been tried. The Fill to total row is not drawn: it follows the "
+            "others. BO term: parallel coordinates of the design points.")
+
+
+def tried_amounts_title(values=False):
+    """The line tooltip's make-up field."""
+    return "Values" if values else "Amounts"
+
+
+TRIED_NOTHING = "Nothing recorded yet."
+
+CHOOSES_TITLE = "How the app chooses"
+CHOOSES_CAPTION = "Suggestions go where expected gain peaks."
+CHOOSES_PREDICTED = f"Predicted {OVERALL_SCORE_COLUMN}"
+CHOOSES_BAND = "95 % interval"
+CHOOSES_GAIN = "Expected gain (points)"
+CHOOSES_TESTED = "Tested near this line"
+CHOOSES_SUGGESTION = "First suggestion"
+CHOOSES_COLD = f"Appears after 5 scored {FORMULATION}s."
+
+
+def tip_chooses(best_no, settings_only=False):
+    """The caption's "?": the owner's own reading, and what the line is."""
+    what = "process setting" if settings_only else "ingredient or process setting"
+    return ("The app suggests where the expected gain (bottom) is highest — either a high "
+            "prediction or high uncertainty (top). "
+            f"The line moves one {what} from its Lowest to its Highest, starting from Best so "
+            f"far ({FORMULATION_CAP} {best_no}); the other rows stay at Best so far's amounts. "
+            "Top: the suggestion model's predicted Overall score with its 95 % interval, grey "
+            f"where nothing was tested near, and the {FORMULATION}s tested near the line. "
+            "Bottom: the expected gain over Best so far at each point, in points. BO term: "
+            "posterior mean and 95 % credible band (top), acquisition function (bottom), along "
+            "a one-dimensional slice through the incumbent.")
+
+
+CHOOSES_WITHHELD = "Expected gain not shown."
+
+
+def tip_chooses_withheld(reason):
+    """The withheld line's "?": why."""
+    return f"Expected gain is not shown: {reason}."
+
+
+CHOOSES_REASON_NOISE = "the model is reading chance variation as effects"
+CHOOSES_REASON_UCB = "your model settings choose suggestions by an upper bound, not a gain"
+CHOOSES_REASON_COLD = (f"this {ROUND_CAP}'s suggestions were not chosen by the model (fewer "
+                       f"than 5 {FORMULATION}s had all their results)")
+CHOOSES_OFF_LINE = "First suggestion is off this line."
+
+
+def tip_chooses_off_line(no):
+    """The off-line caption's "?"."""
+    return (f"This {ROUND_CAP}'s first suggestion ({FORMULATION_CAP} {no}) also changes other "
+            "rows: it is not near this line. Choose another row to find it.")
+
+
+PAIR_FOLD = "Two measurements"
+
+
+def basis_charts(values=False, total=True):
+    """The fold's first line with the four charts (was basis_explored)."""
+    at = "at the values run" if values else "at the Formulation total" if total else "as made"
+    return f"Lines: {at}. Others: the suggestion model."

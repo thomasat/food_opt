@@ -3097,3 +3097,120 @@ def status_rules(opt, checks=None):
         rows = [(k, r) for k, r in rows
                 if k == ("predictions", "gate") or k[0] == "progress"]
     return [r for _, r in rows]
+
+
+# ------------------------------------------------------------------ #
+#  Charts proto (2026-10-01): "What you've tried" (parallel coordinates)
+#  and "How the app chooses" (the path through Best so far). Model-free
+#  data here; the charts are ui_insights'.
+# ------------------------------------------------------------------ #
+
+@dataclass
+class TriedAxis:
+    name: str
+    unit: str
+    low: float              # Lowest (bottom of the axis)
+    high: float             # Highest (top)
+    setting: bool = False
+    options: list | None = None   # a choice row: its options, spaced evenly
+
+
+@dataclass
+class TriedLine:
+    formulation: int
+    round: int | None
+    state: str              # "tested", "waiting", "not_scored" or "suggested"
+    score: float | None
+    best: bool
+    values: dict            # {axis name: amount, setting or option}
+
+
+def tried_axes(opt):
+    """One axis per varying ingredient and process setting (continuous or a
+    choice), ingredients first, in project order; the Fill to total row is
+    left out: it follows the others."""
+    fill = opt.balance_row_name()
+    out = []
+    for v in _strip_rows(opt):
+        if v['name'] == fill:
+            continue
+        setting = not _is_ingredient(v)
+        if v.get('type') != 'continuous':
+            out.append(TriedAxis(v['name'], "", 0.0, 1.0, setting, list(v.get('options', []))))
+            continue
+        low, high = (float(b) for b in v['bounds'])
+        out.append(TriedAxis(v['name'], opt.unit_of(v['name']), low, high, setting))
+    return out
+
+
+def tried_lines(opt):
+    """One TriedLine per recorded formulation (tested, waiting, Not scored)
+    and per suggestion of the open Round still to make, at the Formulation
+    total (the make-up the models learn), as the strips take them."""
+    best = opt.best_index()
+    best_no = None if best is None else int(opt.formulation_ids[best])
+    names = [a.name for a in tried_axes(opt)]
+    out = []
+    for recipe, tick in _strip_ticks(opt):
+        values = {}
+        for n in names:
+            x = recipe.get(n)
+            values[n] = x if isinstance(x, str) else float(x or 0.0)
+        out.append(TriedLine(tick.formulation, tick.round, tick.state, tick.score,
+                             tick.state == "tested" and tick.formulation == best_no, values))
+    return out
+
+
+def axis_share(axis, value):
+    """Where `value` sits on `axis`, 0 at its Lowest, 1 at its Highest; a
+    choice's options spaced evenly (one option: the middle). A value
+    recorded outside Lowest–Highest is drawn outside 0–1."""
+    if axis.options is not None:
+        if value not in axis.options:
+            return None
+        n = len(axis.options)
+        return 0.5 if n == 1 else axis.options.index(value) / (n - 1)
+    span = axis.high - axis.low
+    return 0.5 if span <= 0 else (float(value) - axis.low) / span
+
+
+def tested_near_path(opt, path):
+    """The fully measured formulations within CLOSE_TO_THE_BEST of some
+    point of `path` (tested_near's rule, per formulation): [(index, its
+    amount of the path's row at the total, its Overall score)]."""
+    out = []
+    for i in range(len(opt.Y_history)):
+        if not opt.fully_measured(i):
+            continue
+        t = start_recipe(opt, i)
+        ds = [distance(opt, r, t) for r in path.recipes]
+        if any(d is not None and d <= CLOSE_TO_THE_BEST + _EPS for d in ds):
+            out.append((i, float(t.get(path.name, 0.0) or 0.0), float(opt.Y_history[i])))
+    return out
+
+
+def near_path(opt, path, recipe):
+    """`recipe`'s amount of the path's row when it lies within
+    CLOSE_TO_THE_BEST of the path, else None."""
+    ds = [distance(opt, r, recipe) for r in path.recipes]
+    if any(d is not None and d <= CLOSE_TO_THE_BEST + _EPS for d in ds):
+        return float(recipe.get(path.name, 0.0) or 0.0)
+    return None
+
+
+def most_changed(opt, start, recipes):
+    """The path choice `recipes` move furthest from `start`, as a share of
+    its Lowest–Highest: the largest move over the recipes, ties (two rows
+    taken to a limit) to the larger total move; None without one."""
+    best, best_key = None, None
+    for n in path_choices(opt):
+        v = _var(opt, n)
+        lo, hi = (float(b) for b in v['bounds'])
+        if hi <= lo or not recipes:
+            continue
+        moves = [abs(float(r.get(n, 0.0) or 0.0) - float(start.get(n, 0.0) or 0.0)) / (hi - lo)
+                 for r in recipes]
+        key = (round(max(moves), 9), round(sum(moves), 9))
+        if best_key is None or key > best_key:
+            best, best_key = n, key
+    return best
