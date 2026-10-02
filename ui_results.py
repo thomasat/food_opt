@@ -405,9 +405,11 @@ def _best(opt):
     if is_best:
         # One rule line (audit V8, review I10), then what the last Round
         # did, then what is still waiting.
+        without = opt.best_scored_without()
         st.caption(wording.for_project(opt, wording.BEST_RULE_WITHOUT
-                                       if opt.best_scored_without()
-                                       else wording.BEST_RULE))
+                                       if without else wording.BEST_RULE),
+                   help=wording.for_project(opt, wording.BEST_RULE_WITHOUT_HELP
+                                            if without else wording.BEST_RULE_HELP))
         repeats = best_repeats_text(opt)
         if repeats:
             st.caption(wording.for_project(opt, repeats))
@@ -468,7 +470,7 @@ def _best(opt):
         # the fold below must grey these on the same run.
         missing = {"number": number, "names": waiting, "slot": st.container()}
     if partial:
-        st.caption(_complete_results_caption(opt))
+        st.caption(_complete_results_caption(opt), help=_complete_results_help(opt))
     return partial, missing, waiting is None
 
 
@@ -512,6 +514,11 @@ def _waiting_lines(opt):
                                           opt.batch_history[rows[0]] if len(rows) == 1
                                           else None))
     return lines
+
+
+def _complete_results_help(opt):
+    return wording.for_project(opt, wording.complete_results_help(
+        not opt.best_scored_without()))
 
 
 def _complete_results_caption(opt):
@@ -702,7 +709,7 @@ def _all_formulations(opt, said_partial=False):
     # What a dash means, only while a dash is in the table (audit V9): a
     # waiting cell is not one.
     if not said_partial and any(opt.not_expected(i) for i in range(len(opt.Y_history))):
-        st.caption(_complete_results_caption(opt))
+        st.caption(_complete_results_caption(opt), help=_complete_results_help(opt))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it

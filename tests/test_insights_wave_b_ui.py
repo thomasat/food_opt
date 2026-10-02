@@ -181,11 +181,13 @@ def test_the_round_screen_reads_trial_on_a_process_only_project(warm_ferment):
     assert "fitted to the 5 scored trials" in proto and "formulation" not in trial_help
     captions = [c.value for c in at.caption]
     trial_caption = wording.for_project(warm_ferment, wording.predictions_round_caption(values=True))
-    assert trial_caption == ("Suggestions favour trials the model is unsure about as well "
-                             "as ones it predicts high, so one can be predicted below Best "
-                             "so far.")
+    # Concision round: the short caption names neither; its help says trials.
+    assert trial_caption == "Exploring suggestions can predict below Best so far."
     assert captions.count(trial_caption) == 1
-    assert wording.PREDICTIONS_ROUND_CAPTION not in captions
+    [line] = [c for c in at.caption if c.value == trial_caption]
+    assert line.proto.help == ("Suggestions favour trials the model is unsure about as well "
+                               "as ones it predicts high, so one can be predicted below Best "
+                               "so far.")
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
     frame = exp.table[0].value.reset_index()
     assert list(frame.columns) == [wording.TRIAL_CAP, "Acidity (pH)"]
@@ -447,7 +449,7 @@ def test_section_4_gate(scored):          # 2 formulations with all their result
     md, caps = _tab_text(at)
     assert f"##### {wording.Q_NEXT}" not in md               # under 5: the gate line instead
     # Since ftue W1 the gate is the Predictions status line's (R-B1 row 3).
-    assert md.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
+    assert md.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
     assert wording.insights_gate(2) not in caps
 
 
@@ -522,7 +524,8 @@ def test_exact_wave_b_strings():
         "Model mean and 95 % prediction interval for one measured Overall score, from a "
         "Gaussian process fitted to the scored formulations. Aims for 95 %; measured about "
         "91 % (measurements) / 89 % (Overall score) on simulated projects.")
-    assert wording.PREDICTIONS_ROUND_CAPTION == (
+    assert wording.PREDICTIONS_ROUND_CAPTION == "Exploring suggestions can predict below Best so far."
+    assert wording.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it "
         "predicts high, so one can be predicted below Best so far.")
     assert wording.spread_from(False, 9) == "Formulation 9"
@@ -555,7 +558,7 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     assert f"##### {wording.Q_STAND}" in md
     assert "Try one process setting" in [e.label for e in tab.expander]
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
-    assert [c for c in caps if c.startswith("Based on 5 scored trials")]
+    assert [c for c in caps if c.startswith("5 scored trials")]
 
 
 def _best_frames_for(tab, first):

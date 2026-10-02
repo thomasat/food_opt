@@ -373,7 +373,7 @@ def _saved_copies(opt):
     """Save a copy, the copies the app kept, and Open a saved copy: inside
     Manage project since 0.8.0 (spec 2026-09-30 §5)."""
     st.markdown(wording.SAVED_COPIES_HEADING)
-    st.caption(wording.SAVED_COPIES_CAPTION)
+    st.caption(wording.SAVED_COPIES_CAPTION, help=wording.SAVED_COPIES_HELP)
 
     if getattr(opt, "load_error", None):
         # Never offer a "copy" of a project that failed to load — it
@@ -402,7 +402,7 @@ def _saved_copies(opt):
 
     # Any file name: what is inside decides, not the extension.
     uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
-    st.caption(wording.OPEN_SAVED_COPY_CAPTION)
+    st.caption(wording.OPEN_SAVED_COPY_CAPTION, help=wording.OPEN_SAVED_COPY_HELP)
     if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
         try:
             st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())

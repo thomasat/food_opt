@@ -394,14 +394,16 @@ def test_the_process_only_term_tips_say_values():
 
 def test_each_basis_line_is_its_text_and_its_help():
     opt = D.load(D.LINE_A)
+    # Concision round: the short basis on screen, the full one first in its help.
     for which, text in (("predictions", W.BASIS_PREDICTIONS), ("progress", W.BASIS_PROGRESS)):
         line, help_text = ui_insights.basis_line(opt, which)
-        assert line == text and help_text == ui_insights.tooltip_for(opt, f"basis_{which}")
+        assert line == W.BASIS_SHORT[which]
+        assert help_text == f"{text}\n\n{ui_insights.tooltip_for(opt, f'basis_{which}')}"
     line, help_text = ui_insights.basis_line(opt, "next")
-    assert line == W.BASIS_NEXT and help_text is None
+    assert line == W.BASIS_SHORT["next"] and help_text == W.BASIS_NEXT
     oven = D.load(D.PROCESS_ONLY)
-    line, _ = ui_insights.basis_line(oven, "predictions")
-    assert "trials recorded before each Round" in line
+    _, help_text = ui_insights.basis_line(oven, "predictions")
+    assert "trials recorded before each Round" in help_text
 
 
 # ------------------------------------------------------------------ #

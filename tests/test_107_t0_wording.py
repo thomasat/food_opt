@@ -336,15 +336,15 @@ def test_the_in_place_edits():
 
 def test_the_fold_labels_and_links():
     """§2, 02 §4, R-I4, R-I14."""
-    assert W.FOLD_PREDICTION_FIGURES == "Prediction figures — 95 % intervals, mean error, skill"
-    assert W.FOLD_PROGRESS_FIGURES == (
-        "Progress figures — expected improvement, Repeats, noise threshold")
+    # Concision round (2026-10-01): fold labels and links at most 5 words.
+    assert W.FOLD_PREDICTION_FIGURES == "Prediction figures"
+    assert W.FOLD_PROGRESS_FIGURES == "Progress figures"
     assert (W.FOLD_NEXT_REASONING, W.FOLD_MEASURED_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED) == (
-        "Next-step reasoning", "Measured against predicted (chart)", "Method and definitions",
+        "Next-step reasoning", "Measured against predicted", "Method and definitions",
         "Explored and unexplored")
-    assert W.trade_offs_fold() == "Trade-offs: two measurements, three ingredients"
-    assert W.why_link(6) == "Why the model suggested Round 6"
-    assert W.for_project(_SettingsOnly(), W.repeat_link(24)) == "Make a Repeat of Trial 24"
+    assert W.trade_offs_fold() == "Trade-offs"
+    assert W.why_link(6) == "Why Round 6 was suggested"
+    assert W.for_project(_SettingsOnly(), W.repeat_link(24)) == "Repeat Trial 24"
     # Every Basis line starts the same way (R-I6: the fold's help sits on it).
     for text in (W.BASIS_PREDICTIONS, W.BASIS_PROGRESS, W.BASIS_NEXT, W.basis_explored()):
         assert text.startswith("Basis: "), text

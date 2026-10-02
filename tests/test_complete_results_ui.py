@@ -75,7 +75,7 @@ def test_insights_with_no_complete_formulation(six_waiting):
     assert captions[0] == "6 formulations are waiting for Juiciness.", captions
     texts = [m.value for m in at.tabs[3].markdown]
     # The gate, said by the Predictions status line since ftue W1.
-    assert wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(0), wording.PREDICTIONS_WORDS["not_yet"]) in texts, texts
+    assert wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(0), wording.PREDICTIONS_WORDS["not_yet"]) in texts, texts
     # "Where do you stand?" is not left empty (final review M-5).
     texts = [m.value for m in at.tabs[3].markdown]
     at_q = texts.index(f"##### {wording.Q_STAND}")
@@ -211,7 +211,9 @@ def test_insights_header_counts_the_waiting(one_waiting):
     assert not at.exception
     # Ledger, early five-second re-test (fix round B): the header names the
     # waiting formulation(s) by number instead of counting "N more".
-    assert any(c.value == (
+    # Concision round: the short header on screen, the full one in its help.
+    assert any(c.value == "2 scored formulations, up to Round 1. Formulation 4 is waiting for "
+               "Juiciness." and c.proto.help == (
         "Based on 2 scored formulations (all results in), up to Round 1. Formulation 4 is "
         "waiting for Juiciness and is not used yet.")
         for c in at.tabs[3].caption), [c.value for c in at.tabs[3].caption]
@@ -232,7 +234,8 @@ def _arm_delete(at):
 
 def test_the_caption_says_what_a_dash_means():
     """Review #2: the dash is a measurement it is scored without."""
-    assert wording.COMPLETE_RESULTS_CAPTION == (
+    assert wording.COMPLETE_RESULTS_CAPTION == "“—”: scored without that measurement."
+    assert wording.complete_results_help() == (
         "A formulation counts once all its results are in; “—” means it is "
         "scored without that measurement, so it is not compared for Best so far.")
 

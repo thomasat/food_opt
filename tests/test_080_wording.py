@@ -206,9 +206,10 @@ def test_exact_texts_from_the_spec():
     assert w.details_window([2, 3, 4, 5], 3, [3, 4, 5]) == (
         "Table: all Rounds checked (Rounds 2–5). Verdict: the last 3 (Rounds 3–5).")
     assert w.overall_score_line(90.45, 100) == "Overall score 90.45 of 100."
+    # Concision round (2026-10-01): short, the threshold kept.
     assert w.tie_line(22, "90.65", "0.20", 15, "1.2") == (
-        "Formulation 22 scored 90.65, 0.20 above Formulation 15: within the noise threshold "
-        "(Repeat SD 1.2 points), so the two are tied.")
+        "Tied with Formulation 15: 0.20 apart, within the noise threshold "
+        "(Repeat SD 1.2 points).")
     assert w.never_coming_warning(19, "Cook loss") == (
         "Cook loss for Formulation 19 will never come? It stays in your records, unscored, "
         "and stops counting on Insights.")
@@ -250,7 +251,7 @@ def test_singular_and_plural_forms():
     assert w.stand_since(1) == "No higher score in the Round since."
     assert w.stand_since(2) == "No higher score in the 2 Rounds since."
     assert w.trust_early(1) == "Not judged yet: 1 value checked; the verdict needs 10."
-    assert w.waiting_list("Cook loss", [22], 6) == "Waiting for Cook loss: Formulation 22 (Round 6)."
+    assert w.waiting_list("Cook loss", [22], 6) == "Waiting for Cook loss: Formulation 22, Round 6."
     assert w.waiting_list("Cook loss", [21, 22]) == "Waiting for Cook loss: Formulations 21–22."
     assert w.more_label(True, True) == "More · Not scored"
 

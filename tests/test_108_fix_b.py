@@ -97,6 +97,8 @@ def test_header_text_reads_the_waiting_formulations_numbers():
     _tell(opt, 7, 3, drop=("Cook loss",))
     assert opt.awaited_rows() == [6]
     assert ui_insights.header_text(opt).endswith(
+        f" {W.FORMULATION_CAP} 7 is waiting for Cook loss.")
+    assert ui_insights.header_detail(opt).endswith(
         f" {W.FORMULATION_CAP} 7 is waiting for Cook loss and is not used yet.")
 
 

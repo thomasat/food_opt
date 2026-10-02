@@ -151,7 +151,7 @@ def test_headings_are_nouns():
     """03 §4, review I7: noun headings, and the link labels follow them."""
     assert (W.Q_TRUST, W.Q_STAND, W.Q_NEXT) == ("Prediction check", "Progress", "Next step")
     # Ftue §2 (integration): the folds' new names.
-    assert W.FOLD_MEASURED_CHART == "Measured against predicted (chart)"
+    assert W.FOLD_MEASURED_CHART == "Measured against predicted"
     assert W.FOLD_PROGRESS_CHART == "Progress chart"
     assert W.FOLD_METHOD == "Method and definitions"
     assert W.GAIN_HEADING == "Expected improvement by Round"
@@ -229,12 +229,12 @@ def test_exact_texts_from_the_audit():
     assert W.near_line("Coconut oil", "1.4", "Best so far") == (
         "Largest local effect from Best so far: Coconut oil, 1.4 points.")
     assert W.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % interval)"
-    assert W.predictions_round_caption() == (
+    assert W.predictions_round_caption() == "Exploring suggestions can predict below Best so far."
+    assert W.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it predicts "
         "high, so one can be predicted below Best so far.")
     assert W.tie_line(22, "90.65", "0.20", 15) == (
-        "Formulation 22 scored 90.65, 0.20 above Formulation 15: within the 1-point noise "
-        "threshold, so the two are tied.")
+        "Tied with Formulation 15: 0.20 apart, within the 1-point noise threshold.")
     assert W.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert W.HOW_NO_P.endswith("R² on formulations chosen this way is misleading, so skill "

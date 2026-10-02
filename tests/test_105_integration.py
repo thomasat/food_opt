@@ -154,7 +154,10 @@ def _why_caption(monkeypatch, gate, reasons=("skill",)):
     at = _app(opt)
     at.session_state[ui_batch.WHY_KEY] = True
     _rerun(at)
-    return [c.value for c in _fold(at).caption]
+    # Concision round: a withheld-gain line is short on screen, its full
+    # sentence in its help; both are returned.
+    caps = _fold(at).caption
+    return [c.value for c in caps] + [c.proto.help for c in caps if c.proto.help]
 
 
 def test_the_why_fold_says_too_few_checks(monkeypatch):

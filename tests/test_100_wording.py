@@ -229,10 +229,9 @@ def test_exact_texts_from_the_rulings():
                                                    "Expected improvement (points)")
     # I7: the Repeats line, two decimals.
     assert W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17") == (
-        "Repeats of Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).")
+        "Repeats of Formulation 14: 67.30, 66.34, 75.61. Mean of all: 75.17.")
     assert W.best_repeats_line(14, ["67.30", W.repeat_score("75.61", True)], "78.12") == (
-        "Repeats of Formulation 14: 67.30, 75.61 (disagrees). Mean with Formulation 14: "
-        "78.12.")
+        "Repeats of Formulation 14: 67.30, 75.61 (disagrees). Mean of all: 78.12.")
     # I8: the Set up callout.
     assert W.setup_callout("Textured pea protein", "30 g") == (
         "Textured pea protein: Highest 30 g. Next step suggests raising it; change the Highest "

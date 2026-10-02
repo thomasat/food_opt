@@ -583,7 +583,7 @@ def test_the_order_inside_the_fold(monkeypatch):
     said = _fold_text(monkeypatch, opt, computed)
     kinds = [k for k, _ in said]
     texts = [t if k != "chart" else "chart" for k, t in said]
-    assert texts[0] == wording.basis_explored()
+    assert texts[0] == wording.BASIS_EXPLORED_SHORT
     assert texts[1] == f"**{wording.STRIPS_TITLE}**"
     assert texts[2] == GAP_LINES[D.LINE_A]
     assert texts[3].startswith("All 4 suggestions")

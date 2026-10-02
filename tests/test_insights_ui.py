@@ -310,8 +310,8 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     tab = at.tabs[3]
     # Once on the tab: the Predictions status line's (ftue W1, R-B1 row 3).
     md_lines = [m.value for m in tab.markdown]
-    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
-    assert sum(wording.pred_gate(2) in m for m in md_lines) == 1
+    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
+    assert sum(wording.short_gate(2) in m for m in md_lines) == 1
     assert any("Best so far:" in m.value for m in tab.markdown)   # "Where do you stand?" shows
     md = " ".join(m.value for m in tab.markdown)
     assert wording.Q_TRUST not in md and wording.Q_NEXT not in md

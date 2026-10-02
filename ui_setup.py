@@ -570,7 +570,7 @@ def _variables(opt, storage):
     and came back.
     """
     st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
-    st.caption(wording.INGREDIENT_GRID_CAPTION)
+    st.caption(wording.INGREDIENT_GRID_CAPTION, help=wording.INGREDIENT_GRID_HELP)
     st.caption(wording.EDITABLE_TABLE_HELP)
     _callout(opt)
     saved = opt.ingredient_grid_frame()
@@ -626,7 +626,7 @@ def _variables(opt, storage):
     staged = st.session_state.pop(calculation_editor.EDITOR_STAGED, None)
     if staged:
         st.success(staged)
-    st.caption(wording.CALCULATION_EDIT_HINT)
+    st.caption(wording.CALCULATION_EDIT_HINT, help=wording.CALCULATION_EDIT_HINT_HELP)
     _discarded_round_line(opt)
     if getattr(opt, "amount_unit_backfilled", False):
         # The file this project was saved in predates the unit; its amounts
@@ -1221,7 +1221,7 @@ def _calculation_columns(rows, saved):
 def _upload_ingredients(opt):
     """The ingredient file, folded away: typing one ingredient is the common
     case, and a file is the shortcut for a project that already has one."""
-    st.caption(wording.INGREDIENTS_FILE_CAPTION)
+    st.caption(wording.INGREDIENTS_FILE_CAPTION, help=wording.INGREDIENTS_FILE_HELP)
     uploaded = st.file_uploader(
         wording.UPLOAD_INGREDIENTS_FILE_LABEL, type=["xlsx", "csv"],
         # Keyed to the project: a file uploader cannot be emptied from session
@@ -1416,7 +1416,7 @@ def _also_record(opt):
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
     if opt.records("lot"):
         st.caption(wording.LOT_LOCATION_HELP)
-    st.caption(wording.RECORDING_GUIDANCE)
+    st.caption(wording.RECORDING_GUIDANCE, help=wording.RECORDING_GUIDANCE_HELP)
     custom_records.setup(opt)
     def _save_actual():
         opt.set_records('actual', st.session_state['record_actual'])
@@ -1474,7 +1474,7 @@ def _measurements(opt, storage):
     st.subheader(wording.MEASUREMENTS_HEADER)
     # One line (spec 2026-09-30 §5, audit V18); the rest is behind each
     # column's "?".
-    st.caption(wording.MEASUREMENT_GOAL_CAPTION)
+    st.caption(wording.MEASUREMENT_GOAL_CAPTION, help=wording.MEASUREMENT_GOAL_HELP)
     st.caption(wording.EDITABLE_TABLE_HELP)
     saved = opt.measurement_grid_frame()
     opening, from_park = _opening_frame(MEAS_GRID_KEY, saved)
@@ -1776,7 +1776,7 @@ def _property_limits(opt):
         return
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
                           key="prop_metric")
-    st.caption(wording.LIMIT_BOUND_HELP)
+    st.caption(wording.LIMIT_BOUND_HELP, help=wording.LIMIT_BOUND_DETAIL)
     p1, p2 = st.columns(2)
     with p1:
         st.session_state.setdefault("prop_min", None)
@@ -1834,7 +1834,8 @@ def _limits(opt, storage):
     # "of your ingredients", not "from your ingredient file": a property
     # is named in the app as often as it arrives in a file, and the grid
     # that names one is further down this expander.
-    st.caption(wording.for_project(opt, wording.LIMITS_CAPTION))
+    st.caption(wording.for_project(opt, wording.LIMITS_CAPTION),
+               help=wording.for_project(opt, wording.LIMITS_HELP))
 
     _property_limits(opt)
 

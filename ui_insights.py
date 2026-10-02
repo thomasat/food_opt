@@ -3,6 +3,7 @@ and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import contextlib
 import itertools
 import math
+import re
 import threading
 
 import altair as alt
@@ -713,6 +714,15 @@ def column_models(opt):
     return models, insights.column_factor(opt, checks)
 
 
+def track_short(t):
+    """track_text, short (concision round): the record and each warning in
+    a few words; track_text is its tooltip."""
+    return wording.round_track_short(
+        t.rounds or None, t.inside if t.record else None, t.total, rough=bool(t.rough),
+        gap_text=None if t.gap is None else f"{abs(t.gap):.1f}", below=(t.gap or 0) < 0,
+        see_insights=bool(t.see_insights), no_skill=t.no_skill is not None)
+
+
 def track_text(t):
     """The line for insights.round_track's answer: rough only when too few
     landed inside; a bias in Insights' own words; holding otherwise — each
@@ -903,7 +913,7 @@ def render(opt):
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    st.caption(_say(opt, header_text(opt)))
+    st.caption(_say(opt, header_text(opt)), help=_say(opt, header_detail(opt)))
     if insights_jobs.stopped():
         # C2 (review M5): the workers broke too often; everything is now
         # worked out here, behind each screen's own indicator.
@@ -1440,10 +1450,11 @@ def next_sentence(opt, facts):
     return wording.next_plain_see(no, left, repeat_no=ask, values=values)
 
 
-def status_texts(opt, facts):
-    """{line: its full text, through for_project}: 'Predictions: **Not
-    yet.** …', 'Progress: **Flat.** …', 'Next: …' (M7: no word). The
-    lines facts.pending names are left out."""
+def status_full_texts(opt, facts):
+    """{line: its full sentence, through for_project}: 'Predictions: **Not
+    yet.** …', 'Progress: **Flat.** …', 'Next: …' (M7: no word). Shown
+    first in the line's tooltip since the concision round. The lines
+    facts.pending names are left out."""
     out = {}
     if "predictions" not in facts.pending:
         out["predictions"] = wording.status_line(
@@ -1458,14 +1469,129 @@ def status_texts(opt, facts):
     return {k: _say(opt, v) for k, v in out.items()}
 
 
+def status_texts(opt, facts):
+    """{line: its on-screen text, through for_project} (concision round):
+    'Predictions: **Reliable.** 33 of 35 results in range.', its bold word
+    and one short fact; the full sentence is in its tooltip
+    (status_full_texts). The lines facts.pending names are left out."""
+    out = {}
+    if "predictions" not in facts.pending:
+        out["predictions"] = wording.status_line(
+            wording.STATUS_PREDICTIONS, prediction_short(opt, facts),
+            wording.PREDICTIONS_WORDS[facts.predictions])
+    if "progress" not in facts.pending:
+        word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+        out["progress"] = wording.status_line(wording.STATUS_PROGRESS,
+                                              progress_short(opt, facts), word)
+    if "next" not in facts.pending:
+        out["next"] = wording.status_line(wording.STATUS_NEXT, next_short(opt, facts))
+    return {k: _say(opt, v) for k, v in out.items()}
+
+
+def _full_sentence(line):
+    """A full status line's sentence, its label and bold word taken off."""
+    return re.sub(r"^\w+: (\*\*[^*]+\*\* )?", "", line)
+
+
+def status_help(opt, facts, which):
+    """The line's tooltip: its full sentence, then W2's exact rule."""
+    full = status_full_texts(opt, facts).get(which)
+    tip = tooltip_for(opt, which, facts)
+    parts = [p for p in (full and _full_sentence(full), tip) if p]
+    return "\n\n".join(parts) or None
+
+
 def _status_line(opt, facts, which):
-    """One status line, with W2's exact-rule tooltip; its caption while its
-    facts are still being worked out (R-I8)."""
+    """One status line, short (concision round), its full sentence and
+    W2's exact rule in the tooltip; its caption while its facts are still
+    being worked out (R-I8)."""
     text = None if facts is None else status_texts(opt, facts).get(which)
     if text is None:
         st.caption(_say(opt, _PLACEHOLDERS[which]))
     else:
-        st.markdown(text, help=tooltip_for(opt, which, facts))
+        st.markdown(text, help=status_help(opt, facts, which))
+
+
+def prediction_short(opt, facts):
+    """The Predictions line on screen (concision round): one fact, the
+    numbers kept; the check advice kept when the full sentence gives it."""
+    row, h = facts.prediction_row, facts.headline
+    check = False
+    for c in facts.clauses:
+        if c[0] == "wide":
+            check = wide_cause(c[1], getattr(facts, "wide_factors", None) or {}) is not None
+    then = f" {wording.SHORT_CHECK_SCATTER}" if check else ""
+    if row == "off_repeat":
+        return wording.SHORT_OFF_REPEAT
+    if row == "gate":
+        return wording.short_gate(facts.scored, insights.MIN_ROWS)
+    if row == "too_few":
+        return wording.short_too_few(facts.checked, insights.SKILL_MIN) + then
+    if row == "wide":
+        return wording.SHORT_WIDE
+    if row == "no_skill":
+        return wording.SHORT_NO_SKILL + then
+    if row == "unclear":
+        return wording.SHORT_UNCLEAR + then
+    allowed = insights.allowed_misses(h.total)
+    if row in ("off_coverage", "caution"):
+        line = wording.short_out_of_range(h.total - h.inside, h.total, allowed)
+        return line + (then if row == "caution" else "")
+    return wording.short_in_range(h.inside, h.total) + then
+
+
+def progress_short(opt, facts):
+    """The Progress line on screen (concision round): one fact and Best so
+    far; ties within noise, luck and "little more" are in the tooltip."""
+    f = facts.best
+    if f is None:
+        return wording.NO_COMPLETE_FORMULATION
+    ceiling = opt.utility_ceiling()
+    tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
+    best = wording.short_best(f"{f.score:.2f}", ceiling, f.formulation, tie)
+    a = facts.improvement
+    if facts.progress in ("rising", "within_noise"):
+        threshold = 1.0 if a.sd is None else a.sd
+        d = 2 if f"{a.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+        return f"{wording.short_rise(f'{a.rise:.{d}f}')} {best}"
+    if facts.progress == "flat":
+        return f"{wording.short_flat(a.rounds)} {best}"
+    if facts.progress == "no_new_best" or one_round(opt):
+        return best
+    without = scored_without(opt, f.round)
+    return f"{best} {wording.short_lack(*without)}" if without else best
+
+
+def next_short(opt, facts):
+    """The Next line on screen (concision round): the action, the Repeat
+    request and the check advice kept; the reason is in the tooltip."""
+    no = opt.pending_batch_no
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    step = facts.next
+    if step is None:
+        return wording.short_tail(no, left)
+    ask = (facts.best.formulation if getattr(step, "assumed", False) and facts.best is not None
+           else None)
+    if step.kind == "repeat":
+        d = step.disagreement
+        return wording.short_check_repeat(
+            d.later, d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0,
+            round_no=no if opt.pending_batch else opt.next_batch_no())
+    if step.kind == "misses":
+        return f"{wording.short_tail(no, left)} {wording.SHORT_MISSES}"
+    if step.kind == "early":
+        return wording.short_tail(no, left)
+    if step.kind == "no_skill":
+        return f"{wording.short_tail(no, left)} {wording.SHORT_NO_SKILL_NEXT}"
+    if step.kind == "untested":
+        return wording.short_untested(no, open_round=bool(opt.pending_batch))
+    if step.kind == "close":
+        line = wording.short_close(_close_change(step.binding),
+                                   settings_only=not insights.has_ingredient_choice(opt))
+        return f"{line} {wording.short_add_repeat(ask)}" if ask is not None else line
+    if ask is not None:
+        return wording.short_repeat(ask, no, left, opt.next_batch_no())
+    return wording.short_tail(no, left)
 
 
 def _status_lines(opt, facts):
@@ -1628,6 +1754,19 @@ def header_text(opt, h=None):
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
     names = number_list(next(iter(sets))) if len(sets) == 1 else ""
     # Fix round B (five-second re-test): the waiting formulations by number.
+    return wording.insights_header_short(opt.complete_count(),
+                                         order[-1][0] if order else None,
+                                         len(waiting), names,
+                                         numbers=[int(opt.formulation_ids[i]) for i in waiting])
+
+
+def header_detail(opt):
+    """header_text's full line, for its tooltip: '… (all results in) …
+    and is not used yet.'"""
+    order = insights.scored_rounds(opt)
+    waiting = opt.awaited_rows()
+    sets = {tuple(opt.waiting_on(i)) for i in waiting}
+    names = number_list(next(iter(sets))) if len(sets) == 1 else ""
     return wording.insights_header_line(opt.complete_count(),
                                         order[-1][0] if order else None,
                                         len(waiting), names,
@@ -3789,7 +3928,9 @@ def _explored_map(opt, computed):
     show_chart(explore_map_chart(values.pool_mean, values.pool_sd, tested, picks, ref, opt))
     if picks:
         st.caption(_say(opt, wording.why_chart_caption(f"{len(values.pool_mean):,}",
-                                                       line=ref is not None)))
+                                                       line=ref is not None)),
+                   help=_say(opt, wording.why_chart_caption_full(
+                       f"{len(values.pool_mean):,}", line=ref is not None)))
 
 
 def _point_to_uncertainty():
@@ -3811,7 +3952,9 @@ def _explored_pointer(opt, computed):
                 and len(insights.mixture_choices(opt)) >= 3)
     text = wording.explored_pointer(_try_one_label(opt), settings_only=not opt.has_ingredients(),
                                     triangle=triangle)
-    st.button(_say(opt, text), type="tertiary", key=POINTER_KEY,
+    tip = wording.explored_pointer_help(_try_one_label(opt),
+                                        settings_only=not opt.has_ingredients(), triangle=triangle)
+    st.button(_say(opt, text), type="tertiary", key=POINTER_KEY, help=_say(opt, tip),
               disabled=confirmation_open(), on_click=_point_to_uncertainty)
 
 
@@ -3844,8 +3987,10 @@ def explored_link(opt, step):
 def _explored_body(opt, computed):
     values = not opt.has_ingredients()
     total = opt.has_formulation_total()
-    st.caption(_say(opt, wording.basis_explored(values, total)),
-               help=tooltip_for(opt, "basis_explored"))
+    tip = tooltip_for(opt, "basis_explored")
+    st.caption(_say(opt, wording.BASIS_EXPLORED_SHORT),
+               help="\n\n".join(t for t in (_say(opt, wording.basis_explored(values, total)), tip)
+                                 if t))
     # 1. Where you have tested: model-free, drawn whatever the checks say.
     st.markdown(f"**{_say(opt, wording.STRIPS_TITLE)}**")
     pool = bo_views.feasible_pool(opt)
@@ -3859,7 +4004,9 @@ def _explored_body(opt, computed):
     chart = strips_chart(opt, strips)
     if chart is not None:
         show_chart(chart)
-    st.caption(_say(opt, wording.strips_caption(values)), help=strip_help)
+    st.caption(_say(opt, wording.strips_caption(values)),
+               help="\n\n".join(t for t in (_say(opt, wording.strips_caption_help(values)),
+                                             strip_help) if t))
     # 2. The map, from the suggestion model, under the withhold rule.
     _explored_map(opt, computed)
     # 3. The pointer to the in-context views.
@@ -4594,9 +4741,12 @@ def basis_line(opt, which, facts=None):
     "progress" or "next". The fold label carries no tooltip, so the help
     sits here. W1 draws it first inside each figures fold:
     st.caption(text, help=help)."""
-    text = {"predictions": wording.BASIS_PREDICTIONS, "progress": wording.BASIS_PROGRESS,
+    full = {"predictions": wording.BASIS_PREDICTIONS, "progress": wording.BASIS_PROGRESS,
             "next": wording.BASIS_NEXT}[which]
-    return _say(opt, text), tooltip_for(opt, f"basis_{which}", facts)
+    # Concision round: the short basis on screen, the full one first in its help.
+    tip = tooltip_for(opt, f"basis_{which}", facts)
+    return (_say(opt, wording.BASIS_SHORT[which]),
+            "\n\n".join(t for t in (_say(opt, full), tip) if t))
 
 
 def _model_and_method(opt, computed):

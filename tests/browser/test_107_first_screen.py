@@ -46,7 +46,9 @@ _EXPLORED_BOTTOM = 640
 # more", +2 lines) and Line C's Predictions line (the skill with its
 # meaning, the cause and the check, +3 lines); measured at 1280 x 800 the
 # fold row then ends at 659 and 685 px, still above the fold.
-_EXPLORED_BOTTOM_LONGER = {"Plant patty - Line A": 670, "Plant patty - Line C": 700}
+# Concision round (2026-10-01): every status line is one short line again,
+# so no project needs more room.
+_EXPLORED_BOTTOM_LONGER = {}
 
 
 def _open_project(page, name):
@@ -93,7 +95,7 @@ def test_the_lines_and_the_button_are_above_the_fold(browser, name, theme):
         page.goto(URL, wait_until="domcontentloaded")
         settle(page, 4)
         _open_project(page, name)
-        page.get_by_role("tab", name="Insights").first.click()
+        page.get_by_role("tab", name="Review").first.click()
         deadline = time.time() + 300
         while not _filled(page):
             assert time.time() < deadline, f"{name}: the tab never filled in"
@@ -107,7 +109,8 @@ def test_the_lines_and_the_button_are_above_the_fold(browser, name, theme):
         assert above_the_fold(primary.first), (name, primary.first.bounding_box())
         # The one link, when there is one, is above the fold too (R-I4).
         links = _main(page).locator('[data-testid="stBaseButton-tertiary"]').filter(
-            has_text=re.compile("^(Why the model suggested|Make a Repeat of|See the (amounts|values))"))
+            has_text=re.compile(r"^(Why Round \d+ was suggested|Repeat (Formulation|Trial) \d+"
+                                r"|See untried (amounts|values))"))
         for k in range(links.count()):
             assert above_the_fold(links.nth(k)), (name, links.nth(k).inner_text())
         # The Explored fold row, collapsed, under them (R-I14).

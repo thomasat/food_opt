@@ -823,7 +823,7 @@ def test_a_new_project_shows_one_water_caption_after_the_batch_size(tmp_path, mo
     assert not at.exception
     water = [c.value for c in at.caption if c.value.startswith("Water ")]
     assert len(water) == 1, water
-    assert water[0].startswith("Water is calculated to bring the total to the 100 g")
+    assert water[0].startswith("Water fills to the 100 g")
     said = [c.value for c in at.caption]
     assert wording.rest_row_keeps_the_others("100 g") in said, said
     assert wording.rest_row_keeps_the_others("100 g") == (

@@ -300,17 +300,19 @@ METHOD_SHEET_HEADING = "Method — the same for every formulation"
 PROJECT_LOAD_ERROR_SIDEBAR_NOTE = 'This project could not be opened. See the explanation on the main screen.'
 
 SAVED_COPIES_HEADING = "**Saved copies**"
-SAVED_COPIES_CAPTION = ("A saved copy includes ingredients, "
-                        "measurements, every formulation and result.")
+SAVED_COPIES_CAPTION = "Includes every ingredient, formulation and result."
+SAVED_COPIES_HELP = ("A saved copy includes ingredients, "
+                     "measurements, every formulation and result.")
 
 COPY_UNAVAILABLE = ("Saving a copy is unavailable while the project "
                     "file cannot be read.")
 SAVE_A_COPY = "Save a copy of this project"
 
 OPEN_A_SAVED_COPY = "Open a saved copy"
-OPEN_SAVED_COPY_CAPTION = ("A copy you saved yourself, or one the app saved "
-                           "before a change. The current project is copied "
-                           "first.")
+OPEN_SAVED_COPY_CAPTION = "The current project is copied first."
+OPEN_SAVED_COPY_HELP = ("A copy you saved yourself, or one the app saved "
+                        "before a change. The current project is copied "
+                        "first.")
 CHECK_THIS_COPY = "Open this copy"
 
 # The copies the app makes for itself, before a change that cannot be
@@ -543,8 +545,7 @@ def batch_discarded_notice(no=None, reason=SETUP_CHANGED_REASON):
     # is the honest fallback for a batch whose number did not survive the
     # read that discarded it, and nothing reaches it today.
     who = f"{ROUND_CAP} {no}" if no is not None else f"The open {ROUND_CAP}"
-    return (f"{who} was discarded: {reason} after it was made. "
-            "Generate a new one.")
+    return f"{who} was discarded: {reason}. Generate a new one."
 
 
 YES_SAVE_AND_DISCARD = "Yes, save and discard"
@@ -627,8 +628,7 @@ def batch_ready(no):
     """The flash a freshly generated batch lands on. It names the two steps
     that follow, in the order the screen puts them: a batch that is "ready"
     and nothing more left the reader looking for what to do with it."""
-    return (f"{ROUND_CAP} {no} is ready. Download the workbook, prepare each formulation, "
-            "then record the results.")
+    return f"{ROUND_CAP} {no} is ready. Next: download the workbook."
 
 
 FORMULATIONS_TO_GENERATE = "Formulations to generate"
@@ -639,8 +639,8 @@ FORMULATIONS_TO_GENERATE = "Formulations to generate"
 # generated ones. It replaced the Repeat checkbox, which could only ever
 # repeat the best.
 ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND}"
-ADD_OWN_NO_BATCH_CAPTION = ("Want the app's suggestions too? Click "
-                            "Generate first, then add yours.")
+ADD_OWN_NO_BATCH_CAPTION = "For suggestions too, click Generate first."
+ADD_OWN_NO_BATCH_HELP = "Want the app's suggestions too? Click Generate first, then add yours."
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
 ADD_TO_THIS_BATCH = f"Add to this {ROUND}"
 ENTER_EVERY_AMOUNT = ("Enter every amount. Type 0 for an ingredient you "
@@ -940,7 +940,8 @@ def batch_recorded_flash(no):
 
 
 UPLOAD_EXPANDER = "Or upload results from a file"
-UPLOAD_HELP_CAPTION = (
+UPLOAD_HELP_CAPTION = "Upload the Round sheet with Measured cells filled."
+UPLOAD_HELP_DETAIL = (
     "Fill in the Measured cells on the Round sheet you downloaded above and "
     "upload the file here. Formulations are matched on their number."
 )
@@ -948,7 +949,9 @@ UPLOAD_HELP_CAPTION = (
 # been downloaded in this session: the fold is open and this is the line
 # inside it, so the reader coming back with a filled-in file finds the door
 # already ajar rather than collapsed under a heading beginning "Or".
-UPLOAD_SHEETS_ARE_BACK_CAPTION = 'Upload the completed workbook here. The app imports entries from the input cells.'
+UPLOAD_SHEETS_ARE_BACK_CAPTION = "Upload the completed workbook here."
+UPLOAD_SHEETS_ARE_BACK_HELP = ("Upload the completed workbook here. The app imports entries "
+                               "from the input cells.")
 UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
 CHECK_THIS_FILE = "Check this file"
 FILE_UNREADABLE = (
@@ -1143,7 +1146,8 @@ def shares_rebalanced(named):
     moved, in a toast that fades."""
     return f"{named} so the shares add up to 100 %."
 
-INGREDIENT_GRID_CAPTION = (
+INGREDIENT_GRID_CAPTION = "Set each lowest and highest. Equal values fix it."
+INGREDIENT_GRID_HELP = (
     "Enter the lowest and highest amounts or settings to explore. "
     "Use the same number in both cells to keep a value fixed.")
 
@@ -1282,7 +1286,8 @@ LOAD_INGREDIENTS_BUTTON = "Load ingredients"
 # who downloaded it was told extra columns become properties — which that
 # one does not (the name is reserved) — with nothing on screen to say what
 # it is for.
-INGREDIENTS_FILE_CAPTION = ("A file with the columns Name, Lowest, Highest "
+INGREDIENTS_FILE_CAPTION = "Columns: Name, Lowest, Highest; others optional."
+INGREDIENTS_FILE_HELP = ("A file with the columns Name, Lowest, Highest "
                             "and, optionally, Unit, Calculation, Part of, Preparation and Composition (%). Extra numeric columns "
                             "become properties you can set limits on.")
 UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
@@ -1484,7 +1489,8 @@ LIMITS_HEADING = "**Limits (optional)**"
 # properties were a fold somewhere else on the tab; they are now a grid a
 # few lines below this line, under a caption that says it, and each limit's
 # own line names the ingredients it is reading as zeroes.
-LIMITS_CAPTION = ("Generated formulations satisfy the limits listed here. "
+LIMITS_CAPTION = "Generated formulations meet these limits."
+LIMITS_HELP = ("Generated formulations satisfy the limits listed here. "
                   "A formulation of your own is recorded as you "
                   "typed it. A limit is on an amount you weigh out or a "
                   "property of your ingredients; measurements have goals and "
@@ -1711,6 +1717,13 @@ def complete_results_caption(compared=True):
     every measurement (a measurement was just added): Best so far is then
     itself one with a dash, and saying dashed rows are not compared would
     contradict the star it sits under (0.8.0 review fixes, Task 1)."""
+    if compared:
+        return "“—”: scored without that measurement."
+    return "“—”: scored without that measurement, as is Best so far."
+
+
+def complete_results_help(compared=True):
+    """complete_results_caption's full sentence, now its tooltip."""
     tail = (", so it is not compared for Best so far." if compared
             else "; until a formulation has every measurement, Best so far "
                  "is scored without it too.")
@@ -1748,13 +1761,13 @@ OFF_BY_COLUMN = "Off by"
 # Directly under the best-so-far block: the one way back to Set up from
 # Results, for a measurement that needs its range widened or an ingredient
 # that needs a new limit once a formulation is on screen.
-CHANGE_SETUP_FROM_RESULTS_BUTTON = "Change a measurement or an ingredient"
+CHANGE_SETUP_FROM_RESULTS_BUTTON = "Change measurements or ingredients"
 
 
 def change_setup_from_results(settings_only=False):
     """Results' way to Set up; a project of process settings alone names
     them (final review M-9, review I14)."""
-    return ("Change a measurement or a process setting" if settings_only
+    return ("Change measurements or settings" if settings_only
             else CHANGE_SETUP_FROM_RESULTS_BUTTON)
 AMOUNTS_TO_MAKE_IT_HEADING = "**Amounts to make it**"
 
@@ -3095,8 +3108,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     """
     text = str(formula_text).strip()
     if rest:
-        head = (f"{name} is calculated to bring the total to the {size_text} "
-                f"{FORMULATION_TOTAL_NOUN}"
+        head = (f"{name} fills to the {size_text} {FORMULATION_TOTAL_NOUN}"
                 if size_text else f"{name} fills the remaining amount of the formulation")
     else:
         head = f"{name} is calculated from {text}"
@@ -3191,8 +3203,8 @@ def setup_sheet_formula_text(text, rest=False):
 # the one line that says why they are last: they fill in from the boxes
 # above, so they cannot be anywhere else, and the form was the only table
 # in the app listing the rows in a different order with nothing said.
-WORKED_OUT_BOXES_CAPTION = ("These are calculated from the amounts above, "
-                            "so they come last.")
+WORKED_OUT_BOXES_CAPTION = "Calculated from the amounts above."
+WORKED_OUT_BOXES_HELP = "These are calculated from the amounts above, so they come last."
 
 CORRECTIONS_ON_RESULTS_CAPTION = (
     "Correct what you made in Results, after you record it.")
@@ -3592,7 +3604,7 @@ EXAMPLE_PROJECT_LABEL = 'Example project'
 EDIT_FORMULATIONS = 'Edit formulations'
 EDIT_FORMULATIONS_CAPTION = 'Formula results and totals are read-only. They update when you save.'
 EDIT_FORMULATIONS_ACTIVE = '**Editing formulations** · Double-click a number to change it, then select Save changes.'
-EDITABLE_TABLE_HELP = '**Editable table** · Double-click a cell to change it, then save below.'
+EDITABLE_TABLE_HELP = "Double-click a cell to edit, then save below."
 EDITABLE_AMOUNT_HELP = 'Double-click this value to edit it. Select Save changes to apply your edits.'
 READ_ONLY_AMOUNT_HELP = 'Read-only. Formula results and totals update when you save.'
 PRINT_PACK_CHECKBOX = 'Include individual formulation pages for printing'
@@ -3659,7 +3671,9 @@ SHARE_SAVED_TOTAL = "After saving: 100% total"
 
 BLEND_COMPOSITIONS_HEADING = "Blend compositions"
 INGREDIENT_LIMITS_EXPANDER = "Ingredient limits (optional)"
-RECORDING_GUIDANCE = "Use Notes for other observations. Add outcomes you want scored to Measurements and targets."
+RECORDING_GUIDANCE = "Use Notes for anything else."
+RECORDING_GUIDANCE_HELP = ("Use Notes for other observations. Add outcomes you want scored to "
+                           "Measurements and targets.")
 RECORDS_UPDATED = "Recording options saved. Existing values are kept."
 
 CUSTOM_ADD_LABEL = "Add your own recording field"
@@ -3706,7 +3720,9 @@ ACTUAL_RECORD_HELP = "For each formulation, record what you actually weighed or 
 LOT_ENTRY_HEADING = "Ingredient lot numbers"
 LOT_LOCATION_HELP = "Enter lot numbers below the formulations in Make a round, or in the workbook."
 LOT_ENTRY_HELP = "For this Round only. Double-click a Lot cell to enter a number; it saves automatically and is included in the workbook."
-LIMIT_BOUND_HELP = "Leave a minimum or maximum empty for no restriction on that side. Ingredient amounts and other limits still apply."
+LIMIT_BOUND_HELP = "Leave a side empty for no limit."
+LIMIT_BOUND_DETAIL = ("Leave a minimum or maximum empty for no restriction on that side. "
+                      "Ingredient amounts and other limits still apply.")
 
 def missing_property_values(metric, names):
     return f"Complete {metric} for: {names}. Open Ingredient limits → Properties and enter the missing values (0 only if zero), or delete this property limit."
@@ -3718,9 +3734,9 @@ BACKGROUND_REFERENCE_LABEL = "Background reference"
 RESULT_VIEW_LABEL = "View formulation"
 RESULT_VIEW_HELP = "Choose a recorded formulation to see its measurements, amounts and percentages below."
 RESULT_PERCENT_COLUMN = "% of formulation"
-RESULT_PERCENT_PROCESS_HELP = "Percentages use the ingredient amounts shown. Process settings are excluded."
-RESULT_PERCENT_MIXED_HELP = "Percentages are unavailable because the ingredient amounts use different units."
-RESULT_PERCENT_ZERO_HELP = "Percentages are unavailable because the ingredient amounts total zero."
+RESULT_PERCENT_PROCESS_HELP = "Percentages exclude process settings."
+RESULT_PERCENT_MIXED_HELP = "No percentages: ingredient units differ."
+RESULT_PERCENT_ZERO_HELP = "No percentages: ingredient amounts total zero."
 RESULT_UNSCORED_HELP = "Not scored. No measurements have been saved for this formulation."
 
 
@@ -3737,7 +3753,9 @@ def result_view_option(no, round_no=None, best=False, unscored=False):
     return label
 
 CALCULATION_EDIT_BUTTON = "Edit calculation"
-CALCULATION_EDIT_HINT = "Type in Calculation, or use Edit calculation for suggestions and examples."
+CALCULATION_EDIT_HINT = "Type a calculation, or use Edit calculation."
+CALCULATION_EDIT_HINT_HELP = ("Type in Calculation, or use Edit calculation for suggestions and "
+                              "examples.")
 
 
 # ------------------------------------------------------------------ #
@@ -4152,6 +4170,11 @@ def predictions_round_caption(values=False):
     """Why a suggestion can read below Best so far (review I5): the
     acquisition weighs the model's own uncertainty as well as its mean.
     `values` is kept for callers; the sentence names neither."""
+    return "Exploring suggestions can predict below Best so far."
+
+
+def predictions_round_help():
+    """predictions_round_caption's reason, in its tooltip."""
     return (f"Suggestions favour {FORMULATION}s the model is unsure about as well as ones it "
             "predicts high, so one can be predicted below Best so far.")
 
@@ -4159,8 +4182,9 @@ def predictions_round_caption(values=False):
 PREDICTIONS_ROUND_CAPTION = predictions_round_caption()
 PREDICTED_MEASUREMENTS = "Predicted measurements (95 % interval)"
 # 0.8.0 review fixes §9 I13: the two sets of predictions are learned apart.
-PREDICTED_MEASUREMENTS_CAPTION = ("The Overall score has its own model, so it can differ "
-                                  "slightly from a score calculated from these predictions.")
+PREDICTED_MEASUREMENTS_CAPTION = "The Overall score has its own model."
+PREDICTED_MEASUREMENTS_HELP = ("The Overall score has its own model, so it can differ "
+                               "slightly from a score calculated from these predictions.")
 
 
 def spread_from(best, n):
@@ -4967,7 +4991,13 @@ def waiting_line(n, names_text, many_measurements=False):
 
 
 def workbook_line(print_pack=False):
-    """The one workbook caption (V12)."""
+    """The one workbook caption (V12), short (concision round); the full
+    one (workbook_line_full) is its tooltip."""
+    return "Upload the filled workbook, or type results below."
+
+
+def workbook_line_full(print_pack=False):
+    """The workbook caption before the concision round."""
     where = (f"on the {ROUND_CAP} sheet or each {FORMULATION} page" if print_pack
              else "on the workbook's Results sheet")
     return f"Enter the results {where} and upload it below, or type them here."
@@ -4985,7 +5015,8 @@ def workbook_tabs_help(print_pack=False):
                 f"{FORMULATION}. Without the tick it has three sheets: {OVERVIEW_SHEET}, "
                 f"{PREPARATION_SHEET} and {RESULTS_SHEET}.")
     return WORKBOOK_TABS_HELP
-RECORD_RESULTS_LINE = ("One number per measurement; the panel mean where a panel rated it. "
+RECORD_RESULTS_LINE = "Leave a result blank until it is in."
+RECORD_RESULTS_HELP = ("One number per measurement; the panel mean where a panel rated it. "
                        "Leave blank if the result isn't in yet; you can add it later on Results.")
 NOT_SCORED_TICK_HELP = f"Tick only if this {FORMULATION} failed and will never be scored."
 MORE = "More"
@@ -5000,10 +5031,12 @@ def more_label(not_scored=False, noted=False):
 
 
 # Results (§4; spec review I9–I13, M12, M18).
-BEST_RULE = ("Best so far: the highest Overall score among formulations with a result for "
-             "every measurement.")
-BEST_RULE_WITHOUT = ("Best so far: the highest Overall score among formulations with all their "
-                     "results; none has every measurement yet.")
+BEST_RULE = "Best so far: highest score with all results in."
+BEST_RULE_HELP = ("Best so far: the highest Overall score among formulations with a result for "
+                  "every measurement.")
+BEST_RULE_WITHOUT = "Best so far: highest score; none has every measurement."
+BEST_RULE_WITHOUT_HELP = ("Best so far: the highest Overall score among formulations with all "
+                          "their results; none has every measurement yet.")
 
 
 def overall_score_line(score, ceiling, without_text=""):
@@ -5018,8 +5051,8 @@ OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measuremen
 def tie_line(new_no, score_text, lead_text, old_no, sd_text=None):
     """A new Best so far that leads by less than the noise threshold (§4
     ties; 03 §5.9): the threshold's one name, beat_by's."""
-    return (f"{FORMULATION_CAP} {new_no} scored {score_text}, {lead_text} above "
-            f"{FORMULATION_CAP} {old_no}: within {beat_by(sd_text)}, so the two are tied.")
+    return (f"Tied with {FORMULATION_CAP} {old_no}: {lead_text} apart, within "
+            f"{beat_by(sd_text)}.")
 
 
 def tie_equal(best_no, other_no, score_text):
@@ -5036,7 +5069,7 @@ def waiting_list(names_text, numbers, round_no=None):
     (Round 6).' — one line per set of missing measurements (M7)."""
     if len(numbers) == 1:
         where = f"{FORMULATION_CAP} {numbers[0]}" + (
-            f" ({ROUND_CAP} {round_no})" if round_no is not None else "")
+            f", {ROUND_CAP} {round_no}" if round_no is not None else "")
     else:
         where = formulations_span(numbers)
     return f"Waiting for {names_text or 'results'}: {where}."
@@ -5080,7 +5113,8 @@ def setup_first_line(settings_only=False):
     if settings_only:
         return "Add your first process setting in the table, or import them."
     return SETUP_FIRST_LINE
-MEASUREMENT_GOAL_CAPTION = "Set a goal for each measurement and how much it counts."
+MEASUREMENT_GOAL_CAPTION = "Each measurement's goal and share of score."
+MEASUREMENT_GOAL_HELP = "Set a goal for each measurement and how much it counts."
 SAMPLE_INTRO_LINE = f"A teaching example: review it, then select {NEXT_MAKE_A_ROUND}."
 
 
@@ -5386,6 +5420,13 @@ WHY_REFERENCE = "Best so far (predicted Repeat)"
 
 
 def why_chart_caption(n, line=True):
+    """Concision round: the map's legend, short; the full one
+    (why_chart_caption_full, with the sample's size) is its tooltip."""
+    text = f"Grey: allowed. Rings: tested. Labels: this {ROUND_CAP}'s picks."
+    return f"{text} Dashed: Best so far's Repeat." if line else text
+
+
+def why_chart_caption_full(n, line=True):
     """One line (review M9; T47 review minor 4): what each mark is, the
     rings included, and the dashed line when it is drawn. The second fact
     is in the Model sd help."""
@@ -5746,11 +5787,8 @@ def best_repeats_line(best_no, score_texts, mean_text):
     Formulation 14: 75.18).' Two decimals, as Results shows scores."""
     head = "Repeat" if len(score_texts) == 1 else "Repeats"
     line = f"{head} of {FORMULATION_CAP} {best_no}: {', '.join(score_texts)}"
-    mean = f"mean with {FORMULATION_CAP} {best_no}: {mean_text}"
-    # A last entry marked "(disagrees)" would put two brackets side by side.
-    if str(score_texts[-1]).endswith(")"):
-        return f"{line}. {mean[0].upper()}{mean[1:]}."
-    return f"{line} ({mean})."
+    # Concision round: no bracket; the mean is its own short sentence.
+    return f"{line}. Mean of {'both' if len(score_texts) == 1 else 'all'}: {mean_text}."
 
 
 # A7 (review I8): the callout above Set up's grid that "Change … on Set up"
@@ -6350,12 +6388,11 @@ def next_plain_rising(no=None, left=0, repeat_no=None, values=False):
 
 
 # --- §2, R-I8, M3: the folds, named by what they hold ----------------
-FOLD_PREDICTION_FIGURES = "Prediction figures — 95 % intervals, mean error, skill"
+FOLD_PREDICTION_FIGURES = "Prediction figures"
 FOLD_PROGRESS_FIGURES_NAME = "Progress figures"
-FOLD_PROGRESS_FIGURES = (f"{FOLD_PROGRESS_FIGURES_NAME} — expected improvement, Repeats, noise "
-                         "threshold")
+FOLD_PROGRESS_FIGURES = FOLD_PROGRESS_FIGURES_NAME
 FOLD_NEXT_REASONING = "Next-step reasoning"
-FOLD_MEASURED_CHART = "Measured against predicted (chart)"
+FOLD_MEASURED_CHART = "Measured against predicted"
 FOLD_PROGRESS_CHART = "Progress chart"
 FOLD_METHOD = "Method and definitions"
 FOLD_EXPLORED = "Explored and unexplored"
@@ -6371,9 +6408,7 @@ def try_one_fold(has_settings, has_ingredients=True):
 
 def trade_offs_fold(has_triangle=True):
     """Was More charts (02 §4): the triangle needs three ingredients."""
-    if has_triangle:
-        return "Trade-offs: two measurements, three ingredients"
-    return "Trade-offs: two measurements"
+    return "Trade-offs"
 
 
 # §7, R-I6, R-I12: each figures fold opens with its technical basis; the
@@ -6391,6 +6426,14 @@ BASIS_PROGRESS = (
     "acquisition value.")
 BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
               "definitions, and the first that holds is shown; its full sentence follows.")
+
+
+# Concision round: each basis line on screen is short; the full one above
+# opens its tooltip.
+BASIS_SHORT = {"predictions": f"Basis: each {ROUND_CAP} predicted from earlier {ROUND_CAP}s only.",
+               "progress": "Basis: measured scores, against the noise threshold.",
+               "next": "Basis: the first Next-step rule that holds."}
+BASIS_EXPLORED_SHORT = "Basis: strips are your records; the map is the model."
 
 
 def basis_explored(values=False, total=True):
@@ -7053,6 +7096,12 @@ def strips_caption(settings_only=False):
     """Always under the strips (R-I15): a 1-D view hides untested
     combinations."""
     what = "process setting" if settings_only else "ingredient"
+    return f"One {what} per strip; combinations may be untested."
+
+
+def strips_caption_help(settings_only=False):
+    """strips_caption's former sentence, now in its tooltip."""
+    what = "process setting" if settings_only else "ingredient"
     return (f"Each strip shows one {what} at a time: combinations can be untested even where "
             "every strip looks covered.")
 
@@ -7145,15 +7194,13 @@ TIP_LIMIT_HITS = (
     f"your own {FORMULATION}s and Repeats are left out. BO term: active bounds.")
 
 # The map (§8.2): the Why fold's chart, shared (explore_map_chart).
-MAP_TITLE = (f"Every allowed {FORMULATION}: predicted score (across) vs how unsure the model is "
-             "(up)")
+MAP_TITLE = f"Every allowed {FORMULATION}: predicted score vs uncertainty"
 MAP_READING = "High = unexplored; right = predicted good; suggestions balance the two."
 # R-I16: shown with this caption under the A3 gate or a caution or
 # unreliable verdict; hidden under the noise guard.
 MAP_NOT_YET = "Up: the model's uncertainty; the model is not yet reliable here."
 MAP_HIDDEN = "Not drawn: the model is reading chance variation as effects."
-MAP_COLD = (f"The map appears once 5 {FORMULATION}s have all their results: until then there "
-            "is no model.")
+MAP_COLD = f"The map appears at 5 scored {FORMULATION}s."
 TIP_MAP = (
     "Across: posterior mean of the Overall-score suggestion model; up: latent posterior sd. "
     "Grey: a hit-and-run sample of the feasible region; rings: tested design points; "
@@ -7171,8 +7218,14 @@ def tip_design_space(n_text):
 
 def explored_pointer(fold_label, settings_only=False, triangle=True):
     """§8.3: the in-context views, said once under the map, shown only when
-    the Uncertainty layer is offered (R-I16). `fold_label`: try_one_fold's
-    words for this project; `triangle`: the triangle can be drawn."""
+    the Uncertainty layer is offered (R-I16). Concision round: a 5-word
+    link; where it lands (explored_pointer_help) is its tooltip."""
+    what = "process setting" if settings_only else "ingredient"
+    return f"Show uncertainty along one {what}"
+
+
+def explored_pointer_help(fold_label, settings_only=False, triangle=True):
+    """The pointer's former sentence, now its tooltip."""
     what = "process setting" if settings_only else "ingredient"
     line = f"The same uncertainty along one {what}: {fold_label}"
     if triangle and not settings_only:
@@ -7182,19 +7235,20 @@ def explored_pointer(fold_label, settings_only=False, triangle=True):
 
 # --- §1, R-I3, R-I4, R-I14: the link labels --------------------------
 def why_link(no):
-    """R-I4: only with a warm Round open with at least one generated pick."""
-    return f"Why the model suggested {ROUND_CAP} {no}"
+    """R-I4: only with a warm Round open with at least one generated pick.
+    Concision round: at most 5 words."""
+    return f"Why {ROUND_CAP} {no} was suggested"
 
 
 def explored_link(values=False):
     """R-I14: Next's link to the fold, priority 3 (explore and untested)."""
-    return f"See the {'values' if values else 'amounts'} you have not tried"
+    return f"See untried {'values' if values else 'amounts'}"
 
 
 def repeat_link(no):
-    """R-I3: an owner item. Not drawn unless the owner accepts the link;
-    spelled here so accepting it needs no T0′."""
-    return f"Make a Repeat of {FORMULATION_CAP} {no}"
+    """R-I3: an owner item, ruled in by the early walkthrough (ftue fix C).
+    Concision round: 'Repeat Formulation 24'."""
+    return f"Repeat {FORMULATION_CAP} {no}"
 
 
 # --- ftue fix C ---
@@ -7205,9 +7259,9 @@ def repeat_link(no):
 # beside it and are left as they were for the wording round to retire.
 
 # The Why fold's first line: the three role words, each read once.
-WHY_ROLE_KEY = (f"{SUGGESTION_CLOSE.capitalize()} = a small change to your best. "
-                f"{SUGGESTION_DIFFERENT.capitalize()} = far from anything made so far. "
-                f"{SUGGESTION_BALANCED.capitalize()} = in between.")
+WHY_ROLE_KEY = (f"{SUGGESTION_CLOSE.capitalize()}: near your best. "
+                f"{SUGGESTION_DIFFERENT.capitalize()}: far from all made. "
+                f"{SUGGESTION_BALANCED.capitalize()}: between.")
 
 # Stands in for EXPECTED_IMPROVEMENT as the Why fold's column header.
 EXPECTED_GAIN = "Expected gain over your best (points)"
@@ -7240,8 +7294,7 @@ def tip_expected_gain(kind="qlognei"):
 def why_picked_after(numbers):
     """Stands in for WHY_PENDING: the picks marked · named by number."""
     each = "each adds" if len(numbers) > 1 else "it adds"
-    return (f"{formulations_span(numbers)} (marked {PENDING_MARK}): what {each} on top of the "
-            "ones picked before it.")
+    return f"{formulations_span(numbers)}, marked {PENDING_MARK}: what {each} to earlier picks."
 
 
 TIP_PICKED_AFTER = (
@@ -7271,7 +7324,7 @@ def why_compared_with(best_no):
     """Under the Why table: the Round table's Compared with names Best so
     far, while the closest formulation can be another (walkthrough Line A:
     15 against 18)."""
-    return f"The Compared with column above is always Best so far ({FORMULATION_CAP} {best_no})."
+    return f"Compared with: always Best so far, {FORMULATION_CAP} {best_no}."
 
 
 def why_gain_said(line):
@@ -7283,5 +7336,171 @@ def why_gain_said(line):
 def repeat_after_generate(no):
     """Make a round with no Round open, reached by the Repeat link: the
     Repeat waits for Generate, so the app's suggestions still come first."""
+    return f"Click Generate first. The Repeat of {FORMULATION_CAP} {no} then opens below."
+
+
+def repeat_after_generate_help(no):
+    """repeat_after_generate's full sentence, its tooltip."""
     return (f"Click Generate first: the Repeat of {FORMULATION_CAP} {no} then opens, filled in, "
             f"under {ADD_OWN_EXPANDER}.")
+
+
+# ------------------------------------------------------------------ #
+#  Concision (owner, 2026-10-01: "too wordy … overwhelming to read").
+#  On screen, each status line is its bold word and one short fact; the
+#  full sentence (pred_*, progress_*, next_plain_*) opens its tooltip,
+#  ahead of the exact rule. Numbers over prose; no clause, no aside.
+# ------------------------------------------------------------------ #
+
+def insights_header_short(n, last_round, waiting=0, names_text="", numbers=None):
+    """'20 scored formulations, up to Round 5. Formulation 19 is waiting
+    for Cook loss.' The full line (insights_header_line) is its tooltip."""
+    verb = "is" if waiting == 1 else "are"
+    named = (formulations_span(numbers)
+             if numbers and len(numbers) == waiting <= HEADER_NAMES_WAITING else None)
+    if n == 0 and waiting:
+        who = named or f"{waiting} {FORMULATION}{'s' if waiting != 1 else ''}"
+        return f"{who} {verb} {waiting_for(names_text)}."
+    tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
+    who = named or f"{waiting} more"
+    wait = f" {who} {verb} {waiting_for(names_text)}." if waiting else ""
+    return f"{n} scored {FORMULATION}{'s' if n != 1 else ''}{tail}.{wait}"
+
+
+# Predictions.
+def short_in_range(inside, total):
+    """'33 of 35 results in range.' (Reliable)."""
+    return f"{inside} of {total} results in range."
+
+
+def short_out_of_range(outside, total, allowed):
+    """'8 of 36 results out of range; up to 4 is normal.' (Off, caution)."""
+    normal = "none is normal" if not allowed else f"up to {allowed} is normal"
+    return f"{outside} of {total} results out of range; {normal}."
+
+
+def short_gate(n, needed=5):
+    """'Needs 5 scored formulations; 3 so far.'"""
+    return f"Needs {needed} scored {FORMULATION}s; {n or 'none'} so far."
+
+
+def short_too_few(k, needed=10):
+    """'2 of 10 formulations checked.'"""
+    return f"{k} of {needed} {FORMULATION}s checked."
+
+
+SHORT_WIDE = "Still very uncertain."
+SHORT_NO_SKILL = "No better than averaging past scores."
+SHORT_UNCLEAR = "Not clearly better than averaging past scores."
+SHORT_OFF_REPEAT = "A Repeat came out far from its original."
+# CHECK_SCATTER, shortened; the "check" advice stays on screen.
+SHORT_CHECK_SCATTER = "New panel or method? Check its consistency."
+
+
+# Progress.
+def short_best(score_text, ceiling, no, tie_no=None):
+    """'Best so far: 90.45 of 100, Formulation 15.'; an equal-score tie
+    names both."""
+    who = (f"{FORMULATION_CAP}s {no} and {tie_no}" if tie_no is not None
+           else f"{FORMULATION_CAP} {no}")
+    return f"Best so far: {_out_of(score_text, ceiling)}, {who}."
+
+
+def short_lack(rounds, names):
+    """'Rounds 1–2 lack Cook loss.' (Too early, every earlier Round scored
+    without a measurement)."""
+    return f"{rounds_span(rounds)} {'lacks' if len(rounds) == 1 else 'lack'} {names}."
+
+
+def short_flat(k):
+    return f"No new best in {k} {ROUND_CAP}s."
+
+
+def short_rise(rise_text):
+    return f"Up {points_text(rise_text)}."
+
+
+# Next.
+def short_record(no, n):
+    """'Record Round 6's 4 open formulations.'"""
+    what = f"open {FORMULATION}" if n == 1 else f"{n} open {FORMULATION}s"
+    return f"Record {ROUND_CAP} {no}'s {what}."
+
+
+def short_tail(no=None, left=0):
+    return short_record(no, left) if left else f"Make the next {ROUND_CAP}."
+
+
+def short_repeat(repeat_no, no=None, left=0, next_no=None):
+    """'Make the next Round with a Repeat of Formulation 24.'; with a Round
+    open, 'Record Round 6's 4 open formulations. In Round 7, add a Repeat
+    of Formulation 15.' (`next_no`: the Round after the open one)."""
+    if left:
+        which = f"{ROUND_CAP} {next_no}" if next_no is not None else f"the next {ROUND_CAP}"
+        return (f"{short_record(no, left)} In {which}, add a Repeat of "
+                f"{FORMULATION_CAP} {repeat_no}.")
+    return f"Make the next {ROUND_CAP} with a Repeat of {FORMULATION_CAP} {repeat_no}."
+
+
+def short_check_repeat(later, earlier, diff_text, lower=True, round_no=None):
+    """The one "check" advice: 'Check panel, suppliers and equipment before
+    Round 6. Formulation 11's Repeat scored 10.5 points lower.'"""
+    which = f"{ROUND_CAP} {round_no}" if round_no is not None else f"the next {ROUND_CAP}"
+    return (f"Check panel, suppliers and equipment before {which}. {FORMULATION_CAP} "
+            f"{earlier}'s Repeat scored {points_text(diff_text)} {'lower' if lower else 'higher'}.")
+
+
+SHORT_MISSES = "Predictions may miss by more than shown."
+SHORT_NO_SKILL_NEXT = "Suggestions are a guided search, not a forecast."
+
+
+def short_untested(round_no=None, open_round=True):
+    """'Add the predicted best to Round 6 as your own formulation.'"""
+    where = (f"{ROUND_CAP} {round_no}" if open_round and round_no is not None
+             else f"the next {ROUND_CAP}")
+    return f"Add the predicted best to {where} as your own {FORMULATION}."
+
+
+def short_close(change_text="", settings_only=False):
+    """'Close to the top. To look further, raise the Highest of Pea.'"""
+    if not change_text:
+        change_text = ("add a new process setting" if settings_only
+                       else "add a new ingredient or process setting")
+    return f"Close to the top. To look further, {change_text}."
+
+
+def short_add_repeat(no):
+    return f"Add a Repeat of {FORMULATION_CAP} {no}."
+
+
+# Make a round (concision round).
+WHY_GAIN_CHECKING_SHORT = "Expected gain shown once the Prediction check is done."
+_WHY_GAIN_SHORT = {"verdict": "predictions miss too often",
+                   "skill": "predictions not yet reliable",
+                   "noise": "the model is fitting noise"}
+
+
+def why_gain_short(reason):
+    """The Why fold's withheld line on screen; the full one is its tooltip."""
+    return f"Expected gain not shown: {_WHY_GAIN_SHORT.get(reason, _WHY_GAIN_SHORT['noise'])}."
+
+
+def round_track_short(rounds, inside, total, rough=False, gap_text=None, below=True,
+                      see_insights=False, no_skill=False):
+    """Make a round's track line on screen: 'Overall score, Rounds 2–5: 13
+    of 15 in range.', then each warning as a short sentence; the full line
+    (ui_insights.track_text) opens its tooltip."""
+    parts = []
+    if inside is not None:
+        where = f", {rounds_span(rounds)}" if rounds else ""
+        parts.append(f"{OVERALL_SCORE_COLUMN}{where}: {inside} of {total} in range.")
+        if rough:
+            parts.append("More misses than normal.")
+        if gap_text is not None:
+            parts.append(f"Scores {points_text(gap_text)} {'below' if below else 'above'} "
+                         "predictions.")
+        if see_insights:
+            parts.append("Measurements miss far more often.")
+    if no_skill:
+        parts.append(f"{OVERALL_SCORE_COLUMN} predictions no better than averaging.")
+    return " ".join(parts)
