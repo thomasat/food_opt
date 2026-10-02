@@ -215,3 +215,121 @@ def test_rising_fires_about_one_time_in_twenty_by_chance():
         assert 0.035 < rate < 0.055, (q, rate)
     rise = rng.standard_normal((n, 4)).max(1) - rng.standard_normal(n)
     assert 0.48 < float(np.mean(rise >= 1.0)) < 0.53
+
+
+# ------------------------------------------------------------------ #
+#  I7: a Repeat disagrees beyond √2 × 1.96 × σ, σ = max(the model's
+#  fitted noise SD, the Repeat SD from 3 df without the pair tested, else
+#  the assumed 1 point)
+# ------------------------------------------------------------------ #
+
+def _score_check(no, rnd, value, sd=2.0, noise=None):
+    low, high = value - insights.Z95 * sd, value + insights.Z95 * sd
+    return insights.Check(no, rnd, insights.SCORE, value, low, high, value, True, True,
+                          value, sd, noise=noise)
+
+
+def _values(rnd, n=10, no=100):
+    return [insights.Check(no + k, rnd, "Firmness", 5.1, 4.0, 6.0, 5.1, True, True, 5.0, 0.5)
+            for k in range(n)]
+
+
+def _pair(gap, noise, others=()):
+    """Formulation 5 (row 4, Round 2) a Repeat of Formulation 1 (row 0),
+    scoring `gap` against it; its Round-ahead check (sd 2, so the earlier
+    rule's limit was √2 × 1.96 × 2 = 5.54) has fitted noise `noise`.
+    `others`: (src, dst, gap) Repeats with no check of their own."""
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=12)
+    _repeat_of(opt, 0, 4)
+    opt.Y_history[4] = opt.Y_history[0] + gap
+    for src, dst, g in others:
+        _repeat_of(opt, src, dst)
+        opt.Y_history[dst] = opt.Y_history[src] + g
+    checks = _values(2) + [_score_check(5, 2, opt.Y_history[4], noise=noise)]
+    return opt, checks
+
+
+LIMIT = math.sqrt(2) * insights.Z95
+
+
+def test_the_limit_is_root_two_1_96_times_the_model_noise(_cwd):
+    opt, checks = _pair(-6.0, noise=2.0)              # limit 5.54
+    d = insights.disagreeing_repeat(opt, checks)
+    assert (d.later, d.earlier, d.row) == (5, 1, 4)
+    assert d.limit == pytest.approx(LIMIT * 2.0)
+    assert (d.sigma, d.basis) == (pytest.approx(2.0), "model")
+    opt, checks = _pair(-6.0, noise=2.5)              # limit 6.93
+    assert insights.disagreeing_repeat(opt, checks) is None
+
+
+def test_a_low_model_noise_yields_to_the_repeat_sd(_cwd):
+    """Line A-expert's case: a low-noise prior no longer makes a Repeat
+    disagree when other Repeats (3 df) show more spread."""
+    others = [(1, 6, 3.0), (2, 7, -3.0), (3, 8, 3.0)]   # Repeat SD 2.12 on 3 df
+    opt, checks = _pair(-4.0, noise=0.3, others=others)
+    assert insights.disagreeing_repeat(opt, checks) is None    # 4.0 < 5.88
+    # 2 df: the assumed 1 point, not the model's 0.3 (limit 2.77, not 0.83).
+    opt, checks = _pair(-4.0, noise=0.3, others=others[:2])
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and (d.basis, d.df) == ("assumed", 2)
+    assert d.limit == pytest.approx(LIMIT * 1.0)
+
+
+def test_lines_a_and_c_case_a_low_model_noise_alone_flags_nothing(_cwd):
+    """Line A: F21 1.7 points under F15, the default model's fitted noise
+    0.33, no other Repeat: against the assumed 1 point (limit 2.77) it does
+    not disagree; against the model's noise alone (0.90) it would."""
+    opt, checks = _pair(-1.74, noise=0.325)
+    assert insights.disagreeing_repeat(opt, checks) is None
+
+
+def test_the_pair_tested_is_left_out_of_sigma(_cwd):
+    """Three quiet Repeats (3 df, SD 1.2) and one 10 points off: with the
+    pair in, the Repeat SD (3.69 on 4 df) would set a limit of 10.2 and
+    hide it; left out, σ = 1.2 and the limit 3.33."""
+    g = 1.2 * math.sqrt(2)
+    others = [(1, 6, g), (2, 7, -g), (3, 8, g)]
+    opt, checks = _pair(-10.0, noise=0.2, others=others)
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and d.basis == "repeats" and d.df == 3
+    assert d.sigma == pytest.approx(1.2) and d.repeat_sd == pytest.approx(1.2)
+    assert d.limit == pytest.approx(LIMIT * 1.2)
+
+
+def test_the_flagged_pair_stays_in_the_reported_repeat_sd(_cwd):
+    others = [(1, 6, 1.0), (2, 7, -1.0), (3, 8, 1.0)]
+    opt, checks = _pair(-10.0, noise=0.5, others=others)
+    assert insights.disagreeing_repeat(opt, checks) is not None
+    whole = insights.repeat_sd(opt, insights.SCORE)
+    y = insights.noise_yardstick(opt, checks)
+    assert (y.pairs, y.df, y.left_out) == (4, 4, 0)
+    assert y.sd == pytest.approx(whole.sd) and y.value == pytest.approx(whole.sd)
+    [row] = [r for r in insights.details(opt, checks, flagged=insights.disagreeing_repeat(
+        opt, checks)) if r.name == "Firmness"]
+    assert row.left_out == 0
+
+
+def test_without_a_fitted_noise_the_assumed_point_is_used(_cwd):
+    """Fixed noise (Custom settings) fits no noise to judge by: σ is the
+    assumed 1 point while Repeats are short (limit 2.77), whatever the
+    check's own interval (sd 2: the earlier rule's limit was 5.54)."""
+    opt, checks = _pair(-3.0, noise=None)
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and (d.basis, d.noise) == ("assumed", None)
+    assert d.limit == pytest.approx(LIMIT * 1.0)
+    opt, checks = _pair(-2.7, noise=None)
+    assert insights.disagreeing_repeat(opt, checks) is None
+
+
+def test_each_check_carries_its_model_s_fitted_noise(_cwd):
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=9)
+    checks = insights.check_rounds(opt)
+    score = [c for c in checks if c.name == insights.SCORE]
+    assert score and all(c.noise is not None and c.noise > 0 for c in score)
+    first = min(r for r, f in insights.round_order(opt) if f >= insights.MIN_ROWS)
+    fitted = insights.fit(opt, insights.SCORE,
+                          list(range(dict(insights.round_order(opt))[first])))
+    assert [c.noise for c in score if c.round == first][0] == pytest.approx(
+        insights.fitted_noise_sd(fitted.model))

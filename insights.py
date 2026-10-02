@@ -388,6 +388,10 @@ class Check:
     # Overall score's before-the-fact widening, spec 2026-09-30 §9 I1); a
     # miss in standard deviations is still (measured - raw_mean) / sd.
     widen: float = 1.0
+    # The Round-ahead model's fitted noise as an sd in the output's units
+    # (fitted_noise_sd); None when the noise is not fitted (fixed_tiny).
+    # Ftue fix A, cold read I7: the Repeat check's σ.
+    noise: float | None = None
 
 
 def _row_key(opt, i):
@@ -419,10 +423,15 @@ def _check_round(opt, r, first, names):
     checks = []
     train = list(range(first))
     targets = [i for i, b in enumerate(opt.batch_history) if b == r]
+    tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
     for name in names:
         fitted = fit(opt, name, train)
         if fitted.model is None:
             continue
+        try:
+            noise = None if tiny else fitted_noise_sd(fitted.model)
+        except Exception:
+            noise = None
         rows = [i for i in targets if measured(opt, name, i) is not None]
         try:
             # At the make-ups the models learn (model_X): a Round made at
@@ -435,7 +444,7 @@ def _check_round(opt, r, first, names):
             checks.append(Check(
                 int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
                 value, p.low <= value <= p.high, opt.fully_measured(i),
-                p.raw_mean, p.sd))
+                p.raw_mean, p.sd, noise=noise))
     return checks
 
 
@@ -711,15 +720,16 @@ def _noise_floor(opt, name, matches=None, without=()):
 def steady_bias(opt, checks, flagged=None):
     """Every output whose predictions ran steadily high or low over every
     Round checked (review B1): bias_gap of its error_record against its
-    noise floor, a disagreeing Repeat left out of the Repeat SD. The Overall
-    score first, then the measurements in Results' order. A fact for one
-    line, never advice: a steady bias is the model's (its optimism at its
-    own maximum, or its mean shrinking towards the average), not the
-    bench's. `flagged`: disagreeing_repeat's answer when the caller has it."""
+    noise floor, a disagreeing Repeat kept in the Repeat SD (ftue fix A,
+    cold read I7). The Overall score first, then the measurements in
+    Results' order. A fact for one line, never advice: a steady bias is the
+    model's (its optimism at its own maximum, or its mean shrinking towards
+    the average), not the bench's. `flagged`: accepted for callers, no
+    longer used."""
     if not checks:
         return []
-    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
-    without = () if not flagged else (flagged.row,)
+    # Ftue fix A (cold read I7): a disagreeing Repeat stays in the Repeat SD.
+    without = ()
     out, matches = [], None
     for name in [SCORE] + [o['name'] for o in opt.measurements_by_importance()]:
         record = error_record(checks, name)
@@ -744,11 +754,10 @@ def score_steady_bias(opt, checks, flagged=None):
     record = error_record(checks, SCORE)
     if record is None:
         return None
-    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
-    without = () if not flagged else (flagged.row,)
+    # Ftue fix A (cold read I7): a disagreeing Repeat stays in the Repeat SD.
     matches = _matches(opt, [i for i in range(len(opt.Y_history))
                              if opt.fully_measured(i)])
-    return bias_gap(record, _noise_floor(opt, SCORE, matches, without))
+    return bias_gap(record, _noise_floor(opt, SCORE, matches))
 
 
 def wide_ranges(opt, checks):
@@ -802,8 +811,8 @@ def details(opt, checks, fitted=None, flagged=None):
     typical miss is compared with the typical difference between Repeats,
     like with like (spec 2026-09-30 review M6). `fitted`: the current
     models, for the "Likely range widened by" column (review M5).
-    `flagged`: disagreeing_repeat's answer, left out of every output's
-    Repeats (review I4). Each row also carries its mean error over every
+    `flagged`: accepted for callers; a disagreeing Repeat now stays in every
+    output's Repeats (ftue fix A, cold read I7), so left_out is 0. Each row also carries its mean error over every
     Round checked, whether that is a steady bias (steady_bias's rule), and
     the model's fitted noise sd (0.8.0 e2e fixes, review B1, B2)."""
     rows = []
@@ -820,9 +829,9 @@ def details(opt, checks, fitted=None, flagged=None):
             # each output's rows are among the fully measured ones.
             matches = _matches(opt, [i for i in range(len(opt.Y_history))
                                      if opt.fully_measured(i)])
-        spread = repeat_sd(opt, name, matches, () if flagged is None else (flagged.row,))
-        left_out = (0 if flagged is None
-                    else repeat_sd(opt, name, matches).pairs - spread.pairs)
+        # Ftue fix A (cold read I7): a disagreeing Repeat stays in.
+        spread = repeat_sd(opt, name, matches)
+        left_out = 0
         sd = spread.sd
         f = (fitted or {}).get(name)
         full = [c.measured - c.predicted for c in mine if c.fully_measured]
@@ -885,17 +894,55 @@ class Disagreement:
     later: int              # the Repeat's Formulation number
     earlier: int            # the Formulation number it repeats
     diff: float             # later minus earlier, Overall score
-    row: int                # the later one's row: left out of every Repeat spread
-    limit: float | None = None  # √2 × the half-width it broke (03 §2 #13), points
+    row: int                # the later one's row
+    limit: float | None = None  # √2 × 1.96 × sigma, the limit it broke, points
+    # Ftue fix A (cold read I7): the σ the limit rests on and where it came
+    # from: "model" (the Round-ahead model's fitted noise SD), "repeats"
+    # (the Repeat SD without this pair, from YARDSTICK_DF df) or "assumed"
+    # (the assumed 1 point, while that Repeat SD has fewer df). `df`: that
+    # Repeat SD's degrees of freedom (0 without one); `noise`: the model's
+    # fitted noise SD (None when not fitted); `repeat_sd`: the Repeat SD
+    # without this pair (None without one).
+    sigma: float | None = None
+    basis: str = "assumed"
+    df: int = 0
+    noise: float | None = None
+    repeat_sd: float | None = None
+
+
+# The Overall score's noise SD while Repeats have fewer than YARDSTICK_DF
+# degrees of freedom: the assumed 1 point (noise_yardstick's fallback).
+ASSUMED_NOISE_SD = 1.0
+
+
+def repeat_sigma(noise, spread):
+    """(σ, basis) for the Repeat check (ftue fix A, cold read I7): the larger
+    of the model's fitted noise SD `noise` (None when not fitted) and the
+    Overall score's noise SD without the pair tested: `spread`'s sd from
+    YARDSTICK_DF degrees of freedom (at least REPEAT_SD_SHOWN), else the
+    assumed 1 point, as noise_yardstick has it. The display model's fitted
+    noise alone runs well below what Repeats show (0.3-0.4 points on Lines
+    A to C under the default prior), and would make an ordinary Repeat
+    disagree."""
+    usable = (spread is not None and spread.sd is not None
+              and spread.sd >= REPEAT_SD_SHOWN and spread.df >= YARDSTICK_DF)
+    rep, basis = (spread.sd, "repeats") if usable else (ASSUMED_NOISE_SD, "assumed")
+    if noise is not None and noise > rep:
+        return noise, "model"
+    return rep, basis
 
 
 def disagreeing_repeat(opt, checks, matches=None):
     """The one Repeat whose Overall score differs from its original by more
-    than two results should (review I4), or None: |d| over √2 times the
-    half-width of the later one's own Round-ahead check. Only a later one
-    in the verdict's Rounds counts, a group of three or more compares each
-    with its first, either direction counts, and of several the largest
-    |d| is named. `matches`: as for repeat_groups."""
+    than two results should (review I4), or None: |d| over √2 × 1.96 × σ
+    (ftue fix A, cold read I7), σ the larger of the later one's Round-ahead
+    model's fitted noise SD and the Repeat SD from YARDSTICK_DF degrees of
+    freedom with the later one left out (leave-one-out: the pair tested
+    never sets its own limit), else the assumed 1 point (repeat_sigma). Only
+    a later one in the verdict's Rounds counts, a group of three or more
+    compares each with its first, either direction counts, and of several
+    the largest |d| is named. The flagged pair stays in every reported
+    Repeat SD. `matches`: as for repeat_groups."""
     window = set(headline(opt, checks).rounds)
     if not window:
         return None
@@ -903,39 +950,44 @@ def disagreeing_repeat(opt, checks, matches=None):
              if c.name == SCORE and c.fully_measured and c.round in window}
     if not ahead:
         return None
+    pool = opt.best_candidates()
+    if matches is None:
+        matches = _matches(opt, pool)
     best = None
-    for group in repeat_groups(opt, opt.best_candidates(), matches):
+    for group in repeat_groups(opt, pool, matches):
         first, *rest = sorted(group)
         for i in rest:
             c = ahead.get(int(opt.formulation_ids[i]))
             if c is None:
                 continue
-            # The half-width shown for that check, its I1 widening included.
-            half = Z95 * c.sd * c.widen if c.sd else (c.high - c.low) / 2
+            noise = getattr(c, "noise", None)
+            spread = repeat_sd(opt, SCORE, matches, (i,))
+            sigma, basis = repeat_sigma(noise, spread)
+            limit = math.sqrt(2) * Z95 * sigma
             d = float(opt.Y_history[i]) - float(opt.Y_history[first])
-            if abs(d) > math.sqrt(2) * half and (best is None or abs(d) > abs(best.diff)):
+            if abs(d) > limit and (best is None or abs(d) > abs(best.diff)):
                 best = Disagreement(int(opt.formulation_ids[i]),
-                                    int(opt.formulation_ids[first]), d, i,
-                                    math.sqrt(2) * half)
+                                    int(opt.formulation_ids[first]), d, i, limit,
+                                    sigma, basis, spread.df, noise, spread.sd)
     return best
 
 
 def noise_yardstick(opt, checks=(), name=SCORE):
-    """What a difference must beat to be more than chance (review I5): the
-    pooled sd between Repeats of `name`, a disagreeing Repeat left out,
-    from YARDSTICK_DF degrees of freedom or more and at least REPEAT_SD_SHOWN; else 1
-    point for the Overall score (None for a measurement). Every rule that
-    asks "more than Repeats differ?" asks this. The disagreeing Repeat is
-    left out only when `checks` are handed in."""
-    flagged = disagreeing_repeat(opt, checks) if checks else None
-    spread = repeat_sd(opt, name, None, () if flagged is None else (flagged.row,))
+    """The noise SD a difference is judged by (review I5): the pooled sd
+    between Repeats of `name`, from YARDSTICK_DF degrees of freedom or more
+    and at least REPEAT_SD_SHOWN; else 1 point for the Overall score (None
+    for a measurement). Every rule that asks "more than Repeats differ?"
+    starts here; Rising also takes √2 and the Round's size into account
+    (rise_threshold). A disagreeing Repeat stays in (ftue fix A, cold read
+    I7: leaving it out biased the Repeat SD down), so `checks` no longer
+    change the answer and left_out is 0."""
+    spread = repeat_sd(opt, name, None)
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
               and spread.df >= YARDSTICK_DF)
     fallback = 1.0 if name == SCORE else None
-    left_out = 0 if flagged is None else repeat_sd(opt, name, None).pairs - spread.pairs
     return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
                      assumed=name == SCORE and spread.df < YARDSTICK_DF,
-                     df=spread.df, groups=spread.groups, left_out=max(0, left_out))
+                     df=spread.df, groups=spread.groups, left_out=0)
 
 
 def verdict_state(opt, h, checks):
