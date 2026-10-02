@@ -185,15 +185,16 @@ def test_the_results_setup_button_names_process_settings_on_a_process_only_proje
         ferment_scored):
     """M-9."""
     assert wording.change_setup_from_results() == wording.CHANGE_SETUP_FROM_RESULTS_BUTTON
+    # Re-pinned to the concision round's short text (owner, 2026-10-01: too wordy).
     assert (wording.change_setup_from_results(settings_only=True)
-            == "Change a measurement or a process setting")
+            == "Change measurements or settings")
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     assert not at.exception
     labels = [b.label for b in at.tabs[2].button]
-    assert "Change a measurement or a process setting" in labels
+    assert "Change measurements or settings" in labels
     assert wording.CHANGE_SETUP_FROM_RESULTS_BUTTON not in labels
 
 

@@ -113,8 +113,10 @@ def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
     tab = at.tabs[3]
     # Since ftue W1 (R-B1 row 3) the gate is said once, by the Predictions
     # status line; the old gate line is gone from the tab.
-    said = [m.value for m in tab.markdown if wording.pred_gate(2) in m.value]
-    assert said == [wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2),
+    # Re-pinned to the concision round's short line (pred_gate's full
+    # sentence is in its tooltip).
+    said = [m.value for m in tab.markdown if wording.short_gate(2) in m.value]
+    assert said == [wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2),
                                         wording.PREDICTIONS_WORDS["not_yet"])]
     assert wording.insights_gate(2) not in [c.value for c in tab.caption]
 

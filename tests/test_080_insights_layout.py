@@ -87,7 +87,8 @@ def test_the_foot_names_the_open_round_and_both_feet_draw_in_one_run(insights_sc
 def test_the_header_is_counts_only(insights_scored):
     at = _open_insights(_app())
     header = at.tabs[3].caption[0].value
-    assert header == "Based on 9 scored formulations (all results in), up to Round 3."
+    # Re-pinned to the concision round's short text (owner, 2026-10-01: too wordy).
+    assert header == "9 scored formulations, up to Round 3."
     assert "Likely range" not in header
 
 
@@ -98,7 +99,9 @@ def test_the_gate_is_header_best_so_far_the_gate_line_and_the_foot(tmp_path):
     at = _tab(opt.project_name)
     assert not at.exception
     md = _md(at)
-    assert md[0] == wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(3),
+    # Re-pinned to the concision round's short line; pred_gate's full
+    # sentence opens its tooltip.
+    assert md[0] == wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(3),
                                         wording.PREDICTIONS_WORDS["not_yet"])
     assert md[1].startswith("Progress: **") and md[2].startswith("Next: ")
     assert md[3] == f"##### {wording.Q_STAND}" and md[4].startswith("Best so far: ")

@@ -155,7 +155,10 @@ def test_predicted_measurements_carry_their_caption(warm_round):
     at.run()
     [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
     assert [c.value for c in exp.caption] == [wording.PREDICTED_MEASUREMENTS_CAPTION]
-    assert wording.PREDICTED_MEASUREMENTS_CAPTION == (
+    # Re-pinned to the concision round's short text (owner, 2026-10-01: too wordy).
+    # The full sentence moved to the caption's tooltip.
+    assert wording.PREDICTED_MEASUREMENTS_CAPTION == "The Overall score has its own model."
+    assert wording.PREDICTED_MEASUREMENTS_HELP == (
         "The Overall score has its own model, so it can differ slightly from a score "
         "calculated from these predictions.")
 
